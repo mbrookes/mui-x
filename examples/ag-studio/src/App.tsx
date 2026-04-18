@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
-import { StudioShell, createStudioController } from '@mui/x-ag-studio';
-import type { StudioState } from '@mui/x-ag-studio';
+import { StudioShell, createStudioController } from '../../../packages/x-studio/src';
+import type { StudioState } from '../../../packages/x-studio/src';
 
 const SALES_SOURCE_ID = 'source-sales';
 

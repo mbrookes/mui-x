@@ -60,6 +60,30 @@ export class StudioController {
     this.store.set('shell', {
       ...shell,
       selectedWidgetId: widgetId,
+      selectedFieldId: null,
+      selectedSourceId: null,
+    });
+  };
+
+  selectField = (sourceId: string, fieldId: string) => {
+    const { shell } = this.store.state;
+
+    this.store.set('shell', {
+      ...shell,
+      selectedFieldId: fieldId,
+      selectedSourceId: sourceId,
+      selectedWidgetId: null,
+    });
+  };
+
+  clearSelection = () => {
+    const { shell } = this.store.state;
+
+    this.store.set('shell', {
+      ...shell,
+      selectedWidgetId: null,
+      selectedFieldId: null,
+      selectedSourceId: null,
     });
   };
 

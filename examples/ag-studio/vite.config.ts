@@ -9,6 +9,7 @@ export default defineConfig({
       '@mui/x-ag-studio': path.resolve(__dirname, '../../packages/ag-studio/src'),
       '@mui/x-charts': path.resolve(__dirname, '../../packages/x-charts/src'),
       '@mui/x-data-grid': path.resolve(__dirname, '../../packages/x-data-grid/src'),
+      '@mui/x-internals': path.resolve(__dirname, '../../packages/x-internals/src'),
     },
   },
   server: {

@@ -8,7 +8,9 @@ export default defineConfig({
     alias: {
       '@mui/x-ag-studio': path.resolve(__dirname, '../../packages/ag-studio/src'),
       '@mui/x-charts': path.resolve(__dirname, '../../packages/x-charts/src'),
+      '@mui/x-charts-vendor': path.resolve(__dirname, '../../packages/x-charts-vendor'),
       '@mui/x-data-grid': path.resolve(__dirname, '../../packages/x-data-grid/src'),
+      '@mui/x-internal-gestures': path.resolve(__dirname, '../../packages/x-internal-gestures/src'),
       '@mui/x-internals': path.resolve(__dirname, '../../packages/x-internals/src'),
       '@mui/x-virtualizer': path.resolve(__dirname, '../../packages/x-virtualizer/src'),
     },

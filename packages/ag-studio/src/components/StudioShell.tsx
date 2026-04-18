@@ -3,16 +3,15 @@ import {
   AppBar,
   Badge,
   Box,
-  Button,
   Divider,
-  Drawer,
-  Stack,
+  IconButton,
   ToggleButton,
   ToggleButtonGroup,
   Toolbar,
-  Tooltip,
   Typography,
 } from '@mui/material';
+import ChevronDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';
@@ -26,6 +25,7 @@ import { StudioComposeDrawer } from './StudioComposeDrawer';
 import { StudioFiltersDrawer } from './StudioFiltersDrawer';
 
 const DRAWER_WIDTH = 320;
+const COLLAPSED_WIDTH = 36;
 
 export interface StudioShellSlots {
   dataDrawer?: React.ReactNode;
@@ -49,72 +49,99 @@ function DrawerPanel(props: {
   const controller = useStudioController();
   const open = useStudioSelector((state) => state.shell.openDrawers[drawer]);
 
-  return (
-    <Drawer
-      anchor="left"
-      open={open}
-      onClose={() => controller.setDrawerOpen(drawer, false)}
-      variant="persistent"
-      PaperProps={{
-        sx: {
-          position: 'static',
-          width: DRAWER_WIDTH,
+  if (!open) {
+    return (
+      <Box
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${title} panel`}
+        onClick={() => controller.setDrawerOpen(drawer, true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            controller.setDrawerOpen(drawer, true);
+          }
+        }}
+        sx={{
+          width: COLLAPSED_WIDTH,
           flexShrink: 0,
           borderRight: 1,
           borderColor: 'divider',
-          display: open ? 'flex' : 'none',
+          bgcolor: 'background.paper',
+          display: 'flex',
           flexDirection: 'column',
-        },
+          alignItems: 'center',
+          cursor: 'pointer',
+          pt: 2,
+          pb: 1,
+          gap: 1,
+          '&:hover': { bgcolor: 'action.hover' },
+          '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: -2 },
+        }}
+      >
+        {badge != null && badge > 0 ? (
+          <Badge badgeContent={badge} color="primary" sx={{ mb: 1 }}>
+            <Typography
+              variant="caption"
+              sx={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', userSelect: 'none' }}
+            >
+              {title}
+            </Typography>
+          </Badge>
+        ) : (
+          <Typography
+            variant="caption"
+            sx={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', userSelect: 'none' }}
+          >
+            {title}
+          </Typography>
+        )}
+        <IconButton
+          size="small"
+          onClick={(e) => { e.stopPropagation(); controller.setDrawerOpen(drawer, true); }}
+          aria-label={`Open ${title} panel`}
+          tabIndex={-1}
+        >
+          <ChevronDownIcon fontSize="small" />
+        </IconButton>
+      </Box>
+    );
+  }
+
+  return (
+    <Box
+      sx={{
+        width: DRAWER_WIDTH,
+        flexShrink: 0,
+        borderRight: 1,
+        borderColor: 'divider',
+        bgcolor: 'background.paper',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
-      <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-        {icon && <Box color="action.active" sx={{ display: 'flex' }}>{icon}</Box>}
+      <Box sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 1, minHeight: 48 }}>
+        {icon && <Box sx={{ display: 'flex', color: 'action.active' }}>{icon}</Box>}
         <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
           {title}
         </Typography>
         {badge != null && badge > 0 && (
-          <Badge badgeContent={badge} color="primary" />
+          <Badge badgeContent={badge} color="primary" sx={{ mr: 1 }} />
         )}
+        <IconButton
+          size="small"
+          onClick={() => controller.setDrawerOpen(drawer, false)}
+          aria-label={`Close ${title} panel`}
+        >
+          <ChevronRightIcon fontSize="small" />
+        </IconButton>
       </Box>
       <Divider />
       <Box sx={{ p: 2, overflow: 'auto', flexGrow: 1 }}>
         {children}
       </Box>
-    </Drawer>
-  );
-}
-
-function DrawerToggleButton(props: {
-  drawer: StudioDrawer;
-  label: string;
-  icon: React.ReactNode;
-  badge?: number;
-}) {
-  const { badge, drawer, icon, label } = props;
-  const controller = useStudioController();
-  const open = useStudioSelector((state) => state.shell.openDrawers[drawer]);
-
-  return (
-    <Tooltip title={open ? `Close ${label}` : `Open ${label}`}>
-      <Button
-        size="small"
-        variant={open ? 'contained' : 'outlined'}
-        startIcon={
-          badge != null && badge > 0 ? (
-            <Badge badgeContent={badge} color="warning">
-              {icon}
-            </Badge>
-          ) : (
-            icon
-          )
-        }
-        onClick={() => controller.toggleDrawer(drawer)}
-        aria-pressed={open}
-        aria-label={`${open ? 'Close' : 'Open'} ${label} drawer`}
-      >
-        {label}
-      </Button>
-    </Tooltip>
+    </Box>
   );
 }
 
@@ -123,7 +150,6 @@ function StudioShellContent(props: StudioShellSlots) {
   const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
   const dashboardTitle = useStudioSelector((state) => state.dashboard.title);
-  const activeFilterCount = useStudioSelector((state) => state.filters.length);
 
   const handleModeChange = React.useCallback(
     (_event: React.MouseEvent<HTMLElement>, nextMode: StudioMode | null) => {
@@ -135,10 +161,7 @@ function StudioShellContent(props: StudioShellSlots) {
   );
 
   return (
-    <Box
-      sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}
-    >
-      {/* Top bar */}
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
       <AppBar
         color="default"
         position="sticky"
@@ -149,22 +172,6 @@ function StudioShellContent(props: StudioShellSlots) {
           <Typography variant="h6" sx={{ flexGrow: 1 }} noWrap>
             {dashboardTitle}
           </Typography>
-
-          <Stack direction="row" spacing={1} sx={{ mr: 1 }}>
-            <DrawerToggleButton drawer="data" label="Data" icon={<StorageIcon fontSize="small" />} />
-            <DrawerToggleButton
-              drawer="compose"
-              label="Compose"
-              icon={<TuneIcon fontSize="small" />}
-            />
-            <DrawerToggleButton
-              drawer="filters"
-              label="Filters"
-              icon={<FilterListIcon fontSize="small" />}
-              badge={activeFilterCount}
-            />
-          </Stack>
-
           <ToggleButtonGroup
             value={mode}
             exclusive
@@ -172,35 +179,23 @@ function StudioShellContent(props: StudioShellSlots) {
             onChange={handleModeChange}
             aria-label="Studio mode"
           >
-            <ToggleButton value="edit" aria-label="Edit mode">
-              Edit
-            </ToggleButton>
-            <ToggleButton value="view" aria-label="View mode">
-              View
-            </ToggleButton>
+            <ToggleButton value="edit" aria-label="Edit mode">Edit</ToggleButton>
+            <ToggleButton value="view" aria-label="View mode">View</ToggleButton>
           </ToggleButtonGroup>
         </Toolbar>
       </AppBar>
 
-      {/* Shell body */}
       <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
-        {/* Left drawers */}
         <DrawerPanel drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
           {dataDrawer ?? <StudioDataDrawer />}
         </DrawerPanel>
         <DrawerPanel drawer="compose" title="Compose" icon={<TuneIcon fontSize="small" />}>
           {composeDrawer ?? <StudioComposeDrawer />}
         </DrawerPanel>
-        <DrawerPanel
-          drawer="filters"
-          title="Filters"
-          icon={<FilterListIcon fontSize="small" />}
-          badge={activeFilterCount}
-        >
+        <DrawerPanel drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
           {filtersDrawer ?? <StudioFiltersDrawer />}
         </DrawerPanel>
 
-        {/* Canvas */}
         <Box sx={{ flexGrow: 1, p: 2, minWidth: 0, overflowY: 'auto' }}>
           {canvas ?? <StudioCanvas />}
         </Box>
@@ -218,3 +213,4 @@ export function StudioShell(props: StudioShellProps) {
     </StudioProvider>
   );
 }
+

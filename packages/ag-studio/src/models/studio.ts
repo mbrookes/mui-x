@@ -68,6 +68,7 @@ export interface StudioPage {
 export interface StudioDataField {
   id: string;
   label: string;
+  description?: string;
   type: 'string' | 'number' | 'boolean' | 'date' | 'datetime';
 }
 
@@ -94,6 +95,8 @@ export interface StudioFilterState {
 export interface StudioShellState {
   openDrawers: Record<StudioDrawer, boolean>;
   selectedWidgetId: string | null;
+  selectedFieldId: string | null;
+  selectedSourceId: string | null;
 }
 
 export interface StudioDashboardState {
@@ -145,6 +148,8 @@ export function createDefaultStudioState(overrides?: Partial<StudioState>): Stud
         filters: false,
       },
       selectedWidgetId: null,
+      selectedFieldId: null,
+      selectedSourceId: null,
     },
   };
 
@@ -166,6 +171,8 @@ export function createDefaultStudioState(overrides?: Partial<StudioState>): Stud
         ...baseState.shell.openDrawers,
         ...overrides?.shell?.openDrawers,
       },
+      selectedFieldId: overrides?.shell?.selectedFieldId ?? null,
+      selectedSourceId: overrides?.shell?.selectedSourceId ?? null,
     },
     pages: overrides?.pages ?? baseState.pages,
     widgets: overrides?.widgets ?? baseState.widgets,

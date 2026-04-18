@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mui/x-ag-studio": "workspace:*",
+    "@mui/x-studio": "workspace:*",
     "@mui/x-charts": "workspace:*",
     "@mui/x-data-grid": "workspace:*",
     "@mui/material": "catalog:",

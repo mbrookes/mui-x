@@ -4,7 +4,6 @@ import {
   Badge,
   Box,
   Divider,
-  FormControlLabel,
   IconButton,
   Switch,
   Toolbar,
@@ -197,19 +196,20 @@ function StudioShellContent(props: StudioShellSlots) {
           <Typography variant="h6" sx={{ flexGrow: 1 }} noWrap>
             {dashboardTitle}
           </Typography>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={mode === 'edit'}
-                onChange={handleModeChange}
-                size="small"
-                inputProps={{ 'aria-label': 'Toggle edit mode' }}
-              />
-            }
-            label="Edit"
-            labelPlacement="start"
-            sx={{ mr: 0 }}
-          />
+          <Box sx={{ alignItems: 'center', display: 'flex', gap: 1 }}>
+            <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>
+              View
+            </Typography>
+            <Switch
+              checked={mode === 'edit'}
+              onChange={handleModeChange}
+              size="small"
+              inputProps={{ 'aria-label': 'Toggle edit mode' }}
+            />
+            <Typography variant="body2" color={mode === 'edit' ? 'text.primary' : 'text.secondary'}>
+              Edit
+            </Typography>
+          </Box>
         </Toolbar>
       </AppBar>
 

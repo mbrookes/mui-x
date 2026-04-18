@@ -5,6 +5,10 @@ import {
   Divider,
   FormControl,
   InputLabel,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
   MenuItem,
   Select,
   Stack,
@@ -13,9 +17,14 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import GridOnIcon from '@mui/icons-material/GridOn';
+import SpeedIcon from '@mui/icons-material/Speed';
 
 import { useStudioController, useStudioSelector } from '../context';
-import type { StudioChartType, StudioKpiAggregation, StudioKpiFormat } from '../models';
+import type { StudioChartType, StudioKpiAggregation, StudioKpiFormat, StudioWidgetKind } from '../models';
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 interface TabPanelProps {
   children: React.ReactNode;
@@ -33,6 +42,118 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
+const KIND_ICON: Record<StudioWidgetKind, React.ReactNode> = {
+  grid: <GridOnIcon fontSize="small" />,
+  chart: <BarChartIcon fontSize="small" />,
+  kpi: <SpeedIcon fontSize="small" />,
+};
+
+const KIND_LABEL: Record<StudioWidgetKind, string> = {
+  grid: 'Table',
+  chart: 'Chart',
+  kpi: 'KPI',
+};
+
+const TYPE_FORMAT_LABEL: Record<string, string> = {
+  string: 'Text',
+  number: 'Number',
+  boolean: 'Boolean',
+  date: 'Date',
+  datetime: 'Date & Time',
+};
+
+// ── Widget list (no selection) ────────────────────────────────────────────────
+
+function WidgetListView() {
+  const controller = useStudioController();
+  const widgets = useStudioSelector((state) => state.widgets);
+  const activePageId = useStudioSelector((state) => state.dashboard.activePageId);
+  const widgetIds = useStudioSelector((state) => state.pages[activePageId]?.widgetIds ?? []);
+
+  if (widgetIds.length === 0) {
+    return (
+      <Alert severity="info" sx={{ mt: 1 }}>
+        Add a widget to the canvas to configure it here.
+      </Alert>
+    );
+  }
+
+  return (
+    <Stack spacing={0.5}>
+      <Typography variant="caption" color="text.secondary" sx={{ px: 0.5, pb: 0.5 }}>
+        Select a widget to configure
+      </Typography>
+      <List dense disablePadding>
+        {widgetIds.map((id) => {
+          const widget = widgets[id];
+          if (!widget) {
+            return null;
+          }
+          return (
+            <ListItemButton
+              key={id}
+              onClick={() => controller.setSelectedWidget(id)}
+              sx={{ borderRadius: 1, px: 1 }}
+            >
+              <ListItemIcon sx={{ minWidth: 32 }}>
+                {KIND_ICON[widget.kind]}
+              </ListItemIcon>
+              <ListItemText
+                primary={widget.title}
+                secondary={KIND_LABEL[widget.kind]}
+                primaryTypographyProps={{ variant: 'body2', noWrap: true }}
+                secondaryTypographyProps={{ variant: 'caption' }}
+              />
+            </ListItemButton>
+          );
+        })}
+      </List>
+    </Stack>
+  );
+}
+
+// ── Field detail view ─────────────────────────────────────────────────────────
+
+function FieldDetailView() {
+  const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
+  const selectedSourceId = useStudioSelector((state) => state.shell.selectedSourceId);
+  const source = useStudioSelector((state) =>
+    state.shell.selectedSourceId ? state.dataSources[state.shell.selectedSourceId] : null,
+  );
+  const field = source?.fields.find((f) => f.id === selectedFieldId) ?? null;
+
+  if (!field || !source) {
+    return null;
+  }
+
+  const rows: { label: string; value: string }[] = [
+    { label: 'Source ID', value: `${source.id}.${field.id}` },
+    { label: 'Name', value: field.label },
+    { label: 'Description', value: field.description ?? field.label },
+    { label: 'Data Type', value: field.type.charAt(0).toUpperCase() + field.type.slice(1) },
+    { label: 'Calculation Type', value: 'No Calculation' },
+    { label: 'Format', value: TYPE_FORMAT_LABEL[field.type] ?? field.type },
+  ];
+
+  return (
+    <Stack spacing={0}>
+      {rows.map((row, i) => (
+        <React.Fragment key={row.label}>
+          {i > 0 && <Divider />}
+          <Box sx={{ py: 1.25 }}>
+            <Typography variant="caption" color="text.secondary" display="block">
+              {row.label}
+            </Typography>
+            <Typography variant="body2">{row.value}</Typography>
+          </Box>
+        </React.Fragment>
+      ))}
+    </Stack>
+  );
+}
+
+// ── Widget config panels ──────────────────────────────────────────────────────
+
 function GridSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
@@ -41,14 +162,12 @@ function GridSetupPanel(props: { widgetId: string }) {
 
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
   const allFields = source?.fields ?? [];
-
   const visibleColumns: string[] = widget?.config?.columns ?? allFields.map((f) => f.id);
 
   const handleColumnToggle = (fieldId: string) => {
     const next = visibleColumns.includes(fieldId)
       ? visibleColumns.filter((c) => c !== fieldId)
       : [...visibleColumns, fieldId];
-
     controller.updateWidgetConfig(widgetId, { columns: next });
   };
 
@@ -142,13 +261,9 @@ function ChartSetupPanel(props: { widgetId: string }) {
           value={config.xField ?? ''}
           onChange={(e) => controller.updateWidgetConfig(widgetId, { xField: e.target.value })}
         >
-          <MenuItem value="">
-            <em>None</em>
-          </MenuItem>
+          <MenuItem value=""><em>None</em></MenuItem>
           {fields.map((f) => (
-            <MenuItem key={f.id} value={f.id}>
-              {f.label}
-            </MenuItem>
+            <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
           ))}
         </Select>
       </FormControl>
@@ -160,13 +275,9 @@ function ChartSetupPanel(props: { widgetId: string }) {
           value={config.yField ?? ''}
           onChange={(e) => controller.updateWidgetConfig(widgetId, { yField: e.target.value })}
         >
-          <MenuItem value="">
-            <em>None</em>
-          </MenuItem>
+          <MenuItem value=""><em>None</em></MenuItem>
           {numericFields.map((f) => (
-            <MenuItem key={f.id} value={f.id}>
-              {f.label}
-            </MenuItem>
+            <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
           ))}
         </Select>
       </FormControl>
@@ -202,13 +313,9 @@ function KpiSetupPanel(props: { widgetId: string }) {
           value={config.kpiValueField ?? ''}
           onChange={(e) => controller.updateWidgetConfig(widgetId, { kpiValueField: e.target.value })}
         >
-          <MenuItem value="">
-            <em>None</em>
-          </MenuItem>
+          <MenuItem value=""><em>None</em></MenuItem>
           {numericFields.map((f) => (
-            <MenuItem key={f.id} value={f.id}>
-              {f.label}
-            </MenuItem>
+            <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
           ))}
         </Select>
       </FormControl>
@@ -219,9 +326,7 @@ function KpiSetupPanel(props: { widgetId: string }) {
           label="Aggregation"
           value={config.kpiAggregation ?? 'sum'}
           onChange={(e) =>
-            controller.updateWidgetConfig(widgetId, {
-              kpiAggregation: e.target.value as StudioKpiAggregation,
-            })
+            controller.updateWidgetConfig(widgetId, { kpiAggregation: e.target.value as StudioKpiAggregation })
           }
         >
           <MenuItem value="sum">Sum</MenuItem>
@@ -254,7 +359,6 @@ function FormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
-
   const [title, setTitle] = React.useState(widget?.title ?? '');
 
   React.useEffect(() => {
@@ -286,51 +390,60 @@ function FormatPanel(props: { widgetId: string }) {
   );
 }
 
-export function StudioComposeDrawer() {
-  const [tab, setTab] = React.useState(0);
-  const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
-  const widget = useStudioSelector((state) =>
-    state.shell.selectedWidgetId ? state.widgets[state.shell.selectedWidgetId] : null,
-  );
+// ── Widget config view (widget selected) ─────────────────────────────────────
 
-  if (!selectedWidgetId || !widget) {
-    return (
-      <Alert severity="info" sx={{ mt: 1 }}>
-        Select a widget on the canvas to configure it.
-      </Alert>
-    );
+function WidgetConfigView(props: { widgetId: string }) {
+  const { widgetId } = props;
+  const [tab, setTab] = React.useState(0);
+  const widget = useStudioSelector((state) => state.widgets[widgetId]);
+
+  if (!widget) {
+    return null;
   }
 
   return (
     <Box>
-      <Typography variant="subtitle2" gutterBottom noWrap>
-        {widget.title}
-      </Typography>
       <Typography variant="caption" color="text.secondary">
-        {widget.kind === 'grid' ? 'Table' : widget.kind === 'chart' ? 'Chart' : 'KPI'} widget
+        {KIND_LABEL[widget.kind]} widget
       </Typography>
-
-      <Divider sx={{ my: 1.5 }} />
 
       <Tabs
         value={tab}
         onChange={(_e, v) => setTab(v)}
         variant="fullWidth"
-        sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+        sx={{ mt: 1.5, minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
       >
         <Tab label="Setup" />
         <Tab label="Format" />
       </Tabs>
 
       <TabPanel value={tab} index={0}>
-        {widget.kind === 'grid' && <GridSetupPanel widgetId={selectedWidgetId} />}
-        {widget.kind === 'chart' && <ChartSetupPanel widgetId={selectedWidgetId} />}
-        {widget.kind === 'kpi' && <KpiSetupPanel widgetId={selectedWidgetId} />}
+        {widget.kind === 'grid' && <GridSetupPanel widgetId={widgetId} />}
+        {widget.kind === 'chart' && <ChartSetupPanel widgetId={widgetId} />}
+        {widget.kind === 'kpi' && <KpiSetupPanel widgetId={widgetId} />}
       </TabPanel>
 
       <TabPanel value={tab} index={1}>
-        <FormatPanel widgetId={selectedWidgetId} />
+        <FormatPanel widgetId={widgetId} />
       </TabPanel>
     </Box>
   );
 }
+
+// ── Main export ───────────────────────────────────────────────────────────────
+
+export function StudioComposeDrawer() {
+  const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
+  const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
+
+  if (selectedWidgetId) {
+    return <WidgetConfigView widgetId={selectedWidgetId} />;
+  }
+
+  if (selectedFieldId) {
+    return <FieldDetailView />;
+  }
+
+  return <WidgetListView />;
+}
+

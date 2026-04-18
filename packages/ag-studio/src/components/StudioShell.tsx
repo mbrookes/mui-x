@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import ChevronDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import CloseIcon from '@mui/icons-material/Close';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';
@@ -43,9 +44,10 @@ function DrawerPanel(props: {
   title: string;
   icon?: React.ReactNode;
   badge?: number;
+  onBack?: () => void;
   children?: React.ReactNode;
 }) {
-  const { badge, children, drawer, icon, title } = props;
+  const { badge, children, drawer, icon, onBack, title } = props;
   const controller = useStudioController();
   const open = useStudioSelector((state) => state.shell.openDrawers[drawer]);
 
@@ -121,9 +123,15 @@ function DrawerPanel(props: {
         overflow: 'hidden',
       }}
     >
-      <Box sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 1, minHeight: 48 }}>
-        {icon && <Box sx={{ display: 'flex', color: 'action.active' }}>{icon}</Box>}
-        <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
+      <Box sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 0.5, minHeight: 48 }}>
+        {onBack ? (
+          <IconButton size="small" onClick={onBack} aria-label="Close widget configuration" sx={{ mr: 0.5 }}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        ) : (
+          icon && <Box sx={{ display: 'flex', color: 'action.active', mr: 0.5 }}>{icon}</Box>
+        )}
+        <Typography variant="subtitle2" sx={{ flexGrow: 1 }} noWrap>
           {title}
         </Typography>
         {badge != null && badge > 0 && (
@@ -150,6 +158,25 @@ function StudioShellContent(props: StudioShellSlots) {
   const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
   const dashboardTitle = useStudioSelector((state) => state.dashboard.title);
+
+  const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
+  const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
+  const selectedSourceId = useStudioSelector((state) => state.shell.selectedSourceId);
+  const selectedWidget = useStudioSelector((state) =>
+    state.shell.selectedWidgetId ? state.widgets[state.shell.selectedWidgetId] : null,
+  );
+  const selectedField = useStudioSelector((state) => {
+    const { selectedSourceId: srcId, selectedFieldId: fldId } = state.shell;
+    if (!srcId || !fldId) {
+      return null;
+    }
+    return state.dataSources[srcId]?.fields.find((f) => f.id === fldId) ?? null;
+  });
+
+  const composeTitle =
+    selectedWidget?.title ?? selectedField?.label ?? 'Compose';
+  const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
+  const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
 
   const handleModeChange = React.useCallback(
     (_event: React.MouseEvent<HTMLElement>, nextMode: StudioMode | null) => {
@@ -189,7 +216,7 @@ function StudioShellContent(props: StudioShellSlots) {
         <DrawerPanel drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
           {dataDrawer ?? <StudioDataDrawer />}
         </DrawerPanel>
-        <DrawerPanel drawer="compose" title="Compose" icon={<TuneIcon fontSize="small" />}>
+        <DrawerPanel drawer="compose" title={composeTitle} icon={<TuneIcon fontSize="small" />} onBack={composeOnBack}>
           {composeDrawer ?? <StudioComposeDrawer />}
         </DrawerPanel>
         <DrawerPanel drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>

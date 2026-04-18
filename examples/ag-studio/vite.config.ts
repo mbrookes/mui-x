@@ -5,14 +5,16 @@ import path from 'path';
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      '@mui/x-ag-studio': path.resolve(__dirname, '../../packages/ag-studio/src'),
-      '@mui/x-charts': path.resolve(__dirname, '../../packages/x-charts/src'),
-      '@mui/x-data-grid': path.resolve(__dirname, '../../packages/x-data-grid/src'),
-      '@mui/x-internal-gestures': path.resolve(__dirname, '../../packages/x-internal-gestures/src'),
-      '@mui/x-internals': path.resolve(__dirname, '../../packages/x-internals/src'),
-      '@mui/x-virtualizer': path.resolve(__dirname, '../../packages/x-virtualizer/src'),
-    },
+    alias: [
+      { find: '@mui/x-ag-studio', replacement: path.resolve(__dirname, '../../packages/ag-studio/src') },
+      { find: '@mui/x-charts', replacement: path.resolve(__dirname, '../../packages/x-charts/src') },
+      // x-charts-vendor uses pre-built ESM files; map subpaths to /es/*.mjs
+      { find: /^@mui\/x-charts-vendor\/(.+)$/, replacement: path.resolve(__dirname, '../../packages/x-charts-vendor/es/$1.mjs') },
+      { find: '@mui/x-data-grid', replacement: path.resolve(__dirname, '../../packages/x-data-grid/src') },
+      { find: '@mui/x-internal-gestures', replacement: path.resolve(__dirname, '../../packages/x-internal-gestures/src') },
+      { find: '@mui/x-internals', replacement: path.resolve(__dirname, '../../packages/x-internals/src') },
+      { find: '@mui/x-virtualizer', replacement: path.resolve(__dirname, '../../packages/x-virtualizer/src') },
+    ],
   },
   server: {
     port: 3004,

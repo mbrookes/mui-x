@@ -1,29 +1,20 @@
 import * as React from 'react';
 import {
   Box,
-  Button,
   Chip,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  Grid,
   IconButton,
   Paper,
   Stack,
   Tooltip,
   Typography,
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import TableChartIcon from '@mui/icons-material/TableChart';
-import NumbersIcon from '@mui/icons-material/Numbers';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 
 import { useStudioController, useStudioSelector } from '../context';
-import type { StudioDataSource, StudioFieldBinding, StudioWidget, StudioWidgetKind } from '../models';
+import type { StudioDataSource, StudioWidget, StudioWidgetKind } from '../models';
 import { StudioGridWidget } from './StudioGridWidget';
 import { StudioChartWidget } from './StudioChartWidget';
 import { StudioKpiWidget } from './StudioKpiWidget';
@@ -55,116 +46,6 @@ function createSalesDataSource(): StudioDataSource {
       { id: 10, product: 'Kappa Flow', category: 'Software', region: 'Nordics', revenue: 14600, quantity: 9, margin: 66 },
     ],
   };
-}
-
-function createWidget(kind: StudioWidgetKind, source: StudioDataSource): StudioWidget {
-  const id = `widget-${kind}-${Date.now()}`;
-  const bindings: StudioFieldBinding[] = source.fields.map((f) => ({ field: f.id, label: f.label }));
-
-  if (kind === 'grid') {
-    return {
-      id,
-      kind,
-      title: 'Sales table',
-      sourceId: source.id,
-      layout: { x: 0, y: 0, width: 12, height: 8 },
-      bindings,
-      config: { columns: source.fields.map((f) => f.id) },
-    };
-  }
-
-  if (kind === 'chart') {
-    const xField = source.fields.find((f) => f.type === 'string')?.id ?? source.fields[0]?.id;
-    const yField = source.fields.find((f) => f.type === 'number')?.id ?? source.fields[1]?.id;
-
-    return {
-      id,
-      kind,
-      title: 'Sales chart',
-      sourceId: source.id,
-      layout: { x: 0, y: 0, width: 6, height: 6 },
-      bindings,
-      config: { chartType: 'bar', xField, yField },
-    };
-  }
-
-  // KPI
-  const valueField = source.fields.find((f) => f.type === 'number')?.id ?? '';
-
-  return {
-    id,
-    kind,
-    title: 'Total Revenue',
-    sourceId: source.id,
-    layout: { x: 0, y: 0, width: 3, height: 3 },
-    bindings,
-    config: { kpiValueField: valueField, kpiAggregation: 'sum', kpiFormat: 'currency' },
-  };
-}
-
-const WIDGET_TYPES: {
-  kind: StudioWidgetKind;
-  label: string;
-  description: string;
-  icon: React.ReactNode;
-}[] = [
-  { kind: 'kpi', label: 'KPI', description: 'Single metric with aggregation', icon: <NumbersIcon fontSize="large" /> },
-  { kind: 'chart', label: 'Chart', description: 'Bar, line, or pie chart', icon: <BarChartIcon fontSize="large" /> },
-  { kind: 'grid', label: 'Table', description: 'Data grid with sorting', icon: <TableChartIcon fontSize="large" /> },
-];
-
-function WidgetGallery(props: {
-  open: boolean;
-  onClose: () => void;
-  onAdd: (kind: StudioWidgetKind) => void;
-}) {
-  const { onAdd, onClose, open } = props;
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Add widget</DialogTitle>
-      <DialogContent>
-        <Grid container spacing={2} sx={{ pt: 1 }}>
-          {WIDGET_TYPES.map((wt) => (
-            <Grid key={wt.kind} size={{ xs: 12, sm: 4 }}>
-              <Paper
-                variant="outlined"
-                onClick={() => {
-                  onAdd(wt.kind);
-                  onClose();
-                }}
-                sx={{
-                  p: 2,
-                  cursor: 'pointer',
-                  textAlign: 'center',
-                  transition: 'border-color 0.15s, background-color 0.15s',
-                  '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' },
-                  '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
-                }}
-                tabIndex={0}
-                role="button"
-                aria-label={`Add ${wt.label} widget`}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    onAdd(wt.kind);
-                    onClose();
-                  }
-                }}
-              >
-                <Box color="primary.main" sx={{ mb: 1 }}>
-                  {wt.icon}
-                </Box>
-                <Typography variant="subtitle2">{wt.label}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {wt.description}
-                </Typography>
-              </Paper>
-            </Grid>
-          ))}
-        </Grid>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 interface WidgetCardProps {
@@ -298,22 +179,11 @@ function WidgetCard(props: WidgetCardProps) {
 }
 
 export function StudioCanvas() {
-  const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
   const widgetIds = useStudioSelector(
     (state) => state.pages[state.dashboard.activePageId].widgetIds,
   );
-  const dataSources = useStudioSelector((state) => state.dataSources);
-  const [galleryOpen, setGalleryOpen] = React.useState(false);
-
-  const handleAddWidget = React.useCallback(
-    (kind: StudioWidgetKind) => {
-      const source = dataSources[SALES_SOURCE_ID] ?? createSalesDataSource();
-      controller.upsertDataSource(source);
-      controller.addWidget(createWidget(kind, source));
-    },
-    [controller, dataSources],
-  );
+  const controller = useStudioController();
 
   const handleMoveUp = React.useCallback(
     (widgetId: string) => {
@@ -353,67 +223,45 @@ export function StudioCanvas() {
     [controller],
   );
 
+  if (widgetIds.length === 0) {
+    return (
+      <Paper
+        variant="outlined"
+        sx={{
+          alignItems: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2,
+          minHeight: 420,
+          p: 4,
+          borderStyle: 'dashed',
+          justifyContent: 'center',
+        }}
+      >
+        <Typography variant="h6" color="text.secondary">
+          Canvas is empty
+        </Typography>
+        <Typography variant="body2" color="text.secondary" textAlign="center">
+          {mode === 'edit'
+            ? 'Use the Compose panel to add widgets.'
+            : 'Switch to Edit mode to add widgets.'}
+        </Typography>
+      </Paper>
+    );
+  }
+
   return (
-    <Box>
-      {mode === 'edit' && (
-        <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => setGalleryOpen(true)}
-            aria-haspopup="dialog"
-          >
-            Add widget
-          </Button>
-        </Box>
-      )}
-
-      {widgetIds.length === 0 ? (
-        <Paper
-          variant="outlined"
-          sx={{
-            alignItems: 'center',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2,
-            minHeight: 420,
-            p: 4,
-            borderStyle: 'dashed',
-            justifyContent: 'center',
-          }}
-        >
-          <Typography variant="h6" color="text.secondary">
-            Canvas is empty
-          </Typography>
-          <Typography variant="body2" color="text.secondary" textAlign="center">
-            Switch to Edit mode and click "Add widget" to get started.
-          </Typography>
-          {mode === 'edit' && (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setGalleryOpen(true)}>
-              Add widget
-            </Button>
-          )}
-        </Paper>
-      ) : (
-        <Stack spacing={2}>
-          {widgetIds.map((widgetId, index) => (
-            <WidgetCard
-              key={widgetId}
-              widgetId={widgetId}
-              isFirst={index === 0}
-              isLast={index === widgetIds.length - 1}
-              onMoveUp={() => handleMoveUp(widgetId)}
-              onMoveDown={() => handleMoveDown(widgetId)}
-            />
-          ))}
-        </Stack>
-      )}
-
-      <WidgetGallery
-        open={galleryOpen}
-        onClose={() => setGalleryOpen(false)}
-        onAdd={handleAddWidget}
-      />
-    </Box>
+    <Stack spacing={2}>
+      {widgetIds.map((widgetId, index) => (
+        <WidgetCard
+          key={widgetId}
+          widgetId={widgetId}
+          isFirst={index === 0}
+          isLast={index === widgetIds.length - 1}
+          onMoveUp={() => handleMoveUp(widgetId)}
+          onMoveDown={() => handleMoveDown(widgetId)}
+        />
+      ))}
+    </Stack>
   );
 }

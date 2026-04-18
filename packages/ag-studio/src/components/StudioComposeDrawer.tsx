@@ -5,11 +5,8 @@ import {
   Divider,
   FormControl,
   InputLabel,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
   MenuItem,
+  Paper,
   Select,
   Stack,
   Tab,
@@ -17,12 +14,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import GridOnIcon from '@mui/icons-material/GridOn';
-import SpeedIcon from '@mui/icons-material/Speed';
 
 import { useStudioController, useStudioSelector } from '../context';
 import type { StudioChartType, StudioKpiAggregation, StudioKpiFormat, StudioWidgetKind } from '../models';
+import { createDefaultWidget, WIDGET_TYPES } from './widgetUtils';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,12 +37,6 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
-const KIND_ICON: Record<StudioWidgetKind, React.ReactNode> = {
-  grid: <GridOnIcon fontSize="small" />,
-  chart: <BarChartIcon fontSize="small" />,
-  kpi: <SpeedIcon fontSize="small" />,
-};
-
 const KIND_LABEL: Record<StudioWidgetKind, string> = {
   grid: 'Table',
   chart: 'Chart',
@@ -62,52 +51,70 @@ const TYPE_FORMAT_LABEL: Record<string, string> = {
   datetime: 'Date & Time',
 };
 
-// ── Widget list (no selection) ────────────────────────────────────────────────
+// ── Add widget view (no selection) ───────────────────────────────────────────
 
-function WidgetListView() {
+function AddWidgetView() {
   const controller = useStudioController();
-  const widgets = useStudioSelector((state) => state.widgets);
-  const activePageId = useStudioSelector((state) => state.dashboard.activePageId);
-  const widgetIds = useStudioSelector((state) => state.pages[activePageId]?.widgetIds ?? []);
+  const dataSources = useStudioSelector((state) => state.dataSources);
 
-  if (widgetIds.length === 0) {
-    return (
-      <Alert severity="info" sx={{ mt: 1 }}>
-        Add a widget to the canvas to configure it here.
-      </Alert>
-    );
-  }
+  const handleAdd = (kind: StudioWidgetKind) => {
+    const sources = Object.values(dataSources);
+    if (sources.length === 0) {
+      return;
+    }
+    const source = sources[0];
+    controller.addWidget(createDefaultWidget(kind, source));
+  };
+
+  const hasSources = Object.keys(dataSources).length > 0;
 
   return (
-    <Stack spacing={0.5}>
-      <Typography variant="caption" color="text.secondary" sx={{ px: 0.5, pb: 0.5 }}>
-        Select a widget to configure
+    <Stack spacing={1.5}>
+      <Typography variant="caption" color="text.secondary">
+        Choose a widget type to add
       </Typography>
-      <List dense disablePadding>
-        {widgetIds.map((id) => {
-          const widget = widgets[id];
-          if (!widget) {
-            return null;
-          }
-          return (
-            <ListItemButton
-              key={id}
-              onClick={() => controller.setSelectedWidget(id)}
-              sx={{ borderRadius: 1, px: 1 }}
-            >
-              <ListItemIcon sx={{ minWidth: 32 }}>
-                {KIND_ICON[widget.kind]}
-              </ListItemIcon>
-              <ListItemText
-                primary={widget.title}
-                secondary={KIND_LABEL[widget.kind]}
-                primaryTypographyProps={{ variant: 'body2', noWrap: true }}
-                secondaryTypographyProps={{ variant: 'caption' }}
-              />
-            </ListItemButton>
-          );
-        })}
-      </List>
+      {!hasSources && (
+        <Alert severity="warning" sx={{ fontSize: 12 }}>
+          No data sources available yet.
+        </Alert>
+      )}
+      {WIDGET_TYPES.map((wt) => (
+        <Paper
+          key={wt.kind}
+          variant="outlined"
+          onClick={() => handleAdd(wt.kind)}
+          tabIndex={0}
+          role="button"
+          aria-label={`Add ${wt.label} widget`}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleAdd(wt.kind);
+            }
+          }}
+          sx={{
+            p: 1.5,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            cursor: hasSources ? 'pointer' : 'not-allowed',
+            opacity: hasSources ? 1 : 0.5,
+            transition: 'border-color 0.15s, background-color 0.15s',
+            '&:hover': hasSources ? { borderColor: 'primary.main', bgcolor: 'action.hover' } : {},
+            '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
+          }}
+        >
+          <Box sx={{ color: 'primary.main', display: 'flex', flexShrink: 0 }}>
+            {wt.icon}
+          </Box>
+          <Box>
+            <Typography variant="subtitle2">{wt.label}</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {wt.description}
+            </Typography>
+          </Box>
+        </Paper>
+      ))}
     </Stack>
   );
 }
@@ -444,6 +451,6 @@ export function StudioComposeDrawer() {
     return <FieldDetailView />;
   }
 
-  return <WidgetListView />;
+  return <AddWidgetView />;
 }
 

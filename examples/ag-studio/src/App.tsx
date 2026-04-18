@@ -97,6 +97,25 @@ const controller = createStudioController(INITIAL_STATE);
 const theme = createTheme({
   cssVariables: true,
   colorSchemes: { light: true, dark: true },
+  components: {
+    MuiButton: { defaultProps: { size: 'small' } },
+    MuiButtonGroup: { defaultProps: { size: 'small' } },
+    MuiChip: { defaultProps: { size: 'small' } },
+    MuiIconButton: { defaultProps: { size: 'small' } },
+    MuiInputBase: { defaultProps: { size: 'small' } },
+    MuiFormControl: { defaultProps: { size: 'small' } },
+    MuiFormHelperText: { defaultProps: { margin: 'dense' } },
+    MuiInputLabel: { defaultProps: { margin: 'dense' } },
+    MuiOutlinedInput: { defaultProps: { notched: undefined } },
+    MuiSelect: { defaultProps: { size: 'small' } },
+    MuiTextField: { defaultProps: { size: 'small' } },
+    MuiList: { defaultProps: { dense: true } },
+    MuiListItem: { defaultProps: { dense: true } },
+    MuiMenuItem: { defaultProps: { dense: true } },
+    MuiTable: { defaultProps: { size: 'small' } },
+    MuiToolbar: { defaultProps: { variant: 'dense' } },
+    MuiTabs: { defaultProps: { indicatorColor: 'primary' } },
+  },
 });
 
 export default function App() {

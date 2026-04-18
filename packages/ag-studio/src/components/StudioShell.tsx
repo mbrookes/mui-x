@@ -6,8 +6,11 @@ import {
   Divider,
   IconButton,
   Switch,
+  ThemeProvider,
   Toolbar,
   Typography,
+  createTheme,
+  useTheme,
 } from '@mui/material';
 import ChevronDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -234,11 +237,38 @@ function StudioShellContent(props: StudioShellSlots) {
 
 export function StudioShell(props: StudioShellProps) {
   const { controller, ...slots } = props;
+  const outerTheme = useTheme();
+
+  const denseTheme = React.useMemo(
+    () =>
+      createTheme(outerTheme, {
+        components: {
+          MuiButton: { defaultProps: { size: 'small' } },
+          MuiButtonGroup: { defaultProps: { size: 'small' } },
+          MuiChip: { defaultProps: { size: 'small' } },
+          MuiIconButton: { defaultProps: { size: 'small' } },
+          MuiInputBase: { defaultProps: { size: 'small' } },
+          MuiFormControl: { defaultProps: { size: 'small' } },
+          MuiFormHelperText: { defaultProps: { margin: 'dense' } },
+          MuiInputLabel: { defaultProps: { margin: 'dense' } },
+          MuiSelect: { defaultProps: { size: 'small' } },
+          MuiTextField: { defaultProps: { size: 'small' } },
+          MuiList: { defaultProps: { dense: true } },
+          MuiListItem: { defaultProps: { dense: true } },
+          MuiMenuItem: { defaultProps: { dense: true } },
+          MuiTable: { defaultProps: { size: 'small' } },
+          MuiToolbar: { defaultProps: { variant: 'dense' } },
+        },
+      }),
+    [outerTheme],
+  );
 
   return (
-    <StudioProvider controller={controller}>
-      <StudioShellContent {...slots} />
-    </StudioProvider>
+    <ThemeProvider theme={denseTheme}>
+      <StudioProvider controller={controller}>
+        <StudioShellContent {...slots} />
+      </StudioProvider>
+    </ThemeProvider>
   );
 }
 

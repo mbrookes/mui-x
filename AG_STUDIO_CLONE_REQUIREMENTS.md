@@ -9,28 +9,31 @@ It is organized for product, design, and engineering use, and includes:
 - MVP scope and parity roadmap scope.
 - Functional and non-functional requirements.
 - Acceptance criteria for each major area.
-- Architecture and interaction requirements for the mandated splitter-based layout.
+- Architecture and interaction requirements for the clone's chosen shell and dashboard layout model.
 
 ## 2. Scope and constraints
 
 ### 2.1 In scope
 
 - A browser-based dashboard studio with edit and view modes.
-- Widget authoring using table/grid and charts.
+- Widget authoring using table/grid, chart, and KPI widgets.
 - Data modeling support for multiple sources, relationships, measures, and calculated fields.
 - State persistence and restore.
-- Collapsible drawer UI shell (Data, Compose, Filters) with splitter-based canvas layout for multi-widget arrangements.
+- Configurable shell with data, compose, and filters surfaces plus theming controls.
+- Layout authoring with drag-and-drop, resize, reorder, and reflow behaviors.
+- Framework-ready embedding strategy for React, Angular, Vue 3, and vanilla JavaScript hosts.
 
 ### 2.2 Out of scope (for MVP)
 
 - Multi-user real-time collaborative editing.
 - Backend implementation details (storage/auth/permissions service internals).
-- AI assistant generation flows.
+- AI assistant and natural-language authoring flows.
+- Production-ready code generation/export for framework-specific host apps.
 - Full export suite beyond core CSV for tabular widgets.
 
-### 2.3 Hard product constraint
+### 2.3 Clone-specific product constraint
 
-AG Studio's shell uses collapsible drawers for data, compose, and filters panels. This clone MUST follow that drawer-based shell pattern, with splitter-based layout applied specifically to the canvas for arranging multiple widgets (charts/grids) side-by-side or stacked.
+Public AG Studio materials clearly show Data, Compose, and Filters controls, edit/view modes, drag-and-drop widget layout, and configurable layout options. They do not publicly establish a mandatory drawer-only shell or a splitter-only canvas model. For this clone, we deliberately choose a collapsible drawer shell and a structured canvas layout model, but those choices are implementation decisions rather than verified AG Studio product constraints.
 
 ## 3. Requirement notation
 
@@ -46,6 +49,26 @@ Each requirement includes:
 ## 4. Source review summary
 
 The requirements below are informed by public AG Studio product/docs/demo/API behavior patterns and mapped to MUI X + Material UI implementation strategy.
+
+Publicly confirmed from https://www.ag-grid.com/studio/ as of 18 April 2026:
+
+- AG Studio is positioned as an embedded analytics toolkit/component for modern web applications.
+- It supports React, Angular, Vue 3, and vanilla JavaScript.
+- It combines dashboards, charts, grids, filters, and KPI tiles/widgets.
+- It supports edit and view modes.
+- It supports drag-and-drop widget rearrangement plus resize, reorder, and reflow behaviors.
+- It exposes theming as a first-class capability.
+- It is built on top of AG Grid and AG Charts.
+- Public FAQ copy claims support for computed columns/expressions, joins/aggregations, cross-filters, and large data volumes.
+- Public FAQ copy states AG Studio includes an AI Agent Playground / AI assistant for natural-language dashboard interactions.
+- Public FAQ copy states it generates production-ready code for supported frameworks.
+
+Not publicly verified from the landing page alone:
+
+- Exact shell mechanics such as drawer vs docked panel vs inspector implementation.
+- Exact layout engine implementation such as freeform canvas, grid packing, splitter panes, or hybrids.
+- Specific API method names such as getState/setState.
+- Precise acceptance thresholds beyond high-level performance claims.
 
 ## 5. Product goals and principles
 
@@ -73,12 +96,13 @@ Principles:
 ### 6.2 Core regions
 
 - Top bar: mode switch, save/load, global actions.
-- Canvas (center): primary widget composition area with splitter-based layout for multi-widget arrangements.
-- Collapsible drawers (per AG Studio pattern):
+- Canvas (center): primary widget composition area with configurable layout behavior.
+- Collapsible drawers or docked side panels (clone choice uses drawers):
   - Data drawer: source/field management.
   - Compose drawer: setup/format edit panel for selected widget.
   - Filters drawer: page/widget/cross-filter configuration.
-- Drawers are dismissible and can be toggled via top bar or keyboard.
+- Optional theming surface for dashboard and widget styling.
+- Side surfaces are dismissible and can be toggled via top bar or keyboard.
 
 ### 6.3 Studio objects
 
@@ -91,13 +115,13 @@ Principles:
 
 ## 7. Detailed requirements
 
-## 7A. Shell and layout (collapsible drawers + canvas splitter)
+## 7A. Shell and layout (collapsible drawers + configurable canvas layout)
 
 ### AGS-LAYOUT-001
 
 - Priority: must
 - Scope: MVP
-- Description: Main shell MUST use collapsible drawers (Data, Compose, Filters) following AG Studio pattern, not splitter panes.
+- Description: Main shell MUST expose dedicated Data, Compose, and Filters authoring surfaces. For this clone, these surfaces use collapsible drawers.
 - Implementation notes: Material UI Drawer components; drawers toggled via top bar buttons or keyboard shortcuts.
 - Acceptance criteria:
   1. Each drawer (Data, Compose, Filters) can be opened and dismissed independently.
@@ -108,18 +132,19 @@ Principles:
 
 - Priority: must
 - Scope: MVP
-- Description: Canvas MUST support splitter-based layout for arranging multiple widgets (charts/grids) horizontally or vertically.
-- Implementation notes: splitter library controls widget pane sizing and positioning within canvas; supports 2+ widget arrangements.
+- Description: Canvas MUST support configurable multi-widget layout with drag, resize, reorder, and reflow behaviors. The clone may use a structured layout engine internally, but the user experience must remain dashboard-like rather than pane-manager-like.
+- Implementation notes: layout engine may combine grid packing and controlled resize handles; preserve predictable widget movement and responsive reflow.
 - Acceptance criteria:
-  1. User can resize splitter boundaries via drag handles between canvas widgets.
-  2. Min/max widget constraints are enforced.
-  3. Splitter layout persists and restores per page.
+  1. User can drag widgets to new positions and see live placement feedback.
+  2. User can resize widgets with enforced minimum dimensions by widget type.
+  3. Layout reorders/reflows cleanly when widgets are added, moved, resized, or viewport size changes.
+  4. Layout persists and restores per page.
 
 ### AGS-LAYOUT-003
 
 - Priority: should
 - Scope: MVP
-- Description: Canvas splitter layout presets (for example: two-column equal, three-column with focus area).
+- Description: Canvas layout presets and configurable layout options.
 - Implementation notes: preset selector in canvas toolbar or context menu.
 - Acceptance criteria:
   1. At least 2 presets available.
@@ -129,12 +154,12 @@ Principles:
 
 - Priority: must
 - Scope: MVP
-- Description: Keyboard-accessible canvas splitter controls.
-- Implementation notes: focusable splitter handles; arrow keys adjust split increments; ARIA values reflect pane proportions.
+- Description: Keyboard-accessible canvas layout controls.
+- Implementation notes: focusable widget move/resize handles or equivalent controls; arrow keys adjust position/size increments; ARIA values reflect layout state where applicable.
 - Acceptance criteria:
-  1. Splitter handle receives focus via keyboard.
-  2. Arrow keys adjust split by fixed increments.
-  3. Screen reader announces current splitter position and pane sizes.
+  1. Keyboard user can move focus to layout controls without a pointer.
+  2. Arrow keys or equivalent commands adjust layout by fixed increments.
+  3. Screen reader announcements expose the current widget position/size or equivalent structural state.
 
 ### AGS-LAYOUT-005
 
@@ -163,11 +188,12 @@ Principles:
 - Priority: must
 - Scope: MVP
 - Description: Widgets can be moved and resized with snap behavior.
-- Implementation notes: canvas coordinate system with snap increments.
+- Implementation notes: drag-and-drop layout engine with snap increments and responsive reflow.
 - Acceptance criteria:
   1. Drag move updates position interactively.
   2. Resize handles enforce minimum dimensions by widget type.
   3. Widget cannot be moved outside canvas bounds.
+  4. Sibling widgets reflow predictably after move/resize operations.
 
 ### AGS-CANVAS-003
 
@@ -201,6 +227,18 @@ Principles:
 - Acceptance criteria:
   1. Widget categories are discoverable.
   2. User can insert a widget in <= 2 interactions.
+  3. Gallery includes tables/grids, charts, and KPI widgets.
+
+### AGS-WIDGET-004
+
+- Priority: should
+- Scope: MVP
+- Description: KPI widget support for headline metrics.
+- Implementation notes: simple metric card widget with label, value, optional delta, formatting, and conditional styling.
+- Acceptance criteria:
+  1. User can bind a KPI widget to a measure or computed metric.
+  2. KPI value formatting can be configured without rebuilding the widget.
+  3. KPI widgets participate in page filters and cross-filters where applicable.
 
 ### AGS-WIDGET-002
 
@@ -279,7 +317,7 @@ Principles:
 
 - Priority: should
 - Scope: MVP
-- Description: Additional chart types: scatter, area.
+- Description: Additional chart types: scatter, area, grouped bar/column, and stacked bar/column.
 - Implementation notes: chart type registry.
 - Acceptance criteria:
   1. Type switch preserves compatible mappings.
@@ -331,7 +369,7 @@ Principles:
 - Priority: should
 - Scope: MVP
 - Description: Calculated fields and measures.
-- Implementation notes: expression parser/evaluator for row-level and aggregate-level logic.
+- Implementation notes: expression parser/evaluator for row-level and aggregate-level logic; support computed columns and expressions aligned with public AG Studio positioning.
 - Acceptance criteria:
   1. Expression validation catches syntax and type errors.
   2. Computed values update on source/filter changes.
@@ -408,6 +446,17 @@ Principles:
 - Acceptance criteria:
   1. Suggested mappings reduce invalid config attempts.
 
+### AGS-EDIT-004
+
+- Priority: should
+- Scope: MVP
+- Description: Theming controls for dashboard and widget styling.
+- Implementation notes: theme section covers palette, typography, spacing, surface styling, and AG Grid-compatible theme token mapping where possible.
+- Acceptance criteria:
+  1. User can adjust dashboard-level theme settings without editing source code.
+  2. Theme changes propagate consistently across grid, chart, and KPI widgets.
+  3. Theme configuration persists as part of saved state.
+
 ## 7I. State, persistence, and APIs
 
 ### AGS-STATE-001
@@ -415,7 +464,7 @@ Principles:
 - Priority: must
 - Scope: MVP
 - Description: Full studio state is serializable and restorable.
-- Implementation notes: getState/setState API on Studio instance/controller.
+- Implementation notes: public controller/state API on Studio instance/controller; exact method names may differ from AG Studio.
 - Acceptance criteria:
   1. getState returns pages, layout, widgets, mappings, filters, settings.
   2. setState restores equivalent visual and interaction state.
@@ -439,6 +488,16 @@ Principles:
 - Acceptance criteria:
   1. Dirty indicator updates accurately.
   2. Autosave does not degrade interaction performance.
+
+### AGS-STATE-004
+
+- Priority: should
+- Scope: Parity+
+- Description: Production-ready export/code generation for supported host frameworks.
+- Implementation notes: generate framework-specific configuration/module output for React, Angular, Vue 3, and vanilla JavaScript hosts.
+- Acceptance criteria:
+  1. Generated output captures dashboard structure, widget bindings, and theme configuration.
+  2. Output is valid for the selected framework target with minimal manual editing.
 
 ## 7J. Accessibility and keyboard support
 
@@ -478,7 +537,7 @@ Principles:
 - Description: Interaction responsiveness targets.
 - Acceptance criteria:
   1. Widget drag/resize interaction remains smooth (target near 60 fps on modern hardware).
-  2. Pane resize interaction feels immediate with no visible stutter.
+  2. Layout resize and reflow interactions feel immediate with no visible stutter.
 
 ### AGS-PERF-002
 
@@ -488,6 +547,17 @@ Principles:
 - Acceptance criteria:
   1. Large datasets remain usable via virtualization/aggregation.
   2. Filter application latency is acceptable for target data size.
+
+### AGS-PERF-004
+
+- Priority: should
+- Scope: Parity+
+- Description: Public AG Studio scale claims benchmark coverage.
+- Implementation notes: benchmark representative scenarios for joins, aggregations, computed columns, and enterprise-scale row models.
+- Acceptance criteria:
+  1. Benchmark suite includes hundreds-of-thousands-row scenarios with joins, aggregations, and computed columns.
+  2. Stretch benchmark documents behavior approaching 1 million rows on supported row models/hardware.
+  3. Published clone guidance clearly distinguishes measured results from AG Studio marketing claims.
 
 ### AGS-PERF-003
 
@@ -524,35 +594,54 @@ Principles:
 - Acceptance criteria:
   1. Export output quality is sufficient for stakeholder reporting.
 
+### AGS-AI-001
+
+- Priority: should
+- Scope: Parity+
+- Description: Natural-language dashboard assistance aligned with AG Studio public AI positioning.
+- Implementation notes: AI playground/assistant capable of creating dashboards, rearranging layouts, adding filters, and answering data questions through conversational prompts.
+- Acceptance criteria:
+  1. User can issue natural-language prompts that mutate dashboard configuration with preview/confirm controls.
+  2. Assistant can explain proposed changes before applying them.
+  3. AI actions are auditable and reversible.
+
 ## 8. MUI X and Material UI mapping
 
 ## 8.1 MUI X primary usage
 
 - Data Grid: table widget rendering, sorting, grouping, aggregation surfaces.
-- Charts: bar/line/pie/scatter/area where available.
+- Charts: bar/line/pie/scatter/area and grouped/stacked variants where available.
 
 ## 8.2 Material UI primary usage
 
 - App shell: top bar, menus, dialogs, tabs, drawers.
 - Panels/forms: setup and format controls, filters, validation messages.
 - Feedback: snackbar/toast, alerts, progress indicators.
+- Theming surfaces: palette, tokens, style editors, and preview controls.
 
-## 8.3 Splitter and DnD stack
+## 8.3 Layout and DnD stack
 
-- Splitter: dedicated library for canvas widget pane layout (controlled model, resize handles).
-- DnD: dnd-kit (or equivalent) for optional canvas widget drag interactions and drawer toggle accessibility.
+- Layout/DnD: dnd-kit (or equivalent) for canvas widget drag, reorder, and keyboard-accessible layout interactions.
+- Optional structured layout layer: dedicated library only if needed for predictable reflow/resizing, but should not constrain the UX into a pane-splitter metaphor.
+
+## 8.4 Host framework packaging
+
+- React: first-class package and examples.
+- Angular: wrapper/integration package.
+- Vue 3: wrapper/integration package.
+- JavaScript: framework-agnostic embedding API.
 
 ## 9. MVP definition
 
 MVP includes:
 
-- Splitter shell with persistent sizes and keyboard-accessible handles.
-- DnD pane rearrangement.
+- Drawer-based shell exposing Data, Compose, and Filters surfaces.
+- DnD widget rearrangement with resize and reflow.
 - Canvas widget add/move/resize with focused selection.
-- Core widgets: table, bar, line, pie/donut.
+- Core widgets: table, KPI, bar, line, pie/donut.
 - Data sources + field mapping + basic relationships.
 - Page/widget filters + cross-filtering baseline.
-- Setup/Format edit panel.
+- Setup/Format edit panel plus baseline theming controls.
 - getState/setState with schema versioning.
 - Baseline accessibility and performance guardrails.
 
@@ -561,6 +650,7 @@ MVP excludes:
 - AI assistant.
 - Real-time collaboration.
 - Advanced export formats beyond CSV.
+- Production-ready framework code generation/export.
 - Long-tail advanced chart families.
 
 ## 10. Parity+ roadmap
@@ -570,12 +660,15 @@ MVP excludes:
 - Better validation and setup hints.
 - More chart types and richer formatting.
 - Improved filter UX and diagnostics.
+- Richer theming and brand customization.
 
 ### Phase P2: Advanced analytics and integrations
 
 - Async data engine and refresh lifecycle.
 - Additional chart families and advanced table features.
 - Shareable links and richer export.
+- Production-ready code generation for supported frameworks.
+- AI-powered dashboard assistance.
 
 ### Phase P3: Enterprise extensions
 
@@ -588,8 +681,10 @@ MVP excludes:
 ### 11.1 Key risks
 
 1. Feature parity pressure can conflict with MUI X chart type availability.
-2. Splitter + pane DnD complexity can introduce UX instability if not tightly scoped.
+2. Clone-specific drawer shell and structured layout choices may diverge from AG Studio's exact private implementation.
 3. Expression engine quality affects trust in calculated fields/measures.
+4. Production-ready code generation across four framework targets is a significant parity investment.
+5. AI assistant parity requires separate trust, safety, and auditability design.
 
 ### 11.2 Assumptions
 
@@ -604,12 +699,14 @@ MVP excludes:
    - Option B: MUI X first with fallback extension chart adapters.
 2. Exact data volume SLOs per environment.
 3. Export format commitments for MVP vs Parity+.
+4. Whether framework code generation is literal source generation or configuration export plus host wrappers.
+5. Whether AI assistance is a hosted service, pluggable provider interface, or omitted permanently from the clone.
 
 ## 12. Delivery and verification checklist
 
 ### 12.1 Delivery checkpoints
 
-1. Product/design sign-off on splitter+Dnd UX flows.
+1. Product/design sign-off on drawer shell and dashboard layout UX flows.
 2. Technical design sign-off on state schema and migration plan.
 3. MVP feature set freeze with acceptance criteria traceability.
 
@@ -624,25 +721,25 @@ MVP excludes:
 
 - Layout: AGS-LAYOUT-001..005
 - Canvas: AGS-CANVAS-001..004
-- Widget lifecycle: AGS-WIDGET-001..003
+- Widget lifecycle: AGS-WIDGET-001..004
 - Grid: AGS-GRID-001..004
 - Charts: AGS-CHART-001..004
 - Data: AGS-DATA-001..004
 - Filters: AGS-FILTER-001..003
-- Edit panel: AGS-EDIT-001..003
-- State/API: AGS-STATE-001..003
+- Edit panel: AGS-EDIT-001..004
+- State/API: AGS-STATE-001..004
 - Accessibility: AGS-A11Y-001..003
-- Performance: AGS-PERF-001..003
-- Collaboration/export: AGS-COLLAB-001, AGS-EXPORT-001..002
+- Performance: AGS-PERF-001..004
+- Collaboration/export/AI: AGS-COLLAB-001, AGS-EXPORT-001..002, AGS-AI-001
 
 ## 14. Immediate implementation recommendation
 
 Start with a vertical slice that includes:
 
 1. Collapsible drawer shell (Data, Compose, Filters) + drawer state persistence.
-2. Canvas splitter layout with two-widget baseline.
-3. One table widget and one chart widget.
-4. Setup panel mapping (in Compose drawer).
+2. Drag/reflow canvas layout with two-widget baseline.
+3. One table widget, one KPI widget, and one chart widget.
+4. Setup panel mapping plus baseline theming controls.
 5. Basic page filter and state save/restore.
 
-This sequence validates the hardest architecture assumptions early (shell layout, canvas widget arrangement, state, and interaction coordination) before broader widget expansion.
+This sequence validates the hardest architecture assumptions early (shell layout, dashboard layout behavior, widget composition, theming, state, and interaction coordination) before broader widget expansion.

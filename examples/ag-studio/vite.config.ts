@@ -10,6 +10,7 @@ export default defineConfig({
       '@mui/x-charts': path.resolve(__dirname, '../../packages/x-charts/src'),
       '@mui/x-data-grid': path.resolve(__dirname, '../../packages/x-data-grid/src'),
       '@mui/x-internals': path.resolve(__dirname, '../../packages/x-internals/src'),
+      '@mui/x-virtualizer': path.resolve(__dirname, '../../packages/x-virtualizer/src'),
     },
   },
   server: {

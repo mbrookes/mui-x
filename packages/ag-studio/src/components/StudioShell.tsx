@@ -4,9 +4,9 @@ import {
   Badge,
   Box,
   Divider,
+  FormControlLabel,
   IconButton,
-  ToggleButton,
-  ToggleButtonGroup,
+  Switch,
   Toolbar,
   Typography,
 } from '@mui/material';
@@ -179,10 +179,8 @@ function StudioShellContent(props: StudioShellSlots) {
   const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
 
   const handleModeChange = React.useCallback(
-    (_event: React.MouseEvent<HTMLElement>, nextMode: StudioMode | null) => {
-      if (nextMode != null) {
-        controller.setMode(nextMode);
-      }
+    (_event: React.ChangeEvent<HTMLInputElement>, checked: boolean) => {
+      controller.setMode(checked ? 'edit' : 'view');
     },
     [controller],
   );
@@ -199,16 +197,19 @@ function StudioShellContent(props: StudioShellSlots) {
           <Typography variant="h6" sx={{ flexGrow: 1 }} noWrap>
             {dashboardTitle}
           </Typography>
-          <ToggleButtonGroup
-            value={mode}
-            exclusive
-            size="small"
-            onChange={handleModeChange}
-            aria-label="Studio mode"
-          >
-            <ToggleButton value="edit" aria-label="Edit mode">Edit</ToggleButton>
-            <ToggleButton value="view" aria-label="View mode">View</ToggleButton>
-          </ToggleButtonGroup>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={mode === 'edit'}
+                onChange={handleModeChange}
+                size="small"
+                inputProps={{ 'aria-label': 'Toggle edit mode' }}
+              />
+            }
+            label="Edit"
+            labelPlacement="start"
+            sx={{ mr: 0 }}
+          />
         </Toolbar>
       </AppBar>
 

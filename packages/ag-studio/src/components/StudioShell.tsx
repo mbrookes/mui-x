@@ -24,7 +24,7 @@ import { StudioDataDrawer } from './StudioDataDrawer';
 import { StudioComposeDrawer } from './StudioComposeDrawer';
 import { StudioFiltersDrawer } from './StudioFiltersDrawer';
 
-const DRAWER_WIDTH = 320;
+const DRAWER_WIDTH = 215;
 const COLLAPSED_WIDTH = 36;
 
 export interface StudioShellSlots {

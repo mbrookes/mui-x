@@ -60,3 +60,106 @@ export function createDefaultWidget(kind: StudioWidgetKind, source: StudioDataSo
     config: { kpiValueField: valueField, kpiAggregation: 'sum', kpiFormat: 'number' },
   };
 }
+
+/**
+ * Export grid data as CSV
+ */
+export function exportGridToCsv(
+  widget: StudioWidget,
+  dataSource: StudioDataSource | undefined,
+  rows: Record<string, unknown>[],
+): void {
+  if (!dataSource) return;
+
+  const visibleColumns = widget.config.columns?.length
+    ? widget.config.columns
+    : widget.bindings.map((b) => b.field);
+
+  // Create header row
+  const headers = visibleColumns.map((col) => {
+    const field = dataSource.fields.find((f) => f.id === col);
+    return field?.label ?? col;
+  });
+
+  // Create data rows
+  const csvRows = rows.map((row) =>
+    visibleColumns.map((col) => {
+      const value = row[col];
+      // Escape quotes and wrap in quotes if contains comma, quote, or newline
+      const strVal = String(value ?? '');
+      if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n')) {
+        return `"${strVal.replace(/"/g, '""')}"`;
+      }
+      return strVal;
+    }).join(','),
+  );
+
+  const csvContent = [headers.join(','), ...csvRows].join('\n');
+
+  // Download the file
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${widget.title.replace(/[^a-z0-9]/gi, '_')}_export.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Export chart as PNG image
+ */
+export function exportChartToPng(widget: StudioWidget, chartContainer: HTMLElement | null): void {
+  if (!chartContainer) return;
+
+  const svg = chartContainer.querySelector('svg');
+  if (!svg) return;
+
+  // Clone the SVG to avoid modifying the original
+  const clonedSvg = svg.cloneNode(true) as SVGElement;
+  
+  // Get computed styles and inline them
+  const svgRect = svg.getBoundingClientRect();
+  clonedSvg.setAttribute('width', String(svgRect.width));
+  clonedSvg.setAttribute('height', String(svgRect.height));
+
+  // Serialize SVG to string
+  const serializer = new XMLSerializer();
+  const svgString = serializer.serializeToString(clonedSvg);
+  
+  // Create a canvas
+  const canvas = document.createElement('canvas');
+  const scale = 2; // Higher resolution
+  canvas.width = svgRect.width * scale;
+  canvas.height = svgRect.height * scale;
+  
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  
+  ctx.scale(scale, scale);
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Convert SVG to image
+  const img = new Image();
+  const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(svgBlob);
+
+  img.onload = () => {
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+
+    // Download the PNG
+    const pngUrl = canvas.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.href = pngUrl;
+    link.download = `${widget.title.replace(/[^a-z0-9]/gi, '_')}_chart.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  img.src = url;
+}

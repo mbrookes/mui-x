@@ -4,7 +4,14 @@ export type StudioDrawer = 'data' | 'compose' | 'filters';
 
 export type StudioWidgetKind = 'grid' | 'chart' | 'kpi';
 
-export type StudioChartType = 'bar' | 'line' | 'pie';
+export type StudioChartType =
+  | 'bar'
+  | 'line'
+  | 'pie'
+  | 'area'
+  | 'scatter'
+  | 'bar-grouped'
+  | 'bar-stacked';
 
 export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
@@ -38,6 +45,10 @@ export interface StudioWidgetConfig {
   chartType?: StudioChartType;
   xField?: string;
   yField?: string;
+  /** Secondary Y field for grouped/stacked charts or scatter Y axis */
+  yField2?: string;
+  /** Group/series field for grouped or stacked bar charts */
+  seriesField?: string;
   // KPI config
   kpiValueField?: string;
   kpiAggregation?: StudioKpiAggregation;

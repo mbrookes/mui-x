@@ -260,7 +260,11 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
   const fields = source?.fields ?? [];
   const numericFields = fields.filter((f) => f.type === 'number');
+  const categoryFields = fields.filter((f) => f.type === 'string');
   const config = widget?.config ?? {};
+
+  const chartType = config.chartType ?? 'bar';
+  const needsSeriesField = chartType === 'bar-grouped' || chartType === 'bar-stacked';
 
   if (!source) {
     return (
@@ -276,26 +280,30 @@ function ChartSetupPanel(props: { widgetId: string }) {
         <InputLabel>Chart type</InputLabel>
         <Select
           label="Chart type"
-          value={config.chartType ?? 'bar'}
+          value={chartType}
           onChange={(e) =>
             controller.updateWidgetConfig(widgetId, { chartType: e.target.value as StudioChartType })
           }
         >
           <MenuItem value="bar">Bar</MenuItem>
+          <MenuItem value="bar-grouped">Bar (Grouped)</MenuItem>
+          <MenuItem value="bar-stacked">Bar (Stacked)</MenuItem>
           <MenuItem value="line">Line</MenuItem>
+          <MenuItem value="area">Area</MenuItem>
           <MenuItem value="pie">Pie / Donut</MenuItem>
+          <MenuItem value="scatter">Scatter</MenuItem>
         </Select>
       </FormControl>
 
       <FormControl size="small" fullWidth>
-        <InputLabel>X / Category field</InputLabel>
+        <InputLabel>{chartType === 'scatter' ? 'X field (numeric)' : 'X / Category field'}</InputLabel>
         <Select
-          label="X / Category field"
+          label={chartType === 'scatter' ? 'X field (numeric)' : 'X / Category field'}
           value={config.xField ?? ''}
           onChange={(e) => controller.updateWidgetConfig(widgetId, { xField: e.target.value })}
         >
           <MenuItem value=""><em>None</em></MenuItem>
-          {fields.map((f) => (
+          {(chartType === 'scatter' ? numericFields : fields).map((f) => (
             <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
           ))}
         </Select>
@@ -314,6 +322,22 @@ function ChartSetupPanel(props: { widgetId: string }) {
           ))}
         </Select>
       </FormControl>
+
+      {needsSeriesField && (
+        <FormControl size="small" fullWidth>
+          <InputLabel>Series / Group field</InputLabel>
+          <Select
+            label="Series / Group field"
+            value={config.seriesField ?? ''}
+            onChange={(e) => controller.updateWidgetConfig(widgetId, { seriesField: e.target.value })}
+          >
+            <MenuItem value=""><em>None</em></MenuItem>
+            {categoryFields.map((f) => (
+              <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      )}
     </Stack>
   );
 }

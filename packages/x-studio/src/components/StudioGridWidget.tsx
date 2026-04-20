@@ -60,13 +60,14 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
 
   const handleRowSelectionChange = React.useCallback(
     (selection: GridRowSelectionModel) => {
-      if (selection.length === 0) {
+      const ids = Array.from(selection.ids);
+      if (ids.length === 0) {
         controller.clearCrossFilter(widget.id);
         return;
       }
 
       // Use the first selected row for cross-filtering
-      const selectedRowId = selection[0];
+      const selectedRowId = ids[0];
       const selectedRow = rows.find((r) => r.id === selectedRowId);
       if (!selectedRow) return;
 
@@ -74,7 +75,7 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
       const categoryField = dataSource?.fields.find((f) => f.type === 'string');
       if (!categoryField) return;
 
-      const value = selectedRow[categoryField.id];
+      const value = (selectedRow as Record<string, unknown>)[categoryField.id];
       if (value !== undefined) {
         controller.applyCrossFilter(widget.id, categoryField.id, value);
       }
@@ -113,7 +114,6 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
           },
         }}
         onRowSelectionModelChange={handleRowSelectionChange}
-        rowSelectionModel={[]}
       />
     </Box>
   );

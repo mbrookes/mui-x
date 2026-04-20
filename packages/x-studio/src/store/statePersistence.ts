@@ -80,7 +80,7 @@ export function migrateState(state: unknown): MigrationResult {
   if (fromVersion === CURRENT_SCHEMA_VERSION) {
     return {
       success: true,
-      state: state as SerializedStudioState,
+      state: state as unknown as SerializedStudioState,
       fromVersion,
       toVersion: CURRENT_SCHEMA_VERSION,
       errors: [],
@@ -133,7 +133,7 @@ export function migrateState(state: unknown): MigrationResult {
 
   return {
     success: true,
-    state: currentState as SerializedStudioState,
+    state: currentState as unknown as SerializedStudioState,
     fromVersion,
     toVersion: CURRENT_SCHEMA_VERSION,
     errors,

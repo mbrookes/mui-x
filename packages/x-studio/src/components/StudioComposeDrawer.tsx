@@ -88,7 +88,7 @@ function AddWidgetView() {
           function handleDragStart(e: DragEvent) {
             setIsDragging(true);
             e.dataTransfer?.setData('application/json', JSON.stringify({ type: 'compose-widget', kind: wt.kind }));
-            e.dataTransfer?.setDragImage(node, 0, 0);
+            if (node) e.dataTransfer?.setDragImage(node, 0, 0);
           }
           function handleDragEnd() {
             setIsDragging(false);

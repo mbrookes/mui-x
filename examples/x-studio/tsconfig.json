@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@mui/x-studio": ["../../packages/x-studio/src"],
+      "@mui/x-studio/*": ["../../packages/x-studio/src/*"],
+      "@mui/x-charts": ["../../packages/x-charts/src"],
+      "@mui/x-charts/*": ["../../packages/x-charts/src/*"],
+      "@mui/x-data-grid": ["../../packages/x-data-grid/src"],
+      "@mui/x-data-grid/*": ["../../packages/x-data-grid/src/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

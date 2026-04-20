@@ -62,7 +62,7 @@ export interface StudioWidget {
 export interface StudioPage {
   id: string;
   title: string;
-  widgetIds: string[];
+  widgetRows: string[][]; // Each row is an array of widget IDs
 }
 
 export interface StudioDataField {
@@ -132,7 +132,7 @@ export function createDefaultStudioState(overrides?: Partial<StudioState>): Stud
       [defaultPageId]: {
         id: defaultPageId,
         title: 'Page 1',
-        widgetIds: [],
+        widgetRows: [], // No widgets by default
       },
     },
     widgets: {},

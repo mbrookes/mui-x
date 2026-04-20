@@ -81,14 +81,17 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   }, [filteredRows, config.xField, config.yField]);
 
   const handleItemClick = React.useCallback(
-    (label: string | number) => {
+    (label: string | number | Date) => {
       if (!config.xField) return;
 
+      // Convert Date to string for filtering
+      const filterValue = label instanceof Date ? label.toISOString() : label;
+
       // Toggle cross-filter: if same value is already active, clear it
-      if (activeCrossFilter && activeCrossFilter.value === label) {
+      if (activeCrossFilter && activeCrossFilter.value === filterValue) {
         controller.clearCrossFilter(widget.id);
       } else {
-        controller.applyCrossFilter(widget.id, config.xField, label);
+        controller.applyCrossFilter(widget.id, config.xField, filterValue);
       }
     },
     [controller, widget.id, config.xField, activeCrossFilter],

@@ -178,6 +178,7 @@ export function StudioFiltersDrawer() {
 
   const pageFilters = filters.filter((f) => f.scope === 'page');
   const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === selectedWidgetId);
+  const crossFilters = filters.filter((f) => f.scope === 'cross-filter');
 
   const handleAddPageFilter = () => {
     if (allFields.length === 0) {
@@ -237,6 +238,66 @@ export function StudioFiltersDrawer() {
           Select a widget to add widget-level filters.
         </Typography>
       )}
+
+      <Divider />
+
+      {/* Cross-filters section */}
+      <Box>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+          <Typography variant="subtitle2">Cross-filters</Typography>
+          <Chip label={crossFilters.length} size="small" />
+        </Stack>
+
+        {crossFilters.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No cross-filters active. Click on chart elements or select grid rows to create cross-filters.
+          </Typography>
+        ) : (
+          <Stack spacing={1}>
+            {crossFilters.map((filter) => (
+              <Box
+                key={filter.id}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  p: 1,
+                  borderRadius: 1,
+                  bgcolor: 'action.selected',
+                  border: 1,
+                  borderColor: 'primary.light',
+                }}
+              >
+                <Box>
+                  <Typography variant="body2">
+                    {filter.field} = {String(filter.value)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    From widget: {filter.sourceWidgetId}
+                  </Typography>
+                </Box>
+                <Tooltip title="Remove cross-filter">
+                  <IconButton
+                    size="small"
+                    onClick={() => controller.removeFilter(filter.id)}
+                    aria-label="Remove cross-filter"
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            ))}
+            <Button
+              size="small"
+              color="error"
+              onClick={() => controller.clearAllCrossFilters()}
+              startIcon={<DeleteIcon />}
+            >
+              Clear all cross-filters
+            </Button>
+          </Stack>
+        )}
+      </Box>
     </Stack>
   );
 }

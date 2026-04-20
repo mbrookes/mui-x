@@ -90,6 +90,8 @@ export interface StudioFilterState {
   value: unknown;
   scope: 'page' | 'widget' | 'cross-filter';
   widgetId?: string;
+  /** For cross-filters: the widget ID that originated the filter */
+  sourceWidgetId?: string;
 }
 
 export interface StudioShellState {

@@ -2,11 +2,11 @@ import * as React from 'react';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import { PieChart } from '@mui/x-charts/PieChart';
-import { Box, Typography } from '@mui/material';
+import { Box, Chip, Stack, Typography } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import { applyFilters, aggregateByField } from './chartUtils';
-import { useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector } from '../context';
 
 export interface StudioChartWidgetProps {
   widget: StudioWidget;
@@ -18,7 +18,14 @@ const CHART_HEIGHT = 260;
 export function StudioChartWidget(props: StudioChartWidgetProps) {
   const { dataSource, widget } = props;
   const { config } = widget;
+  const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
+  const mode = useStudioSelector((state) => state.mode);
+
+  // Check if this widget has an active cross-filter
+  const activeCrossFilter = filters.find(
+    (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id,
+  );
 
   const chartData = React.useMemo(() => {
     if (!dataSource?.rows) {
@@ -27,7 +34,11 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
 
     const pageFilters = filters.filter((f) => f.scope === 'page');
     const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
-    const allFilters = [...pageFilters, ...widgetFilters];
+    // Cross-filters from OTHER widgets affect this widget
+    const crossFilters = filters.filter(
+      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
+    );
+    const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
 
     const rows = applyFilters(dataSource.rows, allFilters);
 
@@ -40,6 +51,20 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
 
     return aggregateByField(rows, xField, yField);
   }, [dataSource, filters, config.xField, config.yField, widget.id]);
+
+  const handleItemClick = React.useCallback(
+    (label: string | number) => {
+      if (!config.xField) return;
+
+      // Toggle cross-filter: if same value is already active, clear it
+      if (activeCrossFilter && activeCrossFilter.value === label) {
+        controller.clearCrossFilter(widget.id);
+      } else {
+        controller.applyCrossFilter(widget.id, config.xField, label);
+      }
+    },
+    [controller, widget.id, config.xField, activeCrossFilter],
+  );
 
   const chartType = config.chartType ?? 'bar';
 
@@ -55,21 +80,44 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     );
   }
 
+  // Cross-filter indicator
+  const crossFilterIndicator = activeCrossFilter ? (
+    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+      <Chip
+        size="small"
+        label={`Filtering: ${config.xField} = ${activeCrossFilter.value}`}
+        onDelete={() => controller.clearCrossFilter(widget.id)}
+        color="primary"
+        variant="outlined"
+      />
+    </Stack>
+  ) : null;
+
   if (chartType === 'pie') {
     return (
-      <PieChart
-        series={[
-          {
-            data: chartData.labels.map((label, i) => ({
-              id: i,
-              label: String(label),
-              value: chartData.values[i],
-            })),
-            highlightScope: { highlight: 'item', fade: 'global' },
-          },
-        ]}
-        height={CHART_HEIGHT}
-      />
+      <Box>
+        {crossFilterIndicator}
+        <PieChart
+          series={[
+            {
+              data: chartData.labels.map((label, i) => ({
+                id: i,
+                label: String(label),
+                value: chartData.values[i],
+              })),
+              highlightScope: { highlight: 'item', fade: 'global' },
+            },
+          ]}
+          height={CHART_HEIGHT}
+          onItemClick={(_event, params) => {
+            const label = chartData.labels[params.dataIndex];
+            if (label !== undefined) {
+              handleItemClick(label);
+            }
+          }}
+          sx={{ cursor: 'pointer' }}
+        />
+      </Box>
     );
   }
 
@@ -78,19 +126,37 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
 
   if (chartType === 'line') {
     return (
-      <LineChart
-        xAxis={[{ data: xAxisData, scaleType: 'point' }]}
-        series={[{ data: chartData.values, label: seriesLabel, area: false }]}
-        height={CHART_HEIGHT}
-      />
+      <Box>
+        {crossFilterIndicator}
+        <LineChart
+          xAxis={[{ data: xAxisData, scaleType: 'point' }]}
+          series={[{ data: chartData.values, label: seriesLabel, area: false }]}
+          height={CHART_HEIGHT}
+          onAxisClick={(_event, params) => {
+            if (params?.axisValue !== undefined) {
+              handleItemClick(params.axisValue);
+            }
+          }}
+          sx={{ cursor: 'pointer' }}
+        />
+      </Box>
     );
   }
 
   return (
-    <BarChart
-      xAxis={[{ data: xAxisData, scaleType: 'band' }]}
-      series={[{ data: chartData.values, label: seriesLabel }]}
-      height={CHART_HEIGHT}
-    />
+    <Box>
+      {crossFilterIndicator}
+      <BarChart
+        xAxis={[{ data: xAxisData, scaleType: 'band' }]}
+        series={[{ data: chartData.values, label: seriesLabel }]}
+        height={CHART_HEIGHT}
+        onAxisClick={(_event, params) => {
+          if (params?.axisValue !== undefined) {
+            handleItemClick(params.axisValue);
+          }
+        }}
+        sx={{ cursor: 'pointer' }}
+      />
+    </Box>
   );
 }

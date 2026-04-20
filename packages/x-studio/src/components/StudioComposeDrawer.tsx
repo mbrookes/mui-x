@@ -18,6 +18,7 @@ import {
 import { useStudioController, useStudioSelector } from '../context';
 import type { StudioChartType, StudioKpiAggregation, StudioKpiFormat, StudioWidgetKind } from '../models';
 import { createDefaultWidget, WIDGET_TYPES } from './widgetUtils';
+// import { useDraggable } from '@atlaskit/pragmatic-drag-and-drop-react';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -78,43 +79,68 @@ function AddWidgetView() {
           No data sources available yet.
         </Alert>
       )}
-      {WIDGET_TYPES.map((wt) => (
-        <Paper
-          key={wt.kind}
-          variant="outlined"
-          onClick={() => handleAdd(wt.kind)}
-          tabIndex={0}
-          role="button"
-          aria-label={`Add ${wt.label} widget`}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              handleAdd(wt.kind);
-            }
-          }}
-          sx={{
-            p: 1.5,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.5,
-            cursor: hasSources ? 'pointer' : 'not-allowed',
-            opacity: hasSources ? 1 : 0.5,
-            transition: 'border-color 0.15s, background-color 0.15s',
-            '&:hover': hasSources ? { borderColor: 'primary.main', bgcolor: 'action.hover' } : {},
-            '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
-          }}
-        >
-          <Box sx={{ color: 'primary.main', display: 'flex', flexShrink: 0 }}>
-            {wt.icon}
-          </Box>
-          <Box>
-            <Typography variant="subtitle2">{wt.label}</Typography>
-            <Typography variant="caption" color="text.secondary">
-              {wt.description}
-            </Typography>
-          </Box>
-        </Paper>
-      ))}
+      {WIDGET_TYPES.map((wt) => {
+        const ref = React.useRef<HTMLDivElement>(null);
+        const [isDragging, setIsDragging] = React.useState(false);
+        React.useEffect(() => {
+          const node = ref.current;
+          if (!node) return;
+          function handleDragStart(e: DragEvent) {
+            setIsDragging(true);
+            e.dataTransfer?.setData('application/json', JSON.stringify({ type: 'compose-widget', kind: wt.kind }));
+            e.dataTransfer?.setDragImage(node, 0, 0);
+          }
+          function handleDragEnd() {
+            setIsDragging(false);
+          }
+          node.setAttribute('draggable', 'true');
+          node.addEventListener('dragstart', handleDragStart);
+          node.addEventListener('dragend', handleDragEnd);
+          return () => {
+            node.removeEventListener('dragstart', handleDragStart);
+            node.removeEventListener('dragend', handleDragEnd);
+          };
+        }, [wt.kind]);
+        return (
+          <Paper
+            key={wt.kind}
+            ref={ref}
+            variant="outlined"
+            onClick={() => handleAdd(wt.kind)}
+            tabIndex={0}
+            role="button"
+            aria-label={`Add ${wt.label} widget`}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleAdd(wt.kind);
+              }
+            }}
+            sx={{
+              p: 1.5,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+              cursor: hasSources ? (isDragging ? 'grabbing' : 'grab') : 'not-allowed',
+              opacity: hasSources ? 1 : 0.5,
+              transition: 'border-color 0.15s, background-color 0.15s',
+              '&:hover': hasSources ? { borderColor: 'primary.main', bgcolor: 'action.hover' } : {},
+              '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
+              boxShadow: isDragging ? 4 : undefined,
+            }}
+          >
+            <Box sx={{ color: 'primary.main', display: 'flex', flexShrink: 0 }}>
+              {wt.icon}
+            </Box>
+            <Box>
+              <Typography variant="subtitle2">{wt.label}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {wt.description}
+              </Typography>
+            </Box>
+          </Paper>
+        );
+      })}
     </Stack>
   );
 }

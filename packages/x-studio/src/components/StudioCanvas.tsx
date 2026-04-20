@@ -100,6 +100,7 @@ function WidgetCard(props: WidgetCardProps) {
       onClick={() => controller.setSelectedWidget(widgetId)}
       aria-selected={isSelected}
       aria-label={`Widget: ${widget.title}`}
+      data-widget-card
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -227,8 +228,8 @@ export function StudioCanvas() {
           position: 'relative',
           ...(orientation === 'vertical'
             ? {
-                width: 16,
-                minWidth: 16,
+                width: 8,
+                minWidth: 8,
                 alignSelf: 'stretch',
                 display: 'flex',
                 alignItems: 'stretch',
@@ -236,7 +237,7 @@ export function StudioCanvas() {
               }
             : {
                 width: '100%',
-                height: 16,
+                height: 8,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'stretch',
@@ -353,16 +354,23 @@ export function StudioCanvas() {
   }
 
   return (
-    <Box sx={{ width: '100%' }}>
+    <Box
+      sx={{ width: '100%', p: mode === 'edit' ? 0 : '8px' }}
+      onMouseDown={(e) => {
+        // Deselect when clicking the canvas background (not a widget card)
+        const target = e.target as HTMLElement;
+        if (!target.closest('[data-widget-card]')) {
+          controller.setSelectedWidget(null);
+        }
+      }}
+    >
       {/* Insertion point above the first row — inset by the vertical drop zone width (16px) on each side */}
       {mode === 'edit' && (
-        <Box sx={{ mx: '16px' }}>
-          <InsertionPoint rowIndex={0} colIndex={0} onDrop={handleDrop(0, 0, 'horizontal')} orientation="horizontal" />
-        </Box>
+        <InsertionPoint rowIndex={0} colIndex={0} onDrop={handleDrop(0, 0, 'horizontal')} orientation="horizontal" />
       )}
       {widgetRows.map((row, rowIndex) => (
-        <Box key={rowIndex}>
-          <Box sx={{ display: 'flex', gap: 0, width: '100%', alignItems: 'stretch' }}>
+        <Box key={rowIndex} sx={rowIndex > 0 && mode !== 'edit' ? { mt: 1 } : undefined}>
+          <Box sx={{ display: 'flex', gap: mode === 'edit' ? 0 : 1, width: '100%', alignItems: 'stretch' }}>
             {/* Insertion point before first widget in row */}
             {mode === 'edit' && <InsertionPoint rowIndex={rowIndex} colIndex={0} onDrop={handleDrop(rowIndex, 0, 'vertical')} orientation="vertical" />}
             {row.map((widgetId, colIndex) => (
@@ -375,11 +383,9 @@ export function StudioCanvas() {
               </React.Fragment>
             ))}
           </Box>
-          {/* Insertion point below this row — inset by the vertical drop zone width (16px) on each side */}
+          {/* Insertion point below this row */}
           {mode === 'edit' && (
-            <Box sx={{ mx: '16px' }}>
-              <InsertionPoint rowIndex={rowIndex + 1} colIndex={0} onDrop={handleDrop(rowIndex + 1, 0, 'horizontal')} orientation="horizontal" />
-            </Box>
+            <InsertionPoint rowIndex={rowIndex + 1} colIndex={0} onDrop={handleDrop(rowIndex + 1, 0, 'horizontal')} orientation="horizontal" />
           )}
         </Box>
       ))}

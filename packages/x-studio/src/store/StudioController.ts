@@ -256,6 +256,58 @@ export class StudioController {
     });
   };
 
+  /**
+   * Applies a cross-filter from a source widget. This creates a filter that affects
+   * all other widgets on the page except the source widget.
+   */
+  applyCrossFilter = (sourceWidgetId: string, field: string, value: unknown) => {
+    const state = this.store.state;
+    // Remove any existing cross-filter from the same source widget
+    const existingFilters = state.filters.filter(
+      (f) => !(f.scope === 'cross-filter' && f.sourceWidgetId === sourceWidgetId),
+    );
+
+    const crossFilter: import('../models').StudioFilterState = {
+      id: `cross-filter-${sourceWidgetId}-${Date.now()}`,
+      field,
+      operator: 'equals',
+      value,
+      scope: 'cross-filter',
+      sourceWidgetId,
+    };
+
+    this.store.setState({
+      ...state,
+      filters: [...existingFilters, crossFilter],
+    });
+  };
+
+  /**
+   * Clears the cross-filter originating from a specific widget.
+   */
+  clearCrossFilter = (sourceWidgetId: string) => {
+    const state = this.store.state;
+
+    this.store.setState({
+      ...state,
+      filters: state.filters.filter(
+        (f) => !(f.scope === 'cross-filter' && f.sourceWidgetId === sourceWidgetId),
+      ),
+    });
+  };
+
+  /**
+   * Clears all cross-filters.
+   */
+  clearAllCrossFilters = () => {
+    const state = this.store.state;
+
+    this.store.setState({
+      ...state,
+      filters: state.filters.filter((f) => f.scope !== 'cross-filter'),
+    });
+  };
+
   subscribe = (listener: Parameters<typeof this.store.subscribe>[0]) =>
     this.store.subscribe(listener);
 }

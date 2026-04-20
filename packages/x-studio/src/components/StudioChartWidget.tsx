@@ -2,10 +2,11 @@ import * as React from 'react';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import { PieChart } from '@mui/x-charts/PieChart';
+import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import { Box, Chip, Stack, Typography } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
-import { applyFilters, aggregateByField } from './chartUtils';
+import { applyFilters, aggregateByField, aggregateByTwoFields, prepareScatterData } from './chartUtils';
 import { useStudioController, useStudioSelector } from '../context';
 
 export interface StudioChartWidgetProps {
@@ -27,30 +28,57 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id,
   );
 
-  const chartData = React.useMemo(() => {
+  // Get filtered rows
+  const filteredRows = React.useMemo(() => {
     if (!dataSource?.rows) {
-      return null;
+      return [];
     }
 
     const pageFilters = filters.filter((f) => f.scope === 'page');
     const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
-    // Cross-filters from OTHER widgets affect this widget
     const crossFilters = filters.filter(
       (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
     );
     const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
 
-    const rows = applyFilters(dataSource.rows, allFilters);
+    return applyFilters(dataSource.rows, allFilters);
+  }, [dataSource, filters, widget.id]);
 
+  const chartData = React.useMemo(() => {
     const xField = config.xField;
     const yField = config.yField;
 
-    if (!xField || !yField) {
+    if (!xField || !yField || filteredRows.length === 0) {
       return null;
     }
 
-    return aggregateByField(rows, xField, yField);
-  }, [dataSource, filters, config.xField, config.yField, widget.id]);
+    return aggregateByField(filteredRows, xField, yField);
+  }, [filteredRows, config.xField, config.yField]);
+
+  // Data for grouped/stacked charts (multiple series)
+  const multiSeriesData = React.useMemo(() => {
+    const xField = config.xField;
+    const yField = config.yField;
+    const seriesField = config.seriesField;
+
+    if (!xField || !yField || !seriesField || filteredRows.length === 0) {
+      return null;
+    }
+
+    return aggregateByTwoFields(filteredRows, xField, seriesField, yField);
+  }, [filteredRows, config.xField, config.yField, config.seriesField]);
+
+  // Data for scatter charts
+  const scatterData = React.useMemo(() => {
+    const xField = config.xField;
+    const yField = config.yField;
+
+    if (!xField || !yField || filteredRows.length === 0) {
+      return null;
+    }
+
+    return prepareScatterData(filteredRows, xField, yField);
+  }, [filteredRows, config.xField, config.yField]);
 
   const handleItemClick = React.useCallback(
     (label: string | number) => {
@@ -68,18 +96,6 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
 
   const chartType = config.chartType ?? 'bar';
 
-  if (!chartData || chartData.labels.length === 0) {
-    return (
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: CHART_HEIGHT }}>
-        <Typography variant="body2" color="text.secondary">
-          {!config.xField || !config.yField
-            ? 'Configure x and y fields in the Compose drawer.'
-            : 'No data to display.'}
-        </Typography>
-      </Box>
-    );
-  }
-
   // Cross-filter indicator
   const crossFilterIndicator = activeCrossFilter ? (
     <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
@@ -92,6 +108,92 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
       />
     </Stack>
   ) : null;
+
+  // Scatter chart
+  if (chartType === 'scatter') {
+    if (!scatterData || scatterData.length === 0) {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: CHART_HEIGHT }}>
+          <Typography variant="body2" color="text.secondary">
+            {!config.xField || !config.yField
+              ? 'Configure x and y fields in the Compose drawer.'
+              : 'No data to display.'}
+          </Typography>
+        </Box>
+      );
+    }
+
+    const xLabel = dataSource?.fields.find((f) => f.id === config.xField)?.label ?? config.xField ?? 'X';
+    const yLabel = dataSource?.fields.find((f) => f.id === config.yField)?.label ?? config.yField ?? 'Y';
+
+    return (
+      <Box>
+        {crossFilterIndicator}
+        <ScatterChart
+          series={[
+            {
+              data: scatterData,
+              label: `${xLabel} vs ${yLabel}`,
+            },
+          ]}
+          height={CHART_HEIGHT}
+          sx={{ cursor: 'pointer' }}
+        />
+      </Box>
+    );
+  }
+
+  // Grouped or stacked bar charts
+  if (chartType === 'bar-grouped' || chartType === 'bar-stacked') {
+    if (!multiSeriesData || multiSeriesData.labels.length === 0) {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: CHART_HEIGHT }}>
+          <Typography variant="body2" color="text.secondary">
+            {!config.xField || !config.yField || !config.seriesField
+              ? 'Configure x, y, and series fields in the Compose drawer.'
+              : 'No data to display.'}
+          </Typography>
+        </Box>
+      );
+    }
+
+    const xAxisData = multiSeriesData.labels.map(String);
+    const series = multiSeriesData.seriesNames.map((seriesName) => ({
+      data: multiSeriesData.seriesData[seriesName],
+      label: String(seriesName),
+      stack: chartType === 'bar-stacked' ? 'total' : undefined,
+    }));
+
+    return (
+      <Box>
+        {crossFilterIndicator}
+        <BarChart
+          xAxis={[{ data: xAxisData, scaleType: 'band' }]}
+          series={series}
+          height={CHART_HEIGHT}
+          onAxisClick={(_event, params) => {
+            if (params?.axisValue !== undefined) {
+              handleItemClick(params.axisValue);
+            }
+          }}
+          sx={{ cursor: 'pointer' }}
+        />
+      </Box>
+    );
+  }
+
+  // Standard charts (bar, line, pie, area)
+  if (!chartData || chartData.labels.length === 0) {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: CHART_HEIGHT }}>
+        <Typography variant="body2" color="text.secondary">
+          {!config.xField || !config.yField
+            ? 'Configure x and y fields in the Compose drawer.'
+            : 'No data to display.'}
+        </Typography>
+      </Box>
+    );
+  }
 
   if (chartType === 'pie') {
     return (
@@ -143,6 +245,26 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     );
   }
 
+  if (chartType === 'area') {
+    return (
+      <Box>
+        {crossFilterIndicator}
+        <LineChart
+          xAxis={[{ data: xAxisData, scaleType: 'point' }]}
+          series={[{ data: chartData.values, label: seriesLabel, area: true }]}
+          height={CHART_HEIGHT}
+          onAxisClick={(_event, params) => {
+            if (params?.axisValue !== undefined) {
+              handleItemClick(params.axisValue);
+            }
+          }}
+          sx={{ cursor: 'pointer' }}
+        />
+      </Box>
+    );
+  }
+
+  // Default: bar chart
   return (
     <Box>
       {crossFilterIndicator}

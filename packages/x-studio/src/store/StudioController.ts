@@ -102,7 +102,9 @@ export class StudioController {
   addWidget = (widget: StudioWidget) => {
     const state = this.store.state;
     const activePage = state.pages[state.dashboard.activePageId];
-
+    const widgetRows = activePage.widgetRows || [];
+    // Add new widget as a new row by default
+    const newWidgetRows = [...widgetRows, [widget.id]];
     this.store.setState({
       ...state,
       widgets: {
@@ -113,7 +115,7 @@ export class StudioController {
         ...state.pages,
         [activePage.id]: {
           ...activePage,
-          widgetIds: [...activePage.widgetIds, widget.id],
+          widgetRows: newWidgetRows,
         },
       },
       shell: {
@@ -127,7 +129,11 @@ export class StudioController {
     const state = this.store.state;
     const activePage = state.pages[state.dashboard.activePageId];
     const { [widgetId]: _removed, ...remainingWidgets } = state.widgets;
-
+    const widgetRows = activePage.widgetRows || [];
+    // Remove widgetId from all rows, and filter out empty rows
+    const newWidgetRows = widgetRows
+      .map((row) => row.filter((id) => id !== widgetId))
+      .filter((row) => row.length > 0);
     this.store.setState({
       ...state,
       widgets: remainingWidgets,
@@ -135,7 +141,7 @@ export class StudioController {
         ...state.pages,
         [activePage.id]: {
           ...activePage,
-          widgetIds: activePage.widgetIds.filter((id) => id !== widgetId),
+          widgetRows: newWidgetRows,
         },
       },
       shell: {
@@ -192,7 +198,9 @@ export class StudioController {
 
     const newId = `${widgetId}-copy-${Date.now()}`;
     const activePage = state.pages[state.dashboard.activePageId];
-
+    const widgetRows = activePage.widgetRows || [];
+    // Add duplicate as a new row
+    const newWidgetRows = [...widgetRows, [newId]];
     this.store.setState({
       ...state,
       widgets: {
@@ -203,7 +211,7 @@ export class StudioController {
         ...state.pages,
         [activePage.id]: {
           ...activePage,
-          widgetIds: [...activePage.widgetIds, newId],
+          widgetRows: newWidgetRows,
         },
       },
       shell: {

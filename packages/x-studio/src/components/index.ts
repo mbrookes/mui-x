@@ -6,3 +6,4 @@ export * from './StudioKpiWidget';
 export * from './StudioDataDrawer';
 export * from './StudioComposeDrawer';
 export * from './StudioFiltersDrawer';
+export * from './StudioThemeDrawer';

@@ -308,6 +308,36 @@ export class StudioController {
     });
   };
 
+  /**
+   * Updates theme settings
+   */
+  updateTheme = (themeChanges: Partial<import('../models').StudioThemeState>) => {
+    const state = this.store.state;
+
+    this.store.setState({
+      ...state,
+      theme: {
+        ...state.theme,
+        ...themeChanges,
+      },
+    });
+  };
+
+  /**
+   * Updates the dashboard title
+   */
+  setDashboardTitle = (title: string) => {
+    const state = this.store.state;
+
+    this.store.setState({
+      ...state,
+      dashboard: {
+        ...state.dashboard,
+        title,
+      },
+    });
+  };
+
   subscribe = (listener: Parameters<typeof this.store.subscribe>[0]) =>
     this.store.subscribe(listener);
 }

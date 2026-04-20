@@ -1,6 +1,6 @@
 export type StudioMode = 'edit' | 'view';
 
-export type StudioDrawer = 'data' | 'compose' | 'filters';
+export type StudioDrawer = 'data' | 'compose' | 'filters' | 'theme';
 
 export type StudioWidgetKind = 'grid' | 'chart' | 'kpi';
 
@@ -90,8 +90,19 @@ export interface StudioDataSource {
   rows?: Record<string, unknown>[];
 }
 
+export type StudioColorMode = 'light' | 'dark' | 'system';
+
 export interface StudioThemeState {
+  /** Component density */
   density: 'compact' | 'standard' | 'comfortable';
+  /** Color mode */
+  colorMode: StudioColorMode;
+  /** Primary color (hex) */
+  primaryColor: string;
+  /** Border radius in pixels */
+  borderRadius: number;
+  /** Font family */
+  fontFamily: string;
 }
 
 export interface StudioFilterState {
@@ -153,12 +164,17 @@ export function createDefaultStudioState(overrides?: Partial<StudioState>): Stud
     filters: [],
     theme: {
       density: 'standard',
+      colorMode: 'light',
+      primaryColor: '#1976d2',
+      borderRadius: 4,
+      fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
     },
     shell: {
       openDrawers: {
         data: true,
         compose: true,
         filters: false,
+        theme: false,
       },
       selectedWidgetId: null,
       selectedFieldId: null,

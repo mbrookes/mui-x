@@ -182,7 +182,11 @@ function StudioShellContent(props: StudioShellSlots) {
 
   const handleModeChange = React.useCallback(
     (_event: React.ChangeEvent<HTMLInputElement>, checked: boolean) => {
-      controller.setMode(checked ? 'edit' : 'view');
+      const newMode = checked ? 'edit' : 'view';
+      if (newMode === 'view') {
+        controller.clearSelection();
+      }
+      controller.setMode(newMode);
     },
     [controller],
   );
@@ -217,17 +221,21 @@ function StudioShellContent(props: StudioShellSlots) {
       </AppBar>
 
       <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
-        <DrawerPanel drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
-          {dataDrawer ?? <StudioDataDrawer />}
-        </DrawerPanel>
-        <DrawerPanel drawer="compose" title={composeTitle} icon={<TuneIcon fontSize="small" />} onBack={composeOnBack}>
-          {composeDrawer ?? <StudioComposeDrawer />}
-        </DrawerPanel>
+        {mode === 'edit' && (
+          <DrawerPanel drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
+            {dataDrawer ?? <StudioDataDrawer />}
+          </DrawerPanel>
+        )}
+        {mode === 'edit' && (
+          <DrawerPanel drawer="compose" title={composeTitle} icon={<TuneIcon fontSize="small" />} onBack={composeOnBack}>
+            {composeDrawer ?? <StudioComposeDrawer />}
+          </DrawerPanel>
+        )}
         <DrawerPanel drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
           {filtersDrawer ?? <StudioFiltersDrawer />}
         </DrawerPanel>
 
-        <Box sx={{ flexGrow: 1, p: 2, minWidth: 0, overflowY: 'auto' }}>
+        <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', bgcolor: 'grey.100' }}>
           {canvas ?? <StudioCanvas />}
         </Box>
       </Box>

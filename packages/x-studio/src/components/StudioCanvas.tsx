@@ -11,13 +11,15 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DownloadIcon from '@mui/icons-material/Download';
 
 import { useStudioController, useStudioSelector } from '../context';
 import type { StudioDataSource, StudioWidgetKind } from '../models';
 import { StudioGridWidget } from './StudioGridWidget';
 import { StudioChartWidget } from './StudioChartWidget';
 import { StudioKpiWidget } from './StudioKpiWidget';
-import { createDefaultWidget } from './widgetUtils';
+import { createDefaultWidget, exportGridToCsv, exportChartToPng } from './widgetUtils';
+import { applyFilters } from './chartUtils';
 
 const SALES_SOURCE_ID = 'source-sales';
 
@@ -59,11 +61,13 @@ function WidgetCard(props: WidgetCardProps) {
   const mode = useStudioSelector((state) => state.mode);
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
   const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
+  const filters = useStudioSelector((state) => state.filters);
   const isSelected = selectedWidgetId === widgetId;
   const source = useStudioSelector((state) =>
     widget?.sourceId ? state.dataSources[widget.sourceId] : undefined,
   );
   const ref = React.useRef<HTMLDivElement>(null);
+  const chartContainerRef = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
   React.useEffect(() => {
     if (mode !== 'edit') return;
@@ -87,11 +91,38 @@ function WidgetCard(props: WidgetCardProps) {
     };
   }, [widgetId, mode]);
 
+  // Get filtered rows for export
+  const filteredRows = React.useMemo(() => {
+    if (!source?.rows || !widget) return [];
+    const pageFilters = filters.filter((f) => f.scope === 'page');
+    const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
+    const crossFilters = filters.filter(
+      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
+    );
+    const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
+    return applyFilters(source.rows, allFilters);
+  }, [source, widget, filters]);
+
+  const handleExport = React.useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!widget) return;
+
+      if (widget.kind === 'grid') {
+        exportGridToCsv(widget, source, filteredRows);
+      } else if (widget.kind === 'chart') {
+        exportChartToPng(widget, chartContainerRef.current);
+      }
+    },
+    [widget, source, filteredRows],
+  );
+
   if (!widget) {
     return null;
   }
 
   const kindLabel: Record<StudioWidgetKind, string> = { grid: 'Table', chart: 'Chart', kpi: 'KPI' };
+  const canExport = widget.kind === 'grid' || widget.kind === 'chart';
 
   return (
     <Paper
@@ -136,6 +167,17 @@ function WidgetCard(props: WidgetCardProps) {
           {/* Edit/delete buttons on selected card, or on hover if no card is selected. Pill always in edit mode. */}
           {mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered)) ? (
             <Stack direction="row" spacing={0.5} alignItems="center">
+              {canExport && (
+                <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
+                  <IconButton
+                    size="small"
+                    onClick={handleExport}
+                    aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
+                  >
+                    <DownloadIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
               <Tooltip title="Duplicate widget">
                 <IconButton
                   size="small"
@@ -164,14 +206,32 @@ function WidgetCard(props: WidgetCardProps) {
               <Chip label={kindLabel[widget.kind]} size="small" variant="outlined" sx={{ ml: 1 }} />
             </Stack>
           ) : (
-            mode === 'edit' && (
-              <Chip label={kindLabel[widget.kind]} size="small" variant="outlined" />
-            )
+            <Stack direction="row" spacing={0.5} alignItems="center">
+              {/* Show export button in view mode on hover */}
+              {mode === 'view' && hovered && canExport && (
+                <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
+                  <IconButton
+                    size="small"
+                    onClick={handleExport}
+                    aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
+                  >
+                    <DownloadIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              {mode === 'edit' && (
+                <Chip label={kindLabel[widget.kind]} size="small" variant="outlined" />
+              )}
+            </Stack>
           )}
         </Stack>
         {/* Widget content */}
         {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
-        {widget.kind === 'chart' && <StudioChartWidget widget={widget} dataSource={source} />}
+        {widget.kind === 'chart' && (
+          <Box ref={chartContainerRef}>
+            <StudioChartWidget widget={widget} dataSource={source} />
+          </Box>
+        )}
         {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
       </Stack>
     </Paper>

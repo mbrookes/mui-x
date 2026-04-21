@@ -243,13 +243,17 @@ function StudioShellContent(props: StudioShellSlots) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
       <AppBar
-        color="default"
         position="sticky"
         elevation={0}
-        sx={{ borderBottom: 1, borderColor: 'divider', zIndex: (theme) => theme.zIndex.drawer + 1 }}
+        sx={{
+          bgcolor: 'background.paper',
+          borderBottom: 1,
+          borderColor: 'divider',
+          zIndex: (theme) => theme.zIndex.drawer + 1,
+        }}
       >
         <Toolbar sx={{ gap: 1.5 }}>
-          <Typography variant="h6" sx={{ flexGrow: 1 }} noWrap>
+          <Typography variant="h6" sx={{ flexGrow: 1, color: 'text.primary' }} noWrap>
             {dashboardTitle}
           </Typography>
           <Box sx={{ alignItems: 'center', display: 'flex', gap: 1 }}>
@@ -322,7 +326,7 @@ function StudioShellContent(props: StudioShellSlots) {
           </DrawerPanel>
         )}
 
-        <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', bgcolor: 'grey.100' }}>
+        <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>
           {canvas ?? <StudioCanvas />}
         </Box>
       </Box>

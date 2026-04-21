@@ -309,21 +309,6 @@ export class StudioController {
   };
 
   /**
-   * Updates theme settings
-   */
-  updateTheme = (themeChanges: Partial<import('../models').StudioThemeState>) => {
-    const state = this.store.state;
-
-    this.store.setState({
-      ...state,
-      theme: {
-        ...state.theme,
-        ...themeChanges,
-      },
-    });
-  };
-
-  /**
    * Updates the dashboard title
    */
   setDashboardTitle = (title: string) => {

@@ -8,6 +8,13 @@ import {
   type StudioState,
   type StudioWidget,
 } from '../models';
+import {
+  serializeState,
+  deserializeState,
+  migrateState,
+  type SerializedStudioState,
+  type MigrationResult,
+} from './statePersistence';
 
 export class StudioController {
   readonly store: Store<StudioState>;
@@ -325,6 +332,32 @@ export class StudioController {
 
   subscribe = (listener: Parameters<typeof this.store.subscribe>[0]) =>
     this.store.subscribe(listener);
+
+  /**
+   * Serializes the current state for persistence.
+   * Excludes transient shell state (selection, drawer open state).
+   */
+  serializeState = (): SerializedStudioState => {
+    return serializeState(this.store.state);
+  };
+
+  /**
+   * Loads a serialized state, applying migrations if needed.
+   * @returns The migration result with success/error information.
+   */
+  loadSerializedState = (
+    serialized: unknown,
+    shellOverrides?: Partial<StudioState['shell']>,
+  ): MigrationResult => {
+    const migrationResult = migrateState(serialized);
+
+    if (migrationResult.success && migrationResult.state) {
+      const fullState = deserializeState(migrationResult.state, shellOverrides);
+      this.store.setState(fullState);
+    }
+
+    return migrationResult;
+  };
 }
 
 export function createStudioController(initialState?: Partial<StudioState>) {

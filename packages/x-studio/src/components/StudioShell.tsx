@@ -98,7 +98,7 @@ function DrawerPanel(props: {
           <Badge badgeContent={badge} color="primary" sx={{ mb: 1 }}>
             <Typography
               variant="caption"
-              sx={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', userSelect: 'none' }}
+              sx={{ color: 'text.primary', writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', userSelect: 'none' }}
             >
               {title}
             </Typography>
@@ -106,7 +106,7 @@ function DrawerPanel(props: {
         ) : (
           <Typography
             variant="caption"
-            sx={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', userSelect: 'none' }}
+            sx={{ color: 'text.primary', writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', userSelect: 'none' }}
           >
             {title}
           </Typography>
@@ -144,7 +144,7 @@ function DrawerPanel(props: {
         ) : (
           icon && <Box sx={{ display: 'flex', color: 'action.active', mr: 0.5 }}>{icon}</Box>
         )}
-        <Typography variant="subtitle2" sx={{ flexGrow: 1 }} noWrap>
+        <Typography variant="subtitle2" sx={{ color: 'text.primary', flexGrow: 1 }} noWrap>
           {title}
         </Typography>
         {badge != null && badge > 0 && (

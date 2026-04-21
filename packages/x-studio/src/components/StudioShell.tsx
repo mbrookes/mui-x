@@ -6,9 +6,7 @@ import {
   Button,
   Divider,
   IconButton,
-  Switch,
   Toolbar,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import ChevronDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -156,9 +154,9 @@ function DrawerPanel(props: {
 
 function StudioShellContent(props: StudioShellSlots) {
   const { canvas, composeDrawer, dataDrawer, filtersDrawer } = props;
-  const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
   const dashboardTitle = useStudioSelector((state) => state.dashboard.title);
+  const controller = useStudioController();
 
   const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
   const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
@@ -179,17 +177,6 @@ function StudioShellContent(props: StudioShellSlots) {
   const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
   const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
 
-  const handleModeChange = React.useCallback(
-    (_event: React.ChangeEvent<HTMLInputElement>, checked: boolean) => {
-      const newMode = checked ? 'edit' : 'view';
-      if (newMode === 'view') {
-        controller.clearSelection();
-      }
-      controller.setMode(newMode);
-    },
-    [controller],
-  );
-
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
       <AppBar
@@ -206,20 +193,6 @@ function StudioShellContent(props: StudioShellSlots) {
           <Typography variant="h6" sx={{ flexGrow: 1, color: 'text.primary' }} noWrap>
             {dashboardTitle}
           </Typography>
-          <Box sx={{ alignItems: 'center', display: 'flex', gap: 1 }}>
-            <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>
-              View
-            </Typography>
-            <Switch
-              checked={mode === 'edit'}
-              onChange={handleModeChange}
-              size="small"
-              inputProps={{ 'aria-label': 'Toggle edit mode' }}
-            />
-            <Typography variant="body2" color={mode === 'edit' ? 'text.primary' : 'text.secondary'}>
-              Edit
-            </Typography>
-          </Box>
         </Toolbar>
       </AppBar>
 

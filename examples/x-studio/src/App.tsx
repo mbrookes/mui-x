@@ -5,14 +5,16 @@ import {
   CssBaseline,
   IconButton,
   Snackbar,
+  Switch,
   ThemeProvider,
   Tooltip,
+  Typography,
   createTheme,
 } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import { StudioShell, createStudioController } from '../../../packages/x-studio/src';
-import type { StudioState } from '../../../packages/x-studio/src';
+import type { StudioMode, StudioState } from '../../../packages/x-studio/src';
 
 const SALES_SOURCE_ID = 'source-sales';
 
@@ -150,11 +152,29 @@ function uploadJson(): Promise<unknown> {
 }
 
 export default function App() {
+  const [mode, setMode] = React.useState<StudioMode>(controller.getState().mode);
   const [snackbar, setSnackbar] = React.useState<{
     open: boolean;
     message: string;
     severity: 'success' | 'error' | 'info';
   }>({ open: false, message: '', severity: 'info' });
+
+  React.useEffect(() => {
+    return controller.subscribe((state) => {
+      setMode(state.mode);
+    });
+  }, []);
+
+  const handleModeChange = React.useCallback(
+    (_event: React.ChangeEvent<HTMLInputElement>, checked: boolean) => {
+      const newMode = checked ? 'edit' : 'view';
+      if (newMode === 'view') {
+        controller.clearSelection();
+      }
+      controller.setMode(newMode);
+    },
+    [],
+  );
 
   const handleSave = React.useCallback(() => {
     const serialized = controller.serializeState();
@@ -200,7 +220,7 @@ export default function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box sx={{ position: 'fixed', top: 8, right: 8, zIndex: 9999, display: 'flex', gap: 0.5 }}>
+      <Box sx={{ position: 'fixed', top: 8, right: 8, zIndex: 9999, display: 'flex', alignItems: 'center', gap: 1 }}>
         <Tooltip title="Load dashboard">
           <IconButton size="small" onClick={handleLoad} aria-label="Load dashboard">
             <FileUploadIcon fontSize="small" />
@@ -211,6 +231,20 @@ export default function App() {
             <FileDownloadIcon fontSize="small" />
           </IconButton>
         </Tooltip>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
+          <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>
+            View
+          </Typography>
+          <Switch
+            checked={mode === 'edit'}
+            onChange={handleModeChange}
+            size="small"
+            inputProps={{ 'aria-label': 'Toggle edit mode' }}
+          />
+          <Typography variant="body2" color={mode === 'edit' ? 'text.primary' : 'text.secondary'}>
+            Edit
+          </Typography>
+        </Box>
       </Box>
       <StudioShell controller={controller} />
       <Snackbar

@@ -1,5 +1,16 @@
 import * as React from 'react';
-import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
+import {
+  Alert,
+  Box,
+  CssBaseline,
+  IconButton,
+  Snackbar,
+  ThemeProvider,
+  Tooltip,
+  createTheme,
+} from '@mui/material';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import FileUploadIcon from '@mui/icons-material/FileUpload';
 import { StudioShell, createStudioController } from '../../../packages/x-studio/src';
 import type { StudioState } from '../../../packages/x-studio/src';
 
@@ -103,11 +114,115 @@ const theme = createTheme({
   colorSchemes: { light: true, dark: true },
 });
 
+function downloadJson(data: unknown, filename: string) {
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function uploadJson(): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) {
+        reject(new Error('No file selected'));
+        return;
+      }
+      try {
+        const text = await file.text();
+        resolve(JSON.parse(text));
+      } catch (error) {
+        reject(error);
+      }
+    };
+    input.click();
+  });
+}
+
 export default function App() {
+  const [snackbar, setSnackbar] = React.useState<{
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error' | 'info';
+  }>({ open: false, message: '', severity: 'info' });
+
+  const handleSave = React.useCallback(() => {
+    const serialized = controller.serializeState();
+    const title = controller.getState().dashboard.title.replace(/[^a-z0-9]/gi, '_');
+    downloadJson(serialized, `${title}_dashboard.json`);
+    setSnackbar({ open: true, message: 'Dashboard saved successfully', severity: 'success' });
+  }, []);
+
+  const handleLoad = React.useCallback(async () => {
+    try {
+      const data = await uploadJson();
+      const result = controller.loadSerializedState(data);
+      if (result.success) {
+        if (result.fromVersion !== result.toVersion) {
+          setSnackbar({
+            open: true,
+            message: `Dashboard loaded and migrated from v${result.fromVersion} to v${result.toVersion}`,
+            severity: 'info',
+          });
+        } else {
+          setSnackbar({ open: true, message: 'Dashboard loaded successfully', severity: 'success' });
+        }
+      } else {
+        setSnackbar({
+          open: true,
+          message: result.errors.join('; ') || 'Failed to load dashboard',
+          severity: 'error',
+        });
+      }
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: error instanceof Error ? error.message : 'Failed to load dashboard',
+        severity: 'error',
+      });
+    }
+  }, []);
+
+  const handleCloseSnackbar = () => {
+    setSnackbar((prev) => ({ ...prev, open: false }));
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <Box sx={{ position: 'fixed', top: 8, right: 8, zIndex: 9999, display: 'flex', gap: 0.5 }}>
+        <Tooltip title="Load dashboard">
+          <IconButton size="small" onClick={handleLoad} aria-label="Load dashboard">
+            <FileUploadIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Save dashboard">
+          <IconButton size="small" onClick={handleSave} aria-label="Save dashboard">
+            <FileDownloadIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
       <StudioShell controller={controller} />
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </ThemeProvider>
   );
 }

@@ -1,13 +1,11 @@
 import * as React from 'react';
 import {
-  Alert,
   AppBar,
   Badge,
   Box,
   Button,
   Divider,
   IconButton,
-  Snackbar,
   Switch,
   Toolbar,
   Tooltip,
@@ -17,15 +15,12 @@ import ChevronDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseIcon from '@mui/icons-material/Close';
 import FilterListIcon from '@mui/icons-material/FilterList';
-import FileDownloadIcon from '@mui/icons-material/FileDownload';
-import FileUploadIcon from '@mui/icons-material/FileUpload';
 import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';
 
 import { StudioProvider, useStudioController, useStudioSelector } from '../context';
 import type { StudioDrawer, StudioMode } from '../models';
 import type { StudioController } from '../store';
-import { downloadState, uploadState } from '../store/statePersistence';
 import { StudioCanvas } from './StudioCanvas';
 import { StudioDataDrawer } from './StudioDataDrawer';
 import { StudioComposeDrawer } from './StudioComposeDrawer';
@@ -164,13 +159,6 @@ function StudioShellContent(props: StudioShellSlots) {
   const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
   const dashboardTitle = useStudioSelector((state) => state.dashboard.title);
-  const state = useStudioSelector((s) => s);
-
-  const [snackbar, setSnackbar] = React.useState<{
-    open: boolean;
-    message: string;
-    severity: 'success' | 'error' | 'info';
-  }>({ open: false, message: '', severity: 'info' });
 
   const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
   const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
@@ -202,37 +190,6 @@ function StudioShellContent(props: StudioShellSlots) {
     [controller],
   );
 
-  const handleSave = React.useCallback(() => {
-    downloadState(state);
-    setSnackbar({ open: true, message: 'Dashboard saved successfully', severity: 'success' });
-  }, [state]);
-
-  const handleLoad = React.useCallback(async () => {
-    const result = await uploadState();
-    if (result.state) {
-      controller.setState(result.state);
-      if (result.migrationResult.fromVersion !== result.migrationResult.toVersion) {
-        setSnackbar({
-          open: true,
-          message: `Dashboard loaded and migrated from v${result.migrationResult.fromVersion} to v${result.migrationResult.toVersion}`,
-          severity: 'info',
-        });
-      } else {
-        setSnackbar({ open: true, message: 'Dashboard loaded successfully', severity: 'success' });
-      }
-    } else {
-      setSnackbar({
-        open: true,
-        message: result.migrationResult.errors.join('; ') || 'Failed to load dashboard',
-        severity: 'error',
-      });
-    }
-  }, [controller]);
-
-  const handleCloseSnackbar = () => {
-    setSnackbar((prev) => ({ ...prev, open: false }));
-  };
-
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
       <AppBar
@@ -250,17 +207,6 @@ function StudioShellContent(props: StudioShellSlots) {
             {dashboardTitle}
           </Typography>
           <Box sx={{ alignItems: 'center', display: 'flex', gap: 1 }}>
-            <Tooltip title="Load dashboard">
-              <IconButton size="small" onClick={handleLoad} aria-label="Load dashboard">
-                <FileUploadIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Save dashboard">
-              <IconButton size="small" onClick={handleSave} aria-label="Save dashboard">
-                <FileDownloadIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
             <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>
               View
             </Typography>
@@ -276,17 +222,6 @@ function StudioShellContent(props: StudioShellSlots) {
           </Box>
         </Toolbar>
       </AppBar>
-
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={handleCloseSnackbar}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
 
       <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
         {mode === 'edit' && (

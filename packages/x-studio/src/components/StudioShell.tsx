@@ -9,13 +9,9 @@ import {
   IconButton,
   Snackbar,
   Switch,
-  ThemeProvider,
   Toolbar,
   Tooltip,
   Typography,
-  createTheme,
-  useMediaQuery,
-  useTheme,
 } from '@mui/material';
 import ChevronDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -23,19 +19,17 @@ import CloseIcon from '@mui/icons-material/Close';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
-import PaletteIcon from '@mui/icons-material/Palette';
 import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';
 
 import { StudioProvider, useStudioController, useStudioSelector } from '../context';
-import type { StudioDrawer, StudioMode, StudioThemeState } from '../models';
+import type { StudioDrawer, StudioMode } from '../models';
 import type { StudioController } from '../store';
 import { downloadState, uploadState } from '../store/statePersistence';
 import { StudioCanvas } from './StudioCanvas';
 import { StudioDataDrawer } from './StudioDataDrawer';
 import { StudioComposeDrawer } from './StudioComposeDrawer';
 import { StudioFiltersDrawer } from './StudioFiltersDrawer';
-import { StudioThemeDrawer } from './StudioThemeDrawer';
 
 const DRAWER_WIDTH = 215;
 const COLLAPSED_WIDTH = 36;
@@ -44,7 +38,6 @@ export interface StudioShellSlots {
   dataDrawer?: React.ReactNode;
   composeDrawer?: React.ReactNode;
   filtersDrawer?: React.ReactNode;
-  themeDrawer?: React.ReactNode;
   canvas?: React.ReactNode;
 }
 
@@ -167,7 +160,7 @@ function DrawerPanel(props: {
 }
 
 function StudioShellContent(props: StudioShellSlots) {
-  const { canvas, composeDrawer, dataDrawer, filtersDrawer, themeDrawer } = props;
+  const { canvas, composeDrawer, dataDrawer, filtersDrawer } = props;
   const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
   const dashboardTitle = useStudioSelector((state) => state.dashboard.title);
@@ -267,17 +260,6 @@ function StudioShellContent(props: StudioShellSlots) {
                 <FileDownloadIcon fontSize="small" />
               </IconButton>
             </Tooltip>
-            {mode === 'edit' && (
-              <Tooltip title="Theme settings">
-                <IconButton
-                  size="small"
-                  onClick={() => controller.toggleDrawer('theme')}
-                  aria-label="Theme settings"
-                >
-                  <PaletteIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
             <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
             <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>
               View
@@ -320,11 +302,6 @@ function StudioShellContent(props: StudioShellSlots) {
         <DrawerPanel drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
           {filtersDrawer ?? <StudioFiltersDrawer />}
         </DrawerPanel>
-        {mode === 'edit' && (
-          <DrawerPanel drawer="theme" title="Theme" icon={<PaletteIcon fontSize="small" />}>
-            {themeDrawer ?? <StudioThemeDrawer />}
-          </DrawerPanel>
-        )}
 
         <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>
           {canvas ?? <StudioCanvas />}
@@ -334,77 +311,12 @@ function StudioShellContent(props: StudioShellSlots) {
   );
 }
 
-/**
- * Creates a MUI theme based on studio theme settings
- */
-function createStudioTheme(
-  baseTheme: ReturnType<typeof useTheme>,
-  studioTheme: StudioThemeState,
-  prefersDarkMode: boolean,
-): ReturnType<typeof createTheme> {
-  const colorMode =
-    studioTheme.colorMode === 'system'
-      ? prefersDarkMode
-        ? 'dark'
-        : 'light'
-      : studioTheme.colorMode;
-
-  return createTheme({
-    palette: {
-      mode: colorMode,
-      primary: {
-        main: studioTheme.primaryColor,
-      },
-    },
-    typography: {
-      fontFamily: studioTheme.fontFamily,
-    },
-    shape: {
-      borderRadius: studioTheme.borderRadius,
-    },
-    components: {
-      MuiButton: { defaultProps: { size: 'small' } },
-      MuiButtonGroup: { defaultProps: { size: 'small' } },
-      MuiChip: { defaultProps: { size: 'small' } },
-      MuiIconButton: { defaultProps: { size: 'small' } },
-      MuiInputBase: { defaultProps: { size: 'small' } },
-      MuiFormControl: { defaultProps: { size: 'small' } },
-      MuiFormHelperText: { defaultProps: { margin: 'dense' } },
-      MuiInputLabel: { defaultProps: { margin: 'dense' } },
-      MuiSelect: { defaultProps: { size: 'small' } },
-      MuiTextField: { defaultProps: { size: 'small' } },
-      MuiList: { defaultProps: { dense: studioTheme.density === 'compact' } },
-      MuiListItem: { defaultProps: { dense: studioTheme.density === 'compact' } },
-      MuiMenuItem: { defaultProps: { dense: studioTheme.density === 'compact' } },
-      MuiTable: { defaultProps: { size: studioTheme.density === 'comfortable' ? 'medium' : 'small' } },
-      MuiToolbar: { defaultProps: { variant: studioTheme.density === 'comfortable' ? 'regular' : 'dense' } },
-    },
-  });
-}
-
-function StudioShellWithTheme(props: StudioShellSlots) {
-  const studioTheme = useStudioSelector((state) => state.theme);
-  const outerTheme = useTheme();
-  const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
-
-  const theme = React.useMemo(
-    () => createStudioTheme(outerTheme, studioTheme, prefersDarkMode),
-    [outerTheme, studioTheme, prefersDarkMode],
-  );
-
-  return (
-    <ThemeProvider theme={theme}>
-      <StudioShellContent {...props} />
-    </ThemeProvider>
-  );
-}
-
 export function StudioShell(props: StudioShellProps) {
   const { controller, ...slots } = props;
 
   return (
     <StudioProvider controller={controller}>
-      <StudioShellWithTheme {...slots} />
+      <StudioShellContent {...slots} />
     </StudioProvider>
   );
 }

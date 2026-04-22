@@ -253,6 +253,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
                 label: String(label),
                 value: chartData.values[i],
               })),
+              arcLabel: 'label',
               highlightScope: { highlight: 'item', fade: 'global' },
             },
           ]}

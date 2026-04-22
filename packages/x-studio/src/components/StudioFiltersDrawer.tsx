@@ -3,7 +3,7 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
+
   Divider,
   FormControl,
   IconButton,
@@ -114,7 +114,7 @@ function FilterSection(props: FilterSectionProps) {
     <Box>
       <Stack direction="row" sx={{ mb: 1, alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography variant="subtitle2">{title}</Typography>
-        <Chip label={filters.length} size="small" />
+        
       </Stack>
 
       {filters.length === 0 ? (
@@ -245,7 +245,7 @@ export function StudioFiltersDrawer() {
       <Box>
         <Stack direction="row" sx={{ mb: 1, alignItems: 'center', justifyContent: 'space-between' }}>
           <Typography variant="subtitle2">Cross-filters</Typography>
-          <Chip label={crossFilters.length} size="small" />
+          
         </Stack>
 
         {crossFilters.length === 0 ? (

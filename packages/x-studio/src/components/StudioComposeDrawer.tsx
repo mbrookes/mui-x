@@ -17,7 +17,7 @@ import {
 
 import { useStudioController, useStudioSelector } from '../context';
 import type { StudioChartType, StudioKpiAggregation, StudioKpiFormat, StudioWidgetKind } from '../models';
-import { createDefaultWidget, WIDGET_TYPES } from './widgetUtils';
+import { createDefaultWidget, WIDGET_TYPES, widgetKindRequiresDataSource } from './widgetUtils';
 // import { useDraggable } from '@atlaskit/pragmatic-drag-and-drop-react';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -42,6 +42,7 @@ const KIND_LABEL: Record<StudioWidgetKind, string> = {
   grid: 'Table',
   chart: 'Chart',
   kpi: 'KPI',
+  text: 'Text',
 };
 
 const TYPE_FORMAT_LABEL: Record<string, string> = {
@@ -60,11 +61,10 @@ function AddWidgetView() {
 
   const handleAdd = (kind: StudioWidgetKind) => {
     const sources = Object.values(dataSources);
-    if (sources.length === 0) {
+    if (widgetKindRequiresDataSource(kind) && sources.length === 0) {
       return;
     }
-    const source = sources[0];
-    controller.addWidget(createDefaultWidget(kind, source));
+    controller.addWidget(createDefaultWidget(kind, sources[0]));
   };
 
   const hasSources = Object.keys(dataSources).length > 0;
@@ -76,15 +76,19 @@ function AddWidgetView() {
       </Typography>
       {!hasSources && (
         <Alert severity="warning" sx={{ fontSize: 12 }}>
-          No data sources available yet.
+          No data sources available yet. Only text widgets can be added until one is connected.
         </Alert>
       )}
       {WIDGET_TYPES.map((wt) => {
+        const canAdd = !widgetKindRequiresDataSource(wt.kind) || hasSources;
         const ref = React.useRef<HTMLDivElement>(null);
         const [isDragging, setIsDragging] = React.useState(false);
         React.useEffect(() => {
+          if (!canAdd) {
+            return undefined;
+          }
           const node = ref.current;
-          if (!node) return;
+          if (!node) return undefined;
           function handleDragStart(e: DragEvent) {
             setIsDragging(true);
             e.dataTransfer?.setData('application/json', JSON.stringify({ type: 'compose-widget', kind: wt.kind }));
@@ -100,20 +104,26 @@ function AddWidgetView() {
             node.removeEventListener('dragstart', handleDragStart);
             node.removeEventListener('dragend', handleDragEnd);
           };
-        }, [wt.kind]);
+        }, [canAdd, wt.kind]);
         return (
           <Paper
             key={wt.kind}
             ref={ref}
             variant="outlined"
-            onClick={() => handleAdd(wt.kind)}
+            onClick={() => {
+              if (canAdd) {
+                handleAdd(wt.kind);
+              }
+            }}
             tabIndex={0}
             role="button"
             aria-label={`Add ${wt.label} widget`}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                handleAdd(wt.kind);
+                if (canAdd) {
+                  handleAdd(wt.kind);
+                }
               }
             }}
             sx={{
@@ -121,10 +131,10 @@ function AddWidgetView() {
               display: 'flex',
               alignItems: 'center',
               gap: 1.5,
-              cursor: hasSources ? (isDragging ? 'grabbing' : 'grab') : 'not-allowed',
-              opacity: hasSources ? 1 : 0.5,
+              cursor: canAdd ? (isDragging ? 'grabbing' : 'grab') : 'not-allowed',
+              opacity: canAdd ? 1 : 0.5,
               transition: 'border-color 0.15s, background-color 0.15s',
-              '&:hover': hasSources ? { borderColor: 'primary.main', bgcolor: 'action.hover' } : {},
+              '&:hover': canAdd ? { borderColor: 'primary.main', bgcolor: 'action.hover' } : {},
               '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
               boxShadow: isDragging ? 4 : undefined,
             }}
@@ -174,7 +184,7 @@ function FieldDetailView() {
         <React.Fragment key={row.label}>
           {i > 0 && <Divider />}
           <Box sx={{ py: 1.25 }}>
-            <Typography variant="caption" color="text.secondary" display="block">
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
               {row.label}
             </Typography>
             <Typography variant="body2">{row.value}</Typography>
@@ -412,6 +422,48 @@ function KpiSetupPanel(props: { widgetId: string }) {
   );
 }
 
+function TextSetupPanel(props: { widgetId: string }) {
+  const { widgetId } = props;
+  const controller = useStudioController();
+  const widget = useStudioSelector((state) => state.widgets[widgetId]);
+  const [subtitle, setSubtitle] = React.useState(widget?.config.textSubtitle ?? '');
+  const [body, setBody] = React.useState(widget?.config.textBody ?? '');
+
+  React.useEffect(() => {
+    setSubtitle(widget?.config.textSubtitle ?? '');
+    setBody(widget?.config.textBody ?? '');
+  }, [widget?.config.textSubtitle, widget?.config.textBody, widgetId]);
+
+  const handleBlur = () => {
+    controller.updateWidgetConfig(widgetId, {
+      textSubtitle: subtitle,
+      textBody: body,
+    });
+  };
+
+  return (
+    <Stack spacing={2}>
+      <TextField
+        label="Subtitle"
+        size="small"
+        fullWidth
+        value={subtitle}
+        onChange={(e) => setSubtitle(e.target.value)}
+        onBlur={handleBlur}
+      />
+      <TextField
+        label="Body"
+        fullWidth
+        multiline
+        minRows={5}
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        onBlur={handleBlur}
+      />
+    </Stack>
+  );
+}
+
 function FormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
@@ -478,6 +530,7 @@ function WidgetConfigView(props: { widgetId: string }) {
         {widget.kind === 'grid' && <GridSetupPanel widgetId={widgetId} />}
         {widget.kind === 'chart' && <ChartSetupPanel widgetId={widgetId} />}
         {widget.kind === 'kpi' && <KpiSetupPanel widgetId={widgetId} />}
+        {widget.kind === 'text' && <TextSetupPanel widgetId={widgetId} />}
       </TabPanel>
 
       <TabPanel value={tab} index={1}>
@@ -503,4 +556,3 @@ export function StudioComposeDrawer() {
 
   return <AddWidgetView />;
 }
-

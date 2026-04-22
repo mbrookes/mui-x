@@ -12,6 +12,11 @@ export function StudioTextWidget(props: StudioTextWidgetProps) {
   const subtitle = widget.config.textSubtitle?.trim();
   const body = widget.config.textBody?.trim();
 
+  // If both subtitle and body are empty, render nothing (take no space)
+  if (!subtitle && !body) {
+    return null;
+  }
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       {subtitle ? (
@@ -19,13 +24,15 @@ export function StudioTextWidget(props: StudioTextWidgetProps) {
           {subtitle}
         </Typography>
       ) : null}
-      <Typography
-        variant="body2"
-        color={body ? 'text.primary' : 'text.secondary'}
-        sx={{ whiteSpace: 'pre-wrap' }}
-      >
-        {body || 'Add body text in the Compose drawer.'}
-      </Typography>
+      {body ? (
+        <Typography
+          variant="body2"
+          color="text.primary"
+          sx={{ whiteSpace: 'pre-wrap' }}
+        >
+          {body}
+        </Typography>
+      ) : null}
     </Box>
   );
 }

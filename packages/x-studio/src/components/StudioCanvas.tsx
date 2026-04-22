@@ -2,7 +2,6 @@ import * as React from 'react';
 import * as pragmaticDnd from '@atlaskit/pragmatic-drag-and-drop';
 import {
   Box,
-  Chip,
   IconButton,
   Paper,
   Stack,
@@ -14,11 +13,17 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
 
 import { useStudioController, useStudioSelector } from '../context';
-import type { StudioDataSource, StudioWidgetKind } from '../models';
+import type { StudioDataSource } from '../models';
 import { StudioGridWidget } from './StudioGridWidget';
 import { StudioChartWidget } from './StudioChartWidget';
 import { StudioKpiWidget } from './StudioKpiWidget';
-import { createDefaultWidget, exportGridToCsv, exportChartToPng } from './widgetUtils';
+import { StudioTextWidget } from './StudioTextWidget';
+import {
+  createDefaultWidget,
+  exportGridToCsv,
+  exportChartToPng,
+  widgetKindRequiresDataSource,
+} from './widgetUtils';
 import { applyFilters } from './chartUtils';
 
 const SALES_SOURCE_ID = 'source-sales';
@@ -75,6 +80,7 @@ function WidgetCard(props: WidgetCardProps) {
     if (!node) return;
     function handleDragStart(e: DragEvent) {
       setIsDragging(true);
+      controller.setSelectedWidget(widgetId);
       e.dataTransfer?.setData('application/json', JSON.stringify({ type: 'canvas-widget', widgetId }));
       if (node) e.dataTransfer?.setDragImage(node, 0, 0);
     }
@@ -121,8 +127,15 @@ function WidgetCard(props: WidgetCardProps) {
     return null;
   }
 
-  const kindLabel: Record<StudioWidgetKind, string> = { grid: 'Table', chart: 'Chart', kpi: 'KPI' };
   const canExport = widget.kind === 'grid' || widget.kind === 'chart';
+  const widgetMetaLabel =
+    widget.kind === 'text' ? 'Text widget' : source?.label ?? 'Unbound source';
+  const showEditActions = mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered));
+  const showViewExport = mode === 'view' && hovered && canExport;
+  const hiddenActionSx = {
+    visibility: 'hidden',
+    pointerEvents: 'none',
+  } as const;
 
   return (
     <Paper
@@ -153,78 +166,88 @@ function WidgetCard(props: WidgetCardProps) {
     >
       <Stack spacing={2}>
         {/* Widget header */}
-        <Stack direction="row" alignItems="flex-start" spacing={1}>
-          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Typography variant="subtitle1" noWrap sx={{ flexGrow: 1 }}>
-                {widget.title}
-              </Typography>
-            </Stack>
-            <Typography variant="caption" color="text.secondary">
-              {source?.label ?? 'Unbound source'}
+        <Box>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <Typography variant="subtitle1" noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
+              {widget.title}
             </Typography>
-          </Box>
-          {/* Edit/delete buttons on selected card, or on hover if no card is selected. Pill always in edit mode. */}
-          {mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered)) ? (
-            <Stack direction="row" spacing={0.5} alignItems="center">
-              {canExport && (
+            {mode === 'edit' ? (
+              <Stack
+                direction="row"
+                spacing={0.5}
+                sx={{
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  flexShrink: 0,
+                  minWidth: canExport ? 108 : 72,
+                }}
+              >
+                {canExport && (
+                  <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
+                    <IconButton
+                      size="small"
+                      onClick={handleExport}
+                      aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
+                      sx={showEditActions ? undefined : hiddenActionSx}
+                      tabIndex={showEditActions ? 0 : -1}
+                    >
+                      <DownloadIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                <Tooltip title="Duplicate widget">
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      controller.duplicateWidget(widgetId);
+                    }}
+                    aria-label="Duplicate widget"
+                    sx={showEditActions ? undefined : hiddenActionSx}
+                    tabIndex={showEditActions ? 0 : -1}
+                  >
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Delete widget">
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      controller.removeWidget(widgetId);
+                    }}
+                    aria-label="Delete widget"
+                    sx={showEditActions ? undefined : hiddenActionSx}
+                    tabIndex={showEditActions ? 0 : -1}
+                  >
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            ) : canExport ? (
+              <Stack
+                direction="row"
+                spacing={0.5}
+                sx={{ alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0, minWidth: 36 }}
+              >
                 <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
                   <IconButton
                     size="small"
                     onClick={handleExport}
                     aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
+                    sx={showViewExport ? undefined : hiddenActionSx}
+                    tabIndex={showViewExport ? 0 : -1}
                   >
                     <DownloadIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-              )}
-              <Tooltip title="Duplicate widget">
-                <IconButton
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    controller.duplicateWidget(widgetId);
-                  }}
-                  aria-label="Duplicate widget"
-                >
-                  <ContentCopyIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Delete widget">
-                <IconButton
-                  size="small"
-                  color="error"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    controller.removeWidget(widgetId);
-                  }}
-                  aria-label="Delete widget"
-                >
-                  <CloseIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Chip label={kindLabel[widget.kind]} size="small" variant="outlined" sx={{ ml: 1 }} />
-            </Stack>
-          ) : (
-            <Stack direction="row" spacing={0.5} alignItems="center">
-              {/* Show export button in view mode on hover */}
-              {mode === 'view' && hovered && canExport && (
-                <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
-                  <IconButton
-                    size="small"
-                    onClick={handleExport}
-                    aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
-                  >
-                    <DownloadIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              )}
-              {mode === 'edit' && (
-                <Chip label={kindLabel[widget.kind]} size="small" variant="outlined" />
-              )}
-            </Stack>
-          )}
-        </Stack>
+              </Stack>
+            ) : null}
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
+            {widgetMetaLabel}
+          </Typography>
+        </Box>
         {/* Widget content */}
         {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
         {widget.kind === 'chart' && (
@@ -233,6 +256,7 @@ function WidgetCard(props: WidgetCardProps) {
           </Box>
         )}
         {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
+        {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
       </Stack>
     </Paper>
   );
@@ -356,7 +380,7 @@ export function StudioCanvas() {
 
       if (data?.type === 'compose-widget' && data.kind) {
         const sources = Object.values(controller.getState().dataSources);
-        if (sources.length === 0) return;
+        if (widgetKindRequiresDataSource(data.kind) && sources.length === 0) return;
         const newWidget = createDefaultWidget(data.kind, sources[0]);
         controller.addWidget(newWidget);
         const rows = widgetRows.map((r) => [...r]);
@@ -404,7 +428,7 @@ export function StudioCanvas() {
         <Typography variant="h6" color="text.secondary">
           Canvas is empty
         </Typography>
-        <Typography variant="body2" color="text.secondary" textAlign="center">
+        <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
           {mode === 'edit'
             ? 'Use the Compose panel to add widgets or drag them here.'
             : 'Switch to Edit mode to add widgets.'}

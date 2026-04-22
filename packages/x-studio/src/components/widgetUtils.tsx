@@ -2,6 +2,7 @@ import * as React from 'react';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import NumbersIcon from '@mui/icons-material/Numbers';
+import TextFieldsIcon from '@mui/icons-material/TextFields';
 
 import type { StudioDataSource, StudioFieldBinding, StudioWidget, StudioWidgetKind } from '../models';
 
@@ -11,14 +12,41 @@ export const WIDGET_TYPES: {
   description: string;
   icon: React.ReactNode;
 }[] = [
+  { kind: 'text', label: 'Text', description: 'Title, subtitle, and body copy', icon: <TextFieldsIcon fontSize="large" /> },
   { kind: 'kpi', label: 'KPI', description: 'Single metric with aggregation', icon: <NumbersIcon fontSize="large" /> },
   { kind: 'chart', label: 'Chart', description: 'Bar, line, or pie chart', icon: <BarChartIcon fontSize="large" /> },
   { kind: 'grid', label: 'Table', description: 'Data grid with sorting & filtering', icon: <TableChartIcon fontSize="large" /> },
 ];
 
-export function createDefaultWidget(kind: StudioWidgetKind, source: StudioDataSource): StudioWidget {
+export function widgetKindRequiresDataSource(kind: StudioWidgetKind) {
+  return kind !== 'text';
+}
+
+export function createDefaultWidget(
+  kind: StudioWidgetKind,
+  source?: StudioDataSource,
+): StudioWidget {
   const id = `widget-${kind}-${Date.now()}`;
-  const bindings: StudioFieldBinding[] = source.fields.map((f) => ({ field: f.id, label: f.label }));
+  const bindings: StudioFieldBinding[] = source?.fields.map((f) => ({ field: f.id, label: f.label })) ?? [];
+
+  if (kind === 'text') {
+    return {
+      id,
+      kind,
+      title: 'Text block',
+      layout: { x: 0, y: 0, width: 6, height: 4 },
+      bindings,
+      config: {
+        textSubtitle: 'Add supporting context',
+        textBody:
+          'Use this widget for narrative context, callouts, or guidance that complements the data on the page.',
+      },
+    };
+  }
+
+  if (!source) {
+    throw new Error(`A data source is required to create a ${kind} widget.`);
+  }
 
   if (kind === 'grid') {
     return {

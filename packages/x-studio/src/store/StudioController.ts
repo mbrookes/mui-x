@@ -16,8 +16,11 @@ import {
   type MigrationResult,
 } from './statePersistence';
 
+const MAX_UNDO_HISTORY = 100;
+
 export class StudioController {
   readonly store: Store<StudioState>;
+  private undoStack: StudioState[] = [];
 
   constructor(initialState?: Partial<StudioState>) {
     this.store = Store.create(createDefaultStudioState(initialState));
@@ -25,79 +28,141 @@ export class StudioController {
 
   getState = () => this.store.state;
 
+  private commitState = (
+    nextState: StudioState,
+    options?: {
+      undoable?: boolean;
+      resetHistory?: boolean;
+    },
+  ) => {
+    const { undoable = true, resetHistory = false } = options ?? {};
+
+    if (nextState === this.store.state) {
+      return;
+    }
+
+    if (resetHistory) {
+      this.undoStack = [];
+    } else if (undoable) {
+      this.undoStack.push(this.store.state);
+
+      if (this.undoStack.length > MAX_UNDO_HISTORY) {
+        this.undoStack.shift();
+      }
+    }
+
+    this.store.setState(nextState);
+  };
+
   setState = (state: StudioState) => {
-    this.store.setState(state);
+    this.commitState(state);
   };
 
   updateState = (changes: Partial<StudioState>) => {
-    this.store.update(changes);
+    this.commitState({
+      ...this.store.state,
+      ...changes,
+    });
   };
 
   setMode = (mode: StudioMode) => {
-    this.store.set('mode', mode);
+    this.commitState({
+      ...this.store.state,
+      mode,
+    });
   };
 
   toggleDrawer = (drawer: StudioDrawer) => {
     const { shell } = this.store.state;
 
-    this.store.set('shell', {
-      ...shell,
-      openDrawers: {
-        ...shell.openDrawers,
-        [drawer]: !shell.openDrawers[drawer],
+    this.commitState(
+      {
+        ...this.store.state,
+        shell: {
+          ...shell,
+          openDrawers: {
+            ...shell.openDrawers,
+            [drawer]: !shell.openDrawers[drawer],
+          },
+        },
       },
-    });
+      { undoable: false },
+    );
   };
 
   setDrawerOpen = (drawer: StudioDrawer, open: boolean) => {
     const { shell } = this.store.state;
 
-    this.store.set('shell', {
-      ...shell,
-      openDrawers: {
-        ...shell.openDrawers,
-        [drawer]: open,
+    this.commitState(
+      {
+        ...this.store.state,
+        shell: {
+          ...shell,
+          openDrawers: {
+            ...shell.openDrawers,
+            [drawer]: open,
+          },
+        },
       },
-    });
+      { undoable: false },
+    );
   };
 
   setSelectedWidget = (widgetId: string | null) => {
     const { shell } = this.store.state;
 
-    this.store.set('shell', {
-      ...shell,
-      selectedWidgetId: widgetId,
-      selectedFieldId: null,
-      selectedSourceId: null,
-    });
+    this.commitState(
+      {
+        ...this.store.state,
+        shell: {
+          ...shell,
+          selectedWidgetId: widgetId,
+          selectedFieldId: null,
+          selectedSourceId: null,
+        },
+      },
+      { undoable: false },
+    );
   };
 
   selectField = (sourceId: string, fieldId: string) => {
     const { shell } = this.store.state;
 
-    this.store.set('shell', {
-      ...shell,
-      selectedFieldId: fieldId,
-      selectedSourceId: sourceId,
-      selectedWidgetId: null,
-    });
+    this.commitState(
+      {
+        ...this.store.state,
+        shell: {
+          ...shell,
+          selectedFieldId: fieldId,
+          selectedSourceId: sourceId,
+          selectedWidgetId: null,
+        },
+      },
+      { undoable: false },
+    );
   };
 
   clearSelection = () => {
     const { shell } = this.store.state;
 
-    this.store.set('shell', {
-      ...shell,
-      selectedWidgetId: null,
-      selectedFieldId: null,
-      selectedSourceId: null,
-    });
+    this.commitState(
+      {
+        ...this.store.state,
+        shell: {
+          ...shell,
+          selectedWidgetId: null,
+          selectedFieldId: null,
+          selectedSourceId: null,
+        },
+      },
+      { undoable: false },
+    );
   };
 
   upsertDataSource = (dataSource: StudioDataSource) => {
     const state = this.store.state;
 
-    this.store.setState({
+    this.commitState({
       ...state,
       dataSources: {
         ...state.dataSources,
@@ -112,7 +177,7 @@ export class StudioController {
     const widgetRows = activePage.widgetRows || [];
     // Add new widget as a new row by default
     const newWidgetRows = [...widgetRows, [widget.id]];
-    this.store.setState({
+    this.commitState({
       ...state,
       widgets: {
         ...state.widgets,
@@ -135,13 +200,14 @@ export class StudioController {
   removeWidget = (widgetId: string) => {
     const state = this.store.state;
     const activePage = state.pages[state.dashboard.activePageId];
-    const { [widgetId]: _removed, ...remainingWidgets } = state.widgets;
+    const { [widgetId]: removedWidget, ...remainingWidgets } = state.widgets;
+    void removedWidget;
     const widgetRows = activePage.widgetRows || [];
     // Remove widgetId from all rows, and filter out empty rows
     const newWidgetRows = widgetRows
       .map((row) => row.filter((id) => id !== widgetId))
       .filter((row) => row.length > 0);
-    this.store.setState({
+    this.commitState({
       ...state,
       widgets: remainingWidgets,
       pages: {
@@ -166,7 +232,7 @@ export class StudioController {
       return;
     }
 
-    this.store.setState({
+    this.commitState({
       ...state,
       widgets: {
         ...state.widgets,
@@ -186,7 +252,7 @@ export class StudioController {
       return;
     }
 
-    this.store.setState({
+    this.commitState({
       ...state,
       widgets: {
         ...state.widgets,
@@ -208,7 +274,7 @@ export class StudioController {
     const widgetRows = activePage.widgetRows || [];
     // Add duplicate as a new row
     const newWidgetRows = [...widgetRows, [newId]];
-    this.store.setState({
+    this.commitState({
       ...state,
       widgets: {
         ...state.widgets,
@@ -236,7 +302,7 @@ export class StudioController {
       return;
     }
 
-    this.store.setState({
+    this.commitState({
       ...state,
       widgets: {
         ...state.widgets,
@@ -248,7 +314,7 @@ export class StudioController {
   addFilter = (filter: import('../models').StudioFilterState) => {
     const state = this.store.state;
 
-    this.store.setState({
+    this.commitState({
       ...state,
       filters: [...state.filters, filter],
     });
@@ -257,7 +323,7 @@ export class StudioController {
   removeFilter = (filterId: string) => {
     const state = this.store.state;
 
-    this.store.setState({
+    this.commitState({
       ...state,
       filters: state.filters.filter((f) => f.id !== filterId),
     });
@@ -283,7 +349,7 @@ export class StudioController {
       sourceWidgetId,
     };
 
-    this.store.setState({
+    this.commitState({
       ...state,
       filters: [...existingFilters, crossFilter],
     });
@@ -295,7 +361,7 @@ export class StudioController {
   clearCrossFilter = (sourceWidgetId: string) => {
     const state = this.store.state;
 
-    this.store.setState({
+    this.commitState({
       ...state,
       filters: state.filters.filter(
         (f) => !(f.scope === 'cross-filter' && f.sourceWidgetId === sourceWidgetId),
@@ -309,7 +375,7 @@ export class StudioController {
   clearAllCrossFilters = () => {
     const state = this.store.state;
 
-    this.store.setState({
+    this.commitState({
       ...state,
       filters: state.filters.filter((f) => f.scope !== 'cross-filter'),
     });
@@ -321,7 +387,7 @@ export class StudioController {
   setDashboardTitle = (title: string) => {
     const state = this.store.state;
 
-    this.store.setState({
+    this.commitState({
       ...state,
       dashboard: {
         ...state.dashboard,
@@ -332,6 +398,19 @@ export class StudioController {
 
   subscribe = (listener: Parameters<typeof this.store.subscribe>[0]) =>
     this.store.subscribe(listener);
+
+  canUndo = () => this.undoStack.length > 0;
+
+  undo = () => {
+    const previousState = this.undoStack.pop();
+
+    if (previousState == null) {
+      return false;
+    }
+
+    this.store.setState(previousState);
+    return true;
+  };
 
   /**
    * Serializes the current state for persistence.
@@ -353,7 +432,7 @@ export class StudioController {
 
     if (migrationResult.success && migrationResult.state) {
       const fullState = deserializeState(migrationResult.state, shellOverrides);
-      this.store.setState(fullState);
+      this.commitState(fullState, { undoable: false, resetHistory: true });
     }
 
     return migrationResult;

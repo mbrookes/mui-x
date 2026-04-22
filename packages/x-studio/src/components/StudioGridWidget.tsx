@@ -85,7 +85,7 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
 
   // Cross-filter indicator
   const crossFilterIndicator = activeCrossFilter ? (
-    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+    <Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: 'center' }}>
       <Chip
         size="small"
         label={`Filtering: ${activeCrossFilter.field} = ${activeCrossFilter.value}`}

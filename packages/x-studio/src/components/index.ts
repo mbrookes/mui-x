@@ -3,6 +3,7 @@ export * from './StudioCanvas';
 export * from './StudioGridWidget';
 export * from './StudioChartWidget';
 export * from './StudioKpiWidget';
+export * from './StudioTextWidget';
 export * from './StudioDataDrawer';
 export * from './StudioComposeDrawer';
 export * from './StudioFiltersDrawer';

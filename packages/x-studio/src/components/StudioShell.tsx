@@ -1,9 +1,10 @@
+'use client';
+
 import * as React from 'react';
 import {
   AppBar,
   Badge,
   Box,
-  Button,
   Divider,
   IconButton,
   Toolbar,
@@ -17,7 +18,7 @@ import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';
 
 import { StudioProvider, useStudioController, useStudioSelector } from '../context';
-import type { StudioDrawer, StudioMode } from '../models';
+import type { StudioDrawer } from '../models';
 import type { StudioController } from '../store';
 import { StudioCanvas } from './StudioCanvas';
 import { StudioDataDrawer } from './StudioDataDrawer';
@@ -57,9 +58,9 @@ function DrawerPanel(props: {
         tabIndex={0}
         aria-label={`Open ${title} panel`}
         onClick={() => controller.setDrawerOpen(drawer, true)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
             controller.setDrawerOpen(drawer, true);
           }
         }}
@@ -99,7 +100,10 @@ function DrawerPanel(props: {
         )}
         <IconButton
           size="small"
-          onClick={(e) => { e.stopPropagation(); controller.setDrawerOpen(drawer, true); }}
+          onClick={(event) => {
+            event.stopPropagation();
+            controller.setDrawerOpen(drawer, true);
+          }}
           aria-label={`Open ${title} panel`}
           tabIndex={-1}
         >
@@ -176,6 +180,40 @@ function StudioShellContent(props: StudioShellSlots) {
     selectedWidget?.title ?? selectedField?.label ?? 'Compose';
   const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
   const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
+
+  React.useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+
+      if (target.isContentEditable) {
+        return true;
+      }
+
+      return Boolean(target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]'));
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.key.toLowerCase() !== 'z' ||
+        !(event.metaKey || event.ctrlKey) ||
+        event.altKey ||
+        event.shiftKey ||
+        isEditableTarget(event.target) ||
+        !controller.canUndo()
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      controller.undo();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [controller]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>

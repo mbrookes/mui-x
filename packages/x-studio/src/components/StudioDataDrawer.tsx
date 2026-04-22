@@ -40,8 +40,12 @@ function DataSourceSection(props: { source: StudioDataSource }) {
               {source.label}
             </Typography>
           }
-          secondary={`${source.fields.length} field${source.fields.length !== 1 ? 's' : ''} · ${source.rows?.length ?? 0} rows`}
-          secondaryTypographyProps={{ variant: 'caption' }}
+          secondary={
+            <Typography variant="caption" color="text.secondary">
+              {source.fields.length} field{source.fields.length !== 1 ? 's' : ''} ·{' '}
+              {source.rows?.length ?? 0} rows
+            </Typography>
+          }
         />
         {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
       </ListItemButton>
@@ -59,7 +63,7 @@ function DataSourceSection(props: { source: StudioDataSource }) {
               >
                 <ListItemText
                   primary={
-                    <Stack direction="row" spacing={1} alignItems="center">
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                       <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
                         {field.label}
                       </Typography>
@@ -68,7 +72,17 @@ function DataSourceSection(props: { source: StudioDataSource }) {
                         size="small"
                         color={fieldTypeColor[field.type] ?? 'default'}
                         variant="outlined"
-                        sx={{ height: 16, '& .MuiChip-label': { px: 0.75, fontSize: 10 } }}
+                        sx={{
+                          alignSelf: 'center',
+                          height: 16,
+                          '& .MuiChip-label': {
+                            px: 0.75,
+                            fontSize: 10,
+                            display: 'flex',
+                            alignItems: 'center',
+                            height: '100%',
+                          },
+                        }}
                       />
                     </Stack>
                   }
@@ -102,4 +116,3 @@ export function StudioDataDrawer() {
     </Stack>
   );
 }
-

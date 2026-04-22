@@ -10,6 +10,12 @@ function matchesFilter(row: Row, filter: StudioFilterState): boolean {
     case 'equals':
       // eslint-disable-next-line eqeqeq
       return rowVal == filterVal;
+    case 'in':
+      return Array.isArray(filterVal)
+        ? filterVal.some((candidate) =>
+            // eslint-disable-next-line eqeqeq
+            rowVal == candidate)
+        : true;
     case 'not_equals':
       // eslint-disable-next-line eqeqeq
       return rowVal != filterVal;

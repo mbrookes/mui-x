@@ -112,7 +112,7 @@ function FilterSection(props: FilterSectionProps) {
 
   return (
     <Box>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+      <Stack direction="row" sx={{ mb: 1, alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography variant="subtitle2">{title}</Typography>
         <Chip label={filters.length} size="small" />
       </Stack>
@@ -243,7 +243,7 @@ export function StudioFiltersDrawer() {
 
       {/* Cross-filters section */}
       <Box>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+        <Stack direction="row" sx={{ mb: 1, alignItems: 'center', justifyContent: 'space-between' }}>
           <Typography variant="subtitle2">Cross-filters</Typography>
           <Chip label={crossFilters.length} size="small" />
         </Stack>

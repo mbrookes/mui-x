@@ -14,7 +14,7 @@ export const WIDGET_TYPES: {
 }[] = [
   { kind: 'text', label: 'Text', description: 'Title, subtitle, and body copy', icon: <TextFieldsIcon fontSize="large" /> },
   { kind: 'kpi', label: 'KPI', description: 'Single metric with aggregation', icon: <NumbersIcon fontSize="large" /> },
-  { kind: 'chart', label: 'Chart', description: 'Bar, line, or pie chart', icon: <BarChartIcon fontSize="large" /> },
+  { kind: 'chart', label: 'Chart', description: 'Bar, line, pie, area, scatter, grouped bar, or stacked bar chart', icon: <BarChartIcon fontSize="large" /> },
   { kind: 'grid', label: 'Table', description: 'Data grid with sorting & filtering', icon: <TableChartIcon fontSize="large" /> },
 ];
 

@@ -2,7 +2,7 @@ export type StudioMode = 'edit' | 'view';
 
 export type StudioDrawer = 'data' | 'compose' | 'filters';
 
-export type StudioWidgetKind = 'grid' | 'chart' | 'kpi';
+export type StudioWidgetKind = 'grid' | 'chart' | 'kpi' | 'text';
 
 export type StudioChartType =
   | 'bar'
@@ -19,6 +19,7 @@ export type StudioKpiFormat = 'number' | 'currency' | 'percent';
 
 export type StudioFilterOperator =
   | 'equals'
+  | 'in'
   | 'not_equals'
   | 'contains'
   | 'greater_than'
@@ -55,6 +56,9 @@ export interface StudioWidgetConfig {
   kpiFormat?: StudioKpiFormat;
   kpiPrefix?: string;
   kpiSuffix?: string;
+  // Text config
+  textSubtitle?: string;
+  textBody?: string;
   // Shared
   measures?: string[];
   dimensions?: string[];

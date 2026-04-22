@@ -1,9 +1,12 @@
+'use client';
+
 import * as React from 'react';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import { PieChart } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
-import { Box, Chip, Stack, Typography } from '@mui/material';
+import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
+import { Box, Typography } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import { applyFilters, aggregateByField, aggregateByTwoFields, prepareScatterData } from './chartUtils';
@@ -15,13 +18,28 @@ export interface StudioChartWidgetProps {
 }
 
 const CHART_HEIGHT = 260;
+const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
+const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
+
+function normalizeCrossFilterValue(value: string | number | Date | undefined) {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (value == null) {
+    return null;
+  }
+
+  return String(value);
+}
 
 export function StudioChartWidget(props: StudioChartWidgetProps) {
   const { dataSource, widget } = props;
   const { config } = widget;
   const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
-  const mode = useStudioSelector((state) => state.mode);
+  const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<'bar' | 'line' | 'pie'> | null>(null);
+  const [hoveredAxis, setHoveredAxis] = React.useState<AxisItemIdentifier[] | null>(null);
 
   // Check if this widget has an active cross-filter
   const activeCrossFilter = filters.find(
@@ -82,7 +100,9 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
 
   const handleItemClick = React.useCallback(
     (label: string | number | Date) => {
-      if (!config.xField) return;
+      if (!config.xField) {
+        return;
+      }
 
       // Convert Date to string for filtering
       const filterValue = label instanceof Date ? label.toISOString() : label;
@@ -98,19 +118,26 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   );
 
   const chartType = config.chartType ?? 'bar';
+  const selectedFilterValue =
+    activeCrossFilter && activeCrossFilter.field === config.xField
+      ? normalizeCrossFilterValue(activeCrossFilter.value as string | number | Date)
+      : null;
 
-  // Cross-filter indicator
-  const crossFilterIndicator = activeCrossFilter ? (
-    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-      <Chip
-        size="small"
-        label={`Filtering: ${config.xField} = ${activeCrossFilter.value}`}
-        onDelete={() => controller.clearCrossFilter(widget.id)}
-        color="primary"
-        variant="outlined"
-      />
-    </Stack>
-  ) : null;
+  const getSelectedDataIndex = React.useCallback(
+    (labels: Array<string | number | Date>) => {
+      if (selectedFilterValue == null) {
+        return -1;
+      }
+
+      return labels.findIndex((label) => normalizeCrossFilterValue(label) === selectedFilterValue);
+    },
+    [selectedFilterValue],
+  );
+
+  const controlledHighlightedItem =
+    selectedFilterValue == null ? hoveredItem : null;
+  const controlledHighlightedAxis =
+    selectedFilterValue == null ? hoveredAxis ?? undefined : undefined;
 
   // Scatter chart
   if (chartType === 'scatter') {
@@ -130,8 +157,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     const yLabel = dataSource?.fields.find((f) => f.id === config.yField)?.label ?? config.yField ?? 'Y';
 
     return (
-      <Box>
-        {crossFilterIndicator}
+      <div>
         <ScatterChart
           series={[
             {
@@ -140,9 +166,11 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             },
           ]}
           height={CHART_HEIGHT}
+          hideLegend
+          margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
           sx={{ cursor: 'pointer' }}
         />
-      </Box>
+      </div>
     );
   }
 
@@ -161,19 +189,32 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     }
 
     const xAxisData = multiSeriesData.labels.map(String);
+    const selectedDataIndex = getSelectedDataIndex(multiSeriesData.labels);
     const series = multiSeriesData.seriesNames.map((seriesName) => ({
+      id: String(seriesName),
       data: multiSeriesData.seriesData[seriesName],
       label: String(seriesName),
       stack: chartType === 'bar-stacked' ? 'total' : undefined,
+      highlightScope: {
+        highlight: 'item' as const,
+        fade: 'global' as const,
+      },
     }));
 
     return (
-      <Box>
-        {crossFilterIndicator}
+      <div>
         <BarChart
-          xAxis={[{ data: xAxisData, scaleType: 'band' }]}
+          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
           series={series}
           height={CHART_HEIGHT}
+          hideLegend
+          margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+          highlightedAxis={
+            selectedDataIndex >= 0
+              ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
+              : controlledHighlightedAxis
+          }
+          onHighlightedAxisChange={setHoveredAxis}
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
               handleItemClick(params.axisValue);
@@ -181,7 +222,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           }}
           sx={{ cursor: 'pointer' }}
         />
-      </Box>
+      </div>
     );
   }
 
@@ -199,12 +240,14 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   }
 
   if (chartType === 'pie') {
+    const selectedDataIndex = getSelectedDataIndex(chartData.labels);
+
     return (
-      <Box>
-        {crossFilterIndicator}
+      <div>
         <PieChart
           series={[
             {
+              id: CROSS_FILTER_SERIES_ID,
               data: chartData.labels.map((label, i) => ({
                 id: i,
                 label: String(label),
@@ -214,6 +257,18 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             },
           ]}
           height={CHART_HEIGHT}
+          hideLegend
+          margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
+          highlightedItem={
+            selectedDataIndex >= 0
+              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
+              : controlledHighlightedItem
+          }
+          onHighlightChange={(item) =>
+            setHoveredItem(
+              item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null,
+            )
+          }
           onItemClick={(_event, params) => {
             const label = chartData.labels[params.dataIndex];
             if (label !== undefined) {
@@ -222,21 +277,44 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           }}
           sx={{ cursor: 'pointer' }}
         />
-      </Box>
+      </div>
     );
   }
 
   const xAxisData = chartData.labels.map(String);
   const seriesLabel = dataSource?.fields.find((f) => f.id === config.yField)?.label ?? config.yField ?? 'Value';
+  const selectedDataIndex = getSelectedDataIndex(chartData.labels);
 
   if (chartType === 'line') {
     return (
-      <Box>
-        {crossFilterIndicator}
+      <div>
         <LineChart
-          xAxis={[{ data: xAxisData, scaleType: 'point' }]}
-          series={[{ data: chartData.values, label: seriesLabel, area: false }]}
+          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point' }]}
+          series={[
+            {
+              id: CROSS_FILTER_SERIES_ID,
+              data: chartData.values,
+              label: seriesLabel,
+              area: false,
+              highlightScope: {
+                highlight: 'item',
+                fade: 'global',
+              },
+            },
+          ]}
           height={CHART_HEIGHT}
+          hideLegend
+          margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+          highlightedItem={
+            selectedDataIndex >= 0
+              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
+              : controlledHighlightedItem
+          }
+          onHighlightChange={(item) =>
+            setHoveredItem(
+              item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null,
+            )
+          }
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
               handleItemClick(params.axisValue);
@@ -244,18 +322,40 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           }}
           sx={{ cursor: 'pointer' }}
         />
-      </Box>
+      </div>
     );
   }
 
   if (chartType === 'area') {
     return (
-      <Box>
-        {crossFilterIndicator}
+      <div>
         <LineChart
-          xAxis={[{ data: xAxisData, scaleType: 'point' }]}
-          series={[{ data: chartData.values, label: seriesLabel, area: true }]}
+          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point' }]}
+          series={[
+            {
+              id: CROSS_FILTER_SERIES_ID,
+              data: chartData.values,
+              label: seriesLabel,
+              area: true,
+              highlightScope: {
+                highlight: 'item',
+                fade: 'global',
+              },
+            },
+          ]}
           height={CHART_HEIGHT}
+          hideLegend
+          margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+          highlightedItem={
+            selectedDataIndex >= 0
+              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
+              : controlledHighlightedItem
+          }
+          onHighlightChange={(item) =>
+            setHoveredItem(
+              item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null,
+            )
+          }
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
               handleItemClick(params.axisValue);
@@ -263,18 +363,39 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           }}
           sx={{ cursor: 'pointer' }}
         />
-      </Box>
+      </div>
     );
   }
 
   // Default: bar chart
   return (
-    <Box>
-      {crossFilterIndicator}
+    <div>
       <BarChart
-        xAxis={[{ data: xAxisData, scaleType: 'band' }]}
-        series={[{ data: chartData.values, label: seriesLabel }]}
+        xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
+        series={[
+          {
+            id: CROSS_FILTER_SERIES_ID,
+            data: chartData.values,
+            label: seriesLabel,
+            highlightScope: {
+              highlight: 'item',
+              fade: 'global',
+            },
+          },
+        ]}
         height={CHART_HEIGHT}
+        hideLegend
+        margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+        highlightedItem={
+          selectedDataIndex >= 0
+            ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
+            : controlledHighlightedItem
+        }
+        onHighlightChange={(item) =>
+          setHoveredItem(
+            item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null,
+          )
+        }
         onAxisClick={(_event, params) => {
           if (params?.axisValue !== undefined) {
             handleItemClick(params.axisValue);
@@ -282,6 +403,6 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
         }}
         sx={{ cursor: 'pointer' }}
       />
-    </Box>
+    </div>
   );
 }

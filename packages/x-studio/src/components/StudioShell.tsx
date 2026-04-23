@@ -232,7 +232,7 @@ function StudioShellContent(props: StudioShellSlots) {
       sx={{
         display: 'flex',
         flexDirection: 'column',
-        minHeight: '100vh',
+        height: '100vh',
         bgcolor: 'background.default',
       }}
     >

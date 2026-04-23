@@ -12,15 +12,19 @@ function matchesFilter(row: Row, filter: StudioFilterState): boolean {
       return rowVal == filterVal;
     case 'in':
       return Array.isArray(filterVal)
-        ? filterVal.some((candidate) =>
-            // eslint-disable-next-line eqeqeq
-            rowVal == candidate)
+        ? filterVal.some(
+            (candidate) =>
+              // eslint-disable-next-line eqeqeq
+              rowVal == candidate,
+          )
         : true;
     case 'not_equals':
       // eslint-disable-next-line eqeqeq
       return rowVal != filterVal;
     case 'contains':
-      return String(rowVal ?? '').toLowerCase().includes(String(filterVal ?? '').toLowerCase());
+      return String(rowVal ?? '')
+        .toLowerCase()
+        .includes(String(filterVal ?? '').toLowerCase());
     case 'greater_than':
       return Number(rowVal) > Number(filterVal);
     case 'less_than':
@@ -85,7 +89,7 @@ export function aggregateByTwoFields(
   // First pass: collect all unique x values and series values
   const xValuesSet = new Set<string | number>();
   const seriesValuesSet = new Set<string | number>();
-  
+
   // Map: xValue -> seriesValue -> sum
   const dataMap = new Map<string | number, Map<string | number, number>>();
 
@@ -131,7 +135,11 @@ export interface ScatterDataPoint {
 /**
  * Prepare data for scatter charts
  */
-export function prepareScatterData(rows: Row[], xField: string, yField: string): ScatterDataPoint[] {
+export function prepareScatterData(
+  rows: Row[],
+  xField: string,
+  yField: string,
+): ScatterDataPoint[] {
   return rows.map((row, index) => ({
     x: Number(row[xField] ?? 0),
     y: Number(row[yField] ?? 0),

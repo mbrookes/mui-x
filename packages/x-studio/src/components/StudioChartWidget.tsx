@@ -9,7 +9,12 @@ import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/
 import { Box, Typography } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
-import { applyFilters, aggregateByField, aggregateByTwoFields, prepareScatterData } from './chartUtils';
+import {
+  applyFilters,
+  aggregateByField,
+  aggregateByTwoFields,
+  prepareScatterData,
+} from './chartUtils';
 import { useStudioController, useStudioSelector } from '../context';
 
 export interface StudioChartWidgetProps {
@@ -38,7 +43,9 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   const { config } = widget;
   const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
-  const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<'bar' | 'line' | 'pie'> | null>(null);
+  const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<
+    'bar' | 'line' | 'pie'
+  > | null>(null);
   const [hoveredAxis, setHoveredAxis] = React.useState<AxisItemIdentifier[] | null>(null);
 
   // Check if this widget has an active cross-filter
@@ -134,16 +141,22 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     [selectedFilterValue],
   );
 
-  const controlledHighlightedItem =
-    selectedFilterValue == null ? hoveredItem : null;
+  const controlledHighlightedItem = selectedFilterValue == null ? hoveredItem : null;
   const controlledHighlightedAxis =
-    selectedFilterValue == null ? hoveredAxis ?? undefined : undefined;
+    selectedFilterValue == null ? (hoveredAxis ?? undefined) : undefined;
 
   // Scatter chart
   if (chartType === 'scatter') {
     if (!scatterData || scatterData.length === 0) {
       return (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: CHART_HEIGHT }}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: CHART_HEIGHT,
+          }}
+        >
           <Typography variant="body2" color="text.secondary">
             {!config.xField || !config.yField
               ? 'Configure x and y fields in the Compose drawer.'
@@ -153,8 +166,10 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
       );
     }
 
-    const xLabel = dataSource?.fields.find((f) => f.id === config.xField)?.label ?? config.xField ?? 'X';
-    const yLabel = dataSource?.fields.find((f) => f.id === config.yField)?.label ?? config.yField ?? 'Y';
+    const xLabel =
+      dataSource?.fields.find((f) => f.id === config.xField)?.label ?? config.xField ?? 'X';
+    const yLabel =
+      dataSource?.fields.find((f) => f.id === config.yField)?.label ?? config.yField ?? 'Y';
 
     return (
       <div>
@@ -178,7 +193,14 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   if (chartType === 'bar-grouped' || chartType === 'bar-stacked') {
     if (!multiSeriesData || multiSeriesData.labels.length === 0) {
       return (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: CHART_HEIGHT }}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: CHART_HEIGHT,
+          }}
+        >
           <Typography variant="body2" color="text.secondary">
             {!config.xField || !config.yField || !config.seriesField
               ? 'Configure x, y, and series fields in the Compose drawer.'
@@ -229,7 +251,14 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   // Standard charts (bar, line, pie, area)
   if (!chartData || chartData.labels.length === 0) {
     return (
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: CHART_HEIGHT }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: CHART_HEIGHT,
+        }}
+      >
         <Typography variant="body2" color="text.secondary">
           {!config.xField || !config.yField
             ? 'Configure x and y fields in the Compose drawer.'
@@ -266,9 +295,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
               : controlledHighlightedItem
           }
           onHighlightChange={(item) =>
-            setHoveredItem(
-              item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null,
-            )
+            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
           onItemClick={(_event, params) => {
             const label = chartData.labels[params.dataIndex];
@@ -283,7 +310,8 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   }
 
   const xAxisData = chartData.labels.map(String);
-  const seriesLabel = dataSource?.fields.find((f) => f.id === config.yField)?.label ?? config.yField ?? 'Value';
+  const seriesLabel =
+    dataSource?.fields.find((f) => f.id === config.yField)?.label ?? config.yField ?? 'Value';
   const selectedDataIndex = getSelectedDataIndex(chartData.labels);
 
   if (chartType === 'line') {
@@ -312,9 +340,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
               : controlledHighlightedItem
           }
           onHighlightChange={(item) =>
-            setHoveredItem(
-              item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null,
-            )
+            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
@@ -353,9 +379,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
               : controlledHighlightedItem
           }
           onHighlightChange={(item) =>
-            setHoveredItem(
-              item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null,
-            )
+            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
           onAxisClick={(_event, params) => {
             if (params?.axisValue !== undefined) {
@@ -393,9 +417,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             : controlledHighlightedItem
         }
         onHighlightChange={(item) =>
-          setHoveredItem(
-            item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null,
-          )
+          setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
         }
         onAxisClick={(_event, params) => {
           if (params?.axisValue !== undefined) {

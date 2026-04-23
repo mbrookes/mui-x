@@ -3,7 +3,6 @@ import {
   Alert,
   Box,
   Button,
-
   Divider,
   FormControl,
   IconButton,
@@ -114,7 +113,6 @@ function FilterSection(props: FilterSectionProps) {
     <Box>
       <Stack direction="row" sx={{ mb: 1, alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography variant="subtitle2">{title}</Typography>
-        
       </Stack>
 
       {filters.length === 0 ? (
@@ -124,12 +122,7 @@ function FilterSection(props: FilterSectionProps) {
       ) : (
         <Stack spacing={1.5} sx={{ mb: 1 }}>
           {filters.map((filter) => (
-            <FilterRow
-              key={filter.id}
-              filter={filter}
-              fields={fields}
-              onRemove={onRemoveFilter}
-            />
+            <FilterRow key={filter.id} filter={filter} fields={fields} onRemove={onRemoveFilter} />
           ))}
         </Stack>
       )}
@@ -177,7 +170,9 @@ export function StudioFiltersDrawer() {
   }, [selectedWidget, dataSources, allFields]);
 
   const pageFilters = filters.filter((f) => f.scope === 'page');
-  const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === selectedWidgetId);
+  const widgetFilters = filters.filter(
+    (f) => f.scope === 'widget' && f.widgetId === selectedWidgetId,
+  );
   const crossFilters = filters.filter((f) => f.scope === 'cross-filter');
 
   const handleAddPageFilter = () => {
@@ -243,14 +238,17 @@ export function StudioFiltersDrawer() {
 
       {/* Cross-filters section */}
       <Box>
-        <Stack direction="row" sx={{ mb: 1, alignItems: 'center', justifyContent: 'space-between' }}>
+        <Stack
+          direction="row"
+          sx={{ mb: 1, alignItems: 'center', justifyContent: 'space-between' }}
+        >
           <Typography variant="subtitle2">Cross-filters</Typography>
-          
         </Stack>
 
         {crossFilters.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
-            No cross-filters active. Click on chart elements or select grid rows to create cross-filters.
+            No cross-filters active. Click on chart elements or select grid rows to create
+            cross-filters.
           </Typography>
         ) : (
           <Stack spacing={1}>

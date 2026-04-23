@@ -4,7 +4,12 @@ import TableChartIcon from '@mui/icons-material/TableChart';
 import NumbersIcon from '@mui/icons-material/Numbers';
 import TextFieldsIcon from '@mui/icons-material/TextFields';
 
-import type { StudioDataSource, StudioFieldBinding, StudioWidget, StudioWidgetKind } from '../models';
+import type {
+  StudioDataSource,
+  StudioFieldBinding,
+  StudioWidget,
+  StudioWidgetKind,
+} from '../models';
 
 export const WIDGET_TYPES: {
   kind: StudioWidgetKind;
@@ -12,10 +17,30 @@ export const WIDGET_TYPES: {
   description: string;
   icon: React.ReactNode;
 }[] = [
-  { kind: 'text', label: 'Text', description: 'Title, subtitle, and body copy', icon: <TextFieldsIcon fontSize="large" /> },
-  { kind: 'kpi', label: 'KPI', description: 'Single metric with aggregation', icon: <NumbersIcon fontSize="large" /> },
-  { kind: 'chart', label: 'Chart', description: 'Bar, line, pie, area, scatter, grouped bar, or stacked bar chart', icon: <BarChartIcon fontSize="large" /> },
-  { kind: 'grid', label: 'Table', description: 'Data grid with sorting & filtering', icon: <TableChartIcon fontSize="large" /> },
+  {
+    kind: 'text',
+    label: 'Text',
+    description: 'Title, subtitle, and body copy',
+    icon: <TextFieldsIcon fontSize="large" />,
+  },
+  {
+    kind: 'kpi',
+    label: 'KPI',
+    description: 'Single metric with aggregation',
+    icon: <NumbersIcon fontSize="large" />,
+  },
+  {
+    kind: 'chart',
+    label: 'Chart',
+    description: 'Bar, line, pie, area, scatter, grouped bar, or stacked bar chart',
+    icon: <BarChartIcon fontSize="large" />,
+  },
+  {
+    kind: 'grid',
+    label: 'Table',
+    description: 'Data grid with sorting & filtering',
+    icon: <TableChartIcon fontSize="large" />,
+  },
 ];
 
 export function widgetKindRequiresDataSource(kind: StudioWidgetKind) {
@@ -27,7 +52,8 @@ export function createDefaultWidget(
   source?: StudioDataSource,
 ): StudioWidget {
   const id = `widget-${kind}-${Date.now()}`;
-  const bindings: StudioFieldBinding[] = source?.fields.map((f) => ({ field: f.id, label: f.label })) ?? [];
+  const bindings: StudioFieldBinding[] =
+    source?.fields.map((f) => ({ field: f.id, label: f.label })) ?? [];
 
   if (kind === 'text') {
     return {
@@ -111,15 +137,17 @@ export function exportGridToCsv(
 
   // Create data rows
   const csvRows = rows.map((row) =>
-    visibleColumns.map((col) => {
-      const value = row[col];
-      // Escape quotes and wrap in quotes if contains comma, quote, or newline
-      const strVal = String(value ?? '');
-      if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n')) {
-        return `"${strVal.replace(/"/g, '""')}"`;
-      }
-      return strVal;
-    }).join(','),
+    visibleColumns
+      .map((col) => {
+        const value = row[col];
+        // Escape quotes and wrap in quotes if contains comma, quote, or newline
+        const strVal = String(value ?? '');
+        if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n')) {
+          return `"${strVal.replace(/"/g, '""')}"`;
+        }
+        return strVal;
+      })
+      .join(','),
   );
 
   const csvContent = [headers.join(','), ...csvRows].join('\n');
@@ -147,7 +175,7 @@ export function exportChartToPng(widget: StudioWidget, chartContainer: HTMLEleme
 
   // Clone the SVG to avoid modifying the original
   const clonedSvg = svg.cloneNode(true) as SVGElement;
-  
+
   // Get computed styles and inline them
   const svgRect = svg.getBoundingClientRect();
   clonedSvg.setAttribute('width', String(svgRect.width));
@@ -156,16 +184,16 @@ export function exportChartToPng(widget: StudioWidget, chartContainer: HTMLEleme
   // Serialize SVG to string
   const serializer = new XMLSerializer();
   const svgString = serializer.serializeToString(clonedSvg);
-  
+
   // Create a canvas
   const canvas = document.createElement('canvas');
   const scale = 2; // Higher resolution
   canvas.width = svgRect.width * scale;
   canvas.height = svgRect.height * scale;
-  
+
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
-  
+
   ctx.scale(scale, scale);
   ctx.fillStyle = 'white';
   ctx.fillRect(0, 0, canvas.width, canvas.height);

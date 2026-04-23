@@ -16,13 +16,14 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { useStudioController, useStudioSelector } from '../context';
 import type { StudioDataSource } from '../models';
 
-const fieldTypeColor: Record<string, 'default' | 'primary' | 'secondary' | 'success' | 'warning'> = {
-  string: 'default',
-  number: 'primary',
-  boolean: 'secondary',
-  date: 'success',
-  datetime: 'warning',
-};
+const fieldTypeColor: Record<string, 'default' | 'primary' | 'secondary' | 'success' | 'warning'> =
+  {
+    string: 'default',
+    number: 'primary',
+    boolean: 'secondary',
+    date: 'success',
+    datetime: 'warning',
+  };
 
 function DataSourceSection(props: { source: StudioDataSource }) {
   const { source } = props;

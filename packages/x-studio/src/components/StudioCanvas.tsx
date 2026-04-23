@@ -1,13 +1,6 @@
 import * as React from 'react';
 import * as pragmaticDnd from '@atlaskit/pragmatic-drag-and-drop';
-import {
-  Box,
-  IconButton,
-  Paper,
-  Stack,
-  Tooltip,
-  Typography,
-} from '@mui/material';
+import { Box, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -41,16 +34,96 @@ function createSalesDataSource(): StudioDataSource {
       { id: 'margin', label: 'Margin %', type: 'number' },
     ],
     rows: [
-      { id: 1, product: 'Alpha Pro', category: 'Software', region: 'DACH', revenue: 12400, quantity: 8, margin: 62 },
-      { id: 2, product: 'Beta Suite', category: 'Hardware', region: 'UK', revenue: 9750, quantity: 5, margin: 38 },
-      { id: 3, product: 'Gamma Cloud', category: 'Software', region: 'Nordics', revenue: 18200, quantity: 12, margin: 71 },
-      { id: 4, product: 'Delta Device', category: 'Hardware', region: 'DACH', revenue: 6300, quantity: 3, margin: 22 },
-      { id: 5, product: 'Epsilon Analytics', category: 'Software', region: 'UK', revenue: 21500, quantity: 15, margin: 68 },
-      { id: 6, product: 'Zeta Connect', category: 'Services', region: 'Nordics', revenue: 7800, quantity: 6, margin: 45 },
-      { id: 7, product: 'Eta Platform', category: 'Software', region: 'DACH', revenue: 16900, quantity: 11, margin: 74 },
-      { id: 8, product: 'Theta Hub', category: 'Hardware', region: 'UK', revenue: 4200, quantity: 2, margin: 18 },
-      { id: 9, product: 'Iota Insights', category: 'Services', region: 'DACH', revenue: 9100, quantity: 7, margin: 53 },
-      { id: 10, product: 'Kappa Flow', category: 'Software', region: 'Nordics', revenue: 14600, quantity: 9, margin: 66 },
+      {
+        id: 1,
+        product: 'Alpha Pro',
+        category: 'Software',
+        region: 'DACH',
+        revenue: 12400,
+        quantity: 8,
+        margin: 62,
+      },
+      {
+        id: 2,
+        product: 'Beta Suite',
+        category: 'Hardware',
+        region: 'UK',
+        revenue: 9750,
+        quantity: 5,
+        margin: 38,
+      },
+      {
+        id: 3,
+        product: 'Gamma Cloud',
+        category: 'Software',
+        region: 'Nordics',
+        revenue: 18200,
+        quantity: 12,
+        margin: 71,
+      },
+      {
+        id: 4,
+        product: 'Delta Device',
+        category: 'Hardware',
+        region: 'DACH',
+        revenue: 6300,
+        quantity: 3,
+        margin: 22,
+      },
+      {
+        id: 5,
+        product: 'Epsilon Analytics',
+        category: 'Software',
+        region: 'UK',
+        revenue: 21500,
+        quantity: 15,
+        margin: 68,
+      },
+      {
+        id: 6,
+        product: 'Zeta Connect',
+        category: 'Services',
+        region: 'Nordics',
+        revenue: 7800,
+        quantity: 6,
+        margin: 45,
+      },
+      {
+        id: 7,
+        product: 'Eta Platform',
+        category: 'Software',
+        region: 'DACH',
+        revenue: 16900,
+        quantity: 11,
+        margin: 74,
+      },
+      {
+        id: 8,
+        product: 'Theta Hub',
+        category: 'Hardware',
+        region: 'UK',
+        revenue: 4200,
+        quantity: 2,
+        margin: 18,
+      },
+      {
+        id: 9,
+        product: 'Iota Insights',
+        category: 'Services',
+        region: 'DACH',
+        revenue: 9100,
+        quantity: 7,
+        margin: 53,
+      },
+      {
+        id: 10,
+        product: 'Kappa Flow',
+        category: 'Software',
+        region: 'Nordics',
+        revenue: 14600,
+        quantity: 9,
+        margin: 66,
+      },
     ],
   };
 }
@@ -81,7 +154,10 @@ function WidgetCard(props: WidgetCardProps) {
     function handleDragStart(e: DragEvent) {
       setIsDragging(true);
       controller.setSelectedWidget(widgetId);
-      e.dataTransfer?.setData('application/json', JSON.stringify({ type: 'canvas-widget', widgetId }));
+      e.dataTransfer?.setData(
+        'application/json',
+        JSON.stringify({ type: 'canvas-widget', widgetId }),
+      );
       if (node) e.dataTransfer?.setDragImage(node, 0, 0);
     }
     function handleDragEnd() {
@@ -129,8 +205,9 @@ function WidgetCard(props: WidgetCardProps) {
 
   const canExport = widget.kind === 'grid' || widget.kind === 'chart';
   const widgetMetaLabel =
-    widget.kind === 'text' ? 'Text widget' : source?.label ?? 'Unbound source';
-  const showEditActions = mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered));
+    widget.kind === 'text' ? 'Text widget' : (source?.label ?? 'Unbound source');
+  const showEditActions =
+    mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
   const hiddenActionSx = {
     visibility: 'hidden',
@@ -228,7 +305,12 @@ function WidgetCard(props: WidgetCardProps) {
               <Stack
                 direction="row"
                 spacing={0.5}
-                sx={{ alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0, minWidth: 36 }}
+                sx={{
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  flexShrink: 0,
+                  minWidth: 36,
+                }}
               >
                 <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
                   <IconButton
@@ -271,7 +353,17 @@ export function StudioCanvas() {
 
   // Droppable wrapper for insertion points
   // Plain JS DnD for insertion points
-  function InsertionPoint({ rowIndex, colIndex, onDrop, orientation }: { rowIndex: number; colIndex: number; onDrop: (data: any) => void; orientation: 'vertical' | 'horizontal'; }) {
+  function InsertionPoint({
+    rowIndex,
+    colIndex,
+    onDrop,
+    orientation,
+  }: {
+    rowIndex: number;
+    colIndex: number;
+    onDrop: (data: any) => void;
+    orientation: 'vertical' | 'horizontal';
+  }) {
     const ref = React.useRef<HTMLDivElement>(null);
     const [isOver, setIsOver] = React.useState(false);
     React.useEffect(() => {
@@ -329,42 +421,45 @@ export function StudioCanvas() {
           zIndex: isOver ? 2 : 1,
         }}
       >
-            {isOver && orientation === 'vertical' && (
-              <Box sx={{
-                position: 'absolute',
-                left: '50%',
-                top: 0,
-                bottom: 0,
-                width: 2,
-                bgcolor: 'primary.main',
-                borderRadius: 1,
-                transform: 'translateX(-50%)',
-                boxShadow: 2,
-              }} />
-            )}
-            {isOver && orientation === 'horizontal' && (
-              <Box sx={{
-                position: 'absolute',
-                top: '50%',
-                left: 0,
-                right: 0,
-                height: 2,
-                bgcolor: 'primary.main',
-                borderRadius: 1,
-                transform: 'translateY(-50%)',
-                boxShadow: 2,
-              }} />
-            )}
-          </Box>
-        );
+        {isOver && orientation === 'vertical' && (
+          <Box
+            sx={{
+              position: 'absolute',
+              left: '50%',
+              top: 0,
+              bottom: 0,
+              width: 2,
+              bgcolor: 'primary.main',
+              borderRadius: 1,
+              transform: 'translateX(-50%)',
+              boxShadow: 2,
+            }}
+          />
+        )}
+        {isOver && orientation === 'horizontal' && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: '50%',
+              left: 0,
+              right: 0,
+              height: 2,
+              bgcolor: 'primary.main',
+              borderRadius: 1,
+              transform: 'translateY(-50%)',
+              boxShadow: 2,
+            }}
+          />
+        )}
+      </Box>
+    );
   }
 
   // Drop handler for insertion points.
   // orientation='horizontal' → insert a brand-new row at rowIndex.
   // orientation='vertical'   → insert into the existing row at colIndex.
   const handleDrop =
-    (rowIndex: number, colIndex: number, orientation: 'horizontal' | 'vertical') =>
-    (data: any) => {
+    (rowIndex: number, colIndex: number, orientation: 'horizontal' | 'vertical') => (data: any) => {
       const activePageId = controller.getState().dashboard.activePageId;
       const updateRows = (rows: string[][]) => {
         controller.updateState({
@@ -450,26 +545,57 @@ export function StudioCanvas() {
     >
       {/* Insertion point above the first row — inset by the vertical drop zone width (16px) on each side */}
       {mode === 'edit' && (
-        <InsertionPoint rowIndex={0} colIndex={0} onDrop={handleDrop(0, 0, 'horizontal')} orientation="horizontal" />
+        <InsertionPoint
+          rowIndex={0}
+          colIndex={0}
+          onDrop={handleDrop(0, 0, 'horizontal')}
+          orientation="horizontal"
+        />
       )}
       {widgetRows.map((row, rowIndex) => (
         <Box key={rowIndex} sx={rowIndex > 0 && mode !== 'edit' ? { mt: 1 } : undefined}>
-          <Box sx={{ display: 'flex', gap: mode === 'edit' ? 0 : 1, width: '100%', alignItems: 'stretch' }}>
+          <Box
+            sx={{
+              display: 'flex',
+              gap: mode === 'edit' ? 0 : 1,
+              width: '100%',
+              alignItems: 'stretch',
+            }}
+          >
             {/* Insertion point before first widget in row */}
-            {mode === 'edit' && <InsertionPoint rowIndex={rowIndex} colIndex={0} onDrop={handleDrop(rowIndex, 0, 'vertical')} orientation="vertical" />}
+            {mode === 'edit' && (
+              <InsertionPoint
+                rowIndex={rowIndex}
+                colIndex={0}
+                onDrop={handleDrop(rowIndex, 0, 'vertical')}
+                orientation="vertical"
+              />
+            )}
             {row.map((widgetId, colIndex) => (
               <React.Fragment key={widgetId}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <WidgetCard widgetId={widgetId} />
                 </Box>
                 {/* Insertion point after this widget */}
-                {mode === 'edit' && <InsertionPoint rowIndex={rowIndex} colIndex={colIndex + 1} onDrop={handleDrop(rowIndex, colIndex + 1, 'vertical')} orientation="vertical" />}
+                {mode === 'edit' && (
+                  <InsertionPoint
+                    rowIndex={rowIndex}
+                    colIndex={colIndex + 1}
+                    onDrop={handleDrop(rowIndex, colIndex + 1, 'vertical')}
+                    orientation="vertical"
+                  />
+                )}
               </React.Fragment>
             ))}
           </Box>
           {/* Insertion point below this row */}
           {mode === 'edit' && (
-            <InsertionPoint rowIndex={rowIndex + 1} colIndex={0} onDrop={handleDrop(rowIndex + 1, 0, 'horizontal')} orientation="horizontal" />
+            <InsertionPoint
+              rowIndex={rowIndex + 1}
+              colIndex={0}
+              onDrop={handleDrop(rowIndex + 1, 0, 'horizontal')}
+              orientation="horizontal"
+            />
           )}
         </Box>
       ))}

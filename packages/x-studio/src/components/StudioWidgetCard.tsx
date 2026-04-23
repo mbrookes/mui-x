@@ -128,6 +128,9 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
         {/* Widget header */}
         <Box>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <Typography variant="subtitle1" noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
+              {widget.title}
+            </Typography>
             {mode === 'edit' ? (
               <Stack
                 direction="row"
@@ -206,9 +209,6 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
               </Stack>
             ) : null}
           </Stack>
-          <Typography variant="caption" color="text.secondary">
-            {widgetMetaLabel}
-          </Typography>
         </Box>
         {/* Widget content */}
         {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}

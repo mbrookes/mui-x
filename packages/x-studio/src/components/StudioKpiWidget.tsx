@@ -82,8 +82,6 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
     };
   }, [dataSource, filters, config, widget.id]);
 
-  // Field label removed per requirements
-
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
       <Typography

@@ -211,7 +211,7 @@ function GridSetupPanel(props: { widgetId: string }) {
   const dataSources = useStudioSelector((state) => state.dataSources);
 
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
-  const allFields = source?.fields ?? [];
+  const allFields = (source?.fields ?? []).filter((f) => !f.hidden);
   const visibleColumns: string[] = widget?.config?.columns ?? allFields.map((f) => f.id);
 
   const handleColumnToggle = (fieldId: string) => {
@@ -275,7 +275,9 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const dataSources = useStudioSelector((state) => state.dataSources);
 
   const allFields = Object.values(dataSources).flatMap((ds) =>
-    ds.fields.map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
+    ds.fields
+      .filter((f) => !f.hidden)
+      .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
   );
   const config = widget?.config ?? {};
   const selectedXField = allFields.find((f) => f.id === config.xField);
@@ -384,7 +386,9 @@ function KpiSetupPanel(props: { widgetId: string }) {
 
   // Gather all fields from all data sources
   const allFields = Object.values(dataSources).flatMap((ds) =>
-    ds.fields.map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
+    ds.fields
+      .filter((f) => !f.hidden)
+      .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
   );
   const selectedField = allFields.find((f) => f.id === config.kpiValueField);
   const selectedFieldType = selectedField?.type ?? null;

@@ -9,7 +9,7 @@ export const productsSource: StudioDataSource = {
   id: PRODUCTS_SOURCE_ID,
   label: 'Products',
   fields: [
-    { id: 'id', label: 'Product ID', type: 'string' },
+    { id: 'id', label: 'Product ID', type: 'string', hidden: true },
     { id: 'name', label: 'Product Name', type: 'string' },
     { id: 'category', label: 'Category', type: 'string' },
     { id: 'price', label: 'Unit Price', type: 'number' },
@@ -212,7 +212,7 @@ export const customersSource: StudioDataSource = {
   id: CUSTOMERS_SOURCE_ID,
   label: 'Customers',
   fields: [
-    { id: 'id', label: 'Customer ID', type: 'string' },
+    { id: 'id', label: 'Customer ID', type: 'string', hidden: true },
     { id: 'company', label: 'Company', type: 'string' },
     { id: 'contact', label: 'Contact Name', type: 'string' },
     { id: 'email', label: 'Email', type: 'string' },
@@ -432,9 +432,9 @@ export const ordersSource: StudioDataSource = {
   id: ORDERS_SOURCE_ID,
   label: 'Orders',
   fields: [
-    { id: 'id', label: 'Order ID', type: 'string' },
+    { id: 'id', label: 'Order ID', type: 'string', hidden: true },
     { id: 'date', label: 'Order Date', type: 'string' },
-    { id: 'customerId', label: 'Customer ID', type: 'string' },
+    { id: 'customerId', label: 'Customer ID', type: 'string', hidden: true },
 
     { id: 'status', label: 'Status', type: 'string' },
   ],
@@ -774,9 +774,9 @@ export const orderItemsSource: StudioDataSource = {
   id: ORDER_ITEMS_SOURCE_ID,
   label: 'Order Items',
   fields: [
-    { id: 'id', label: 'Order Item ID', type: 'string' },
-    { id: 'orderId', label: 'Order ID', type: 'string' },
-    { id: 'productId', label: 'Product ID', type: 'string' },
+    { id: 'id', label: 'Order Item ID', type: 'string', hidden: true },
+    { id: 'orderId', label: 'Order ID', type: 'string', hidden: true },
+    { id: 'productId', label: 'Product ID', type: 'string', hidden: true },
     { id: 'product', label: 'Product', type: 'string' },
     { id: 'category', label: 'Category', type: 'string' },
     { id: 'quantity', label: 'Quantity', type: 'number' },

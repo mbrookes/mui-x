@@ -236,7 +236,6 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     );
   }
 
-  // Standard charts (bar, line, pie, area)
   if (!chartData || chartData.labels.length === 0) {
     return (
       <Box

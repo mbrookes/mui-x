@@ -282,12 +282,13 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
                 label: String(label),
                 value: chartData.values[i],
               })),
-              arcLabel: 'label',
+              // arcLabel: 'label', // Removed arc labels for legend-only
+              // Pie chart now uses legend instead of arc labels
               highlightScope: { highlight: 'item', fade: 'global' },
             },
           ]}
           height={CHART_HEIGHT}
-          hideLegend
+          slotProps={{ legend: { position: 'right', direction: 'vertical' } }}
           margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
           highlightedItem={
             selectedDataIndex >= 0

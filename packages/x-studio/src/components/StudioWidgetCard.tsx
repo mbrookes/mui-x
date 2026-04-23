@@ -1,0 +1,225 @@
+import * as React from 'react';
+import { Box, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DownloadIcon from '@mui/icons-material/Download';
+
+import { useStudioController, useStudioSelector } from '../context';
+import { StudioGridWidget } from './StudioGridWidget';
+import { StudioChartWidget } from './StudioChartWidget';
+import { StudioKpiWidget } from './StudioKpiWidget';
+import { StudioTextWidget } from './StudioTextWidget';
+import { exportGridToCsv, exportChartToPng } from './widgetUtils';
+import { applyFilters } from './chartUtils';
+
+export interface StudioWidgetCardProps {
+  widgetId: string;
+}
+
+export function StudioWidgetCard(props: StudioWidgetCardProps) {
+  const [hovered, setHovered] = React.useState(false);
+  const { widgetId } = props;
+  const controller = useStudioController();
+  const mode = useStudioSelector((state) => state.mode);
+  const widget = useStudioSelector((state) => state.widgets[widgetId]);
+  const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
+  const filters = useStudioSelector((state) => state.filters);
+  const isSelected = selectedWidgetId === widgetId;
+  const source = useStudioSelector((state) =>
+    widget?.sourceId ? state.dataSources[widget.sourceId] : undefined,
+  );
+  const ref = React.useRef<HTMLDivElement>(null);
+  const chartContainerRef = React.useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  React.useEffect(() => {
+    if (mode !== 'edit') return;
+    const node = ref.current;
+    if (!node) return;
+    function handleDragStart(e: DragEvent) {
+      setIsDragging(true);
+      controller.setSelectedWidget(widgetId);
+      e.dataTransfer?.setData(
+        'application/json',
+        JSON.stringify({ type: 'canvas-widget', widgetId }),
+      );
+      if (node) e.dataTransfer?.setDragImage(node, 0, 0);
+    }
+    function handleDragEnd() {
+      setIsDragging(false);
+    }
+    node.setAttribute('draggable', 'true');
+    node.addEventListener('dragstart', handleDragStart);
+    node.addEventListener('dragend', handleDragEnd);
+    return () => {
+      node.removeAttribute('draggable');
+      node.removeEventListener('dragstart', handleDragStart);
+      node.removeEventListener('dragend', handleDragEnd);
+    };
+  }, [widgetId, mode, controller]);
+
+  const filteredRows = React.useMemo(() => {
+    if (!source?.rows || !widget) return [];
+    const pageFilters = filters.filter((f) => f.scope === 'page');
+    const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
+    const crossFilters = filters.filter(
+      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
+    );
+    const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
+    return applyFilters(source.rows, allFilters);
+  }, [source, widget, filters]);
+
+  const handleExport = React.useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!widget) return;
+      if (widget.kind === 'grid') {
+        exportGridToCsv(widget, source, filteredRows);
+      } else if (widget.kind === 'chart') {
+        exportChartToPng(widget, chartContainerRef.current);
+      }
+    },
+    [widget, source, filteredRows],
+  );
+
+  if (!widget) {
+    return null;
+  }
+
+  const canExport = widget.kind === 'grid' || widget.kind === 'chart';
+  const widgetMetaLabel =
+    widget.kind === 'text' ? 'Text widget' : (source?.label ?? 'Unbound source');
+  const showEditActions =
+    mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered));
+  const showViewExport = mode === 'view' && hovered && canExport;
+  const hiddenActionSx = {
+    visibility: 'hidden',
+    pointerEvents: 'none',
+  } as const;
+
+  return (
+    <Paper
+      ref={ref}
+      variant="outlined"
+      onClick={() => controller.setSelectedWidget(widgetId)}
+      aria-selected={isSelected}
+      aria-label={`Widget: ${widget.title}`}
+      data-widget-card
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          controller.setSelectedWidget(widgetId);
+        }
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      sx={{
+        borderColor: isSelected ? 'primary.main' : 'divider',
+        borderWidth: isSelected ? 2 : 1,
+        cursor: isDragging ? 'grabbing' : 'pointer',
+        p: 2,
+        opacity: isDragging ? 0.5 : 1,
+        transition: 'border-color 0.15s',
+        '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
+        boxShadow: isDragging ? 4 : undefined,
+      }}
+    >
+      <Stack spacing={2}>
+        {/* Widget header */}
+        <Box>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            {mode === 'edit' ? (
+              <Stack
+                direction="row"
+                spacing={0.5}
+                sx={{
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  flexShrink: 0,
+                  minWidth: canExport ? 108 : 72,
+                }}
+              >
+                {canExport && (
+                  <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
+                    <IconButton
+                      size="small"
+                      onClick={handleExport}
+                      aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
+                      sx={showEditActions ? undefined : hiddenActionSx}
+                      tabIndex={showEditActions ? 0 : -1}
+                    >
+                      <DownloadIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                <Tooltip title="Duplicate widget">
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      controller.duplicateWidget(widgetId);
+                    }}
+                    aria-label="Duplicate widget"
+                    sx={showEditActions ? undefined : hiddenActionSx}
+                    tabIndex={showEditActions ? 0 : -1}
+                  >
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Delete widget">
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      controller.removeWidget(widgetId);
+                    }}
+                    aria-label="Delete widget"
+                    sx={showEditActions ? undefined : hiddenActionSx}
+                    tabIndex={showEditActions ? 0 : -1}
+                  >
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            ) : canExport ? (
+              <Stack
+                direction="row"
+                spacing={0.5}
+                sx={{
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  flexShrink: 0,
+                  minWidth: 36,
+                }}
+              >
+                <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
+                  <IconButton
+                    size="small"
+                    onClick={handleExport}
+                    aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
+                    sx={showViewExport ? undefined : hiddenActionSx}
+                    tabIndex={showViewExport ? 0 : -1}
+                  >
+                    <DownloadIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            ) : null}
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
+            {widgetMetaLabel}
+          </Typography>
+        </Box>
+        {/* Widget content */}
+        {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
+        {widget.kind === 'chart' && (
+          <Box ref={chartContainerRef}>
+            <StudioChartWidget widget={widget} dataSource={source} />
+          </Box>
+        )}
+        {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
+        {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
+      </Stack>
+    </Paper>
+  );
+}

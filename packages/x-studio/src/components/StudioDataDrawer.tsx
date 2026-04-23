@@ -43,7 +43,8 @@ function DataSourceSection(props: { source: StudioDataSource }) {
           }
           secondary={
             <Typography variant="caption" color="text.secondary">
-              {source.fields.length} field{source.fields.length !== 1 ? 's' : ''} ·{' '}
+              {source.fields.filter((f) => !f.hidden).length} field
+              {source.fields.filter((f) => !f.hidden).length !== 1 ? 's' : ''} ·{' '}
               {source.rows?.length ?? 0} rows
             </Typography>
           }
@@ -53,44 +54,46 @@ function DataSourceSection(props: { source: StudioDataSource }) {
 
       <Collapse in={open}>
         <List dense disablePadding sx={{ pl: 1 }}>
-          {source.fields.map((field) => {
-            const isSelected = selectedSourceId === source.id && selectedFieldId === field.id;
-            return (
-              <ListItemButton
-                key={field.id}
-                selected={isSelected}
-                onClick={() => controller.selectField(source.id, field.id)}
-                sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
-              >
-                <ListItemText
-                  primary={
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                      <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
-                        {field.label}
-                      </Typography>
-                      <Chip
-                        label={field.type}
-                        size="small"
-                        color={fieldTypeColor[field.type] ?? 'default'}
-                        variant="outlined"
-                        sx={{
-                          alignSelf: 'center',
-                          height: 16,
-                          '& .MuiChip-label': {
-                            px: 0.75,
-                            fontSize: 10,
-                            display: 'flex',
-                            alignItems: 'center',
-                            height: '100%',
-                          },
-                        }}
-                      />
-                    </Stack>
-                  }
-                />
-              </ListItemButton>
-            );
-          })}
+          {source.fields
+            .filter((f) => !f.hidden)
+            .map((field) => {
+              const isSelected = selectedSourceId === source.id && selectedFieldId === field.id;
+              return (
+                <ListItemButton
+                  key={field.id}
+                  selected={isSelected}
+                  onClick={() => controller.selectField(source.id, field.id)}
+                  sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
+                >
+                  <ListItemText
+                    primary={
+                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                        <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
+                          {field.label}
+                        </Typography>
+                        <Chip
+                          label={field.type}
+                          size="small"
+                          color={fieldTypeColor[field.type] ?? 'default'}
+                          variant="outlined"
+                          sx={{
+                            alignSelf: 'center',
+                            height: 16,
+                            '& .MuiChip-label': {
+                              px: 0.75,
+                              fontSize: 10,
+                              display: 'flex',
+                              alignItems: 'center',
+                              height: '100%',
+                            },
+                          }}
+                        />
+                      </Stack>
+                    }
+                  />
+                </ListItemButton>
+              );
+            })}
         </List>
       </Collapse>
     </Box>

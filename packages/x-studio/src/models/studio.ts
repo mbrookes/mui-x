@@ -85,6 +85,8 @@ export interface StudioDataField {
   label: string;
   description?: string;
   type: 'string' | 'number' | 'boolean' | 'date' | 'datetime';
+  /** When true, the field is hidden from the data drawer and widget config selects */
+  hidden?: boolean;
 }
 
 export interface StudioDataSource {

@@ -54,7 +54,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: ORDERS_SOURCE_ID,
       layout: { x: 4, y: 0, width: 4, height: 3 },
       bindings: ordersBindings,
-      config: { kpiValueField: 'id', kpiAggregation: 'count', kpiFormat: 'number' },
+      config: { kpiValueField: 'status', kpiAggregation: 'count', kpiFormat: 'number' },
     },
     'widget-kpi-customers': {
       id: 'widget-kpi-customers',

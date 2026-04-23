@@ -219,7 +219,8 @@ export class StudioController {
       },
       shell: {
         ...state.shell,
-        selectedWidgetId: state.shell.selectedWidgetId === widgetId ? null : state.shell.selectedWidgetId,
+        selectedWidgetId:
+          state.shell.selectedWidgetId === widgetId ? null : state.shell.selectedWidgetId,
       },
     });
   };

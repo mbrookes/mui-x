@@ -35,8 +35,8 @@
     "@mui/x-internals": "workspace:*"
   },
   "devDependencies": {
-    "@mui/icons-material": "catalog:",
-    "@mui/material": "catalog:",
+    "@mui/icons-material": "^9.0.0",
+    "@mui/material": "^9.0.0",
     "react": "catalog:",
     "react-dom": "catalog:",
     "rimraf": "catalog:"

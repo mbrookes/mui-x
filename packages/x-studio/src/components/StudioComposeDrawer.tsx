@@ -13,10 +13,17 @@ import {
   Tabs,
   TextField,
   Typography,
+  Autocomplete,
 } from '@mui/material';
+import type { StudioDataField } from '../models';
 
 import { useStudioController, useStudioSelector } from '../context';
-import type { StudioChartType, StudioKpiAggregation, StudioKpiFormat, StudioWidgetKind } from '../models';
+import type {
+  StudioChartType,
+  StudioKpiAggregation,
+  StudioKpiFormat,
+  StudioWidgetKind,
+} from '../models';
 import { createDefaultWidget, WIDGET_TYPES, widgetKindRequiresDataSource } from './widgetUtils';
 // import { useDraggable } from '@atlaskit/pragmatic-drag-and-drop-react';
 
@@ -91,7 +98,10 @@ function AddWidgetView() {
           if (!node) return undefined;
           function handleDragStart(e: DragEvent) {
             setIsDragging(true);
-            e.dataTransfer?.setData('application/json', JSON.stringify({ type: 'compose-widget', kind: wt.kind }));
+            e.dataTransfer?.setData(
+              'application/json',
+              JSON.stringify({ type: 'compose-widget', kind: wt.kind }),
+            );
             if (node) e.dataTransfer?.setDragImage(node, 0, 0);
           }
           function handleDragEnd() {
@@ -139,9 +149,7 @@ function AddWidgetView() {
               boxShadow: isDragging ? 4 : undefined,
             }}
           >
-            <Box sx={{ color: 'primary.main', display: 'flex', flexShrink: 0 }}>
-              {wt.icon}
-            </Box>
+            <Box sx={{ color: 'primary.main', display: 'flex', flexShrink: 0 }}>{wt.icon}</Box>
             <Box>
               <Typography variant="subtitle2">{wt.label}</Typography>
               <Typography variant="caption" color="text.secondary">
@@ -267,11 +275,15 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
   const dataSources = useStudioSelector((state) => state.dataSources);
 
-  const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
-  const fields = source?.fields ?? [];
-  const numericFields = fields.filter((f) => f.type === 'number');
-  const categoryFields = fields.filter((f) => f.type === 'string');
+  const allFields = Object.values(dataSources).flatMap((ds) =>
+    ds.fields.map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
+  );
   const config = widget?.config ?? {};
+  const selectedXField = allFields.find((f) => f.id === config.xField);
+  const selectedYField = allFields.find((f) => f.id === config.yField);
+  const selectedSeriesField = allFields.find((f) => f.id === config.seriesField);
+  const numericFields = allFields.filter((f) => f.type === 'number');
+  const categoryFields = allFields.filter((f) => f.type === 'string');
 
   const chartType = config.chartType ?? 'bar';
   const needsSeriesField = chartType === 'bar-grouped' || chartType === 'bar-stacked';
@@ -292,7 +304,9 @@ function ChartSetupPanel(props: { widgetId: string }) {
           label="Chart type"
           value={chartType}
           onChange={(e) =>
-            controller.updateWidgetConfig(widgetId, { chartType: e.target.value as StudioChartType })
+            controller.updateWidgetConfig(widgetId, {
+              chartType: e.target.value as StudioChartType,
+            })
           }
         >
           <MenuItem value="bar">Bar</MenuItem>
@@ -305,63 +319,112 @@ function ChartSetupPanel(props: { widgetId: string }) {
         </Select>
       </FormControl>
 
-      <FormControl size="small" fullWidth>
-        <InputLabel>{chartType === 'scatter' ? 'X field (numeric)' : 'X / Category field'}</InputLabel>
-        <Select
-          label={chartType === 'scatter' ? 'X field (numeric)' : 'X / Category field'}
-          value={config.xField ?? ''}
-          onChange={(e) => controller.updateWidgetConfig(widgetId, { xField: e.target.value })}
-        >
-          <MenuItem value=""><em>None</em></MenuItem>
-          {(chartType === 'scatter' ? numericFields : fields).map((f) => (
-            <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+      <Autocomplete
+        size="small"
+        fullWidth
+        options={chartType === 'scatter' ? numericFields : allFields}
+        groupBy={(option) => option.sourceLabel}
+        getOptionLabel={(option) => option.label}
+        value={selectedXField || null}
+        onChange={(_e, newValue) =>
+          controller.updateWidgetConfig(widgetId, { xField: newValue?.id || '' })
+        }
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            label={chartType === 'scatter' ? 'X field (numeric)' : 'X / Category field'}
+          />
+        )}
+        isOptionEqualToValue={(option, value) =>
+          option.id === value.id && option.sourceId === value.sourceId
+        }
+      />
 
-      <FormControl size="small" fullWidth>
-        <InputLabel>Y / Measure field</InputLabel>
-        <Select
-          label="Y / Measure field"
-          value={config.yField ?? ''}
-          onChange={(e) => controller.updateWidgetConfig(widgetId, { yField: e.target.value })}
-        >
-          <MenuItem value=""><em>None</em></MenuItem>
-          {numericFields.map((f) => (
-            <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+      <Autocomplete
+        size="small"
+        fullWidth
+        options={numericFields}
+        groupBy={(option) => option.sourceLabel}
+        getOptionLabel={(option) => option.label}
+        value={selectedYField || null}
+        onChange={(_e, newValue) =>
+          controller.updateWidgetConfig(widgetId, { yField: newValue?.id || '' })
+        }
+        renderInput={(params) => <TextField {...params} label="Y / Measure field" />}
+        isOptionEqualToValue={(option, value) =>
+          option.id === value.id && option.sourceId === value.sourceId
+        }
+      />
 
       {needsSeriesField && (
-        <FormControl size="small" fullWidth>
-          <InputLabel>Series / Group field</InputLabel>
-          <Select
-            label="Series / Group field"
-            value={config.seriesField ?? ''}
-            onChange={(e) => controller.updateWidgetConfig(widgetId, { seriesField: e.target.value })}
-          >
-            <MenuItem value=""><em>None</em></MenuItem>
-            {categoryFields.map((f) => (
-              <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <Autocomplete
+          size="small"
+          fullWidth
+          options={categoryFields}
+          groupBy={(option) => option.sourceLabel}
+          getOptionLabel={(option) => option.label}
+          value={selectedSeriesField || null}
+          onChange={(_e, newValue) =>
+            controller.updateWidgetConfig(widgetId, { seriesField: newValue?.id || '' })
+          }
+          renderInput={(params) => <TextField {...params} label="Series / Group field" />}
+          isOptionEqualToValue={(option, value) =>
+            option.id === value.id && option.sourceId === value.sourceId
+          }
+        />
       )}
     </Stack>
   );
 }
 
 function KpiSetupPanel(props: { widgetId: string }) {
-  const { widgetId } = props;
+  const widget = useStudioSelector((state) => state.widgets[props.widgetId]);
   const controller = useStudioController();
-  const widget = useStudioSelector((state) => state.widgets[widgetId]);
   const dataSources = useStudioSelector((state) => state.dataSources);
+  const config = widget?.config ?? {};
+
+  // Gather all fields from all data sources
+  const allFields = Object.values(dataSources).flatMap((ds) =>
+    ds.fields.map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
+  );
+  const selectedField = allFields.find((f) => f.id === config.kpiValueField);
+  const selectedFieldType = selectedField?.type ?? null;
+
+  // Aggregation options by type
+  const AGGREGATIONS: Record<string, { value: StudioKpiAggregation; label: string }[]> = {
+    number: [
+      { value: 'sum', label: 'Sum' },
+      { value: 'avg', label: 'Average' },
+      { value: 'count', label: 'Count' },
+      { value: 'min', label: 'Min' },
+      { value: 'max', label: 'Max' },
+    ],
+    string: [{ value: 'count', label: 'Count' }],
+    boolean: [{ value: 'count', label: 'Count' }],
+    date: [
+      { value: 'count', label: 'Count' },
+      { value: 'min', label: 'Earliest' },
+      { value: 'max', label: 'Latest' },
+    ],
+    datetime: [
+      { value: 'count', label: 'Count' },
+      { value: 'min', label: 'Earliest' },
+      { value: 'max', label: 'Latest' },
+    ],
+  };
+  const aggregationOptions = selectedFieldType
+    ? AGGREGATIONS[selectedFieldType] || [{ value: 'count', label: 'Count' }]
+    : AGGREGATIONS['number'];
+  const onlyOneAgg = aggregationOptions.length === 1;
+  const selectedAgg = aggregationOptions.find((a) => a.value === config.kpiAggregation)
+    ? config.kpiAggregation
+    : aggregationOptions[0].value;
+
+  const { widgetId } = props;
 
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
   const fields = source?.fields ?? [];
   const numericFields = fields.filter((f) => f.type === 'number');
-  const config = widget?.config ?? {};
 
   if (!source) {
     return (
@@ -373,34 +436,38 @@ function KpiSetupPanel(props: { widgetId: string }) {
 
   return (
     <Stack spacing={2}>
-      <FormControl size="small" fullWidth>
-        <InputLabel>Value field</InputLabel>
-        <Select
-          label="Value field"
-          value={config.kpiValueField ?? ''}
-          onChange={(e) => controller.updateWidgetConfig(widgetId, { kpiValueField: e.target.value })}
-        >
-          <MenuItem value=""><em>None</em></MenuItem>
-          {numericFields.map((f) => (
-            <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+      <Autocomplete
+        size="small"
+        fullWidth
+        options={allFields}
+        groupBy={(option) => option.sourceLabel}
+        getOptionLabel={(option) => option.label}
+        value={allFields.find((f) => f.id === config.kpiValueField) || null}
+        onChange={(_e, newValue) => {
+          controller.updateWidgetConfig(widgetId, { kpiValueField: newValue?.id || '' });
+        }}
+        renderInput={(params) => <TextField {...params} label="Value field" />}
+        isOptionEqualToValue={(option, value) =>
+          option.id === value.id && option.sourceId === value.sourceId
+        }
+      />
 
-      <FormControl size="small" fullWidth>
+      <FormControl size="small" fullWidth disabled={onlyOneAgg}>
         <InputLabel>Aggregation</InputLabel>
         <Select
           label="Aggregation"
-          value={config.kpiAggregation ?? 'sum'}
+          value={selectedAgg}
           onChange={(e) =>
-            controller.updateWidgetConfig(widgetId, { kpiAggregation: e.target.value as StudioKpiAggregation })
+            controller.updateWidgetConfig(widgetId, {
+              kpiAggregation: e.target.value as StudioKpiAggregation,
+            })
           }
         >
-          <MenuItem value="sum">Sum</MenuItem>
-          <MenuItem value="avg">Average</MenuItem>
-          <MenuItem value="count">Count</MenuItem>
-          <MenuItem value="min">Min</MenuItem>
-          <MenuItem value="max">Max</MenuItem>
+          {aggregationOptions.map((opt) => (
+            <MenuItem key={opt.value} value={opt.value}>
+              {opt.label}
+            </MenuItem>
+          ))}
         </Select>
       </FormControl>
 
@@ -410,7 +477,9 @@ function KpiSetupPanel(props: { widgetId: string }) {
           label="Format"
           value={config.kpiFormat ?? 'number'}
           onChange={(e) =>
-            controller.updateWidgetConfig(widgetId, { kpiFormat: e.target.value as StudioKpiFormat })
+            controller.updateWidgetConfig(widgetId, {
+              kpiFormat: e.target.value as StudioKpiFormat,
+            })
           }
         >
           <MenuItem value="number">Number</MenuItem>

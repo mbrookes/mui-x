@@ -25,11 +25,7 @@ export function StudioTextWidget(props: StudioTextWidgetProps) {
         </Typography>
       ) : null}
       {body ? (
-        <Typography
-          variant="body2"
-          color="text.primary"
-          sx={{ whiteSpace: 'pre-wrap' }}
-        >
+        <Typography variant="body2" color="text.primary" sx={{ whiteSpace: 'pre-wrap' }}>
           {body}
         </Typography>
       ) : null}

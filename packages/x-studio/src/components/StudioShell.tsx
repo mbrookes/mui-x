@@ -1,15 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import {
-  AppBar,
-  Badge,
-  Box,
-  Divider,
-  IconButton,
-  Toolbar,
-  Typography,
-} from '@mui/material';
+import { AppBar, Badge, Box, Divider, IconButton, Toolbar, Typography } from '@mui/material';
 import ChevronDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseIcon from '@mui/icons-material/Close';
@@ -85,7 +77,15 @@ function DrawerPanel(props: {
           <Badge badgeContent={badge} color="primary" sx={{ mb: 1 }}>
             <Typography
               variant="caption"
-              sx={{ color: 'text.primary', writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', userSelect: 'none' }}
+              sx={{
+                color: 'text.primary',
+                writingMode: 'vertical-rl',
+                transform: 'rotate(180deg)',
+                fontWeight: 600,
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+                userSelect: 'none',
+              }}
             >
               {title}
             </Typography>
@@ -93,7 +93,15 @@ function DrawerPanel(props: {
         ) : (
           <Typography
             variant="caption"
-            sx={{ color: 'text.primary', writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', userSelect: 'none' }}
+            sx={{
+              color: 'text.primary',
+              writingMode: 'vertical-rl',
+              transform: 'rotate(180deg)',
+              fontWeight: 600,
+              letterSpacing: 1,
+              textTransform: 'uppercase',
+              userSelect: 'none',
+            }}
           >
             {title}
           </Typography>
@@ -128,7 +136,12 @@ function DrawerPanel(props: {
     >
       <Box sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 0.5, minHeight: 48 }}>
         {onBack ? (
-          <IconButton size="small" onClick={onBack} aria-label="Close widget configuration" sx={{ mr: 0.5 }}>
+          <IconButton
+            size="small"
+            onClick={onBack}
+            aria-label="Close widget configuration"
+            sx={{ mr: 0.5 }}
+          >
             <CloseIcon fontSize="small" />
           </IconButton>
         ) : (
@@ -149,9 +162,7 @@ function DrawerPanel(props: {
         </IconButton>
       </Box>
       <Divider />
-      <Box sx={{ p: 2, overflow: 'auto', flexGrow: 1 }}>
-        {children}
-      </Box>
+      <Box sx={{ p: 2, overflow: 'auto', flexGrow: 1 }}>{children}</Box>
     </Box>
   );
 }
@@ -176,8 +187,7 @@ function StudioShellContent(props: StudioShellSlots) {
     return state.dataSources[srcId]?.fields.find((f) => f.id === fldId) ?? null;
   });
 
-  const composeTitle =
-    selectedWidget?.title ?? selectedField?.label ?? 'Compose';
+  const composeTitle = selectedWidget?.title ?? selectedField?.label ?? 'Compose';
   const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
   const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
 
@@ -191,7 +201,9 @@ function StudioShellContent(props: StudioShellSlots) {
         return true;
       }
 
-      return Boolean(target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]'));
+      return Boolean(
+        target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]'),
+      );
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -216,7 +228,14 @@ function StudioShellContent(props: StudioShellSlots) {
   }, [controller]);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100vh',
+        bgcolor: 'background.default',
+      }}
+    >
       <AppBar
         position="sticky"
         elevation={0}
@@ -241,7 +260,12 @@ function StudioShellContent(props: StudioShellSlots) {
           </DrawerPanel>
         )}
         {mode === 'edit' && (
-          <DrawerPanel drawer="compose" title={composeTitle} icon={<TuneIcon fontSize="small" />} onBack={composeOnBack}>
+          <DrawerPanel
+            drawer="compose"
+            title={composeTitle}
+            icon={<TuneIcon fontSize="small" />}
+            onBack={composeOnBack}
+          >
             {composeDrawer ?? <StudioComposeDrawer />}
           </DrawerPanel>
         )}
@@ -249,7 +273,14 @@ function StudioShellContent(props: StudioShellSlots) {
           {filtersDrawer ?? <StudioFiltersDrawer />}
         </DrawerPanel>
 
-        <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>
+        <Box
+          sx={{
+            flexGrow: 1,
+            minWidth: 0,
+            overflowY: 'auto',
+            bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+          }}
+        >
           {canvas ?? <StudioCanvas />}
         </Box>
       </Box>

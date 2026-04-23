@@ -25,7 +25,6 @@ import type {
   StudioWidgetKind,
 } from '../models';
 import { createDefaultWidget, WIDGET_TYPES, widgetKindRequiresDataSource } from './widgetUtils';
-// import { useDraggable } from '@atlaskit/pragmatic-drag-and-drop-react';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -288,10 +287,10 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const chartType = config.chartType ?? 'bar';
   const needsSeriesField = chartType === 'bar-grouped' || chartType === 'bar-stacked';
 
-  if (!source) {
+  if (allFields.length === 0) {
     return (
       <Alert severity="warning" sx={{ mt: 1 }}>
-        No data source bound to this widget.
+        No data fields available for chart configuration.
       </Alert>
     );
   }

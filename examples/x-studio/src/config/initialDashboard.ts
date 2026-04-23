@@ -9,6 +9,9 @@ import {
   ORDERS_SOURCE_ID,
   ordersSource,
   ordersBindings,
+  ORDER_ITEMS_SOURCE_ID,
+  orderItemsSource,
+  orderItemsBindings,
 } from '../data/salesData';
 
 export const INITIAL_STATE: Partial<StudioState> = {
@@ -32,15 +35,16 @@ export const INITIAL_STATE: Partial<StudioState> = {
     [PRODUCTS_SOURCE_ID]: productsSource,
     [CUSTOMERS_SOURCE_ID]: customersSource,
     [ORDERS_SOURCE_ID]: ordersSource,
+    [ORDER_ITEMS_SOURCE_ID]: orderItemsSource,
   },
   widgets: {
     'widget-kpi-revenue': {
       id: 'widget-kpi-revenue',
       kind: 'kpi',
       title: 'Total Revenue',
-      sourceId: ORDERS_SOURCE_ID,
+      sourceId: ORDER_ITEMS_SOURCE_ID,
       layout: { x: 0, y: 0, width: 4, height: 3 },
-      bindings: ordersBindings,
+      bindings: orderItemsBindings,
       config: { kpiValueField: 'total', kpiAggregation: 'sum', kpiFormat: 'currency' },
     },
     'widget-kpi-orders': {
@@ -65,19 +69,19 @@ export const INITIAL_STATE: Partial<StudioState> = {
       id: 'widget-chart-category',
       kind: 'chart',
       title: 'Revenue by Category',
-      sourceId: ORDERS_SOURCE_ID,
+      sourceId: ORDER_ITEMS_SOURCE_ID,
       layout: { x: 0, y: 3, width: 6, height: 6 },
-      bindings: ordersBindings,
+      bindings: orderItemsBindings,
       config: { chartType: 'bar', xField: 'category', yField: 'total' },
     },
     'widget-chart-country': {
       id: 'widget-chart-country',
       kind: 'chart',
       title: 'Revenue by Country',
-      sourceId: ORDERS_SOURCE_ID,
+      sourceId: ORDER_ITEMS_SOURCE_ID,
       layout: { x: 6, y: 3, width: 6, height: 6 },
-      bindings: ordersBindings,
-      config: { chartType: 'pie', xField: 'country', yField: 'total' },
+      bindings: orderItemsBindings,
+      config: { chartType: 'pie', xField: 'category', yField: 'total' },
     },
     'widget-orders-grid': {
       id: 'widget-orders-grid',
@@ -86,7 +90,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: ORDERS_SOURCE_ID,
       layout: { x: 0, y: 9, width: 12, height: 8 },
       bindings: ordersBindings,
-      config: { columns: ['id', 'date', 'company', 'product', 'quantity', 'total', 'status'] },
+      config: { columns: ['id', 'date', 'customerId', 'status'] },
     },
   },
   shell: {

@@ -171,7 +171,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           series={[
             {
               data: scatterData,
-              label: `${xLabel} vs ${yLabel}`,
+              // label removed per requirements
             },
           ]}
           height={CHART_HEIGHT}
@@ -203,7 +203,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     const series = multiSeriesData.seriesNames.map((seriesName) => ({
       id: String(seriesName),
       data: multiSeriesData.seriesData[seriesName],
-      label: String(seriesName),
+      // label removed per requirements
       stack: chartType === 'bar-stacked' ? 'total' : undefined,
       highlightScope: {
         highlight: 'item' as const,

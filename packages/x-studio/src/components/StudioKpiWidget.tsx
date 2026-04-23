@@ -82,10 +82,7 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
     };
   }, [dataSource, filters, config, widget.id]);
 
-  const fieldLabel =
-    dataSource?.fields.find((f) => f.id === config.kpiValueField)?.label ??
-    config.kpiValueField ??
-    'Metric';
+  // Field label removed per requirements
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>

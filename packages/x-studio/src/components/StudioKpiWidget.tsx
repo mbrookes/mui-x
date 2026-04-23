@@ -89,18 +89,12 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>
-        {fieldLabel}
-      </Typography>
       <Typography
         variant="h3"
         sx={{ fontWeight: 700, lineHeight: 1 }}
         color={hasData ? 'text.primary' : 'text.disabled'}
       >
         {displayValue}
-      </Typography>
-      <Typography variant="caption" color="text.secondary">
-        {!config.kpiValueField ? 'Configure in the Compose drawer.' : `${config.kpiAggregation ?? 'sum'} of ${fieldLabel}`}
       </Typography>
     </Box>
   );

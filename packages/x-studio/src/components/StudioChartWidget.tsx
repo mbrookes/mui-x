@@ -156,13 +156,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             justifyContent: 'center',
             height: CHART_HEIGHT,
           }}
-        >
-          <Typography variant="body2" color="text.secondary">
-            {!config.xField || !config.yField
-              ? 'Configure x and y fields in the Compose drawer.'
-              : 'No data to display.'}
-          </Typography>
-        </Box>
+        ></Box>
       );
     }
 
@@ -200,13 +194,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             justifyContent: 'center',
             height: CHART_HEIGHT,
           }}
-        >
-          <Typography variant="body2" color="text.secondary">
-            {!config.xField || !config.yField || !config.seriesField
-              ? 'Configure x, y, and series fields in the Compose drawer.'
-              : 'No data to display.'}
-          </Typography>
-        </Box>
+        ></Box>
       );
     }
 

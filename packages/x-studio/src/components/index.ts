@@ -1,5 +1,6 @@
 export * from './StudioShell';
 export * from './StudioCanvas';
+export * from './StudioWidgetCard';
 export * from './StudioGridWidget';
 export * from './StudioChartWidget';
 export * from './StudioKpiWidget';

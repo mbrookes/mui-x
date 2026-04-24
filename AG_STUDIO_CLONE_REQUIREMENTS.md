@@ -117,7 +117,7 @@ Principles:
 
 ## 7A. Shell and layout (collapsible drawers + configurable canvas layout)
 
-### AGS-LAYOUT-001
+### XS-LAYOUT-001
 
 - Priority: must
 - Scope: MVP
@@ -128,7 +128,7 @@ Principles:
   2. Drawer state persists per session.
   3. Canvas expands to full width when all drawers are closed.
 
-### AGS-LAYOUT-002
+### XS-LAYOUT-002
 
 - Priority: must
 - Scope: MVP
@@ -140,7 +140,7 @@ Principles:
   3. Layout reorders/reflows cleanly when widgets are added, moved, resized, or viewport size changes.
   4. Layout persists and restores per page.
 
-### AGS-LAYOUT-003
+### XS-LAYOUT-003
 
 - Priority: should
 - Scope: MVP
@@ -150,7 +150,7 @@ Principles:
   1. At least 2 presets available.
   2. Applying preset reconfigures widget panes without data loss.
 
-### AGS-LAYOUT-004
+### XS-LAYOUT-004
 
 - Priority: must
 - Scope: MVP
@@ -161,7 +161,7 @@ Principles:
   2. Arrow keys or equivalent commands adjust layout by fixed increments.
   3. Screen reader announcements expose the current widget position/size or equivalent structural state.
 
-### AGS-LAYOUT-005
+### XS-LAYOUT-005
 
 - Priority: should
 - Scope: Parity+
@@ -173,7 +173,7 @@ Principles:
 
 ## 7B. Canvas and widget placement
 
-### AGS-CANVAS-001
+### XS-CANVAS-001
 
 - Priority: must
 - Scope: MVP
@@ -183,7 +183,7 @@ Principles:
   1. New widget appears with default size and position.
   2. Widget receives focus after insertion.
 
-### AGS-CANVAS-002
+### XS-CANVAS-002
 
 - Priority: must
 - Scope: MVP
@@ -195,7 +195,7 @@ Principles:
   3. Widget cannot be moved outside canvas bounds.
   4. Sibling widgets reflow predictably after move/resize operations.
 
-### AGS-CANVAS-003
+### XS-CANVAS-003
 
 - Priority: must
 - Scope: MVP
@@ -206,7 +206,7 @@ Principles:
   2. Selected widget has visible focus state.
   3. Edit pane content updates to selected widget context.
 
-### AGS-CANVAS-004
+### XS-CANVAS-004
 
 - Priority: should
 - Scope: Parity+
@@ -218,7 +218,7 @@ Principles:
 
 ## 7C. Widget library and lifecycle
 
-### AGS-WIDGET-001
+### XS-WIDGET-001
 
 - Priority: must
 - Scope: MVP
@@ -229,7 +229,7 @@ Principles:
   2. User can insert a widget in <= 2 interactions.
   3. Gallery includes tables/grids, charts, and KPI widgets.
 
-### AGS-WIDGET-004
+### XS-WIDGET-004
 
 - Priority: should
 - Scope: MVP
@@ -240,7 +240,7 @@ Principles:
   2. KPI value formatting can be configured without rebuilding the widget.
   3. KPI widgets participate in page filters and cross-filters where applicable.
 
-### AGS-WIDGET-002
+### XS-WIDGET-002
 
 - Priority: must
 - Scope: MVP
@@ -250,7 +250,7 @@ Principles:
   1. Duplicate creates equivalent widget config with new ID.
   2. Delete removes widget and updates state.
 
-### AGS-WIDGET-003
+### XS-WIDGET-003
 
 - Priority: should
 - Scope: Parity+
@@ -262,7 +262,7 @@ Principles:
 
 ## 7D. Grid/table widget requirements (MUI X Data Grid)
 
-### AGS-GRID-001
+### XS-GRID-001
 
 - Priority: must
 - Scope: MVP
@@ -272,7 +272,7 @@ Principles:
   1. Handles large row counts with smooth scroll.
   2. Supports sorting by visible columns.
 
-### AGS-GRID-002
+### XS-GRID-002
 
 - Priority: must
 - Scope: MVP
@@ -282,7 +282,7 @@ Principles:
   1. Aggregated values update correctly on filter changes.
   2. Group expand/collapse is responsive.
 
-### AGS-GRID-003
+### XS-GRID-003
 
 - Priority: should
 - Scope: MVP
@@ -292,7 +292,7 @@ Principles:
   1. Formatting updates apply without re-adding widget.
   2. Formatting is saved in widget configuration.
 
-### AGS-GRID-004
+### XS-GRID-004
 
 - Priority: could
 - Scope: Parity+
@@ -303,7 +303,7 @@ Principles:
 
 ## 7E. Chart widget requirements (MUI X Charts)
 
-### AGS-CHART-001
+### XS-CHART-001
 
 - Priority: must
 - Scope: MVP
@@ -313,7 +313,7 @@ Principles:
   1. User maps x/category and y/measure fields.
   2. Chart renders valid result from mapped data.
 
-### AGS-CHART-002
+### XS-CHART-002
 
 - Priority: should
 - Scope: MVP
@@ -323,7 +323,7 @@ Principles:
   1. Type switch preserves compatible mappings.
   2. Incompatible mappings surface actionable validation.
 
-### AGS-CHART-003
+### XS-CHART-003
 
 - Priority: must
 - Scope: MVP
@@ -333,7 +333,7 @@ Principles:
   1. Tooltip shows mapped field values on hover.
   2. Series toggle/legend interaction works where applicable.
 
-### AGS-CHART-004
+### XS-CHART-004
 
 - Priority: should
 - Scope: Parity+
@@ -344,7 +344,7 @@ Principles:
 
 ## 7F. Data model and source management
 
-### AGS-DATA-001
+### XS-DATA-001
 
 - Priority: must
 - Scope: MVP
@@ -354,7 +354,7 @@ Principles:
   1. Data panel lists sources and fields.
   2. Widgets can bind to source fields.
 
-### AGS-DATA-002
+### XS-DATA-002
 
 - Priority: should
 - Scope: MVP
@@ -364,7 +364,7 @@ Principles:
   1. Related fields can be used together when relationship exists.
   2. Invalid combinations produce clear error.
 
-### AGS-DATA-003
+### XS-DATA-003
 
 - Priority: should
 - Scope: MVP
@@ -374,7 +374,7 @@ Principles:
   1. Expression validation catches syntax and type errors.
   2. Computed values update on source/filter changes.
 
-### AGS-DATA-004
+### XS-DATA-004
 
 - Priority: could
 - Scope: Parity+
@@ -386,7 +386,7 @@ Principles:
 
 ## 7G. Filtering and cross-filtering
 
-### AGS-FILTER-001
+### XS-FILTER-001
 
 - Priority: must
 - Scope: MVP
@@ -396,7 +396,7 @@ Principles:
   1. Page filters affect all linked widgets.
   2. Widget filters only affect that widget.
 
-### AGS-FILTER-002
+### XS-FILTER-002
 
 - Priority: must
 - Scope: MVP
@@ -406,7 +406,7 @@ Principles:
   1. Selecting visual element updates target widgets according to mode.
   2. Clear action removes active cross-filter.
 
-### AGS-FILTER-003
+### XS-FILTER-003
 
 - Priority: should
 - Scope: MVP
@@ -417,7 +417,7 @@ Principles:
 
 ## 7H. Edit panel and authoring controls
 
-### AGS-EDIT-001
+### XS-EDIT-001
 
 - Priority: must
 - Scope: MVP
@@ -427,7 +427,7 @@ Principles:
   1. Setup section controls data mapping.
   2. Format section controls visual style.
 
-### AGS-EDIT-002
+### XS-EDIT-002
 
 - Priority: should
 - Scope: MVP
@@ -437,7 +437,7 @@ Principles:
   1. Invalid config states are clearly explained.
   2. User is guided to fix errors.
 
-### AGS-EDIT-003
+### XS-EDIT-003
 
 - Priority: could
 - Scope: Parity+
@@ -446,7 +446,7 @@ Principles:
 - Acceptance criteria:
   1. Suggested mappings reduce invalid config attempts.
 
-### AGS-EDIT-004
+### XS-EDIT-004
 
 - Priority: should
 - Scope: MVP
@@ -459,7 +459,7 @@ Principles:
 
 ## 7I. State, persistence, and APIs
 
-### AGS-STATE-001
+### XS-STATE-001
 
 - Priority: must
 - Scope: MVP
@@ -469,7 +469,7 @@ Principles:
   1. getState returns pages, layout, widgets, mappings, filters, settings.
   2. setState restores equivalent visual and interaction state.
 
-### AGS-STATE-002
+### XS-STATE-002
 
 - Priority: must
 - Scope: MVP
@@ -479,7 +479,7 @@ Principles:
   1. Older state can be migrated to current schema.
   2. Migration failures produce diagnostics.
 
-### AGS-STATE-003
+### XS-STATE-003
 
 - Priority: should
 - Scope: Parity+
@@ -489,7 +489,7 @@ Principles:
   1. Dirty indicator updates accurately.
   2. Autosave does not degrade interaction performance.
 
-### AGS-STATE-004
+### XS-STATE-004
 
 - Priority: should
 - Scope: Parity+
@@ -501,7 +501,7 @@ Principles:
 
 ## 7J. Accessibility and keyboard support
 
-### AGS-A11Y-001
+### XS-A11Y-001
 
 - Priority: must
 - Scope: MVP
@@ -510,7 +510,7 @@ Principles:
 - Acceptance criteria:
   1. Full authoring flow possible via keyboard for core tasks.
 
-### AGS-A11Y-002
+### XS-A11Y-002
 
 - Priority: should
 - Scope: MVP
@@ -519,7 +519,7 @@ Principles:
 - Acceptance criteria:
   1. Screen readers announce key state transitions.
 
-### AGS-A11Y-003
+### XS-A11Y-003
 
 - Priority: should
 - Scope: Parity+
@@ -530,7 +530,7 @@ Principles:
 
 ## 7K. Performance and reliability
 
-### AGS-PERF-001
+### XS-PERF-001
 
 - Priority: must
 - Scope: MVP
@@ -539,7 +539,7 @@ Principles:
   1. Widget drag/resize interaction remains smooth (target near 60 fps on modern hardware).
   2. Layout resize and reflow interactions feel immediate with no visible stutter.
 
-### AGS-PERF-002
+### XS-PERF-002
 
 - Priority: must
 - Scope: MVP
@@ -548,7 +548,7 @@ Principles:
   1. Large datasets remain usable via virtualization/aggregation.
   2. Filter application latency is acceptable for target data size.
 
-### AGS-PERF-004
+### XS-PERF-004
 
 - Priority: should
 - Scope: Parity+
@@ -559,7 +559,7 @@ Principles:
   2. Stretch benchmark documents behavior approaching 1 million rows on supported row models/hardware.
   3. Published clone guidance clearly distinguishes measured results from AG Studio marketing claims.
 
-### AGS-PERF-003
+### XS-PERF-003
 
 - Priority: should
 - Scope: Parity+
@@ -570,7 +570,7 @@ Principles:
 
 ## 7L. Collaboration, sharing, export
 
-### AGS-COLLAB-001
+### XS-COLLAB-001
 
 - Priority: could
 - Scope: Parity+
@@ -578,7 +578,7 @@ Principles:
 - Acceptance criteria:
   1. A saved state can be opened and reproduces the same dashboard layout/content.
 
-### AGS-EXPORT-001
+### XS-EXPORT-001
 
 - Priority: should
 - Scope: MVP
@@ -586,7 +586,7 @@ Principles:
 - Acceptance criteria:
   1. Exported data reflects current filters and visible dataset definition.
 
-### AGS-EXPORT-002
+### XS-EXPORT-002
 
 - Priority: could
 - Scope: Parity+
@@ -594,7 +594,7 @@ Principles:
 - Acceptance criteria:
   1. Export output quality is sufficient for stakeholder reporting.
 
-### AGS-AI-001
+### XS-AI-001
 
 - Priority: should
 - Scope: Parity+
@@ -719,18 +719,18 @@ MVP excludes:
 
 ## 13. Requirement traceability index
 
-- Layout: AGS-LAYOUT-001..005
-- Canvas: AGS-CANVAS-001..004
-- Widget lifecycle: AGS-WIDGET-001..004
-- Grid: AGS-GRID-001..004
-- Charts: AGS-CHART-001..004
-- Data: AGS-DATA-001..004
-- Filters: AGS-FILTER-001..003
-- Edit panel: AGS-EDIT-001..004
-- State/API: AGS-STATE-001..004
-- Accessibility: AGS-A11Y-001..003
-- Performance: AGS-PERF-001..004
-- Collaboration/export/AI: AGS-COLLAB-001, AGS-EXPORT-001..002, AGS-AI-001
+- Layout: XS-LAYOUT-001..005
+- Canvas: XS-CANVAS-001..004
+- Widget lifecycle: XS-WIDGET-001..004
+- Grid: XS-GRID-001..004
+- Charts: XS-CHART-001..004
+- Data: XS-DATA-001..004
+- Filters: XS-FILTER-001..003
+- Edit panel: XS-EDIT-001..004
+- State/API: XS-STATE-001..004
+- Accessibility: XS-A11Y-001..003
+- Performance: XS-PERF-001..004
+- Collaboration/export/AI: XS-COLLAB-001, XS-EXPORT-001..002, XS-AI-001
 
 ## 14. Immediate implementation recommendation
 

@@ -105,6 +105,19 @@ export interface StudioDataSource {
   rows?: Record<string, unknown>[];
 }
 
+export interface StudioRelationship {
+  id: string;
+  /** The "many" side source ID (e.g. orders) */
+  sourceId: string;
+  /** The FK field in sourceId (e.g. 'customerId') */
+  sourceField: string;
+  /** The "one" side source ID (e.g. customers) */
+  targetId: string;
+  /** The PK field in targetId (e.g. 'id') */
+  targetField: string;
+  type: 'many-to-one' | 'one-to-one';
+}
+
 export interface StudioFilterState {
   id: string;
   field: string;
@@ -115,15 +128,11 @@ export interface StudioFilterState {
   /** For cross-filters: the widget ID that originated the filter */
   sourceWidgetId?: string;
   /**
-   * For cross-source widget filters: the data source this filter targets.
-   * When set (and different from the widget's source), the filter is applied
-   * to this source first, and the result semi-joins back to the widget's rows.
+   * For cross-source widget filters: the data source this filter's field belongs to.
+   * When set (and different from the widget's source), the join path is resolved
+   * automatically via the declared relationships in StudioState.
    */
   filterSourceId?: string;
-  /** Field in filterSourceId whose values link to the widget's source (e.g. 'customerId') */
-  linkField?: string;
-  /** Field in the widget's source that linkField maps to (e.g. 'id') */
-  targetField?: string;
 }
 
 export interface StudioShellState {
@@ -146,6 +155,7 @@ export interface StudioState {
   pages: Record<string, StudioPage>;
   widgets: Record<string, StudioWidget>;
   dataSources: Record<string, StudioDataSource>;
+  relationships: StudioRelationship[];
   filters: StudioFilterState[];
   shell: StudioShellState;
 }
@@ -170,6 +180,7 @@ export function createDefaultStudioState(overrides?: Partial<StudioState>): Stud
     },
     widgets: {},
     dataSources: {},
+    relationships: [],
     filters: [],
     shell: {
       openDrawers: {
@@ -203,6 +214,7 @@ export function createDefaultStudioState(overrides?: Partial<StudioState>): Stud
     pages: overrides?.pages ?? baseState.pages,
     widgets: overrides?.widgets ?? baseState.widgets,
     dataSources: overrides?.dataSources ?? baseState.dataSources,
+    relationships: overrides?.relationships ?? baseState.relationships,
     filters: overrides?.filters ?? baseState.filters,
   };
 }

@@ -119,25 +119,18 @@ interface WidgetFilterRowProps {
   filter: StudioFilterState;
   widgetSourceId?: string;
   fieldOptions: FieldOption[];
-  dataSources: Record<string, StudioDataSource>;
   onRemove: (id: string) => void;
 }
 
 function WidgetFilterRow(props: WidgetFilterRowProps) {
-  const { filter, widgetSourceId, fieldOptions, dataSources, onRemove } = props;
+  const { filter, widgetSourceId, fieldOptions, onRemove } = props;
   const controller = useStudioController();
 
   const effectiveSourceId = filter.filterSourceId ?? widgetSourceId ?? '';
-  const isCrossSource = !!effectiveSourceId && effectiveSourceId !== widgetSourceId;
 
   // The currently selected field option (matched by id + sourceId)
   const selectedOption =
     fieldOptions.find((o) => o.id === filter.field && o.sourceId === effectiveSourceId) ?? null;
-
-  const currentSource = dataSources[effectiveSourceId] as StudioDataSource | undefined;
-  const widgetSource = widgetSourceId
-    ? (dataSources[widgetSourceId] as StudioDataSource | undefined)
-    : undefined;
 
   const handleChange = (changes: Partial<StudioFilterState>) => {
     controller.removeFilter(filter.id);
@@ -149,23 +142,9 @@ function WidgetFilterRow(props: WidgetFilterRowProps) {
     const newSourceId = option.sourceId;
     const isNowCrossSource = newSourceId !== widgetSourceId;
 
-    // Auto-suggest join fields when switching to a cross-source field
-    let linkField = filter.linkField;
-    let targetField = filter.targetField;
-    if (isNowCrossSource) {
-      const foreignSource = dataSources[newSourceId] as StudioDataSource | undefined;
-      linkField =
-        foreignSource?.fields.find((f) => f.id.endsWith('Id') || f.id.endsWith('_id'))?.id ??
-        foreignSource?.fields[0]?.id ??
-        '';
-      targetField = widgetSource?.fields.find((f) => f.id === 'id')?.id ?? '';
-    }
-
     handleChange({
       field: option.id,
       filterSourceId: isNowCrossSource ? newSourceId : undefined,
-      linkField: isNowCrossSource ? linkField : undefined,
-      targetField: isNowCrossSource ? targetField : undefined,
       value: '',
     });
   };
@@ -217,55 +196,6 @@ function WidgetFilterRow(props: WidgetFilterRowProps) {
           </IconButton>
         </Tooltip>
       </Box>
-
-      {/* Cross-source join config */}
-      {isCrossSource && (
-        <Box
-          sx={{
-            display: 'flex',
-            gap: 1,
-            alignItems: 'center',
-            pl: 1,
-            borderLeft: 2,
-            borderColor: 'primary.light',
-          }}
-        >
-          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-            via
-          </Typography>
-          <FormControl size="small" sx={{ minWidth: 90, flexGrow: 1 }}>
-            <InputLabel>Link field</InputLabel>
-            <Select
-              label="Link field"
-              value={filter.linkField ?? ''}
-              onChange={(e) => handleChange({ linkField: e.target.value })}
-            >
-              {(currentSource?.fields ?? []).map((f) => (
-                <MenuItem key={f.id} value={f.id}>
-                  {f.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-            =
-          </Typography>
-          <FormControl size="small" sx={{ minWidth: 90, flexGrow: 1 }}>
-            <InputLabel>Target field</InputLabel>
-            <Select
-              label="Target field"
-              value={filter.targetField ?? ''}
-              onChange={(e) => handleChange({ targetField: e.target.value })}
-            >
-              {(widgetSource?.fields ?? []).map((f) => (
-                <MenuItem key={f.id} value={f.id}>
-                  {f.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Box>
-      )}
     </Box>
   );
 }
@@ -344,7 +274,6 @@ function WidgetFilterSection(props: WidgetFilterSectionProps) {
               filter={filter}
               widgetSourceId={widgetSourceId}
               fieldOptions={fieldOptions}
-              dataSources={dataSources}
               onRemove={onRemoveFilter}
             />
           ))}

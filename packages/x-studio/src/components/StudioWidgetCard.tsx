@@ -60,14 +60,14 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
 
   const filteredRows = React.useMemo(() => {
     if (!source?.rows || !widget) return [];
-    const dataSources = controller.getState().dataSources;
+    const { dataSources, relationships } = controller.getState();
     const pageFilters = filters.filter((f) => f.scope === 'page');
     const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
     const crossFilters = filters.filter(
       (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
     );
     const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
-    return resolveRows(source.rows, widget.sourceId, allFilters, dataSources);
+    return resolveRows(source.rows, widget.sourceId, allFilters, dataSources, relationships);
   }, [source, widget, filters, controller]);
 
   const handleExport = React.useCallback(

@@ -218,7 +218,7 @@ export const customersSource: StudioDataSource = {
     { id: 'email', label: 'Email', type: 'string' },
     { id: 'country', label: 'Country', type: 'string' },
     { id: 'segment', label: 'Segment', type: 'string' },
-    { id: 'since', label: 'Customer Since', type: 'string' },
+    { id: 'since', label: 'Customer Since', type: 'date' },
   ],
   rows: [
     // Germany (5 customers)
@@ -433,7 +433,7 @@ export const ordersSource: StudioDataSource = {
   label: 'Orders',
   fields: [
     { id: 'id', label: 'Order ID', type: 'string', hidden: true },
-    { id: 'date', label: 'Order Date', type: 'string' },
+    { id: 'date', label: 'Order Date', type: 'date' },
     { id: 'customerId', label: 'Customer ID', type: 'string', hidden: true },
 
     { id: 'status', label: 'Status', type: 'string' },

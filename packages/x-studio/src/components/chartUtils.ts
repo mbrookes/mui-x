@@ -2,9 +2,19 @@ import type { StudioDataSource, StudioFilterState, StudioRelationship } from '..
 
 type Row = Record<string, unknown>;
 
-function toComparable(val: unknown): number | string {
+function toComparable(
+  val: unknown,
+  fieldType?: 'string' | 'number' | 'boolean' | 'date' | 'datetime',
+): number | string {
+  // Explicit type hint takes precedence
+  if (fieldType === 'date' || fieldType === 'datetime') {
+    return String(val ?? '');
+  }
+  if (fieldType === 'number') {
+    return Number(val);
+  }
+  // Fallback: detect ISO date strings by shape
   if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) {
-    // ISO date/datetime strings compare correctly as strings
     return val;
   }
   return Number(val);
@@ -13,9 +23,13 @@ function toComparable(val: unknown): number | string {
 function matchesFilter(row: Row, filter: StudioFilterState): boolean {
   const rowVal = row[filter.field];
   const filterVal = filter.value;
+  const { fieldType } = filter;
 
   switch (filter.operator) {
     case 'equals':
+      if (fieldType === 'boolean') {
+        return String(rowVal) === String(filterVal);
+      }
       // eslint-disable-next-line eqeqeq
       return rowVal == filterVal;
     case 'in':
@@ -27,6 +41,9 @@ function matchesFilter(row: Row, filter: StudioFilterState): boolean {
           )
         : true;
     case 'not_equals':
+      if (fieldType === 'boolean') {
+        return String(rowVal) !== String(filterVal);
+      }
       // eslint-disable-next-line eqeqeq
       return rowVal != filterVal;
     case 'contains':
@@ -34,13 +51,13 @@ function matchesFilter(row: Row, filter: StudioFilterState): boolean {
         .toLowerCase()
         .includes(String(filterVal ?? '').toLowerCase());
     case 'greater_than':
-      return toComparable(rowVal) > toComparable(filterVal);
+      return toComparable(rowVal, fieldType) > toComparable(filterVal, fieldType);
     case 'less_than':
-      return toComparable(rowVal) < toComparable(filterVal);
+      return toComparable(rowVal, fieldType) < toComparable(filterVal, fieldType);
     case 'greater_than_or_equal':
-      return toComparable(rowVal) >= toComparable(filterVal);
+      return toComparable(rowVal, fieldType) >= toComparable(filterVal, fieldType);
     case 'less_than_or_equal':
-      return toComparable(rowVal) <= toComparable(filterVal);
+      return toComparable(rowVal, fieldType) <= toComparable(filterVal, fieldType);
     default:
       return true;
   }

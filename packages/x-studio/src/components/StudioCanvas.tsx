@@ -168,28 +168,30 @@ export function StudioCanvas() {
 
   if (!widgetRows || widgetRows.length === 0) {
     return (
-      <Paper
-        variant="outlined"
-        sx={{
-          alignItems: 'center',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 2,
-          minHeight: 420,
-          p: 4,
-          borderStyle: 'dashed',
-          justifyContent: 'center',
-        }}
-      >
-        <Typography variant="h6" color="text.secondary">
-          Canvas is empty
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
-          {mode === 'edit'
-            ? 'Use the Compose panel to add widgets or drag them here.'
-            : 'Switch to Edit mode to add widgets.'}
-        </Typography>
-      </Paper>
+      <Box sx={{ p: mode === 'edit' ? 0 : '8px' }}>
+        <Paper
+          variant="outlined"
+          sx={{
+            alignItems: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            minHeight: 420,
+            p: 4,
+            borderStyle: 'dashed',
+            justifyContent: 'center',
+          }}
+        >
+          <Typography variant="h6" color="text.secondary">
+            Canvas is empty
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+            {mode === 'edit'
+              ? 'Use the Compose panel to add widgets or drag them here.'
+              : 'Switch to Edit mode to add widgets.'}
+          </Typography>
+        </Paper>
+      </Box>
     );
   }
 

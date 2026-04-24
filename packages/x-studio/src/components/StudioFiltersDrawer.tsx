@@ -18,7 +18,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 
 import { useStudioController, useStudioSelector } from '../context';
-import type { StudioFilterOperator, StudioFilterState } from '../models';
+import type { StudioDataSource, StudioFilterOperator, StudioFilterState } from '../models';
 
 const OPERATORS: { value: StudioFilterOperator; label: string }[] = [
   { value: 'equals', label: '= Equals' },
@@ -98,6 +98,167 @@ function FilterRow(props: FilterRowProps) {
   );
 }
 
+interface WidgetFilterRowProps {
+  filter: StudioFilterState;
+  widgetSourceId?: string;
+  dataSources: Record<string, StudioDataSource>;
+  onRemove: (id: string) => void;
+}
+
+function WidgetFilterRow(props: WidgetFilterRowProps) {
+  const { filter, widgetSourceId, dataSources, onRemove } = props;
+  const controller = useStudioController();
+
+  const effectiveSourceId = filter.filterSourceId ?? widgetSourceId ?? '';
+  const isCrossSource = !!effectiveSourceId && effectiveSourceId !== widgetSourceId;
+
+  const sourceList = Object.values(dataSources);
+  const currentSource = dataSources[effectiveSourceId];
+  const widgetSource = widgetSourceId ? dataSources[widgetSourceId] : undefined;
+  const sourceFields = (currentSource?.fields ?? []).filter((f) => !f.hidden);
+
+  const handleChange = (changes: Partial<StudioFilterState>) => {
+    controller.removeFilter(filter.id);
+    controller.addFilter({ ...filter, ...changes });
+  };
+
+  const handleSourceChange = (newSourceId: string) => {
+    const newSource = dataSources[newSourceId];
+    const firstField = newSource?.fields.find((f) => !f.hidden)?.id ?? '';
+    // Auto-pick link field: first *Id field or last field; target: 'id' in widget source
+    const linkField =
+      newSource?.fields.find((f) => f.id.endsWith('Id') || f.id.endsWith('_id'))?.id ??
+      newSource?.fields[0]?.id ??
+      '';
+    const targetField = widgetSource?.fields.find((f) => f.id === 'id')?.id ?? '';
+
+    handleChange({
+      filterSourceId: newSourceId === widgetSourceId ? undefined : newSourceId,
+      field: firstField,
+      value: '',
+      linkField: newSourceId === widgetSourceId ? undefined : linkField,
+      targetField: newSourceId === widgetSourceId ? undefined : targetField,
+    });
+  };
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {/* Source picker */}
+        <FormControl size="small" sx={{ minWidth: 100, flexGrow: 1 }}>
+          <InputLabel>Source</InputLabel>
+          <Select
+            label="Source"
+            value={effectiveSourceId}
+            onChange={(e) => handleSourceChange(e.target.value)}
+          >
+            {sourceList.map((src) => (
+              <MenuItem key={src.id} value={src.id}>
+                {src.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        {/* Field picker */}
+        <FormControl size="small" sx={{ minWidth: 100, flexGrow: 1 }}>
+          <InputLabel>Field</InputLabel>
+          <Select
+            label="Field"
+            value={filter.field}
+            onChange={(e) => handleChange({ field: e.target.value, value: '' })}
+          >
+            {sourceFields.map((f) => (
+              <MenuItem key={f.id} value={f.id}>
+                {f.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        {/* Operator */}
+        <FormControl size="small" sx={{ minWidth: 90, flexGrow: 1 }}>
+          <InputLabel>Op.</InputLabel>
+          <Select
+            label="Op."
+            value={filter.operator}
+            onChange={(e) => handleChange({ operator: e.target.value as StudioFilterOperator })}
+          >
+            {OPERATORS.map((op) => (
+              <MenuItem key={op.value} value={op.value}>
+                {op.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <TextField
+          size="small"
+          label="Value"
+          value={String(filter.value ?? '')}
+          onChange={(e) => handleChange({ value: e.target.value })}
+          sx={{ minWidth: 80, flexGrow: 1 }}
+        />
+
+        <Tooltip title="Remove filter">
+          <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label="Remove filter">
+            <DeleteIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      {/* Cross-source join config */}
+      {isCrossSource && (
+        <Box
+          sx={{
+            display: 'flex',
+            gap: 1,
+            alignItems: 'center',
+            pl: 1,
+            borderLeft: 2,
+            borderColor: 'primary.light',
+          }}
+        >
+          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+            via
+          </Typography>
+          <FormControl size="small" sx={{ minWidth: 90, flexGrow: 1 }}>
+            <InputLabel>Link field</InputLabel>
+            <Select
+              label="Link field"
+              value={filter.linkField ?? ''}
+              onChange={(e) => handleChange({ linkField: e.target.value })}
+            >
+              {(currentSource?.fields ?? []).map((f) => (
+                <MenuItem key={f.id} value={f.id}>
+                  {f.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+            =
+          </Typography>
+          <FormControl size="small" sx={{ minWidth: 90, flexGrow: 1 }}>
+            <InputLabel>Target field</InputLabel>
+            <Select
+              label="Target field"
+              value={filter.targetField ?? ''}
+              onChange={(e) => handleChange({ targetField: e.target.value })}
+            >
+              {(widgetSource?.fields ?? []).map((f) => (
+                <MenuItem key={f.id} value={f.id}>
+                  {f.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 interface FilterSectionProps {
   title: string;
   filters: StudioFilterState[];
@@ -139,6 +300,55 @@ function FilterSection(props: FilterSectionProps) {
   );
 }
 
+interface WidgetFilterSectionProps {
+  title: string;
+  filters: StudioFilterState[];
+  widgetSourceId?: string;
+  dataSources: Record<string, StudioDataSource>;
+  onAddFilter: () => void;
+  onRemoveFilter: (id: string) => void;
+}
+
+function WidgetFilterSection(props: WidgetFilterSectionProps) {
+  const { filters, widgetSourceId, dataSources, onAddFilter, onRemoveFilter, title } = props;
+  const hasAnySources = Object.keys(dataSources).length > 0;
+
+  return (
+    <Box>
+      <Stack direction="row" sx={{ mb: 1, alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography variant="subtitle2">{title}</Typography>
+      </Stack>
+
+      {filters.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          No filters applied.
+        </Typography>
+      ) : (
+        <Stack spacing={2} sx={{ mb: 1 }}>
+          {filters.map((filter) => (
+            <WidgetFilterRow
+              key={filter.id}
+              filter={filter}
+              widgetSourceId={widgetSourceId}
+              dataSources={dataSources}
+              onRemove={onRemoveFilter}
+            />
+          ))}
+        </Stack>
+      )}
+
+      <Button
+        startIcon={<AddIcon />}
+        size="small"
+        onClick={onAddFilter}
+        disabled={!hasAnySources}
+      >
+        Add filter
+      </Button>
+    </Box>
+  );
+}
+
 export function StudioFiltersDrawer() {
   const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
@@ -149,7 +359,7 @@ export function StudioFiltersDrawer() {
   const allFields = React.useMemo(() => {
     const fieldMap = new Map<string, string>();
 
-    for (const source of Object.values(dataSources)) {
+    for (const source of Object.values(dataSources) as StudioDataSource[]) {
       for (const field of source.fields) {
         fieldMap.set(field.id, field.label);
       }
@@ -158,22 +368,13 @@ export function StudioFiltersDrawer() {
     return Array.from(fieldMap.entries()).map(([id, label]) => ({ id, label }));
   }, [dataSources]);
 
-  const selectedWidget = selectedWidgetId ? widgets[selectedWidgetId] : null;
-  const widgetFields = React.useMemo(() => {
-    if (!selectedWidget?.sourceId) {
-      return allFields;
-    }
+  const selectedWidget = selectedWidgetId ? (widgets as Record<string, typeof widgets[string]>)[selectedWidgetId] : null;
 
-    const source = dataSources[selectedWidget.sourceId];
-
-    return source?.fields ?? allFields;
-  }, [selectedWidget, dataSources, allFields]);
-
-  const pageFilters = filters.filter((f) => f.scope === 'page');
-  const widgetFilters = filters.filter(
-    (f) => f.scope === 'widget' && f.widgetId === selectedWidgetId,
+  const pageFilters = (filters as StudioFilterState[]).filter((f: StudioFilterState) => f.scope === 'page');
+  const widgetFilters = (filters as StudioFilterState[]).filter(
+    (f: StudioFilterState) => f.scope === 'widget' && f.widgetId === selectedWidgetId,
   );
-  const crossFilters = filters.filter((f) => f.scope === 'cross-filter');
+  const crossFilters = (filters as StudioFilterState[]).filter((f: StudioFilterState) => f.scope === 'cross-filter');
 
   const handleAddPageFilter = () => {
     if (allFields.length === 0) {
@@ -190,17 +391,24 @@ export function StudioFiltersDrawer() {
   };
 
   const handleAddWidgetFilter = () => {
-    if (!selectedWidgetId || widgetFields.length === 0) {
+    if (!selectedWidgetId || Object.keys(dataSources).length === 0) {
       return;
     }
 
+    const widgetSource = selectedWidget?.sourceId
+      ? dataSources[selectedWidget.sourceId]
+      : undefined;
+    const firstField =
+      widgetSource?.fields.find((f) => !f.hidden)?.id ?? allFields[0]?.id ?? '';
+
     controller.addFilter({
       id: generateId(),
-      field: widgetFields[0].id,
+      field: firstField,
       operator: 'equals',
       value: '',
       scope: 'widget',
       widgetId: selectedWidgetId,
+      filterSourceId: selectedWidget?.sourceId,
     });
   };
 
@@ -220,10 +428,11 @@ export function StudioFiltersDrawer() {
 
       <Divider />
 
-      <FilterSection
+      <WidgetFilterSection
         title={selectedWidget ? `Widget: ${selectedWidget.title}` : 'Widget filters'}
         filters={widgetFilters}
-        fields={widgetFields}
+        widgetSourceId={selectedWidget?.sourceId}
+        dataSources={dataSources}
         onAddFilter={handleAddWidgetFilter}
         onRemoveFilter={(id) => controller.removeFilter(id)}
       />
@@ -252,7 +461,7 @@ export function StudioFiltersDrawer() {
           </Typography>
         ) : (
           <Stack spacing={1}>
-            {crossFilters.map((filter) => (
+            {(crossFilters as StudioFilterState[]).map((filter: StudioFilterState) => (
               <Box
                 key={filter.id}
                 sx={{

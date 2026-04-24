@@ -10,7 +10,7 @@ import { Box, Typography } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
-  applyFilters,
+  resolveRows,
   aggregateByField,
   aggregateMultipleSeries,
   prepareScatterData,
@@ -43,6 +43,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   const { config } = widget;
   const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
+  const dataSources = useStudioSelector((state) => state.dataSources);
   const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<
     'bar' | 'line' | 'pie'
   > | null>(null);
@@ -66,8 +67,8 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     );
     const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
 
-    return applyFilters(dataSource.rows, allFilters);
-  }, [dataSource, filters, widget.id]);
+    return resolveRows(dataSource.rows, widget.sourceId, allFilters, dataSources);
+  }, [dataSource, filters, dataSources, widget.id, widget.sourceId]);
 
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {

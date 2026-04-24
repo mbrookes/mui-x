@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { Alert, CssBaseline, Snackbar, Tab, Tabs, ThemeProvider, createTheme } from '@mui/material';
+import { Alert, Box, CssBaseline, Snackbar, Tab, Tabs, ThemeProvider, createTheme } from '@mui/material';
 import { StudioShell, createStudioController } from '../../../packages/x-studio/src';
-import type { StudioMode } from '../../../packages/x-studio/src';
+import type { StudioMode, StudioPage } from '../../../packages/x-studio/src';
 import { INITIAL_STATE } from './config/initialDashboard';
 import { AppToolbar } from './components/AppToolbar';
 import { downloadJson, uploadJson } from './utils/fileUtils';
@@ -15,7 +15,8 @@ const theme = createTheme({
 
 export default function App() {
   const [mode, setMode] = React.useState<StudioMode>(controller.getState().mode);
-  const [pages, setPages] = React.useState(controller.getState().pages);
+  const [title, setTitle] = React.useState(controller.getState().dashboard.title);
+  const [pages, setPages] = React.useState<Record<string, StudioPage>>(controller.getState().pages);
   const [activePageId, setActivePageId] = React.useState(
     controller.getState().dashboard.activePageId,
   );
@@ -28,6 +29,7 @@ export default function App() {
   React.useEffect(() => {
     return controller.subscribe((state) => {
       setMode(state.mode);
+      setTitle(state.dashboard.title);
       setPages(state.pages);
       setActivePageId(state.dashboard.activePageId);
     });
@@ -94,26 +96,31 @@ export default function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <AppToolbar
-        mode={mode}
-        onModeChange={handleModeChange}
-        onSave={handleSave}
-        onLoad={handleLoad}
-      />
-      {pageList.length > 1 && (
-        <Tabs
-          value={activePageId}
-          onChange={handlePageChange}
-          variant="scrollable"
-          scrollButtons="auto"
-          sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', px: 1 }}
-        >
-          {pageList.map((page) => (
-            <Tab key={page.id} label={page.title} value={page.id} />
-          ))}
-        </Tabs>
-      )}
-      <StudioShell controller={controller} />
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+        <AppToolbar
+          title={title}
+          mode={mode}
+          onModeChange={handleModeChange}
+          onSave={handleSave}
+          onLoad={handleLoad}
+        />
+        {pageList.length > 1 && (
+          <Tabs
+            value={activePageId}
+            onChange={handlePageChange}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', px: 1 }}
+          >
+            {pageList.map((page) => (
+              <Tab key={page.id} label={page.title} value={page.id} />
+            ))}
+          </Tabs>
+        )}
+        <Box sx={{ flexGrow: 1, minHeight: 0 }}>
+          <StudioShell controller={controller} />
+        </Box>
+      </Box>
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}

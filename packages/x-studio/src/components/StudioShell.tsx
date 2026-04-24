@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { AppBar, Badge, Box, Divider, IconButton, Toolbar, Typography } from '@mui/material';
+import { Badge, Box, Divider, IconButton, Typography } from '@mui/material';
 import ChevronDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseIcon from '@mui/icons-material/Close';
@@ -170,7 +170,6 @@ function DrawerPanel(props: {
 function StudioShellContent(props: StudioShellSlots) {
   const { canvas, composeDrawer, dataDrawer, filtersDrawer } = props;
   const mode = useStudioSelector((state) => state.mode);
-  const dashboardTitle = useStudioSelector((state) => state.dashboard.title);
   const controller = useStudioController();
 
   const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
@@ -232,27 +231,10 @@ function StudioShellContent(props: StudioShellSlots) {
       sx={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
+        height: '100%',
         bgcolor: 'background.default',
       }}
     >
-      <AppBar
-        position="sticky"
-        elevation={0}
-        sx={{
-          bgcolor: 'background.paper',
-          borderBottom: 1,
-          borderColor: 'divider',
-          zIndex: (theme) => theme.zIndex.drawer + 1,
-        }}
-      >
-        <Toolbar sx={{ gap: 1.5 }}>
-          <Typography variant="h6" sx={{ flexGrow: 1, color: 'text.primary' }} noWrap>
-            {dashboardTitle}
-          </Typography>
-        </Toolbar>
-      </AppBar>
-
       <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
         {mode === 'edit' && (
           <DrawerPanel drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>

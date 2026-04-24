@@ -124,8 +124,45 @@ export function aggregateByTwoFields(
 }
 
 /**
- * Scatter chart data point
+ * Aggregate multiple Y fields against the same X axis (for multi-series charts)
  */
+export interface MultiYSeriesData {
+  labels: (string | number)[];
+  series: Array<{ fieldId: string; values: number[] }>;
+}
+
+export function aggregateMultipleSeries(
+  rows: Row[],
+  xField: string,
+  yFields: string[],
+): MultiYSeriesData {
+  const labelOrder: (string | number)[] = [];
+  const labelSet = new Set<string | number>();
+  // Map: label → fieldId → sum
+  const dataMap = new Map<string | number, Map<string, number>>();
+
+  for (const row of rows) {
+    const xVal = (row[xField] as string | number) ?? '(empty)';
+    if (!labelSet.has(xVal)) {
+      labelSet.add(xVal);
+      labelOrder.push(xVal);
+      dataMap.set(xVal, new Map());
+    }
+    const fieldMap = dataMap.get(xVal)!;
+    for (const fieldId of yFields) {
+      const yVal = Number(row[fieldId] ?? 0);
+      fieldMap.set(fieldId, (fieldMap.get(fieldId) ?? 0) + yVal);
+    }
+  }
+
+  const series = yFields.map((fieldId) => ({
+    fieldId,
+    values: labelOrder.map((label) => dataMap.get(label)?.get(fieldId) ?? 0),
+  }));
+
+  return { labels: labelOrder, series };
+}
+
 export interface ScatterDataPoint {
   x: number;
   y: number;

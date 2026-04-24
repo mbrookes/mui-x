@@ -32,7 +32,7 @@ export const WIDGET_TYPES: {
   {
     kind: 'chart',
     label: 'Chart',
-    description: 'Bar, line, pie, area, scatter, grouped bar, or stacked bar chart',
+    description: 'Bar, line, pie, area, and scatter charts',
     icon: <BarChartIcon fontSize="large" />,
   },
   {

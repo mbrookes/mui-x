@@ -58,6 +58,16 @@ function matchesFilter(row: Row, filter: StudioFilterState): boolean {
       return toComparable(rowVal, fieldType) >= toComparable(filterVal, fieldType);
     case 'less_than_or_equal':
       return toComparable(rowVal, fieldType) <= toComparable(filterVal, fieldType);
+    case 'between': {
+      const range = filterVal as { from?: string; to?: string } | null;
+      if (!range) return true;
+      const cmp = toComparable(rowVal, fieldType);
+      const from = range.from ? toComparable(range.from, fieldType) : null;
+      const to = range.to ? toComparable(range.to, fieldType) : null;
+      if (from !== null && cmp < from) return false;
+      if (to !== null && cmp > to) return false;
+      return true;
+    }
     default:
       return true;
   }

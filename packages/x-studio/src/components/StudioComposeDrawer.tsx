@@ -287,7 +287,6 @@ function ChartSetupPanel(props: { widgetId: string }) {
   );
   const config = widget?.config ?? {};
   const numericFields = allFields.filter((f) => f.type === 'number');
-  const categoryFields = allFields.filter((f) => f.type === 'string');
 
   // Resolve base chart type (strip bar-grouped/bar-stacked into bar + layout)
   const rawChartType = config.chartType ?? 'bar';
@@ -304,14 +303,10 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const ySeries = config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : []);
 
   const selectedXField = allFields.find((f) => f.id === config.xField) ?? null;
-  const selectedSeriesField = allFields.find((f) => f.id === config.seriesField) ?? null;
 
   const supportsMultipleSeries =
     chartType === 'bar' || chartType === 'line' || chartType === 'area';
   const supportsBarLayout = chartType === 'bar';
-  const supportsSeriesField = supportsBarLayout && barLayout === 'grouped';
-  // When multiple Y series are set, series-field grouping doesn't apply
-  const showSeriesField = supportsSeriesField && ySeries.length <= 1;
 
   const handleChartTypeChange = (newType: StudioChartType) => {
     controller.updateWidgetConfig(widgetId, { chartType: newType, barLayout: 'grouped' });
@@ -486,23 +481,6 @@ function ChartSetupPanel(props: { widgetId: string }) {
           )}
         </Stack>
       </Box>
-
-      {/* Series / group field for grouped/stacked (when single Y series) */}
-      {showSeriesField && (
-        <Autocomplete
-          size="small"
-          fullWidth
-          options={categoryFields}
-          groupBy={(option) => option.sourceLabel}
-          getOptionLabel={(option) => option.label}
-          value={selectedSeriesField}
-          onChange={(_e, newValue) =>
-            controller.updateWidgetConfig(widgetId, { seriesField: newValue?.id ?? '' })
-          }
-          renderInput={(params) => <TextField {...params} label="Group by field" />}
-          isOptionEqualToValue={(option, value) => option.id === value.id}
-        />
-      )}
     </Stack>
   );
 }

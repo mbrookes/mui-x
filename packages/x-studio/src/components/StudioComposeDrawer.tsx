@@ -322,6 +322,9 @@ function ChartSetupPanel(props: { widgetId: string }) {
     controller.updateWidgetConfig(widgetId, { barLayout: newLayout });
   };
 
+  const usedYFieldIds = ySeries.map((s) => s.fieldId).filter(Boolean);
+  const availableYFields = numericFields.filter((f) => !usedYFieldIds.includes(f.id));
+
   const handleAddSeries = () => {
     controller.updateWidgetConfig(widgetId, { ySeries: [...ySeries, { fieldId: '' }] });
   };
@@ -417,22 +420,31 @@ function ChartSetupPanel(props: { widgetId: string }) {
             {supportsMultipleSeries ? 'Y / Measure fields' : 'Y / Measure field'}
           </Typography>
           {supportsMultipleSeries && (
-            <Tooltip title="Add series">
-              <IconButton size="small" onClick={handleAddSeries}>
-                <AddIcon fontSize="small" />
-              </IconButton>
+            <Tooltip title={availableYFields.length === 0 ? 'No more fields to add' : 'Add series'}>
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={handleAddSeries}
+                  disabled={availableYFields.length === 0}
+                >
+                  <AddIcon fontSize="small" />
+                </IconButton>
+              </span>
             </Tooltip>
           )}
         </Stack>
         <Stack spacing={1}>
           {ySeries.map((s, index) => {
             const selectedField = allFields.find((f) => f.id === s.fieldId) ?? null;
+            const rowOptions = numericFields.filter(
+              (f) => f.id === s.fieldId || !usedYFieldIds.includes(f.id),
+            );
             return (
               <Stack key={index} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
                 <Autocomplete
                   size="small"
                   fullWidth
-                  options={numericFields}
+                  options={rowOptions}
                   groupBy={(option) => option.sourceLabel}
                   getOptionLabel={(option) => option.label}
                   value={selectedField}

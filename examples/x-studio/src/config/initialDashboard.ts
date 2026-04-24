@@ -1,8 +1,5 @@
 import type { StudioState } from '../../../../packages/x-studio/src';
 import {
-  PRODUCTS_SOURCE_ID,
-  productsSource,
-  productsBindings,
   CUSTOMERS_SOURCE_ID,
   customersSource,
   customersBindings,
@@ -12,6 +9,9 @@ import {
   ORDER_ITEMS_SOURCE_ID,
   orderItemsSource,
   orderItemsBindings,
+  PRODUCTS_SOURCE_ID,
+  productsSource,
+  productsBindings,
 } from '../data/salesData';
 
 export const INITIAL_STATE: Partial<StudioState> = {
@@ -29,6 +29,11 @@ export const INITIAL_STATE: Partial<StudioState> = {
         ['widget-chart-category', 'widget-chart-country'],
         ['widget-orders-grid'],
       ],
+    },
+    'page-2': {
+      id: 'page-2',
+      title: 'Details',
+      widgetRows: [],
     },
   },
   dataSources: {
@@ -94,7 +99,10 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
   },
   shell: {
+    // TODO: make these optional
     openDrawers: { data: true, compose: true, filters: false },
     selectedWidgetId: null,
+    selectedFieldId: null,
+    selectedSourceId: null,
   },
 };

@@ -318,7 +318,6 @@ function ChartSetupPanel(props: { widgetId: string }) {
   };
 
   const usedYFieldIds = ySeries.map((s) => s.fieldId).filter(Boolean);
-  const availableYFields = numericFields.filter((f) => !usedYFieldIds.includes(f.id));
 
   const handleAddSeries = () => {
     controller.updateWidgetConfig(widgetId, { ySeries: [...ySeries, { fieldId: '' }] });
@@ -414,12 +413,12 @@ function ChartSetupPanel(props: { widgetId: string }) {
             {supportsMultipleSeries ? 'Y / Measure fields' : 'Y / Measure field'}
           </Typography>
           {supportsMultipleSeries && (
-            <Tooltip title={availableYFields.length === 0 ? 'No more fields to add' : 'Add series'}>
+            <Tooltip title={usedYFieldIds.length >= numericFields.length ? 'No more fields to add' : 'Add series'}>
               <span>
                 <IconButton
                   size="small"
                   onClick={handleAddSeries}
-                  disabled={availableYFields.length === 0}
+                  disabled={usedYFieldIds.length >= numericFields.length}
                 >
                   <AddIcon fontSize="small" />
                 </IconButton>
@@ -430,17 +429,17 @@ function ChartSetupPanel(props: { widgetId: string }) {
         <Stack spacing={1}>
           {ySeries.map((s, index) => {
             const selectedField = allFields.find((f) => f.id === s.fieldId) ?? null;
-            const rowOptions = numericFields.filter(
-              (f) => f.id === s.fieldId || !usedYFieldIds.includes(f.id),
-            );
             return (
               <Stack key={index} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
                 <Autocomplete
                   size="small"
                   fullWidth
-                  options={rowOptions}
+                  options={numericFields}
                   groupBy={(option) => option.sourceLabel}
                   getOptionLabel={(option) => option.label}
+                  getOptionDisabled={(option) =>
+                    option.id !== s.fieldId && usedYFieldIds.includes(option.id)
+                  }
                   value={selectedField}
                   onChange={(_e, newValue) => handleSeriesFieldChange(index, newValue?.id ?? '')}
                   renderInput={(params) => (

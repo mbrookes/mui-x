@@ -13,7 +13,7 @@ export type StudioChartType =
   | 'bar-grouped'
   | 'bar-stacked';
 
-export type StudioBarLayout = 'standard' | 'grouped' | 'stacked';
+export type StudioBarLayout = 'grouped' | 'stacked';
 
 export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 

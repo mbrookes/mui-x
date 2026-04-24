@@ -65,6 +65,7 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
   const { config } = widget;
   const filters = useStudioSelector((state) => state.filters);
   const dataSources = useStudioSelector((state) => state.dataSources);
+  const relationships = useStudioSelector((state) => state.relationships);
 
   const { displayValue, hasData } = React.useMemo(() => {
     if (!dataSource?.rows || !config.kpiValueField) {
@@ -75,7 +76,7 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
     const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
     const allFilters = [...pageFilters, ...widgetFilters];
 
-    const rows = resolveRows(dataSource.rows, widget.sourceId, allFilters, dataSources);
+    const rows = resolveRows(dataSource.rows, widget.sourceId, allFilters, dataSources, relationships);
     const aggregation = config.kpiAggregation ?? 'sum';
     const value = computeAggregate(rows, config.kpiValueField, aggregation);
 
@@ -83,7 +84,7 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
       displayValue: formatValue(value, config.kpiFormat, config.kpiPrefix, config.kpiSuffix),
       hasData: true,
     };
-  }, [dataSource, filters, dataSources, config, widget.id, widget.sourceId]);
+  }, [dataSource, filters, dataSources, relationships, config, widget.id, widget.sourceId]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>

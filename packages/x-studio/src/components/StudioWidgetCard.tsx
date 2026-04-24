@@ -10,7 +10,7 @@ import { StudioChartWidget } from './StudioChartWidget';
 import { StudioKpiWidget } from './StudioKpiWidget';
 import { StudioTextWidget } from './StudioTextWidget';
 import { exportGridToCsv, exportChartToPng } from './widgetUtils';
-import { applyFilters } from './chartUtils';
+import { resolveRows } from './chartUtils';
 
 export interface StudioWidgetCardProps {
   widgetId: string;
@@ -60,14 +60,15 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
 
   const filteredRows = React.useMemo(() => {
     if (!source?.rows || !widget) return [];
+    const dataSources = controller.getState().dataSources;
     const pageFilters = filters.filter((f) => f.scope === 'page');
     const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
     const crossFilters = filters.filter(
       (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
     );
     const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
-    return applyFilters(source.rows, allFilters);
-  }, [source, widget, filters]);
+    return resolveRows(source.rows, widget.sourceId, allFilters, dataSources);
+  }, [source, widget, filters, controller]);
 
   const handleExport = React.useCallback(
     (e: React.MouseEvent) => {

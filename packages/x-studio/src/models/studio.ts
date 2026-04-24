@@ -114,6 +114,16 @@ export interface StudioFilterState {
   widgetId?: string;
   /** For cross-filters: the widget ID that originated the filter */
   sourceWidgetId?: string;
+  /**
+   * For cross-source widget filters: the data source this filter targets.
+   * When set (and different from the widget's source), the filter is applied
+   * to this source first, and the result semi-joins back to the widget's rows.
+   */
+  filterSourceId?: string;
+  /** Field in filterSourceId whose values link to the widget's source (e.g. 'customerId') */
+  linkField?: string;
+  /** Field in the widget's source that linkField maps to (e.g. 'id') */
+  targetField?: string;
 }
 
 export interface StudioShellState {

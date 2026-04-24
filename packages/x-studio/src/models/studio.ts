@@ -27,7 +27,8 @@ export type StudioFilterOperator =
   | 'greater_than'
   | 'less_than'
   | 'greater_than_or_equal'
-  | 'less_than_or_equal';
+  | 'less_than_or_equal'
+  | 'between';
 
 export interface StudioWidgetLayout {
   x: number;

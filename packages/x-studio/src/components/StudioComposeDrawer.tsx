@@ -4,6 +4,7 @@ import {
   Box,
   Divider,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Paper,
@@ -12,10 +13,15 @@ import {
   Tab,
   Tabs,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Tooltip,
   Typography,
   Autocomplete,
 } from '@mui/material';
-import type { StudioDataField } from '../models';
+import AddIcon from '@mui/icons-material/Add';
+import CloseIcon from '@mui/icons-material/Close';
+import type { StudioBarLayout, StudioDataField } from '../models';
 
 import { useStudioController, useStudioSelector } from '../context';
 import type {
@@ -280,14 +286,61 @@ function ChartSetupPanel(props: { widgetId: string }) {
       .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
   );
   const config = widget?.config ?? {};
-  const selectedXField = allFields.find((f) => f.id === config.xField);
-  const selectedYField = allFields.find((f) => f.id === config.yField);
-  const selectedSeriesField = allFields.find((f) => f.id === config.seriesField);
   const numericFields = allFields.filter((f) => f.type === 'number');
   const categoryFields = allFields.filter((f) => f.type === 'string');
 
-  const chartType = config.chartType ?? 'bar';
-  const needsSeriesField = chartType === 'bar-grouped' || chartType === 'bar-stacked';
+  // Resolve base chart type (strip bar-grouped/bar-stacked into bar + layout)
+  const rawChartType = config.chartType ?? 'bar';
+  const chartType: StudioChartType =
+    rawChartType === 'bar-grouped' || rawChartType === 'bar-stacked' ? 'bar' : rawChartType;
+  const barLayout: StudioBarLayout =
+    rawChartType === 'bar-grouped'
+      ? 'grouped'
+      : rawChartType === 'bar-stacked'
+        ? 'stacked'
+        : (config.barLayout ?? 'standard');
+
+  // Y series: prefer ySeries, else seed from yField
+  const ySeries = config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : []);
+
+  const selectedXField = allFields.find((f) => f.id === config.xField) ?? null;
+  const selectedSeriesField = allFields.find((f) => f.id === config.seriesField) ?? null;
+
+  const supportsMultipleSeries =
+    chartType === 'bar' || chartType === 'line' || chartType === 'area';
+  const supportsBarLayout = chartType === 'bar';
+  const supportsSeriesField = supportsBarLayout && barLayout !== 'standard';
+  // When multiple Y series are set, series-field grouping doesn't apply
+  const showSeriesField = supportsSeriesField && ySeries.length <= 1;
+
+  const handleChartTypeChange = (newType: StudioChartType) => {
+    controller.updateWidgetConfig(widgetId, { chartType: newType, barLayout: 'standard' });
+  };
+
+  const handleBarLayoutChange = (_e: React.MouseEvent, newLayout: StudioBarLayout | null) => {
+    if (!newLayout) return;
+    controller.updateWidgetConfig(widgetId, { barLayout: newLayout });
+  };
+
+  const handleAddSeries = () => {
+    controller.updateWidgetConfig(widgetId, { ySeries: [...ySeries, { fieldId: '' }] });
+  };
+
+  const handleRemoveSeries = (index: number) => {
+    const next = ySeries.filter((_, i) => i !== index);
+    controller.updateWidgetConfig(widgetId, {
+      ySeries: next,
+      yField: next[0]?.fieldId ?? '',
+    });
+  };
+
+  const handleSeriesFieldChange = (index: number, fieldId: string) => {
+    const next = ySeries.map((s, i) => (i === index ? { ...s, fieldId } : s));
+    controller.updateWidgetConfig(widgetId, {
+      ySeries: next,
+      yField: next[0]?.fieldId ?? '',
+    });
+  };
 
   if (allFields.length === 0) {
     return (
@@ -299,20 +352,15 @@ function ChartSetupPanel(props: { widgetId: string }) {
 
   return (
     <Stack spacing={2}>
+      {/* Chart type */}
       <FormControl size="small" fullWidth>
         <InputLabel>Chart type</InputLabel>
         <Select
           label="Chart type"
           value={chartType}
-          onChange={(e) =>
-            controller.updateWidgetConfig(widgetId, {
-              chartType: e.target.value as StudioChartType,
-            })
-          }
+          onChange={(e) => handleChartTypeChange(e.target.value as StudioChartType)}
         >
           <MenuItem value="bar">Bar</MenuItem>
-          <MenuItem value="bar-grouped">Bar (Grouped)</MenuItem>
-          <MenuItem value="bar-stacked">Bar (Stacked)</MenuItem>
           <MenuItem value="line">Line</MenuItem>
           <MenuItem value="area">Area</MenuItem>
           <MenuItem value="pie">Pie / Donut</MenuItem>
@@ -320,15 +368,38 @@ function ChartSetupPanel(props: { widgetId: string }) {
         </Select>
       </FormControl>
 
+      {/* Bar layout toggle */}
+      {supportsBarLayout && (
+        <Box>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+            Layout
+          </Typography>
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={barLayout}
+            onChange={handleBarLayoutChange}
+            sx={{ width: '100%', '& .MuiToggleButton-root': { flex: 1, py: 0.25 } }}
+          >
+            <ToggleButton value="standard">Standard</ToggleButton>
+            <ToggleButton value="grouped">Grouped</ToggleButton>
+            <ToggleButton value="stacked">Stacked</ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+      )}
+
+      <Divider />
+
+      {/* X field */}
       <Autocomplete
         size="small"
         fullWidth
         options={chartType === 'scatter' ? numericFields : allFields}
         groupBy={(option) => option.sourceLabel}
         getOptionLabel={(option) => option.label}
-        value={selectedXField || null}
+        value={selectedXField}
         onChange={(_e, newValue) =>
-          controller.updateWidgetConfig(widgetId, { xField: newValue?.id || '' })
+          controller.updateWidgetConfig(widgetId, { xField: newValue?.id ?? '' })
         }
         renderInput={(params) => (
           <TextField
@@ -336,42 +407,89 @@ function ChartSetupPanel(props: { widgetId: string }) {
             label={chartType === 'scatter' ? 'X field (numeric)' : 'X / Category field'}
           />
         )}
-        isOptionEqualToValue={(option, value) =>
-          option.id === value.id && option.sourceId === value.sourceId
-        }
+        isOptionEqualToValue={(option, value) => option.id === value.id}
       />
 
-      <Autocomplete
-        size="small"
-        fullWidth
-        options={numericFields}
-        groupBy={(option) => option.sourceLabel}
-        getOptionLabel={(option) => option.label}
-        value={selectedYField || null}
-        onChange={(_e, newValue) =>
-          controller.updateWidgetConfig(widgetId, { yField: newValue?.id || '' })
-        }
-        renderInput={(params) => <TextField {...params} label="Y / Measure field" />}
-        isOptionEqualToValue={(option, value) =>
-          option.id === value.id && option.sourceId === value.sourceId
-        }
-      />
+      {/* Y series */}
+      <Box>
+        <Stack direction="row" sx={{ alignItems: 'center', mb: 0.5 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+            {supportsMultipleSeries ? 'Y / Measure fields' : 'Y / Measure field'}
+          </Typography>
+          {supportsMultipleSeries && (
+            <Tooltip title="Add series">
+              <IconButton size="small" onClick={handleAddSeries}>
+                <AddIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Stack>
+        <Stack spacing={1}>
+          {ySeries.map((s, index) => {
+            const selectedField = allFields.find((f) => f.id === s.fieldId) ?? null;
+            return (
+              <Stack key={index} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Autocomplete
+                  size="small"
+                  fullWidth
+                  options={numericFields}
+                  groupBy={(option) => option.sourceLabel}
+                  getOptionLabel={(option) => option.label}
+                  value={selectedField}
+                  onChange={(_e, newValue) => handleSeriesFieldChange(index, newValue?.id ?? '')}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label={ySeries.length > 1 ? `Series ${index + 1}` : 'Y / Measure field'}
+                    />
+                  )}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                />
+                {ySeries.length > 1 && (
+                  <Tooltip title="Remove series">
+                    <IconButton size="small" onClick={() => handleRemoveSeries(index)}>
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Stack>
+            );
+          })}
+          {ySeries.length === 0 && (
+            <Autocomplete
+              size="small"
+              fullWidth
+              options={numericFields}
+              groupBy={(option) => option.sourceLabel}
+              getOptionLabel={(option) => option.label}
+              value={null}
+              onChange={(_e, newValue) => {
+                controller.updateWidgetConfig(widgetId, {
+                  ySeries: [{ fieldId: newValue?.id ?? '' }],
+                  yField: newValue?.id ?? '',
+                });
+              }}
+              renderInput={(params) => <TextField {...params} label="Y / Measure field" />}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+            />
+          )}
+        </Stack>
+      </Box>
 
-      {needsSeriesField && (
+      {/* Series / group field for grouped/stacked (when single Y series) */}
+      {showSeriesField && (
         <Autocomplete
           size="small"
           fullWidth
           options={categoryFields}
           groupBy={(option) => option.sourceLabel}
           getOptionLabel={(option) => option.label}
-          value={selectedSeriesField || null}
+          value={selectedSeriesField}
           onChange={(_e, newValue) =>
-            controller.updateWidgetConfig(widgetId, { seriesField: newValue?.id || '' })
+            controller.updateWidgetConfig(widgetId, { seriesField: newValue?.id ?? '' })
           }
-          renderInput={(params) => <TextField {...params} label="Series / Group field" />}
-          isOptionEqualToValue={(option, value) =>
-            option.id === value.id && option.sourceId === value.sourceId
-          }
+          renderInput={(params) => <TextField {...params} label="Group by field" />}
+          isOptionEqualToValue={(option, value) => option.id === value.id}
         />
       )}
     </Stack>

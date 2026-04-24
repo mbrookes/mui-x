@@ -87,9 +87,13 @@ export default function App() {
     setSnackbar((prev) => ({ ...prev, open: false }));
   };
 
-  const handlePageChange = React.useCallback((_event: React.SyntheticEvent, pageId: string) => {
-    controller.setActivePage(pageId);
-  }, []);
+  const handlePageChange = React.useCallback(
+    (_event: React.SyntheticEvent, pageId: string) => {
+      controller.setActivePage(pageId);
+      setActivePageId(pageId);
+    },
+    [],
+  );
 
   const pageList = Object.values(pages);
 

@@ -36,6 +36,10 @@ function computeAggregate(
   field: string,
   aggregation: string,
 ): number {
+  if (aggregation === 'count') {
+    return rows.length;
+  }
+
   const values = rows.map((row) => Number(row[field] ?? 0)).filter((v) => !Number.isNaN(v));
 
   if (values.length === 0) {
@@ -47,8 +51,6 @@ function computeAggregate(
       return values.reduce((acc, v) => acc + v, 0);
     case 'avg':
       return values.reduce((acc, v) => acc + v, 0) / values.length;
-    case 'count':
-      return rows.length;
     case 'min':
       return Math.min(...values);
     case 'max':

@@ -11,7 +11,6 @@ import {
   orderItemsBindings,
   PRODUCTS_SOURCE_ID,
   productsSource,
-  productsBindings,
 } from '../data/salesData';
 
 export const INITIAL_STATE: Partial<StudioState> = {

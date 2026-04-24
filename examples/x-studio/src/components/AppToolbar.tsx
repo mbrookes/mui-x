@@ -1,5 +1,5 @@
-import * as React from 'react';
 import { Box, IconButton, Switch, Tooltip, Typography } from '@mui/material';
+import type { SwitchProps } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import type { StudioMode } from '../../../../packages/x-studio/src';
@@ -7,7 +7,7 @@ import type { StudioMode } from '../../../../packages/x-studio/src';
 export interface AppToolbarProps {
   title: string;
   mode: StudioMode;
-  onModeChange: (event: React.ChangeEvent<HTMLInputElement>, checked: boolean) => void;
+  onModeChange: SwitchProps['onChange'];
   onSave: () => void;
   onLoad: () => void;
 }
@@ -49,7 +49,7 @@ export function AppToolbar(props: AppToolbarProps) {
           checked={mode === 'edit'}
           onChange={onModeChange}
           size="small"
-          inputProps={{ 'aria-label': 'Toggle edit mode' }}
+          slotProps={{ input: { 'aria-label': 'Toggle edit mode' } }}
         />
         <Typography variant="body2" color={mode === 'edit' ? 'text.primary' : 'text.secondary'}>
           Edit

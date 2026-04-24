@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Box, Typography } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
-import { applyFilters } from './chartUtils';
+import { resolveRows } from './chartUtils';
 import { useStudioSelector } from '../context';
 
 export interface StudioKpiWidgetProps {
@@ -64,6 +64,7 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
   const { dataSource, widget } = props;
   const { config } = widget;
   const filters = useStudioSelector((state) => state.filters);
+  const dataSources = useStudioSelector((state) => state.dataSources);
 
   const { displayValue, hasData } = React.useMemo(() => {
     if (!dataSource?.rows || !config.kpiValueField) {
@@ -74,7 +75,7 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
     const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
     const allFilters = [...pageFilters, ...widgetFilters];
 
-    const rows = applyFilters(dataSource.rows, allFilters);
+    const rows = resolveRows(dataSource.rows, widget.sourceId, allFilters, dataSources);
     const aggregation = config.kpiAggregation ?? 'sum';
     const value = computeAggregate(rows, config.kpiValueField, aggregation);
 
@@ -82,7 +83,7 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
       displayValue: formatValue(value, config.kpiFormat, config.kpiPrefix, config.kpiSuffix),
       hasData: true,
     };
-  }, [dataSource, filters, config, widget.id]);
+  }, [dataSource, filters, dataSources, config, widget.id, widget.sourceId]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>

@@ -31,7 +31,7 @@ export function useStudioState() {
   return controller.store.use((state: StudioState) => state);
 }
 
-export function useStudioSelector<Value>(selector: (state: StudioState) => Value) {
+export function useStudioSelector<Value>(selector: (state: StudioState) => Value): Value {
   const controller = useStudioController();
-  return controller.store.use(selector);
+  return controller.store.use(selector) as Value;
 }

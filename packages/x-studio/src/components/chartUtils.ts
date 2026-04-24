@@ -1,4 +1,4 @@
-import type { StudioFilterState } from '../models';
+import type { StudioDataSource, StudioFilterState } from '../models';
 
 type Row = Record<string, unknown>;
 
@@ -44,6 +44,68 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
   }
 
   return rows.filter((row) => filters.every((f) => matchesFilter(row, f)));
+}
+
+/**
+ * Apply filters to widget rows, handling cross-source filters via semi-join.
+ *
+ * Cross-source filters (filterSourceId set and != widgetSourceId) are applied to
+ * the foreign source first; rows from the widget's source are then restricted to
+ * those whose targetField value appears in the linkField values of the filtered
+ * foreign rows.
+ */
+export function resolveRows(
+  widgetRows: Row[],
+  widgetSourceId: string | undefined,
+  filters: StudioFilterState[],
+  dataSources: Record<string, StudioDataSource>,
+): Row[] {
+  const nativeFilters: StudioFilterState[] = [];
+  const crossFilters: (StudioFilterState & {
+    filterSourceId: string;
+    linkField: string;
+    targetField: string;
+  })[] = [];
+
+  for (const f of filters) {
+    if (
+      f.filterSourceId &&
+      f.filterSourceId !== widgetSourceId &&
+      f.linkField &&
+      f.targetField
+    ) {
+      crossFilters.push(
+        f as StudioFilterState & {
+          filterSourceId: string;
+          linkField: string;
+          targetField: string;
+        },
+      );
+    } else {
+      nativeFilters.push(f);
+    }
+  }
+
+  let rows = widgetRows;
+
+  for (const f of crossFilters) {
+    const foreignSource = dataSources[f.filterSourceId];
+    if (!foreignSource?.rows) {
+      continue;
+    }
+
+    // Apply the condition to the foreign source
+    const { filterSourceId: _src, linkField, targetField, ...baseFilter } = f;
+    const matchingForeignRows = applyFilters(foreignSource.rows, [baseFilter]);
+
+    // Build the allowed set from the link field
+    const allowedValues = new Set(matchingForeignRows.map((r) => r[linkField]));
+
+    // Semi-join: keep widget rows whose targetField is in the allowed set
+    rows = rows.filter((r) => allowedValues.has(r[targetField]));
+  }
+
+  return applyFilters(rows, nativeFilters);
 }
 
 export interface AggregatedData {

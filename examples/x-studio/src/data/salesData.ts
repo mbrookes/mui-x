@@ -1,4 +1,4 @@
-import type { StudioDataSource } from '@mui/x-studio/src';
+import type { StudioDataSource } from '../../../../packages/x-studio/src';
 
 // ============================================================================
 // Products

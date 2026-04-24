@@ -2,6 +2,14 @@ import type { StudioDataSource, StudioFilterState, StudioRelationship } from '..
 
 type Row = Record<string, unknown>;
 
+function toComparable(val: unknown): number | string {
+  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) {
+    // ISO date/datetime strings compare correctly as strings
+    return val;
+  }
+  return Number(val);
+}
+
 function matchesFilter(row: Row, filter: StudioFilterState): boolean {
   const rowVal = row[filter.field];
   const filterVal = filter.value;
@@ -26,13 +34,13 @@ function matchesFilter(row: Row, filter: StudioFilterState): boolean {
         .toLowerCase()
         .includes(String(filterVal ?? '').toLowerCase());
     case 'greater_than':
-      return Number(rowVal) > Number(filterVal);
+      return toComparable(rowVal) > toComparable(filterVal);
     case 'less_than':
-      return Number(rowVal) < Number(filterVal);
+      return toComparable(rowVal) < toComparable(filterVal);
     case 'greater_than_or_equal':
-      return Number(rowVal) >= Number(filterVal);
+      return toComparable(rowVal) >= toComparable(filterVal);
     case 'less_than_or_equal':
-      return Number(rowVal) <= Number(filterVal);
+      return toComparable(rowVal) <= toComparable(filterVal);
     default:
       return true;
   }

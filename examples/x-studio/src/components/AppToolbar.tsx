@@ -5,6 +5,7 @@ import FileUploadIcon from '@mui/icons-material/FileUpload';
 import type { StudioMode } from '../../../../packages/x-studio/src';
 
 export interface AppToolbarProps {
+  title: string;
   mode: StudioMode;
   onModeChange: (event: React.ChangeEvent<HTMLInputElement>, checked: boolean) => void;
   onSave: () => void;
@@ -12,20 +13,24 @@ export interface AppToolbarProps {
 }
 
 export function AppToolbar(props: AppToolbarProps) {
-  const { mode, onModeChange, onSave, onLoad } = props;
+  const { title, mode, onModeChange, onSave, onLoad } = props;
 
   return (
     <Box
       sx={{
-        position: 'fixed',
-        top: 8,
-        right: 8,
-        zIndex: 9999,
         display: 'flex',
         alignItems: 'center',
+        px: 2,
+        py: 1,
+        borderBottom: 1,
+        borderColor: 'divider',
+        bgcolor: 'background.paper',
         gap: 1,
       }}
     >
+      <Typography variant="h6" noWrap sx={{ flexGrow: 1, color: 'text.primary' }}>
+        {title}
+      </Typography>
       <Tooltip title="Load dashboard">
         <IconButton size="small" onClick={onLoad} aria-label="Load dashboard">
           <FileUploadIcon fontSize="small" />

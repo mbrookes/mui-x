@@ -67,7 +67,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: CUSTOMERS_SOURCE_ID,
       layout: { x: 8, y: 0, width: 4, height: 3 },
       bindings: customersBindings,
-      config: { kpiValueField: 'id', kpiAggregation: 'count', kpiFormat: 'number' },
+      config: { kpiValueField: 'company', kpiAggregation: 'count', kpiFormat: 'number' },
     },
     'widget-chart-category': {
       id: 'widget-chart-category',

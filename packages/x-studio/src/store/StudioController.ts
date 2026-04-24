@@ -414,8 +414,7 @@ export class StudioController {
     });
   };
 
-  subscribe = (listener: Parameters<typeof this.store.subscribe>[0]) =>
-    this.store.subscribe(listener);
+  subscribe = (listener: (state: StudioState) => void) => this.store.subscribe(listener);
 
   canUndo = () => this.undoStack.length > 0;
 

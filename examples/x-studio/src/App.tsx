@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Alert, Box, CssBaseline, Snackbar, Tab, Tabs, ThemeProvider, createTheme } from '@mui/material';
+import { Alert, Box, CssBaseline, Snackbar, ThemeProvider, createTheme } from '@mui/material';
 import { StudioShell, createStudioController } from '../../../packages/x-studio/src';
 import type { StudioMode, StudioPage } from '../../../packages/x-studio/src';
 import { INITIAL_STATE } from './config/initialDashboard';
@@ -103,20 +103,10 @@ export default function App() {
           onModeChange={handleModeChange}
           onSave={handleSave}
           onLoad={handleLoad}
+          pages={pageList}
+          activePageId={activePageId}
+          onPageChange={handlePageChange}
         />
-        {pageList.length > 1 && (
-          <Tabs
-            value={activePageId}
-            onChange={handlePageChange}
-            variant="scrollable"
-            scrollButtons="auto"
-            sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', px: 1 }}
-          >
-            {pageList.map((page) => (
-              <Tab key={page.id} label={page.title} value={page.id} />
-            ))}
-          </Tabs>
-        )}
         <Box sx={{ flexGrow: 1, minHeight: 0 }}>
           <StudioShell controller={controller} />
         </Box>

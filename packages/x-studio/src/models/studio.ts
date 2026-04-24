@@ -121,6 +121,8 @@ export interface StudioRelationship {
 export interface StudioFilterState {
   id: string;
   field: string;
+  /** The data type of the field — used for type-aware comparisons and UI */
+  fieldType?: StudioDataField['type'];
   operator: StudioFilterOperator;
   value: unknown;
   scope: 'page' | 'widget' | 'cross-filter';

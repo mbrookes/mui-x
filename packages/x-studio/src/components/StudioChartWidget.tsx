@@ -145,7 +145,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   );
 
   const chartType = config.chartType ?? 'bar';
-  const barLayout = config.barLayout ?? 'standard';
+  const barLayout = config.barLayout ?? 'grouped';
   const selectedFilterValue =
     activeCrossFilter && activeCrossFilter.field === config.xField
       ? normalizeCrossFilterValue(activeCrossFilter.value as string | number | Date)
@@ -208,7 +208,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   const isGroupedOrStacked =
     chartType === 'bar-grouped' ||
     chartType === 'bar-stacked' ||
-    (chartType === 'bar' && barLayout !== 'standard');
+    chartType === 'bar';
 
   if (isGroupedOrStacked) {
     // Multi-Y-field path: each y-field is its own series
@@ -364,53 +364,11 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     );
   }
 
-  // For multi-Y line/area/bar charts (when not grouped/stacked)
-  if (
-    multiYData &&
-    multiYData.labels.length > 0 &&
-    (chartType === 'line' || chartType === 'area' || chartType === 'bar')
-  ) {
+  // For multi-Y line/area charts
+  if (multiYData && multiYData.labels.length > 0 && (chartType === 'line' || chartType === 'area')) {
     const xAxisData = multiYData.labels.map(String);
     const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
     const isArea = chartType === 'area';
-
-    if (chartType === 'bar') {
-      const useIndependentAxes = multiYData.series.length > 1;
-      const yAxes = useIndependentAxes
-        ? multiYData.series.map((s, i) => ({
-            id: `y-${i}`,
-            position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
-          }))
-        : undefined;
-      const series = multiYData.series.map((s, i) => ({
-        id: s.fieldId,
-        data: s.values,
-        label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
-        yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
-        highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-      }));
-      return (
-        <div>
-          <BarChart
-            xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
-            yAxis={yAxes}
-            series={series}
-            height={CHART_HEIGHT}
-            margin={{ top: 16, right: 40, bottom: 32, left: 40 }}
-            highlightedAxis={
-              selectedDataIndex >= 0
-                ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
-                : controlledHighlightedAxis
-            }
-            onHighlightedAxisChange={setHoveredAxis}
-            onAxisClick={(_event, params) => {
-              if (params?.axisValue !== undefined) handleItemClick(params.axisValue);
-            }}
-            sx={{ cursor: 'pointer' }}
-          />
-        </div>
-      );
-    }
 
     const useIndependentAxes = multiYData.series.length > 1;
     const yAxes = useIndependentAxes

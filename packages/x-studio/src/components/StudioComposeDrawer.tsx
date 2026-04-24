@@ -298,7 +298,7 @@ function ChartSetupPanel(props: { widgetId: string }) {
       ? 'grouped'
       : rawChartType === 'bar-stacked'
         ? 'stacked'
-        : (config.barLayout ?? 'standard');
+        : (config.barLayout ?? 'grouped');
 
   // Y series: prefer ySeries, else seed from yField
   const ySeries = config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : []);
@@ -309,12 +309,12 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const supportsMultipleSeries =
     chartType === 'bar' || chartType === 'line' || chartType === 'area';
   const supportsBarLayout = chartType === 'bar';
-  const supportsSeriesField = supportsBarLayout && barLayout !== 'standard';
+  const supportsSeriesField = supportsBarLayout && barLayout === 'grouped';
   // When multiple Y series are set, series-field grouping doesn't apply
   const showSeriesField = supportsSeriesField && ySeries.length <= 1;
 
   const handleChartTypeChange = (newType: StudioChartType) => {
-    controller.updateWidgetConfig(widgetId, { chartType: newType, barLayout: 'standard' });
+    controller.updateWidgetConfig(widgetId, { chartType: newType, barLayout: 'grouped' });
   };
 
   const handleBarLayoutChange = (_e: React.MouseEvent, newLayout: StudioBarLayout | null) => {
@@ -384,7 +384,6 @@ function ChartSetupPanel(props: { widgetId: string }) {
             onChange={handleBarLayoutChange}
             sx={{ width: '100%', '& .MuiToggleButton-root': { flex: 1, py: 0.25 } }}
           >
-            <ToggleButton value="standard">Standard</ToggleButton>
             <ToggleButton value="grouped">Grouped</ToggleButton>
             <ToggleButton value="stacked">Stacked</ToggleButton>
           </ToggleButtonGroup>

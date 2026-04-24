@@ -1,4 +1,4 @@
-import type { StudioDataSource, StudioFilterState } from '../models';
+import type { StudioDataSource, StudioFilterState, StudioRelationship } from '../models';
 
 type Row = Record<string, unknown>;
 
@@ -47,40 +47,46 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
 }
 
 /**
- * Apply filters to widget rows, handling cross-source filters via semi-join.
- *
- * Cross-source filters (filterSourceId set and != widgetSourceId) are applied to
- * the foreign source first; rows from the widget's source are then restricted to
- * those whose targetField value appears in the linkField values of the filtered
- * foreign rows.
+ * Find how to join widgetSourceId to filterSourceId using declared relationships.
+ * Returns { widgetJoinField, filterJoinField } or null if no path exists.
+ */
+function findJoinPath(
+  widgetSourceId: string,
+  filterSourceId: string,
+  relationships: StudioRelationship[],
+): { widgetJoinField: string; filterJoinField: string } | null {
+  for (const rel of relationships) {
+    if (rel.sourceId === widgetSourceId && rel.targetId === filterSourceId) {
+      // widget is the "many" side; filter source is the "one" side
+      return { widgetJoinField: rel.sourceField, filterJoinField: rel.targetField };
+    }
+    if (rel.targetId === widgetSourceId && rel.sourceId === filterSourceId) {
+      // widget is the "one" side; filter source is the "many" side
+      return { widgetJoinField: rel.targetField, filterJoinField: rel.sourceField };
+    }
+  }
+  return null;
+}
+
+/**
+ * Apply filters to widget rows, resolving cross-source filters via the declared
+ * relationships. Cross-source filters (filterSourceId != widgetSourceId) are
+ * applied to the foreign source first; the result semi-joins back to the widget's
+ * rows using the join fields discovered from the relationship graph.
  */
 export function resolveRows(
   widgetRows: Row[],
   widgetSourceId: string | undefined,
   filters: StudioFilterState[],
   dataSources: Record<string, StudioDataSource>,
+  relationships: StudioRelationship[] = [],
 ): Row[] {
   const nativeFilters: StudioFilterState[] = [];
-  const crossFilters: (StudioFilterState & {
-    filterSourceId: string;
-    linkField: string;
-    targetField: string;
-  })[] = [];
+  const crossFilters: (StudioFilterState & { filterSourceId: string })[] = [];
 
   for (const f of filters) {
-    if (
-      f.filterSourceId &&
-      f.filterSourceId !== widgetSourceId &&
-      f.linkField &&
-      f.targetField
-    ) {
-      crossFilters.push(
-        f as StudioFilterState & {
-          filterSourceId: string;
-          linkField: string;
-          targetField: string;
-        },
-      );
+    if (f.filterSourceId && f.filterSourceId !== widgetSourceId) {
+      crossFilters.push(f as StudioFilterState & { filterSourceId: string });
     } else {
       nativeFilters.push(f);
     }
@@ -94,15 +100,20 @@ export function resolveRows(
       continue;
     }
 
-    // Apply the condition to the foreign source
-    const { filterSourceId: _src, linkField, targetField, ...baseFilter } = f;
+    const joinPath = findJoinPath(widgetSourceId ?? '', f.filterSourceId, relationships);
+    if (!joinPath) {
+      continue; // no declared relationship — skip rather than produce incorrect results
+    }
+
+    // Apply the condition to the foreign source rows
+    const { filterSourceId: _src, ...baseFilter } = f;
     const matchingForeignRows = applyFilters(foreignSource.rows, [baseFilter]);
 
-    // Build the allowed set from the link field
-    const allowedValues = new Set(matchingForeignRows.map((r) => r[linkField]));
+    // Build the allowed set from the join field in the foreign source
+    const allowedValues = new Set(matchingForeignRows.map((r) => r[joinPath.filterJoinField]));
 
-    // Semi-join: keep widget rows whose targetField is in the allowed set
-    rows = rows.filter((r) => allowedValues.has(r[targetField]));
+    // Semi-join: keep widget rows whose join field is in the allowed set
+    rows = rows.filter((r) => allowedValues.has(r[joinPath.widgetJoinField]));
   }
 
   return applyFilters(rows, nativeFilters);

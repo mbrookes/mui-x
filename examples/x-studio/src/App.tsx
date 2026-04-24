@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Alert, CssBaseline, Snackbar, ThemeProvider, createTheme } from '@mui/material';
+import { Alert, CssBaseline, Snackbar, Tab, Tabs, ThemeProvider, createTheme } from '@mui/material';
 import { StudioShell, createStudioController } from '../../../packages/x-studio/src';
 import type { StudioMode } from '../../../packages/x-studio/src';
 import { INITIAL_STATE } from './config/initialDashboard';
@@ -15,6 +15,10 @@ const theme = createTheme({
 
 export default function App() {
   const [mode, setMode] = React.useState<StudioMode>(controller.getState().mode);
+  const [pages, setPages] = React.useState(controller.getState().pages);
+  const [activePageId, setActivePageId] = React.useState(
+    controller.getState().dashboard.activePageId,
+  );
   const [snackbar, setSnackbar] = React.useState<{
     open: boolean;
     message: string;
@@ -24,6 +28,8 @@ export default function App() {
   React.useEffect(() => {
     return controller.subscribe((state) => {
       setMode(state.mode);
+      setPages(state.pages);
+      setActivePageId(state.dashboard.activePageId);
     });
   }, []);
 
@@ -79,6 +85,12 @@ export default function App() {
     setSnackbar((prev) => ({ ...prev, open: false }));
   };
 
+  const handlePageChange = React.useCallback((_event: React.SyntheticEvent, pageId: string) => {
+    controller.setActivePage(pageId);
+  }, []);
+
+  const pageList = Object.values(pages);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -88,6 +100,19 @@ export default function App() {
         onSave={handleSave}
         onLoad={handleLoad}
       />
+      {pageList.length > 1 && (
+        <Tabs
+          value={activePageId}
+          onChange={handlePageChange}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', px: 1 }}
+        >
+          {pageList.map((page) => (
+            <Tab key={page.id} label={page.title} value={page.id} />
+          ))}
+        </Tabs>
+      )}
       <StudioShell controller={controller} />
       <Snackbar
         open={snackbar.open}

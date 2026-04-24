@@ -383,6 +383,23 @@ export class StudioController {
   };
 
   /**
+   * Sets the active page by ID.
+   */
+  setActivePage = (pageId: string) => {
+    const state = this.store.state;
+    if (!state.pages[pageId] || state.dashboard.activePageId === pageId) {
+      return;
+    }
+    this.commitState(
+      {
+        ...state,
+        dashboard: { ...state.dashboard, activePageId: pageId },
+      },
+      { undoable: false },
+    );
+  };
+
+  /**
    * Updates the dashboard title
    */
   setDashboardTitle = (title: string) => {

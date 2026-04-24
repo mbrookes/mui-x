@@ -13,6 +13,8 @@ export type StudioChartType =
   | 'bar-grouped'
   | 'bar-stacked';
 
+export type StudioBarLayout = 'standard' | 'grouped' | 'stacked';
+
 export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
 export type StudioKpiFormat = 'number' | 'currency' | 'percent';
@@ -39,13 +41,20 @@ export interface StudioFieldBinding {
   label?: string;
 }
 
+export interface StudioChartSeries {
+  fieldId: string;
+}
+
 export interface StudioWidgetConfig {
   // Grid config
   columns?: string[];
   // Chart config
   chartType?: StudioChartType;
+  barLayout?: StudioBarLayout;
   xField?: string;
   yField?: string;
+  /** Multiple Y-axis series (preferred over yField when present) */
+  ySeries?: StudioChartSeries[];
   /** Secondary Y field for grouped/stacked charts or scatter Y axis */
   yField2?: string;
   /** Group/series field for grouped or stacked bar charts */

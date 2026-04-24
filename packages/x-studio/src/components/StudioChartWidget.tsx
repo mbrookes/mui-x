@@ -13,6 +13,7 @@ import {
   applyFilters,
   aggregateByField,
   aggregateByTwoFields,
+  aggregateMultipleSeries,
   prepareScatterData,
 } from './chartUtils';
 import { useStudioController, useStudioSelector } from '../context';
@@ -69,21 +70,40 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     return applyFilters(dataSource.rows, allFilters);
   }, [dataSource, filters, widget.id]);
 
+  // Resolve active y-fields: prefer ySeries, fall back to yField
+  const activeYFields = React.useMemo(() => {
+    if (config.ySeries && config.ySeries.length > 0) {
+      return config.ySeries.map((s) => s.fieldId).filter(Boolean);
+    }
+    return config.yField ? [config.yField] : [];
+  }, [config.ySeries, config.yField]);
+
+  const isMultiSeries = activeYFields.length > 1;
+
   const chartData = React.useMemo(() => {
     const xField = config.xField;
-    const yField = config.yField;
-
-    if (!xField || !yField || filteredRows.length === 0) {
+    if (!xField || activeYFields.length === 0 || filteredRows.length === 0) {
       return null;
     }
+    if (isMultiSeries) {
+      return null; // handled by multiYData
+    }
+    return aggregateByField(filteredRows, xField, activeYFields[0]);
+  }, [filteredRows, config.xField, activeYFields, isMultiSeries]);
 
-    return aggregateByField(filteredRows, xField, yField);
-  }, [filteredRows, config.xField, config.yField]);
+  // Multi-Y-field data (multiple explicit series)
+  const multiYData = React.useMemo(() => {
+    const xField = config.xField;
+    if (!xField || activeYFields.length < 2 || filteredRows.length === 0) {
+      return null;
+    }
+    return aggregateMultipleSeries(filteredRows, xField, activeYFields);
+  }, [filteredRows, config.xField, activeYFields]);
 
-  // Data for grouped/stacked charts (multiple series)
+  // Data for grouped/stacked charts (series split by a category field)
   const multiSeriesData = React.useMemo(() => {
     const xField = config.xField;
-    const yField = config.yField;
+    const yField = activeYFields[0];
     const seriesField = config.seriesField;
 
     if (!xField || !yField || !seriesField || filteredRows.length === 0) {
@@ -91,7 +111,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     }
 
     return aggregateByTwoFields(filteredRows, xField, seriesField, yField);
-  }, [filteredRows, config.xField, config.yField, config.seriesField]);
+  }, [filteredRows, config.xField, activeYFields, config.seriesField]);
 
   // Data for scatter charts
   const scatterData = React.useMemo(() => {
@@ -125,6 +145,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   );
 
   const chartType = config.chartType ?? 'bar';
+  const barLayout = config.barLayout ?? 'standard';
   const selectedFilterValue =
     activeCrossFilter && activeCrossFilter.field === config.xField
       ? normalizeCrossFilterValue(activeCrossFilter.value as string | number | Date)
@@ -163,7 +184,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     const xLabel =
       dataSource?.fields.find((f) => f.id === config.xField)?.label ?? config.xField ?? 'X';
     const yLabel =
-      dataSource?.fields.find((f) => f.id === config.yField)?.label ?? config.yField ?? 'Y';
+      dataSource?.fields.find((f) => f.id === activeYFields[0])?.label ?? activeYFields[0] ?? 'Y';
 
     return (
       <div>
@@ -183,56 +204,96 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     );
   }
 
-  // Grouped or stacked bar charts
-  if (chartType === 'bar-grouped' || chartType === 'bar-stacked') {
-    if (!multiSeriesData || multiSeriesData.labels.length === 0) {
+  // Grouped or stacked bar charts (by category field OR multiple y-fields)
+  const isGroupedOrStacked =
+    chartType === 'bar-grouped' ||
+    chartType === 'bar-stacked' ||
+    (chartType === 'bar' && barLayout !== 'standard');
+
+  if (isGroupedOrStacked) {
+    // Multi-Y-field path: each y-field is its own series
+    if (multiYData && multiYData.labels.length > 0) {
+      const xAxisData = multiYData.labels.map(String);
+      const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
+      const isStacked =
+        chartType === 'bar-stacked' || (chartType === 'bar' && barLayout === 'stacked');
+      const series = multiYData.series.map((s) => ({
+        id: s.fieldId,
+        data: s.values,
+        label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
+        stack: isStacked ? 'total' : undefined,
+        highlightScope: { highlight: 'item' as const, fade: 'global' as const },
+      }));
       return (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: CHART_HEIGHT,
-          }}
-        ></Box>
+        <div>
+          <BarChart
+            xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
+            series={series}
+            height={CHART_HEIGHT}
+            margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+            highlightedAxis={
+              selectedDataIndex >= 0
+                ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
+                : controlledHighlightedAxis
+            }
+            onHighlightedAxisChange={setHoveredAxis}
+            onAxisClick={(_event, params) => {
+              if (params?.axisValue !== undefined) {
+                handleItemClick(params.axisValue);
+              }
+            }}
+            sx={{ cursor: 'pointer' }}
+          />
+        </div>
       );
     }
 
-    const xAxisData = multiSeriesData.labels.map(String);
-    const selectedDataIndex = getSelectedDataIndex(multiSeriesData.labels);
-    const series = multiSeriesData.seriesNames.map((seriesName) => ({
-      id: String(seriesName),
-      data: multiSeriesData.seriesData[seriesName],
-      // label removed per requirements
-      stack: chartType === 'bar-stacked' ? 'total' : undefined,
-      highlightScope: {
-        highlight: 'item' as const,
-        fade: 'global' as const,
-      },
-    }));
+    // Category-field path: series split by a string field
+    if (multiSeriesData && multiSeriesData.labels.length > 0) {
+      const xAxisData = multiSeriesData.labels.map(String);
+      const selectedDataIndex = getSelectedDataIndex(multiSeriesData.labels);
+      const isStacked =
+        chartType === 'bar-stacked' || (chartType === 'bar' && barLayout === 'stacked');
+      const series = multiSeriesData.seriesNames.map((seriesName) => ({
+        id: String(seriesName),
+        data: multiSeriesData.seriesData[seriesName],
+        label: String(seriesName),
+        stack: isStacked ? 'total' : undefined,
+        highlightScope: { highlight: 'item' as const, fade: 'global' as const },
+      }));
+      return (
+        <div>
+          <BarChart
+            xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
+            series={series}
+            height={CHART_HEIGHT}
+            margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+            highlightedAxis={
+              selectedDataIndex >= 0
+                ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
+                : controlledHighlightedAxis
+            }
+            onHighlightedAxisChange={setHoveredAxis}
+            onAxisClick={(_event, params) => {
+              if (params?.axisValue !== undefined) {
+                handleItemClick(params.axisValue);
+              }
+            }}
+            sx={{ cursor: 'pointer' }}
+          />
+        </div>
+      );
+    }
 
     return (
-      <div>
-        <BarChart
-          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
-          series={series}
-          height={CHART_HEIGHT}
-          hideLegend
-          margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
-          highlightedAxis={
-            selectedDataIndex >= 0
-              ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
-              : controlledHighlightedAxis
-          }
-          onHighlightedAxisChange={setHoveredAxis}
-          onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue);
-            }
-          }}
-          sx={{ cursor: 'pointer' }}
-        />
-      </div>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: CHART_HEIGHT,
+        }}
+      />
     );
   }
 
@@ -245,13 +306,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           justifyContent: 'center',
           height: CHART_HEIGHT,
         }}
-      >
-        <Typography variant="body2" color="text.secondary">
-          {!config.xField || !config.yField
-            ? 'Configure x and y fields in the Compose drawer.'
-            : 'No data to display.'}
-        </Typography>
-      </Box>
+      />
     );
   }
 
@@ -275,7 +330,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             },
           ]}
           height={CHART_HEIGHT}
-          slotProps={{ legend: { position: 'right', direction: 'vertical' } }}
+          slotProps={{}} // legend positioning uses default
           margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
           highlightedItem={
             selectedDataIndex >= 0
@@ -297,10 +352,83 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     );
   }
 
-  const xAxisData = chartData.labels.map(String);
+  // For multi-Y line/area/bar charts (when not grouped/stacked)
+  if (
+    multiYData &&
+    multiYData.labels.length > 0 &&
+    (chartType === 'line' || chartType === 'area' || chartType === 'bar')
+  ) {
+    const xAxisData = multiYData.labels.map(String);
+    const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
+    const isArea = chartType === 'area';
+
+    if (chartType === 'bar') {
+      const series = multiYData.series.map((s) => ({
+        id: s.fieldId,
+        data: s.values,
+        label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
+        highlightScope: { highlight: 'item' as const, fade: 'global' as const },
+      }));
+      return (
+        <div>
+          <BarChart
+            xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
+            series={series}
+            height={CHART_HEIGHT}
+            margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+            highlightedAxis={
+              selectedDataIndex >= 0
+                ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
+                : controlledHighlightedAxis
+            }
+            onHighlightedAxisChange={setHoveredAxis}
+            onAxisClick={(_event, params) => {
+              if (params?.axisValue !== undefined) handleItemClick(params.axisValue);
+            }}
+            sx={{ cursor: 'pointer' }}
+          />
+        </div>
+      );
+    }
+
+    const series = multiYData.series.map((s) => ({
+      id: s.fieldId,
+      data: s.values,
+      label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
+      area: isArea,
+      highlightScope: { highlight: 'item' as const, fade: 'global' as const },
+    }));
+    return (
+      <div>
+        <LineChart
+          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point' }]}
+          series={series}
+          height={CHART_HEIGHT}
+          margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+          highlightedItem={
+            selectedDataIndex >= 0
+              ? {
+                  seriesId: multiYData.series[0]?.fieldId ?? CROSS_FILTER_SERIES_ID,
+                  dataIndex: selectedDataIndex,
+                }
+              : controlledHighlightedItem
+          }
+          onHighlightChange={(item) =>
+            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+          }
+          onAxisClick={(_event, params) => {
+            if (params?.axisValue !== undefined) handleItemClick(params.axisValue);
+          }}
+          sx={{ cursor: 'pointer' }}
+        />
+      </div>
+    );
+  }
+
+  const xAxisData = chartData!.labels.map(String);
   const seriesLabel =
-    dataSource?.fields.find((f) => f.id === config.yField)?.label ?? config.yField ?? 'Value';
-  const selectedDataIndex = getSelectedDataIndex(chartData.labels);
+    dataSource?.fields.find((f) => f.id === activeYFields[0])?.label ?? activeYFields[0] ?? 'Value';
+  const selectedDataIndex = getSelectedDataIndex(chartData!.labels);
 
   if (chartType === 'line') {
     return (
@@ -310,13 +438,10 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
-              data: chartData.values,
+              data: chartData!.values,
               label: seriesLabel,
               area: false,
-              highlightScope: {
-                highlight: 'item',
-                fade: 'global',
-              },
+              highlightScope: { highlight: 'item', fade: 'global' },
             },
           ]}
           height={CHART_HEIGHT}
@@ -331,9 +456,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
           onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue);
-            }
+            if (params?.axisValue !== undefined) handleItemClick(params.axisValue);
           }}
           sx={{ cursor: 'pointer' }}
         />
@@ -349,13 +472,10 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
-              data: chartData.values,
+              data: chartData!.values,
               label: seriesLabel,
               area: true,
-              highlightScope: {
-                highlight: 'item',
-                fade: 'global',
-              },
+              highlightScope: { highlight: 'item', fade: 'global' },
             },
           ]}
           height={CHART_HEIGHT}
@@ -370,9 +490,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
           onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) {
-              handleItemClick(params.axisValue);
-            }
+            if (params?.axisValue !== undefined) handleItemClick(params.axisValue);
           }}
           sx={{ cursor: 'pointer' }}
         />
@@ -388,12 +506,9 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
         series={[
           {
             id: CROSS_FILTER_SERIES_ID,
-            data: chartData.values,
+            data: chartData!.values,
             label: seriesLabel,
-            highlightScope: {
-              highlight: 'item',
-              fade: 'global',
-            },
+            highlightScope: { highlight: 'item', fade: 'global' },
           },
         ]}
         height={CHART_HEIGHT}
@@ -408,9 +523,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
         }
         onAxisClick={(_event, params) => {
-          if (params?.axisValue !== undefined) {
-            handleItemClick(params.axisValue);
-          }
+          if (params?.axisValue !== undefined) handleItemClick(params.axisValue);
         }}
         sx={{ cursor: 'pointer' }}
       />

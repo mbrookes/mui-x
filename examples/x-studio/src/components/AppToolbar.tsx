@@ -1,8 +1,8 @@
-import { Box, IconButton, Switch, Tooltip, Typography } from '@mui/material';
+import { Box, IconButton, Switch, Tab, Tabs, Tooltip, Typography } from '@mui/material';
 import type { SwitchProps } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
-import type { StudioMode } from '../../../../packages/x-studio/src';
+import type { StudioMode, StudioPage } from '../../../../packages/x-studio/src';
 
 export interface AppToolbarProps {
   title: string;
@@ -10,10 +10,13 @@ export interface AppToolbarProps {
   onModeChange: SwitchProps['onChange'];
   onSave: () => void;
   onLoad: () => void;
+  pages: StudioPage[];
+  activePageId: string;
+  onPageChange: (event: React.SyntheticEvent, pageId: string) => void;
 }
 
 export function AppToolbar(props: AppToolbarProps) {
-  const { title, mode, onModeChange, onSave, onLoad } = props;
+  const { title, mode, onModeChange, onSave, onLoad, pages, activePageId, onPageChange } = props;
 
   return (
     <Box
@@ -21,16 +24,31 @@ export function AppToolbar(props: AppToolbarProps) {
         display: 'flex',
         alignItems: 'center',
         px: 2,
-        py: 1,
         borderBottom: 1,
         borderColor: 'divider',
         bgcolor: 'background.paper',
         gap: 1,
+        minHeight: 48,
       }}
     >
-      <Typography variant="h6" noWrap sx={{ flexGrow: 1, color: 'text.primary' }}>
+      <Typography variant="h6" noWrap sx={{ color: 'text.primary', mr: 2, flexShrink: 0 }}>
         {title}
       </Typography>
+      {pages.length > 1 && (
+        <Tabs
+          value={activePageId}
+          onChange={onPageChange}
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
+          sx={{ flexGrow: 1, minWidth: 0 }}
+        >
+          {pages.map((page) => (
+            <Tab key={page.id} label={page.title} value={page.id} sx={{ minHeight: 48 }} />
+          ))}
+        </Tabs>
+      )}
+      {pages.length <= 1 && <Box sx={{ flexGrow: 1 }} />}
       <Tooltip title="Load dashboard">
         <IconButton size="small" onClick={onLoad} aria-label="Load dashboard">
           <FileUploadIcon fontSize="small" />

@@ -72,7 +72,8 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {
     if (config.ySeries && config.ySeries.length > 0) {
-      return config.ySeries.map((s) => s.fieldId).filter(Boolean);
+      const ids = config.ySeries.map((s) => s.fieldId).filter(Boolean);
+      return [...new Set(ids)]; // deduplicate, preserving order
     }
     return config.yField ? [config.yField] : [];
   }, [config.ySeries, config.yField]);
@@ -214,7 +215,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           }))
         : undefined;
       const series = multiYData.series.map((s, i) => ({
-        id: s.fieldId,
+        id: `${s.fieldId}-${i}`,
         data: s.values,
         label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
         stack: isStacked ? 'total' : undefined,
@@ -317,7 +318,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
         }))
       : undefined;
     const series = multiYData.series.map((s, i) => ({
-      id: s.fieldId,
+      id: `${s.fieldId}-${i}`,
       data: s.values,
       label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
       area: isArea,

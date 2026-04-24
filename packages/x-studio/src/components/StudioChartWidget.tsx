@@ -12,7 +12,6 @@ import type { StudioDataSource, StudioWidget } from '../models';
 import {
   applyFilters,
   aggregateByField,
-  aggregateByTwoFields,
   aggregateMultipleSeries,
   prepareScatterData,
 } from './chartUtils';
@@ -99,19 +98,6 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     }
     return aggregateMultipleSeries(filteredRows, xField, activeYFields);
   }, [filteredRows, config.xField, activeYFields]);
-
-  // Data for grouped/stacked charts (series split by a category field)
-  const multiSeriesData = React.useMemo(() => {
-    const xField = config.xField;
-    const yField = activeYFields[0];
-    const seriesField = config.seriesField;
-
-    if (!xField || !yField || !seriesField || filteredRows.length === 0) {
-      return null;
-    }
-
-    return aggregateByTwoFields(filteredRows, xField, seriesField, yField);
-  }, [filteredRows, config.xField, activeYFields, config.seriesField]);
 
   // Data for scatter charts
   const scatterData = React.useMemo(() => {
@@ -260,53 +246,6 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
       );
     }
 
-    // Category-field path: series split by a string field
-    if (multiSeriesData && multiSeriesData.labels.length > 0) {
-      const xAxisData = multiSeriesData.labels.map(String);
-      const selectedDataIndex = getSelectedDataIndex(multiSeriesData.labels);
-      const isStacked =
-        chartType === 'bar-stacked' || (chartType === 'bar' && barLayout === 'stacked');
-      const series = multiSeriesData.seriesNames.map((seriesName) => ({
-        id: String(seriesName),
-        data: multiSeriesData.seriesData[seriesName],
-        label: String(seriesName),
-        stack: isStacked ? 'total' : undefined,
-        highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-      }));
-      return (
-        <div>
-          <BarChart
-            xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
-            series={series}
-            height={CHART_HEIGHT}
-            margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
-            highlightedAxis={
-              selectedDataIndex >= 0
-                ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
-                : controlledHighlightedAxis
-            }
-            onHighlightedAxisChange={setHoveredAxis}
-            onAxisClick={(_event, params) => {
-              if (params?.axisValue !== undefined) {
-                handleItemClick(params.axisValue);
-              }
-            }}
-            sx={{ cursor: 'pointer' }}
-          />
-        </div>
-      );
-    }
-
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: CHART_HEIGHT,
-        }}
-      />
-    );
   }
 
   if (!chartData || chartData.labels.length === 0) {

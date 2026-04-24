@@ -41,6 +41,24 @@ export const INITIAL_STATE: Partial<StudioState> = {
     [ORDERS_SOURCE_ID]: ordersSource,
     [ORDER_ITEMS_SOURCE_ID]: orderItemsSource,
   },
+  relationships: [
+    {
+      id: 'rel-orders-customers',
+      sourceId: ORDERS_SOURCE_ID,
+      sourceField: 'customerId',
+      targetId: CUSTOMERS_SOURCE_ID,
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+    {
+      id: 'rel-orderitems-orders',
+      sourceId: ORDER_ITEMS_SOURCE_ID,
+      sourceField: 'orderId',
+      targetId: ORDERS_SOURCE_ID,
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+  ],
   widgets: {
     'widget-kpi-revenue': {
       id: 'widget-kpi-revenue',

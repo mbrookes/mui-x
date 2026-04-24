@@ -217,20 +217,32 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
       const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
       const isStacked =
         chartType === 'bar-stacked' || (chartType === 'bar' && barLayout === 'stacked');
+      // For grouped multi-Y, give each series its own independent Y axis so
+      // fields with very different magnitudes (e.g. revenue vs quantity) are
+      // all visible. Stacked charts share a single axis since values are additive.
+      const useIndependentAxes = !isStacked && multiYData.series.length > 1;
+      const yAxes = useIndependentAxes
+        ? multiYData.series.map((s, i) => ({
+            id: `y-${i}`,
+            position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
+          }))
+        : undefined;
       const series = multiYData.series.map((s, i) => ({
         id: s.fieldId,
         data: s.values,
         label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
         stack: isStacked ? 'total' : undefined,
+        yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
         highlightScope: { highlight: 'item' as const, fade: 'global' as const },
       }));
       return (
         <div>
           <BarChart
             xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
+            yAxis={yAxes}
             series={series}
             height={CHART_HEIGHT}
-            margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+            margin={{ top: 16, right: 40, bottom: 32, left: 40 }}
             highlightedAxis={
               selectedDataIndex >= 0
                 ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
@@ -363,19 +375,28 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     const isArea = chartType === 'area';
 
     if (chartType === 'bar') {
+      const useIndependentAxes = multiYData.series.length > 1;
+      const yAxes = useIndependentAxes
+        ? multiYData.series.map((s, i) => ({
+            id: `y-${i}`,
+            position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
+          }))
+        : undefined;
       const series = multiYData.series.map((s, i) => ({
         id: s.fieldId,
         data: s.values,
         label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
+        yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
         highlightScope: { highlight: 'item' as const, fade: 'global' as const },
       }));
       return (
         <div>
           <BarChart
             xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
+            yAxis={yAxes}
             series={series}
             height={CHART_HEIGHT}
-            margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+            margin={{ top: 16, right: 40, bottom: 32, left: 40 }}
             highlightedAxis={
               selectedDataIndex >= 0
                 ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
@@ -391,20 +412,29 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
       );
     }
 
+    const useIndependentAxes = multiYData.series.length > 1;
+    const yAxes = useIndependentAxes
+      ? multiYData.series.map((s, i) => ({
+          id: `y-${i}`,
+          position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
+        }))
+      : undefined;
     const series = multiYData.series.map((s, i) => ({
       id: s.fieldId,
       data: s.values,
       label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
       area: isArea,
+      yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
       highlightScope: { highlight: 'item' as const, fade: 'global' as const },
     }));
     return (
       <div>
         <LineChart
           xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point' }]}
+          yAxis={yAxes}
           series={series}
           height={CHART_HEIGHT}
-          margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+          margin={{ top: 16, right: 40, bottom: 32, left: 40 }}
           highlightedItem={
             selectedDataIndex >= 0
               ? {

@@ -40,6 +40,7 @@ const OPERATORS_BY_TYPE: Record<FieldType, { value: StudioFilterOperator; label:
   date: [
     { value: 'equals', label: 'On' },
     { value: 'not_equals', label: 'Not on' },
+    { value: 'between', label: 'Between' },
     { value: 'greater_than', label: 'After' },
     { value: 'less_than', label: 'Before' },
     { value: 'greater_than_or_equal', label: 'On or after' },
@@ -48,6 +49,7 @@ const OPERATORS_BY_TYPE: Record<FieldType, { value: StudioFilterOperator; label:
   datetime: [
     { value: 'equals', label: 'At' },
     { value: 'not_equals', label: 'Not at' },
+    { value: 'between', label: 'Between' },
     { value: 'greater_than', label: 'After' },
     { value: 'less_than', label: 'Before' },
     { value: 'greater_than_or_equal', label: 'At or after' },
@@ -84,14 +86,70 @@ function buildFieldOptions(dataSources: Record<string, StudioDataSource>): Field
   );
 }
 
-/** The value input appropriate for a field type. */
+type DateRange = { from: string; to: string };
+
+function toDateRange(value: unknown): DateRange {
+  if (value && typeof value === 'object' && ('from' in value || 'to' in value)) {
+    return { from: String((value as any).from ?? ''), to: String((value as any).to ?? '') };
+  }
+  return { from: '', to: '' };
+}
+
+/** Date range picker: two MUI date inputs (From → To). */
+function DateRangeInput(props: {
+  inputType: 'date' | 'datetime-local';
+  value: unknown;
+  onChange: (v: DateRange) => void;
+}) {
+  const { inputType, value, onChange } = props;
+  const range = toDateRange(value);
+
+  return (
+    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexGrow: 1, minWidth: 0 }}>
+      <TextField
+        size="small"
+        type={inputType}
+        label="From"
+        value={range.from}
+        onChange={(e) => onChange({ ...range, from: e.target.value })}
+        slotProps={{ inputLabel: { shrink: true } }}
+        sx={{ minWidth: 130, flexGrow: 1 }}
+      />
+      <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
+        —
+      </Typography>
+      <TextField
+        size="small"
+        type={inputType}
+        label="To"
+        value={range.to}
+        onChange={(e) => onChange({ ...range, to: e.target.value })}
+        slotProps={{ inputLabel: { shrink: true } }}
+        sx={{ minWidth: 130, flexGrow: 1 }}
+      />
+    </Box>
+  );
+}
+
+/** The value input appropriate for a field type and operator. */
 function FilterValueInput(props: {
   fieldType: FieldType | undefined;
+  operator: StudioFilterOperator;
   value: unknown;
-  onChange: (v: string) => void;
+  onChange: (v: unknown) => void;
 }) {
-  const { fieldType, value, onChange } = props;
+  const { fieldType, operator, value, onChange } = props;
   const strVal = String(value ?? '');
+
+  if (operator === 'between' && (fieldType === 'date' || fieldType === 'datetime')) {
+    return (
+      <DateRangeInput
+        inputType={fieldType === 'datetime' ? 'datetime-local' : 'date'}
+        value={value}
+        onChange={onChange}
+      />
+    );
+  }
 
   if (fieldType === 'date') {
     return (
@@ -194,7 +252,16 @@ function FilterRow(props: FilterRowProps) {
         <Select
           label="Op."
           value={activeOperator}
-          onChange={(e) => handleChange({ operator: e.target.value as StudioFilterOperator })}
+          onChange={(e) => {
+            const op = e.target.value as StudioFilterOperator;
+            const wasBetween = activeOperator === 'between';
+            const nowBetween = op === 'between';
+            handleChange({
+              operator: op,
+              // Reset value when switching between range and non-range modes
+              ...(wasBetween !== nowBetween ? { value: nowBetween ? { from: '', to: '' } : '' } : {}),
+            });
+          }}
         >
           {operators.map((op) => (
             <MenuItem key={op.value} value={op.value}>
@@ -206,6 +273,7 @@ function FilterRow(props: FilterRowProps) {
 
       <FilterValueInput
         fieldType={fieldType}
+        operator={activeOperator}
         value={filter.value}
         onChange={(v) => handleChange({ value: v })}
       />
@@ -283,7 +351,15 @@ function WidgetFilterRow(props: WidgetFilterRowProps) {
           <Select
             label="Op."
             value={activeOperator}
-            onChange={(e) => handleChange({ operator: e.target.value as StudioFilterOperator })}
+            onChange={(e) => {
+              const op = e.target.value as StudioFilterOperator;
+              const wasBetween = activeOperator === 'between';
+              const nowBetween = op === 'between';
+              handleChange({
+                operator: op,
+                ...(wasBetween !== nowBetween ? { value: nowBetween ? { from: '', to: '' } : '' } : {}),
+              });
+            }}
           >
             {operators.map((op) => (
               <MenuItem key={op.value} value={op.value}>
@@ -295,6 +371,7 @@ function WidgetFilterRow(props: WidgetFilterRowProps) {
 
         <FilterValueInput
           fieldType={fieldType}
+          operator={activeOperator}
           value={filter.value}
           onChange={(v) => handleChange({ value: v })}
         />

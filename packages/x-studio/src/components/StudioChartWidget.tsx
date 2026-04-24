@@ -217,8 +217,8 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
       const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
       const isStacked =
         chartType === 'bar-stacked' || (chartType === 'bar' && barLayout === 'stacked');
-      const series = multiYData.series.map((s) => ({
-        id: s.fieldId,
+      const series = multiYData.series.map((s, i) => ({
+        id: `${s.fieldId}-${i}`,
         data: s.values,
         label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
         stack: isStacked ? 'total' : undefined,
@@ -363,8 +363,8 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     const isArea = chartType === 'area';
 
     if (chartType === 'bar') {
-      const series = multiYData.series.map((s) => ({
-        id: s.fieldId,
+      const series = multiYData.series.map((s, i) => ({
+        id: `${s.fieldId}-${i}`,
         data: s.values,
         label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
         highlightScope: { highlight: 'item' as const, fade: 'global' as const },
@@ -391,8 +391,8 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
       );
     }
 
-    const series = multiYData.series.map((s) => ({
-      id: s.fieldId,
+    const series = multiYData.series.map((s, i) => ({
+      id: `${s.fieldId}-${i}`,
       data: s.values,
       label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
       area: isArea,

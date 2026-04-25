@@ -404,6 +404,7 @@ function GridSetupPanel(props: { widgetId: string }) {
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
   const allFields = (source?.fields ?? []).filter((f) => !f.hidden);
   const visibleColumns: string[] = widget?.config?.columns ?? allFields.map((f) => f.id);
+  const crossFilterField = widget?.config?.crossFilterField ?? '';
 
   const handleColumnToggle = (fieldId: string) => {
     const next = visibleColumns.includes(fieldId)
@@ -420,8 +421,32 @@ function GridSetupPanel(props: { widgetId: string }) {
     );
   }
 
+  const crossFilterFieldOption = allFields.find((f) => f.id === crossFilterField) ?? null;
+
   return (
     <Stack spacing={2}>
+      {/* Cross-filter field */}
+      <Autocomplete
+        size="small"
+        fullWidth
+        options={allFields}
+        getOptionLabel={(option) => option.label}
+        value={crossFilterFieldOption}
+        onChange={(_e, newValue) =>
+          controller.updateWidgetConfig(widgetId, { crossFilterField: newValue?.id ?? undefined })
+        }
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            label="Cross-filter field"
+            helperText="Field applied to other widgets when a row is selected"
+          />
+        )}
+        isOptionEqualToValue={(option, value) => option.id === value.id}
+      />
+
+      <Divider />
+
       <Typography variant="caption" color="text.secondary">
         Visible columns ({visibleColumns.length}/{allFields.length})
       </Typography>

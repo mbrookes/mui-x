@@ -994,6 +994,21 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
           label="Fill area"
         />
       )}
+
+      <FormControlLabel
+        control={
+          <Switch
+            size="small"
+            checked={config.kpiSparklineCumulative ?? false}
+            onChange={(event) =>
+              controller.updateWidgetConfig(widgetId, {
+                kpiSparklineCumulative: event.target.checked,
+              })
+            }
+          />
+        }
+        label="Cumulative (running total)"
+      />
     </Stack>
   );
 }

@@ -1,7 +1,12 @@
+'use client';
 import * as React from 'react';
 
 import type { StudioState } from '../models';
 import type { StudioController } from '../store';
+
+/** Ref to the canvas scroll container, used to scroll to bottom after adding a widget. */
+export const CanvasScrollContext =
+  React.createContext<React.RefObject<HTMLDivElement | null> | null>(null);
 
 const StudioContext = React.createContext<StudioController | null>(null);
 

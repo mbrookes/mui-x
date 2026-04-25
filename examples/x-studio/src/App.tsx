@@ -1,7 +1,9 @@
 import * as React from 'react';
 import { Alert, Box, CssBaseline, Snackbar, ThemeProvider, createTheme } from '@mui/material';
-import { StudioShell, createStudioController } from '../../../packages/x-studio/src';
-import type { StudioMode, StudioPage } from '../../../packages/x-studio/src';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { Studio, createStudioController } from '@mui/x-studio';
+import type { StudioMode, StudioPage } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/initialDashboard';
 import { AppToolbar } from './components/AppToolbar';
 import { downloadJson, uploadJson } from './utils/fileUtils';
@@ -48,8 +50,8 @@ export default function App() {
 
   const handleSave = React.useCallback(() => {
     const serialized = controller.serializeState();
-    const title = controller.getState().dashboard.title.replace(/[^a-z0-9]/gi, '_');
-    downloadJson(serialized, `${title}_dashboard.json`);
+    const dashboardTitle = controller.getState().dashboard.title.replace(/[^a-z0-9]/gi, '_');
+    downloadJson(serialized, `${dashboardTitle}_dashboard.json`);
     setSnackbar({ open: true, message: 'Dashboard saved successfully', severity: 'success' });
   }, []);
 
@@ -65,7 +67,11 @@ export default function App() {
             severity: 'info',
           });
         } else {
-          setSnackbar({ open: true, message: 'Dashboard loaded successfully', severity: 'success' });
+          setSnackbar({
+            open: true,
+            message: 'Dashboard loaded successfully',
+            severity: 'success',
+          });
         }
       } else {
         setSnackbar({
@@ -87,45 +93,43 @@ export default function App() {
     setSnackbar((prev) => ({ ...prev, open: false }));
   };
 
-  const handlePageChange = React.useCallback(
-    (_event: React.SyntheticEvent, pageId: string) => {
-      controller.setActivePage(pageId);
-      setActivePageId(pageId);
-    },
-    [],
-  );
+  const handlePageChange = React.useCallback((_event: React.SyntheticEvent, pageId: string) => {
+    controller.setActivePage(pageId);
+    setActivePageId(pageId);
+  }, []);
 
   const pageList = Object.values(pages);
 
   return (
     <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-        <AppToolbar
-          title={title}
-          mode={mode}
-          onModeChange={handleModeChange}
-          onSave={handleSave}
-          onLoad={handleLoad}
-          pages={pageList}
-          activePageId={activePageId}
-          onPageChange={handlePageChange}
-        />
-        <Box sx={{ flexGrow: 1, minHeight: 0 }}>
-          <StudioShell controller={controller} />
+      <LocalizationProvider dateAdapter={AdapterDayjs}>
+        <CssBaseline />
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+          <AppToolbar
+            title={title}
+            mode={mode}
+            onModeChange={handleModeChange}
+            onSave={handleSave}
+            onLoad={handleLoad}
+            pages={pageList}
+            activePageId={activePageId}
+            onPageChange={handlePageChange}
+          />
+          <Box sx={{ flexGrow: 1, minHeight: 0 }}>
+            <Studio controller={controller} />
+          </Box>
         </Box>
-      </Box>
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={handleCloseSnackbar}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={4000}
+          onClose={handleCloseSnackbar}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+            {snackbar.message}
+          </Alert>
+        </Snackbar>
+      </LocalizationProvider>
     </ThemeProvider>
   );
 }
-

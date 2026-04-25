@@ -24,6 +24,34 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/x-data-grid/src'),
       },
       {
+        find: /^@mui\/x-date-pickers-pro\/(.+)$/,
+        replacement: path.resolve(__dirname, '../../packages/x-date-pickers-pro/src/$1'),
+      },
+      {
+        find: '@mui/x-date-pickers-pro',
+        replacement: path.resolve(__dirname, '../../packages/x-date-pickers-pro/src'),
+      },
+      {
+        find: /^@mui\/x-date-pickers\/(.+)$/,
+        replacement: path.resolve(__dirname, '../../packages/x-date-pickers/src/$1'),
+      },
+      {
+        find: '@mui/x-date-pickers',
+        replacement: path.resolve(__dirname, '../../packages/x-date-pickers/src'),
+      },
+      {
+        find: /^@mui\/x-license\/(.+)$/,
+        replacement: path.resolve(__dirname, '../../packages/x-license/src/$1'),
+      },
+      {
+        find: '@mui/x-license',
+        replacement: path.resolve(__dirname, '../../packages/x-license/src'),
+      },
+      {
+        find: '@mui/x-telemetry',
+        replacement: path.resolve(__dirname, '../../packages/x-telemetry/src'),
+      },
+      {
         find: '@mui/x-internal-gestures',
         replacement: path.resolve(__dirname, '../../packages/x-internal-gestures/src'),
       },
@@ -39,5 +67,8 @@ export default defineConfig({
   },
   server: {
     port: 3004,
+  },
+  define: {
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
   },
 });

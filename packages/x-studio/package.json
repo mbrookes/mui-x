@@ -32,7 +32,10 @@
     "@babel/runtime": "catalog:",
     "@mui/x-charts": "workspace:*",
     "@mui/x-data-grid": "workspace:*",
-    "@mui/x-internals": "workspace:*"
+    "@mui/x-date-pickers": "workspace:*",
+    "@mui/x-date-pickers-pro": "workspace:*",
+    "@mui/x-internals": "workspace:*",
+    "dayjs": "catalog:"
   },
   "devDependencies": {
     "@mui/icons-material": "^9.0.0",

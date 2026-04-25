@@ -1,8 +1,4 @@
 import * as React from 'react';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import TableChartIcon from '@mui/icons-material/TableChart';
-import NumbersIcon from '@mui/icons-material/Numbers';
-import TextFieldsIcon from '@mui/icons-material/TextFields';
 
 import type {
   StudioDataSource,
@@ -10,6 +6,7 @@ import type {
   StudioWidget,
   StudioWidgetKind,
 } from '../models';
+import { TextWidgetIcon, KpiWidgetIcon, TableWidgetIcon, BarGroupedIcon } from './icons/ChartIcons';
 
 export const WIDGET_TYPES: {
   kind: StudioWidgetKind;
@@ -21,25 +18,25 @@ export const WIDGET_TYPES: {
     kind: 'text',
     label: 'Text',
     description: 'Title, subtitle, and body copy',
-    icon: <TextFieldsIcon fontSize="large" />,
+    icon: <TextWidgetIcon size={28} />,
   },
   {
     kind: 'kpi',
     label: 'KPI',
     description: 'Single metric with aggregation',
-    icon: <NumbersIcon fontSize="large" />,
+    icon: <KpiWidgetIcon size={28} />,
   },
   {
     kind: 'chart',
     label: 'Chart',
     description: 'Bar, line, pie, area, and scatter charts',
-    icon: <BarChartIcon fontSize="large" />,
+    icon: <BarGroupedIcon size={28} />,
   },
   {
     kind: 'grid',
     label: 'Table',
     description: 'Data grid with sorting & filtering',
-    icon: <TableChartIcon fontSize="large" />,
+    icon: <TableWidgetIcon size={28} />,
   },
 ];
 
@@ -111,7 +108,7 @@ export function createDefaultWidget(
     sourceId: source.id,
     layout: { x: 0, y: 0, width: 3, height: 3 },
     bindings,
-    config: { kpiValueField: valueField, kpiAggregation: 'sum', kpiFormat: 'number' },
+    config: { kpiValueField: valueField, kpiAggregation: 'sum' },
   };
 }
 
@@ -123,7 +120,9 @@ export function exportGridToCsv(
   dataSource: StudioDataSource | undefined,
   rows: Record<string, unknown>[],
 ): void {
-  if (!dataSource) return;
+  if (!dataSource) {
+    return;
+  }
 
   const visibleColumns = widget.config.columns?.length
     ? widget.config.columns
@@ -168,10 +167,14 @@ export function exportGridToCsv(
  * Export chart as PNG image
  */
 export function exportChartToPng(widget: StudioWidget, chartContainer: HTMLElement | null): void {
-  if (!chartContainer) return;
+  if (!chartContainer) {
+    return;
+  }
 
   const svg = chartContainer.querySelector('svg');
-  if (!svg) return;
+  if (!svg) {
+    return;
+  }
 
   // Clone the SVG to avoid modifying the original
   const clonedSvg = svg.cloneNode(true) as SVGElement;
@@ -192,7 +195,9 @@ export function exportChartToPng(widget: StudioWidget, chartContainer: HTMLEleme
   canvas.height = svgRect.height * scale;
 
   const ctx = canvas.getContext('2d');
-  if (!ctx) return;
+  if (!ctx) {
+    return;
+  }
 
   ctx.scale(scale, scale);
   ctx.fillStyle = 'white';

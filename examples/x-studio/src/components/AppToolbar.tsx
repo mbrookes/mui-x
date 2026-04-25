@@ -2,7 +2,7 @@ import { Box, IconButton, Switch, Tab, Tabs, Tooltip, Typography } from '@mui/ma
 import type { SwitchProps } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
-import type { StudioMode, StudioPage } from '../../../../packages/x-studio/src';
+import type { StudioMode, StudioPage } from '@mui/x-studio';
 
 export interface AppToolbarProps {
   title: string;

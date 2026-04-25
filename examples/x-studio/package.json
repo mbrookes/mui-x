@@ -12,10 +12,13 @@
     "@mui/x-studio": "workspace:*",
     "@mui/x-charts": "workspace:*",
     "@mui/x-data-grid": "workspace:*",
+    "@mui/x-date-pickers": "workspace:*",
+    "@mui/x-date-pickers-pro": "workspace:*",
     "@mui/material": "catalog:",
     "@mui/icons-material": "catalog:",
     "@emotion/react": "catalog:",
     "@emotion/styled": "catalog:",
+    "dayjs": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

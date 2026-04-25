@@ -6,7 +6,7 @@ import { LineChart } from '@mui/x-charts/LineChart';
 import { PieChart } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
-import { Box, Typography } from '@mui/material';
+import { Box } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
@@ -16,6 +16,8 @@ import {
   prepareScatterData,
 } from './chartUtils';
 import { useStudioController, useStudioSelector } from '../context';
+import { formatNumber } from './numberFormat';
+import type { StudioNumberFormat } from '../models/studio';
 
 export interface StudioChartWidgetProps {
   widget: StudioWidget;
@@ -25,6 +27,18 @@ export interface StudioChartWidgetProps {
 const CHART_HEIGHT = 260;
 const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
+
+function makeValueFormatter(format?: StudioNumberFormat, currencyCode?: string) {
+  if (!format) {
+    return undefined;
+  }
+  return (value: number | null) => {
+    if (value === null) {
+      return '';
+    }
+    return formatNumber(value, format, currencyCode);
+  };
+}
 
 function normalizeCrossFilterValue(value: string | number | Date | undefined) {
   if (value instanceof Date) {
@@ -134,6 +148,8 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   );
 
   const chartType = config.chartType ?? 'bar';
+  // Normalise legacy type alias
+  const normalizedChartType = chartType === 'bar-grouped' ? 'bar' : chartType;
   const barLayout = config.barLayout ?? 'grouped';
   const selectedFilterValue =
     activeCrossFilter && activeCrossFilter.field === config.xField
@@ -156,7 +172,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     selectedFilterValue == null ? (hoveredAxis ?? undefined) : undefined;
 
   // Scatter chart
-  if (chartType === 'scatter') {
+  if (normalizedChartType === 'scatter') {
     if (!scatterData || scatterData.length === 0) {
       return (
         <Box
@@ -169,11 +185,6 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
         ></Box>
       );
     }
-
-    const xLabel =
-      dataSource?.fields.find((f) => f.id === config.xField)?.label ?? config.xField ?? 'X';
-    const yLabel =
-      dataSource?.fields.find((f) => f.id === activeYFields[0])?.label ?? activeYFields[0] ?? 'Y';
 
     return (
       <div>
@@ -194,21 +205,24 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   }
 
   // Grouped or stacked bar charts (by category field OR multiple y-fields)
-  const isGroupedOrStacked =
-    chartType === 'bar-grouped' ||
-    chartType === 'bar-stacked' ||
-    chartType === 'bar';
+  const isBar =
+    normalizedChartType === 'bar' ||
+    normalizedChartType === 'bar-stacked' ||
+    normalizedChartType === 'bar-100';
 
-  if (isGroupedOrStacked) {
+  if (isBar) {
     // Multi-Y-field path: each y-field is its own series
     if (multiYData && multiYData.labels.length > 0) {
       const xAxisData = multiYData.labels.map(String);
       const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
       const isStacked =
-        chartType === 'bar-stacked' || (chartType === 'bar' && barLayout === 'stacked');
+        normalizedChartType === 'bar-stacked' ||
+        normalizedChartType === 'bar-100' ||
+        (normalizedChartType === 'bar' && barLayout === 'stacked');
+      const stackStrategy =
+        normalizedChartType === 'bar-100' ? ('allPositive' as const) : undefined;
       // For grouped multi-Y, give each series its own independent Y axis so
-      // fields with very different magnitudes (e.g. revenue vs quantity) are
-      // all visible. Stacked charts share a single axis since values are additive.
+      // fields with very different magnitudes are all visible. Stacked charts share one axis.
       const useIndependentAxes = !isStacked && multiYData.series.length > 1;
       const yAxes = useIndependentAxes
         ? multiYData.series.map((s, i) => ({
@@ -216,14 +230,19 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
           }))
         : undefined;
-      const series = multiYData.series.map((s, i) => ({
-        id: `${s.fieldId}-${i}`,
-        data: s.values,
-        label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
-        stack: isStacked ? 'total' : undefined,
-        yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
-        highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-      }));
+      const series = multiYData.series.map((s, i) => {
+        const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
+        return {
+          id: `${s.fieldId}-${i}`,
+          data: s.values,
+          label: fieldDef?.label ?? s.fieldId,
+          stack: isStacked ? 'total' : undefined,
+          stackStrategy,
+          yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
+          highlightScope: { highlight: 'item' as const, fade: 'global' as const },
+          valueFormatter: makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode),
+        };
+      });
       return (
         <div>
           <BarChart
@@ -248,7 +267,6 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
         </div>
       );
     }
-
   }
 
   if (!chartData || chartData.labels.length === 0) {
@@ -264,7 +282,8 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     );
   }
 
-  if (chartType === 'pie') {
+  if (normalizedChartType === 'pie' || normalizedChartType === 'donut') {
+    const innerRadius = normalizedChartType === 'donut' ? 50 : 0;
     const selectedDataIndex = getSelectedDataIndex(chartData.labels);
 
     return (
@@ -273,13 +292,12 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
+              innerRadius,
               data: chartData.labels.map((label, i) => ({
                 id: i,
                 label: String(label),
                 value: chartData.values[i],
               })),
-              // arcLabel: 'label', // Removed arc labels for legend-only
-              // Pie chart now uses legend instead of arc labels
               highlightScope: { highlight: 'item', fade: 'global' },
             },
           ]}
@@ -307,26 +325,37 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   }
 
   // For multi-Y line/area charts
-  if (multiYData && multiYData.labels.length > 0 && (chartType === 'line' || chartType === 'area')) {
+  const isLineOrArea =
+    normalizedChartType === 'line' ||
+    normalizedChartType === 'area' ||
+    normalizedChartType === 'area-stacked' ||
+    normalizedChartType === 'area-100';
+  if (multiYData && multiYData.labels.length > 0 && isLineOrArea) {
     const xAxisData = multiYData.labels.map(String);
     const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
-    const isArea = chartType === 'area';
+    const isArea = normalizedChartType !== 'line';
+    const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
 
-    const useIndependentAxes = multiYData.series.length > 1;
+    const useIndependentAxes = !isStacked && multiYData.series.length > 1;
     const yAxes = useIndependentAxes
       ? multiYData.series.map((s, i) => ({
           id: `y-${i}`,
           position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
         }))
       : undefined;
-    const series = multiYData.series.map((s, i) => ({
-      id: `${s.fieldId}-${i}`,
-      data: s.values,
-      label: dataSource?.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
-      area: isArea,
-      yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
-      highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-    }));
+    const series = multiYData.series.map((s, i) => {
+      const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
+      return {
+        id: `${s.fieldId}-${i}`,
+        data: s.values,
+        label: fieldDef?.label ?? s.fieldId,
+        area: isArea,
+        stack: isStacked ? 'total' : undefined,
+        yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
+        highlightScope: { highlight: 'item' as const, fade: 'global' as const },
+        valueFormatter: makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode),
+      };
+    });
     return (
       <div>
         <LineChart
@@ -347,7 +376,9 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
           onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) handleItemClick(params.axisValue);
+            if (params?.axisValue !== undefined) {
+              handleItemClick(params.axisValue);
+            }
           }}
           sx={{ cursor: 'pointer' }}
         />
@@ -356,11 +387,12 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   }
 
   const xAxisData = chartData!.labels.map(String);
-  const seriesLabel =
-    dataSource?.fields.find((f) => f.id === activeYFields[0])?.label ?? activeYFields[0] ?? 'Value';
+  const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
+  const seriesLabel = yFieldDef?.label ?? activeYFields[0] ?? 'Value';
+  const seriesValueFormatter = makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode);
   const selectedDataIndex = getSelectedDataIndex(chartData!.labels);
 
-  if (chartType === 'line') {
+  if (normalizedChartType === 'line') {
     return (
       <div>
         <LineChart
@@ -372,6 +404,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
               label: seriesLabel,
               area: false,
               highlightScope: { highlight: 'item', fade: 'global' },
+              valueFormatter: seriesValueFormatter,
             },
           ]}
           height={CHART_HEIGHT}
@@ -386,7 +419,9 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
           onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) handleItemClick(params.axisValue);
+            if (params?.axisValue !== undefined) {
+              handleItemClick(params.axisValue);
+            }
           }}
           sx={{ cursor: 'pointer' }}
         />
@@ -394,7 +429,12 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     );
   }
 
-  if (chartType === 'area') {
+  if (
+    normalizedChartType === 'area' ||
+    normalizedChartType === 'area-stacked' ||
+    normalizedChartType === 'area-100'
+  ) {
+    const isStacked100 = normalizedChartType === 'area-100';
     return (
       <div>
         <LineChart
@@ -405,7 +445,9 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
               data: chartData!.values,
               label: seriesLabel,
               area: true,
+              stack: isStacked100 ? 'total' : undefined,
               highlightScope: { highlight: 'item', fade: 'global' },
+              valueFormatter: seriesValueFormatter,
             },
           ]}
           height={CHART_HEIGHT}
@@ -420,7 +462,9 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
           onAxisClick={(_event, params) => {
-            if (params?.axisValue !== undefined) handleItemClick(params.axisValue);
+            if (params?.axisValue !== undefined) {
+              handleItemClick(params.axisValue);
+            }
           }}
           sx={{ cursor: 'pointer' }}
         />
@@ -439,6 +483,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             data: chartData!.values,
             label: seriesLabel,
             highlightScope: { highlight: 'item', fade: 'global' },
+            valueFormatter: seriesValueFormatter,
           },
         ]}
         height={CHART_HEIGHT}
@@ -453,7 +498,9 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
         }
         onAxisClick={(_event, params) => {
-          if (params?.axisValue !== undefined) handleItemClick(params.axisValue);
+          if (params?.axisValue !== undefined) {
+            handleItemClick(params.axisValue);
+          }
         }}
         sx={{ cursor: 'pointer' }}
       />

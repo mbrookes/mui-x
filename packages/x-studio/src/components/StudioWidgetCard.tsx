@@ -1,3 +1,4 @@
+'use client';
 import * as React from 'react';
 import { Box, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
@@ -33,17 +34,23 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [isDragging, setIsDragging] = React.useState(false);
 
   React.useEffect(() => {
-    if (mode !== 'edit') return;
+    if (mode !== 'edit') {
+      return undefined;
+    }
     const node = ref.current;
-    if (!node) return;
-    function handleDragStart(e: DragEvent) {
+    if (!node) {
+      return undefined;
+    }
+    function handleDragStart(event: DragEvent) {
       setIsDragging(true);
       controller.setSelectedWidget(widgetId);
-      e.dataTransfer?.setData(
+      event.dataTransfer?.setData(
         'application/json',
         JSON.stringify({ type: 'canvas-widget', widgetId }),
       );
-      if (node) e.dataTransfer?.setDragImage(node, 0, 0);
+      if (node) {
+        event.dataTransfer?.setDragImage(node, 0, 0);
+      }
     }
     function handleDragEnd() {
       setIsDragging(false);
@@ -59,7 +66,9 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   }, [widgetId, mode, controller]);
 
   const filteredRows = React.useMemo(() => {
-    if (!source?.rows || !widget) return [];
+    if (!source?.rows || !widget) {
+      return [];
+    }
     const { dataSources, relationships } = controller.getState();
     const pageFilters = filters.filter((f) => f.scope === 'page');
     const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
@@ -71,9 +80,11 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   }, [source, widget, filters, controller]);
 
   const handleExport = React.useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (!widget) return;
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      if (!widget) {
+        return;
+      }
       if (widget.kind === 'grid') {
         exportGridToCsv(widget, source, filteredRows);
       } else if (widget.kind === 'chart') {
@@ -88,8 +99,6 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   }
 
   const canExport = widget.kind === 'grid' || widget.kind === 'chart';
-  const widgetMetaLabel =
-    widget.kind === 'text' ? 'Text widget' : (source?.label ?? 'Unbound source');
   const showEditActions =
     mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
@@ -107,8 +116,8 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
       aria-label={`Widget: ${widget.title}`}
       data-widget-card
       tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
           controller.setSelectedWidget(widgetId);
         }
       }}
@@ -127,90 +136,98 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
     >
       <Stack spacing={2}>
         {/* Widget header */}
-        <Box>
+        <div>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <Typography variant="subtitle1" noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Typography variant="h6" noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
               {widget.title}
             </Typography>
-            {mode === 'edit' ? (
-              <Stack
-                direction="row"
-                spacing={0.5}
-                sx={{
-                  alignItems: 'center',
-                  justifyContent: 'flex-end',
-                  flexShrink: 0,
-                  minWidth: canExport ? 108 : 72,
-                }}
-              >
-                {canExport && (
-                  <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
-                    <IconButton
-                      size="small"
-                      onClick={handleExport}
-                      aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
-                      sx={showEditActions ? undefined : hiddenActionSx}
-                      tabIndex={showEditActions ? 0 : -1}
-                    >
-                      <DownloadIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
-                <Tooltip title="Duplicate widget">
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      controller.duplicateWidget(widgetId);
+            {(() => {
+              if (mode === 'edit') {
+                return (
+                  <Stack
+                    direction="row"
+                    spacing={0.5}
+                    sx={{
+                      alignItems: 'center',
+                      justifyContent: 'flex-end',
+                      flexShrink: 0,
+                      minWidth: canExport ? 108 : 72,
                     }}
-                    aria-label="Duplicate widget"
-                    sx={showEditActions ? undefined : hiddenActionSx}
-                    tabIndex={showEditActions ? 0 : -1}
                   >
-                    <ContentCopyIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Delete widget">
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      controller.removeWidget(widgetId);
+                    {canExport && (
+                      <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
+                        <IconButton
+                          size="small"
+                          onClick={handleExport}
+                          aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
+                          sx={showEditActions ? undefined : hiddenActionSx}
+                          tabIndex={showEditActions ? 0 : -1}
+                        >
+                          <DownloadIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    <Tooltip title="Duplicate widget">
+                      <IconButton
+                        size="small"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          controller.duplicateWidget(widgetId);
+                        }}
+                        aria-label="Duplicate widget"
+                        sx={showEditActions ? undefined : hiddenActionSx}
+                        tabIndex={showEditActions ? 0 : -1}
+                      >
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete widget">
+                      <IconButton
+                        size="small"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          controller.removeWidget(widgetId);
+                        }}
+                        aria-label="Delete widget"
+                        sx={showEditActions ? undefined : hiddenActionSx}
+                        tabIndex={showEditActions ? 0 : -1}
+                      >
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                );
+              }
+              if (canExport) {
+                return (
+                  <Stack
+                    direction="row"
+                    spacing={0.5}
+                    sx={{
+                      alignItems: 'center',
+                      justifyContent: 'flex-end',
+                      flexShrink: 0,
+                      minWidth: 36,
                     }}
-                    aria-label="Delete widget"
-                    sx={showEditActions ? undefined : hiddenActionSx}
-                    tabIndex={showEditActions ? 0 : -1}
                   >
-                    <CloseIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </Stack>
-            ) : canExport ? (
-              <Stack
-                direction="row"
-                spacing={0.5}
-                sx={{
-                  alignItems: 'center',
-                  justifyContent: 'flex-end',
-                  flexShrink: 0,
-                  minWidth: 36,
-                }}
-              >
-                <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
-                  <IconButton
-                    size="small"
-                    onClick={handleExport}
-                    aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
-                    sx={showViewExport ? undefined : hiddenActionSx}
-                    tabIndex={showViewExport ? 0 : -1}
-                  >
-                    <DownloadIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </Stack>
-            ) : null}
+                    <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
+                      <IconButton
+                        size="small"
+                        onClick={handleExport}
+                        aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
+                        sx={showViewExport ? undefined : hiddenActionSx}
+                        tabIndex={showViewExport ? 0 : -1}
+                      >
+                        <DownloadIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                );
+              }
+              return null;
+            })()}
           </Stack>
-        </Box>
+        </div>
         {/* Widget content */}
         {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
         {widget.kind === 'chart' && (

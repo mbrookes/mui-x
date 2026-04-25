@@ -1,10 +1,11 @@
 import * as React from 'react';
 import { DataGrid, type GridColDef, type GridRowSelectionModel } from '@mui/x-data-grid';
-import { Box, Chip, Stack } from '@mui/material';
+import { Chip, Stack } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import { useStudioController, useStudioSelector } from '../context';
 import { applyFilters } from './chartUtils';
+import { formatFieldValue } from './numberFormat';
 
 export interface StudioGridWidgetProps {
   widget: StudioWidget;
@@ -35,12 +36,18 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
         headerName: field?.label ?? fieldName,
         minWidth: 140,
         type: field?.type === 'number' ? 'number' : 'string',
+        valueFormatter:
+          field?.type === 'number' && field.format
+            ? (value: unknown) => formatFieldValue(value, field)
+            : undefined,
       };
     });
   }, [dataSource, widget.bindings, widget.config.columns]);
 
   const rows = React.useMemo(() => {
-    if (!dataSource?.rows) return [];
+    if (!dataSource?.rows) {
+      return [];
+    }
 
     const pageFilters = filters.filter((f) => f.scope === 'page');
     const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
@@ -69,11 +76,15 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
       // Use the first selected row for cross-filtering
       const selectedRowId = ids[0];
       const selectedRow = rows.find((r) => r.id === selectedRowId);
-      if (!selectedRow) return;
+      if (!selectedRow) {
+        return;
+      }
 
       // Use the first string/category field for cross-filtering
       const categoryField = dataSource?.fields.find((f) => f.type === 'string');
-      if (!categoryField) return;
+      if (!categoryField) {
+        return;
+      }
 
       const value = (selectedRow as Record<string, unknown>)[categoryField.id];
       if (value !== undefined) {
@@ -97,7 +108,7 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
   ) : null;
 
   return (
-    <Box>
+    <div>
       {crossFilterIndicator}
       <DataGrid
         autoHeight
@@ -115,6 +126,6 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
         }}
         onRowSelectionModelChange={handleRowSelectionChange}
       />
-    </Box>
+    </div>
   );
 }

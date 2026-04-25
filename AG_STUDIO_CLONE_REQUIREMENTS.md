@@ -31,6 +31,11 @@ It is organized for product, design, and engineering use, and includes:
 - Production-ready code generation/export for framework-specific host apps.
 - Full export suite beyond core CSV for tabular widgets.
 
+#### 2.2.1 Out if Scope AG Studio Bugs 😝
+
+- Adding a selection filter to a KPI (at least) of cross-field data (at least Order Data/Time) returns zero
+- Products table, rank filter shows booleans etc., not rank fields
+
 ### 2.3 Clone-specific product constraint
 
 Public AG Studio materials clearly show Data, Compose, and Filters controls, edit/view modes, drag-and-drop widget layout, and configurable layout options. They do not publicly establish a mandatory drawer-only shell or a splitter-only canvas model. For this clone, we deliberately choose a collapsible drawer shell and a structured canvas layout model, but those choices are implementation decisions rather than verified AG Studio product constraints.

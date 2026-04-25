@@ -87,6 +87,9 @@ export interface StudioWidgetConfig {
   kpiSparklinePlotType?: 'line' | 'bar';
   kpiSparklineArea?: boolean;
   kpiSparklineGranularity?: 'day' | 'week' | 'month' | 'quarter' | 'year';
+  // Grid cross-filter
+  /** Field used when a row is selected to emit a cross-filter to other widgets. Defaults to first string field. */
+  crossFilterField?: string;
   // Text config
   textSubtitle?: string;
   textBody?: string;

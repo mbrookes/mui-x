@@ -73,6 +73,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
           kpiSparkline: true,
           kpiSparklineField: 'date',
           kpiSparklineSourceId: ORDERS_SOURCE_ID,
+          kpiSparklineCumulative: true,
         },
     },
     'widget-kpi-orders': {

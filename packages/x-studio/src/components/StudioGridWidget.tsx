@@ -80,18 +80,22 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
         return;
       }
 
-      // Use the first string/category field for cross-filtering
-      const categoryField = dataSource?.fields.find((f) => f.type === 'string');
-      if (!categoryField) {
+      // Use configured field, fall back to first non-hidden string field
+      const crossFilterFieldId = widget.config.crossFilterField;
+      const filterField = crossFilterFieldId
+        ? dataSource?.fields.find((f) => f.id === crossFilterFieldId)
+        : dataSource?.fields.find((f) => f.type === 'string' && !f.hidden);
+
+      if (!filterField) {
         return;
       }
 
-      const value = (selectedRow as Record<string, unknown>)[categoryField.id];
+      const value = (selectedRow as Record<string, unknown>)[filterField.id];
       if (value !== undefined) {
-        controller.applyCrossFilter(widget.id, categoryField.id, value);
+        controller.applyCrossFilter(widget.id, filterField.id, value);
       }
     },
-    [controller, widget.id, rows, dataSource],
+    [controller, widget.id, widget.config.crossFilterField, rows, dataSource],
   );
 
   // Cross-filter indicator

@@ -103,7 +103,7 @@ export function migrateState(state: unknown): MigrationResult {
 
   // Apply migrations sequentially
   let currentState = { ...state };
-  for (let version = fromVersion; version < CURRENT_SCHEMA_VERSION; version++) {
+  for (let version = fromVersion; version < CURRENT_SCHEMA_VERSION; version += 1) {
     const migrateFn = migrations[version];
     if (migrateFn) {
       try {

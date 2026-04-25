@@ -555,16 +555,10 @@ function SelectionFilterInput({
 function RankFilterInput({
   direction,
   n,
-  rankByField,
-  numericFields,
-  fieldType,
   onChange,
 }: {
   direction: 'top' | 'bottom';
   n: number | undefined;
-  rankByField: string | undefined;
-  numericFields: SimpleField[];
-  fieldType: FieldType | undefined;
   onChange: (changes: Partial<StudioFilterState>) => void;
 }) {
   return (
@@ -597,25 +591,6 @@ function RankFilterInput({
         slotProps={{ htmlInput: { min: 1 } }}
         fullWidth
       />
-      {fieldType !== 'number' && numericFields.length > 0 && (
-        <FormControl size="small" fullWidth>
-          <InputLabel>Rank by</InputLabel>
-          <Select
-            label="Rank by"
-            value={rankByField ?? ''}
-            onChange={(event) => onChange({ rankByField: event.target.value || undefined })}
-          >
-            <MenuItem value="">
-              <em>Row count</em>
-            </MenuItem>
-            {numericFields.map((f) => (
-              <MenuItem key={f.id} value={f.id}>
-                {f.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      )}
     </Stack>
   );
 }
@@ -629,7 +604,6 @@ function FilterBody({
   activeOperator,
   activeOperator2,
   fieldValues,
-  numericFields,
   onChange,
 }: {
   filter: StudioFilterState;
@@ -638,7 +612,6 @@ function FilterBody({
   activeOperator: StudioFilterOperator;
   activeOperator2: StudioFilterOperator;
   fieldValues: string[];
-  numericFields: SimpleField[];
   onChange: (changes: Partial<StudioFilterState>) => void;
 }) {
   const mode: FilterMode = filter.filterMode ?? 'condition';
@@ -714,9 +687,6 @@ function FilterBody({
         <RankFilterInput
           direction={filter.rankDirection ?? 'top'}
           n={typeof filter.value === 'number' ? filter.value : undefined}
-          rankByField={filter.rankByField}
-          numericFields={numericFields}
-          fieldType={fieldType}
           onChange={onChange}
         />
       )}
@@ -891,7 +861,6 @@ function FilterRow(props: FilterRowProps) {
       : operators[0].value;
   const fieldValues = useFieldValues(filter.field, fieldType);
   const fieldLabel = currentField?.label ?? filter.field;
-  const numericFields = fields.filter((f) => f.fieldType === 'number');
 
   const handleChange = (changes: Partial<StudioFilterState>) => {
     controller.addFilter({ ...filter, ...changes });
@@ -987,7 +956,6 @@ function FilterRow(props: FilterRowProps) {
           activeOperator={activeOperator}
           activeOperator2={activeOperator2}
           fieldValues={fieldValues}
-          numericFields={numericFields}
           onChange={handleChange}
         />
       </Collapse>
@@ -1022,9 +990,6 @@ function WidgetFilterRow(props: WidgetFilterRowProps) {
       : operators[0].value;
   const fieldValues = useFieldValues(filter.field, fieldType);
   const fieldLabel = selectedOption?.label ?? filter.field;
-  const numericFields: SimpleField[] = fieldOptions
-    .filter((o) => o.fieldType === 'number' && o.sourceId === (widgetSourceId ?? ''))
-    .map((o) => ({ id: o.id, label: o.label, fieldType: o.fieldType }));
 
   const handleChange = (changes: Partial<StudioFilterState>) => {
     controller.removeFilter(filter.id);
@@ -1116,7 +1081,6 @@ function WidgetFilterRow(props: WidgetFilterRowProps) {
           activeOperator={activeOperator}
           activeOperator2={activeOperator2}
           fieldValues={fieldValues}
-          numericFields={numericFields}
           onChange={handleChange}
         />
       </Collapse>

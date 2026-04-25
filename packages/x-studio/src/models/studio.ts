@@ -6,24 +6,36 @@ export type StudioWidgetKind = 'grid' | 'chart' | 'kpi' | 'text';
 
 export type StudioChartType =
   | 'bar'
+  | 'bar-stacked'
+  | 'bar-100'
   | 'line'
-  | 'pie'
   | 'area'
+  | 'area-stacked'
+  | 'area-100'
+  | 'pie'
+  | 'donut'
   | 'scatter'
-  | 'bar-grouped'
-  | 'bar-stacked';
+  // Legacy aliases kept for backwards compatibility
+  | 'bar-grouped';
 
 export type StudioBarLayout = 'grouped' | 'stacked';
 
-export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
+export type StudioNumberFormat = 'integer' | 'decimal' | 'percent' | 'currency';
 
-export type StudioKpiFormat = 'number' | 'currency' | 'percent';
+export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
 export type StudioFilterOperator =
   | 'equals'
   | 'in'
   | 'not_equals'
   | 'contains'
+  | 'does_not_contain'
+  | 'starts_with'
+  | 'not_starts_with'
+  | 'ends_with'
+  | 'not_ends_with'
+  | 'is_empty'
+  | 'is_not_empty'
   | 'greater_than'
   | 'less_than'
   | 'greater_than_or_equal'
@@ -63,9 +75,18 @@ export interface StudioWidgetConfig {
   // KPI config
   kpiValueField?: string;
   kpiAggregation?: StudioKpiAggregation;
-  kpiFormat?: StudioKpiFormat;
+  kpiCompact?: boolean;
   kpiPrefix?: string;
   kpiSuffix?: string;
+  // KPI sparkline
+  kpiSparkline?: boolean;
+  /** Time/date field to group rows by for the sparkline. Auto-detected from date filters if omitted. */
+  kpiSparklineField?: string;
+  /** Source ID for the sparkline time field — only needed when field is from a related source. */
+  kpiSparklineSourceId?: string;
+  kpiSparklinePlotType?: 'line' | 'bar';
+  kpiSparklineArea?: boolean;
+  kpiSparklineGranularity?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   // Text config
   textSubtitle?: string;
   textBody?: string;
@@ -97,6 +118,10 @@ export interface StudioDataField {
   type: 'string' | 'number' | 'boolean' | 'date' | 'datetime';
   /** When true, the field is hidden from the data drawer and widget config selects */
   hidden?: boolean;
+  /** Display format for number fields */
+  format?: StudioNumberFormat;
+  /** ISO 4217 currency code for currency format. Defaults to 'USD'. */
+  currencyCode?: string;
 }
 
 export interface StudioDataSource {
@@ -124,8 +149,19 @@ export interface StudioFilterState {
   field: string;
   /** The data type of the field — used for type-aware comparisons and UI */
   fieldType?: StudioDataField['type'];
+  /** Determines which input/evaluation mode is used. Defaults to 'condition'. */
+  filterMode?: 'condition' | 'selection' | 'rank';
+  // condition mode
   operator: StudioFilterOperator;
   value: unknown;
+  /** Optional second condition for compound filters (e.g. date ≥ X AND date ≤ Y) */
+  conjunction?: 'and' | 'or';
+  operator2?: StudioFilterOperator;
+  value2?: unknown;
+  // rank mode
+  rankDirection?: 'top' | 'bottom';
+  /** Numeric field to aggregate by when ranking a non-numeric dimension (e.g. rank countries by revenue). */
+  rankByField?: string;
   scope: 'page' | 'widget' | 'cross-filter';
   widgetId?: string;
   /** For cross-filters: the widget ID that originated the filter */

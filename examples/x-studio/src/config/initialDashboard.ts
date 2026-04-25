@@ -1,4 +1,4 @@
-import type { StudioState } from '../../../../packages/x-studio/src';
+import type { StudioState } from '@mui/x-studio';
 import {
   CUSTOMERS_SOURCE_ID,
   customersSource,
@@ -11,7 +11,7 @@ import {
   orderItemsBindings,
   PRODUCTS_SOURCE_ID,
   productsSource,
-} from '../data/salesData';
+} from '../data';
 
 export const INITIAL_STATE: Partial<StudioState> = {
   dashboard: {
@@ -67,7 +67,13 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: ORDER_ITEMS_SOURCE_ID,
       layout: { x: 0, y: 0, width: 4, height: 3 },
       bindings: orderItemsBindings,
-      config: { kpiValueField: 'total', kpiAggregation: 'sum', kpiFormat: 'currency' },
+      config: {
+          kpiValueField: 'total',
+          kpiAggregation: 'sum',
+          kpiSparkline: true,
+          kpiSparklineField: 'date',
+          kpiSparklineSourceId: ORDERS_SOURCE_ID,
+        },
     },
     'widget-kpi-orders': {
       id: 'widget-kpi-orders',
@@ -76,7 +82,12 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: ORDERS_SOURCE_ID,
       layout: { x: 4, y: 0, width: 4, height: 3 },
       bindings: ordersBindings,
-      config: { kpiValueField: 'status', kpiAggregation: 'count', kpiFormat: 'number' },
+      config: {
+          kpiValueField: 'status',
+          kpiAggregation: 'count',
+          kpiSparkline: true,
+          kpiSparklineField: 'date',
+        },
     },
     'widget-kpi-customers': {
       id: 'widget-kpi-customers',
@@ -85,7 +96,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: CUSTOMERS_SOURCE_ID,
       layout: { x: 8, y: 0, width: 4, height: 3 },
       bindings: customersBindings,
-      config: { kpiValueField: 'company', kpiAggregation: 'count', kpiFormat: 'number' },
+      config: { kpiValueField: 'company', kpiAggregation: 'count' },
     },
     'widget-chart-category': {
       id: 'widget-chart-category',
@@ -100,10 +111,10 @@ export const INITIAL_STATE: Partial<StudioState> = {
       id: 'widget-chart-country',
       kind: 'chart',
       title: 'Revenue by Country',
-      sourceId: ORDER_ITEMS_SOURCE_ID,
+      sourceId: ORDERS_SOURCE_ID,
       layout: { x: 6, y: 3, width: 6, height: 6 },
-      bindings: orderItemsBindings,
-      config: { chartType: 'pie', xField: 'category', yField: 'total' },
+      bindings: ordersBindings,
+      config: { chartType: 'pie', xField: 'country', yField: 'total' },
     },
     'widget-orders-grid': {
       id: 'widget-orders-grid',
@@ -117,7 +128,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
   },
   shell: {
     // TODO: make these optional
-    openDrawers: { data: true, compose: true, filters: false },
+    openDrawers: { data: false, compose: true, filters: true },
     selectedWidgetId: null,
     selectedFieldId: null,
     selectedSourceId: null,

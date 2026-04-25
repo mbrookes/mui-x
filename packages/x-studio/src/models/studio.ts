@@ -87,6 +87,8 @@ export interface StudioWidgetConfig {
   kpiSparklinePlotType?: 'line' | 'bar';
   kpiSparklineArea?: boolean;
   kpiSparklineGranularity?: 'day' | 'week' | 'month' | 'quarter' | 'year';
+  /** When true, the sparkline shows a cumulative running total instead of per-period values. */
+  kpiSparklineCumulative?: boolean;
   // Grid cross-filter
   /** Field used when a row is selected to emit a cross-filter to other widgets. Defaults to first string field. */
   crossFilterField?: string;

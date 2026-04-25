@@ -92,6 +92,7 @@ function computeSparklineData(
   valueField: string,
   aggregation: string,
   granularity: Granularity,
+  cumulative: boolean,
 ): number[] {
   const buckets = new Map<string, Record<string, unknown>[]>();
 
@@ -112,7 +113,19 @@ function computeSparklineData(
   }
 
   const sortedKeys = Array.from(buckets.keys()).sort();
-  return sortedKeys.map((key) => computeAggregate(buckets.get(key)!, valueField, aggregation));
+  const periodValues = sortedKeys.map((key) =>
+    computeAggregate(buckets.get(key)!, valueField, aggregation),
+  );
+
+  if (!cumulative) {
+    return periodValues;
+  }
+
+  let running = 0;
+  return periodValues.map((v) => {
+    running += v;
+    return running;
+  });
 }
 
 /** Find the first date/datetime filter that applies to this widget (page or widget scope). */
@@ -249,6 +262,7 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
           config.kpiValueField,
           aggregation,
           granularity,
+          config.kpiSparklineCumulative ?? false,
         );
       }
     }

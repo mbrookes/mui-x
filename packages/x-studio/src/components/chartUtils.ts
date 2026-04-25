@@ -1,11 +1,29 @@
+import dayjs from 'dayjs';
+import type { RelativeDateValue } from './filterTypes';
 import type { StudioDataSource, StudioFilterState, StudioRelationship } from '../models';
 
 type Row = Record<string, unknown>;
+
+function isRelativeDateValue(value: unknown): value is RelativeDateValue {
+  return (
+    typeof value === 'object' && value !== null && (value as RelativeDateValue).relative === true
+  );
+}
+
+function resolveRelativeDate(rel: RelativeDateValue): string {
+  const now = dayjs();
+  const result =
+    rel.direction === 'past' ? now.subtract(rel.amount, rel.unit) : now.add(rel.amount, rel.unit);
+  return result.format('YYYY-MM-DD');
+}
 
 function toComparable(
   val: unknown,
   fieldType?: 'string' | 'number' | 'boolean' | 'date' | 'datetime',
 ): number | string {
+  if (isRelativeDateValue(val)) {
+    return resolveRelativeDate(val);
+  }
   // Explicit type hint takes precedence
   if (fieldType === 'date' || fieldType === 'datetime') {
     return String(val ?? '');
@@ -50,6 +68,30 @@ function matchesFilter(row: Row, filter: StudioFilterState): boolean {
       return String(rowVal ?? '')
         .toLowerCase()
         .includes(String(filterVal ?? '').toLowerCase());
+    case 'does_not_contain':
+      return !String(rowVal ?? '')
+        .toLowerCase()
+        .includes(String(filterVal ?? '').toLowerCase());
+    case 'starts_with':
+      return String(rowVal ?? '')
+        .toLowerCase()
+        .startsWith(String(filterVal ?? '').toLowerCase());
+    case 'not_starts_with':
+      return !String(rowVal ?? '')
+        .toLowerCase()
+        .startsWith(String(filterVal ?? '').toLowerCase());
+    case 'ends_with':
+      return String(rowVal ?? '')
+        .toLowerCase()
+        .endsWith(String(filterVal ?? '').toLowerCase());
+    case 'not_ends_with':
+      return !String(rowVal ?? '')
+        .toLowerCase()
+        .endsWith(String(filterVal ?? '').toLowerCase());
+    case 'is_empty':
+      return rowVal == null || String(rowVal) === '';
+    case 'is_not_empty':
+      return rowVal != null && String(rowVal) !== '';
     case 'greater_than':
       return toComparable(rowVal, fieldType) > toComparable(filterVal, fieldType);
     case 'less_than':
@@ -60,12 +102,18 @@ function matchesFilter(row: Row, filter: StudioFilterState): boolean {
       return toComparable(rowVal, fieldType) <= toComparable(filterVal, fieldType);
     case 'between': {
       const range = filterVal as { from?: string; to?: string } | null;
-      if (!range) return true;
+      if (!range) {
+        return true;
+      }
       const cmp = toComparable(rowVal, fieldType);
       const from = range.from ? toComparable(range.from, fieldType) : null;
       const to = range.to ? toComparable(range.to, fieldType) : null;
-      if (from !== null && cmp < from) return false;
-      if (to !== null && cmp > to) return false;
+      if (from !== null && cmp < from) {
+        return false;
+      }
+      if (to !== null && cmp > to) {
+        return false;
+      }
       return true;
     }
     default:
@@ -73,16 +121,130 @@ function matchesFilter(row: Row, filter: StudioFilterState): boolean {
   }
 }
 
+function isConditionComplete(operator: StudioFilterState['operator'], value: unknown): boolean {
+  if (operator === 'is_empty' || operator === 'is_not_empty') {
+    return true;
+  }
+  if (operator === 'between') {
+    const range = value as { from?: unknown; to?: unknown } | null;
+    return !!(range?.from || range?.to);
+  }
+  if (isRelativeDateValue(value)) {
+    return true;
+  }
+  return value !== '' && value != null;
+}
+
+function isFilterComplete(filter: StudioFilterState): boolean {
+  if (!filter.field) {
+    return false;
+  }
+  const mode = filter.filterMode ?? 'condition';
+  if (mode === 'selection') {
+    return Array.isArray(filter.value) && filter.value.length > 0;
+  }
+  if (mode === 'rank') {
+    const n = Number(filter.value);
+    return Number.isFinite(n) && n > 0;
+  }
+  return isConditionComplete(filter.operator, filter.value);
+}
+
+function matchesFilterState(row: Row, filter: StudioFilterState): boolean {
+  const mode = filter.filterMode ?? 'condition';
+
+  if (mode === 'selection') {
+    const selected = filter.value as string[];
+    if (!Array.isArray(selected) || selected.length === 0) {
+      return true;
+    }
+    const rowVal = String(row[filter.field] ?? '');
+    return selected.some((v) => String(v) === rowVal);
+  }
+
+  // rank is handled at the dataset level in applyFilters — rows here have already been sliced
+  if (mode === 'rank') {
+    return true;
+  }
+
+  const primary = matchesFilter(row, filter);
+  if (!filter.operator2 || !isConditionComplete(filter.operator2, filter.value2)) {
+    return primary;
+  }
+  const secondary = matchesFilter(row, {
+    ...filter,
+    operator: filter.operator2,
+    value: filter.value2,
+  });
+  return filter.conjunction === 'or' ? primary || secondary : primary && secondary;
+}
+
 export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
-  if (filters.length === 0) {
+  const active = filters.filter(isFilterComplete);
+  if (active.length === 0) {
     return rows;
   }
 
-  return rows.filter((row) => filters.every((f) => matchesFilter(row, f)));
+  // Apply rank filters first (dataset-level reduction)
+  const rankFilters = active.filter((f) => (f.filterMode ?? 'condition') === 'rank');
+  let result = rows;
+  for (const f of rankFilters) {
+    const n = Math.round(Number(f.value));
+    const dir = f.rankDirection ?? 'top';
+    const fieldId = f.field;
+
+    if (f.rankByField) {
+      // Aggregate rank: group rows by fieldId, sum rankByField, keep top/bottom N groups
+      const totals = new Map<unknown, number>();
+      for (const row of result) {
+        const key = row[fieldId];
+        totals.set(key, (totals.get(key) ?? 0) + Number(row[f.rankByField] ?? 0));
+      }
+      const sorted = Array.from(totals.entries()).sort((a, b) =>
+        dir === 'top' ? b[1] - a[1] : a[1] - b[1],
+      );
+      const topKeys = new Set(sorted.slice(0, n).map(([k]) => k));
+      result = result.filter((row) => topKeys.has(row[fieldId]));
+    } else {
+      // Numeric rank: sort rows by the field value directly
+      const sorted = [...result].sort((a, b) => {
+        const av = Number(a[fieldId] ?? 0);
+        const bv = Number(b[fieldId] ?? 0);
+        return dir === 'top' ? bv - av : av - bv;
+      });
+      result = sorted.slice(0, n);
+    }
+  }
+
+  // Apply condition and selection filters row-by-row
+  const rowFilters = active.filter((f) => (f.filterMode ?? 'condition') !== 'rank');
+  if (rowFilters.length === 0) {
+    return result;
+  }
+  return result.filter((row) => rowFilters.every((f) => matchesFilterState(row, f)));
 }
 
 /**
- * Find how to join widgetSourceId to filterSourceId using declared relationships.
+ * Returns the set of source IDs reachable from `sourceId` in one hop via declared relationships.
+ * Always includes `sourceId` itself.
+ */
+export function getReachableSourceIds(
+  sourceId: string,
+  relationships: StudioRelationship[],
+): Set<string> {
+  const reachable = new Set<string>([sourceId]);
+  for (const rel of relationships) {
+    if (rel.sourceId === sourceId) {
+      reachable.add(rel.targetId);
+    }
+    if (rel.targetId === sourceId) {
+      reachable.add(rel.sourceId);
+    }
+  }
+  return reachable;
+}
+
+/**
  * Returns { widgetJoinField, filterJoinField } or null if no path exists.
  */
 function findJoinPath(
@@ -140,8 +302,9 @@ export function resolveRows(
       continue; // no declared relationship — skip rather than produce incorrect results
     }
 
-    // Apply the condition to the foreign source rows
-    const { filterSourceId: _src, ...baseFilter } = f;
+    // Destructure filterSourceId out so baseFilter is a plain StudioFilterState for applyFilters
+    const { filterSourceId: removedField, ...baseFilter } = f;
+    void removedField;
     const matchingForeignRows = applyFilters(foreignSource.rows, [baseFilter]);
 
     // Build the allowed set from the join field in the foreign source

@@ -9,7 +9,12 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';
 
-import { StudioProvider, useStudioController, useStudioSelector } from '../context';
+import {
+  StudioProvider,
+  CanvasScrollContext,
+  useStudioController,
+  useStudioSelector,
+} from '../context';
 import type { StudioDrawer } from '../models';
 import type { StudioController } from '../store';
 import { StudioCanvas } from './StudioCanvas';
@@ -20,14 +25,14 @@ import { StudioFiltersDrawer } from './StudioFiltersDrawer';
 const DRAWER_WIDTH = 215;
 const COLLAPSED_WIDTH = 36;
 
-export interface StudioShellSlots {
+export interface StudioSlots {
   dataDrawer?: React.ReactNode;
   composeDrawer?: React.ReactNode;
   filtersDrawer?: React.ReactNode;
   canvas?: React.ReactNode;
 }
 
-export interface StudioShellProps extends StudioShellSlots {
+export interface StudioProps extends StudioSlots {
   controller: StudioController;
 }
 
@@ -167,10 +172,11 @@ function DrawerPanel(props: {
   );
 }
 
-function StudioShellContent(props: StudioShellSlots) {
+function StudioContent(props: StudioSlots) {
   const { canvas, composeDrawer, dataDrawer, filtersDrawer } = props;
   const mode = useStudioSelector((state) => state.mode);
   const controller = useStudioController();
+  const canvasScrollRef = React.useRef<HTMLDivElement>(null);
 
   const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
   const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
@@ -255,27 +261,30 @@ function StudioShellContent(props: StudioShellSlots) {
           {filtersDrawer ?? <StudioFiltersDrawer />}
         </DrawerPanel>
 
-        <Box
-          sx={{
-            flexGrow: 1,
-            minWidth: 0,
-            overflowY: 'auto',
-            bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
-          }}
-        >
-          {canvas ?? <StudioCanvas />}
-        </Box>
+        <CanvasScrollContext.Provider value={canvasScrollRef}>
+          <Box
+            ref={canvasScrollRef}
+            sx={{
+              flexGrow: 1,
+              minWidth: 0,
+              overflowY: 'auto',
+              bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+            }}
+          >
+            {canvas ?? <StudioCanvas />}
+          </Box>
+        </CanvasScrollContext.Provider>
       </Box>
     </Box>
   );
 }
 
-export function StudioShell(props: StudioShellProps) {
+export function Studio(props: StudioProps) {
   const { controller, ...slots } = props;
 
   return (
     <StudioProvider controller={controller}>
-      <StudioShellContent {...slots} />
+      <StudioContent {...slots} />
     </StudioProvider>
   );
 }

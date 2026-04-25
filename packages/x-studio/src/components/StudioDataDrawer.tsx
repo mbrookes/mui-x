@@ -1,7 +1,7 @@
+'use client';
 import * as React from 'react';
 import {
   Alert,
-  Box,
   Chip,
   Collapse,
   List,
@@ -33,7 +33,7 @@ function DataSourceSection(props: { source: StudioDataSource }) {
   const selectedSourceId = useStudioSelector((state) => state.shell.selectedSourceId);
 
   return (
-    <Box>
+    <div>
       <ListItemButton onClick={() => setOpen((prev) => !prev)} sx={{ px: 0, py: 0.5 }}>
         <ListItemText
           primary={
@@ -96,7 +96,7 @@ function DataSourceSection(props: { source: StudioDataSource }) {
             })}
         </List>
       </Collapse>
-    </Box>
+    </div>
   );
 }
 

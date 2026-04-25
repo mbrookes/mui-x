@@ -1,3 +1,4 @@
+'use client';
 import * as React from 'react';
 import { Box, Paper, Typography } from '@mui/material';
 
@@ -5,116 +6,125 @@ import { useStudioController, useStudioSelector } from '../context';
 import { StudioWidgetCard } from './StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from './widgetUtils';
 
+// Plain JS DnD insertion point component — must live at module level
+function InsertionPoint({
+  rowIndex: _rowIndex,
+  colIndex: _colIndex,
+  onDrop,
+  orientation,
+  mode,
+}: {
+  rowIndex: number;
+  colIndex: number;
+  onDrop: (data: any) => void;
+  orientation: 'vertical' | 'horizontal';
+  mode: string;
+}) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [isOver, setIsOver] = React.useState(false);
+  React.useEffect(() => {
+    // No-op in view mode
+    if (mode !== 'edit') {
+      return undefined;
+    }
+    const node = ref.current;
+    if (!node) {
+      return undefined;
+    }
+    function handleDragOver(event: DragEvent) {
+      event.preventDefault();
+      setIsOver(true);
+    }
+    function handleDragLeave(event: DragEvent) {
+      // Ignore if the pointer moved to a child element (e.g. the indicator line)
+      if (node?.contains(event.relatedTarget as Node)) {
+        return;
+      }
+      setIsOver(false);
+    }
+    function handleDropEvent(event: DragEvent) {
+      setIsOver(false);
+      try {
+        const data = JSON.parse(event.dataTransfer?.getData('application/json') || '{}');
+        onDrop(data);
+      } catch {
+        /* ignore invalid JSON */
+      }
+    }
+    node.addEventListener('dragover', handleDragOver);
+    node.addEventListener('dragleave', handleDragLeave);
+    node.addEventListener('drop', handleDropEvent);
+    return () => {
+      node.removeEventListener('dragover', handleDragOver);
+      node.removeEventListener('dragleave', handleDragLeave);
+      node.removeEventListener('drop', handleDropEvent);
+    };
+  }, [onDrop, mode]);
+  // Only show the line when hovered, otherwise invisible and non-interfering
+  return (
+    <Box
+      ref={ref}
+      sx={{
+        position: 'relative',
+        ...(orientation === 'vertical'
+          ? {
+              width: 8,
+              minWidth: 8,
+              alignSelf: 'stretch',
+              display: 'flex',
+              alignItems: 'stretch',
+              justifyContent: 'center',
+            }
+          : {
+              width: '100%',
+              height: 8,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'stretch',
+            }),
+        zIndex: isOver ? 2 : 1,
+      }}
+    >
+      {isOver && orientation === 'vertical' && (
+        <Box
+          sx={{
+            position: 'absolute',
+            left: '50%',
+            top: 0,
+            bottom: 0,
+            width: 2,
+            bgcolor: 'primary.main',
+            borderRadius: 1,
+            transform: 'translateX(-50%)',
+            boxShadow: 2,
+          }}
+        />
+      )}
+      {isOver && orientation === 'horizontal' && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: '50%',
+            left: 0,
+            right: 0,
+            height: 2,
+            bgcolor: 'primary.main',
+            borderRadius: 1,
+            transform: 'translateY(-50%)',
+            boxShadow: 2,
+          }}
+        />
+      )}
+    </Box>
+  );
+}
+
 export function StudioCanvas() {
   const mode = useStudioSelector((state) => state.mode);
   const widgetRows = useStudioSelector(
     (state) => state.pages[state.dashboard.activePageId].widgetRows,
   );
   const controller = useStudioController();
-
-  // Droppable wrapper for insertion points
-  // Plain JS DnD for insertion points
-  function InsertionPoint({
-    rowIndex,
-    colIndex,
-    onDrop,
-    orientation,
-  }: {
-    rowIndex: number;
-    colIndex: number;
-    onDrop: (data: any) => void;
-    orientation: 'vertical' | 'horizontal';
-  }) {
-    const ref = React.useRef<HTMLDivElement>(null);
-    const [isOver, setIsOver] = React.useState(false);
-    React.useEffect(() => {
-      // No-op in view mode
-      if (mode !== 'edit') return;
-      const node = ref.current;
-      if (!node) return;
-      function handleDragOver(e: DragEvent) {
-        e.preventDefault();
-        setIsOver(true);
-      }
-      function handleDragLeave(e: DragEvent) {
-        // Ignore if the pointer moved to a child element (e.g. the indicator line)
-        if (node?.contains(e.relatedTarget as Node)) return;
-        setIsOver(false);
-      }
-      function handleDropEvent(e: DragEvent) {
-        setIsOver(false);
-        try {
-          const data = JSON.parse(e.dataTransfer?.getData('application/json') || '{}');
-          onDrop(data);
-        } catch {}
-      }
-      node.addEventListener('dragover', handleDragOver);
-      node.addEventListener('dragleave', handleDragLeave);
-      node.addEventListener('drop', handleDropEvent);
-      return () => {
-        node.removeEventListener('dragover', handleDragOver);
-        node.removeEventListener('dragleave', handleDragLeave);
-        node.removeEventListener('drop', handleDropEvent);
-      };
-    }, [onDrop]);
-    // Only show the line when hovered, otherwise invisible and non-interfering
-    return (
-      <Box
-        ref={ref}
-        sx={{
-          position: 'relative',
-          ...(orientation === 'vertical'
-            ? {
-                width: 8,
-                minWidth: 8,
-                alignSelf: 'stretch',
-                display: 'flex',
-                alignItems: 'stretch',
-                justifyContent: 'center',
-              }
-            : {
-                width: '100%',
-                height: 8,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'stretch',
-              }),
-          zIndex: isOver ? 2 : 1,
-        }}
-      >
-        {isOver && orientation === 'vertical' && (
-          <Box
-            sx={{
-              position: 'absolute',
-              left: '50%',
-              top: 0,
-              bottom: 0,
-              width: 2,
-              bgcolor: 'primary.main',
-              borderRadius: 1,
-              transform: 'translateX(-50%)',
-              boxShadow: 2,
-            }}
-          />
-        )}
-        {isOver && orientation === 'horizontal' && (
-          <Box
-            sx={{
-              position: 'absolute',
-              top: '50%',
-              left: 0,
-              right: 0,
-              height: 2,
-              bgcolor: 'primary.main',
-              borderRadius: 1,
-              transform: 'translateY(-50%)',
-              boxShadow: 2,
-            }}
-          />
-        )}
-      </Box>
-    );
-  }
 
   // Drop handler for insertion points.
   // orientation='horizontal' → insert a brand-new row at rowIndex.
@@ -136,7 +146,9 @@ export function StudioCanvas() {
 
       if (data?.type === 'compose-widget' && data.kind) {
         const sources = Object.values(controller.getState().dataSources);
-        if (widgetKindRequiresDataSource(data.kind) && sources.length === 0) return;
+        if (widgetKindRequiresDataSource(data.kind) && sources.length === 0) {
+          return;
+        }
         const newWidget = createDefaultWidget(data.kind, sources[0]);
         controller.addWidget(newWidget);
         const rows = widgetRows.map((r) => [...r]);
@@ -198,9 +210,9 @@ export function StudioCanvas() {
   return (
     <Box
       sx={{ width: '100%', p: mode === 'edit' ? 0 : '8px' }}
-      onMouseDown={(e) => {
+      onMouseDown={(event) => {
         // Deselect when clicking the canvas background (not a widget card)
-        const target = e.target as HTMLElement;
+        const target = event.target as HTMLElement;
         if (!target.closest('[data-widget-card]')) {
           controller.setSelectedWidget(null);
         }
@@ -213,6 +225,7 @@ export function StudioCanvas() {
           colIndex={0}
           onDrop={handleDrop(0, 0, 'horizontal')}
           orientation="horizontal"
+          mode={mode}
         />
       )}
       {widgetRows.map((row, rowIndex) => (
@@ -232,6 +245,7 @@ export function StudioCanvas() {
                 colIndex={0}
                 onDrop={handleDrop(rowIndex, 0, 'vertical')}
                 orientation="vertical"
+                mode={mode}
               />
             )}
             {row.map((widgetId, colIndex) => (
@@ -246,6 +260,7 @@ export function StudioCanvas() {
                     colIndex={colIndex + 1}
                     onDrop={handleDrop(rowIndex, colIndex + 1, 'vertical')}
                     orientation="vertical"
+                    mode={mode}
                   />
                 )}
               </React.Fragment>
@@ -258,6 +273,7 @@ export function StudioCanvas() {
               colIndex={0}
               onDrop={handleDrop(rowIndex + 1, 0, 'horizontal')}
               orientation="horizontal"
+              mode={mode}
             />
           )}
         </Box>

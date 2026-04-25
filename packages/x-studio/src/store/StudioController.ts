@@ -171,6 +171,30 @@ export class StudioController {
     });
   };
 
+  updateDataSourceField = (
+    sourceId: string,
+    fieldId: string,
+    updates: Partial<import('../models').StudioDataField>,
+  ) => {
+    const state = this.store.state;
+    const source = state.dataSources[sourceId];
+
+    if (!source) {
+      return;
+    }
+
+    this.commitState({
+      ...state,
+      dataSources: {
+        ...state.dataSources,
+        [sourceId]: {
+          ...source,
+          fields: source.fields.map((f) => (f.id === fieldId ? { ...f, ...updates } : f)),
+        },
+      },
+    });
+  };
+
   addWidget = (widget: StudioWidget) => {
     const state = this.store.state;
     const activePage = state.pages[state.dashboard.activePageId];

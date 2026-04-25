@@ -1,36 +1,51 @@
+'use client';
 import * as React from 'react';
 import {
   Alert,
   Box,
   Divider,
   FormControl,
+  FormControlLabel,
   IconButton,
   InputLabel,
+  ListSubheader,
   MenuItem,
   Paper,
   Select,
   Stack,
+  Switch,
   Tab,
   Tabs,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Tooltip,
   Typography,
   Autocomplete,
+  useTheme,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
-import type { StudioBarLayout, StudioDataField } from '../models';
-
-import { useStudioController, useStudioSelector } from '../context';
 import type {
+  StudioNumberFormat,
   StudioChartType,
   StudioKpiAggregation,
-  StudioKpiFormat,
   StudioWidgetKind,
+  StudioWidgetConfig,
 } from '../models';
+
+import { CanvasScrollContext, useStudioController, useStudioSelector } from '../context';
 import { createDefaultWidget, WIDGET_TYPES, widgetKindRequiresDataSource } from './widgetUtils';
+import {
+  AreaIcon,
+  Area100Icon,
+  AreaStackedIcon,
+  BarGroupedIcon,
+  Bar100Icon,
+  BarStackedIcon,
+  DonutIcon,
+  LineIcon,
+  PieIcon,
+  ScatterIcon,
+} from './icons/ChartIcons';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +62,103 @@ function TabPanel(props: TabPanelProps) {
     <Box role="tabpanel" hidden={value !== index} sx={{ pt: 2 }}>
       {value === index ? children : null}
     </Box>
+  );
+}
+
+// ── Chart type picker ─────────────────────────────────────────────────────────
+
+interface ChartTypeOption {
+  value: StudioChartType;
+  label: string;
+  Icon: React.FC<{ size?: number; color?: string; secondaryColor?: string }>;
+}
+
+const CHART_TYPE_OPTIONS: ChartTypeOption[] = [
+  { value: 'bar', label: 'Bar (grouped)', Icon: BarGroupedIcon },
+  { value: 'bar-stacked', label: 'Bar (stacked)', Icon: BarStackedIcon },
+  { value: 'bar-100', label: 'Bar (100%)', Icon: Bar100Icon },
+  { value: 'line', label: 'Line', Icon: LineIcon },
+  { value: 'area', label: 'Area', Icon: AreaIcon },
+  { value: 'area-stacked', label: 'Area (stacked)', Icon: AreaStackedIcon },
+  { value: 'area-100', label: 'Area (100%)', Icon: Area100Icon },
+  { value: 'scatter', label: 'Scatter', Icon: ScatterIcon },
+  { value: 'pie', label: 'Pie', Icon: PieIcon },
+  { value: 'donut', label: 'Donut', Icon: DonutIcon },
+];
+
+function ChartTypePicker({
+  value,
+  onChange,
+}: {
+  value: StudioChartType;
+  onChange: (v: StudioChartType) => void;
+}) {
+  const theme = useTheme();
+  const primary = theme.palette.primary.main;
+  const secondary = theme.palette.secondary.main || theme.palette.primary.light;
+
+  return (
+    <div>
+      <Typography variant="caption" color="text.secondary" sx={{ mb: 0.75, display: 'block' }}>
+        Chart type
+      </Typography>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(5, 1fr)',
+          gap: 0.5,
+        }}
+      >
+        {CHART_TYPE_OPTIONS.map((opt) => {
+          const selected = value === opt.value;
+          return (
+            <Tooltip key={opt.value} title={opt.label} placement="top">
+              <Box
+                role="button"
+                tabIndex={0}
+                aria-label={opt.label}
+                aria-pressed={selected}
+                onClick={() => onChange(opt.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    onChange(opt.value);
+                  }
+                }}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  p: 0.5,
+                  borderRadius: 1,
+                  border: 1,
+                  borderColor: selected ? 'primary.main' : 'divider',
+                  bgcolor: selected ? 'primary.main18' : 'transparent',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                  color: selected ? 'primary.main' : 'text.secondary',
+                  '&:hover': {
+                    borderColor: 'primary.main',
+                    bgcolor: 'primary.main10',
+                    color: 'primary.main',
+                  },
+                  '&:focus-visible': {
+                    outline: 2,
+                    outlineColor: 'primary.main',
+                    outlineOffset: 1,
+                  },
+                }}
+              >
+                <opt.Icon
+                  size={28}
+                  color={selected ? primary : 'currentColor'}
+                  secondaryColor={selected ? secondary : 'currentColor'}
+                />
+              </Box>
+            </Tooltip>
+          );
+        })}
+      </Box>
+    </div>
   );
 }
 
@@ -67,9 +179,106 @@ const TYPE_FORMAT_LABEL: Record<string, string> = {
 
 // ── Add widget view (no selection) ───────────────────────────────────────────
 
+function getCursor(isDragging: boolean) {
+  return isDragging ? 'grabbing' : 'grab';
+}
+
+// ── Widget type card (extracted to avoid hooks-in-callbacks) ──────────────────
+
+interface WidgetTypeEntry {
+  kind: StudioWidgetKind;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+}
+
+interface WidgetTypeCardProps {
+  wt: WidgetTypeEntry;
+  canAdd: boolean;
+  onAdd: (kind: StudioWidgetKind) => void;
+}
+
+function WidgetTypeCard({ wt, canAdd, onAdd }: WidgetTypeCardProps) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+  React.useEffect(() => {
+    if (!canAdd) {
+      return undefined;
+    }
+    const node = ref.current;
+    if (!node) {
+      return undefined;
+    }
+    function handleDragStart(event: DragEvent) {
+      setIsDragging(true);
+      event.dataTransfer?.setData(
+        'application/json',
+        JSON.stringify({ type: 'compose-widget', kind: wt.kind }),
+      );
+      if (node) {
+        event.dataTransfer?.setDragImage(node, 0, 0);
+      }
+    }
+    function handleDragEnd() {
+      setIsDragging(false);
+    }
+    node.setAttribute('draggable', 'true');
+    node.addEventListener('dragstart', handleDragStart);
+    node.addEventListener('dragend', handleDragEnd);
+    return () => {
+      node.removeEventListener('dragstart', handleDragStart);
+      node.removeEventListener('dragend', handleDragEnd);
+    };
+  }, [canAdd, wt.kind]);
+
+  return (
+    <Paper
+      ref={ref}
+      variant="outlined"
+      onClick={() => {
+        if (canAdd) {
+          onAdd(wt.kind);
+        }
+      }}
+      tabIndex={0}
+      role="button"
+      aria-label={`Add ${wt.label} widget`}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          if (canAdd) {
+            onAdd(wt.kind);
+          }
+        }
+      }}
+      sx={{
+        p: 1.5,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1.5,
+        cursor: canAdd ? getCursor(isDragging) : 'not-allowed',
+        opacity: canAdd ? 1 : 0.5,
+        transition: 'border-color 0.15s, background-color 0.15s',
+        '&:hover': canAdd ? { borderColor: 'primary.main', bgcolor: 'action.hover' } : {},
+        '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
+        boxShadow: isDragging ? 4 : undefined,
+      }}
+    >
+      <Box sx={{ color: 'primary.main', display: 'flex', flexShrink: 0 }}>{wt.icon}</Box>
+      <div>
+        <Typography variant="subtitle2">{wt.label}</Typography>
+        <Typography variant="caption" color="text.secondary">
+          {wt.description}
+        </Typography>
+      </div>
+    </Paper>
+  );
+}
+
 function AddWidgetView() {
   const controller = useStudioController();
   const dataSources = useStudioSelector((state) => state.dataSources);
+  const canvasScrollRef = React.useContext(CanvasScrollContext);
 
   const handleAdd = (kind: StudioWidgetKind) => {
     const sources = Object.values(dataSources);
@@ -77,6 +286,13 @@ function AddWidgetView() {
       return;
     }
     controller.addWidget(createDefaultWidget(kind, sources[0]));
+    // Scroll the canvas to the bottom so the new widget is visible
+    requestAnimationFrame(() => {
+      canvasScrollRef?.current?.scrollTo({
+        top: canvasScrollRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    });
   };
 
   const hasSources = Object.keys(dataSources).length > 0;
@@ -93,76 +309,7 @@ function AddWidgetView() {
       )}
       {WIDGET_TYPES.map((wt) => {
         const canAdd = !widgetKindRequiresDataSource(wt.kind) || hasSources;
-        const ref = React.useRef<HTMLDivElement>(null);
-        const [isDragging, setIsDragging] = React.useState(false);
-        React.useEffect(() => {
-          if (!canAdd) {
-            return undefined;
-          }
-          const node = ref.current;
-          if (!node) return undefined;
-          function handleDragStart(e: DragEvent) {
-            setIsDragging(true);
-            e.dataTransfer?.setData(
-              'application/json',
-              JSON.stringify({ type: 'compose-widget', kind: wt.kind }),
-            );
-            if (node) e.dataTransfer?.setDragImage(node, 0, 0);
-          }
-          function handleDragEnd() {
-            setIsDragging(false);
-          }
-          node.setAttribute('draggable', 'true');
-          node.addEventListener('dragstart', handleDragStart);
-          node.addEventListener('dragend', handleDragEnd);
-          return () => {
-            node.removeEventListener('dragstart', handleDragStart);
-            node.removeEventListener('dragend', handleDragEnd);
-          };
-        }, [canAdd, wt.kind]);
-        return (
-          <Paper
-            key={wt.kind}
-            ref={ref}
-            variant="outlined"
-            onClick={() => {
-              if (canAdd) {
-                handleAdd(wt.kind);
-              }
-            }}
-            tabIndex={0}
-            role="button"
-            aria-label={`Add ${wt.label} widget`}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                if (canAdd) {
-                  handleAdd(wt.kind);
-                }
-              }
-            }}
-            sx={{
-              p: 1.5,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1.5,
-              cursor: canAdd ? (isDragging ? 'grabbing' : 'grab') : 'not-allowed',
-              opacity: canAdd ? 1 : 0.5,
-              transition: 'border-color 0.15s, background-color 0.15s',
-              '&:hover': canAdd ? { borderColor: 'primary.main', bgcolor: 'action.hover' } : {},
-              '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
-              boxShadow: isDragging ? 4 : undefined,
-            }}
-          >
-            <Box sx={{ color: 'primary.main', display: 'flex', flexShrink: 0 }}>{wt.icon}</Box>
-            <Box>
-              <Typography variant="subtitle2">{wt.label}</Typography>
-              <Typography variant="caption" color="text.secondary">
-                {wt.description}
-              </Typography>
-            </Box>
-          </Paper>
-        );
+        return <WidgetTypeCard key={wt.kind} wt={wt} canAdd={canAdd} onAdd={handleAdd} />;
       })}
     </Stack>
   );
@@ -170,9 +317,16 @@ function AddWidgetView() {
 
 // ── Field detail view ─────────────────────────────────────────────────────────
 
+const NUMBER_FORMAT_OPTIONS: { value: StudioNumberFormat; label: string }[] = [
+  { value: 'integer', label: 'Integer' },
+  { value: 'decimal', label: 'Decimal' },
+  { value: 'percent', label: 'Percent' },
+  { value: 'currency', label: 'Currency' },
+];
+
 function FieldDetailView() {
+  const controller = useStudioController();
   const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
-  const selectedSourceId = useStudioSelector((state) => state.shell.selectedSourceId);
   const source = useStudioSelector((state) =>
     state.shell.selectedSourceId ? state.dataSources[state.shell.selectedSourceId] : null,
   );
@@ -204,6 +358,37 @@ function FieldDetailView() {
           </Box>
         </React.Fragment>
       ))}
+      {field.type === 'number' && (
+        <React.Fragment>
+          <Divider />
+          <Box sx={{ py: 1.25 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel id="field-number-format-label">Number Format</InputLabel>
+              <Select
+                labelId="field-number-format-label"
+                label="Number Format"
+                value={field.format ?? ''}
+                onChange={(event) => {
+                  const val = event.target.value as StudioNumberFormat | '';
+                  controller.updateDataSourceField(source.id, field.id, {
+                    format: val === '' ? undefined : val,
+                  });
+                }}
+                displayEmpty
+              >
+                <MenuItem value="">
+                  <em>Default</em>
+                </MenuItem>
+                {NUMBER_FORMAT_OPTIONS.map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+        </React.Fragment>
+      )}
     </Stack>
   );
 }
@@ -258,8 +443,8 @@ function GridSetupPanel(props: { widgetId: string }) {
           role="checkbox"
           aria-checked={visibleColumns.includes(field.id)}
           tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === ' ' || e.key === 'Enter') {
+          onKeyDown={(event) => {
+            if (event.key === ' ' || event.key === 'Enter') {
               handleColumnToggle(field.id);
             }
           }}
@@ -288,16 +473,7 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const config = widget?.config ?? {};
   const numericFields = allFields.filter((f) => f.type === 'number');
 
-  // Resolve base chart type (strip bar-grouped/bar-stacked into bar + layout)
-  const rawChartType = config.chartType ?? 'bar';
-  const chartType: StudioChartType =
-    rawChartType === 'bar-grouped' || rawChartType === 'bar-stacked' ? 'bar' : rawChartType;
-  const barLayout: StudioBarLayout =
-    rawChartType === 'bar-grouped'
-      ? 'grouped'
-      : rawChartType === 'bar-stacked'
-        ? 'stacked'
-        : (config.barLayout ?? 'grouped');
+  const chartType: StudioChartType = config.chartType ?? 'bar';
 
   // Y series: prefer ySeries, else seed from yField
   const ySeries = config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : []);
@@ -305,16 +481,17 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const selectedXField = allFields.find((f) => f.id === config.xField) ?? null;
 
   const supportsMultipleSeries =
-    chartType === 'bar' || chartType === 'line' || chartType === 'area';
-  const supportsBarLayout = chartType === 'bar';
+    chartType === 'bar' ||
+    chartType === 'bar-stacked' ||
+    chartType === 'bar-100' ||
+    chartType === 'line' ||
+    chartType === 'area' ||
+    chartType === 'area-stacked' ||
+    chartType === 'area-100';
+  const isScatter = chartType === 'scatter';
 
   const handleChartTypeChange = (newType: StudioChartType) => {
-    controller.updateWidgetConfig(widgetId, { chartType: newType, barLayout: 'grouped' });
-  };
-
-  const handleBarLayoutChange = (_e: React.MouseEvent, newLayout: StudioBarLayout | null) => {
-    if (!newLayout) return;
-    controller.updateWidgetConfig(widgetId, { barLayout: newLayout });
+    controller.updateWidgetConfig(widgetId, { chartType: newType });
   };
 
   const usedYFieldIds = ySeries.map((s) => s.fieldId).filter(Boolean);
@@ -349,40 +526,8 @@ function ChartSetupPanel(props: { widgetId: string }) {
 
   return (
     <Stack spacing={2}>
-      {/* Chart type */}
-      <FormControl size="small" fullWidth>
-        <InputLabel>Chart type</InputLabel>
-        <Select
-          label="Chart type"
-          value={chartType}
-          onChange={(e) => handleChartTypeChange(e.target.value as StudioChartType)}
-        >
-          <MenuItem value="bar">Bar</MenuItem>
-          <MenuItem value="line">Line</MenuItem>
-          <MenuItem value="area">Area</MenuItem>
-          <MenuItem value="pie">Pie / Donut</MenuItem>
-          <MenuItem value="scatter">Scatter</MenuItem>
-        </Select>
-      </FormControl>
-
-      {/* Bar layout toggle */}
-      {supportsBarLayout && (
-        <Box>
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
-            Layout
-          </Typography>
-          <ToggleButtonGroup
-            size="small"
-            exclusive
-            value={barLayout}
-            onChange={handleBarLayoutChange}
-            sx={{ width: '100%', '& .MuiToggleButton-root': { flex: 1, py: 0.25 } }}
-          >
-            <ToggleButton value="grouped">Grouped</ToggleButton>
-            <ToggleButton value="stacked">Stacked</ToggleButton>
-          </ToggleButtonGroup>
-        </Box>
-      )}
+      {/* Chart type icon picker */}
+      <ChartTypePicker value={chartType} onChange={handleChartTypeChange} />
 
       <Divider />
 
@@ -390,7 +535,7 @@ function ChartSetupPanel(props: { widgetId: string }) {
       <Autocomplete
         size="small"
         fullWidth
-        options={chartType === 'scatter' ? numericFields : allFields}
+        options={isScatter ? numericFields : allFields}
         groupBy={(option) => option.sourceLabel}
         getOptionLabel={(option) => option.label}
         value={selectedXField}
@@ -398,22 +543,25 @@ function ChartSetupPanel(props: { widgetId: string }) {
           controller.updateWidgetConfig(widgetId, { xField: newValue?.id ?? '' })
         }
         renderInput={(params) => (
-          <TextField
-            {...params}
-            label={chartType === 'scatter' ? 'X field (numeric)' : 'X / Category field'}
-          />
+          <TextField {...params} label={isScatter ? 'X field (numeric)' : 'X / Category field'} />
         )}
         isOptionEqualToValue={(option, value) => option.id === value.id}
       />
 
       {/* Y series */}
-      <Box>
+      <div>
         <Stack direction="row" sx={{ alignItems: 'center', mb: 0.5 }}>
           <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
             {supportsMultipleSeries ? 'Y / Measure fields' : 'Y / Measure field'}
           </Typography>
           {supportsMultipleSeries && (
-            <Tooltip title={usedYFieldIds.length >= numericFields.length ? 'No more fields to add' : 'Add series'}>
+            <Tooltip
+              title={
+                usedYFieldIds.length >= numericFields.length
+                  ? 'No more fields to add'
+                  : 'Add series'
+              }
+            >
               <span>
                 <IconButton
                   size="small"
@@ -479,7 +627,7 @@ function ChartSetupPanel(props: { widgetId: string }) {
             />
           )}
         </Stack>
-      </Box>
+      </div>
     </Stack>
   );
 }
@@ -523,7 +671,7 @@ function KpiSetupPanel(props: { widgetId: string }) {
   };
   const aggregationOptions = selectedFieldType
     ? AGGREGATIONS[selectedFieldType] || [{ value: 'count', label: 'Count' }]
-    : AGGREGATIONS['number'];
+    : AGGREGATIONS.number;
   const onlyOneAgg = aggregationOptions.length === 1;
   const selectedAgg = aggregationOptions.find((a) => a.value === config.kpiAggregation)
     ? config.kpiAggregation
@@ -532,8 +680,6 @@ function KpiSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
 
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
-  const fields = source?.fields ?? [];
-  const numericFields = fields.filter((f) => f.type === 'number');
 
   if (!source) {
     return (
@@ -566,9 +712,9 @@ function KpiSetupPanel(props: { widgetId: string }) {
         <Select
           label="Aggregation"
           value={selectedAgg}
-          onChange={(e) =>
+          onChange={(event) =>
             controller.updateWidgetConfig(widgetId, {
-              kpiAggregation: e.target.value as StudioKpiAggregation,
+              kpiAggregation: event.target.value as StudioKpiAggregation,
             })
           }
         >
@@ -580,22 +726,249 @@ function KpiSetupPanel(props: { widgetId: string }) {
         </Select>
       </FormControl>
 
+      <FormControlLabel
+        control={
+          <Switch
+            size="small"
+            checked={config.kpiCompact ?? true}
+            onChange={(event) =>
+              controller.updateWidgetConfig(widgetId, { kpiCompact: event.target.checked })
+            }
+          />
+        }
+        label="Compact numbers"
+      />
+
+      <FormControlLabel
+        control={
+          <Switch
+            size="small"
+            checked={config.kpiSparkline ?? false}
+            onChange={(event) =>
+              controller.updateWidgetConfig(widgetId, { kpiSparkline: event.target.checked })
+            }
+          />
+        }
+        label="Sparkline"
+      />
+
+      {config.kpiSparkline && <KpiSparklineOptions widgetId={widgetId} config={config} />}
+    </Stack>
+  );
+}
+
+function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConfig }) {
+  const { widgetId, config } = props;
+  const controller = useStudioController();
+  const dataSources = useStudioSelector((state) => state.dataSources);
+  const filters = useStudioSelector((state) => state.filters);
+  const widget = useStudioSelector((state) => state.widgets[widgetId]);
+
+  // Auto-detected date filter field
+  const sourceId = widget?.sourceId;
+  const source = sourceId ? dataSources[sourceId] : undefined;
+  const relationships = useStudioSelector((state) => state.relationships);
+
+  // Collect date fields from primary source + all directly related sources
+  const allDateFieldsWithJoined = React.useMemo(() => {
+    if (!source || !sourceId) {
+      return [];
+    }
+    const result: { id: string; label: string; sourceId: string; sourceLabel: string }[] = [];
+    source.fields
+      .filter((f) => f.type === 'date' || f.type === 'datetime')
+      .forEach((f) => result.push({ id: f.id, label: f.label, sourceId, sourceLabel: source.label }));
+    for (const rel of relationships) {
+      let relatedId: string | null = null;
+      if (rel.sourceId === sourceId) {
+        relatedId = rel.targetId;
+      } else if (rel.targetId === sourceId) {
+        relatedId = rel.sourceId;
+      }
+      if (!relatedId) {
+        continue;
+      }
+      const relSource = dataSources[relatedId];
+      if (!relSource) {
+        continue;
+      }
+      relSource.fields
+        .filter((f) => f.type === 'date' || f.type === 'datetime')
+        .forEach((f) => {
+          if (!result.find((r) => r.id === f.id && r.sourceId === relatedId)) {
+            result.push({
+              id: f.id,
+              label: f.label,
+              sourceId: relatedId!,
+              sourceLabel: relSource.label,
+            });
+          }
+        });
+    }
+    return result;
+  }, [source, sourceId, relationships, dataSources]);
+
+  const autoDateFilter = React.useMemo(() => {
+    if (!sourceId) {
+      return null;
+    }
+    const relevant = filters.filter(
+      (f) => f.scope === 'page' || (f.scope === 'widget' && f.widgetId === widgetId),
+    );
+    return (
+      relevant.find((f) => {
+        return allDateFieldsWithJoined.some(
+          (df) => df.id === f.field && (!f.filterSourceId || f.filterSourceId === df.sourceId),
+        );
+      }) ?? null
+    );
+  }, [filters, sourceId, widgetId, allDateFieldsWithJoined]);
+
+  const autoFieldLabel = autoDateFilter
+    ? allDateFieldsWithJoined.find((f) => f.id === autoDateFilter.field)?.label
+    : null;
+
+  // The composite value stored in the select: "sourceId:fieldId" (or just "fieldId" for primary)
+  let sparklineComposite = '';
+  if (config.kpiSparklineField) {
+    sparklineComposite =
+      config.kpiSparklineSourceId && config.kpiSparklineSourceId !== sourceId
+        ? `${config.kpiSparklineSourceId}:${config.kpiSparklineField}`
+        : config.kpiSparklineField;
+  }
+
+  const plotType = config.kpiSparklinePlotType ?? 'line';
+
+  const GRANULARITIES: {
+    value: NonNullable<StudioWidgetConfig['kpiSparklineGranularity']>;
+    label: string;
+  }[] = [
+    { value: 'day', label: 'Day' },
+    { value: 'week', label: 'Week' },
+    { value: 'month', label: 'Month' },
+    { value: 'quarter', label: 'Quarter' },
+    { value: 'year', label: 'Year' },
+  ];
+
+  return (
+    <Stack spacing={2} sx={{ pl: 1, borderLeft: 2, borderColor: 'divider' }}>
+      {autoDateFilter ? (
+        <Typography variant="caption" color="text.secondary">
+          Using date filter: <strong>{autoFieldLabel}</strong>
+        </Typography>
+      ) : (
+        <FormControl size="small" fullWidth>
+          <InputLabel>Time field</InputLabel>
+          <Select
+            label="Time field"
+            value={sparklineComposite}
+            onChange={(event) => {
+              const val = event.target.value;
+              if (!val) {
+                controller.updateWidgetConfig(widgetId, {
+                  kpiSparklineField: undefined,
+                  kpiSparklineSourceId: undefined,
+                });
+                return;
+              }
+              const sepIdx = val.indexOf(':');
+              const [fSourceId, fieldId] =
+                sepIdx >= 0 ? [val.slice(0, sepIdx), val.slice(sepIdx + 1)] : [sourceId, val];
+              controller.updateWidgetConfig(widgetId, {
+                kpiSparklineField: fieldId,
+                kpiSparklineSourceId: fSourceId !== sourceId ? fSourceId : undefined,
+              });
+            }}
+          >
+            <MenuItem value="">
+              <em>None</em>
+            </MenuItem>
+            {(() => {
+              // Group by source label
+              const groups = new Map<string, typeof allDateFieldsWithJoined>();
+              for (const f of allDateFieldsWithJoined) {
+                if (!groups.has(f.sourceLabel)) {
+                  groups.set(f.sourceLabel, []);
+                }
+                groups.get(f.sourceLabel)!.push(f);
+              }
+              return Array.from(groups.entries()).flatMap(([srcLabel, fields]) => {
+                const isSecondary = fields[0]?.sourceId !== sourceId;
+                return [
+                  isSecondary ? (
+                    <ListSubheader key={`hdr-${srcLabel}`}>{srcLabel}</ListSubheader>
+                  ) : null,
+                  ...fields.map((f) => {
+                    const compositeKey =
+                      f.sourceId !== sourceId ? `${f.sourceId}:${f.id}` : f.id;
+                    return (
+                      <MenuItem key={compositeKey} value={compositeKey}>
+                        {f.label}
+                      </MenuItem>
+                    );
+                  }),
+                ].filter(Boolean);
+              });
+            })()}
+          </Select>
+        </FormControl>
+      )}
+
       <FormControl size="small" fullWidth>
-        <InputLabel>Format</InputLabel>
+        <InputLabel>Granularity</InputLabel>
         <Select
-          label="Format"
-          value={config.kpiFormat ?? 'number'}
-          onChange={(e) =>
+          label="Granularity"
+          value={config.kpiSparklineGranularity ?? ''}
+          onChange={(event) =>
             controller.updateWidgetConfig(widgetId, {
-              kpiFormat: e.target.value as StudioKpiFormat,
+              kpiSparklineGranularity:
+                (event.target.value as StudioWidgetConfig['kpiSparklineGranularity']) || undefined,
             })
           }
         >
-          <MenuItem value="number">Number</MenuItem>
-          <MenuItem value="currency">Currency (USD)</MenuItem>
-          <MenuItem value="percent">Percent</MenuItem>
+          <MenuItem value="">
+            <em>Auto</em>
+          </MenuItem>
+          {GRANULARITIES.map((g) => (
+            <MenuItem key={g.value} value={g.value}>
+              {g.label}
+            </MenuItem>
+          ))}
         </Select>
       </FormControl>
+
+      <FormControl size="small" fullWidth>
+        <InputLabel>Plot type</InputLabel>
+        <Select
+          label="Plot type"
+          value={plotType}
+          onChange={(event) =>
+            controller.updateWidgetConfig(widgetId, {
+              kpiSparklinePlotType: event.target.value as 'line' | 'bar',
+            })
+          }
+        >
+          <MenuItem value="line">Line</MenuItem>
+          <MenuItem value="bar">Bar</MenuItem>
+        </Select>
+      </FormControl>
+
+      {plotType === 'line' && (
+        <FormControlLabel
+          control={
+            <Switch
+              size="small"
+              checked={config.kpiSparklineArea ?? false}
+              onChange={(event) =>
+                controller.updateWidgetConfig(widgetId, {
+                  kpiSparklineArea: event.target.checked,
+                })
+              }
+            />
+          }
+          label="Fill area"
+        />
+      )}
     </Stack>
   );
 }
@@ -604,13 +977,21 @@ function TextSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
+  const [title, setTitle] = React.useState(widget?.title ?? '');
   const [subtitle, setSubtitle] = React.useState(widget?.config.textSubtitle ?? '');
   const [body, setBody] = React.useState(widget?.config.textBody ?? '');
 
   React.useEffect(() => {
+    setTitle(widget?.title ?? '');
     setSubtitle(widget?.config.textSubtitle ?? '');
     setBody(widget?.config.textBody ?? '');
-  }, [widget?.config.textSubtitle, widget?.config.textBody, widgetId]);
+  }, [widget?.title, widget?.config.textSubtitle, widget?.config.textBody, widgetId]);
+
+  const handleTitleBlur = () => {
+    if (title !== widget?.title) {
+      controller.updateWidget(widgetId, { title });
+    }
+  };
 
   const handleBlur = () => {
     controller.updateWidgetConfig(widgetId, {
@@ -622,11 +1003,24 @@ function TextSetupPanel(props: { widgetId: string }) {
   return (
     <Stack spacing={2}>
       <TextField
+        label="Title"
+        size="small"
+        fullWidth
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        onBlur={handleTitleBlur}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            handleTitleBlur();
+          }
+        }}
+      />
+      <TextField
         label="Subtitle"
         size="small"
         fullWidth
         value={subtitle}
-        onChange={(e) => setSubtitle(e.target.value)}
+        onChange={(event) => setSubtitle(event.target.value)}
         onBlur={handleBlur}
       />
       <TextField
@@ -635,7 +1029,7 @@ function TextSetupPanel(props: { widgetId: string }) {
         multiline
         minRows={5}
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={(event) => setBody(event.target.value)}
         onBlur={handleBlur}
       />
     </Stack>
@@ -665,10 +1059,10 @@ function FormatPanel(props: { widgetId: string }) {
         size="small"
         fullWidth
         value={title}
-        onChange={(e) => setTitle(e.target.value)}
+        onChange={(event) => setTitle(event.target.value)}
         onBlur={handleTitleBlur}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
             handleTitleBlur();
           }
         }}
@@ -688,33 +1082,43 @@ function WidgetConfigView(props: { widgetId: string }) {
     return null;
   }
 
+  const isText = widget.kind === 'text';
+
   return (
-    <Box>
+    <div>
       <Typography variant="caption" color="text.secondary">
         {KIND_LABEL[widget.kind]} widget
       </Typography>
 
-      <Tabs
-        value={tab}
-        onChange={(_e, v) => setTab(v)}
-        variant="fullWidth"
-        sx={{ mt: 1.5, minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
-      >
-        <Tab label="Setup" />
-        <Tab label="Format" />
-      </Tabs>
+      {!isText && (
+        <Tabs
+          value={tab}
+          onChange={(_event, v) => setTab(v)}
+          variant="fullWidth"
+          sx={{ mt: 1.5, minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+        >
+          <Tab label="Setup" />
+          <Tab label="Format" />
+        </Tabs>
+      )}
 
-      <TabPanel value={tab} index={0}>
-        {widget.kind === 'grid' && <GridSetupPanel widgetId={widgetId} />}
-        {widget.kind === 'chart' && <ChartSetupPanel widgetId={widgetId} />}
-        {widget.kind === 'kpi' && <KpiSetupPanel widgetId={widgetId} />}
-        {widget.kind === 'text' && <TextSetupPanel widgetId={widgetId} />}
-      </TabPanel>
-
-      <TabPanel value={tab} index={1}>
-        <FormatPanel widgetId={widgetId} />
-      </TabPanel>
-    </Box>
+      {isText ? (
+        <Box sx={{ mt: 2 }}>
+          <TextSetupPanel widgetId={widgetId} />
+        </Box>
+      ) : (
+        <React.Fragment>
+          <TabPanel value={tab} index={0}>
+            {widget.kind === 'grid' && <GridSetupPanel widgetId={widgetId} />}
+            {widget.kind === 'chart' && <ChartSetupPanel widgetId={widgetId} />}
+            {widget.kind === 'kpi' && <KpiSetupPanel widgetId={widgetId} />}
+          </TabPanel>
+          <TabPanel value={tab} index={1}>
+            <FormatPanel widgetId={widgetId} />
+          </TabPanel>
+        </React.Fragment>
+      )}
+    </div>
   );
 }
 

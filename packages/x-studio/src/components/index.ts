@@ -1,4 +1,4 @@
-export * from './StudioShell';
+export * from './Studio';
 export * from './StudioCanvas';
 export * from './StudioWidgetCard';
 export * from './StudioGridWidget';

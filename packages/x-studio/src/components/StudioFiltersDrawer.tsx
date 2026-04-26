@@ -968,14 +968,21 @@ interface WidgetFilterRowProps {
   widgetSourceId?: string;
   fieldOptions: FieldOption[];
   onRemove: (id: string) => void;
+  /** xField of the chart widget — when provided, rank filters auto-use this field and skip the picker */
+  chartXField?: string;
+  /** Label for the y-measure shown in the rank card header */
+  chartYFieldLabel?: string;
 }
 
 function WidgetFilterRow(props: WidgetFilterRowProps) {
-  const { filter, widgetSourceId, fieldOptions, onRemove } = props;
+  const { filter, widgetSourceId, fieldOptions, onRemove, chartXField, chartYFieldLabel } = props;
   const controller = useStudioController();
   const [expanded, setExpanded] = React.useState(true);
 
-  const hasField = !!filter.field;
+  const isChartRank = filter.filterMode === 'rank' && !!chartXField;
+  // For chart rank filters, the field is always the chart's xField — treat as always "has field"
+  const hasField = !!filter.field || isChartRank;
+
   const effectiveSourceId = filter.filterSourceId ?? widgetSourceId ?? '';
   const selectedOption =
     fieldOptions.find((o) => o.id === filter.field && o.sourceId === effectiveSourceId) ?? null;
@@ -992,8 +999,13 @@ function WidgetFilterRow(props: WidgetFilterRowProps) {
   const fieldLabel = selectedOption?.label ?? filter.field;
 
   const handleChange = (changes: Partial<StudioFilterState>) => {
+    const merged = { ...filter, ...changes };
+    // Auto-wire field for chart rank filters so isFilterComplete passes
+    if (merged.filterMode === 'rank' && chartXField && !merged.field) {
+      merged.field = chartXField;
+    }
     controller.removeFilter(filter.id);
-    controller.addFilter({ ...filter, ...changes });
+    controller.addFilter(merged);
   };
 
   const handleFieldSelect = (_e: React.SyntheticEvent, option: FieldOption | null) => {
@@ -1034,7 +1046,7 @@ function WidgetFilterRow(props: WidgetFilterRowProps) {
     );
   }
 
-  // Phase 2: field selected — collapsible filter card
+  // Phase 2: field selected (or chart rank auto-field) — collapsible filter card
   return (
     <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
       <Box
@@ -1053,7 +1065,9 @@ function WidgetFilterRow(props: WidgetFilterRowProps) {
         </IconButton>
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Typography variant="body2" noWrap sx={{ fontWeight: 'medium' }}>
-            {fieldLabel}
+            {isChartRank
+              ? `Rank${chartYFieldLabel ? ` by ${chartYFieldLabel}` : ''}`
+              : fieldLabel}
           </Typography>
           {!expanded && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
@@ -1131,11 +1145,22 @@ interface WidgetFilterSectionProps {
   dataSources: Record<string, StudioDataSource>;
   onAddFilter: () => void;
   onRemoveFilter: (id: string) => void;
+  chartXField?: string;
+  chartYFieldLabel?: string;
 }
 
 function WidgetFilterSection(props: WidgetFilterSectionProps) {
-  const { filters, widgetSourceId, fieldOptions, dataSources, onAddFilter, onRemoveFilter, title } =
-    props;
+  const {
+    filters,
+    widgetSourceId,
+    fieldOptions,
+    dataSources,
+    onAddFilter,
+    onRemoveFilter,
+    title,
+    chartXField,
+    chartYFieldLabel,
+  } = props;
   const hasAnySources = Object.keys(dataSources).length > 0;
 
   return (
@@ -1153,6 +1178,8 @@ function WidgetFilterSection(props: WidgetFilterSectionProps) {
               widgetSourceId={widgetSourceId}
               fieldOptions={fieldOptions}
               onRemove={onRemoveFilter}
+              chartXField={chartXField}
+              chartYFieldLabel={chartYFieldLabel}
             />
           ))}
         </Stack>
@@ -1274,6 +1301,20 @@ export function StudioFiltersDrawer() {
     return fieldOptions.filter((o) => reachable.has(o.sourceId));
   }, [fieldOptions, selectedWidget?.sourceId, relationships]);
 
+  // Chart rank filter context — xField dimension and yField measure label
+  const chartXField =
+    selectedWidget?.kind === 'chart' ? (selectedWidget.config.xField ?? undefined) : undefined;
+  const chartYFieldId = selectedWidget?.kind === 'chart'
+    ? (selectedWidget.config.ySeries?.[0]?.fieldId ?? selectedWidget.config.yField ?? undefined)
+    : undefined;
+  const chartYFieldLabel = React.useMemo(() => {
+    if (!chartYFieldId || !selectedWidget?.sourceId) {
+      return undefined;
+    }
+    const source = dataSources[selectedWidget.sourceId];
+    return source?.fields.find((f) => f.id === chartYFieldId)?.label ?? chartYFieldId;
+  }, [chartYFieldId, selectedWidget?.sourceId, dataSources]);
+
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f: StudioFilterState) => f.scope === 'page',
   );
@@ -1339,6 +1380,8 @@ export function StudioFiltersDrawer() {
             dataSources={dataSources}
             onAddFilter={handleAddWidgetFilter}
             onRemoveFilter={(id) => controller.removeFilter(id)}
+            chartXField={chartXField}
+            chartYFieldLabel={chartYFieldLabel}
           />
         </React.Fragment>
       ) : null}

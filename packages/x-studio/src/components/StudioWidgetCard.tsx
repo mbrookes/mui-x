@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Chip, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -29,6 +29,17 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const source = useStudioSelector((state) =>
     widget?.sourceId ? state.dataSources[widget.sourceId] : undefined,
   );
+  const activeRankFilter = widget?.kind === 'chart'
+    ? filters.find(
+        (f) =>
+          f.scope === 'widget' &&
+          f.widgetId === widgetId &&
+          f.filterMode === 'rank' &&
+          typeof f.value === 'number' &&
+          f.value > 0,
+      ) ?? null
+    : null;
+
   const ref = React.useRef<HTMLDivElement>(null);
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
@@ -141,6 +152,15 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
             <Typography variant="h6" noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
               {widget.title}
             </Typography>
+            {activeRankFilter && (
+              <Chip
+                size="small"
+                label={`${activeRankFilter.rankDirection === 'bottom' ? 'Bottom' : 'Top'} ${activeRankFilter.value}`}
+                color="primary"
+                variant="outlined"
+                sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
+              />
+            )}
             {(() => {
               if (mode === 'edit') {
                 return (

@@ -14,6 +14,8 @@ import {
   aggregateByField,
   aggregateMultipleSeries,
   prepareScatterData,
+  applyRankToAggregated,
+  applyRankToMultiSeries,
 } from './chartUtils';
 import { useStudioController, useStudioSelector } from '../context';
 import { formatNumber } from './numberFormat';
@@ -69,14 +71,22 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id,
   );
 
-  // Get filtered rows
+  // Separate rank widget filters (applied post-aggregation) from row-level filters
+  const widgetRankFilter = filters.find(
+    (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode === 'rank',
+  ) ?? null;
+
+  // Get filtered rows (rank filters are excluded — applied after aggregation)
   const filteredRows = React.useMemo(() => {
     if (!dataSource?.rows) {
       return [];
     }
 
     const pageFilters = filters.filter((f) => f.scope === 'page');
-    const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
+    // Exclude rank filters from row-level filtering
+    const widgetFilters = filters.filter(
+      (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode !== 'rank',
+    );
     const crossFilters = filters.filter(
       (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
     );
@@ -104,8 +114,9 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     if (isMultiSeries) {
       return null; // handled by multiYData
     }
-    return aggregateByField(filteredRows, xField, activeYFields[0]);
-  }, [filteredRows, config.xField, activeYFields, isMultiSeries]);
+    const raw = aggregateByField(filteredRows, xField, activeYFields[0]);
+    return applyRankToAggregated(raw, widgetRankFilter);
+  }, [filteredRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter]);
 
   // Multi-Y-field data (multiple explicit series)
   const multiYData = React.useMemo(() => {
@@ -113,8 +124,9 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     if (!xField || activeYFields.length < 2 || filteredRows.length === 0) {
       return null;
     }
-    return aggregateMultipleSeries(filteredRows, xField, activeYFields);
-  }, [filteredRows, config.xField, activeYFields]);
+    const raw = aggregateMultipleSeries(filteredRows, xField, activeYFields);
+    return applyRankToMultiSeries(raw, widgetRankFilter);
+  }, [filteredRows, config.xField, activeYFields, widgetRankFilter]);
 
   // Data for scatter charts
   const scatterData = React.useMemo(() => {

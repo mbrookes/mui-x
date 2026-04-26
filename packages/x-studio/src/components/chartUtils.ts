@@ -322,6 +322,63 @@ export interface AggregatedData {
   values: number[];
 }
 
+/**
+ * Apply a rank filter to already-aggregated chart data.
+ * Ranks by the aggregated value (the bar/slice height) and keeps top/bottom N.
+ */
+export function applyRankToAggregated(
+  data: AggregatedData,
+  rankFilter: import('../models').StudioFilterState | null,
+): AggregatedData {
+  if (!rankFilter) {
+    return data;
+  }
+  const n = Math.round(Number(rankFilter.value));
+  if (!Number.isFinite(n) || n <= 0) {
+    return data;
+  }
+  const dir = rankFilter.rankDirection ?? 'top';
+  const pairs = data.labels.map((label, i) => ({ label, value: data.values[i] }));
+  pairs.sort((a, b) => (dir === 'top' ? b.value - a.value : a.value - b.value));
+  const sliced = pairs.slice(0, n);
+  return {
+    labels: sliced.map((p) => p.label),
+    values: sliced.map((p) => p.value),
+  };
+}
+
+/**
+ * Apply a rank filter to multi-series aggregated data.
+ * Ranks by the sum of all series values per label and keeps top/bottom N labels.
+ */
+export function applyRankToMultiSeries(
+  data: MultiYSeriesData,
+  rankFilter: import('../models').StudioFilterState | null,
+): MultiYSeriesData {
+  if (!rankFilter) {
+    return data;
+  }
+  const n = Math.round(Number(rankFilter.value));
+  if (!Number.isFinite(n) || n <= 0) {
+    return data;
+  }
+  const dir = rankFilter.rankDirection ?? 'top';
+  const totals = data.labels.map((_, i) =>
+    data.series.reduce((sum, s) => sum + (s.values[i] ?? 0), 0),
+  );
+  const indices = data.labels.map((_, i) => i);
+  indices.sort((a, b) => (dir === 'top' ? totals[b] - totals[a] : totals[a] - totals[b]));
+  const keepIndices = new Set(indices.slice(0, n));
+  const keepMask = data.labels.map((_, i) => keepIndices.has(i));
+  return {
+    labels: data.labels.filter((_, i) => keepMask[i]),
+    series: data.series.map((s) => ({
+      ...s,
+      values: s.values.filter((_, i) => keepMask[i]),
+    })),
+  };
+}
+
 export function aggregateByField(rows: Row[], xField: string, yField: string): AggregatedData {
   const grouped = new Map<string | number, number>();
 

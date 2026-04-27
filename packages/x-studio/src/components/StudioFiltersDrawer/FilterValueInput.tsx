@@ -2,6 +2,7 @@
 import * as React from 'react';
 import {
   Autocomplete,
+  Box,
   FormControl,
   InputLabel,
   MenuItem,
@@ -17,10 +18,12 @@ import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
-import type { StudioFilterOperator } from '../../models';
+import BoltIcon from '@mui/icons-material/Bolt';
+import type { StudioFilterOperator, StudioMetricRef } from '../../models';
 import type { RelativeDateUnit, RelativeDateValue } from '../filterTypes';
 import type { FieldType } from './filterDrawerTypes';
 import { isRelativeDateValue, absoluteToRelative, relativeToAbsolute } from './filterDrawerUtils';
+import { MetricRefInput } from './MetricRefInput';
 
 const RELATIVE_UNITS: { value: RelativeDateUnit; label: string }[] = [
   { value: 'second', label: 'seconds' },
@@ -147,63 +150,122 @@ function DateValueInput({
   );
 }
 
-/** The value input appropriate for a field type and operator. */
+/** The value input appropriate for a field type and operator. Supports metric references. */
 export function FilterValueInput(props: {
   fieldType: FieldType | undefined;
   operator: StudioFilterOperator;
   value: unknown;
   onChange: (v: unknown) => void;
+  valueRef?: StudioMetricRef;
+  onValueRefChange?: (ref: StudioMetricRef | undefined) => void;
   fieldValues?: string[];
 }) {
-  const { fieldType, operator, value, onChange, fieldValues } = props;
+  const { fieldType, operator, value, onChange, valueRef, onValueRefChange, fieldValues } = props;
   const strVal = String(value ?? '');
+  const useMetric = Boolean(valueRef);
 
   if (OPERATORS_NO_VALUE.has(operator)) {
     return null;
   }
 
-  if (fieldType === 'date' || fieldType === 'datetime') {
-    return <DateValueInput value={value} onChange={onChange} />;
-  }
+  const canUseMetric = onValueRefChange !== undefined;
 
-  if (fieldType === 'boolean') {
+  // Metric mode: show the metric picker instead of the normal value input
+  if (useMetric && canUseMetric) {
     return (
-      <FormControl size="small" sx={{ minWidth: 90, flexGrow: 1 }}>
-        <InputLabel>Value</InputLabel>
-        <Select label="Value" value={strVal} onChange={(event) => onChange(event.target.value)}>
-          <MenuItem value="true">True</MenuItem>
-          <MenuItem value="false">False</MenuItem>
-        </Select>
-      </FormControl>
+      <Stack spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Tooltip title="Switch to literal value">
+            <ToggleButton
+              value="metric"
+              selected
+              size="small"
+              sx={{ px: 1, py: 0.25 }}
+              onChange={() => {
+                onValueRefChange(undefined);
+              }}
+            >
+              <BoltIcon sx={{ fontSize: 14, mr: 0.5 }} />
+              Metric
+            </ToggleButton>
+          </Tooltip>
+        </Box>
+        <MetricRefInput value={valueRef} onChange={onValueRefChange} />
+      </Stack>
     );
   }
 
-  if (
-    (fieldType === 'string' || fieldType === undefined) &&
-    OPERATORS_WITH_AUTOCOMPLETE.has(operator) &&
-    fieldValues &&
-    fieldValues.length > 0
-  ) {
+  // Literal mode: normal value input with optional ⚡ toggle button
+  const literalInput = (() => {
+    if (fieldType === 'date' || fieldType === 'datetime') {
+      return <DateValueInput value={value} onChange={onChange} />;
+    }
+
+    if (fieldType === 'boolean') {
+      return (
+        <FormControl size="small" sx={{ minWidth: 90, flexGrow: 1 }}>
+          <InputLabel>Value</InputLabel>
+          <Select label="Value" value={strVal} onChange={(event) => onChange(event.target.value)}>
+            <MenuItem value="true">True</MenuItem>
+            <MenuItem value="false">False</MenuItem>
+          </Select>
+        </FormControl>
+      );
+    }
+
+    if (
+      (fieldType === 'string' || fieldType === undefined) &&
+      OPERATORS_WITH_AUTOCOMPLETE.has(operator) &&
+      fieldValues &&
+      fieldValues.length > 0
+    ) {
+      return (
+        <Autocomplete
+          freeSolo
+          size="small"
+          options={fieldValues}
+          value={strVal}
+          onInputChange={(_, newVal) => onChange(newVal)}
+          renderInput={(params) => <TextField {...params} label="Value" />}
+          sx={{ minWidth: 80, flexGrow: 1 }}
+        />
+      );
+    }
+
     return (
-      <Autocomplete
-        freeSolo
+      <TextField
         size="small"
-        options={fieldValues}
+        label="Value"
         value={strVal}
-        onInputChange={(_, newVal) => onChange(newVal)}
-        renderInput={(params) => <TextField {...params} label="Value" />}
+        onChange={(event) => onChange(event.target.value)}
         sx={{ minWidth: 80, flexGrow: 1 }}
       />
     );
+  })();
+
+  if (!canUseMetric) {
+    return literalInput;
   }
 
   return (
-    <TextField
-      size="small"
-      label="Value"
-      value={strVal}
-      onChange={(event) => onChange(event.target.value)}
-      sx={{ minWidth: 80, flexGrow: 1 }}
-    />
+    <Stack spacing={0.5} sx={{ flexGrow: 1, minWidth: 0 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Tooltip title="Use a business metric as the value">
+          <ToggleButton
+            value="metric"
+            selected={false}
+            size="small"
+            sx={{ px: 1, py: 0.25 }}
+            onChange={() => {
+              onValueRefChange({ sourceId: '', rowId: '', field: '' });
+            }}
+          >
+            <BoltIcon sx={{ fontSize: 14, mr: 0.5 }} />
+            Metric
+          </ToggleButton>
+        </Tooltip>
+      </Box>
+      {literalInput}
+    </Stack>
   );
 }

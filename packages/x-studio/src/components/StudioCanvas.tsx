@@ -251,7 +251,7 @@ export function StudioCanvas() {
             {row.map((widgetId, colIndex) => (
               <React.Fragment key={widgetId}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <StudioWidgetCard widgetId={widgetId} />
+                  <StudioWidgetCard widgetId={widgetId} isFirstRow={rowIndex === 0} />
                 </Box>
                 {/* Insertion point after this widget */}
                 {mode === 'edit' && (

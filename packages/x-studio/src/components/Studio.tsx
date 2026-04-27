@@ -1,10 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Badge, Box, Divider, IconButton, Typography } from '@mui/material';
-import ChevronDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import CloseIcon from '@mui/icons-material/Close';
+import { Box } from '@mui/material';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';
@@ -15,15 +12,12 @@ import {
   useStudioController,
   useStudioSelector,
 } from '../context';
-import type { StudioDrawer } from '../models';
 import type { StudioController } from '../store';
+import { DrawerPanel } from './DrawerPanel';
 import { StudioCanvas } from './StudioCanvas';
 import { StudioDataDrawer } from './StudioDataDrawer';
 import { StudioComposeDrawer } from './StudioComposeDrawer';
 import { StudioFiltersDrawer } from './StudioFiltersDrawer';
-
-const DRAWER_WIDTH = 215;
-const COLLAPSED_WIDTH = 36;
 
 export interface StudioSlots {
   dataDrawer?: React.ReactNode;
@@ -34,142 +28,6 @@ export interface StudioSlots {
 
 export interface StudioProps extends StudioSlots {
   controller: StudioController;
-}
-
-function DrawerPanel(props: {
-  drawer: StudioDrawer;
-  title: string;
-  icon?: React.ReactNode;
-  badge?: number;
-  onBack?: () => void;
-  children?: React.ReactNode;
-}) {
-  const { badge, children, drawer, icon, onBack, title } = props;
-  const controller = useStudioController();
-  const open = useStudioSelector((state) => state.shell.openDrawers[drawer]);
-
-  if (!open) {
-    return (
-      <Box
-        role="button"
-        tabIndex={0}
-        aria-label={`Open ${title} panel`}
-        onClick={() => controller.setDrawerOpen(drawer, true)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            controller.setDrawerOpen(drawer, true);
-          }
-        }}
-        sx={{
-          width: COLLAPSED_WIDTH,
-          flexShrink: 0,
-          borderRight: 1,
-          borderColor: 'divider',
-          bgcolor: 'background.paper',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          cursor: 'pointer',
-          pt: 2,
-          pb: 1,
-          gap: 1,
-          '&:hover': { bgcolor: 'action.hover' },
-          '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: -2 },
-        }}
-      >
-        {badge != null && badge > 0 ? (
-          <Badge badgeContent={badge} color="primary" sx={{ mb: 1 }}>
-            <Typography
-              variant="caption"
-              sx={{
-                color: 'text.primary',
-                writingMode: 'vertical-rl',
-                transform: 'rotate(180deg)',
-                fontWeight: 600,
-                letterSpacing: 1,
-                textTransform: 'uppercase',
-                userSelect: 'none',
-              }}
-            >
-              {title}
-            </Typography>
-          </Badge>
-        ) : (
-          <Typography
-            variant="caption"
-            sx={{
-              color: 'text.primary',
-              writingMode: 'vertical-rl',
-              transform: 'rotate(180deg)',
-              fontWeight: 600,
-              letterSpacing: 1,
-              textTransform: 'uppercase',
-              userSelect: 'none',
-            }}
-          >
-            {title}
-          </Typography>
-        )}
-        <IconButton
-          size="small"
-          onClick={(event) => {
-            event.stopPropagation();
-            controller.setDrawerOpen(drawer, true);
-          }}
-          aria-label={`Open ${title} panel`}
-          tabIndex={-1}
-        >
-          <ChevronDownIcon fontSize="small" />
-        </IconButton>
-      </Box>
-    );
-  }
-
-  return (
-    <Box
-      sx={{
-        width: DRAWER_WIDTH,
-        flexShrink: 0,
-        borderRight: 1,
-        borderColor: 'divider',
-        bgcolor: 'background.paper',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}
-    >
-      <Box sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 0.5, minHeight: 48 }}>
-        {onBack ? (
-          <IconButton
-            size="small"
-            onClick={onBack}
-            aria-label="Close widget configuration"
-            sx={{ mr: 0.5 }}
-          >
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        ) : (
-          icon && <Box sx={{ display: 'flex', color: 'action.active', mr: 0.5 }}>{icon}</Box>
-        )}
-        <Typography variant="subtitle2" sx={{ color: 'text.primary', flexGrow: 1 }} noWrap>
-          {title}
-        </Typography>
-        {badge != null && badge > 0 && (
-          <Badge badgeContent={badge} color="primary" sx={{ mr: 1 }} />
-        )}
-        <IconButton
-          size="small"
-          onClick={() => controller.setDrawerOpen(drawer, false)}
-          aria-label={`Close ${title} panel`}
-        >
-          <ChevronRightIcon fontSize="small" />
-        </IconButton>
-      </Box>
-      <Divider />
-      <Box sx={{ p: 2, overflow: 'auto', flexGrow: 1 }}>{children}</Box>
-    </Box>
-  );
 }
 
 function StudioContent(props: StudioSlots) {

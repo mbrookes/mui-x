@@ -1165,6 +1165,9 @@ function WidgetConfigView(props: { widgetId: string }) {
 
 // ── Page config panel ─────────────────────────────────────────────────────────
 
+/** Stable empty theme used as fallback so the selector never returns a new object reference. */
+const EMPTY_PAGE_THEME: StudioPageTheme = {};
+
 /** Inline colour swatch + hex text field. Uses native <input type="color"> for the picker. */
 function ColorInput({
   label,
@@ -1211,9 +1214,9 @@ function ColorInput({
 
 function PageConfigPanel() {
   const controller = useStudioController();
-  const pageTheme = useStudioSelector(
-    (state) => state.pages[state.dashboard.activePageId]?.theme ?? {},
-  ) as StudioPageTheme;
+  const pageTheme =
+    useStudioSelector((state) => state.pages[state.dashboard.activePageId]?.theme) ??
+    EMPTY_PAGE_THEME;
 
   const update = (changes: Partial<StudioPageTheme>) => {
     controller.updateActivePage({ theme: { ...pageTheme, ...changes } });

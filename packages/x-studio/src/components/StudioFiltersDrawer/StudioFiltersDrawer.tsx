@@ -1,0 +1,139 @@
+'use client';
+import * as React from 'react';
+import { Alert, Divider, Stack } from '@mui/material';
+import { useStudioController, useStudioSelector } from '../../context';
+import { getReachableSourceIds } from '../chartUtils';
+import type { StudioDataSource, StudioFilterState } from '../../models';
+import type { SimpleField } from './filterDrawerTypes';
+import { buildFieldOptions, generateId } from './filterDrawerUtils';
+import { FilterSection, WidgetFilterSection, CrossFilterSection } from './FilterSection';
+
+export function StudioFiltersDrawer() {
+  const controller = useStudioController();
+  const filters = useStudioSelector((state) => state.filters);
+  const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
+  const dataSources = useStudioSelector((state) => state.dataSources);
+  const widgets = useStudioSelector((state) => state.widgets);
+  const relationships = useStudioSelector((state) => state.relationships);
+
+  const allFields = React.useMemo(() => {
+    const fieldMap = new Map<string, SimpleField>();
+    for (const source of Object.values(dataSources) as StudioDataSource[]) {
+      for (const field of source.fields) {
+        if (!fieldMap.has(field.id)) {
+          fieldMap.set(field.id, { id: field.id, label: field.label, fieldType: field.type });
+        }
+      }
+    }
+    return Array.from(fieldMap.values());
+  }, [dataSources]);
+
+  const fieldOptions = React.useMemo(() => buildFieldOptions(dataSources), [dataSources]);
+
+  const selectedWidget = selectedWidgetId ? widgets[selectedWidgetId] : null;
+
+  const widgetFieldOptions = React.useMemo(() => {
+    if (!selectedWidget?.sourceId) {
+      return fieldOptions;
+    }
+    const reachable = getReachableSourceIds(selectedWidget.sourceId, relationships);
+    return fieldOptions.filter((o) => reachable.has(o.sourceId));
+  }, [fieldOptions, selectedWidget?.sourceId, relationships]);
+
+  // Chart rank filter context — xField dimension and yField measure label
+  const chartXField =
+    selectedWidget?.kind === 'chart' ? (selectedWidget.config.xField ?? undefined) : undefined;
+  const chartYFieldId =
+    selectedWidget?.kind === 'chart'
+      ? (selectedWidget.config.ySeries?.[0]?.fieldId ??
+        selectedWidget.config.yField ??
+        undefined)
+      : undefined;
+  const chartYFieldLabel = React.useMemo(() => {
+    if (!chartYFieldId || !selectedWidget?.sourceId) {
+      return undefined;
+    }
+    const source = dataSources[selectedWidget.sourceId];
+    return source?.fields.find((f) => f.id === chartYFieldId)?.label ?? chartYFieldId;
+  }, [chartYFieldId, selectedWidget?.sourceId, dataSources]);
+
+  const pageFilters = (filters as StudioFilterState[]).filter(
+    (f: StudioFilterState) => f.scope === 'page',
+  );
+  const widgetFilters = (filters as StudioFilterState[]).filter(
+    (f: StudioFilterState) => f.scope === 'widget' && f.widgetId === selectedWidgetId,
+  );
+  const crossFilters = (filters as StudioFilterState[]).filter(
+    (f: StudioFilterState) => f.scope === 'cross-filter',
+  );
+
+  const handleAddPageFilter = () => {
+    if (allFields.length === 0) {
+      return;
+    }
+    controller.addFilter({
+      id: generateId(),
+      field: '',
+      operator: 'equals',
+      value: '',
+      scope: 'page',
+    });
+  };
+
+  const handleAddWidgetFilter = () => {
+    if (!selectedWidgetId || Object.keys(dataSources).length === 0) {
+      return;
+    }
+    controller.addFilter({
+      id: generateId(),
+      field: '',
+      operator: 'equals',
+      value: '',
+      scope: 'widget',
+      widgetId: selectedWidgetId,
+    });
+  };
+
+  return (
+    <Stack spacing={2}>
+      {allFields.length === 0 && (
+        <Alert severity="info">Add a data source and widgets first.</Alert>
+      )}
+
+      <FilterSection
+        title="Page filters"
+        filters={pageFilters}
+        fields={allFields}
+        fieldOptions={fieldOptions}
+        onAddFilter={handleAddPageFilter}
+        onRemoveFilter={(id) => controller.removeFilter(id)}
+      />
+
+      <Divider />
+
+      {selectedWidgetId ? (
+        <React.Fragment>
+          <Divider />
+          <WidgetFilterSection
+            title={`Widget: ${selectedWidget?.title ?? selectedWidgetId}`}
+            filters={widgetFilters}
+            widgetSourceId={selectedWidget?.sourceId}
+            fieldOptions={widgetFieldOptions}
+            dataSources={dataSources}
+            onAddFilter={handleAddWidgetFilter}
+            onRemoveFilter={(id) => controller.removeFilter(id)}
+            chartXField={chartXField}
+            chartYFieldLabel={chartYFieldLabel}
+          />
+        </React.Fragment>
+      ) : null}
+
+      {crossFilters.length > 0 && (
+        <React.Fragment>
+          <Divider />
+          <CrossFilterSection filters={crossFilters} />
+        </React.Fragment>
+      )}
+    </Stack>
+  );
+}

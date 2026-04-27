@@ -42,13 +42,6 @@ export type StudioFilterOperator =
   | 'less_than_or_equal'
   | 'between';
 
-export interface StudioWidgetLayout {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 export interface StudioFieldBinding {
   field: string;
   label?: string;
@@ -105,7 +98,6 @@ export interface StudioWidget {
   kind: StudioWidgetKind;
   title: string;
   sourceId?: string;
-  layout: StudioWidgetLayout;
   bindings: StudioFieldBinding[];
   config: StudioWidgetConfig;
 }

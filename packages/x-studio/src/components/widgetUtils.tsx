@@ -57,7 +57,6 @@ export function createDefaultWidget(
       id,
       kind,
       title: 'Text block',
-      layout: { x: 0, y: 0, width: 6, height: 4 },
       bindings,
       config: {
         textSubtitle: 'Add supporting context',
@@ -77,7 +76,6 @@ export function createDefaultWidget(
       kind,
       title: `${source.label} table`,
       sourceId: source.id,
-      layout: { x: 0, y: 0, width: 12, height: 8 },
       bindings,
       config: { columns: source.fields.map((f) => f.id) },
     };
@@ -92,7 +90,6 @@ export function createDefaultWidget(
       kind,
       title: `${source.label} chart`,
       sourceId: source.id,
-      layout: { x: 0, y: 0, width: 6, height: 6 },
       bindings,
       config: { chartType: 'bar', xField, yField },
     };
@@ -106,7 +103,6 @@ export function createDefaultWidget(
     kind,
     title: `${source.label} KPI`,
     sourceId: source.id,
-    layout: { x: 0, y: 0, width: 3, height: 3 },
     bindings,
     config: { kpiValueField: valueField, kpiAggregation: 'sum' },
   };

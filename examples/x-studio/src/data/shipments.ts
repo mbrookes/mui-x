@@ -14,7 +14,7 @@ export const shipmentsSource: StudioDataSource = {
     { id: 'estimatedDeliveryDate', label: 'Est. Delivery', type: 'date' },
     { id: 'actualDeliveryDate', label: 'Actual Delivery', type: 'date' },
     { id: 'status', label: 'Status', type: 'string' },
-    { id: 'onTime', label: 'On Time', type: 'number', format: 'integer' },
+    { id: 'onTime', label: 'On Time', type: 'boolean' },
     { id: 'itemCount', label: 'Items', type: 'number', format: 'integer' },
   ],
   rows: [
@@ -27,7 +27,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-01-10',
       actualDeliveryDate: '2024-01-09',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -39,7 +39,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-01-21',
       actualDeliveryDate: '2024-01-19',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -51,7 +51,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-01-29',
       actualDeliveryDate: '2024-01-28',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 5,
     },
     {
@@ -63,7 +63,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-09',
       actualDeliveryDate: '2024-02-07',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -75,7 +75,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-17',
       actualDeliveryDate: '2024-02-16',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -87,7 +87,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-29',
       actualDeliveryDate: '2024-02-29',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 5,
     },
     {
@@ -99,7 +99,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-03-13',
       actualDeliveryDate: '2024-03-12',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -111,7 +111,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-03-26',
       actualDeliveryDate: '2024-03-24',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -123,7 +123,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-04-01',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -135,7 +135,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-01-12',
       actualDeliveryDate: '2024-01-12',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 5,
     },
     {
@@ -147,7 +147,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-01-26',
       actualDeliveryDate: '2024-01-25',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -159,7 +159,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-02',
       actualDeliveryDate: '2024-01-31',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -171,7 +171,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-15',
       actualDeliveryDate: '2024-02-19',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 4,
     },
     {
@@ -183,7 +183,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-27',
       actualDeliveryDate: '2024-02-26',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -195,7 +195,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-03-06',
       actualDeliveryDate: '2024-03-05',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -207,7 +207,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-03-18',
       actualDeliveryDate: '2024-03-16',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -219,7 +219,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-04-01',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -231,7 +231,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-01-18',
       actualDeliveryDate: '2024-01-17',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -243,7 +243,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-01',
       actualDeliveryDate: '2024-01-31',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -255,7 +255,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-10',
       actualDeliveryDate: '2024-02-11',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -267,7 +267,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-28',
       actualDeliveryDate: '2024-02-27',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -279,7 +279,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-03-14',
       actualDeliveryDate: '2024-03-14',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -291,7 +291,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-03-26',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -303,7 +303,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-01-16',
       actualDeliveryDate: '2024-01-14',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -315,7 +315,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-05',
       actualDeliveryDate: '2024-02-04',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -327,7 +327,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-16',
       actualDeliveryDate: '2024-02-16',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -339,7 +339,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-26',
       actualDeliveryDate: '2024-02-29',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -351,7 +351,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-03-14',
       actualDeliveryDate: '2024-03-12',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -363,7 +363,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-03-28',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -375,7 +375,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-01-24',
       actualDeliveryDate: '2024-01-24',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -387,7 +387,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-10',
       actualDeliveryDate: '2024-02-14',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
     {
@@ -399,7 +399,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-20',
       actualDeliveryDate: '2024-02-20',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -411,7 +411,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-03-06',
       actualDeliveryDate: '2024-03-09',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
     {
@@ -423,7 +423,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-03-08',
       actualDeliveryDate: '2024-03-07',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -435,7 +435,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-03-24',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -447,7 +447,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-04-03',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 4,
     },
     {
@@ -459,7 +459,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-01-15',
       actualDeliveryDate: '2023-01-19',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 3,
     },
     {
@@ -471,7 +471,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-01-28',
       actualDeliveryDate: '2023-01-28',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -483,7 +483,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-02-13',
       actualDeliveryDate: '2023-02-11',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -495,7 +495,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-02-23',
       actualDeliveryDate: '2023-02-23',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -507,7 +507,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-03-16',
       actualDeliveryDate: '2023-03-15',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -519,7 +519,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-03-26',
       actualDeliveryDate: '2023-03-25',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -531,7 +531,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-04-10',
       actualDeliveryDate: '2023-04-08',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -543,7 +543,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-04-26',
       actualDeliveryDate: '2023-04-25',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -555,7 +555,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-05-16',
       actualDeliveryDate: '2023-05-15',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -567,7 +567,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-05-29',
       actualDeliveryDate: '2023-05-27',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -579,7 +579,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-06-14',
       actualDeliveryDate: '2023-06-14',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -591,7 +591,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-06-30',
       actualDeliveryDate: '2023-06-29',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -603,7 +603,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-07-17',
       actualDeliveryDate: '2023-07-15',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -615,7 +615,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-08-03',
       actualDeliveryDate: '2023-08-03',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -627,7 +627,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-08-19',
       actualDeliveryDate: '2023-08-17',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -639,7 +639,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-09-05',
       actualDeliveryDate: '2023-09-09',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
     {
@@ -651,7 +651,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-09-09',
       actualDeliveryDate: '2023-09-13',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -663,7 +663,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-09-21',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 4,
     },
     {
@@ -675,7 +675,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-10-06',
       actualDeliveryDate: '2023-10-10',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
     {
@@ -687,7 +687,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-10-23',
       actualDeliveryDate: '2023-10-22',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -699,7 +699,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-11-05',
       actualDeliveryDate: '2023-11-04',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -711,7 +711,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-11-15',
       actualDeliveryDate: '2023-11-14',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -723,7 +723,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-11-26',
       actualDeliveryDate: '2023-11-26',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -735,7 +735,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-12-11',
       actualDeliveryDate: '2023-12-10',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -747,7 +747,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-12-26',
       actualDeliveryDate: '2023-12-25',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -759,7 +759,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-05-11',
       actualDeliveryDate: '2024-05-09',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -771,7 +771,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-05-17',
       actualDeliveryDate: '2024-05-20',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
     {
@@ -783,7 +783,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-05-25',
       actualDeliveryDate: '2024-05-24',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -795,7 +795,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-05-31',
       actualDeliveryDate: '2024-05-29',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -807,7 +807,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-06-08',
       actualDeliveryDate: '2024-06-08',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -819,7 +819,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-06-19',
       actualDeliveryDate: '2024-06-19',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -831,7 +831,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-06-26',
       actualDeliveryDate: '2024-06-25',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -843,7 +843,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-07-08',
       actualDeliveryDate: '2024-07-08',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -855,7 +855,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-07-18',
       actualDeliveryDate: '2024-07-17',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -867,7 +867,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-07-24',
       actualDeliveryDate: '2024-07-22',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -879,7 +879,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-08-01',
       actualDeliveryDate: '2024-07-31',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -891,7 +891,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-08-10',
       actualDeliveryDate: '2024-08-12',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
     {
@@ -903,7 +903,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-08-15',
       actualDeliveryDate: '2024-08-13',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -915,7 +915,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-08-22',
       actualDeliveryDate: '2024-08-20',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -927,7 +927,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-08-27',
       actualDeliveryDate: '2024-08-25',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -939,7 +939,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-09-05',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
     {
@@ -951,7 +951,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-09-16',
       actualDeliveryDate: '2024-09-15',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -963,7 +963,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-09-23',
       actualDeliveryDate: '2024-09-23',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -975,7 +975,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-10-06',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -987,7 +987,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-10-09',
       actualDeliveryDate: '2024-10-11',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 3,
     },
     {
@@ -999,7 +999,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-10-21',
       actualDeliveryDate: '2024-10-19',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1011,7 +1011,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-10-28',
       actualDeliveryDate: '2024-10-27',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1023,7 +1023,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-11-05',
       actualDeliveryDate: '2024-11-03',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1035,7 +1035,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-11-14',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 3,
     },
     {
@@ -1047,7 +1047,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-11-23',
       actualDeliveryDate: '2024-11-25',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 4,
     },
     {
@@ -1059,7 +1059,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-11-28',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -1071,7 +1071,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-12-07',
       actualDeliveryDate: '2024-12-07',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1083,7 +1083,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-12-12',
       actualDeliveryDate: '2024-12-10',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1095,7 +1095,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-12-21',
       actualDeliveryDate: '2024-12-21',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 5,
     },
     {
@@ -1107,7 +1107,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-12-24',
       actualDeliveryDate: '2024-12-24',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1119,7 +1119,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-01-07',
       actualDeliveryDate: '2025-01-07',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1131,7 +1131,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-01-07',
       actualDeliveryDate: '2025-01-06',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1143,7 +1143,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-01-14',
       actualDeliveryDate: '2025-01-18',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 3,
     },
     {
@@ -1155,7 +1155,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-01-17',
       actualDeliveryDate: '2025-01-17',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 5,
     },
     {
@@ -1167,7 +1167,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-01-22',
       actualDeliveryDate: '2025-01-21',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1179,7 +1179,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-01-25',
       actualDeliveryDate: '2025-01-23',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1191,7 +1191,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-01-31',
       actualDeliveryDate: '2025-01-30',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1203,7 +1203,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-02-05',
       actualDeliveryDate: '2025-02-03',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1215,7 +1215,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-02-09',
       actualDeliveryDate: '2025-02-09',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1227,7 +1227,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-02-11',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 4,
     },
     {
@@ -1239,7 +1239,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-02-17',
       actualDeliveryDate: '2025-02-19',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 3,
     },
     {
@@ -1251,7 +1251,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-02-24',
       actualDeliveryDate: '2025-02-22',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1263,7 +1263,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-02-26',
       actualDeliveryDate: '2025-02-24',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1275,7 +1275,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-10',
       actualDeliveryDate: '2025-03-08',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1287,7 +1287,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-11',
       actualDeliveryDate: '2025-03-11',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1299,7 +1299,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-13',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 3,
     },
     {
@@ -1311,7 +1311,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-19',
       actualDeliveryDate: '2025-03-18',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1323,7 +1323,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-19',
       actualDeliveryDate: '2025-03-18',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1335,7 +1335,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-27',
       actualDeliveryDate: '2025-03-25',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1347,7 +1347,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-01',
       actualDeliveryDate: '2025-04-01',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1359,7 +1359,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-01',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 3,
     },
     {
@@ -1371,7 +1371,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-30',
       actualDeliveryDate: '2025-03-29',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1383,7 +1383,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-04',
       actualDeliveryDate: '2025-04-04',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1395,7 +1395,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-03',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -1407,7 +1407,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-01',
       actualDeliveryDate: '2025-03-31',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1419,7 +1419,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-02',
       actualDeliveryDate: '2025-04-01',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1431,7 +1431,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-04',
       actualDeliveryDate: '2025-04-04',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1443,7 +1443,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-05',
       actualDeliveryDate: '2025-04-08',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
     {
@@ -1455,7 +1455,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-10-10',
       actualDeliveryDate: '2023-10-14',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 4,
     },
     {
@@ -1467,7 +1467,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-11-20',
       actualDeliveryDate: '2023-11-20',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1479,7 +1479,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-12-07',
       actualDeliveryDate: '2023-12-05',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1491,7 +1491,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2023-12-21',
       actualDeliveryDate: '2023-12-19',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1503,7 +1503,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-01-11',
       actualDeliveryDate: '2024-01-10',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1515,7 +1515,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-02-19',
       actualDeliveryDate: '2024-02-18',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1527,7 +1527,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-03-18',
       actualDeliveryDate: '2024-03-18',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1539,7 +1539,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-04-25',
       actualDeliveryDate: '2024-04-24',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1551,7 +1551,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-04-30',
       actualDeliveryDate: '2024-04-29',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1563,7 +1563,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-06-08',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
     {
@@ -1575,7 +1575,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-06-21',
       actualDeliveryDate: '2024-06-25',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -1587,7 +1587,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-07-27',
       actualDeliveryDate: '2024-07-27',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1599,7 +1599,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-09-06',
       actualDeliveryDate: '2024-09-10',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
     {
@@ -1611,7 +1611,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-09-22',
       actualDeliveryDate: '2024-09-26',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 5,
     },
     {
@@ -1623,7 +1623,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-10-16',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 4,
     },
     {
@@ -1635,7 +1635,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-11-25',
       actualDeliveryDate: '2024-11-24',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1647,7 +1647,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2024-12-15',
       actualDeliveryDate: '2024-12-13',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1659,7 +1659,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-07',
       actualDeliveryDate: '2025-03-07',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1671,7 +1671,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-13',
       actualDeliveryDate: '2025-03-11',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1683,7 +1683,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-19',
       actualDeliveryDate: '2025-03-19',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1695,7 +1695,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-21',
       actualDeliveryDate: '2025-03-19',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1707,7 +1707,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-27',
       actualDeliveryDate: '2025-03-26',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1719,7 +1719,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-03-30',
       actualDeliveryDate: '2025-03-30',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1731,7 +1731,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-02',
       actualDeliveryDate: '2025-04-01',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1743,7 +1743,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-10',
       actualDeliveryDate: '2025-04-10',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1755,7 +1755,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-13',
       actualDeliveryDate: '2025-04-12',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1767,7 +1767,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-15',
       actualDeliveryDate: '2025-04-15',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1779,7 +1779,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-21',
       actualDeliveryDate: '2025-04-20',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1791,7 +1791,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-04-27',
       actualDeliveryDate: '2025-04-25',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1803,7 +1803,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-05-04',
       actualDeliveryDate: '2025-05-03',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1815,7 +1815,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-05-11',
       actualDeliveryDate: '2025-05-09',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1827,7 +1827,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-05-13',
       actualDeliveryDate: '2025-05-12',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1839,7 +1839,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-05-18',
       actualDeliveryDate: '2025-05-18',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -1851,7 +1851,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-05-25',
       actualDeliveryDate: '2025-05-28',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 4,
     },
     {
@@ -1863,7 +1863,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-05-27',
       actualDeliveryDate: '2025-05-26',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1875,7 +1875,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-06-05',
       actualDeliveryDate: '2025-06-04',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1887,7 +1887,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-06-10',
       actualDeliveryDate: '2025-06-10',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1899,7 +1899,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-06-13',
       actualDeliveryDate: '2025-06-14',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 5,
     },
     {
@@ -1911,7 +1911,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-06-21',
       actualDeliveryDate: '2025-06-19',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -1923,7 +1923,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-06-26',
       actualDeliveryDate: '2025-06-30',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
     {
@@ -1935,7 +1935,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-07-02',
       actualDeliveryDate: '2025-07-01',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1947,7 +1947,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-07-05',
       actualDeliveryDate: '2025-07-08',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 5,
     },
     {
@@ -1959,7 +1959,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-07-09',
       actualDeliveryDate: '2025-07-09',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1971,7 +1971,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-07-16',
       actualDeliveryDate: '2025-07-15',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -1983,7 +1983,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-07-21',
       actualDeliveryDate: '2025-07-20',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -1995,7 +1995,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-07-27',
       actualDeliveryDate: '2025-07-25',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -2007,7 +2007,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-08-02',
       actualDeliveryDate: '2025-08-01',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -2019,7 +2019,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-08-12',
       actualDeliveryDate: '2025-08-12',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -2031,7 +2031,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-08-15',
       actualDeliveryDate: '2025-08-13',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -2043,7 +2043,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-08-18',
       actualDeliveryDate: '2025-08-17',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -2055,7 +2055,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-08-22',
       actualDeliveryDate: '2025-08-22',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -2067,7 +2067,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-08-31',
       actualDeliveryDate: '2025-08-30',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -2079,7 +2079,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-09-09',
       actualDeliveryDate: '2025-09-08',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -2091,7 +2091,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-09-18',
       actualDeliveryDate: '2025-09-18',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -2103,7 +2103,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-09-24',
       actualDeliveryDate: '2025-09-23',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -2115,7 +2115,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-10-01',
       actualDeliveryDate: '2025-10-01',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 5,
     },
     {
@@ -2127,7 +2127,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-10-04',
       actualDeliveryDate: '2025-10-02',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 5,
     },
     {
@@ -2139,7 +2139,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-10-12',
       actualDeliveryDate: '2025-10-16',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 4,
     },
     {
@@ -2151,7 +2151,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-10-20',
       actualDeliveryDate: '2025-10-18',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -2163,7 +2163,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-10-28',
       actualDeliveryDate: '2025-10-27',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -2175,7 +2175,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-11-01',
       actualDeliveryDate: '2025-10-31',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -2187,7 +2187,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-11-10',
       actualDeliveryDate: '2025-11-09',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -2199,7 +2199,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-11-18',
       actualDeliveryDate: '2025-11-16',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -2211,7 +2211,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-11-22',
       actualDeliveryDate: '2025-11-21',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 5,
     },
     {
@@ -2223,7 +2223,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-12-02',
       actualDeliveryDate: '2025-12-01',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -2235,7 +2235,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-12-06',
       actualDeliveryDate: '2025-12-04',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -2247,7 +2247,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-12-15',
       actualDeliveryDate: '2025-12-14',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 5,
     },
     {
@@ -2259,7 +2259,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-12-21',
       actualDeliveryDate: '2025-12-20',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -2271,7 +2271,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2025-12-30',
       actualDeliveryDate: '2025-12-29',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -2283,7 +2283,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-01-03',
       actualDeliveryDate: '2026-01-04',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -2295,7 +2295,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-01-14',
       actualDeliveryDate: '2026-01-13',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 5,
     },
     {
@@ -2307,7 +2307,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-01-19',
       actualDeliveryDate: '2026-01-17',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 5,
     },
     {
@@ -2319,7 +2319,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-01-25',
       actualDeliveryDate: '2026-01-26',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 3,
     },
     {
@@ -2331,7 +2331,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-02-06',
       actualDeliveryDate: '2026-02-04',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 5,
     },
     {
@@ -2343,7 +2343,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-02-09',
       actualDeliveryDate: '2026-02-09',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -2355,7 +2355,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-02-20',
       actualDeliveryDate: '2026-02-19',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -2367,7 +2367,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-02-24',
       actualDeliveryDate: '2026-02-26',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 4,
     },
     {
@@ -2379,7 +2379,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-03-03',
       actualDeliveryDate: '2026-03-02',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -2391,7 +2391,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-03-11',
       actualDeliveryDate: '2026-03-11',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 2,
     },
     {
@@ -2403,7 +2403,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-03-18',
       actualDeliveryDate: '2026-03-17',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -2415,7 +2415,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-03-24',
       actualDeliveryDate: '2026-03-22',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 3,
     },
     {
@@ -2427,7 +2427,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-03-31',
       actualDeliveryDate: '2026-03-31',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 4,
     },
     {
@@ -2439,7 +2439,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-04-09',
       actualDeliveryDate: '2026-04-08',
       status: 'Delivered',
-      onTime: 1,
+      onTime: true,
       itemCount: 1,
     },
     {
@@ -2451,7 +2451,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-04-13',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 1,
     },
     {
@@ -2463,7 +2463,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-04-16',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 4,
     },
     {
@@ -2475,7 +2475,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-04-21',
       actualDeliveryDate: '2026-04-23',
       status: 'Delivered',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
     {
@@ -2487,7 +2487,7 @@ export const shipmentsSource: StudioDataSource = {
       estimatedDeliveryDate: '2026-04-23',
       actualDeliveryDate: null,
       status: 'In Transit',
-      onTime: 0,
+      onTime: false,
       itemCount: 2,
     },
   ],

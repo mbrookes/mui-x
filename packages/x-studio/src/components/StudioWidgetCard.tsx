@@ -153,6 +153,11 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
             right: 6,
             zIndex: 1,
             alignItems: 'center',
+            bgcolor: 'background.paper',
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: 1,
+            px: 0.5,
             visibility: showEditActions ? 'visible' : 'hidden',
             pointerEvents: showEditActions ? 'auto' : 'none',
           }}
@@ -204,6 +209,10 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
             top: 6,
             right: 6,
             zIndex: 1,
+            bgcolor: 'background.paper',
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: 1,
             visibility: showViewExport ? 'visible' : 'hidden',
             pointerEvents: showViewExport ? 'auto' : 'none',
           }}

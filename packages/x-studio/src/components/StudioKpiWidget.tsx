@@ -197,9 +197,11 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
     const value = computeAggregate(rows, config.kpiValueField, aggregation);
 
     const fieldDef = dataSource.fields.find((f) => f.id === config.kpiValueField);
+    // avg of a boolean field is a 0–1 ratio; scale to 0–100 and display as percent
+    const isBooleanAvg = fieldDef?.type === 'boolean' && aggregation === 'avg';
     const formatted = formatNumber(
-      value,
-      fieldDef?.format,
+      isBooleanAvg ? value * 100 : value,
+      isBooleanAvg ? 'percent' : fieldDef?.format,
       fieldDef?.currencyCode,
       config.kpiCompact ?? true,
     );

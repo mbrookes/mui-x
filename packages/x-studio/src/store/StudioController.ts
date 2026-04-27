@@ -473,7 +473,12 @@ export class StudioController {
     const migrationResult = migrateState(serialized);
 
     if (migrationResult.success && migrationResult.state) {
-      const fullState = deserializeState(migrationResult.state, shellOverrides);
+      // Preserve the host app's data sources — they are never persisted
+      const fullState = deserializeState(
+        migrationResult.state,
+        this.store.state.dataSources,
+        shellOverrides,
+      );
       this.commitState(fullState, { undoable: false, resetHistory: true });
     }
 

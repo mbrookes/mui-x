@@ -2,7 +2,6 @@ import * as React from 'react';
 
 import type {
   StudioDataSource,
-  StudioFieldBinding,
   StudioWidget,
   StudioWidgetKind,
 } from '../models';
@@ -49,15 +48,12 @@ export function createDefaultWidget(
   source?: StudioDataSource,
 ): StudioWidget {
   const id = `widget-${kind}-${Date.now()}`;
-  const bindings: StudioFieldBinding[] =
-    source?.fields.map((f) => ({ field: f.id, label: f.label })) ?? [];
 
   if (kind === 'text') {
     return {
       id,
       kind,
       title: 'Text block',
-      bindings,
       config: {
         textSubtitle: 'Add supporting context',
         textBody:
@@ -76,7 +72,6 @@ export function createDefaultWidget(
       kind,
       title: `${source.label} table`,
       sourceId: source.id,
-      bindings,
       config: { columns: source.fields.map((f) => f.id) },
     };
   }
@@ -90,7 +85,6 @@ export function createDefaultWidget(
       kind,
       title: `${source.label} chart`,
       sourceId: source.id,
-      bindings,
       config: { chartType: 'bar', xField, yField },
     };
   }
@@ -103,7 +97,6 @@ export function createDefaultWidget(
     kind,
     title: `${source.label} KPI`,
     sourceId: source.id,
-    bindings,
     config: { kpiValueField: valueField, kpiAggregation: 'sum' },
   };
 }
@@ -122,7 +115,7 @@ export function exportGridToCsv(
 
   const visibleColumns = widget.config.columns?.length
     ? widget.config.columns
-    : widget.bindings.map((b) => b.field);
+    : (dataSource.fields.map((f) => f.id));
 
   // Create header row
   const headers = visibleColumns.map((col) => {

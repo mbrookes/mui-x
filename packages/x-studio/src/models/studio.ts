@@ -42,11 +42,6 @@ export type StudioFilterOperator =
   | 'less_than_or_equal'
   | 'between';
 
-export interface StudioFieldBinding {
-  field: string;
-  label?: string;
-}
-
 export interface StudioChartSeries {
   fieldId: string;
 }
@@ -98,7 +93,6 @@ export interface StudioWidget {
   kind: StudioWidgetKind;
   title: string;
   sourceId?: string;
-  bindings: StudioFieldBinding[];
   config: StudioWidgetConfig;
 }
 

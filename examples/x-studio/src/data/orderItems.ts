@@ -6784,7 +6784,3 @@ export const orderItemsSource: StudioDataSource = {
   ],
 };
 
-export const orderItemsBindings = orderItemsSource.fields.map((f) => ({
-  field: f.id,
-  label: f.label,
-}));

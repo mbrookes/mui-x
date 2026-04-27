@@ -1808,4 +1808,3 @@ export const ordersSource: StudioDataSource = {
   })),
 };
 
-export const ordersBindings = ordersSource.fields.map((f) => ({ field: f.id, label: f.label }));

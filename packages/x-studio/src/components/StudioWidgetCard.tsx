@@ -15,11 +15,12 @@ import { resolveRows } from './chartUtils';
 
 export interface StudioWidgetCardProps {
   widgetId: string;
+  isFirstRow?: boolean;
 }
 
 export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
-  const { widgetId } = props;
+  const { widgetId, isFirstRow = false } = props;
   const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
@@ -113,7 +114,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const showEditActions =
     mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
-  const isTopRow = widget.layout.y === 0;
+  const isTopRow = isFirstRow;
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
   // inside the card for top-row widgets (where there's no room above to overhang).
   const overlayTopSx = isTopRow
@@ -163,6 +164,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
             border: 1,
             borderColor: 'divider',
             borderRadius: 1,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.10)',
             px: 0.5,
             visibility: showEditActions ? 'visible' : 'hidden',
             pointerEvents: showEditActions ? 'auto' : 'none',
@@ -219,6 +221,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
             border: 1,
             borderColor: 'divider',
             borderRadius: 1,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.10)',
             visibility: showViewExport ? 'visible' : 'hidden',
             pointerEvents: showViewExport ? 'auto' : 'none',
           }}

@@ -24,14 +24,6 @@ export function formatNumber(
         compactDisplay,
       }).format(value);
     case 'percent':
-      // compact doesn't apply well to percent — format the raw number compactly then append %
-      if (compact) {
-        return `${new Intl.NumberFormat(undefined, {
-          maximumFractionDigits: 1,
-          notation,
-          compactDisplay,
-        }).format(value / 100)}%`;
-      }
       return new Intl.NumberFormat(undefined, {
         style: 'percent',
         maximumFractionDigits: 1,

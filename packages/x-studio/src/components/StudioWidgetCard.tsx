@@ -113,6 +113,12 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const showEditActions =
     mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
+  const isTopRow = widget.layout.y === 0;
+  // Overhang: center the overlay on the top edge of the card. Constrained to sit
+  // inside the card for top-row widgets (where there's no room above to overhang).
+  const overlayTopSx = isTopRow
+    ? { top: 6 }
+    : { top: 0, transform: 'translateY(-50%)' };
 
   return (
     <Paper
@@ -149,7 +155,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
           spacing={0.5}
           sx={{
             position: 'absolute',
-            top: 6,
+            ...overlayTopSx,
             right: 6,
             zIndex: 1,
             alignItems: 'center',
@@ -206,7 +212,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
         <Box
           sx={{
             position: 'absolute',
-            top: 6,
+            ...overlayTopSx,
             right: 6,
             zIndex: 1,
             bgcolor: 'background.paper',

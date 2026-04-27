@@ -1,4 +1,4 @@
-import { createDefaultStudioState, type StudioState } from '../models';
+import { createDefaultStudioState, type StudioDataSource, type StudioState, type StudioWidget } from '../models';
 
 /**
  * Current schema version for the studio state
@@ -141,16 +141,41 @@ export function migrateState(state: unknown): MigrationResult {
 }
 
 /**
+ * Strips runtime-only data from a data source for serialization.
+ * The `rows` are provided by the host app at runtime and must not be persisted.
+ */
+function serializeDataSource({ rows: _rows, ...rest }: StudioDataSource): Omit<StudioDataSource, 'rows'> {
+  return rest;
+}
+
+/**
+ * Strips runtime-only fields from a widget for serialization.
+ * `bindings` mirror the source's fields and are re-derived at load time.
+ */
+function serializeWidget({ bindings: _bindings, ...rest }: StudioWidget): Omit<StudioWidget, 'bindings'> {
+  return rest;
+}
+
+/**
  * Serializes the studio state for persistence
- * Excludes transient shell state (selection, drawer open state)
+ * Excludes transient shell state (selection, drawer open state),
+ * runtime data (dataSource rows), and derived fields (widget bindings).
  */
 export function serializeState(state: StudioState): SerializedStudioState {
+  const dataSources = Object.fromEntries(
+    Object.entries(state.dataSources).map(([id, ds]) => [id, serializeDataSource(ds)]),
+  ) as StudioState['dataSources'];
+
+  const widgets = Object.fromEntries(
+    Object.entries(state.widgets).map(([id, w]) => [id, serializeWidget(w)]),
+  ) as StudioState['widgets'];
+
   return {
     schemaVersion: state.schemaVersion,
     dashboard: state.dashboard,
     pages: state.pages,
-    widgets: state.widgets,
-    dataSources: state.dataSources,
+    widgets,
+    dataSources,
     filters: state.filters.filter((f) => f.scope !== 'cross-filter'), // Don't persist cross-filters
     relationships: state.relationships,
   };
@@ -158,7 +183,9 @@ export function serializeState(state: StudioState): SerializedStudioState {
 
 /**
  * Deserializes and restores a persisted state
- * Returns the full StudioState with default shell state
+ * Returns the full StudioState with default shell state.
+ * Widget bindings are re-derived from their data source fields since they
+ * are not persisted.
  */
 export function deserializeState(
   serialized: SerializedStudioState,
@@ -166,12 +193,21 @@ export function deserializeState(
 ): StudioState {
   const defaultState = createDefaultStudioState();
 
+  // Re-derive bindings for each widget from its source's field definitions.
+  const widgets = Object.fromEntries(
+    Object.entries(serialized.widgets).map(([id, widget]) => {
+      const source = widget.sourceId ? serialized.dataSources[widget.sourceId] : undefined;
+      const bindings = source?.fields.map((f) => ({ field: f.id, label: f.label })) ?? [];
+      return [id, { ...widget, bindings }];
+    }),
+  ) as StudioState['widgets'];
+
   return {
     schemaVersion: serialized.schemaVersion as 1,
     mode: 'edit',
     dashboard: serialized.dashboard,
     pages: serialized.pages,
-    widgets: serialized.widgets,
+    widgets,
     dataSources: serialized.dataSources,
     filters: serialized.filters,
     relationships: serialized.relationships ?? [],

@@ -113,10 +113,6 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const showEditActions =
     mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
-  const hiddenActionSx = {
-    visibility: 'hidden',
-    pointerEvents: 'none',
-  } as const;
 
   return (
     <Paper
@@ -140,11 +136,90 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
         cursor: isDragging ? 'grabbing' : 'pointer',
         p: 2,
         opacity: isDragging ? 0.5 : 1,
+        position: 'relative',
         transition: 'border-color 0.15s',
         '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
         boxShadow: isDragging ? 4 : undefined,
       }}
     >
+      {/* Action button overlay — floats over content so title is never truncated */}
+      {mode === 'edit' && (
+        <Stack
+          direction="row"
+          spacing={0.5}
+          sx={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            zIndex: 1,
+            alignItems: 'center',
+            visibility: showEditActions ? 'visible' : 'hidden',
+            pointerEvents: showEditActions ? 'auto' : 'none',
+          }}
+        >
+          {canExport && (
+            <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
+              <IconButton
+                size="small"
+                onClick={handleExport}
+                aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
+                tabIndex={showEditActions ? 0 : -1}
+              >
+                <DownloadIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          <Tooltip title="Duplicate widget">
+            <IconButton
+              size="small"
+              onClick={(event) => {
+                event.stopPropagation();
+                controller.duplicateWidget(widgetId);
+              }}
+              aria-label="Duplicate widget"
+              tabIndex={showEditActions ? 0 : -1}
+            >
+              <ContentCopyIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete widget">
+            <IconButton
+              size="small"
+              onClick={(event) => {
+                event.stopPropagation();
+                controller.removeWidget(widgetId);
+              }}
+              aria-label="Delete widget"
+              tabIndex={showEditActions ? 0 : -1}
+            >
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      )}
+      {mode === 'view' && canExport && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            zIndex: 1,
+            visibility: showViewExport ? 'visible' : 'hidden',
+            pointerEvents: showViewExport ? 'auto' : 'none',
+          }}
+        >
+          <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
+            <IconButton
+              size="small"
+              onClick={handleExport}
+              aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
+              tabIndex={showViewExport ? 0 : -1}
+            >
+              <DownloadIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
       <Stack spacing={2}>
         {/* Widget header */}
         <div>
@@ -161,91 +236,6 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
                 sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
               />
             )}
-            {(() => {
-              if (mode === 'edit') {
-                return (
-                  <Stack
-                    direction="row"
-                    spacing={0.5}
-                    sx={{
-                      alignItems: 'center',
-                      justifyContent: 'flex-end',
-                      flexShrink: 0,
-                      minWidth: canExport ? 108 : 72,
-                    }}
-                  >
-                    {canExport && (
-                      <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
-                        <IconButton
-                          size="small"
-                          onClick={handleExport}
-                          aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
-                          sx={showEditActions ? undefined : hiddenActionSx}
-                          tabIndex={showEditActions ? 0 : -1}
-                        >
-                          <DownloadIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    <Tooltip title="Duplicate widget">
-                      <IconButton
-                        size="small"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          controller.duplicateWidget(widgetId);
-                        }}
-                        aria-label="Duplicate widget"
-                        sx={showEditActions ? undefined : hiddenActionSx}
-                        tabIndex={showEditActions ? 0 : -1}
-                      >
-                        <ContentCopyIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete widget">
-                      <IconButton
-                        size="small"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          controller.removeWidget(widgetId);
-                        }}
-                        aria-label="Delete widget"
-                        sx={showEditActions ? undefined : hiddenActionSx}
-                        tabIndex={showEditActions ? 0 : -1}
-                      >
-                        <CloseIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Stack>
-                );
-              }
-              if (canExport) {
-                return (
-                  <Stack
-                    direction="row"
-                    spacing={0.5}
-                    sx={{
-                      alignItems: 'center',
-                      justifyContent: 'flex-end',
-                      flexShrink: 0,
-                      minWidth: 36,
-                    }}
-                  >
-                    <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
-                      <IconButton
-                        size="small"
-                        onClick={handleExport}
-                        aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
-                        sx={showViewExport ? undefined : hiddenActionSx}
-                        tabIndex={showViewExport ? 0 : -1}
-                      >
-                        <DownloadIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Stack>
-                );
-              }
-              return null;
-            })()}
           </Stack>
         </div>
         {/* Widget content */}

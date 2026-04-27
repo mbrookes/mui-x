@@ -28,6 +28,7 @@ import type {
   StudioNumberFormat,
   StudioChartType,
   StudioKpiAggregation,
+  StudioPageTheme,
   StudioWidgetKind,
   StudioWidgetConfig,
 } from '../models';
@@ -1162,19 +1163,193 @@ function WidgetConfigView(props: { widgetId: string }) {
   );
 }
 
+// ── Page config panel ─────────────────────────────────────────────────────────
+
+/** Inline colour swatch + hex text field. Uses native <input type="color"> for the picker. */
+function ColorInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Box
+        component="input"
+        type="color"
+        value={value || '#ffffff'}
+        onChange={(event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.value)}
+        sx={{
+          width: 32,
+          height: 32,
+          p: 0,
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: 1,
+          cursor: 'pointer',
+          flexShrink: 0,
+        }}
+        aria-label={`${label} colour picker`}
+      />
+      <TextField
+        size="small"
+        label={label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder ?? '#rrggbb'}
+        sx={{ flexGrow: 1 }}
+        slotProps={{ htmlInput: { spellCheck: false } }}
+      />
+    </Box>
+  );
+}
+
+function PageConfigPanel() {
+  const controller = useStudioController();
+  const pageTheme = useStudioSelector(
+    (state) => state.pages[state.dashboard.activePageId]?.theme ?? {},
+  ) as StudioPageTheme;
+
+  const update = (changes: Partial<StudioPageTheme>) => {
+    controller.updateActivePage({ theme: { ...pageTheme, ...changes } });
+  };
+
+  const cardBorder = pageTheme.cardBorder !== false; // default true
+
+  const PADDING_OPTIONS = [
+    { value: 0, label: 'None' },
+    { value: 1, label: 'Small (8px)' },
+    { value: 2, label: 'Medium (16px)' },
+    { value: 3, label: 'Large (24px)' },
+  ];
+
+  return (
+    <Stack spacing={2.5} sx={{ pt: 1 }}>
+      <Typography variant="subtitle2">Page</Typography>
+
+      <ColorInput
+        label="Background colour"
+        value={pageTheme.pageBackground ?? ''}
+        onChange={(v) => update({ pageBackground: v || undefined })}
+        placeholder="e.g. #f5f5f5"
+      />
+
+      <Divider />
+
+      <Typography variant="subtitle2">Cards</Typography>
+
+      <ColorInput
+        label="Card background"
+        value={pageTheme.cardBackground ?? ''}
+        onChange={(v) => update({ cardBackground: v || undefined })}
+        placeholder="e.g. #ffffff"
+      />
+
+      <FormControl size="small" fullWidth>
+        <InputLabel>Padding</InputLabel>
+        <Select
+          label="Padding"
+          value={pageTheme.cardPadding ?? 2}
+          onChange={(event) => update({ cardPadding: event.target.value as number })}
+        >
+          {PADDING_OPTIONS.map((o) => (
+            <MenuItem key={o.value} value={o.value}>
+              {o.label}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      <TextField
+        size="small"
+        label="Corner radius (px)"
+        type="number"
+        value={pageTheme.cardRadius ?? ''}
+        placeholder="4"
+        onChange={(event) =>
+          update({ cardRadius: event.target.value === '' ? undefined : Number(event.target.value) })
+        }
+        slotProps={{ htmlInput: { min: 0, max: 64 } }}
+      />
+
+      <FormControlLabel
+        control={
+          <Switch
+            checked={cardBorder}
+            onChange={(event) => update({ cardBorder: event.target.checked })}
+            size="small"
+          />
+        }
+        label="Card border"
+      />
+
+      {cardBorder && (
+        <React.Fragment>
+          <ColorInput
+            label="Border colour"
+            value={pageTheme.cardBorderColor ?? ''}
+            onChange={(v) => update({ cardBorderColor: v || undefined })}
+            placeholder="e.g. #e0e0e0"
+          />
+          <TextField
+            size="small"
+            label="Border width (px)"
+            type="number"
+            value={pageTheme.cardBorderWidth ?? ''}
+            placeholder="1"
+            onChange={(event) =>
+              update({
+                cardBorderWidth: event.target.value === '' ? undefined : Number(event.target.value),
+              })
+            }
+            slotProps={{ htmlInput: { min: 1, max: 16 } }}
+          />
+        </React.Fragment>
+      )}
+    </Stack>
+  );
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export function StudioComposeDrawer() {
+  const [mainTab, setMainTab] = React.useState(0);
   const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
   const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
 
-  if (selectedWidgetId) {
-    return <WidgetConfigView widgetId={selectedWidgetId} />;
-  }
+  const widgetsContent = (() => {
+    if (selectedWidgetId) {
+      return <WidgetConfigView widgetId={selectedWidgetId} />;
+    }
+    if (selectedFieldId) {
+      return <FieldDetailView />;
+    }
+    return <AddWidgetView />;
+  })();
 
-  if (selectedFieldId) {
-    return <FieldDetailView />;
-  }
+  return (
+    <div>
+      <Tabs
+        value={mainTab}
+        onChange={(_event, v) => setMainTab(v)}
+        variant="fullWidth"
+        sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+      >
+        <Tab label="Widgets" />
+        <Tab label="Page" />
+      </Tabs>
 
-  return <AddWidgetView />;
+      <TabPanel value={mainTab} index={0}>
+        {widgetsContent}
+      </TabPanel>
+      <TabPanel value={mainTab} index={1}>
+        <PageConfigPanel />
+      </TabPanel>
+    </div>
+  );
 }

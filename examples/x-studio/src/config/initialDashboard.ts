@@ -122,6 +122,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiAggregation: 'count',
         kpiSparkline: true,
         kpiSparklineField: 'date',
+        kpiSparklineCumulative: true,
       },
     },
     'widget-kpi-customers': {
@@ -131,7 +132,13 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: CUSTOMERS_SOURCE_ID,
       layout: { x: 6, y: 0, width: 3, height: 3 },
       bindings: customersBindings,
-      config: { kpiValueField: 'company', kpiAggregation: 'count' },
+      config: {
+        kpiValueField: 'company',
+        kpiAggregation: 'count',
+        kpiSparkline: true,
+        kpiSparklineField: 'since',
+        kpiSparklineCumulative: true,
+      },
     },
     'widget-kpi-ontime': {
       id: 'widget-kpi-ontime',
@@ -145,7 +152,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiAggregation: 'avg',
         kpiSparkline: true,
         kpiSparklineField: 'shipDate',
-        kpiSparklinePlotType: 'bar',
       },
     },
     'widget-chart-category': {

@@ -5,6 +5,7 @@ import {
   type StudioDataSource,
   type StudioDrawer,
   type StudioMode,
+  type StudioPage,
   type StudioState,
   type StudioWidget,
 } from '../models';
@@ -392,6 +393,23 @@ export class StudioController {
   /**
    * Sets the active page by ID.
    */
+  /** Updates fields on the active page (e.g. theme). */
+  updateActivePage = (changes: Partial<Omit<StudioPage, 'id'>>) => {
+    const state = this.store.state;
+    const pageId = state.dashboard.activePageId;
+    const page = state.pages[pageId];
+    if (!page) {
+      return;
+    }
+    this.commitState({
+      ...state,
+      pages: {
+        ...state.pages,
+        [pageId]: { ...page, ...changes },
+      },
+    });
+  };
+
   setActivePage = (pageId: string) => {
     const state = this.store.state;
     if (!state.pages[pageId] || state.dashboard.activePageId === pageId) {

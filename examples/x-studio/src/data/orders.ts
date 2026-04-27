@@ -38,7 +38,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-01-05',
       customerId: 'CUS-001',
       status: 'Delivered',
-      total: 12340.5,
+      total: 1795.5,
       currency: 'EUR',
     },
     {
@@ -46,7 +46,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-01-15',
       customerId: 'CUS-002',
       status: 'Delivered',
-      total: 5382,
+      total: 32360.91,
       currency: 'EUR',
     },
     {
@@ -54,7 +54,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-01-22',
       customerId: 'CUS-003',
       status: 'Delivered',
-      total: 10327,
+      total: 18077.17,
       currency: 'EUR',
     },
     {
@@ -62,7 +62,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-02-01',
       customerId: 'CUS-004',
       status: 'Delivered',
-      total: 2082.5,
+      total: 4370.74,
       currency: 'EUR',
     },
     {
@@ -70,7 +70,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-02-12',
       customerId: 'CUS-005',
       status: 'Delivered',
-      total: 4552.4,
+      total: 27793.06,
       currency: 'EUR',
     },
     {
@@ -78,7 +78,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-02-25',
       customerId: 'CUS-001',
       status: 'Delivered',
-      total: 3132.8,
+      total: 29733.36,
       currency: 'EUR',
     },
     {
@@ -86,7 +86,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-08',
       customerId: 'CUS-003',
       status: 'Delivered',
-      total: 5386.5,
+      total: 21988.5,
       currency: 'EUR',
     },
     {
@@ -94,7 +94,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-20',
       customerId: 'CUS-002',
       status: 'Shipped',
-      total: 4957.44,
+      total: 21247.02,
       currency: 'EUR',
     },
     {
@@ -102,7 +102,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-04-02',
       customerId: 'CUS-004',
       status: 'Processing',
-      total: 1975,
+      total: 9730.12,
       currency: 'EUR',
     },
     {
@@ -110,7 +110,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-04-10',
       customerId: 'CUS-005',
       status: 'Pending',
-      total: 3402.9,
+      total: 14543.08,
       currency: 'EUR',
     },
     {
@@ -118,7 +118,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-01-08',
       customerId: 'CUS-006',
       status: 'Delivered',
-      total: 23382,
+      total: 56987.81,
       currency: 'GBP',
     },
     {
@@ -126,7 +126,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-01-18',
       customerId: 'CUS-007',
       status: 'Delivered',
-      total: 11853.6,
+      total: 18712.83,
       currency: 'GBP',
     },
     {
@@ -134,7 +134,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-01-28',
       customerId: 'CUS-008',
       status: 'Delivered',
-      total: 3427,
+      total: 27198.24,
       currency: 'GBP',
     },
     {
@@ -142,7 +142,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-02-08',
       customerId: 'CUS-009',
       status: 'Delivered',
-      total: 1380,
+      total: 18230.7,
       currency: 'GBP',
     },
     {
@@ -150,7 +150,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-02-18',
       customerId: 'CUS-010',
       status: 'Delivered',
-      total: 2652.4,
+      total: 22023.45,
       currency: 'GBP',
     },
     {
@@ -158,7 +158,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-01',
       customerId: 'CUS-006',
       status: 'Delivered',
-      total: 6612.96,
+      total: 13254.48,
       currency: 'GBP',
     },
     {
@@ -166,7 +166,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-12',
       customerId: 'CUS-007',
       status: 'Delivered',
-      total: 8895.25,
+      total: 837.2,
       currency: 'GBP',
     },
     {
@@ -174,7 +174,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-25',
       customerId: 'CUS-008',
       status: 'Shipped',
-      total: 1695.75,
+      total: 1496.25,
       currency: 'GBP',
     },
     {
@@ -182,7 +182,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-04-05',
       customerId: 'CUS-009',
       status: 'Processing',
-      total: 648,
+      total: 29145.87,
       currency: 'GBP',
     },
     {
@@ -190,7 +190,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-04-12',
       customerId: 'CUS-010',
       status: 'Pending',
-      total: 3661.6,
+      total: 7690.04,
       currency: 'GBP',
     },
     {
@@ -198,7 +198,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-01-10',
       customerId: 'CUS-011',
       status: 'Delivered',
-      total: 3933.6,
+      total: 19613.01,
       currency: 'EUR',
     },
     {
@@ -206,7 +206,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-01-25',
       customerId: 'CUS-012',
       status: 'Delivered',
-      total: 17926.2,
+      total: 29813.78,
       currency: 'EUR',
     },
     {
@@ -214,7 +214,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-02-05',
       customerId: 'CUS-013',
       status: 'Delivered',
-      total: 2410.8,
+      total: 982.56,
       currency: 'EUR',
     },
     {
@@ -222,7 +222,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-02-20',
       customerId: 'CUS-014',
       status: 'Delivered',
-      total: 3790.5,
+      total: 19232.25,
       currency: 'EUR',
     },
     {
@@ -230,7 +230,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-05',
       customerId: 'CUS-011',
       status: 'Delivered',
-      total: 1400,
+      total: 8485.94,
       currency: 'EUR',
     },
     {
@@ -238,7 +238,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-18',
       customerId: 'CUS-012',
       status: 'Shipped',
-      total: 7274.2,
+      total: 3902.6,
       currency: 'EUR',
     },
     {
@@ -246,7 +246,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-04-01',
       customerId: 'CUS-013',
       status: 'Processing',
-      total: 1185,
+      total: 15761.46,
       currency: 'EUR',
     },
     {
@@ -254,7 +254,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-04-08',
       customerId: 'CUS-014',
       status: 'Pending',
-      total: 1417.5,
+      total: 10965.8,
       currency: 'EUR',
     },
     {
@@ -262,7 +262,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-01-12',
       customerId: 'CUS-015',
       status: 'Delivered',
-      total: 34293.6,
+      total: 4834.7,
       currency: 'USD',
     },
     {
@@ -270,7 +270,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-01-28',
       customerId: 'CUS-016',
       status: 'Delivered',
-      total: 15266,
+      total: 21318.04,
       currency: 'USD',
     },
     {
@@ -278,7 +278,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-02-10',
       customerId: 'CUS-017',
       status: 'Delivered',
-      total: 8266.2,
+      total: 4926.2,
       currency: 'USD',
     },
     {
@@ -286,7 +286,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-02-22',
       customerId: 'CUS-018',
       status: 'Delivered',
-      total: 2113.75,
+      total: 4284,
       currency: 'USD',
     },
     {
@@ -294,7 +294,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-08',
       customerId: 'CUS-015',
       status: 'Delivered',
-      total: 7182,
+      total: 12471.48,
       currency: 'USD',
     },
     {
@@ -302,7 +302,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-22',
       customerId: 'CUS-016',
       status: 'Shipped',
-      total: 12707.5,
+      total: 4934.88,
       currency: 'USD',
     },
     {
@@ -310,7 +310,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-04-03',
       customerId: 'CUS-017',
       status: 'Processing',
-      total: 4577,
+      total: 6932.2,
       currency: 'USD',
     },
     {
@@ -318,7 +318,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-04-11',
       customerId: 'CUS-018',
       status: 'Pending',
-      total: 1788,
+      total: 33319.35,
       currency: 'USD',
     },
     {
@@ -326,7 +326,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-01-20',
       customerId: 'CUS-019',
       status: 'Delivered',
-      total: 21045.8,
+      total: 35742.92,
       currency: 'CAD',
     },
     {
@@ -334,7 +334,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-02-02',
       customerId: 'CUS-020',
       status: 'Delivered',
-      total: 6196.2,
+      total: 5567.83,
       currency: 'CAD',
     },
     {
@@ -342,7 +342,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-02-15',
       customerId: 'CUS-021',
       status: 'Delivered',
-      total: 1724.8,
+      total: 4961.45,
       currency: 'CAD',
     },
     {
@@ -350,7 +350,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-01',
       customerId: 'CUS-019',
       status: 'Delivered',
-      total: 5510.8,
+      total: 28125.86,
       currency: 'CAD',
     },
     {
@@ -358,7 +358,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-15',
       customerId: 'CUS-020',
       status: 'Shipped',
-      total: 5382,
+      total: 3367.76,
       currency: 'CAD',
     },
     {
@@ -366,7 +366,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-28',
       customerId: 'CUS-021',
       status: 'Shipped',
-      total: 983.25,
+      total: 52312.86,
       currency: 'CAD',
     },
     {
@@ -374,7 +374,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-04-06',
       customerId: 'CUS-019',
       status: 'Processing',
-      total: 6061.5,
+      total: 848.7,
       currency: 'CAD',
     },
     {
@@ -382,7 +382,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-04-14',
       customerId: 'CUS-020',
       status: 'Pending',
-      total: 1657.75,
+      total: 41915.1,
       currency: 'CAD',
     },
     {
@@ -390,7 +390,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-01-10',
       customerId: 'CUS-015',
       status: 'Delivered',
-      total: 15826.8,
+      total: 27102.9,
       currency: 'USD',
     },
     {
@@ -398,7 +398,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-01-22',
       customerId: 'CUS-001',
       status: 'Delivered',
-      total: 12648,
+      total: 5842.12,
       currency: 'EUR',
     },
     {
@@ -406,7 +406,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-02-05',
       customerId: 'CUS-006',
       status: 'Delivered',
-      total: 23382,
+      total: 12295.8,
       currency: 'GBP',
     },
     {
@@ -414,7 +414,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-02-18',
       customerId: 'CUS-019',
       status: 'Delivered',
-      total: 8928,
+      total: 11394.8,
       currency: 'CAD',
     },
     {
@@ -422,7 +422,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-03-08',
       customerId: 'CUS-011',
       status: 'Delivered',
-      total: 6198,
+      total: 19423.7,
       currency: 'EUR',
     },
     {
@@ -430,7 +430,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-03-22',
       customerId: 'CUS-016',
       status: 'Delivered',
-      total: 18599.5,
+      total: 12689.68,
       currency: 'USD',
     },
     {
@@ -438,7 +438,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-04-05',
       customerId: 'CUS-003',
       status: 'Delivered',
-      total: 10400,
+      total: 26146.26,
       currency: 'EUR',
     },
     {
@@ -446,7 +446,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-04-19',
       customerId: 'CUS-007',
       status: 'Delivered',
-      total: 14241,
+      total: 172.8,
       currency: 'GBP',
     },
     {
@@ -454,7 +454,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-05-10',
       customerId: 'CUS-020',
       status: 'Delivered',
-      total: 5100,
+      total: 35420.78,
       currency: 'CAD',
     },
     {
@@ -462,7 +462,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-05-24',
       customerId: 'CUS-012',
       status: 'Delivered',
-      total: 19845,
+      total: 5382.7,
       currency: 'EUR',
     },
     {
@@ -470,7 +470,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-06-08',
       customerId: 'CUS-026',
       status: 'Delivered',
-      total: 7618.5,
+      total: 7924.59,
       currency: 'EUR',
     },
     {
@@ -478,7 +478,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-06-22',
       customerId: 'CUS-029',
       status: 'Delivered',
-      total: 11320,
+      total: 10645.32,
       currency: 'EUR',
     },
     {
@@ -486,7 +486,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-07-10',
       customerId: 'CUS-039',
       status: 'Delivered',
-      total: 16497,
+      total: 10594.52,
       currency: 'AUD',
     },
     {
@@ -494,7 +494,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-07-25',
       customerId: 'CUS-022',
       status: 'Delivered',
-      total: 8820,
+      total: 10089.65,
       currency: 'EUR',
     },
     {
@@ -502,7 +502,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-08-12',
       customerId: 'CUS-043',
       status: 'Delivered',
-      total: 22113,
+      total: 15248.04,
       currency: 'USD',
     },
     {
@@ -510,7 +510,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-08-28',
       customerId: 'CUS-032',
       status: 'Delivered',
-      total: 5913.6,
+      total: 20569.66,
       currency: 'EUR',
     },
     {
@@ -518,7 +518,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-09-15',
       customerId: 'CUS-040',
       status: 'Shipped',
-      total: 13443,
+      total: 18118.05,
       currency: 'AUD',
     },
     {
@@ -526,7 +526,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-09-28',
       customerId: 'CUS-036',
       status: 'Delivered',
-      total: 9724.8,
+      total: 5395.8,
       currency: 'CAD',
     },
     {
@@ -534,7 +534,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-10-14',
       customerId: 'CUS-047',
       status: 'Delivered',
-      total: 17826,
+      total: 12548.55,
       currency: 'GBP',
     },
     {
@@ -542,7 +542,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-10-30',
       customerId: 'CUS-025',
       status: 'Delivered',
-      total: 4305,
+      total: 8511.92,
       currency: 'EUR',
     },
     {
@@ -550,7 +550,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-11-08',
       customerId: 'CUS-002',
       status: 'Delivered',
-      total: 5382,
+      total: 10344.66,
       currency: 'EUR',
     },
     {
@@ -558,7 +558,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-11-20',
       customerId: 'CUS-008',
       status: 'Delivered',
-      total: 3427,
+      total: 21638.15,
       currency: 'GBP',
     },
     {
@@ -566,7 +566,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-12-05',
       customerId: 'CUS-017',
       status: 'Delivered',
-      total: 8266.2,
+      total: 45066.6,
       currency: 'USD',
     },
     {
@@ -574,7 +574,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-12-18',
       customerId: 'CUS-021',
       status: 'Delivered',
-      total: 1724.8,
+      total: 13777,
       currency: 'CAD',
     },
     {
@@ -582,7 +582,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-05-02',
       customerId: 'CUS-043',
       status: 'Delivered',
-      total: 29880,
+      total: 6115.05,
       currency: 'USD',
     },
     {
@@ -590,7 +590,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-05-10',
       customerId: 'CUS-039',
       status: 'Delivered',
-      total: 12551.6,
+      total: 11427.15,
       currency: 'AUD',
     },
     {
@@ -598,7 +598,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-05-18',
       customerId: 'CUS-026',
       status: 'Delivered',
-      total: 6612.96,
+      total: 12948.44,
       currency: 'EUR',
     },
     {
@@ -606,7 +606,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-05-25',
       customerId: 'CUS-029',
       status: 'Delivered',
-      total: 8895.25,
+      total: 1365,
       currency: 'EUR',
     },
     {
@@ -614,7 +614,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-06-03',
       customerId: 'CUS-022',
       status: 'Delivered',
-      total: 3933.6,
+      total: 8544.55,
       currency: 'EUR',
     },
     {
@@ -622,7 +622,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-06-12',
       customerId: 'CUS-032',
       status: 'Delivered',
-      total: 7182,
+      total: 14679.2,
       currency: 'EUR',
     },
     {
@@ -630,7 +630,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-06-20',
       customerId: 'CUS-047',
       status: 'Delivered',
-      total: 12707.5,
+      total: 15434.6,
       currency: 'GBP',
     },
     {
@@ -638,7 +638,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-07-01',
       customerId: 'CUS-015',
       status: 'Delivered',
-      total: 34293.6,
+      total: 4126.02,
       currency: 'USD',
     },
     {
@@ -646,7 +646,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-07-10',
       customerId: 'CUS-040',
       status: 'Delivered',
-      total: 15266,
+      total: 12751.32,
       currency: 'AUD',
     },
     {
@@ -654,7 +654,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-07-18',
       customerId: 'CUS-001',
       status: 'Delivered',
-      total: 10327,
+      total: 2947.68,
       currency: 'EUR',
     },
     {
@@ -662,7 +662,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-07-28',
       customerId: 'CUS-044',
       status: 'Delivered',
-      total: 5382,
+      total: 3008.7,
       currency: 'USD',
     },
     {
@@ -670,7 +670,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-08-05',
       customerId: 'CUS-016',
       status: 'Delivered',
-      total: 17926.2,
+      total: 8867.51,
       currency: 'USD',
     },
     {
@@ -678,7 +678,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-08-14',
       customerId: 'CUS-041',
       status: 'Delivered',
-      total: 6196.2,
+      total: 11083.14,
       currency: 'AUD',
     },
     {
@@ -686,7 +686,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-08-22',
       customerId: 'CUS-027',
       status: 'Delivered',
-      total: 3790.5,
+      total: 1839.58,
       currency: 'EUR',
     },
     {
@@ -694,7 +694,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-09-01',
       customerId: 'CUS-030',
       status: 'Shipped',
-      total: 4552.4,
+      total: 1759.5,
       currency: 'EUR',
     },
     {
@@ -702,7 +702,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-09-10',
       customerId: 'CUS-003',
       status: 'Delivered',
-      total: 23382,
+      total: 6703.8,
       currency: 'EUR',
     },
     {
@@ -710,7 +710,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-09-18',
       customerId: 'CUS-023',
       status: 'Delivered',
-      total: 2410.8,
+      total: 7524.15,
       currency: 'EUR',
     },
     {
@@ -718,7 +718,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-09-28',
       customerId: 'CUS-045',
       status: 'Shipped',
-      total: 1975,
+      total: 2720.76,
       currency: 'USD',
     },
     {
@@ -726,7 +726,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-10-05',
       customerId: 'CUS-033',
       status: 'Delivered',
-      total: 3427,
+      total: 56484.08,
       currency: 'EUR',
     },
     {
@@ -734,7 +734,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-10-14',
       customerId: 'CUS-048',
       status: 'Delivered',
-      total: 6612.96,
+      total: 5759.98,
       currency: 'GBP',
     },
     {
@@ -742,7 +742,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-10-22',
       customerId: 'CUS-036',
       status: 'Delivered',
-      total: 21045.8,
+      total: 12140.35,
       currency: 'CAD',
     },
     {
@@ -750,7 +750,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-10-30',
       customerId: 'CUS-019',
       status: 'Delivered',
-      total: 8266.2,
+      total: 24728.2,
       currency: 'CAD',
     },
     {
@@ -758,7 +758,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-11-07',
       customerId: 'CUS-039',
       status: 'Shipped',
-      total: 34293.6,
+      total: 16150.42,
       currency: 'AUD',
     },
     {
@@ -766,7 +766,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-11-15',
       customerId: 'CUS-007',
       status: 'Delivered',
-      total: 11853.6,
+      total: 15332.6,
       currency: 'GBP',
     },
     {
@@ -774,7 +774,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-11-22',
       customerId: 'CUS-046',
       status: 'Shipped',
-      total: 2652.4,
+      total: 8715,
       currency: 'USD',
     },
     {
@@ -782,7 +782,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-11-30',
       customerId: 'CUS-031',
       status: 'Delivered',
-      total: 1380,
+      total: 12747.06,
       currency: 'EUR',
     },
     {
@@ -790,7 +790,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-12-07',
       customerId: 'CUS-043',
       status: 'Delivered',
-      total: 17926.2,
+      total: 5745.6,
       currency: 'USD',
     },
     {
@@ -798,7 +798,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-12-14',
       customerId: 'CUS-012',
       status: 'Delivered',
-      total: 7274.2,
+      total: 27020.6,
       currency: 'EUR',
     },
     {
@@ -806,7 +806,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-12-20',
       customerId: 'CUS-024',
       status: 'Delivered',
-      total: 3933.6,
+      total: 14532.84,
       currency: 'EUR',
     },
     {
@@ -814,7 +814,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-12-28',
       customerId: 'CUS-037',
       status: 'Cancelled',
-      total: 5382,
+      total: 39590.9,
       currency: 'CAD',
     },
     {
@@ -822,7 +822,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-12-31',
       customerId: 'CUS-006',
       status: 'Delivered',
-      total: 23382,
+      total: 4711.82,
       currency: 'GBP',
     },
     {
@@ -830,7 +830,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-12-31',
       customerId: 'CUS-015',
       status: 'Delivered',
-      total: 15266,
+      total: 666.4,
       currency: 'USD',
     },
     {
@@ -838,7 +838,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-01-06',
       customerId: 'CUS-040',
       status: 'Delivered',
-      total: 8266.2,
+      total: 27021.6,
       currency: 'AUD',
     },
     {
@@ -846,7 +846,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-01-10',
       customerId: 'CUS-001',
       status: 'Delivered',
-      total: 12340.5,
+      total: 29341.27,
       currency: 'EUR',
     },
     {
@@ -854,7 +854,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-01-15',
       customerId: 'CUS-028',
       status: 'Delivered',
-      total: 4552.4,
+      total: 6921.96,
       currency: 'EUR',
     },
     {
@@ -862,7 +862,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-01-20',
       customerId: 'CUS-044',
       status: 'Delivered',
-      total: 2410.8,
+      total: 26889.3,
       currency: 'USD',
     },
     {
@@ -870,7 +870,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-01-24',
       customerId: 'CUS-013',
       status: 'Delivered',
-      total: 1417.5,
+      total: 34700.83,
       currency: 'EUR',
     },
     {
@@ -878,7 +878,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-01-28',
       customerId: 'CUS-047',
       status: 'Delivered',
-      total: 8895.25,
+      total: 5956.7,
       currency: 'GBP',
     },
     {
@@ -886,7 +886,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-02-03',
       customerId: 'CUS-016',
       status: 'Delivered',
-      total: 34293.6,
+      total: 6877.56,
       currency: 'USD',
     },
     {
@@ -894,7 +894,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-02-07',
       customerId: 'CUS-032',
       status: 'Shipped',
-      total: 7182,
+      total: 13020.1,
       currency: 'EUR',
     },
     {
@@ -902,7 +902,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-02-12',
       customerId: 'CUS-041',
       status: 'Delivered',
-      total: 12707.5,
+      total: 14558.2,
       currency: 'AUD',
     },
     {
@@ -910,7 +910,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-02-17',
       customerId: 'CUS-005',
       status: 'Delivered',
-      total: 4552.4,
+      total: 15222.66,
       currency: 'EUR',
     },
     {
@@ -918,7 +918,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-02-21',
       customerId: 'CUS-026',
       status: 'Delivered',
-      total: 6612.96,
+      total: 7607.12,
       currency: 'EUR',
     },
     {
@@ -926,7 +926,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-02-25',
       customerId: 'CUS-043',
       status: 'Processing',
-      total: 29880,
+      total: 6711.45,
       currency: 'USD',
     },
     {
@@ -934,7 +934,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-01',
       customerId: 'CUS-020',
       status: 'Delivered',
-      total: 5510.8,
+      total: 26467.9,
       currency: 'CAD',
     },
     {
@@ -942,7 +942,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-05',
       customerId: 'CUS-009',
       status: 'Delivered',
-      total: 1380,
+      total: 25727.25,
       currency: 'GBP',
     },
     {
@@ -950,7 +950,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-08',
       customerId: 'CUS-033',
       status: 'Shipped',
-      total: 3427,
+      total: 13776.77,
       currency: 'EUR',
     },
     {
@@ -958,7 +958,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-11',
       customerId: 'CUS-048',
       status: 'Delivered',
-      total: 11853.6,
+      total: 17681.56,
       currency: 'GBP',
     },
     {
@@ -966,7 +966,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-14',
       customerId: 'CUS-039',
       status: 'Delivered',
-      total: 15266,
+      total: 31776.08,
       currency: 'AUD',
     },
     {
@@ -974,7 +974,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-17',
       customerId: 'CUS-022',
       status: 'Processing',
-      total: 3933.6,
+      total: 1188,
       currency: 'EUR',
     },
     {
@@ -982,7 +982,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-20',
       customerId: 'CUS-036',
       status: 'Delivered',
-      total: 8266.2,
+      total: 15833.4,
       currency: 'CAD',
     },
     {
@@ -990,7 +990,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-22',
       customerId: 'CUS-046',
       status: 'Processing',
-      total: 2113.75,
+      total: 1843.7,
       currency: 'USD',
     },
     {
@@ -998,7 +998,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-24',
       customerId: 'CUS-007',
       status: 'Delivered',
-      total: 23382,
+      total: 10290,
       currency: 'GBP',
     },
     {
@@ -1006,7 +1006,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-25',
       customerId: 'CUS-040',
       status: 'Shipped',
-      total: 6196.2,
+      total: 14892.56,
       currency: 'AUD',
     },
     {
@@ -1014,7 +1014,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-26',
       customerId: 'CUS-015',
       status: 'Delivered',
-      total: 12340.5,
+      total: 7800.84,
       currency: 'USD',
     },
     {
@@ -1022,7 +1022,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-27',
       customerId: 'CUS-029',
       status: 'Delivered',
-      total: 8895.25,
+      total: 12416.42,
       currency: 'EUR',
     },
     {
@@ -1030,7 +1030,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-28',
       customerId: 'CUS-034',
       status: 'Processing',
-      total: 1657.75,
+      total: 8531,
       currency: 'EUR',
     },
     {
@@ -1038,7 +1038,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-28',
       customerId: 'CUS-044',
       status: 'Shipped',
-      total: 5382,
+      total: 5104.35,
       currency: 'USD',
     },
     {
@@ -1046,7 +1046,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-29',
       customerId: 'CUS-001',
       status: 'Delivered',
-      total: 10327,
+      total: 8252.4,
       currency: 'EUR',
     },
     {
@@ -1054,7 +1054,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-29',
       customerId: 'CUS-041',
       status: 'Delivered',
-      total: 8266.2,
+      total: 13559.08,
       currency: 'AUD',
     },
     {
@@ -1062,7 +1062,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-30',
       customerId: 'CUS-016',
       status: 'Delivered',
-      total: 17926.2,
+      total: 4755.16,
       currency: 'USD',
     },
     {
@@ -1070,7 +1070,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-30',
       customerId: 'CUS-025',
       status: 'Cancelled',
-      total: 3933.6,
+      total: 4939,
       currency: 'EUR',
     },
     {
@@ -1078,7 +1078,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-31',
       customerId: 'CUS-047',
       status: 'Delivered',
-      total: 12707.5,
+      total: 7814.8,
       currency: 'GBP',
     },
     {
@@ -1086,7 +1086,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-31',
       customerId: 'CUS-032',
       status: 'Processing',
-      total: 6061.5,
+      total: 9173.3,
       currency: 'EUR',
     },
     {
@@ -1094,7 +1094,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-10-05',
       customerId: 'CUS-035',
       status: 'Delivered',
-      total: 5510.8,
+      total: 30794.18,
       currency: 'CAD',
     },
     {
@@ -1102,7 +1102,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-11-12',
       customerId: 'CUS-028',
       status: 'Delivered',
-      total: 2410.8,
+      total: 5083,
       currency: 'EUR',
     },
     {
@@ -1110,7 +1110,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-12-01',
       customerId: 'CUS-042',
       status: 'Delivered',
-      total: 1657.75,
+      total: 7475,
       currency: 'AUD',
     },
     {
@@ -1118,7 +1118,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2023-12-15',
       customerId: 'CUS-049',
       status: 'Delivered',
-      total: 983.25,
+      total: 2705.6,
       currency: 'GBP',
     },
     {
@@ -1126,7 +1126,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-01-05',
       customerId: 'CUS-038',
       status: 'Delivered',
-      total: 5510.8,
+      total: 8648.95,
       currency: 'CAD',
     },
     {
@@ -1134,7 +1134,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-02-14',
       customerId: 'CUS-042',
       status: 'Delivered',
-      total: 3402.9,
+      total: 6457.42,
       currency: 'AUD',
     },
     {
@@ -1142,7 +1142,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-03-10',
       customerId: 'CUS-030',
       status: 'Delivered',
-      total: 7618.5,
+      total: 9310.4,
       currency: 'EUR',
     },
     {
@@ -1150,7 +1150,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-04-18',
       customerId: 'CUS-034',
       status: 'Delivered',
-      total: 4305,
+      total: 6623.5,
       currency: 'EUR',
     },
     {
@@ -1158,7 +1158,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-05-30',
       customerId: 'CUS-049',
       status: 'Shipped',
-      total: 1695.75,
+      total: 7152,
       currency: 'GBP',
     },
     {
@@ -1166,7 +1166,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-06-15',
       customerId: 'CUS-038',
       status: 'Delivered',
-      total: 6061.5,
+      total: 15162,
       currency: 'CAD',
     },
     {
@@ -1174,7 +1174,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-07-22',
       customerId: 'CUS-035',
       status: 'Delivered',
-      total: 9724.8,
+      total: 8139.6,
       currency: 'CAD',
     },
     {
@@ -1182,7 +1182,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-08-30',
       customerId: 'CUS-050',
       status: 'Delivered',
-      total: 3661.6,
+      total: 18038.04,
       currency: 'GBP',
     },
     {
@@ -1190,7 +1190,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-09-15',
       customerId: 'CUS-031',
       status: 'Delivered',
-      total: 2652.4,
+      total: 17918.81,
       currency: 'EUR',
     },
     {
@@ -1198,7 +1198,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-10-08',
       customerId: 'CUS-045',
       status: 'Shipped',
-      total: 1788,
+      total: 57257.84,
       currency: 'USD',
     },
     {
@@ -1206,7 +1206,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-11-20',
       customerId: 'CUS-042',
       status: 'Delivered',
-      total: 6061.5,
+      total: 2184,
       currency: 'AUD',
     },
     {
@@ -1214,7 +1214,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2024-12-10',
       customerId: 'CUS-050',
       status: 'Delivered',
-      total: 8895.25,
+      total: 13722.6,
       currency: 'GBP',
     },
     {
@@ -1222,7 +1222,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-01-12',
       customerId: 'CUS-049',
       status: 'Processing',
-      total: 2652.4,
+      total: 31457.96,
       currency: 'GBP',
     },
     {
@@ -1230,7 +1230,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-02-28',
       customerId: 'CUS-035',
       status: 'Delivered',
-      total: 5510.8,
+      total: 17105.38,
       currency: 'CAD',
     },
     // 2025 Q1–Q2
@@ -1239,7 +1239,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-05',
       customerId: 'CUS-001',
       status: 'Delivered',
-      total: 14820.0,
+      total: 2563.12,
       currency: 'EUR',
     },
     {
@@ -1247,7 +1247,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-10',
       customerId: 'CUS-006',
       status: 'Delivered',
-      total: 9345.6,
+      total: 15470.2,
       currency: 'GBP',
     },
     {
@@ -1255,7 +1255,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-14',
       customerId: 'CUS-015',
       status: 'Delivered',
-      total: 21560.0,
+      total: 9393.66,
       currency: 'USD',
     },
     {
@@ -1263,7 +1263,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-18',
       customerId: 'CUS-022',
       status: 'Delivered',
-      total: 4330.5,
+      total: 16881.58,
       currency: 'EUR',
     },
     {
@@ -1271,7 +1271,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-22',
       customerId: 'CUS-019',
       status: 'Delivered',
-      total: 7890.0,
+      total: 35194.36,
       currency: 'CAD',
     },
     {
@@ -1279,7 +1279,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-03-27',
       customerId: 'CUS-011',
       status: 'Delivered',
-      total: 5120.4,
+      total: 1794.98,
       currency: 'EUR',
     },
     {
@@ -1287,7 +1287,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-04-02',
       customerId: 'CUS-003',
       status: 'Delivered',
-      total: 11340.0,
+      total: 9555.58,
       currency: 'EUR',
     },
     {
@@ -1295,7 +1295,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-04-07',
       customerId: 'CUS-016',
       status: 'Delivered',
-      total: 18750.0,
+      total: 11518.9,
       currency: 'USD',
     },
     {
@@ -1303,7 +1303,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-04-11',
       customerId: 'CUS-030',
       status: 'Delivered',
-      total: 6430.8,
+      total: 380.16,
       currency: 'EUR',
     },
     {
@@ -1311,7 +1311,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-04-16',
       customerId: 'CUS-038',
       status: 'Delivered',
-      total: 5980.0,
+      total: 13254.48,
       currency: 'CAD',
     },
     {
@@ -1319,7 +1319,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-04-22',
       customerId: 'CUS-007',
       status: 'Delivered',
-      total: 12640.5,
+      total: 28289.28,
       currency: 'GBP',
     },
     {
@@ -1327,7 +1327,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-04-28',
       customerId: 'CUS-044',
       status: 'Delivered',
-      total: 3210.0,
+      total: 2664.3,
       currency: 'EUR',
     },
     {
@@ -1335,7 +1335,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-05-05',
       customerId: 'CUS-002',
       status: 'Delivered',
-      total: 7820.4,
+      total: 6927.3,
       currency: 'EUR',
     },
     {
@@ -1343,7 +1343,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-05-09',
       customerId: 'CUS-017',
       status: 'Delivered',
-      total: 9100.0,
+      total: 26520.36,
       currency: 'USD',
     },
     {
@@ -1351,7 +1351,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-05-14',
       customerId: 'CUS-025',
       status: 'Delivered',
-      total: 4590.0,
+      total: 29995.35,
       currency: 'EUR',
     },
     {
@@ -1359,7 +1359,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-05-19',
       customerId: 'CUS-040',
       status: 'Delivered',
-      total: 2870.5,
+      total: 18937,
       currency: 'EUR',
     },
     {
@@ -1367,7 +1367,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-05-23',
       customerId: 'CUS-012',
       status: 'Delivered',
-      total: 22480.0,
+      total: 36817.68,
       currency: 'EUR',
     },
     {
@@ -1375,7 +1375,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-05-28',
       customerId: 'CUS-020',
       status: 'Delivered',
-      total: 6190.0,
+      total: 26548.1,
       currency: 'CAD',
     },
     {
@@ -1383,7 +1383,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-06-03',
       customerId: 'CUS-005',
       status: 'Delivered',
-      total: 5340.9,
+      total: 17771.64,
       currency: 'EUR',
     },
     {
@@ -1391,7 +1391,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-06-09',
       customerId: 'CUS-049',
       status: 'Delivered',
-      total: 1980.0,
+      total: 19069.46,
       currency: 'GBP',
     },
     {
@@ -1399,7 +1399,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-06-13',
       customerId: 'CUS-033',
       status: 'Delivered',
-      total: 3760.0,
+      total: 10635.04,
       currency: 'EUR',
     },
     {
@@ -1407,7 +1407,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-06-18',
       customerId: 'CUS-015',
       status: 'Delivered',
-      total: 28900.0,
+      total: 4128.66,
       currency: 'USD',
     },
     {
@@ -1415,7 +1415,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-06-24',
       customerId: 'CUS-008',
       status: 'Delivered',
-      total: 4230.0,
+      total: 8907.45,
       currency: 'GBP',
     },
     {
@@ -1423,7 +1423,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-06-30',
       customerId: 'CUS-045',
       status: 'Delivered',
-      total: 2150.0,
+      total: 17795.03,
       currency: 'USD',
     },
     // 2025 Q3
@@ -1432,7 +1432,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-07-04',
       customerId: 'CUS-001',
       status: 'Delivered',
-      total: 16230.0,
+      total: 11930.97,
       currency: 'EUR',
     },
     {
@@ -1440,7 +1440,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-07-10',
       customerId: 'CUS-022',
       status: 'Delivered',
-      total: 5870.5,
+      total: 8772.86,
       currency: 'EUR',
     },
     {
@@ -1448,7 +1448,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-07-16',
       customerId: 'CUS-016',
       status: 'Delivered',
-      total: 13450.0,
+      total: 11172,
       currency: 'USD',
     },
     {
@@ -1456,7 +1456,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-07-22',
       customerId: 'CUS-042',
       status: 'Delivered',
-      total: 7240.0,
+      total: 38840.56,
       currency: 'AUD',
     },
     {
@@ -1464,7 +1464,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-07-28',
       customerId: 'CUS-011',
       status: 'Delivered',
-      total: 4810.8,
+      total: 26418.35,
       currency: 'EUR',
     },
     {
@@ -1472,7 +1472,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-08-04',
       customerId: 'CUS-019',
       status: 'Delivered',
-      total: 9120.0,
+      total: 5010.25,
       currency: 'CAD',
     },
     {
@@ -1480,7 +1480,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-08-11',
       customerId: 'CUS-006',
       status: 'Delivered',
-      total: 11430.6,
+      total: 3997.8,
       currency: 'GBP',
     },
     {
@@ -1488,7 +1488,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-08-18',
       customerId: 'CUS-034',
       status: 'Delivered',
-      total: 6770.0,
+      total: 220.8,
       currency: 'EUR',
     },
     {
@@ -1496,7 +1496,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-08-25',
       customerId: 'CUS-017',
       status: 'Delivered',
-      total: 8390.0,
+      total: 2287.35,
       currency: 'USD',
     },
     {
@@ -1504,7 +1504,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-09-02',
       customerId: 'CUS-004',
       status: 'Delivered',
-      total: 3340.5,
+      total: 11183.03,
       currency: 'EUR',
     },
     {
@@ -1512,7 +1512,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-09-09',
       customerId: 'CUS-012',
       status: 'Delivered',
-      total: 19870.0,
+      total: 11703.6,
       currency: 'EUR',
     },
     {
@@ -1520,7 +1520,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-09-16',
       customerId: 'CUS-050',
       status: 'Delivered',
-      total: 5620.0,
+      total: 177.12,
       currency: 'GBP',
     },
     {
@@ -1528,7 +1528,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-09-23',
       customerId: 'CUS-020',
       status: 'Delivered',
-      total: 4450.0,
+      total: 26523.2,
       currency: 'CAD',
     },
     {
@@ -1536,7 +1536,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-09-30',
       customerId: 'CUS-031',
       status: 'Delivered',
-      total: 3180.4,
+      total: 16203.42,
       currency: 'EUR',
     },
     // 2025 Q4
@@ -1545,7 +1545,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-10-06',
       customerId: 'CUS-003',
       status: 'Delivered',
-      total: 12550.0,
+      total: 28229,
       currency: 'EUR',
     },
     {
@@ -1553,7 +1553,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-10-13',
       customerId: 'CUS-015',
       status: 'Delivered',
-      total: 34100.0,
+      total: 2659.65,
       currency: 'USD',
     },
     {
@@ -1561,7 +1561,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-10-20',
       customerId: 'CUS-007',
       status: 'Delivered',
-      total: 9870.5,
+      total: 1285.76,
       currency: 'GBP',
     },
     {
@@ -1569,7 +1569,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-10-27',
       customerId: 'CUS-033',
       status: 'Delivered',
-      total: 4930.0,
+      total: 30628.93,
       currency: 'EUR',
     },
     {
@@ -1577,7 +1577,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-11-03',
       customerId: 'CUS-044',
       status: 'Delivered',
-      total: 5760.0,
+      total: 3980,
       currency: 'EUR',
     },
     {
@@ -1585,7 +1585,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-11-10',
       customerId: 'CUS-019',
       status: 'Delivered',
-      total: 10340.0,
+      total: 16959.9,
       currency: 'CAD',
     },
     {
@@ -1593,7 +1593,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-11-17',
       customerId: 'CUS-016',
       status: 'Delivered',
-      total: 22100.0,
+      total: 26273.06,
       currency: 'USD',
     },
     {
@@ -1601,7 +1601,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-11-24',
       customerId: 'CUS-001',
       status: 'Delivered',
-      total: 18420.0,
+      total: 25998.03,
       currency: 'EUR',
     },
     {
@@ -1609,7 +1609,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-12-01',
       customerId: 'CUS-006',
       status: 'Delivered',
-      total: 14390.0,
+      total: 15433,
       currency: 'GBP',
     },
     {
@@ -1617,7 +1617,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-12-08',
       customerId: 'CUS-025',
       status: 'Delivered',
-      total: 6210.0,
+      total: 18090.1,
       currency: 'EUR',
     },
     {
@@ -1625,7 +1625,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-12-15',
       customerId: 'CUS-042',
       status: 'Delivered',
-      total: 8760.0,
+      total: 24118.6,
       currency: 'AUD',
     },
     {
@@ -1633,7 +1633,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2025-12-22',
       customerId: 'CUS-012',
       status: 'Delivered',
-      total: 26540.0,
+      total: 18485.18,
       currency: 'EUR',
     },
     // 2026 Q1–Q2
@@ -1642,7 +1642,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-01-07',
       customerId: 'CUS-003',
       status: 'Delivered',
-      total: 11870.0,
+      total: 62542.2,
       currency: 'EUR',
     },
     {
@@ -1650,7 +1650,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-01-14',
       customerId: 'CUS-015',
       status: 'Delivered',
-      total: 29450.0,
+      total: 29776.55,
       currency: 'USD',
     },
     {
@@ -1658,7 +1658,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-01-21',
       customerId: 'CUS-020',
       status: 'Delivered',
-      total: 7340.0,
+      total: 9868.1,
       currency: 'CAD',
     },
     {
@@ -1666,7 +1666,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-01-28',
       customerId: 'CUS-007',
       status: 'Delivered',
-      total: 15680.5,
+      total: 11204.46,
       currency: 'GBP',
     },
     {
@@ -1674,7 +1674,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-02-04',
       customerId: 'CUS-001',
       status: 'Delivered',
-      total: 13240.0,
+      total: 6803.55,
       currency: 'EUR',
     },
     {
@@ -1682,7 +1682,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-02-11',
       customerId: 'CUS-044',
       status: 'Delivered',
-      total: 4870.0,
+      total: 17719.08,
       currency: 'EUR',
     },
     {
@@ -1690,7 +1690,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-02-18',
       customerId: 'CUS-016',
       status: 'Delivered',
-      total: 19870.0,
+      total: 25543.37,
       currency: 'USD',
     },
     {
@@ -1698,7 +1698,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-02-25',
       customerId: 'CUS-049',
       status: 'Delivered',
-      total: 3420.0,
+      total: 631.8,
       currency: 'GBP',
     },
     {
@@ -1706,7 +1706,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-03-04',
       customerId: 'CUS-011',
       status: 'Delivered',
-      total: 8930.4,
+      total: 6559.88,
       currency: 'EUR',
     },
     {
@@ -1714,7 +1714,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-03-11',
       customerId: 'CUS-019',
       status: 'Delivered',
-      total: 12560.0,
+      total: 12488.12,
       currency: 'CAD',
     },
     {
@@ -1722,7 +1722,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-03-18',
       customerId: 'CUS-034',
       status: 'Delivered',
-      total: 5430.0,
+      total: 5630.2,
       currency: 'EUR',
     },
     {
@@ -1730,7 +1730,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-03-25',
       customerId: 'CUS-006',
       status: 'Delivered',
-      total: 10780.0,
+      total: 5830.28,
       currency: 'GBP',
     },
     {
@@ -1738,7 +1738,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-04-01',
       customerId: 'CUS-012',
       status: 'Delivered',
-      total: 23450.0,
+      total: 2163.84,
       currency: 'EUR',
     },
     {
@@ -1746,7 +1746,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-04-07',
       customerId: 'CUS-015',
       status: 'Shipped',
-      total: 31200.0,
+      total: 5662,
       currency: 'USD',
     },
     {
@@ -1754,7 +1754,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-04-10',
       customerId: 'CUS-003',
       status: 'Shipped',
-      total: 9870.0,
+      total: 5822.58,
       currency: 'EUR',
     },
     {
@@ -1762,7 +1762,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-04-14',
       customerId: 'CUS-020',
       status: 'Shipped',
-      total: 6340.0,
+      total: 22804.66,
       currency: 'CAD',
     },
     {
@@ -1770,7 +1770,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-04-17',
       customerId: 'CUS-001',
       status: 'Processing',
-      total: 17650.0,
+      total: 29912.82,
       currency: 'EUR',
     },
     {
@@ -1778,7 +1778,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-04-21',
       customerId: 'CUS-007',
       status: 'Processing',
-      total: 8920.5,
+      total: 20468.78,
       currency: 'GBP',
     },
     {
@@ -1786,7 +1786,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-04-23',
       customerId: 'CUS-016',
       status: 'Processing',
-      total: 24100.0,
+      total: 15186.9,
       currency: 'USD',
     },
     {
@@ -1794,7 +1794,7 @@ const ordersSourceRaw: StudioDataSource = {
       date: '2026-04-25',
       customerId: 'CUS-044',
       status: 'Processing',
-      total: 5130.0,
+      total: 16240.44,
       currency: 'EUR',
     },
   ],

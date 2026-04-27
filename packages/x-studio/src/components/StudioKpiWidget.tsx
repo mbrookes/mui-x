@@ -4,7 +4,7 @@ import { Box, Typography } from '@mui/material';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
 
 import type { StudioDataSource, StudioWidget, StudioFilterState } from '../models';
-import { resolveRows } from './chartUtils';
+import { resolveRows, resolveMetricRefs } from './chartUtils';
 import { useStudioSelector } from '../context';
 import { formatNumber } from './numberFormat';
 
@@ -184,7 +184,7 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
 
     const pageFilters = filters.filter((f) => f.scope === 'page');
     const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
-    const allFilters = [...pageFilters, ...widgetFilters];
+    const allFilters = resolveMetricRefs([...pageFilters, ...widgetFilters], dataSources);
 
     const rows = resolveRows(
       dataSource.rows,
@@ -288,7 +288,7 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: hasSparkline || showSparklineHint ? 1 : 0 }}>
         <Typography
           variant="h3"
-          sx={{ fontWeight: 700, lineHeight: 1, flexShrink: 0 }}
+          sx={{ fontSize: 40, fontWeight: 700, lineHeight: 1, flexShrink: 0 }}
           color={hasData ? 'text.primary' : 'text.disabled'}
         >
           {displayValue}

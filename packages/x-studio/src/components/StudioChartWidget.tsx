@@ -11,6 +11,7 @@ import { Box } from '@mui/material';
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
   resolveRows,
+  resolveMetricRefs,
   aggregateByField,
   aggregateMultipleSeries,
   prepareScatterData,
@@ -90,7 +91,10 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     const crossFilters = filters.filter(
       (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
     );
-    const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
+    const allFilters = resolveMetricRefs(
+      [...pageFilters, ...widgetFilters, ...crossFilters],
+      dataSources,
+    );
 
     return resolveRows(dataSource.rows, widget.sourceId, allFilters, dataSources, relationships);
   }, [dataSource, filters, dataSources, relationships, widget.id, widget.sourceId]);

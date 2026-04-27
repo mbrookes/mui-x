@@ -1,8 +1,52 @@
 import dayjs from 'dayjs';
 import type { RelativeDateValue } from './filterTypes';
-import type { StudioDataSource, StudioFilterState, StudioRelationship } from '../models';
+import type {
+  StudioDataSource,
+  StudioFilterState,
+  StudioMetricRef,
+  StudioRelationship,
+} from '../models';
 
 type Row = Record<string, unknown>;
+
+// ─── Metric ref resolution ───────────────────────────────────────────────────
+
+/**
+ * Resolves a StudioMetricRef to a concrete value by looking up the row in the
+ * specified data source. Returns undefined if the source/row/field is missing.
+ */
+export function resolveMetricRef(
+  ref: StudioMetricRef,
+  dataSources: Record<string, StudioDataSource>,
+): unknown {
+  const source = dataSources[ref.sourceId];
+  if (!source?.rows) {
+    return undefined;
+  }
+  const row = source.rows.find((r) => r.id === ref.rowId);
+  return row?.[ref.field];
+}
+
+/**
+ * Returns a new filter array where any valueRef / value2Ref fields have been
+ * resolved to their concrete values from dataSources.
+ * Call this once before passing filters to applyFilters().
+ */
+export function resolveMetricRefs(
+  filters: StudioFilterState[],
+  dataSources: Record<string, StudioDataSource>,
+): StudioFilterState[] {
+  return filters.map((f) => {
+    if (!f.valueRef && !f.value2Ref) {
+      return f;
+    }
+    return {
+      ...f,
+      value: f.valueRef ? (resolveMetricRef(f.valueRef, dataSources) ?? f.value) : f.value,
+      value2: f.value2Ref ? (resolveMetricRef(f.value2Ref, dataSources) ?? f.value2) : f.value2,
+    };
+  });
+}
 
 function isRelativeDateValue(value: unknown): value is RelativeDateValue {
   return (

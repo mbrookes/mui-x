@@ -843,6 +843,17 @@ interface FilterRowProps {
   onRemove: (id: string) => void;
 }
 
+/** Returns the appropriate default filter value when switching modes pre-field-selection. */
+function defaultValueForMode(mode: FilterMode): StudioFilterState['value'] {
+  if (mode === 'rank') {
+    return 10;
+  }
+  if (mode === 'selection') {
+    return [];
+  }
+  return '';
+}
+
 function FilterRow(props: FilterRowProps) {
   const { fields, fieldOptions, filter, onRemove } = props;
   const controller = useStudioController();
@@ -866,46 +877,65 @@ function FilterRow(props: FilterRowProps) {
     controller.addFilter({ ...filter, ...changes });
   };
 
-  // Phase 1: no field selected yet — show picker grouped by source
+  // Phase 1: no field selected yet — show mode toggle then picker grouped by source
   if (!hasField) {
-    const groups = fieldOptions.reduce<Record<string, FieldOption[]>>((acc, opt) => {
+    const currentMode: FilterMode = filter.filterMode ?? 'condition';
+    const pickableOptions =
+      currentMode === 'rank' ? fieldOptions.filter((o) => o.fieldType === 'number') : fieldOptions;
+    const groups = pickableOptions.reduce<Record<string, FieldOption[]>>((acc, opt) => {
       (acc[opt.sourceLabel] ??= []).push(opt);
       return acc;
     }, {});
 
+    const handleModeChange = (newMode: FilterMode) => {
+      handleChange({
+        filterMode: newMode,
+        value: defaultValueForMode(newMode),
+        rankDirection: newMode === 'rank' ? 'top' : undefined,
+        operator2: undefined,
+        value2: undefined,
+        conjunction: undefined,
+      });
+    };
+
     return (
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-        <FormControl size="small" sx={{ flexGrow: 1 }}>
-          <InputLabel>Select a field…</InputLabel>
-          <Select
-            label="Select a field…"
-            value=""
-            onChange={(event) => {
-              const opt = fieldOptions.find((o) => `${o.sourceId}:${o.id}` === event.target.value);
-              if (opt) {
-                handleChange({
-                  field: opt.id,
-                  fieldType: opt.fieldType,
-                  value: '',
-                  operator: 'equals',
-                });
-              }
-            }}
-          >
-            {Object.entries(groups).map(([sourceLabel, opts]) => [
-              <ListSubheader key={`hdr-${sourceLabel}`}>{sourceLabel}</ListSubheader>,
-              ...opts.map((o) => (
-                <MenuItem key={`${o.sourceId}:${o.id}`} value={`${o.sourceId}:${o.id}`}>
-                  {o.label}
-                </MenuItem>
-              )),
-            ])}
-          </Select>
-        </FormControl>
-        <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label="Remove filter">
-          <CloseIcon fontSize="small" />
-        </IconButton>
-      </Box>
+      <Stack spacing={1}>
+        <FilterModeToggle mode={currentMode} onChange={handleModeChange} />
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <FormControl size="small" sx={{ flexGrow: 1 }}>
+            <InputLabel>Select a field…</InputLabel>
+            <Select
+              label="Select a field…"
+              value=""
+              onChange={(event) => {
+                const opt = pickableOptions.find(
+                  (o) => `${o.sourceId}:${o.id}` === event.target.value,
+                );
+                if (opt) {
+                  handleChange({
+                    field: opt.id,
+                    fieldType: opt.fieldType,
+                    value: defaultValueForMode(currentMode),
+                    operator: 'equals',
+                  });
+                }
+              }}
+            >
+              {Object.entries(groups).map(([sourceLabel, opts]) => [
+                <ListSubheader key={`hdr-${sourceLabel}`}>{sourceLabel}</ListSubheader>,
+                ...opts.map((o) => (
+                  <MenuItem key={`${o.sourceId}:${o.id}`} value={`${o.sourceId}:${o.id}`}>
+                    {o.label}
+                  </MenuItem>
+                )),
+              ])}
+            </Select>
+          </FormControl>
+          <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label="Remove filter">
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Box>
+      </Stack>
     );
   }
 
@@ -1008,41 +1038,60 @@ function WidgetFilterRow(props: WidgetFilterRowProps) {
     controller.addFilter(merged);
   };
 
-  const handleFieldSelect = (_e: React.SyntheticEvent, option: FieldOption | null) => {
-    if (!option) {
-      return;
-    }
-    const isNowCrossSource = option.sourceId !== widgetSourceId;
+  const currentMode: FilterMode = filter.filterMode ?? 'condition';
+
+  const handleModeChangePhase1 = (newMode: FilterMode) => {
     handleChange({
-      field: option.id,
-      fieldType: option.fieldType,
-      filterSourceId: isNowCrossSource ? option.sourceId : undefined,
-      value: '',
-      operator: 'equals',
+      filterMode: newMode,
+      value: defaultValueForMode(newMode),
+      rankDirection: newMode === 'rank' ? 'top' : undefined,
+      operator2: undefined,
+      value2: undefined,
+      conjunction: undefined,
     });
   };
 
-  // Phase 1: no field selected yet — show autocomplete picker
+  // Phase 1: no field selected yet — show mode toggle then autocomplete picker
   if (!hasField) {
+    const pickableOptions =
+      currentMode === 'rank' ? fieldOptions.filter((o) => o.fieldType === 'number') : fieldOptions;
+
+    const handleFieldSelectPhase1 = (_e: React.SyntheticEvent, option: FieldOption | null) => {
+      if (!option) {
+        return;
+      }
+      const isNowCrossSource = option.sourceId !== widgetSourceId;
+      handleChange({
+        field: option.id,
+        fieldType: option.fieldType,
+        filterSourceId: isNowCrossSource ? option.sourceId : undefined,
+        value: defaultValueForMode(currentMode),
+        operator: 'equals',
+      });
+    };
+
     return (
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-        <Autocomplete
-          size="small"
-          sx={{ flexGrow: 1 }}
-          options={fieldOptions}
-          groupBy={(option) => option.sourceLabel}
-          getOptionLabel={(option) => option.label}
-          value={null}
-          onChange={handleFieldSelect}
-          isOptionEqualToValue={(option, value) =>
-            option.id === value.id && option.sourceId === value.sourceId
-          }
-          renderInput={(params) => <TextField {...params} label="Select a field…" />}
-        />
-        <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label="Remove filter">
-          <CloseIcon fontSize="small" />
-        </IconButton>
-      </Box>
+      <Stack spacing={1}>
+        <FilterModeToggle mode={currentMode} onChange={handleModeChangePhase1} />
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Autocomplete
+            size="small"
+            sx={{ flexGrow: 1 }}
+            options={pickableOptions}
+            groupBy={(option) => option.sourceLabel}
+            getOptionLabel={(option) => option.label}
+            value={null}
+            onChange={handleFieldSelectPhase1}
+            isOptionEqualToValue={(option, value) =>
+              option.id === value.id && option.sourceId === value.sourceId
+            }
+            renderInput={(params) => <TextField {...params} label="Select a field…" />}
+          />
+          <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label="Remove filter">
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Box>
+      </Stack>
     );
   }
 

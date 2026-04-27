@@ -121,9 +121,11 @@ function InsertionPoint({
 
 export function StudioCanvas() {
   const mode = useStudioSelector((state) => state.mode);
-  const widgetRows = useStudioSelector(
-    (state) => state.pages[state.dashboard.activePageId].widgetRows,
+  const activePage = useStudioSelector(
+    (state) => state.pages[state.dashboard.activePageId],
   );
+  const widgetRows = activePage?.widgetRows;
+  const pageTheme = activePage?.theme;
   const controller = useStudioController();
 
   // Drop handler for insertion points.
@@ -209,7 +211,12 @@ export function StudioCanvas() {
 
   return (
     <Box
-      sx={{ width: '100%', p: mode === 'edit' ? 0 : '8px' }}
+      sx={{
+        width: '100%',
+        p: mode === 'edit' ? 0 : '8px',
+        backgroundColor: pageTheme?.pageBackground ?? undefined,
+        minHeight: '100%',
+      }}
       onMouseDown={(event) => {
         // Deselect when clicking the canvas background (not a widget card)
         const target = event.target as HTMLElement;
@@ -251,7 +258,11 @@ export function StudioCanvas() {
             {row.map((widgetId, colIndex) => (
               <React.Fragment key={widgetId}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <StudioWidgetCard widgetId={widgetId} isFirstRow={rowIndex === 0} />
+                  <StudioWidgetCard
+                    widgetId={widgetId}
+                    isFirstRow={rowIndex === 0}
+                    pageTheme={pageTheme}
+                  />
                 </Box>
                 {/* Insertion point after this widget */}
                 {mode === 'edit' && (

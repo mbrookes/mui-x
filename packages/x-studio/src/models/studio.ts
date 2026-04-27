@@ -102,10 +102,28 @@ export interface StudioWidget {
   config: StudioWidgetConfig;
 }
 
+export interface StudioPageTheme {
+  /** Canvas background colour (CSS colour string). Default: theme grey. */
+  pageBackground?: string;
+  /** Widget card background colour. Default: theme background.paper. */
+  cardBackground?: string;
+  /** Widget card padding in MUI spacing units (0–4). Default: 2. */
+  cardPadding?: number;
+  /** Widget card corner radius in px. Default: 4. */
+  cardRadius?: number;
+  /** Whether widget cards show a border. Default: true. */
+  cardBorder?: boolean;
+  /** Widget card border colour (CSS colour string). Default: theme divider. */
+  cardBorderColor?: string;
+  /** Widget card border width in px. Default: 1. */
+  cardBorderWidth?: number;
+}
+
 export interface StudioPage {
   id: string;
   title: string;
   widgetRows: string[][]; // Each row is an array of widget IDs
+  theme?: StudioPageTheme;
 }
 
 export interface StudioDataField {

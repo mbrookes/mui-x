@@ -25,7 +25,7 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
   const columns = React.useMemo<GridColDef[]>(() => {
     const visibleFields = widget.config.columns?.length
       ? widget.config.columns
-      : widget.bindings.map((binding) => binding.field);
+      : (dataSource?.fields.map((f) => f.id) ?? []);
 
     return visibleFields.map((fieldName) => {
       const field = dataSource?.fields.find((candidate) => candidate.id === fieldName);
@@ -42,7 +42,7 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
             : undefined,
       };
     });
-  }, [dataSource, widget.bindings, widget.config.columns]);
+  }, [dataSource, widget.config.columns]);
 
   const rows = React.useMemo(() => {
     if (!dataSource?.rows) {

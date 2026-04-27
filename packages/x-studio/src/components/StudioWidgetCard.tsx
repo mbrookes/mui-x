@@ -147,6 +147,8 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
         backgroundColor: pageTheme?.cardBackground ?? undefined,
         cursor: isDragging ? 'grabbing' : 'pointer',
         p: pageTheme?.cardPadding ?? 2,
+        height: '100%',
+        boxSizing: 'border-box',
         opacity: isDragging ? 0.5 : 1,
         position: 'relative',
         transition: 'border-color 0.15s',

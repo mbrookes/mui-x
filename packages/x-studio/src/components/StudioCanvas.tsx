@@ -257,7 +257,7 @@ export function StudioCanvas() {
             )}
             {row.map((widgetId, colIndex) => (
               <React.Fragment key={widgetId}>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Box sx={{ flex: 1, minWidth: 0, height: '100%' }}>
                   <StudioWidgetCard
                     widgetId={widgetId}
                     isFirstRow={rowIndex === 0}

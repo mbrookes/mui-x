@@ -1,4 +1,4 @@
-import { createDefaultStudioState, type StudioDataSource, type StudioState } from '../models';
+import { createDefaultStudioState, type StudioState } from '../models';
 
 /**
  * Current schema version for the studio state
@@ -6,14 +6,15 @@ import { createDefaultStudioState, type StudioDataSource, type StudioState } fro
 export const CURRENT_SCHEMA_VERSION = 1;
 
 /**
- * Serializable state format for persistence (excludes transient shell state)
+ * Serializable state format for persistence.
+ * Contains only user-authored dashboard config — data sources are provided by
+ * the host app at runtime and are never persisted.
  */
 export interface SerializedStudioState {
   schemaVersion: number;
   dashboard: StudioState['dashboard'];
   pages: StudioState['pages'];
   widgets: StudioState['widgets'];
-  dataSources: StudioState['dataSources'];
   filters: StudioState['filters'];
   relationships?: StudioState['relationships'];
 }
@@ -141,40 +142,29 @@ export function migrateState(state: unknown): MigrationResult {
 }
 
 /**
- * Strips runtime-only data from a data source for serialization.
- * The `rows` are provided by the host app at runtime and must not be persisted.
- */
-function serializeDataSource({ rows: _rows, ...rest }: StudioDataSource): Omit<StudioDataSource, 'rows'> {
-  return rest;
-}
-
-/**
  * Serializes the studio state for persistence.
- * Excludes transient shell state (selection, drawer open state) and
- * runtime data (dataSource rows).
+ * Excludes transient shell state, data sources (host-app-provided), and
+ * cross-filter runtime state.
  */
 export function serializeState(state: StudioState): SerializedStudioState {
-  const dataSources = Object.fromEntries(
-    Object.entries(state.dataSources).map(([id, ds]) => [id, serializeDataSource(ds)]),
-  ) as StudioState['dataSources'];
-
   return {
     schemaVersion: state.schemaVersion,
     dashboard: state.dashboard,
     pages: state.pages,
     widgets: state.widgets,
-    dataSources,
-    filters: state.filters.filter((f) => f.scope !== 'cross-filter'), // Don't persist cross-filters
+    filters: state.filters.filter((f) => f.scope !== 'cross-filter'),
     relationships: state.relationships,
   };
 }
 
 /**
- * Deserializes and restores a persisted state
+ * Deserializes and restores a persisted state.
  * Returns the full StudioState with default shell state.
+ * @param dataSources - The host app's data sources; not persisted so must be passed in.
  */
 export function deserializeState(
   serialized: SerializedStudioState,
+  dataSources: StudioState['dataSources'],
   shellOverrides?: Partial<StudioState['shell']>,
 ): StudioState {
   const defaultState = createDefaultStudioState();
@@ -185,7 +175,7 @@ export function deserializeState(
     dashboard: serialized.dashboard,
     pages: serialized.pages,
     widgets: serialized.widgets,
-    dataSources: serialized.dataSources,
+    dataSources,
     filters: serialized.filters,
     relationships: serialized.relationships ?? [],
     shell: {
@@ -232,7 +222,7 @@ export function jsonToState(json: string): {
     return { state: null, migrationResult };
   }
 
-  const state = deserializeState(migrationResult.state);
+  const state = deserializeState(migrationResult.state, {});
   return { state, migrationResult };
 }
 

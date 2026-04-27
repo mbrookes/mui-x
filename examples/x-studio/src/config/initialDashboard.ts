@@ -4,20 +4,16 @@ import {
   businessMetricsSource,
   CUSTOMERS_SOURCE_ID,
   customersSource,
-  customersBindings,
   ORDERS_SOURCE_ID,
   ordersSource,
-  ordersBindings,
   ORDER_ITEMS_SOURCE_ID,
   orderItemsSource,
-  orderItemsBindings,
   PRODUCTS_SOURCE_ID,
   productsSource,
   SHIPMENT_ITEMS_SOURCE_ID,
   shipmentItemsSource,
   SHIPMENTS_SOURCE_ID,
   shipmentsSource,
-  shipmentsBindings,
 } from '../data';
 
 export const INITIAL_STATE: Partial<StudioState> = {
@@ -99,7 +95,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'kpi',
       title: 'Total Revenue',
       sourceId: ORDER_ITEMS_SOURCE_ID,
-      bindings: orderItemsBindings,
       config: {
         kpiValueField: 'total',
         kpiAggregation: 'sum',
@@ -114,7 +109,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'kpi',
       title: 'Total Orders',
       sourceId: ORDERS_SOURCE_ID,
-      bindings: ordersBindings,
       config: {
         kpiValueField: 'status',
         kpiAggregation: 'count',
@@ -128,13 +122,9 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'kpi',
       title: 'Active Customers',
       sourceId: CUSTOMERS_SOURCE_ID,
-      bindings: customersBindings,
       config: {
         kpiValueField: 'company',
         kpiAggregation: 'count',
-        kpiSparkline: true,
-        kpiSparklineField: 'since',
-        kpiSparklineCumulative: true,
       },
     },
     'widget-kpi-ontime': {
@@ -142,7 +132,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'kpi',
       title: 'On-Time Shipments',
       sourceId: SHIPMENTS_SOURCE_ID,
-      bindings: shipmentsBindings,
       config: {
         kpiValueField: 'onTime',
         kpiAggregation: 'avg',
@@ -153,7 +142,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'chart',
       title: 'Revenue by Category',
       sourceId: ORDER_ITEMS_SOURCE_ID,
-      bindings: orderItemsBindings,
       config: { chartType: 'bar', xField: 'category', yField: 'total' },
     },
     'widget-chart-country': {
@@ -161,7 +149,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'chart',
       title: 'Revenue by Country',
       sourceId: ORDERS_SOURCE_ID,
-      bindings: ordersBindings,
       config: { chartType: 'pie', xField: 'country', yField: 'total' },
     },
     'widget-orders-grid': {
@@ -169,10 +156,26 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'grid',
       title: 'Recent Orders',
       sourceId: ORDERS_SOURCE_ID,
-      bindings: ordersBindings,
       config: { columns: ['id', 'date', 'customerId', 'status'] },
     },
   },
+  "filters": [
+    {
+      "id": "filter-1777324742961-lme5s",
+      "field": "date",
+      "operator": "greater_than",
+      "value": {
+        "relative": true,
+        "amount": 6,
+        "unit": "month",
+        "direction": "past"
+      },
+      "scope": "widget",
+      "widgetId": "widget-kpi-customers",
+      "fieldType": "date",
+      "filterSourceId": "source-orders"
+    }
+  ],
   shell: {
     // TODO: make these optional
     openDrawers: { data: false, compose: true, filters: true },

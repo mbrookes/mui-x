@@ -468,7 +468,3 @@ export const customersSource: StudioDataSource = {
   ],
 };
 
-export const customersBindings = customersSource.fields.map((f) => ({
-  field: f.id,
-  label: f.label,
-}));

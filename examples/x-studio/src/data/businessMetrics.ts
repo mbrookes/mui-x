@@ -108,10 +108,10 @@ export const businessMetricsSource: StudioDataSource = {
     {
       id: 'BM-012',
       category: 'Customer',
-      name: 'Orders per Active Customer Target',
-      value: 3,
-      unit: 'orders/year',
-      description: 'Target average number of orders per active customer annually',
+      name: 'Active Customer',
+      value: 6,
+      unit: 'months since last order',
+      description: 'Number of months since last order to still be considered an active customer',
     },
     // Inventory
     {
@@ -141,7 +141,3 @@ export const businessMetricsSource: StudioDataSource = {
   ],
 };
 
-export const businessMetricsBindings = businessMetricsSource.fields.map((f) => ({
-  field: f.id,
-  label: f.label,
-}));

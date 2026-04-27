@@ -2493,7 +2493,3 @@ export const shipmentsSource: StudioDataSource = {
   ],
 };
 
-export const shipmentsBindings = shipmentsSource.fields.map((f) => ({
-  field: f.id,
-  label: f.label,
-}));

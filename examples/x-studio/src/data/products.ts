@@ -333,4 +333,3 @@ export const productsSource: StudioDataSource = {
   ],
 };
 
-export const productsBindings = productsSource.fields.map((f) => ({ field: f.id, label: f.label }));

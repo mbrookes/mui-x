@@ -168,12 +168,16 @@ export function summarizeFilter(filter: StudioFilterState): string {
     return `${opLabel}: ${valStr}`;
   }
 
-  const primary = summarizeCondition(filter.operator, filter.value);
+  const primary = filter.valueRef
+    ? `${getOperators(filter.fieldType).find((o) => o.value === filter.operator)?.label ?? filter.operator}: ⚡ metric`
+    : summarizeCondition(filter.operator, filter.value);
   if (!filter.operator2) {
     return primary;
   }
   const conj = (filter.conjunction ?? 'and').toUpperCase();
-  const secondary = summarizeCondition(filter.operator2, filter.value2);
+  const secondary = filter.value2Ref
+    ? `${getOperators(filter.fieldType).find((o) => o.value === filter.operator2)?.label ?? filter.operator2}: ⚡ metric`
+    : summarizeCondition(filter.operator2, filter.value2);
   return `${primary} ${conj} ${secondary}`;
 }
 

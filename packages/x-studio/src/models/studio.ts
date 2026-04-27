@@ -46,6 +46,22 @@ export interface StudioChartSeries {
   fieldId: string;
 }
 
+/**
+ * A reference to a specific field value within a named row of a data source.
+ * Used to make filter values dynamic — driven by a business metric rather than
+ * a hardcoded literal.
+ *
+ * Example: reference BM-012.value (= 6) as the threshold for "months active".
+ */
+export interface StudioMetricRef {
+  /** ID of the data source containing the metric row */
+  sourceId: string;
+  /** ID of the specific row (e.g. 'BM-012') */
+  rowId: string;
+  /** Field on that row whose value to use (e.g. 'value') */
+  field: string;
+}
+
 export interface StudioWidgetConfig {
   // Grid config
   columns?: string[];
@@ -163,10 +179,14 @@ export interface StudioFilterState {
   // condition mode
   operator: StudioFilterOperator;
   value: unknown;
+  /** When set, overrides `value` with a live lookup from a metric data source. */
+  valueRef?: StudioMetricRef;
   /** Optional second condition for compound filters (e.g. date ≥ X AND date ≤ Y) */
   conjunction?: 'and' | 'or';
   operator2?: StudioFilterOperator;
   value2?: unknown;
+  /** When set, overrides `value2` with a live lookup from a metric data source. */
+  value2Ref?: StudioMetricRef;
   // rank mode
   rankDirection?: 'top' | 'bottom';
   /** Numeric field to aggregate by when ranking a non-numeric dimension (e.g. rank countries by revenue). */

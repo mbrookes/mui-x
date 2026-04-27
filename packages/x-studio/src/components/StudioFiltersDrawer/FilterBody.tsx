@@ -108,6 +108,8 @@ function SecondCondition(props: SecondConditionProps) {
         operator={activeOperator2}
         value={filter.value2}
         onChange={(v) => onChange({ value2: v })}
+        valueRef={filter.value2Ref}
+        onValueRefChange={(ref) => onChange({ value2Ref: ref })}
         fieldValues={fieldValues}
       />
     </React.Fragment>
@@ -140,8 +142,10 @@ export function FilterBody({
       filterMode: newMode,
       operator2: undefined,
       value2: undefined,
+      value2Ref: undefined,
       conjunction: undefined,
       rankByField: undefined,
+      valueRef: undefined,
     };
     if (newMode === 'selection') {
       reset.value = [];
@@ -181,6 +185,8 @@ export function FilterBody({
             operator={activeOperator}
             value={filter.value}
             onChange={(v) => onChange({ value: v })}
+            valueRef={filter.valueRef}
+            onValueRefChange={(ref) => onChange({ valueRef: ref })}
             fieldValues={fieldValues}
           />
           <SecondCondition

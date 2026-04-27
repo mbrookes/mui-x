@@ -4,7 +4,7 @@ import { Chip, Stack } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import { useStudioController, useStudioSelector } from '../context';
-import { applyFilters } from './chartUtils';
+import { applyFilters, resolveMetricRefs } from './chartUtils';
 import { formatFieldValue } from './numberFormat';
 
 export interface StudioGridWidgetProps {
@@ -16,6 +16,7 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
   const { dataSource, widget } = props;
   const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
+  const dataSources = useStudioSelector((state) => state.dataSources);
 
   // Check if this widget has an active cross-filter
   const activeCrossFilter = filters.find(
@@ -55,7 +56,10 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
     const crossFilters = filters.filter(
       (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
     );
-    const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
+    const allFilters = resolveMetricRefs(
+      [...pageFilters, ...widgetFilters, ...crossFilters],
+      dataSources,
+    );
 
     const filteredRows = applyFilters(dataSource.rows, allFilters);
 
@@ -63,7 +67,7 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
       id: row.id ?? `${widget.id}-${index}`,
       ...row,
     }));
-  }, [dataSource, widget.id, filters]);
+  }, [dataSource, widget.id, filters, dataSources]);
 
   const handleRowSelectionChange = React.useCallback(
     (selection: GridRowSelectionModel) => {

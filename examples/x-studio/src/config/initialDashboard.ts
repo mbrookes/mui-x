@@ -1,5 +1,7 @@
 import type { StudioState } from '@mui/x-studio';
 import {
+  BUSINESS_METRICS_SOURCE_ID,
+  businessMetricsSource,
   CUSTOMERS_SOURCE_ID,
   customersSource,
   customersBindings,
@@ -11,6 +13,9 @@ import {
   orderItemsBindings,
   PRODUCTS_SOURCE_ID,
   productsSource,
+  SHIPMENTS_SOURCE_ID,
+  shipmentsSource,
+  shipmentsBindings,
 } from '../data';
 
 export const INITIAL_STATE: Partial<StudioState> = {
@@ -24,7 +29,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       id: 'page-1',
       title: 'Overview',
       widgetRows: [
-        ['widget-kpi-revenue', 'widget-kpi-orders', 'widget-kpi-customers'],
+        ['widget-kpi-revenue', 'widget-kpi-orders', 'widget-kpi-customers', 'widget-kpi-ontime'],
         ['widget-chart-category', 'widget-chart-country'],
         ['widget-orders-grid'],
       ],
@@ -40,6 +45,8 @@ export const INITIAL_STATE: Partial<StudioState> = {
     [CUSTOMERS_SOURCE_ID]: customersSource,
     [ORDERS_SOURCE_ID]: ordersSource,
     [ORDER_ITEMS_SOURCE_ID]: orderItemsSource,
+    [SHIPMENTS_SOURCE_ID]: shipmentsSource,
+    [BUSINESS_METRICS_SOURCE_ID]: businessMetricsSource,
   },
   relationships: [
     {
@@ -58,6 +65,14 @@ export const INITIAL_STATE: Partial<StudioState> = {
       targetField: 'id',
       type: 'many-to-one',
     },
+    {
+      id: 'rel-shipments-orders',
+      sourceId: SHIPMENTS_SOURCE_ID,
+      sourceField: 'orderId',
+      targetId: ORDERS_SOURCE_ID,
+      targetField: 'id',
+      type: 'many-to-one',
+    },
   ],
   widgets: {
     'widget-kpi-revenue': {
@@ -65,39 +80,54 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'kpi',
       title: 'Total Revenue',
       sourceId: ORDER_ITEMS_SOURCE_ID,
-      layout: { x: 0, y: 0, width: 4, height: 3 },
+      layout: { x: 0, y: 0, width: 3, height: 3 },
       bindings: orderItemsBindings,
       config: {
-          kpiValueField: 'total',
-          kpiAggregation: 'sum',
-          kpiSparkline: true,
-          kpiSparklineField: 'date',
-          kpiSparklineSourceId: ORDERS_SOURCE_ID,
-          kpiSparklineCumulative: true,
-        },
+        kpiValueField: 'total',
+        kpiAggregation: 'sum',
+        kpiSparkline: true,
+        kpiSparklineField: 'date',
+        kpiSparklineSourceId: ORDERS_SOURCE_ID,
+        kpiSparklineCumulative: true,
+      },
     },
     'widget-kpi-orders': {
       id: 'widget-kpi-orders',
       kind: 'kpi',
       title: 'Total Orders',
       sourceId: ORDERS_SOURCE_ID,
-      layout: { x: 4, y: 0, width: 4, height: 3 },
+      layout: { x: 3, y: 0, width: 3, height: 3 },
       bindings: ordersBindings,
       config: {
-          kpiValueField: 'status',
-          kpiAggregation: 'count',
-          kpiSparkline: true,
-          kpiSparklineField: 'date',
-        },
+        kpiValueField: 'status',
+        kpiAggregation: 'count',
+        kpiSparkline: true,
+        kpiSparklineField: 'date',
+      },
     },
     'widget-kpi-customers': {
       id: 'widget-kpi-customers',
       kind: 'kpi',
       title: 'Active Customers',
       sourceId: CUSTOMERS_SOURCE_ID,
-      layout: { x: 8, y: 0, width: 4, height: 3 },
+      layout: { x: 6, y: 0, width: 3, height: 3 },
       bindings: customersBindings,
       config: { kpiValueField: 'company', kpiAggregation: 'count' },
+    },
+    'widget-kpi-ontime': {
+      id: 'widget-kpi-ontime',
+      kind: 'kpi',
+      title: 'On-Time Shipments',
+      sourceId: SHIPMENTS_SOURCE_ID,
+      layout: { x: 9, y: 0, width: 3, height: 3 },
+      bindings: shipmentsBindings,
+      config: {
+        kpiValueField: 'onTime',
+        kpiAggregation: 'avg',
+        kpiSparkline: true,
+        kpiSparklineField: 'shipDate',
+        kpiSparklinePlotType: 'bar',
+      },
     },
     'widget-chart-category': {
       id: 'widget-chart-category',

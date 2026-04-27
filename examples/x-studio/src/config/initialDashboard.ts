@@ -99,7 +99,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'kpi',
       title: 'Total Revenue',
       sourceId: ORDER_ITEMS_SOURCE_ID,
-      layout: { x: 0, y: 0, width: 3, height: 3 },
       bindings: orderItemsBindings,
       config: {
         kpiValueField: 'total',
@@ -115,7 +114,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'kpi',
       title: 'Total Orders',
       sourceId: ORDERS_SOURCE_ID,
-      layout: { x: 3, y: 0, width: 3, height: 3 },
       bindings: ordersBindings,
       config: {
         kpiValueField: 'status',
@@ -130,7 +128,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'kpi',
       title: 'Active Customers',
       sourceId: CUSTOMERS_SOURCE_ID,
-      layout: { x: 6, y: 0, width: 3, height: 3 },
       bindings: customersBindings,
       config: {
         kpiValueField: 'company',
@@ -145,13 +142,10 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'kpi',
       title: 'On-Time Shipments',
       sourceId: SHIPMENTS_SOURCE_ID,
-      layout: { x: 9, y: 0, width: 3, height: 3 },
       bindings: shipmentsBindings,
       config: {
         kpiValueField: 'onTime',
         kpiAggregation: 'avg',
-        kpiSparkline: true,
-        kpiSparklineField: 'shipDate',
       },
     },
     'widget-chart-category': {
@@ -159,7 +153,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'chart',
       title: 'Revenue by Category',
       sourceId: ORDER_ITEMS_SOURCE_ID,
-      layout: { x: 0, y: 3, width: 6, height: 6 },
       bindings: orderItemsBindings,
       config: { chartType: 'bar', xField: 'category', yField: 'total' },
     },
@@ -168,7 +161,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'chart',
       title: 'Revenue by Country',
       sourceId: ORDERS_SOURCE_ID,
-      layout: { x: 6, y: 3, width: 6, height: 6 },
       bindings: ordersBindings,
       config: { chartType: 'pie', xField: 'country', yField: 'total' },
     },
@@ -177,7 +169,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'grid',
       title: 'Recent Orders',
       sourceId: ORDERS_SOURCE_ID,
-      layout: { x: 0, y: 9, width: 12, height: 8 },
       bindings: ordersBindings,
       config: { columns: ['id', 'date', 'customerId', 'status'] },
     },

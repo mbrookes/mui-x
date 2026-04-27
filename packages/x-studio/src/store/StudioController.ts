@@ -319,23 +319,6 @@ export class StudioController {
     });
   };
 
-  updateWidgetLayout = (widgetId: string, layout: import('../models').StudioWidgetLayout) => {
-    const state = this.store.state;
-    const existing = state.widgets[widgetId];
-
-    if (!existing) {
-      return;
-    }
-
-    this.commitState({
-      ...state,
-      widgets: {
-        ...state.widgets,
-        [widgetId]: { ...existing, layout },
-      },
-    });
-  };
-
   addFilter = (filter: import('../models').StudioFilterState) => {
     const state = this.store.state;
 

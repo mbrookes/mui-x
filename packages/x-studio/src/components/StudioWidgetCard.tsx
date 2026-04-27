@@ -6,6 +6,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
 
 import { useStudioController, useStudioSelector } from '../context';
+import type { StudioPageTheme } from '../models';
 import { StudioGridWidget } from './StudioGridWidget';
 import { StudioChartWidget } from './StudioChartWidget';
 import { StudioKpiWidget } from './StudioKpiWidget';
@@ -16,11 +17,12 @@ import { resolveRows } from './chartUtils';
 export interface StudioWidgetCardProps {
   widgetId: string;
   isFirstRow?: boolean;
+  pageTheme?: StudioPageTheme;
 }
 
 export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
-  const { widgetId, isFirstRow = false } = props;
+  const { widgetId, isFirstRow = false, pageTheme } = props;
   const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
@@ -138,10 +140,13 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       sx={{
-        borderColor: isSelected ? 'primary.main' : 'divider',
-        borderWidth: isSelected ? 2 : 1,
+        borderColor: isSelected ? 'primary.main' : (pageTheme?.cardBorderColor ?? 'divider'),
+        borderWidth: isSelected ? 2 : (pageTheme?.cardBorderWidth ?? 1),
+        border: pageTheme?.cardBorder === false && !isSelected ? 'none' : undefined,
+        borderRadius: pageTheme?.cardRadius !== undefined ? `${pageTheme.cardRadius}px` : undefined,
+        backgroundColor: pageTheme?.cardBackground ?? undefined,
         cursor: isDragging ? 'grabbing' : 'pointer',
-        p: 2,
+        p: pageTheme?.cardPadding ?? 2,
         opacity: isDragging ? 0.5 : 1,
         position: 'relative',
         transition: 'border-color 0.15s',

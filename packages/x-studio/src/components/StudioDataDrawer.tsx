@@ -102,7 +102,7 @@ function DataSourceSection(props: { source: StudioDataSource }) {
 
 export function StudioDataDrawer() {
   const dataSources = useStudioSelector((state) => state.dataSources);
-  const sourceList = Object.values(dataSources);
+  const sourceList = Object.values(dataSources).filter((s) => !s.hidden);
 
   if (sourceList.length === 0) {
     return (

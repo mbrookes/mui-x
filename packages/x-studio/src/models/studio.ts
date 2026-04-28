@@ -156,6 +156,8 @@ export interface StudioDataSource {
   label: string;
   fields: StudioDataField[];
   rows?: Record<string, unknown>[];
+  /** When true, the source is hidden from the data drawer panel and widget config selects */
+  hidden?: boolean;
 }
 
 export interface StudioRelationship {

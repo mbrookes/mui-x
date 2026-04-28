@@ -43,39 +43,38 @@ export function RankFilterInput({
 
   return (
     <Stack spacing={1}>
-      {/* Compact inline row: [Top | Bottom] [N items] */}
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-        <ToggleButtonGroup
-          exclusive
-          size="small"
-          value={direction}
-          onChange={(_event, val) => {
-            if (val) {
-              onChange({ rankDirection: val as 'top' | 'bottom' });
-            }
-          }}
-        >
-          <ToggleButton value="top" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: 'none' }}>
-            Top
-          </ToggleButton>
-          <ToggleButton value="bottom" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: 'none' }}>
-            Bottom
-          </ToggleButton>
-        </ToggleButtonGroup>
-        <TextField
-          size="small"
-          type="number"
-          value={n ?? ''}
-          onChange={(event) =>
-            onChange({ value: Math.max(1, parseInt(event.target.value, 10) || 1) })
+      {/* Top / Bottom toggle */}
+      <ToggleButtonGroup
+        exclusive
+        size="small"
+        value={direction}
+        onChange={(_event, val) => {
+          if (val) {
+            onChange({ rankDirection: val as 'top' | 'bottom' });
           }
-          slotProps={{
-            htmlInput: { min: 1, style: { width: 48, textAlign: 'center' } },
-            input: { endAdornment: <InputAdornment position="end" sx={{ mr: -0.5, fontSize: 12 }}>items</InputAdornment> },
-          }}
-          sx={{ width: 100 }}
-        />
-      </Stack>
+        }}
+      >
+        <ToggleButton value="top" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: 'none' }}>
+          Top
+        </ToggleButton>
+        <ToggleButton value="bottom" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: 'none' }}>
+          Bottom
+        </ToggleButton>
+      </ToggleButtonGroup>
+
+      {/* N items text field */}
+      <TextField
+        size="small"
+        type="number"
+        value={n ?? ''}
+        onChange={(event) =>
+          onChange({ value: Math.max(1, parseInt(event.target.value, 10) || 1) })
+        }
+        slotProps={{
+          htmlInput: { min: 1, style: { textAlign: 'center' } },
+          input: { endAdornment: <InputAdornment position="end" sx={{ mr: -0.5, fontSize: 12 }}>items</InputAdornment> },
+        }}
+      />
 
       {showRankBy && (
         <FormControl size="small" fullWidth>

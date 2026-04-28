@@ -18,7 +18,7 @@ import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import type { StudioFilterOperator, StudioFilterState } from '../../models';
 import type { FieldType, FilterMode } from './filterDrawerTypes';
-import { FilterModeToggle } from './FilterModeToggle';
+import type { AvailableSeries } from './RankFilterInput';
 import { FilterValueInput } from './FilterValueInput';
 import { SelectionFilterInput } from './SelectionFilterInput';
 import { RankFilterInput } from './RankFilterInput';
@@ -116,8 +116,6 @@ function SecondCondition(props: SecondConditionProps) {
   );
 }
 
-import type { AvailableSeries } from './RankFilterInput';
-
 export interface FilterBodyProps {
   filter: StudioFilterState;
   fieldType: FieldType | undefined;
@@ -130,6 +128,10 @@ export interface FilterBodyProps {
   onChange: (changes: Partial<StudioFilterState>) => void;
 }
 
+/**
+ * The value-configuration body of a filter card.
+ * Does not include the mode toggle — that lives in the card header (FilterCard).
+ */
 export function FilterBody({
   filter,
   fieldType,
@@ -142,32 +144,8 @@ export function FilterBody({
 }: FilterBodyProps) {
   const mode: FilterMode = filter.filterMode ?? 'condition';
 
-  const handleModeChange = (newMode: FilterMode) => {
-    const reset: Partial<StudioFilterState> = {
-      filterMode: newMode,
-      operator2: undefined,
-      value2: undefined,
-      value2Ref: undefined,
-      conjunction: undefined,
-      rankByField: undefined,
-      rankMultiSeriesBy: undefined,
-      valueRef: undefined,
-    };
-    if (newMode === 'selection') {
-      reset.value = [];
-    } else if (newMode === 'rank') {
-      reset.value = 10;
-      reset.rankDirection = 'top';
-    } else {
-      reset.value = '';
-    }
-    onChange(reset);
-  };
-
   return (
     <Stack spacing={1} sx={{ px: 1.5, pb: 1.5 }}>
-      <FilterModeToggle mode={mode} onChange={handleModeChange} />
-
       {mode === 'condition' && (
         <React.Fragment>
           <FormControl size="small">
@@ -226,3 +204,4 @@ export function FilterBody({
     </Stack>
   );
 }
+

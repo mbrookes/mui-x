@@ -7,7 +7,7 @@ export const productsSource: StudioDataSource = {
   label: 'Products',
   fields: [
     { id: 'id', label: 'Product ID', type: 'string', hidden: true },
-    { id: 'product', label: 'Product Name', type: 'string' },
+    { id: 'product', label: 'Product', type: 'string' },
     { id: 'category', label: 'Category', type: 'string' },
     { id: 'price', label: 'Unit Price', type: 'number', format: 'currency' },
     { id: 'cost', label: 'Unit Cost', type: 'number', format: 'currency' },

@@ -516,13 +516,14 @@ function ChartSetupPanel(props: { widgetId: string }) {
     chartType === 'area-100';
 
   const supportsSeriesField =
-    chartType === 'bar' ||
-    chartType === 'bar-stacked' ||
-    chartType === 'bar-100' ||
-    chartType === 'line' ||
-    chartType === 'area' ||
-    chartType === 'area-stacked' ||
-    chartType === 'area-100';
+    (chartType === 'bar' ||
+      chartType === 'bar-stacked' ||
+      chartType === 'bar-100' ||
+      chartType === 'line' ||
+      chartType === 'area' ||
+      chartType === 'area-stacked' ||
+      chartType === 'area-100') &&
+    ySeries.length <= 1;
 
   const categoryFields = allFields.filter((f) => f.type === 'string' || f.type === 'boolean');
   const selectedSeriesField =
@@ -530,13 +531,28 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const isScatter = chartType === 'scatter';
 
   const handleChartTypeChange = (newType: StudioChartType) => {
-    controller.updateWidgetConfig(widgetId, { chartType: newType });
+    const newSupportsSeriesField =
+      newType === 'bar' ||
+      newType === 'bar-stacked' ||
+      newType === 'bar-100' ||
+      newType === 'line' ||
+      newType === 'area' ||
+      newType === 'area-stacked' ||
+      newType === 'area-100';
+    controller.updateWidgetConfig(widgetId, {
+      chartType: newType,
+      ...(!newSupportsSeriesField ? { seriesField: undefined } : {}),
+    });
   };
 
   const usedYFieldIds = ySeries.map((s) => s.fieldId).filter(Boolean);
 
   const handleAddSeries = () => {
-    controller.updateWidgetConfig(widgetId, { ySeries: [...ySeries, { fieldId: '' }] });
+    // Adding a second Y series clears seriesField (incompatible)
+    controller.updateWidgetConfig(widgetId, {
+      ySeries: [...ySeries, { fieldId: '' }],
+      seriesField: undefined,
+    });
   };
 
   const handleRemoveSeries = (index: number) => {

@@ -282,7 +282,7 @@ function AddWidgetView() {
   const canvasScrollRef = React.useContext(CanvasScrollContext);
 
   const handleAdd = (kind: StudioWidgetKind) => {
-    const sources = Object.values(dataSources);
+    const sources = Object.values(dataSources).filter((s) => !s.hidden);
     if (widgetKindRequiresDataSource(kind) && sources.length === 0) {
       return;
     }
@@ -296,7 +296,7 @@ function AddWidgetView() {
     });
   };
 
-  const hasSources = Object.keys(dataSources).length > 0;
+  const hasSources = Object.values(dataSources).some((s) => !s.hidden);
 
   return (
     <Stack spacing={1.5}>
@@ -491,7 +491,7 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
   const dataSources = useStudioSelector((state) => state.dataSources);
 
-  const allFields = Object.values(dataSources).flatMap((ds) =>
+  const allFields = Object.values(dataSources).filter((ds) => !ds.hidden).flatMap((ds) =>
     ds.fields
       .filter((f) => !f.hidden)
       .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
@@ -514,6 +514,19 @@ function ChartSetupPanel(props: { widgetId: string }) {
     chartType === 'area' ||
     chartType === 'area-stacked' ||
     chartType === 'area-100';
+
+  const supportsSeriesField =
+    chartType === 'bar' ||
+    chartType === 'bar-stacked' ||
+    chartType === 'bar-100' ||
+    chartType === 'line' ||
+    chartType === 'area' ||
+    chartType === 'area-stacked' ||
+    chartType === 'area-100';
+
+  const categoryFields = allFields.filter((f) => f.type === 'string' || f.type === 'boolean');
+  const selectedSeriesField =
+    config.seriesField ? (allFields.find((f) => f.id === config.seriesField) ?? null) : null;
   const isScatter = chartType === 'scatter';
 
   const handleChartTypeChange = (newType: StudioChartType) => {
@@ -678,6 +691,24 @@ function ChartSetupPanel(props: { widgetId: string }) {
           )}
         </Stack>
       </div>
+      {/* Split by / series field */}
+      {supportsSeriesField && (
+        <Autocomplete
+          size="small"
+          fullWidth
+          options={categoryFields}
+          groupBy={(option) => option.sourceLabel}
+          getOptionLabel={(option) => option.label}
+          value={selectedSeriesField}
+          onChange={(_e, newValue) =>
+            controller.updateWidgetConfig(widgetId, {
+              seriesField: newValue?.id ?? undefined,
+            })
+          }
+          renderInput={(params) => <TextField {...params} label="Split by (series field)" />}
+          isOptionEqualToValue={(option, value) => option.id === value.id}
+        />
+      )}
     </Stack>
   );
 }
@@ -689,7 +720,7 @@ function KpiSetupPanel(props: { widgetId: string }) {
   const config = widget?.config ?? {};
 
   // Gather all fields from all data sources
-  const allFields = Object.values(dataSources).flatMap((ds) =>
+  const allFields = Object.values(dataSources).filter((ds) => !ds.hidden).flatMap((ds) =>
     ds.fields
       .filter((f) => !f.hidden)
       .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),

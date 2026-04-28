@@ -23,6 +23,7 @@ const MAX_UNDO_HISTORY = 100;
 export class StudioController {
   readonly store: Store<StudioState>;
   private undoStack: StudioState[] = [];
+  private redoStack: StudioState[] = [];
 
   constructor(initialState?: Partial<StudioState>) {
     this.store = Store.create(createDefaultStudioState(initialState));
@@ -45,8 +46,11 @@ export class StudioController {
 
     if (resetHistory) {
       this.undoStack = [];
+      this.redoStack = [];
     } else if (undoable) {
       this.undoStack.push(this.store.state);
+      // Any new action clears the redo stack
+      this.redoStack = [];
 
       if (this.undoStack.length > MAX_UNDO_HISTORY) {
         this.undoStack.shift();
@@ -460,7 +464,22 @@ export class StudioController {
       return false;
     }
 
+    this.redoStack.push(this.store.state);
     this.store.setState(previousState);
+    return true;
+  };
+
+  canRedo = () => this.redoStack.length > 0;
+
+  redo = () => {
+    const nextState = this.redoStack.pop();
+
+    if (nextState == null) {
+      return false;
+    }
+
+    this.undoStack.push(this.store.state);
+    this.store.setState(nextState);
     return true;
   };
 

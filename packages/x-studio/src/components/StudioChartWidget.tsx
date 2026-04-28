@@ -15,6 +15,7 @@ import {
   aggregateByField,
   aggregateByTwoFields,
   aggregateMultipleSeries,
+  enrichRowsWithRelatedFields,
   prepareScatterData,
   applyRankToAggregated,
   applyRankToMultiSeries,
@@ -111,6 +112,23 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     return config.yField ? [config.yField] : [];
   }, [config.ySeries, config.yField]);
 
+  // Enrich rows with fields from directly related sources when those fields
+  // are not present on the widget's own source (e.g. 'date' from orders on orderItems rows).
+  const enrichedRows = React.useMemo(() => {
+    const candidateFields = [
+      config.xField,
+      ...activeYFields,
+      config.seriesField,
+    ].filter((f): f is string => Boolean(f));
+    return enrichRowsWithRelatedFields(
+      filteredRows,
+      widget.sourceId,
+      candidateFields,
+      dataSources,
+      relationships,
+    );
+  }, [filteredRows, widget.sourceId, config.xField, activeYFields, config.seriesField, dataSources, relationships]);
+
   const isMultiSeries = activeYFields.length > 1;
 
   // seriesField data: one line per unique value of the series field
@@ -118,45 +136,45 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     const xField = config.xField;
     const seriesField = config.seriesField;
     const yField = activeYFields[0];
-    if (!xField || !seriesField || !yField || filteredRows.length === 0) {
+    if (!xField || !seriesField || !yField || enrichedRows.length === 0) {
       return null;
     }
-    return aggregateByTwoFields(filteredRows, xField, seriesField, yField);
-  }, [filteredRows, config.xField, config.seriesField, activeYFields]);
+    return aggregateByTwoFields(enrichedRows, xField, seriesField, yField);
+  }, [enrichedRows, config.xField, config.seriesField, activeYFields]);
 
   const chartData = React.useMemo(() => {
     const xField = config.xField;
-    if (!xField || activeYFields.length === 0 || filteredRows.length === 0) {
+    if (!xField || activeYFields.length === 0 || enrichedRows.length === 0) {
       return null;
     }
     if (isMultiSeries) {
       return null; // handled by multiYData
     }
-    const raw = aggregateByField(filteredRows, xField, activeYFields[0]);
+    const raw = aggregateByField(enrichedRows, xField, activeYFields[0]);
     return applyRankToAggregated(raw, widgetRankFilter);
-  }, [filteredRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter]);
+  }, [enrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter]);
 
   // Multi-Y-field data (multiple explicit series)
   const multiYData = React.useMemo(() => {
     const xField = config.xField;
-    if (!xField || activeYFields.length < 2 || filteredRows.length === 0) {
+    if (!xField || activeYFields.length < 2 || enrichedRows.length === 0) {
       return null;
     }
-    const raw = aggregateMultipleSeries(filteredRows, xField, activeYFields);
+    const raw = aggregateMultipleSeries(enrichedRows, xField, activeYFields);
     return applyRankToMultiSeries(raw, widgetRankFilter);
-  }, [filteredRows, config.xField, activeYFields, widgetRankFilter]);
+  }, [enrichedRows, config.xField, activeYFields, widgetRankFilter]);
 
   // Data for scatter charts
   const scatterData = React.useMemo(() => {
     const xField = config.xField;
     const yField = config.yField;
 
-    if (!xField || !yField || filteredRows.length === 0) {
+    if (!xField || !yField || enrichedRows.length === 0) {
       return null;
     }
 
-    return prepareScatterData(filteredRows, xField, yField);
-  }, [filteredRows, config.xField, config.yField]);
+    return prepareScatterData(enrichedRows, xField, yField);
+  }, [enrichedRows, config.xField, config.yField]);
 
   const handleItemClick = React.useCallback(
     (label: string | number | Date) => {

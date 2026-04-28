@@ -26,7 +26,24 @@ vi.mock('../../context', () => ({
 const { render } = createRenderer();
 
 describe('FilterValueInput', () => {
-  it('renders the metric picker inline for relative date inputs and shows the selected metric hint', () => {
+  it('renders the link button inline with the amount field for relative date inputs', () => {
+    render(
+      <FilterValueInput
+        fieldType="date"
+        operator="greater_than"
+        value={{ relative: true, amount: 3, unit: 'day', direction: 'past' }}
+        onChange={() => {}}
+        onValueRefChange={() => {}}
+      />,
+    );
+
+    const amountField = screen.getByLabelText('Amount');
+    const linkButton = screen.getByRole('button', { name: 'Link to field' });
+
+    expect(amountField.parentElement?.parentElement).toBe(linkButton.parentElement);
+  });
+
+  it('shows the linked field name as hint text when a valueRef is set', () => {
     render(
       <FilterValueInput
         fieldType="date"
@@ -38,12 +55,43 @@ describe('FilterValueInput', () => {
       />,
     );
 
-    const amountFieldRoot = screen.getByLabelText('Amount').closest('.MuiFormControl-root');
-    const metricButton = screen.getByRole('button', { name: 'Set from metric' });
-
-    expect(amountFieldRoot).not.toBe(null);
-    expect(metricButton.parentElement).toBe(amountFieldRoot?.parentElement);
     expect(screen.getByText('Pipeline')).not.toBe(null);
+  });
+
+  it('disables the amount field and shows remove-link button when a field is linked', () => {
+    render(
+      <FilterValueInput
+        fieldType="date"
+        operator="greater_than"
+        value={{ relative: true, amount: 3, unit: 'day', direction: 'past' }}
+        valueRef={{ sourceId: 'metrics', rowId: 'BM-001', field: 'value' }}
+        onChange={() => {}}
+        onValueRefChange={() => {}}
+      />,
+    );
+
+    expect((screen.getByLabelText('Amount') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Link to field' })).toBe(null);
+    expect(screen.getByRole('button', { name: 'Remove field link' })).not.toBe(null);
+  });
+
+  it('clears the field link when the remove-link button is clicked', () => {
+    const handleValueRefChange = vi.fn();
+
+    render(
+      <FilterValueInput
+        fieldType="date"
+        operator="greater_than"
+        value={{ relative: true, amount: 12, unit: 'day', direction: 'past' }}
+        valueRef={{ sourceId: 'metrics', rowId: 'BM-001', field: 'value' }}
+        onChange={() => {}}
+        onValueRefChange={handleValueRefChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove field link' }));
+
+    expect(handleValueRefChange).toHaveBeenCalledWith(undefined);
   });
 
   it('clears the metric selection when the relative date amount is manually edited', () => {
@@ -72,7 +120,7 @@ describe('FilterValueInput', () => {
     expect(handleValueRefChange).toHaveBeenCalledWith(undefined);
   });
 
-  it('applies a selected metric to the relative date amount', () => {
+  it('applies a selected field to the relative date amount and sets valueRef', () => {
     const handleChange = vi.fn();
     const handleValueRefChange = vi.fn();
 
@@ -86,7 +134,7 @@ describe('FilterValueInput', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Set from metric' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Link to field' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Pipeline' }));
 
     expect(handleChange).toHaveBeenCalledWith({
@@ -102,7 +150,24 @@ describe('FilterValueInput', () => {
     });
   });
 
-  it('supports an atomic metric selection callback', () => {
+  it('shows all sources with suitable fields in the picker menu', () => {
+    render(
+      <FilterValueInput
+        fieldType="date"
+        operator="greater_than"
+        value={{ relative: true, amount: 3, unit: 'day', direction: 'past' }}
+        onChange={() => {}}
+        onValueRefChange={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link to field' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Pipeline' })).not.toBe(null);
+    expect(screen.getByRole('menuitem', { name: 'Helmet' })).not.toBe(null);
+  });
+
+  it('supports an atomic field link callback', () => {
     const handleChange = vi.fn();
     const handleMetricSelect = vi.fn();
 
@@ -117,7 +182,7 @@ describe('FilterValueInput', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Set from metric' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Link to field' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Pipeline' }));
 
     expect(handleChange).not.toHaveBeenCalled();
@@ -134,22 +199,5 @@ describe('FilterValueInput', () => {
         field: 'value',
       },
     );
-  });
-
-  it('shows only business metrics in the picker menu', () => {
-    render(
-      <FilterValueInput
-        fieldType="date"
-        operator="greater_than"
-        value={{ relative: true, amount: 3, unit: 'day', direction: 'past' }}
-        onChange={() => {}}
-        onValueRefChange={() => {}}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Set from metric' }));
-
-    expect(screen.getByRole('menuitem', { name: 'Pipeline' })).not.toBe(null);
-    expect(screen.queryByRole('menuitem', { name: 'Helmet' })).toBe(null);
   });
 });

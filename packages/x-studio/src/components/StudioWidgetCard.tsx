@@ -135,7 +135,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const showEditActions =
     mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
-  const actionButtonSx = { width: 16, height: 16, padding: 0, '& svg': { fontSize: 12 } } as const;
+  const actionButtonSx = { width: 20, height: 20, padding: 0, '& svg': { fontSize: 14 } } as const;
 
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
   // inside the card for top-row widgets (where there's no room above to overhang).

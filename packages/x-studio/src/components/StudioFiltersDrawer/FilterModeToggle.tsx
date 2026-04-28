@@ -6,10 +6,17 @@ import type { FilterMode } from './filterDrawerTypes';
 export function FilterModeToggle({
   mode,
   onChange,
+  compact = false,
 }: {
   mode: FilterMode;
   onChange: (m: FilterMode) => void;
+  /** When true, uses smaller padding/font for use in card headers. */
+  compact?: boolean;
 }) {
+  const px = compact ? 0.75 : 1.5;
+  const py = compact ? 0.1 : 0.25;
+  const fontSize = compact ? 10 : 11;
+
   return (
     <ToggleButtonGroup
       exclusive
@@ -24,17 +31,17 @@ export function FilterModeToggle({
     >
       <ToggleButton
         value="condition"
-        sx={{ px: 1.5, py: 0.25, fontSize: 11, textTransform: 'none' }}
+        sx={{ px, py, fontSize, textTransform: 'none' }}
       >
         Condition
       </ToggleButton>
       <ToggleButton
         value="selection"
-        sx={{ px: 1.5, py: 0.25, fontSize: 11, textTransform: 'none' }}
+        sx={{ px, py, fontSize, textTransform: 'none' }}
       >
         Selection
       </ToggleButton>
-      <ToggleButton value="rank" sx={{ px: 1.5, py: 0.25, fontSize: 11, textTransform: 'none' }}>
+      <ToggleButton value="rank" sx={{ px, py, fontSize, textTransform: 'none' }}>
         Rank
       </ToggleButton>
     </ToggleButtonGroup>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   absoluteToRelative,
   buildFieldOptions,
+  buildModeReset,
   defaultValueForMode,
   getOperators,
   isRelativeDateValue,
@@ -222,30 +223,37 @@ describe('summarizeFilter — selection mode', () => {
 // ─── summarizeFilter — rank mode ─────────────────────────────────────────────
 
 describe('summarizeFilter — rank mode', () => {
-  it('shows "Top N" for top direction', () => {
+  it('shows "Top N · field" for top direction', () => {
     const result = summarizeFilter(
       makeFilter({ filterMode: 'rank', rankDirection: 'top', value: 10 }),
     );
-    expect(result).toBe('Top 10');
+    expect(result).toBe('Top 10 · value');
   });
 
-  it('shows "Bottom N" for bottom direction', () => {
+  it('shows "Bottom N · field" for bottom direction', () => {
     const result = summarizeFilter(
       makeFilter({ filterMode: 'rank', rankDirection: 'bottom', value: 5 }),
     );
-    expect(result).toBe('Bottom 5');
+    expect(result).toBe('Bottom 5 · value');
   });
 
   it('shows "?" when value is missing', () => {
     const result = summarizeFilter(
       makeFilter({ filterMode: 'rank', rankDirection: 'top', value: '' }),
     );
-    expect(result).toBe('Top ?');
+    expect(result).toBe('Top ? · value');
   });
 
   it('defaults to "Top" when rankDirection not set', () => {
     const result = summarizeFilter(makeFilter({ filterMode: 'rank', value: 3 }));
-    expect(result).toBe('Top 3');
+    expect(result).toBe('Top 3 · value');
+  });
+
+  it('omits field when filter has no field', () => {
+    const result = summarizeFilter(
+      makeFilter({ filterMode: 'rank', rankDirection: 'top', value: 7, field: '' }),
+    );
+    expect(result).toBe('Top 7');
   });
 });
 
@@ -386,5 +394,39 @@ describe('buildFieldOptions', () => {
 
   it('returns empty array for empty dataSources', () => {
     expect(buildFieldOptions({})).toEqual([]);
+  });
+});
+
+// ─── buildModeReset ───────────────────────────────────────────────────────────
+
+describe('buildModeReset', () => {
+  it('returns filterMode and clears value/operator fields', () => {
+    const reset = buildModeReset('condition');
+    expect(reset.filterMode).toBe('condition');
+    expect(reset.value).toBe('');
+    expect(reset.operator2).toBeUndefined();
+    expect(reset.value2).toBeUndefined();
+    expect(reset.conjunction).toBeUndefined();
+    expect(reset.rankDirection).toBeUndefined();
+    expect(reset.rankMultiSeriesBy).toBeUndefined();
+    expect(reset.valueRef).toBeUndefined();
+  });
+
+  it('sets rankDirection to "top" when switching to rank mode', () => {
+    const reset = buildModeReset('rank');
+    expect(reset.filterMode).toBe('rank');
+    expect(reset.rankDirection).toBe('top');
+    expect(reset.value).toBe(10);
+  });
+
+  it('clears rankDirection when switching away from rank mode', () => {
+    const reset = buildModeReset('selection');
+    expect(reset.rankDirection).toBeUndefined();
+    expect(reset.rankMultiSeriesBy).toBeUndefined();
+  });
+
+  it('sets value to empty array for selection mode', () => {
+    const reset = buildModeReset('selection');
+    expect(reset.value).toEqual([]);
   });
 });

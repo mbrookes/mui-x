@@ -118,6 +118,23 @@ export function StudioFiltersDrawer() {
     });
   };
 
+  const handleAddRankFilter =
+    chartXField && selectedWidgetId
+      ? () => {
+          controller.addFilter({
+            id: generateId(),
+            field: chartXField,
+            fieldType: 'string',
+            operator: 'equals',
+            value: 10,
+            filterMode: 'rank',
+            rankDirection: 'top',
+            scope: 'widget',
+            widgetId: selectedWidgetId,
+          });
+        }
+      : undefined;
+
   return (
     <Stack spacing={2}>
       {allFields.length === 0 && (
@@ -149,6 +166,7 @@ export function StudioFiltersDrawer() {
             chartXField={chartXField}
             chartYFieldLabel={chartYFieldLabel}
             chartAvailableSeries={chartAvailableSeries}
+            onAddRankFilter={handleAddRankFilter}
           />
         </React.Fragment>
       ) : null}

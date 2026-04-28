@@ -330,6 +330,15 @@ export class StudioController {
     });
   };
 
+  updateFilter = (filterId: string, changes: Partial<import('../models').StudioFilterState>) => {
+    const state = this.store.state;
+
+    this.commitState({
+      ...state,
+      filters: state.filters.map((f) => (f.id === filterId ? { ...f, ...changes } : f)),
+    });
+  };
+
   removeFilter = (filterId: string) => {
     const state = this.store.state;
 

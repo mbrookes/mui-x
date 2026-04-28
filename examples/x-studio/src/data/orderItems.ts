@@ -8,6 +8,7 @@ export const orderItemsSource: StudioDataSource = {
   fields: [
     { id: 'id', label: 'Order Item ID', type: 'string', hidden: true },
     { id: 'orderId', label: 'Order ID', type: 'string', hidden: true },
+    { id: 'date', label: 'Date', type: 'date', hidden: true },
     { id: 'productId', label: 'Product ID', type: 'string', hidden: true },
     { id: 'product', label: 'Product', type: 'string' },
     { id: 'category', label: 'Category', type: 'string' },
@@ -20,6 +21,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0001-1',
       orderId: 'ORD-0001',
+      date: '2024-01-05',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -31,6 +33,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0001-2',
       orderId: 'ORD-0001',
+      date: '2024-01-05',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -43,6 +46,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0002-1',
       orderId: 'ORD-0002',
+      date: '2024-01-15',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -54,6 +58,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0002-2',
       orderId: 'ORD-0002',
+      date: '2024-01-15',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -65,6 +70,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0002-3',
       orderId: 'ORD-0002',
+      date: '2024-01-15',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -77,6 +83,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0003-1',
       orderId: 'ORD-0003',
+      date: '2024-01-22',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -88,6 +95,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0003-2',
       orderId: 'ORD-0003',
+      date: '2024-01-22',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -99,6 +107,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0003-3',
       orderId: 'ORD-0003',
+      date: '2024-01-22',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -110,6 +119,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0003-4',
       orderId: 'ORD-0003',
+      date: '2024-01-22',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -121,6 +131,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0003-5',
       orderId: 'ORD-0003',
+      date: '2024-01-22',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -133,6 +144,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0004-1',
       orderId: 'ORD-0004',
+      date: '2024-02-01',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -144,6 +156,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0004-2',
       orderId: 'ORD-0004',
+      date: '2024-02-01',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -156,6 +169,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0005-1',
       orderId: 'ORD-0005',
+      date: '2024-02-12',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -167,6 +181,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0005-2',
       orderId: 'ORD-0005',
+      date: '2024-02-12',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -178,6 +193,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0005-3',
       orderId: 'ORD-0005',
+      date: '2024-02-12',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -189,6 +205,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0005-4',
       orderId: 'ORD-0005',
+      date: '2024-02-12',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -201,6 +218,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0006-1',
       orderId: 'ORD-0006',
+      date: '2024-02-25',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -212,6 +230,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0006-2',
       orderId: 'ORD-0006',
+      date: '2024-02-25',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -223,6 +242,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0006-3',
       orderId: 'ORD-0006',
+      date: '2024-02-25',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -234,6 +254,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0006-4',
       orderId: 'ORD-0006',
+      date: '2024-02-25',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -245,6 +266,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0006-5',
       orderId: 'ORD-0006',
+      date: '2024-02-25',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -257,6 +279,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0007-1',
       orderId: 'ORD-0007',
+      date: '2024-03-08',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -268,6 +291,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0007-2',
       orderId: 'ORD-0007',
+      date: '2024-03-08',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -279,6 +303,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0007-3',
       orderId: 'ORD-0007',
+      date: '2024-03-08',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -290,6 +315,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0007-4',
       orderId: 'ORD-0007',
+      date: '2024-03-08',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -302,6 +328,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0008-1',
       orderId: 'ORD-0008',
+      date: '2024-03-20',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -313,6 +340,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0008-2',
       orderId: 'ORD-0008',
+      date: '2024-03-20',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -324,6 +352,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0008-3',
       orderId: 'ORD-0008',
+      date: '2024-03-20',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -336,6 +365,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0009-1',
       orderId: 'ORD-0009',
+      date: '2024-04-02',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -348,6 +378,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0010-1',
       orderId: 'ORD-0010',
+      date: '2024-04-10',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -359,6 +390,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0010-2',
       orderId: 'ORD-0010',
+      date: '2024-04-10',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -370,6 +402,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0010-3',
       orderId: 'ORD-0010',
+      date: '2024-04-10',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -382,6 +415,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0011-1',
       orderId: 'ORD-0011',
+      date: '2024-01-08',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -393,6 +427,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0011-2',
       orderId: 'ORD-0011',
+      date: '2024-01-08',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -404,6 +439,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0011-3',
       orderId: 'ORD-0011',
+      date: '2024-01-08',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -415,6 +451,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0011-4',
       orderId: 'ORD-0011',
+      date: '2024-01-08',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -426,6 +463,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0011-5',
       orderId: 'ORD-0011',
+      date: '2024-01-08',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -438,6 +476,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0012-1',
       orderId: 'ORD-0012',
+      date: '2024-01-18',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -449,6 +488,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0012-2',
       orderId: 'ORD-0012',
+      date: '2024-01-18',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -460,6 +500,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0012-3',
       orderId: 'ORD-0012',
+      date: '2024-01-18',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -471,6 +512,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0012-4',
       orderId: 'ORD-0012',
+      date: '2024-01-18',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -483,6 +525,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0013-1',
       orderId: 'ORD-0013',
+      date: '2024-01-28',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -494,6 +537,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0013-2',
       orderId: 'ORD-0013',
+      date: '2024-01-28',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -505,6 +549,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0013-3',
       orderId: 'ORD-0013',
+      date: '2024-01-28',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -517,6 +562,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0014-1',
       orderId: 'ORD-0014',
+      date: '2024-02-08',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -528,6 +574,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0014-2',
       orderId: 'ORD-0014',
+      date: '2024-02-08',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -539,6 +586,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0014-3',
       orderId: 'ORD-0014',
+      date: '2024-02-08',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -550,6 +598,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0014-4',
       orderId: 'ORD-0014',
+      date: '2024-02-08',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -562,6 +611,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0015-1',
       orderId: 'ORD-0015',
+      date: '2024-02-18',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -573,6 +623,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0015-2',
       orderId: 'ORD-0015',
+      date: '2024-02-18',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -585,6 +636,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0016-1',
       orderId: 'ORD-0016',
+      date: '2024-03-01',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -597,6 +649,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0017-1',
       orderId: 'ORD-0017',
+      date: '2024-03-12',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -609,6 +662,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0018-1',
       orderId: 'ORD-0018',
+      date: '2024-03-25',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -621,6 +675,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0019-1',
       orderId: 'ORD-0019',
+      date: '2024-04-05',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -632,6 +687,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0019-2',
       orderId: 'ORD-0019',
+      date: '2024-04-05',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -643,6 +699,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0019-3',
       orderId: 'ORD-0019',
+      date: '2024-04-05',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -655,6 +712,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0020-1',
       orderId: 'ORD-0020',
+      date: '2024-04-12',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -666,6 +724,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0020-2',
       orderId: 'ORD-0020',
+      date: '2024-04-12',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -678,6 +737,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0021-1',
       orderId: 'ORD-0021',
+      date: '2024-01-10',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -689,6 +749,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0021-2',
       orderId: 'ORD-0021',
+      date: '2024-01-10',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -700,6 +761,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0021-3',
       orderId: 'ORD-0021',
+      date: '2024-01-10',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -711,6 +773,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0021-4',
       orderId: 'ORD-0021',
+      date: '2024-01-10',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -723,6 +786,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0022-1',
       orderId: 'ORD-0022',
+      date: '2024-01-25',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -734,6 +798,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0022-2',
       orderId: 'ORD-0022',
+      date: '2024-01-25',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -745,6 +810,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0022-3',
       orderId: 'ORD-0022',
+      date: '2024-01-25',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -756,6 +822,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0022-4',
       orderId: 'ORD-0022',
+      date: '2024-01-25',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -768,6 +835,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0023-1',
       orderId: 'ORD-0023',
+      date: '2024-02-05',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -780,6 +848,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0024-1',
       orderId: 'ORD-0024',
+      date: '2024-02-20',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -791,6 +860,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0024-2',
       orderId: 'ORD-0024',
+      date: '2024-02-20',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -802,6 +872,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0024-3',
       orderId: 'ORD-0024',
+      date: '2024-02-20',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -813,6 +884,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0024-4',
       orderId: 'ORD-0024',
+      date: '2024-02-20',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -825,6 +897,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0025-1',
       orderId: 'ORD-0025',
+      date: '2024-03-05',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -836,6 +909,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0025-2',
       orderId: 'ORD-0025',
+      date: '2024-03-05',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -847,6 +921,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0025-3',
       orderId: 'ORD-0025',
+      date: '2024-03-05',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -858,6 +933,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0025-4',
       orderId: 'ORD-0025',
+      date: '2024-03-05',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -870,6 +946,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0026-1',
       orderId: 'ORD-0026',
+      date: '2024-03-18',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -882,6 +959,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0027-1',
       orderId: 'ORD-0027',
+      date: '2024-04-01',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -893,6 +971,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0027-2',
       orderId: 'ORD-0027',
+      date: '2024-04-01',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -905,6 +984,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0028-1',
       orderId: 'ORD-0028',
+      date: '2024-04-08',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -916,6 +996,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0028-2',
       orderId: 'ORD-0028',
+      date: '2024-04-08',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -927,6 +1008,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0028-3',
       orderId: 'ORD-0028',
+      date: '2024-04-08',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -939,6 +1021,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0029-1',
       orderId: 'ORD-0029',
+      date: '2024-01-12',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -950,6 +1033,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0029-2',
       orderId: 'ORD-0029',
+      date: '2024-01-12',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -962,6 +1046,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0030-1',
       orderId: 'ORD-0030',
+      date: '2024-01-28',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -973,6 +1058,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0030-2',
       orderId: 'ORD-0030',
+      date: '2024-01-28',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -984,6 +1070,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0030-3',
       orderId: 'ORD-0030',
+      date: '2024-01-28',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -995,6 +1082,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0030-4',
       orderId: 'ORD-0030',
+      date: '2024-01-28',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -1007,6 +1095,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0031-1',
       orderId: 'ORD-0031',
+      date: '2024-02-10',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -1018,6 +1107,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0031-2',
       orderId: 'ORD-0031',
+      date: '2024-02-10',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -1030,6 +1120,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0032-1',
       orderId: 'ORD-0032',
+      date: '2024-02-22',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -1042,6 +1133,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0033-1',
       orderId: 'ORD-0033',
+      date: '2024-03-08',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -1053,6 +1145,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0033-2',
       orderId: 'ORD-0033',
+      date: '2024-03-08',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -1064,6 +1157,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0033-3',
       orderId: 'ORD-0033',
+      date: '2024-03-08',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -1076,6 +1170,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0034-1',
       orderId: 'ORD-0034',
+      date: '2024-03-22',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -1088,6 +1183,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0035-1',
       orderId: 'ORD-0035',
+      date: '2024-04-03',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -1099,6 +1195,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0035-2',
       orderId: 'ORD-0035',
+      date: '2024-04-03',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -1110,6 +1207,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0035-3',
       orderId: 'ORD-0035',
+      date: '2024-04-03',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -1122,6 +1220,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0036-1',
       orderId: 'ORD-0036',
+      date: '2024-04-11',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -1134,6 +1233,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0037-1',
       orderId: 'ORD-0037',
+      date: '2024-01-20',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -1145,6 +1245,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0037-2',
       orderId: 'ORD-0037',
+      date: '2024-01-20',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -1156,6 +1257,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0037-3',
       orderId: 'ORD-0037',
+      date: '2024-01-20',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -1167,6 +1269,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0037-4',
       orderId: 'ORD-0037',
+      date: '2024-01-20',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -1179,6 +1282,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0038-1',
       orderId: 'ORD-0038',
+      date: '2024-02-02',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -1190,6 +1294,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0038-2',
       orderId: 'ORD-0038',
+      date: '2024-02-02',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -1202,6 +1307,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0039-1',
       orderId: 'ORD-0039',
+      date: '2024-02-15',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -1214,6 +1320,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0040-1',
       orderId: 'ORD-0040',
+      date: '2024-03-01',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -1225,6 +1332,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0040-2',
       orderId: 'ORD-0040',
+      date: '2024-03-01',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -1236,6 +1344,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0040-3',
       orderId: 'ORD-0040',
+      date: '2024-03-01',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -1247,6 +1356,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0040-4',
       orderId: 'ORD-0040',
+      date: '2024-03-01',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -1259,6 +1369,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0041-1',
       orderId: 'ORD-0041',
+      date: '2024-03-15',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -1271,6 +1382,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0042-1',
       orderId: 'ORD-0042',
+      date: '2024-03-28',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -1282,6 +1394,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0042-2',
       orderId: 'ORD-0042',
+      date: '2024-03-28',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -1293,6 +1406,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0042-3',
       orderId: 'ORD-0042',
+      date: '2024-03-28',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -1304,6 +1418,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0042-4',
       orderId: 'ORD-0042',
+      date: '2024-03-28',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -1316,6 +1431,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0043-1',
       orderId: 'ORD-0043',
+      date: '2024-04-06',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -1328,6 +1444,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0044-1',
       orderId: 'ORD-0044',
+      date: '2024-04-14',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -1339,6 +1456,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0044-2',
       orderId: 'ORD-0044',
+      date: '2024-04-14',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -1350,6 +1468,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0044-3',
       orderId: 'ORD-0044',
+      date: '2024-04-14',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -1361,6 +1480,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0044-4',
       orderId: 'ORD-0044',
+      date: '2024-04-14',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -1373,6 +1493,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0045-1',
       orderId: 'ORD-0045',
+      date: '2023-01-10',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -1384,6 +1505,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0045-2',
       orderId: 'ORD-0045',
+      date: '2023-01-10',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -1395,6 +1517,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0045-3',
       orderId: 'ORD-0045',
+      date: '2023-01-10',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -1407,6 +1530,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0046-1',
       orderId: 'ORD-0046',
+      date: '2023-01-22',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -1418,6 +1542,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0046-2',
       orderId: 'ORD-0046',
+      date: '2023-01-22',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -1430,6 +1555,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0047-1',
       orderId: 'ORD-0047',
+      date: '2023-02-05',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -1441,6 +1567,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0047-2',
       orderId: 'ORD-0047',
+      date: '2023-02-05',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -1453,6 +1580,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0048-1',
       orderId: 'ORD-0048',
+      date: '2023-02-18',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -1464,6 +1592,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0048-2',
       orderId: 'ORD-0048',
+      date: '2023-02-18',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -1475,6 +1604,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0048-3',
       orderId: 'ORD-0048',
+      date: '2023-02-18',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -1487,6 +1617,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0049-1',
       orderId: 'ORD-0049',
+      date: '2023-03-08',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -1498,6 +1629,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0049-2',
       orderId: 'ORD-0049',
+      date: '2023-03-08',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -1509,6 +1641,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0049-3',
       orderId: 'ORD-0049',
+      date: '2023-03-08',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -1520,6 +1653,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0049-4',
       orderId: 'ORD-0049',
+      date: '2023-03-08',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -1532,6 +1666,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0050-1',
       orderId: 'ORD-0050',
+      date: '2023-03-22',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -1543,6 +1678,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0050-2',
       orderId: 'ORD-0050',
+      date: '2023-03-22',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -1554,6 +1690,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0050-3',
       orderId: 'ORD-0050',
+      date: '2023-03-22',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -1566,6 +1703,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0051-1',
       orderId: 'ORD-0051',
+      date: '2023-04-05',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -1577,6 +1715,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0051-2',
       orderId: 'ORD-0051',
+      date: '2023-04-05',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -1588,6 +1727,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0051-3',
       orderId: 'ORD-0051',
+      date: '2023-04-05',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -1600,6 +1740,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0052-1',
       orderId: 'ORD-0052',
+      date: '2023-04-19',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -1612,6 +1753,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0053-1',
       orderId: 'ORD-0053',
+      date: '2023-05-10',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -1623,6 +1765,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0053-2',
       orderId: 'ORD-0053',
+      date: '2023-05-10',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -1634,6 +1777,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0053-3',
       orderId: 'ORD-0053',
+      date: '2023-05-10',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -1646,6 +1790,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0054-1',
       orderId: 'ORD-0054',
+      date: '2023-05-24',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -1657,6 +1802,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0054-2',
       orderId: 'ORD-0054',
+      date: '2023-05-24',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -1669,6 +1815,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0055-1',
       orderId: 'ORD-0055',
+      date: '2023-06-08',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -1680,6 +1827,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0055-2',
       orderId: 'ORD-0055',
+      date: '2023-06-08',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -1691,6 +1839,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0055-3',
       orderId: 'ORD-0055',
+      date: '2023-06-08',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -1703,6 +1852,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0056-1',
       orderId: 'ORD-0056',
+      date: '2023-06-22',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -1715,6 +1865,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0057-1',
       orderId: 'ORD-0057',
+      date: '2023-07-10',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -1726,6 +1877,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0057-2',
       orderId: 'ORD-0057',
+      date: '2023-07-10',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -1738,6 +1890,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0058-1',
       orderId: 'ORD-0058',
+      date: '2023-07-25',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -1749,6 +1902,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0058-2',
       orderId: 'ORD-0058',
+      date: '2023-07-25',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -1760,6 +1914,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0058-3',
       orderId: 'ORD-0058',
+      date: '2023-07-25',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -1772,6 +1927,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0059-1',
       orderId: 'ORD-0059',
+      date: '2023-08-12',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -1783,6 +1939,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0059-2',
       orderId: 'ORD-0059',
+      date: '2023-08-12',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -1794,6 +1951,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0059-3',
       orderId: 'ORD-0059',
+      date: '2023-08-12',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -1806,6 +1964,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0060-1',
       orderId: 'ORD-0060',
+      date: '2023-08-28',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -1817,6 +1976,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0060-2',
       orderId: 'ORD-0060',
+      date: '2023-08-28',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -1828,6 +1988,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0060-3',
       orderId: 'ORD-0060',
+      date: '2023-08-28',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -1840,6 +2001,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0061-1',
       orderId: 'ORD-0061',
+      date: '2023-09-15',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -1851,6 +2013,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0061-2',
       orderId: 'ORD-0061',
+      date: '2023-09-15',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -1862,6 +2025,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0061-3',
       orderId: 'ORD-0061',
+      date: '2023-09-15',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -1873,6 +2037,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0061-4',
       orderId: 'ORD-0061',
+      date: '2023-09-15',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -1885,6 +2050,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0062-1',
       orderId: 'ORD-0062',
+      date: '2023-09-28',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -1896,6 +2062,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0062-2',
       orderId: 'ORD-0062',
+      date: '2023-09-28',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -1908,6 +2075,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0063-1',
       orderId: 'ORD-0063',
+      date: '2023-10-14',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -1920,6 +2088,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0064-1',
       orderId: 'ORD-0064',
+      date: '2023-10-30',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -1931,6 +2100,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0064-2',
       orderId: 'ORD-0064',
+      date: '2023-10-30',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -1943,6 +2113,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0065-1',
       orderId: 'ORD-0065',
+      date: '2023-11-08',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -1954,6 +2125,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0065-2',
       orderId: 'ORD-0065',
+      date: '2023-11-08',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -1965,6 +2137,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0065-3',
       orderId: 'ORD-0065',
+      date: '2023-11-08',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -1977,6 +2150,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0066-1',
       orderId: 'ORD-0066',
+      date: '2023-11-20',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -1988,6 +2162,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0066-2',
       orderId: 'ORD-0066',
+      date: '2023-11-20',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -2000,6 +2175,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0067-1',
       orderId: 'ORD-0067',
+      date: '2023-12-05',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -2011,6 +2187,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0067-2',
       orderId: 'ORD-0067',
+      date: '2023-12-05',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -2022,6 +2199,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0067-3',
       orderId: 'ORD-0067',
+      date: '2023-12-05',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -2034,6 +2212,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0068-1',
       orderId: 'ORD-0068',
+      date: '2023-12-18',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -2046,6 +2225,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0069-1',
       orderId: 'ORD-0069',
+      date: '2024-05-02',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -2057,6 +2237,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0069-2',
       orderId: 'ORD-0069',
+      date: '2024-05-02',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -2069,6 +2250,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0070-1',
       orderId: 'ORD-0070',
+      date: '2024-05-10',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -2080,6 +2262,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0070-2',
       orderId: 'ORD-0070',
+      date: '2024-05-10',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -2092,6 +2275,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0071-1',
       orderId: 'ORD-0071',
+      date: '2024-05-18',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -2103,6 +2287,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0071-2',
       orderId: 'ORD-0071',
+      date: '2024-05-18',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -2114,6 +2299,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0071-3',
       orderId: 'ORD-0071',
+      date: '2024-05-18',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -2126,6 +2312,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0072-1',
       orderId: 'ORD-0072',
+      date: '2024-05-25',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -2138,6 +2325,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0073-1',
       orderId: 'ORD-0073',
+      date: '2024-06-03',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -2149,6 +2337,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0073-2',
       orderId: 'ORD-0073',
+      date: '2024-06-03',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -2161,6 +2350,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0074-1',
       orderId: 'ORD-0074',
+      date: '2024-06-12',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -2172,6 +2362,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0074-2',
       orderId: 'ORD-0074',
+      date: '2024-06-12',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -2183,6 +2374,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0074-3',
       orderId: 'ORD-0074',
+      date: '2024-06-12',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -2195,6 +2387,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0075-1',
       orderId: 'ORD-0075',
+      date: '2024-06-20',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -2206,6 +2399,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0075-2',
       orderId: 'ORD-0075',
+      date: '2024-06-20',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -2217,6 +2411,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0075-3',
       orderId: 'ORD-0075',
+      date: '2024-06-20',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -2229,6 +2424,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0076-1',
       orderId: 'ORD-0076',
+      date: '2024-07-01',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -2240,6 +2436,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0076-2',
       orderId: 'ORD-0076',
+      date: '2024-07-01',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -2252,6 +2449,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0077-1',
       orderId: 'ORD-0077',
+      date: '2024-07-10',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -2263,6 +2461,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0077-2',
       orderId: 'ORD-0077',
+      date: '2024-07-10',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -2274,6 +2473,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0077-3',
       orderId: 'ORD-0077',
+      date: '2024-07-10',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -2285,6 +2485,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0077-4',
       orderId: 'ORD-0077',
+      date: '2024-07-10',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -2297,6 +2498,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0078-1',
       orderId: 'ORD-0078',
+      date: '2024-07-18',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -2309,6 +2511,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0079-1',
       orderId: 'ORD-0079',
+      date: '2024-07-28',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -2320,6 +2523,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0079-2',
       orderId: 'ORD-0079',
+      date: '2024-07-28',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -2332,6 +2536,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0080-1',
       orderId: 'ORD-0080',
+      date: '2024-08-05',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -2343,6 +2548,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0080-2',
       orderId: 'ORD-0080',
+      date: '2024-08-05',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -2354,6 +2560,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0080-3',
       orderId: 'ORD-0080',
+      date: '2024-08-05',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -2366,6 +2573,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0081-1',
       orderId: 'ORD-0081',
+      date: '2024-08-14',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -2377,6 +2585,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0081-2',
       orderId: 'ORD-0081',
+      date: '2024-08-14',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -2389,6 +2598,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0082-1',
       orderId: 'ORD-0082',
+      date: '2024-08-22',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -2400,6 +2610,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0082-2',
       orderId: 'ORD-0082',
+      date: '2024-08-22',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -2412,6 +2623,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0083-1',
       orderId: 'ORD-0083',
+      date: '2024-09-01',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -2423,6 +2635,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0083-2',
       orderId: 'ORD-0083',
+      date: '2024-09-01',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -2435,6 +2648,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0084-1',
       orderId: 'ORD-0084',
+      date: '2024-09-10',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -2446,6 +2660,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0084-2',
       orderId: 'ORD-0084',
+      date: '2024-09-10',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -2458,6 +2673,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0085-1',
       orderId: 'ORD-0085',
+      date: '2024-09-18',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -2469,6 +2685,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0085-2',
       orderId: 'ORD-0085',
+      date: '2024-09-18',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -2480,6 +2697,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0085-3',
       orderId: 'ORD-0085',
+      date: '2024-09-18',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -2492,6 +2710,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0086-1',
       orderId: 'ORD-0086',
+      date: '2024-09-28',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -2504,6 +2723,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0087-1',
       orderId: 'ORD-0087',
+      date: '2024-10-05',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -2515,6 +2735,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0087-2',
       orderId: 'ORD-0087',
+      date: '2024-10-05',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -2526,6 +2747,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0087-3',
       orderId: 'ORD-0087',
+      date: '2024-10-05',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -2538,6 +2760,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0088-1',
       orderId: 'ORD-0088',
+      date: '2024-10-14',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -2549,6 +2772,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0088-2',
       orderId: 'ORD-0088',
+      date: '2024-10-14',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -2561,6 +2785,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0089-1',
       orderId: 'ORD-0089',
+      date: '2024-10-22',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -2572,6 +2797,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0089-2',
       orderId: 'ORD-0089',
+      date: '2024-10-22',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -2584,6 +2810,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0090-1',
       orderId: 'ORD-0090',
+      date: '2024-10-30',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -2595,6 +2822,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0090-2',
       orderId: 'ORD-0090',
+      date: '2024-10-30',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -2607,6 +2835,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0091-1',
       orderId: 'ORD-0091',
+      date: '2024-11-07',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -2618,6 +2847,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0091-2',
       orderId: 'ORD-0091',
+      date: '2024-11-07',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -2629,6 +2859,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0091-3',
       orderId: 'ORD-0091',
+      date: '2024-11-07',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -2641,6 +2872,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0092-1',
       orderId: 'ORD-0092',
+      date: '2024-11-15',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -2652,6 +2884,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0092-2',
       orderId: 'ORD-0092',
+      date: '2024-11-15',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -2663,6 +2896,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0092-3',
       orderId: 'ORD-0092',
+      date: '2024-11-15',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -2674,6 +2908,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0092-4',
       orderId: 'ORD-0092',
+      date: '2024-11-15',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -2686,6 +2921,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0093-1',
       orderId: 'ORD-0093',
+      date: '2024-11-22',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -2698,6 +2934,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0094-1',
       orderId: 'ORD-0094',
+      date: '2024-11-30',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -2709,6 +2946,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0094-2',
       orderId: 'ORD-0094',
+      date: '2024-11-30',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -2720,6 +2958,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0094-3',
       orderId: 'ORD-0094',
+      date: '2024-11-30',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -2732,6 +2971,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0095-1',
       orderId: 'ORD-0095',
+      date: '2024-12-07',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -2744,6 +2984,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0096-1',
       orderId: 'ORD-0096',
+      date: '2024-12-14',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -2755,6 +2996,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0096-2',
       orderId: 'ORD-0096',
+      date: '2024-12-14',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -2766,6 +3008,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0096-3',
       orderId: 'ORD-0096',
+      date: '2024-12-14',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -2777,6 +3020,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0096-4',
       orderId: 'ORD-0096',
+      date: '2024-12-14',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -2788,6 +3032,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0096-5',
       orderId: 'ORD-0096',
+      date: '2024-12-14',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -2800,6 +3045,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0097-1',
       orderId: 'ORD-0097',
+      date: '2024-12-20',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -2811,6 +3057,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0097-2',
       orderId: 'ORD-0097',
+      date: '2024-12-20',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -2823,6 +3070,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0098-1',
       orderId: 'ORD-0098',
+      date: '2024-12-28',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -2834,6 +3082,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0098-2',
       orderId: 'ORD-0098',
+      date: '2024-12-28',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -2846,6 +3095,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0099-1',
       orderId: 'ORD-0099',
+      date: '2024-12-31',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -2857,6 +3107,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0099-2',
       orderId: 'ORD-0099',
+      date: '2024-12-31',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -2868,6 +3119,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0099-3',
       orderId: 'ORD-0099',
+      date: '2024-12-31',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -2880,6 +3132,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0100-1',
       orderId: 'ORD-0100',
+      date: '2024-12-31',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -2892,6 +3145,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0101-1',
       orderId: 'ORD-0101',
+      date: '2025-01-06',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -2903,6 +3157,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0101-2',
       orderId: 'ORD-0101',
+      date: '2025-01-06',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -2914,6 +3169,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0101-3',
       orderId: 'ORD-0101',
+      date: '2025-01-06',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -2926,6 +3182,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0102-1',
       orderId: 'ORD-0102',
+      date: '2025-01-10',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -2937,6 +3194,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0102-2',
       orderId: 'ORD-0102',
+      date: '2025-01-10',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -2948,6 +3206,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0102-3',
       orderId: 'ORD-0102',
+      date: '2025-01-10',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -2959,6 +3218,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0102-4',
       orderId: 'ORD-0102',
+      date: '2025-01-10',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -2970,6 +3230,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0102-5',
       orderId: 'ORD-0102',
+      date: '2025-01-10',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -2982,6 +3243,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0103-1',
       orderId: 'ORD-0103',
+      date: '2025-01-15',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -2993,6 +3255,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0103-2',
       orderId: 'ORD-0103',
+      date: '2025-01-15',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -3005,6 +3268,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0104-1',
       orderId: 'ORD-0104',
+      date: '2025-01-20',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -3017,6 +3281,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0105-1',
       orderId: 'ORD-0105',
+      date: '2025-01-24',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -3028,6 +3293,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0105-2',
       orderId: 'ORD-0105',
+      date: '2025-01-24',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -3039,6 +3305,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0105-3',
       orderId: 'ORD-0105',
+      date: '2025-01-24',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -3050,6 +3317,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0105-4',
       orderId: 'ORD-0105',
+      date: '2025-01-24',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -3062,6 +3330,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0106-1',
       orderId: 'ORD-0106',
+      date: '2025-01-28',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -3073,6 +3342,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0106-2',
       orderId: 'ORD-0106',
+      date: '2025-01-28',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -3085,6 +3355,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0107-1',
       orderId: 'ORD-0107',
+      date: '2025-02-03',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -3096,6 +3367,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0107-2',
       orderId: 'ORD-0107',
+      date: '2025-02-03',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -3107,6 +3379,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0107-3',
       orderId: 'ORD-0107',
+      date: '2025-02-03',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -3119,6 +3392,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0108-1',
       orderId: 'ORD-0108',
+      date: '2025-02-07',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -3130,6 +3404,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0108-2',
       orderId: 'ORD-0108',
+      date: '2025-02-07',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -3141,6 +3416,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0108-3',
       orderId: 'ORD-0108',
+      date: '2025-02-07',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -3152,6 +3428,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0108-4',
       orderId: 'ORD-0108',
+      date: '2025-02-07',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -3164,6 +3441,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0109-1',
       orderId: 'ORD-0109',
+      date: '2025-02-12',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -3175,6 +3453,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0109-2',
       orderId: 'ORD-0109',
+      date: '2025-02-12',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -3186,6 +3465,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0109-3',
       orderId: 'ORD-0109',
+      date: '2025-02-12',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -3198,6 +3478,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0110-1',
       orderId: 'ORD-0110',
+      date: '2025-02-17',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -3209,6 +3490,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0110-2',
       orderId: 'ORD-0110',
+      date: '2025-02-17',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -3221,6 +3503,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0111-1',
       orderId: 'ORD-0111',
+      date: '2025-02-21',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -3232,6 +3515,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0111-2',
       orderId: 'ORD-0111',
+      date: '2025-02-21',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -3244,6 +3528,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0112-1',
       orderId: 'ORD-0112',
+      date: '2025-02-25',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -3255,6 +3540,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0112-2',
       orderId: 'ORD-0112',
+      date: '2025-02-25',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -3267,6 +3553,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0113-1',
       orderId: 'ORD-0113',
+      date: '2025-03-01',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -3278,6 +3565,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0113-2',
       orderId: 'ORD-0113',
+      date: '2025-03-01',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -3290,6 +3578,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0114-1',
       orderId: 'ORD-0114',
+      date: '2025-03-05',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -3301,6 +3590,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0114-2',
       orderId: 'ORD-0114',
+      date: '2025-03-05',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -3312,6 +3602,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0114-3',
       orderId: 'ORD-0114',
+      date: '2025-03-05',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -3324,6 +3615,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0115-1',
       orderId: 'ORD-0115',
+      date: '2025-03-08',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -3335,6 +3627,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0115-2',
       orderId: 'ORD-0115',
+      date: '2025-03-08',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -3346,6 +3639,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0115-3',
       orderId: 'ORD-0115',
+      date: '2025-03-08',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -3358,6 +3652,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0116-1',
       orderId: 'ORD-0116',
+      date: '2025-03-11',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -3369,6 +3664,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0116-2',
       orderId: 'ORD-0116',
+      date: '2025-03-11',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -3381,6 +3677,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0117-1',
       orderId: 'ORD-0117',
+      date: '2025-03-14',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -3392,6 +3689,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0117-2',
       orderId: 'ORD-0117',
+      date: '2025-03-14',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -3403,6 +3701,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0117-3',
       orderId: 'ORD-0117',
+      date: '2025-03-14',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -3415,6 +3714,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0118-1',
       orderId: 'ORD-0118',
+      date: '2025-03-17',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -3426,6 +3726,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0118-2',
       orderId: 'ORD-0118',
+      date: '2025-03-17',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -3438,6 +3739,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0119-1',
       orderId: 'ORD-0119',
+      date: '2025-03-20',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -3449,6 +3751,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0119-2',
       orderId: 'ORD-0119',
+      date: '2025-03-20',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -3460,6 +3763,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0119-3',
       orderId: 'ORD-0119',
+      date: '2025-03-20',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -3472,6 +3776,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0120-1',
       orderId: 'ORD-0120',
+      date: '2025-03-22',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -3483,6 +3788,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0120-2',
       orderId: 'ORD-0120',
+      date: '2025-03-22',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -3495,6 +3801,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0121-1',
       orderId: 'ORD-0121',
+      date: '2025-03-24',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -3506,6 +3813,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0121-2',
       orderId: 'ORD-0121',
+      date: '2025-03-24',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -3517,6 +3825,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0121-3',
       orderId: 'ORD-0121',
+      date: '2025-03-24',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -3528,6 +3837,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0121-4',
       orderId: 'ORD-0121',
+      date: '2025-03-24',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -3540,6 +3850,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0122-1',
       orderId: 'ORD-0122',
+      date: '2025-03-25',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -3551,6 +3862,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0122-2',
       orderId: 'ORD-0122',
+      date: '2025-03-25',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -3562,6 +3874,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0122-3',
       orderId: 'ORD-0122',
+      date: '2025-03-25',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -3574,6 +3887,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0123-1',
       orderId: 'ORD-0123',
+      date: '2025-03-26',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -3585,6 +3899,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0123-2',
       orderId: 'ORD-0123',
+      date: '2025-03-26',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -3596,6 +3911,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0123-3',
       orderId: 'ORD-0123',
+      date: '2025-03-26',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -3608,6 +3924,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0124-1',
       orderId: 'ORD-0124',
+      date: '2025-03-27',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -3619,6 +3936,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0124-2',
       orderId: 'ORD-0124',
+      date: '2025-03-27',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -3630,6 +3948,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0124-3',
       orderId: 'ORD-0124',
+      date: '2025-03-27',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -3641,6 +3960,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0124-4',
       orderId: 'ORD-0124',
+      date: '2025-03-27',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -3653,6 +3973,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0125-1',
       orderId: 'ORD-0125',
+      date: '2025-03-28',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -3665,6 +3986,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0126-1',
       orderId: 'ORD-0126',
+      date: '2025-03-28',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -3677,6 +3999,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0127-1',
       orderId: 'ORD-0127',
+      date: '2025-03-29',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -3689,6 +4012,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0128-1',
       orderId: 'ORD-0128',
+      date: '2025-03-29',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -3700,6 +4024,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0128-2',
       orderId: 'ORD-0128',
+      date: '2025-03-29',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -3711,6 +4036,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0128-3',
       orderId: 'ORD-0128',
+      date: '2025-03-29',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -3723,6 +4049,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0129-1',
       orderId: 'ORD-0129',
+      date: '2025-03-30',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -3734,6 +4061,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0129-2',
       orderId: 'ORD-0129',
+      date: '2025-03-30',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -3746,6 +4074,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0130-1',
       orderId: 'ORD-0130',
+      date: '2025-03-30',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -3758,6 +4087,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0131-1',
       orderId: 'ORD-0131',
+      date: '2025-03-31',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -3769,6 +4099,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0131-2',
       orderId: 'ORD-0131',
+      date: '2025-03-31',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -3781,6 +4112,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0132-1',
       orderId: 'ORD-0132',
+      date: '2025-03-31',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -3792,6 +4124,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0132-2',
       orderId: 'ORD-0132',
+      date: '2025-03-31',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -3803,6 +4136,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0132-3',
       orderId: 'ORD-0132',
+      date: '2025-03-31',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -3815,6 +4149,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0133-1',
       orderId: 'ORD-0133',
+      date: '2023-10-05',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -3826,6 +4161,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0133-2',
       orderId: 'ORD-0133',
+      date: '2023-10-05',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -3837,6 +4173,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0133-3',
       orderId: 'ORD-0133',
+      date: '2023-10-05',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -3848,6 +4185,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0133-4',
       orderId: 'ORD-0133',
+      date: '2023-10-05',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -3860,6 +4198,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0134-1',
       orderId: 'ORD-0134',
+      date: '2023-11-12',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -3872,6 +4211,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0135-1',
       orderId: 'ORD-0135',
+      date: '2023-12-01',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -3884,6 +4224,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0136-1',
       orderId: 'ORD-0136',
+      date: '2023-12-15',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -3896,6 +4237,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0137-1',
       orderId: 'ORD-0137',
+      date: '2024-01-05',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -3907,6 +4249,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0137-2',
       orderId: 'ORD-0137',
+      date: '2024-01-05',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -3918,6 +4261,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0137-3',
       orderId: 'ORD-0137',
+      date: '2024-01-05',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -3930,6 +4274,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0138-1',
       orderId: 'ORD-0138',
+      date: '2024-02-14',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -3941,6 +4286,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0138-2',
       orderId: 'ORD-0138',
+      date: '2024-02-14',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -3952,6 +4298,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0138-3',
       orderId: 'ORD-0138',
+      date: '2024-02-14',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -3963,6 +4310,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0138-4',
       orderId: 'ORD-0138',
+      date: '2024-02-14',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -3975,6 +4323,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0139-1',
       orderId: 'ORD-0139',
+      date: '2024-03-10',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -3986,6 +4335,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0139-2',
       orderId: 'ORD-0139',
+      date: '2024-03-10',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -3998,6 +4348,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0140-1',
       orderId: 'ORD-0140',
+      date: '2024-04-18',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -4009,6 +4360,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0140-2',
       orderId: 'ORD-0140',
+      date: '2024-04-18',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -4020,6 +4372,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0140-3',
       orderId: 'ORD-0140',
+      date: '2024-04-18',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -4032,6 +4385,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0141-1',
       orderId: 'ORD-0141',
+      date: '2024-05-30',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -4043,6 +4397,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0141-2',
       orderId: 'ORD-0141',
+      date: '2024-05-30',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -4055,6 +4410,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0142-1',
       orderId: 'ORD-0142',
+      date: '2024-06-15',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -4067,6 +4423,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0143-1',
       orderId: 'ORD-0143',
+      date: '2024-07-22',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -4079,6 +4436,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0144-1',
       orderId: 'ORD-0144',
+      date: '2024-08-30',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -4090,6 +4448,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0144-2',
       orderId: 'ORD-0144',
+      date: '2024-08-30',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -4102,6 +4461,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0145-1',
       orderId: 'ORD-0145',
+      date: '2024-09-15',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -4113,6 +4473,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0145-2',
       orderId: 'ORD-0145',
+      date: '2024-09-15',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -4124,6 +4485,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0145-3',
       orderId: 'ORD-0145',
+      date: '2024-09-15',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -4135,6 +4497,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0145-4',
       orderId: 'ORD-0145',
+      date: '2024-09-15',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -4146,6 +4509,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0145-5',
       orderId: 'ORD-0145',
+      date: '2024-09-15',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -4158,6 +4522,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0146-1',
       orderId: 'ORD-0146',
+      date: '2024-10-08',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -4169,6 +4534,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0146-2',
       orderId: 'ORD-0146',
+      date: '2024-10-08',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -4180,6 +4546,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0146-3',
       orderId: 'ORD-0146',
+      date: '2024-10-08',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -4191,6 +4558,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0146-4',
       orderId: 'ORD-0146',
+      date: '2024-10-08',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -4203,6 +4571,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0147-1',
       orderId: 'ORD-0147',
+      date: '2024-11-20',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -4214,6 +4583,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0147-2',
       orderId: 'ORD-0147',
+      date: '2024-11-20',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -4226,6 +4596,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0148-1',
       orderId: 'ORD-0148',
+      date: '2024-12-10',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -4237,6 +4608,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0148-2',
       orderId: 'ORD-0148',
+      date: '2024-12-10',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -4249,6 +4621,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0149-1',
       orderId: 'ORD-0149',
+      date: '2025-01-12',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -4260,6 +4633,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0149-2',
       orderId: 'ORD-0149',
+      date: '2025-01-12',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -4271,6 +4645,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0149-3',
       orderId: 'ORD-0149',
+      date: '2025-01-12',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -4282,6 +4657,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0149-4',
       orderId: 'ORD-0149',
+      date: '2025-01-12',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -4294,6 +4670,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0150-1',
       orderId: 'ORD-0150',
+      date: '2025-02-28',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -4305,6 +4682,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0150-2',
       orderId: 'ORD-0150',
+      date: '2025-02-28',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -4317,6 +4695,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0151-1',
       orderId: 'ORD-0151',
+      date: '2025-03-05',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -4329,6 +4708,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0152-1',
       orderId: 'ORD-0152',
+      date: '2025-03-10',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -4340,6 +4720,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0152-2',
       orderId: 'ORD-0152',
+      date: '2025-03-10',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -4351,6 +4732,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0152-3',
       orderId: 'ORD-0152',
+      date: '2025-03-10',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -4362,6 +4744,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0152-4',
       orderId: 'ORD-0152',
+      date: '2025-03-10',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -4374,6 +4757,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0153-1',
       orderId: 'ORD-0153',
+      date: '2025-03-14',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -4385,6 +4769,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0153-2',
       orderId: 'ORD-0153',
+      date: '2025-03-14',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -4396,6 +4781,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0153-3',
       orderId: 'ORD-0153',
+      date: '2025-03-14',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -4408,6 +4794,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0154-1',
       orderId: 'ORD-0154',
+      date: '2025-03-18',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -4419,6 +4806,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0154-2',
       orderId: 'ORD-0154',
+      date: '2025-03-18',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -4430,6 +4818,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0154-3',
       orderId: 'ORD-0154',
+      date: '2025-03-18',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -4442,6 +4831,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0155-1',
       orderId: 'ORD-0155',
+      date: '2025-03-22',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -4453,6 +4843,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0155-2',
       orderId: 'ORD-0155',
+      date: '2025-03-22',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -4464,6 +4855,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0155-3',
       orderId: 'ORD-0155',
+      date: '2025-03-22',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -4475,6 +4867,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0155-4',
       orderId: 'ORD-0155',
+      date: '2025-03-22',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -4487,6 +4880,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0156-1',
       orderId: 'ORD-0156',
+      date: '2025-03-27',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -4499,6 +4893,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0157-1',
       orderId: 'ORD-0157',
+      date: '2025-04-02',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -4510,6 +4905,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0157-2',
       orderId: 'ORD-0157',
+      date: '2025-04-02',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -4522,6 +4918,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0158-1',
       orderId: 'ORD-0158',
+      date: '2025-04-07',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -4533,6 +4930,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0158-2',
       orderId: 'ORD-0158',
+      date: '2025-04-07',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -4544,6 +4942,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0158-3',
       orderId: 'ORD-0158',
+      date: '2025-04-07',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -4556,6 +4955,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0159-1',
       orderId: 'ORD-0159',
+      date: '2025-04-11',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -4568,6 +4968,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0160-1',
       orderId: 'ORD-0160',
+      date: '2025-04-16',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -4580,6 +4981,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0161-1',
       orderId: 'ORD-0161',
+      date: '2025-04-22',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -4591,6 +4993,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0161-2',
       orderId: 'ORD-0161',
+      date: '2025-04-22',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -4602,6 +5005,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0161-3',
       orderId: 'ORD-0161',
+      date: '2025-04-22',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -4613,6 +5017,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0161-4',
       orderId: 'ORD-0161',
+      date: '2025-04-22',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -4625,6 +5030,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0162-1',
       orderId: 'ORD-0162',
+      date: '2025-04-28',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -4636,6 +5042,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0162-2',
       orderId: 'ORD-0162',
+      date: '2025-04-28',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -4647,6 +5054,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0162-3',
       orderId: 'ORD-0162',
+      date: '2025-04-28',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -4659,6 +5067,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0163-1',
       orderId: 'ORD-0163',
+      date: '2025-05-05',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -4670,6 +5079,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0163-2',
       orderId: 'ORD-0163',
+      date: '2025-05-05',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -4681,6 +5091,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0163-3',
       orderId: 'ORD-0163',
+      date: '2025-05-05',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -4692,6 +5103,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0163-4',
       orderId: 'ORD-0163',
+      date: '2025-05-05',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -4704,6 +5116,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0164-1',
       orderId: 'ORD-0164',
+      date: '2025-05-09',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -4715,6 +5128,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0164-2',
       orderId: 'ORD-0164',
+      date: '2025-05-09',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -4726,6 +5140,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0164-3',
       orderId: 'ORD-0164',
+      date: '2025-05-09',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -4737,6 +5152,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0164-4',
       orderId: 'ORD-0164',
+      date: '2025-05-09',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -4749,6 +5165,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0165-1',
       orderId: 'ORD-0165',
+      date: '2025-05-14',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -4760,6 +5177,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0165-2',
       orderId: 'ORD-0165',
+      date: '2025-05-14',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -4772,6 +5190,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0166-1',
       orderId: 'ORD-0166',
+      date: '2025-05-19',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -4783,6 +5202,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0166-2',
       orderId: 'ORD-0166',
+      date: '2025-05-19',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -4794,6 +5214,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0166-3',
       orderId: 'ORD-0166',
+      date: '2025-05-19',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -4805,6 +5226,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0166-4',
       orderId: 'ORD-0166',
+      date: '2025-05-19',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -4817,6 +5239,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0167-1',
       orderId: 'ORD-0167',
+      date: '2025-05-23',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -4828,6 +5251,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0167-2',
       orderId: 'ORD-0167',
+      date: '2025-05-23',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -4839,6 +5263,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0167-3',
       orderId: 'ORD-0167',
+      date: '2025-05-23',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -4851,6 +5276,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0168-1',
       orderId: 'ORD-0168',
+      date: '2025-05-28',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -4862,6 +5288,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0168-2',
       orderId: 'ORD-0168',
+      date: '2025-05-28',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -4873,6 +5300,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0168-3',
       orderId: 'ORD-0168',
+      date: '2025-05-28',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -4884,6 +5312,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0168-4',
       orderId: 'ORD-0168',
+      date: '2025-05-28',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -4896,6 +5325,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0169-1',
       orderId: 'ORD-0169',
+      date: '2025-06-03',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -4907,6 +5337,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0169-2',
       orderId: 'ORD-0169',
+      date: '2025-06-03',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -4918,6 +5349,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0169-3',
       orderId: 'ORD-0169',
+      date: '2025-06-03',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -4930,6 +5362,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0170-1',
       orderId: 'ORD-0170',
+      date: '2025-06-09',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -4941,6 +5374,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0170-2',
       orderId: 'ORD-0170',
+      date: '2025-06-09',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -4952,6 +5386,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0170-3',
       orderId: 'ORD-0170',
+      date: '2025-06-09',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -4963,6 +5398,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0170-4',
       orderId: 'ORD-0170',
+      date: '2025-06-09',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -4974,6 +5410,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0170-5',
       orderId: 'ORD-0170',
+      date: '2025-06-09',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -4986,6 +5423,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0171-1',
       orderId: 'ORD-0171',
+      date: '2025-06-13',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -4997,6 +5435,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0171-2',
       orderId: 'ORD-0171',
+      date: '2025-06-13',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -5008,6 +5447,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0171-3',
       orderId: 'ORD-0171',
+      date: '2025-06-13',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -5020,6 +5460,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0172-1',
       orderId: 'ORD-0172',
+      date: '2025-06-18',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -5031,6 +5472,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0172-2',
       orderId: 'ORD-0172',
+      date: '2025-06-18',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -5043,6 +5485,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0173-1',
       orderId: 'ORD-0173',
+      date: '2025-06-24',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -5054,6 +5497,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0173-2',
       orderId: 'ORD-0173',
+      date: '2025-06-24',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -5065,6 +5509,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0173-3',
       orderId: 'ORD-0173',
+      date: '2025-06-24',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -5076,6 +5521,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0173-4',
       orderId: 'ORD-0173',
+      date: '2025-06-24',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -5088,6 +5534,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0174-1',
       orderId: 'ORD-0174',
+      date: '2025-06-30',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -5099,6 +5546,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0174-2',
       orderId: 'ORD-0174',
+      date: '2025-06-30',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -5110,6 +5558,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0174-3',
       orderId: 'ORD-0174',
+      date: '2025-06-30',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -5121,6 +5570,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0174-4',
       orderId: 'ORD-0174',
+      date: '2025-06-30',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -5132,6 +5582,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0174-5',
       orderId: 'ORD-0174',
+      date: '2025-06-30',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -5144,6 +5595,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0175-1',
       orderId: 'ORD-0175',
+      date: '2025-07-04',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -5155,6 +5607,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0175-2',
       orderId: 'ORD-0175',
+      date: '2025-07-04',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -5166,6 +5619,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0175-3',
       orderId: 'ORD-0175',
+      date: '2025-07-04',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -5177,6 +5631,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0175-4',
       orderId: 'ORD-0175',
+      date: '2025-07-04',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -5189,6 +5644,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0176-1',
       orderId: 'ORD-0176',
+      date: '2025-07-10',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -5200,6 +5656,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0176-2',
       orderId: 'ORD-0176',
+      date: '2025-07-10',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -5211,6 +5668,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0176-3',
       orderId: 'ORD-0176',
+      date: '2025-07-10',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -5222,6 +5680,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0176-4',
       orderId: 'ORD-0176',
+      date: '2025-07-10',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -5234,6 +5693,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0177-1',
       orderId: 'ORD-0177',
+      date: '2025-07-16',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -5246,6 +5706,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0178-1',
       orderId: 'ORD-0178',
+      date: '2025-07-22',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -5257,6 +5718,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0178-2',
       orderId: 'ORD-0178',
+      date: '2025-07-22',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -5268,6 +5730,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0178-3',
       orderId: 'ORD-0178',
+      date: '2025-07-22',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -5280,6 +5743,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0179-1',
       orderId: 'ORD-0179',
+      date: '2025-07-28',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -5291,6 +5755,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0179-2',
       orderId: 'ORD-0179',
+      date: '2025-07-28',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -5302,6 +5767,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0179-3',
       orderId: 'ORD-0179',
+      date: '2025-07-28',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -5314,6 +5780,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0180-1',
       orderId: 'ORD-0180',
+      date: '2025-08-04',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -5325,6 +5792,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0180-2',
       orderId: 'ORD-0180',
+      date: '2025-08-04',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -5336,6 +5804,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0180-3',
       orderId: 'ORD-0180',
+      date: '2025-08-04',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -5348,6 +5817,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0181-1',
       orderId: 'ORD-0181',
+      date: '2025-08-11',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -5359,6 +5829,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0181-2',
       orderId: 'ORD-0181',
+      date: '2025-08-11',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -5370,6 +5841,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0181-3',
       orderId: 'ORD-0181',
+      date: '2025-08-11',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -5382,6 +5854,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0182-1',
       orderId: 'ORD-0182',
+      date: '2025-08-18',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -5394,6 +5867,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0183-1',
       orderId: 'ORD-0183',
+      date: '2025-08-25',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -5406,6 +5880,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0184-1',
       orderId: 'ORD-0184',
+      date: '2025-09-02',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -5417,6 +5892,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0184-2',
       orderId: 'ORD-0184',
+      date: '2025-09-02',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -5428,6 +5904,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0184-3',
       orderId: 'ORD-0184',
+      date: '2025-09-02',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -5440,6 +5917,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0185-1',
       orderId: 'ORD-0185',
+      date: '2025-09-09',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -5451,6 +5929,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0185-2',
       orderId: 'ORD-0185',
+      date: '2025-09-09',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -5462,6 +5941,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0185-3',
       orderId: 'ORD-0185',
+      date: '2025-09-09',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -5474,6 +5954,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0186-1',
       orderId: 'ORD-0186',
+      date: '2025-09-16',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -5486,6 +5967,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0187-1',
       orderId: 'ORD-0187',
+      date: '2025-09-23',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -5497,6 +5979,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0187-2',
       orderId: 'ORD-0187',
+      date: '2025-09-23',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -5508,6 +5991,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0187-3',
       orderId: 'ORD-0187',
+      date: '2025-09-23',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -5519,6 +6003,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0187-4',
       orderId: 'ORD-0187',
+      date: '2025-09-23',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -5530,6 +6015,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0187-5',
       orderId: 'ORD-0187',
+      date: '2025-09-23',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -5542,6 +6028,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0188-1',
       orderId: 'ORD-0188',
+      date: '2025-09-30',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -5553,6 +6040,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0188-2',
       orderId: 'ORD-0188',
+      date: '2025-09-30',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -5564,6 +6052,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0188-3',
       orderId: 'ORD-0188',
+      date: '2025-09-30',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -5575,6 +6064,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0188-4',
       orderId: 'ORD-0188',
+      date: '2025-09-30',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -5586,6 +6076,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0188-5',
       orderId: 'ORD-0188',
+      date: '2025-09-30',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -5598,6 +6089,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0189-1',
       orderId: 'ORD-0189',
+      date: '2025-10-06',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -5609,6 +6101,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0189-2',
       orderId: 'ORD-0189',
+      date: '2025-10-06',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -5620,6 +6113,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0189-3',
       orderId: 'ORD-0189',
+      date: '2025-10-06',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -5631,6 +6125,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0189-4',
       orderId: 'ORD-0189',
+      date: '2025-10-06',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -5643,6 +6138,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0190-1',
       orderId: 'ORD-0190',
+      date: '2025-10-13',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -5655,6 +6151,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0191-1',
       orderId: 'ORD-0191',
+      date: '2025-10-20',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -5667,6 +6164,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0192-1',
       orderId: 'ORD-0192',
+      date: '2025-10-27',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -5678,6 +6176,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0192-2',
       orderId: 'ORD-0192',
+      date: '2025-10-27',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -5689,6 +6188,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0192-3',
       orderId: 'ORD-0192',
+      date: '2025-10-27',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -5700,6 +6200,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0192-4',
       orderId: 'ORD-0192',
+      date: '2025-10-27',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -5712,6 +6213,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0193-1',
       orderId: 'ORD-0193',
+      date: '2025-11-03',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -5724,6 +6226,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0194-1',
       orderId: 'ORD-0194',
+      date: '2025-11-10',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -5735,6 +6238,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0194-2',
       orderId: 'ORD-0194',
+      date: '2025-11-10',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -5746,6 +6250,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0194-3',
       orderId: 'ORD-0194',
+      date: '2025-11-10',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -5758,6 +6263,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0195-1',
       orderId: 'ORD-0195',
+      date: '2025-11-17',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -5769,6 +6275,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0195-2',
       orderId: 'ORD-0195',
+      date: '2025-11-17',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -5780,6 +6287,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0195-3',
       orderId: 'ORD-0195',
+      date: '2025-11-17',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -5791,6 +6299,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0195-4',
       orderId: 'ORD-0195',
+      date: '2025-11-17',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -5802,6 +6311,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0195-5',
       orderId: 'ORD-0195',
+      date: '2025-11-17',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -5814,6 +6324,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0196-1',
       orderId: 'ORD-0196',
+      date: '2025-11-24',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -5825,6 +6336,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0196-2',
       orderId: 'ORD-0196',
+      date: '2025-11-24',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -5836,6 +6348,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0196-3',
       orderId: 'ORD-0196',
+      date: '2025-11-24',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -5847,6 +6360,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0196-4',
       orderId: 'ORD-0196',
+      date: '2025-11-24',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -5859,6 +6373,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0197-1',
       orderId: 'ORD-0197',
+      date: '2025-12-01',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -5870,6 +6385,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0197-2',
       orderId: 'ORD-0197',
+      date: '2025-12-01',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -5882,6 +6398,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0198-1',
       orderId: 'ORD-0198',
+      date: '2025-12-08',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -5893,6 +6410,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0198-2',
       orderId: 'ORD-0198',
+      date: '2025-12-08',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -5904,6 +6422,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0198-3',
       orderId: 'ORD-0198',
+      date: '2025-12-08',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -5915,6 +6434,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0198-4',
       orderId: 'ORD-0198',
+      date: '2025-12-08',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -5926,6 +6446,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0198-5',
       orderId: 'ORD-0198',
+      date: '2025-12-08',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -5938,6 +6459,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0199-1',
       orderId: 'ORD-0199',
+      date: '2025-12-15',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -5949,6 +6471,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0199-2',
       orderId: 'ORD-0199',
+      date: '2025-12-15',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -5960,6 +6483,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0199-3',
       orderId: 'ORD-0199',
+      date: '2025-12-15',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -5971,6 +6495,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0199-4',
       orderId: 'ORD-0199',
+      date: '2025-12-15',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -5983,6 +6508,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0200-1',
       orderId: 'ORD-0200',
+      date: '2025-12-22',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -5994,6 +6520,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0200-2',
       orderId: 'ORD-0200',
+      date: '2025-12-22',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -6006,6 +6533,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0201-1',
       orderId: 'ORD-0201',
+      date: '2026-01-07',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -6017,6 +6545,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0201-2',
       orderId: 'ORD-0201',
+      date: '2026-01-07',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -6028,6 +6557,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0201-3',
       orderId: 'ORD-0201',
+      date: '2026-01-07',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -6039,6 +6569,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0201-4',
       orderId: 'ORD-0201',
+      date: '2026-01-07',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -6050,6 +6581,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0201-5',
       orderId: 'ORD-0201',
+      date: '2026-01-07',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -6062,6 +6594,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0202-1',
       orderId: 'ORD-0202',
+      date: '2026-01-14',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -6073,6 +6606,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0202-2',
       orderId: 'ORD-0202',
+      date: '2026-01-14',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -6084,6 +6618,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0202-3',
       orderId: 'ORD-0202',
+      date: '2026-01-14',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -6095,6 +6630,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0202-4',
       orderId: 'ORD-0202',
+      date: '2026-01-14',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -6106,6 +6642,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0202-5',
       orderId: 'ORD-0202',
+      date: '2026-01-14',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -6118,6 +6655,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0203-1',
       orderId: 'ORD-0203',
+      date: '2026-01-21',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -6129,6 +6667,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0203-2',
       orderId: 'ORD-0203',
+      date: '2026-01-21',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -6140,6 +6679,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0203-3',
       orderId: 'ORD-0203',
+      date: '2026-01-21',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -6152,6 +6692,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0204-1',
       orderId: 'ORD-0204',
+      date: '2026-01-28',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -6163,6 +6704,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0204-2',
       orderId: 'ORD-0204',
+      date: '2026-01-28',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -6174,6 +6716,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0204-3',
       orderId: 'ORD-0204',
+      date: '2026-01-28',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -6185,6 +6728,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0204-4',
       orderId: 'ORD-0204',
+      date: '2026-01-28',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -6196,6 +6740,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0204-5',
       orderId: 'ORD-0204',
+      date: '2026-01-28',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -6208,6 +6753,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0205-1',
       orderId: 'ORD-0205',
+      date: '2026-02-04',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -6219,6 +6765,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0205-2',
       orderId: 'ORD-0205',
+      date: '2026-02-04',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -6230,6 +6777,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0205-3',
       orderId: 'ORD-0205',
+      date: '2026-02-04',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -6241,6 +6789,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0205-4',
       orderId: 'ORD-0205',
+      date: '2026-02-04',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -6253,6 +6802,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0206-1',
       orderId: 'ORD-0206',
+      date: '2026-02-11',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -6264,6 +6814,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0206-2',
       orderId: 'ORD-0206',
+      date: '2026-02-11',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -6275,6 +6826,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0206-3',
       orderId: 'ORD-0206',
+      date: '2026-02-11',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -6287,6 +6839,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0207-1',
       orderId: 'ORD-0207',
+      date: '2026-02-18',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -6298,6 +6851,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0207-2',
       orderId: 'ORD-0207',
+      date: '2026-02-18',
       productId: 'PRD-005',
       product: 'Monitor 27" 4K',
       category: 'Electronics',
@@ -6309,6 +6863,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0207-3',
       orderId: 'ORD-0207',
+      date: '2026-02-18',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -6320,6 +6875,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0207-4',
       orderId: 'ORD-0207',
+      date: '2026-02-18',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -6332,6 +6888,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0208-1',
       orderId: 'ORD-0208',
+      date: '2026-02-25',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -6344,6 +6901,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0209-1',
       orderId: 'ORD-0209',
+      date: '2026-03-04',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -6355,6 +6913,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0209-2',
       orderId: 'ORD-0209',
+      date: '2026-03-04',
       productId: 'PRD-019',
       product: 'Tablet 10"',
       category: 'Electronics',
@@ -6367,6 +6926,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0210-1',
       orderId: 'ORD-0210',
+      date: '2026-03-11',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -6378,6 +6938,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0210-2',
       orderId: 'ORD-0210',
+      date: '2026-03-11',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -6389,6 +6950,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0210-3',
       orderId: 'ORD-0210',
+      date: '2026-03-11',
       productId: 'PRD-017',
       product: 'Filing Cabinet',
       category: 'Furniture',
@@ -6401,6 +6963,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0211-1',
       orderId: 'ORD-0211',
+      date: '2026-03-18',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -6412,6 +6975,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0211-2',
       orderId: 'ORD-0211',
+      date: '2026-03-18',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -6423,6 +6987,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0211-3',
       orderId: 'ORD-0211',
+      date: '2026-03-18',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -6435,6 +7000,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0212-1',
       orderId: 'ORD-0212',
+      date: '2026-03-25',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -6446,6 +7012,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0212-2',
       orderId: 'ORD-0212',
+      date: '2026-03-25',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -6457,6 +7024,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0212-3',
       orderId: 'ORD-0212',
+      date: '2026-03-25',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -6468,6 +7036,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0212-4',
       orderId: 'ORD-0212',
+      date: '2026-03-25',
       productId: 'PRD-012',
       product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
@@ -6480,6 +7049,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0213-1',
       orderId: 'ORD-0213',
+      date: '2026-04-01',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -6492,6 +7062,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0214-1',
       orderId: 'ORD-0214',
+      date: '2026-04-07',
       productId: 'PRD-004',
       product: 'Mechanical Keyboard',
       category: 'Electronics',
@@ -6504,6 +7075,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0215-1',
       orderId: 'ORD-0215',
+      date: '2026-04-10',
       productId: 'PRD-002',
       product: 'Wireless Mouse',
       category: 'Electronics',
@@ -6515,6 +7087,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0215-2',
       orderId: 'ORD-0215',
+      date: '2026-04-10',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -6526,6 +7099,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0215-3',
       orderId: 'ORD-0215',
+      date: '2026-04-10',
       productId: 'PRD-015',
       product: 'Notebook Set (3-pack)',
       category: 'Supplies',
@@ -6537,6 +7111,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0215-4',
       orderId: 'ORD-0215',
+      date: '2026-04-10',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',
@@ -6549,6 +7124,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0216-1',
       orderId: 'ORD-0216',
+      date: '2026-04-14',
       productId: 'PRD-014',
       product: 'Ink Cartridge Color',
       category: 'Supplies',
@@ -6560,6 +7136,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0216-2',
       orderId: 'ORD-0216',
+      date: '2026-04-14',
       productId: 'PRD-011',
       product: 'Printer Laser',
       category: 'Electronics',
@@ -6571,6 +7148,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0216-3',
       orderId: 'ORD-0216',
+      date: '2026-04-14',
       productId: 'PRD-010',
       product: 'Headphones Noise-Cancel',
       category: 'Electronics',
@@ -6582,6 +7160,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0216-4',
       orderId: 'ORD-0216',
+      date: '2026-04-14',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -6594,6 +7173,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0217-1',
       orderId: 'ORD-0217',
+      date: '2026-04-17',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -6605,6 +7185,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0217-2',
       orderId: 'ORD-0217',
+      date: '2026-04-17',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -6616,6 +7197,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0217-3',
       orderId: 'ORD-0217',
+      date: '2026-04-17',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -6627,6 +7209,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0217-4',
       orderId: 'ORD-0217',
+      date: '2026-04-17',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -6639,6 +7222,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0218-1',
       orderId: 'ORD-0218',
+      date: '2026-04-21',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -6650,6 +7234,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0218-2',
       orderId: 'ORD-0218',
+      date: '2026-04-21',
       productId: 'PRD-003',
       product: 'USB-C Hub',
       category: 'Electronics',
@@ -6661,6 +7246,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0218-3',
       orderId: 'ORD-0218',
+      date: '2026-04-21',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -6672,6 +7258,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0218-4',
       orderId: 'ORD-0218',
+      date: '2026-04-21',
       productId: 'PRD-007',
       product: 'Standing Desk',
       category: 'Furniture',
@@ -6683,6 +7270,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0218-5',
       orderId: 'ORD-0218',
+      date: '2026-04-21',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -6695,6 +7283,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0219-1',
       orderId: 'ORD-0219',
+      date: '2026-04-23',
       productId: 'PRD-013',
       product: 'Ink Cartridge Black',
       category: 'Supplies',
@@ -6706,6 +7295,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0219-2',
       orderId: 'ORD-0219',
+      date: '2026-04-23',
       productId: 'PRD-020',
       product: 'Docking Station',
       category: 'Electronics',
@@ -6717,6 +7307,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0219-3',
       orderId: 'ORD-0219',
+      date: '2026-04-23',
       productId: 'PRD-006',
       product: 'Office Chair Ergonomic',
       category: 'Furniture',
@@ -6728,6 +7319,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0219-4',
       orderId: 'ORD-0219',
+      date: '2026-04-23',
       productId: 'PRD-016',
       product: 'Whiteboard 48x36"',
       category: 'Furniture',
@@ -6740,6 +7332,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0220-1',
       orderId: 'ORD-0220',
+      date: '2026-04-25',
       productId: 'PRD-001',
       product: 'Laptop Pro 15"',
       category: 'Electronics',
@@ -6751,6 +7344,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0220-2',
       orderId: 'ORD-0220',
+      date: '2026-04-25',
       productId: 'PRD-008',
       product: 'Desk Lamp LED',
       category: 'Furniture',
@@ -6762,6 +7356,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0220-3',
       orderId: 'ORD-0220',
+      date: '2026-04-25',
       productId: 'PRD-018',
       product: 'External SSD 1TB',
       category: 'Electronics',
@@ -6773,6 +7368,7 @@ export const orderItemsSource: StudioDataSource = {
     {
       id: 'ORD-0220-4',
       orderId: 'ORD-0220',
+      date: '2026-04-25',
       productId: 'PRD-009',
       product: 'Webcam HD',
       category: 'Electronics',

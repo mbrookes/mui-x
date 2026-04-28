@@ -13,6 +13,7 @@ import {
   resolveRows,
   resolveMetricRefs,
   aggregateByField,
+  aggregateByTwoFields,
   aggregateMultipleSeries,
   prepareScatterData,
   applyRankToAggregated,
@@ -111,6 +112,17 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   }, [config.ySeries, config.yField]);
 
   const isMultiSeries = activeYFields.length > 1;
+
+  // seriesField data: one line per unique value of the series field
+  const seriesFieldData = React.useMemo(() => {
+    const xField = config.xField;
+    const seriesField = config.seriesField;
+    const yField = activeYFields[0];
+    if (!xField || !seriesField || !yField || filteredRows.length === 0) {
+      return null;
+    }
+    return aggregateByTwoFields(filteredRows, xField, seriesField, yField);
+  }, [filteredRows, config.xField, config.seriesField, activeYFields]);
 
   const chartData = React.useMemo(() => {
     const xField = config.xField;
@@ -348,6 +360,31 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     normalizedChartType === 'area' ||
     normalizedChartType === 'area-stacked' ||
     normalizedChartType === 'area-100';
+
+  // seriesField line chart: one line per unique category value
+  if (seriesFieldData && seriesFieldData.seriesNames.length > 0 && normalizedChartType === 'line') {
+    const xAxisData = seriesFieldData.labels.map(String);
+    const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
+    const series = seriesFieldData.seriesNames.map((name) => ({
+      id: String(name),
+      data: seriesFieldData.seriesData[name],
+      label: String(name),
+      area: false,
+      highlightScope: { highlight: 'item' as const, fade: 'global' as const },
+      valueFormatter: makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode),
+    }));
+    return (
+      <div>
+        <LineChart
+          xAxis={[{ data: xAxisData, scaleType: 'point' }]}
+          series={series}
+          height={chartHeight}
+          margin={{ top: 16, right: 16, bottom: 32, left: 60 }}
+        />
+      </div>
+    );
+  }
+
   if (multiYData && multiYData.labels.length > 0 && isLineOrArea) {
     const xAxisData = multiYData.labels.map(String);
     const selectedDataIndex = getSelectedDataIndex(multiYData.labels);

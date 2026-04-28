@@ -284,23 +284,42 @@ describe('isRelativeDateValue', () => {
 // ─── absoluteToRelative ───────────────────────────────────────────────────────
 
 describe('absoluteToRelative', () => {
-  it('converts past date to relative past', () => {
+  it('converts a ~5-day-past date to days', () => {
     const pastDate = new Date();
     pastDate.setDate(pastDate.getDate() - 5);
     const result = absoluteToRelative(pastDate.toISOString().slice(0, 10));
     expect(result.direction).toBe('past');
     expect(result.relative).toBe(true);
+    expect(result.unit).toBe('day');
     expect(result.amount).toBeGreaterThanOrEqual(4);
     expect(result.amount).toBeLessThanOrEqual(6);
   });
 
-  it('converts future date to relative next', () => {
+  it('converts a ~14-day-future date to weeks', () => {
     const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + 7);
+    futureDate.setDate(futureDate.getDate() + 14);
     const result = absoluteToRelative(futureDate.toISOString().slice(0, 10));
     expect(result.direction).toBe('next');
-    expect(result.amount).toBeGreaterThanOrEqual(6);
-    expect(result.amount).toBeLessThanOrEqual(8);
+    expect(result.unit).toBe('week');
+    expect(result.amount).toBe(2);
+  });
+
+  it('converts a ~30-day-past date to months', () => {
+    const pastDate = new Date();
+    pastDate.setDate(pastDate.getDate() - 30);
+    const result = absoluteToRelative(pastDate.toISOString().slice(0, 10));
+    expect(result.direction).toBe('past');
+    expect(result.unit).toBe('month');
+    expect(result.amount).toBe(1);
+  });
+
+  it('converts a ~2-year-past date to years', () => {
+    const pastDate = new Date();
+    pastDate.setFullYear(pastDate.getFullYear() - 2);
+    const result = absoluteToRelative(pastDate.toISOString().slice(0, 10));
+    expect(result.direction).toBe('past');
+    expect(result.unit).toBe('year');
+    expect(result.amount).toBe(2);
   });
 
   it('returns a fallback for invalid date', () => {

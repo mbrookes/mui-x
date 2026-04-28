@@ -91,8 +91,18 @@ export function absoluteToRelative(dateStr: string): RelativeDateValue {
     return { relative: true, amount: 1, unit: 'day', direction: 'past' };
   }
   const direction = date.isAfter(now) ? 'next' : 'past';
-  const days = Math.max(1, Math.abs(date.diff(now, 'day')));
-  return { relative: true, amount: days, unit: 'day', direction };
+  const absDays = Math.abs(date.diff(now, 'day'));
+
+  if (absDays >= 365) {
+    return { relative: true, amount: Math.max(1, Math.round(absDays / 365)), unit: 'year', direction };
+  }
+  if (absDays >= 28) {
+    return { relative: true, amount: Math.max(1, Math.round(absDays / 30)), unit: 'month', direction };
+  }
+  if (absDays >= 7) {
+    return { relative: true, amount: Math.max(1, Math.round(absDays / 7)), unit: 'week', direction };
+  }
+  return { relative: true, amount: Math.max(1, absDays), unit: 'day', direction };
 }
 
 export function relativeToAbsolute(rel: RelativeDateValue): string {

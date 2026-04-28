@@ -40,7 +40,8 @@ describe('FilterValueInput', () => {
     const amountField = screen.getByLabelText('Amount');
     const linkButton = screen.getByRole('button', { name: 'Link to field' });
 
-    expect(amountField.parentElement?.parentElement).toBe(linkButton.parentElement);
+    // input > MuiInputBase-root > MuiFormControl-root > flex Box
+    expect(amountField.parentElement?.parentElement?.parentElement).toBe(linkButton.parentElement);
   });
 
   it('shows the linked field name as hint text when a valueRef is set', () => {

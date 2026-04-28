@@ -20,7 +20,6 @@ import {
   applyRankToAggregated,
   applyRankToMultiSeries,
   formatPeriodLabel,
-  type XGroupBy,
 } from './chartUtils';
 import { useStudioController, useStudioSelector } from '../context';
 import { formatNumber } from './numberFormat';
@@ -64,7 +63,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   const { dataSource, widget, height: heightProp } = props;
   const chartHeight = heightProp ?? CHART_MIN_HEIGHT;
   const { config } = widget;
-  const xGroupBy = config.xGroupBy as XGroupBy | undefined;
+  const xGroupBy = config.xGroupBy;
   const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
   const dataSources = useStudioSelector((state) => state.dataSources);

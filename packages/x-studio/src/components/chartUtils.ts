@@ -49,8 +49,8 @@ export function resolveMetricRefs(
     }
     return {
       ...f,
-      value: f.valueRef ? (resolveMetricRef(f.valueRef, dataSources) ?? f.value) : f.value,
-      value2: f.value2Ref ? (resolveMetricRef(f.value2Ref, dataSources) ?? f.value2) : f.value2,
+      value: resolveReferencedFilterValue(f.value, f.valueRef, dataSources),
+      value2: resolveReferencedFilterValue(f.value2, f.value2Ref, dataSources),
     };
   });
 }
@@ -59,6 +59,30 @@ function isRelativeDateValue(value: unknown): value is RelativeDateValue {
   return (
     typeof value === 'object' && value !== null && (value as RelativeDateValue).relative === true
   );
+}
+
+function resolveReferencedFilterValue(
+  originalValue: unknown,
+  ref: StudioMetricRef | undefined,
+  dataSources: Record<string, StudioDataSource>,
+) {
+  if (!ref) {
+    return originalValue;
+  }
+
+  const resolvedValue = resolveMetricRef(ref, dataSources);
+  if (resolvedValue === undefined) {
+    return originalValue;
+  }
+
+  if (isRelativeDateValue(originalValue) && typeof resolvedValue === 'number') {
+    return {
+      ...originalValue,
+      amount: Math.max(1, Math.trunc(resolvedValue) || 1),
+    };
+  }
+
+  return resolvedValue;
 }
 
 function resolveRelativeDate(rel: RelativeDateValue): string {

@@ -17,6 +17,7 @@ import { FilterModeToggle } from './FilterModeToggle';
 import { FilterCard } from './FilterCard';
 import { FilterBody } from './FilterBody';
 import type { AvailableSeries } from './RankFilterInput';
+import { useStudioSelector } from '../../context';
 
 export interface WidgetFilterRowProps {
   filter: StudioFilterState;
@@ -61,6 +62,15 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
       : operators[0].value;
   const fieldValues = useFieldValues(filter.field, fieldType);
   const fieldLabel = selectedOption?.label ?? filter.field;
+  const hasAnotherRankFilter = useStudioSelector((state) =>
+    state.filters.some(
+      (candidate) =>
+        candidate.id !== filter.id &&
+        candidate.scope !== 'cross-filter' &&
+        candidate.filterMode === 'rank',
+    ),
+  );
+  const disableRankMode = hasAnotherRankFilter && filter.filterMode !== 'rank';
 
   const handleChange = (changes: Partial<StudioFilterState>) => {
     const merged = { ...filter, ...changes };
@@ -72,6 +82,9 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
   };
 
   const handleModeChange = (newMode: FilterMode) => {
+    if (newMode === 'rank' && disableRankMode) {
+      return;
+    }
     handleChange(buildModeReset(newMode));
   };
 
@@ -98,7 +111,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
 
     return (
       <Stack spacing={1}>
-        <FilterModeToggle mode={currentMode} onChange={handleModeChange} />
+        <FilterModeToggle mode={currentMode} onChange={handleModeChange} disableRank={disableRankMode} />
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
           <Autocomplete
             size="small"
@@ -142,6 +155,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
         availableSeries={availableSeries}
         onModeChange={handleModeChange}
         onChange={handleChange}
+        disableRankMode={disableRankMode}
       />
     </FilterCard>
   );

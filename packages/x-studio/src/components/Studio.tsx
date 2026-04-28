@@ -72,18 +72,31 @@ function StudioContent(props: StudioSlots) {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         event.defaultPrevented ||
-        event.key.toLowerCase() !== 'z' ||
         !(event.metaKey || event.ctrlKey) ||
         event.altKey ||
-        event.shiftKey ||
-        isEditableTarget(event.target) ||
-        !controller.canUndo()
+        isEditableTarget(event.target)
       ) {
         return;
       }
 
-      event.preventDefault();
-      controller.undo();
+      const key = event.key.toLowerCase();
+
+      // Redo: Cmd+Shift+Z or Ctrl+Y
+      if ((key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey)) {
+        if (controller.canRedo()) {
+          event.preventDefault();
+          controller.redo();
+        }
+        return;
+      }
+
+      // Undo: Cmd+Z / Ctrl+Z (no shift)
+      if (key === 'z' && !event.shiftKey) {
+        if (controller.canUndo()) {
+          event.preventDefault();
+          controller.undo();
+        }
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);

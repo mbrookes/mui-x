@@ -22,6 +22,8 @@ export default function App() {
   const [activePageId, setActivePageId] = React.useState(
     controller.getState().dashboard.activePageId,
   );
+  const [canUndo, setCanUndo] = React.useState(controller.canUndo());
+  const [canRedo, setCanRedo] = React.useState(controller.canRedo());
   const [snackbar, setSnackbar] = React.useState<{
     open: boolean;
     message: string;
@@ -34,6 +36,8 @@ export default function App() {
       setTitle(state.dashboard.title);
       setPages(state.pages);
       setActivePageId(state.dashboard.activePageId);
+      setCanUndo(controller.canUndo());
+      setCanRedo(controller.canRedo());
     });
   }, []);
 
@@ -47,6 +51,9 @@ export default function App() {
     },
     [],
   );
+
+  const handleUndo = React.useCallback(() => { controller.undo(); }, []);
+  const handleRedo = React.useCallback(() => { controller.redo(); }, []);
 
   const handleSave = React.useCallback(() => {
     const serialized = controller.serializeState();
@@ -114,6 +121,10 @@ export default function App() {
             pages={pageList}
             activePageId={activePageId}
             onPageChange={handlePageChange}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
           />
           <Box sx={{ flexGrow: 1, minHeight: 0 }}>
             <Studio controller={controller} />

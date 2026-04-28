@@ -392,6 +392,40 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     normalizedChartType === 'area-stacked' ||
     normalizedChartType === 'area-100';
 
+  // seriesField stacked/grouped bar chart: one series per unique category value
+  if (
+    seriesFieldData &&
+    seriesFieldData.seriesNames.length > 0 &&
+    (normalizedChartType === 'bar' ||
+      normalizedChartType === 'bar-stacked' ||
+      normalizedChartType === 'bar-100')
+  ) {
+    const xAxisData = seriesFieldData.labels.map(formatLabel);
+    const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
+    const isStacked =
+      normalizedChartType === 'bar-stacked' ||
+      normalizedChartType === 'bar-100' ||
+      (normalizedChartType === 'bar' && barLayout === 'stacked');
+    const stackId = isStacked ? 'stack' : undefined;
+    const series = seriesFieldData.seriesNames.map((name) => ({
+      id: String(name),
+      data: seriesFieldData.seriesData[name],
+      label: String(name),
+      stack: stackId,
+      valueFormatter: makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode),
+    }));
+    return (
+      <div>
+        <BarChart
+          xAxis={[{ data: xAxisData, scaleType: 'band' }]}
+          series={series}
+          height={chartHeight}
+          margin={{ top: 16, right: 16, bottom: 32, left: 60 }}
+        />
+      </div>
+    );
+  }
+
   // seriesField line chart: one line per unique category value
   if (seriesFieldData && seriesFieldData.seriesNames.length > 0 && normalizedChartType === 'line') {
     const xAxisData = seriesFieldData.labels.map(formatLabel);

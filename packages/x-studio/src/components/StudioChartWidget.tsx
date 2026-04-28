@@ -25,9 +25,10 @@ import type { StudioNumberFormat } from '../models/studio';
 export interface StudioChartWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
+  height?: number;
 }
 
-const CHART_HEIGHT = 260;
+export const CHART_MIN_HEIGHT = 260;
 const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
 
@@ -56,7 +57,8 @@ function normalizeCrossFilterValue(value: string | number | Date | undefined) {
 }
 
 export function StudioChartWidget(props: StudioChartWidgetProps) {
-  const { dataSource, widget } = props;
+  const { dataSource, widget, height: heightProp } = props;
+  const chartHeight = heightProp ?? CHART_MIN_HEIGHT;
   const { config } = widget;
   const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
@@ -196,7 +198,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            height: CHART_HEIGHT,
+            height: chartHeight,
           }}
         ></Box>
       );
@@ -211,7 +213,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
               // label removed per requirements
             },
           ]}
-          height={CHART_HEIGHT}
+          height={chartHeight}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
           sx={{ cursor: 'pointer' }}
@@ -265,7 +267,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
             yAxis={yAxes}
             series={series}
-            height={CHART_HEIGHT}
+            height={chartHeight}
             margin={{ top: 16, right: 40, bottom: 32, left: 40 }}
             highlightedAxis={
               selectedDataIndex >= 0
@@ -292,7 +294,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          height: CHART_HEIGHT,
+          height: chartHeight,
         }}
       />
     );
@@ -317,7 +319,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
               highlightScope: { highlight: 'item', fade: 'global' },
             },
           ]}
-          height={CHART_HEIGHT}
+          height={chartHeight}
           slotProps={{}} // legend positioning uses default
           margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
           highlightedItem={
@@ -378,7 +380,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point' }]}
           yAxis={yAxes}
           series={series}
-          height={CHART_HEIGHT}
+          height={chartHeight}
           margin={{ top: 16, right: 40, bottom: 32, left: 40 }}
           highlightedItem={
             selectedDataIndex >= 0
@@ -423,7 +425,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
               valueFormatter: seriesValueFormatter,
             },
           ]}
-          height={CHART_HEIGHT}
+          height={chartHeight}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
           highlightedItem={
@@ -466,7 +468,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
               valueFormatter: seriesValueFormatter,
             },
           ]}
-          height={CHART_HEIGHT}
+          height={chartHeight}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
           highlightedItem={
@@ -502,7 +504,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
             valueFormatter: seriesValueFormatter,
           },
         ]}
-        height={CHART_HEIGHT}
+        height={chartHeight}
         hideLegend
         margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
         highlightedItem={

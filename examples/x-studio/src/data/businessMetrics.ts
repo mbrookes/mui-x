@@ -110,7 +110,7 @@ export const businessMetricsSource: StudioDataSource = {
       category: 'Customer',
       name: 'Active Customer',
       value: 6,
-      unit: 'months since last order',
+      unit: 'months',
       description: 'Number of months since last order to still be considered an active customer',
     },
     // Inventory

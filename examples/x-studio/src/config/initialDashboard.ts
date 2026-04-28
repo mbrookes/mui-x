@@ -114,7 +114,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiAggregation: 'count',
         kpiSparkline: true,
         kpiSparklineField: 'date',
-        kpiSparklineCumulative: true,
       },
     },
     'widget-kpi-customers': {
@@ -161,7 +160,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
   },
   "filters": [
     {
-      "id": "filter-1777324742961-lme5s",
+      "id": "filter-widget-kpi-customers-recent",
       "field": "date",
       "operator": "greater_than",
       "value": {

@@ -21,7 +21,8 @@ import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
-import BoltIcon from '@mui/icons-material/Bolt';
+import AddLinkIcon from '@mui/icons-material/AddLink';
+import LinkOffIcon from '@mui/icons-material/LinkOff';
 import type { StudioFilterOperator, StudioMetricRef } from '../../models';
 import type { RelativeDateUnit, RelativeDateValue } from '../filterTypes';
 import type { FieldType } from './filterDrawerTypes';
@@ -41,6 +42,123 @@ const RELATIVE_UNITS: { value: RelativeDateUnit; label: string }[] = [
 const OPERATORS_WITH_AUTOCOMPLETE = new Set<StudioFilterOperator>(['equals', 'not_equals']);
 const OPERATORS_NO_VALUE = new Set<StudioFilterOperator>(['is_empty', 'is_not_empty']);
 
+interface MetricOption {
+  label: string;
+  sourceId: string;
+  rowId: string;
+  field: string;
+  value: number | string;
+}
+
+/** Icon button that links the input to a field from any data source, or removes an existing link. */
+function MetricPickerButton({
+  onSelect,
+  onRemoveLink,
+  isLinked,
+  fieldType,
+}: {
+  onSelect: (opt: MetricOption) => void;
+  onRemoveLink?: () => void;
+  isLinked?: boolean;
+  fieldType: 'number' | 'date' | 'datetime';
+}) {
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+  const dataSources = useStudioSelector((state) => state.dataSources);
+
+  const options = React.useMemo(() => {
+    const result: MetricOption[] = [];
+    const isDateType = fieldType === 'date' || fieldType === 'datetime';
+    for (const source of Object.values(dataSources)) {
+      if (!source.rows) {
+        continue;
+      }
+      const suitableFields = source.fields.filter(
+        (f) =>
+          !f.hidden &&
+          (isDateType ? f.type === 'date' || f.type === 'datetime' : f.type === 'number'),
+      );
+      if (suitableFields.length === 0) {
+        continue;
+      }
+      for (const row of source.rows) {
+        const nameVal = row.name ?? row.label ?? row.metric ?? row.title;
+        if (!nameVal) {
+          continue;
+        }
+        const primaryField =
+          (!isDateType && suitableFields.find((f) => f.id === 'value')) || suitableFields[0];
+        const val = row[primaryField.id];
+        if (isDateType ? typeof val !== 'string' : typeof val !== 'number') {
+          continue;
+        }
+        const rowId = row.id != null ? String(row.id) : undefined;
+        if (!rowId) {
+          continue;
+        }
+        result.push({
+          label: String(nameVal),
+          sourceId: source.id,
+          rowId,
+          field: primaryField.id,
+          value: val as number | string,
+        });
+      }
+    }
+    return result;
+  }, [dataSources, fieldType]);
+
+  if (isLinked) {
+    return (
+      <Tooltip title="Remove field link">
+        <IconButton
+          size="small"
+          aria-label="Remove field link"
+          onClick={() => onRemoveLink?.()}
+          color="primary"
+        >
+          <LinkOffIcon sx={{ fontSize: 14 }} />
+        </IconButton>
+      </Tooltip>
+    );
+  }
+
+  if (options.length === 0) {
+    return null;
+  }
+
+  return (
+    <React.Fragment>
+      <Tooltip title="Link to field">
+        <IconButton
+          size="small"
+          aria-label="Link to field"
+          onClick={(e) => setAnchorEl(e.currentTarget)}
+        >
+          <AddLinkIcon sx={{ fontSize: 14 }} />
+        </IconButton>
+      </Tooltip>
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={() => setAnchorEl(null)}
+        slotProps={{ paper: { sx: { maxHeight: 300 } } }}
+      >
+        {options.map((opt) => (
+          <MenuItem
+            key={`${opt.sourceId}-${opt.rowId}`}
+            onClick={() => {
+              onSelect(opt);
+              setAnchorEl(null);
+            }}
+          >
+            {opt.label}
+          </MenuItem>
+        ))}
+      </Menu>
+    </React.Fragment>
+  );
+}
+
 function RelativeDateInput({
   value,
   onChange,
@@ -56,12 +174,14 @@ function RelativeDateInput({
   onMetricSelect?: (value: RelativeDateValue, ref: StudioMetricRef) => void;
   metricLabel?: string;
 }) {
+  const isLinked = Boolean(valueRef);
   const amountField = (
     <TextField
       size="small"
       type="number"
       label="Amount"
       value={value.amount}
+      disabled={isLinked}
       onChange={(event) => {
         onChange({ ...value, amount: Math.max(1, parseInt(event.target.value, 10) || 1) });
         if (valueRef && onValueRefChange) {
@@ -80,8 +200,14 @@ function RelativeDateInput({
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             {amountField}
             <MetricPickerButton
+              fieldType="number"
+              isLinked={isLinked}
+              onRemoveLink={() => onValueRefChange(undefined)}
               onSelect={(opt) => {
-                const nextValue = { ...value, amount: Math.max(1, Math.trunc(opt.value) || 1) };
+                const nextValue = {
+                  ...value,
+                  amount: Math.max(1, Math.trunc(opt.value as number) || 1),
+                };
                 const nextRef = { sourceId: opt.sourceId, rowId: opt.rowId, field: opt.field };
                 if (onMetricSelect) {
                   onMetricSelect(nextValue, nextRef);
@@ -140,6 +266,7 @@ function DateValueInput({
   value,
   onChange,
   label,
+  fieldType,
   valueRef,
   onValueRefChange,
   onMetricSelect,
@@ -148,6 +275,7 @@ function DateValueInput({
   value: unknown;
   onChange: (v: unknown) => void;
   label?: string;
+  fieldType?: 'date' | 'datetime';
   valueRef?: StudioMetricRef;
   onValueRefChange?: (ref: StudioMetricRef | undefined) => void;
   onMetricSelect?: (value: unknown, ref: StudioMetricRef) => void;
@@ -172,6 +300,8 @@ function DateValueInput({
 
   const dayjsVal: Dayjs | null =
     !isRel && value && typeof value === 'string' ? dayjs(value) : null;
+
+  const isLinked = Boolean(valueRef);
 
   return (
     <Stack spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
@@ -199,121 +329,67 @@ function DateValueInput({
           onChange={onChange}
           valueRef={valueRef}
           onValueRefChange={onValueRefChange}
-          onMetricSelect={onMetricSelect as ((value: RelativeDateValue, ref: StudioMetricRef) => void) | undefined}
+          onMetricSelect={
+            onMetricSelect as
+              | ((value: RelativeDateValue, ref: StudioMetricRef) => void)
+              | undefined
+          }
           metricLabel={metricLabel}
         />
+      ) : onValueRefChange ? (
+        <Box sx={{ minWidth: 0 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <DatePicker
+              label={label ?? 'Date'}
+              value={dayjsVal?.isValid() ? dayjsVal : null}
+              disabled={isLinked}
+              onChange={(d) => {
+                onChange(d?.isValid() ? d.format('YYYY-MM-DD') : '');
+                if (valueRef) {
+                  onValueRefChange(undefined);
+                }
+              }}
+              slotProps={{ textField: { size: 'small' } }}
+              sx={{ flexGrow: 1, minWidth: 130 }}
+            />
+            <MetricPickerButton
+              fieldType={fieldType ?? 'date'}
+              isLinked={isLinked}
+              onRemoveLink={() => onValueRefChange(undefined)}
+              onSelect={(opt) => {
+                const nextValue = String(opt.value);
+                const nextRef = { sourceId: opt.sourceId, rowId: opt.rowId, field: opt.field };
+                if (onMetricSelect) {
+                  onMetricSelect(nextValue, nextRef);
+                  return;
+                }
+                onChange(nextValue);
+                onValueRefChange(nextRef);
+              }}
+            />
+          </Box>
+          {metricLabel && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', mt: 0.25, ml: 0.25 }}
+            >
+              {metricLabel}
+            </Typography>
+          )}
+        </Box>
       ) : (
         <DatePicker
           label={label ?? 'Date'}
           value={dayjsVal?.isValid() ? dayjsVal : null}
           onChange={(d) => {
             onChange(d?.isValid() ? d.format('YYYY-MM-DD') : '');
-            if (valueRef && onValueRefChange) {
-              onValueRefChange(undefined);
-            }
           }}
           slotProps={{ textField: { size: 'small' } }}
           sx={{ flexGrow: 1, minWidth: 130 }}
         />
       )}
     </Stack>
-  );
-}
-
-interface MetricOption {
-  label: string;
-  sourceId: string;
-  rowId: string;
-  field: string;
-  value: number;
-}
-
-function isBusinessMetricSource(source: {
-  id: string;
-  label: string;
-  rows?: Record<string, unknown>[];
-}) {
-  const normalizedId = source.id.toLowerCase();
-  const normalizedLabel = source.label.toLowerCase();
-
-  if (normalizedLabel === 'business metrics' || normalizedId.includes('business-metrics')) {
-    return true;
-  }
-
-  return source.rows?.some((row) => typeof row.id === 'string' && row.id.startsWith('BM-')) ?? false;
-}
-
-/** Icon button that opens a dropdown of all numeric metrics from all data sources. */
-function MetricPickerButton({ onSelect }: { onSelect: (opt: MetricOption) => void }) {
-  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
-  const dataSources = useStudioSelector((state) => state.dataSources);
-
-  const options = React.useMemo(() => {
-    const result: MetricOption[] = [];
-    for (const source of Object.values(dataSources)) {
-      if (!source.rows || !isBusinessMetricSource(source)) {
-        continue;
-      }
-      for (const row of source.rows) {
-        const nameVal = row.name ?? row.label ?? row.metric ?? row.title;
-        if (!nameVal) {
-          continue;
-        }
-        const numericFields = source.fields.filter((f) => f.type === 'number' && !f.hidden);
-        if (numericFields.length === 0) {
-          continue;
-        }
-        const primaryField = numericFields.find((f) => f.id === 'value') ?? numericFields[0];
-        const val = row[primaryField.id];
-        if (typeof val !== 'number') {
-          continue;
-        }
-        const rowId = row.id != null ? String(row.id) : undefined;
-        if (!rowId) {
-          continue;
-        }
-        result.push({
-          label: String(nameVal),
-          sourceId: source.id,
-          rowId,
-          field: primaryField.id,
-          value: val,
-        });
-      }
-    }
-    return result;
-  }, [dataSources]);
-
-  if (options.length === 0) {
-    return null;
-  }
-
-  return (
-    <React.Fragment>
-      <Tooltip title="Set from metric">
-        <IconButton size="small" aria-label="Set from metric" onClick={(e) => setAnchorEl(e.currentTarget)}>
-          <BoltIcon sx={{ fontSize: 14 }} />
-        </IconButton>
-      </Tooltip>
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={() => setAnchorEl(null)}
-        slotProps={{ paper: { sx: { maxHeight: 300 } } }}
-      >
-        {options.map((opt) => (
-          <MenuItem
-            key={`${opt.sourceId}-${opt.rowId}`}
-            onClick={() => {
-              onSelect(opt);
-              setAnchorEl(null);
-            }}
-          >
-            {opt.label}
-          </MenuItem>
-        ))}
-      </Menu>
-    </React.Fragment>
   );
 }
 
@@ -368,6 +444,7 @@ export function FilterValueInput(props: {
       <DateValueInput
         value={value}
         onChange={onChange}
+        fieldType={fieldType}
         valueRef={valueRef}
         onValueRefChange={onValueRefChange}
         onMetricSelect={onMetricSelect}
@@ -408,11 +485,13 @@ export function FilterValueInput(props: {
   }
 
   // Plain text/number field — show metric picker button when supported
+  const isLinked = Boolean(valueRef);
   const textField = (
     <TextField
       size="small"
       label="Value"
       value={strVal}
+      disabled={isLinked}
       onChange={(event) => {
         onChange(event.target.value);
         if (valueRef && onValueRefChange) {
@@ -432,6 +511,9 @@ export function FilterValueInput(props: {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         {textField}
         <MetricPickerButton
+          fieldType="number"
+          isLinked={isLinked}
+          onRemoveLink={() => onValueRefChange(undefined)}
           onSelect={(opt) => {
             const nextRef = { sourceId: opt.sourceId, rowId: opt.rowId, field: opt.field };
             if (onMetricSelect) {
@@ -444,7 +526,11 @@ export function FilterValueInput(props: {
         />
       </Box>
       {metricLabel && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, ml: 0.25 }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: 'block', mt: 0.25, ml: 0.25 }}
+        >
           {metricLabel}
         </Typography>
       )}

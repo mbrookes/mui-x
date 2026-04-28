@@ -143,7 +143,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Monthly Revenue by Category',
       sourceId: ORDER_ITEMS_SOURCE_ID,
       config: {
-        chartType: 'line',
+        chartType: 'bar-stacked',
         xField: 'date',
         xGroupBy: 'month',
         yField: 'total',

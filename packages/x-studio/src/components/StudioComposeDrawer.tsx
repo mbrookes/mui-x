@@ -36,6 +36,7 @@ import type {
 import { CanvasScrollContext, useStudioController, useStudioSelector } from '../context';
 import { createDefaultWidget, WIDGET_TYPES, widgetKindRequiresDataSource } from './widgetUtils';
 import { fieldsForCapability, fieldHasCapability } from '../utils/fieldCapabilities';
+import { getReachableSourceIds } from './chartUtils';
 import {
   AreaIcon,
   Area100Icon,
@@ -491,12 +492,21 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const controller = useStudioController();
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
   const dataSources = useStudioSelector((state) => state.dataSources);
+  const relationships = useStudioSelector((state) => state.relationships);
 
-  const allFields = Object.values(dataSources).filter((ds) => !ds.hidden).flatMap((ds) =>
-    ds.fields
-      .filter((f) => !f.hidden)
-      .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
-  );
+  const allFields = React.useMemo(() => {
+    const sourceId = widget?.sourceId;
+    const reachable = sourceId
+      ? getReachableSourceIds(sourceId, relationships)
+      : new Set(Object.keys(dataSources));
+    return Object.values(dataSources)
+      .filter((ds) => !ds.hidden && reachable.has(ds.id))
+      .flatMap((ds) =>
+        ds.fields
+          .filter((f) => !f.hidden)
+          .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
+      );
+  }, [dataSources, relationships, widget?.sourceId]);
   const config = widget?.config ?? {};
   const numericFields = fieldsForCapability(allFields, 'numeric');
 
@@ -586,7 +596,9 @@ function ChartSetupPanel(props: { widgetId: string }) {
         renderInput={(params) => (
           <TextField {...params} label={isScatter ? 'X field (numeric)' : 'X / Category field'} />
         )}
-        isOptionEqualToValue={(option, value) => option.id === value.id}
+        isOptionEqualToValue={(option, value) =>
+          option.id === value.id && option.sourceId === value.sourceId
+        }
       />
 
       {/* Group by — shown only when x field is a date/datetime type */}
@@ -661,7 +673,9 @@ function ChartSetupPanel(props: { widgetId: string }) {
                       label={ySeries.length > 1 ? `Series ${index + 1}` : 'Y / Measure field'}
                     />
                   )}
-                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  isOptionEqualToValue={(option, value) =>
+                    option.id === value.id && option.sourceId === value.sourceId
+                  }
                 />
                 {ySeries.length > 1 && (
                   <Tooltip title="Remove series">
@@ -688,7 +702,9 @@ function ChartSetupPanel(props: { widgetId: string }) {
                 });
               }}
               renderInput={(params) => <TextField {...params} label="Y / Measure field" />}
-              isOptionEqualToValue={(option, value) => option.id === value.id}
+              isOptionEqualToValue={(option, value) =>
+                option.id === value.id && option.sourceId === value.sourceId
+              }
             />
           )}
         </Stack>
@@ -708,7 +724,9 @@ function ChartSetupPanel(props: { widgetId: string }) {
             })
           }
           renderInput={(params) => <TextField {...params} label="Split by (series field)" />}
-          isOptionEqualToValue={(option, value) => option.id === value.id}
+          isOptionEqualToValue={(option, value) =>
+            option.id === value.id && option.sourceId === value.sourceId
+          }
         />
       )}
     </Stack>
@@ -719,14 +737,23 @@ function KpiSetupPanel(props: { widgetId: string }) {
   const widget = useStudioSelector((state) => state.widgets[props.widgetId]);
   const controller = useStudioController();
   const dataSources = useStudioSelector((state) => state.dataSources);
+  const relationships = useStudioSelector((state) => state.relationships);
   const config = widget?.config ?? {};
 
-  // Gather all fields from all data sources
-  const allFields = Object.values(dataSources).filter((ds) => !ds.hidden).flatMap((ds) =>
-    ds.fields
-      .filter((f) => !f.hidden)
-      .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
-  );
+  // Gather fields from reachable data sources only
+  const allFields = React.useMemo(() => {
+    const sourceId = widget?.sourceId;
+    const reachable = sourceId
+      ? getReachableSourceIds(sourceId, relationships)
+      : new Set(Object.keys(dataSources));
+    return Object.values(dataSources)
+      .filter((ds) => !ds.hidden && reachable.has(ds.id))
+      .flatMap((ds) =>
+        ds.fields
+          .filter((f) => !f.hidden)
+          .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
+      );
+  }, [dataSources, relationships, widget?.sourceId]);
   const selectedField = allFields.find((f) => f.id === config.kpiValueField);
   const selectedFieldType = selectedField?.type ?? null;
 

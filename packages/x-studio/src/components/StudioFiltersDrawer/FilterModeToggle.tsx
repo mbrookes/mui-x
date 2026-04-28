@@ -33,13 +33,13 @@ export function FilterModeToggle({
         value="condition"
         sx={{ px, py, fontSize, textTransform: 'none' }}
       >
-        Condition
+        Filter
       </ToggleButton>
       <ToggleButton
         value="selection"
         sx={{ px, py, fontSize, textTransform: 'none' }}
       >
-        Selection
+        Select
       </ToggleButton>
       <ToggleButton value="rank" sx={{ px, py, fontSize, textTransform: 'none' }}>
         Rank

@@ -19,6 +19,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import type { StudioFilterOperator, StudioFilterState } from '../../models';
 import type { FieldType, FilterMode } from './filterDrawerTypes';
 import type { AvailableSeries } from './RankFilterInput';
+import { FilterModeToggle } from './FilterModeToggle';
 import { FilterValueInput } from './FilterValueInput';
 import { SelectionFilterInput } from './SelectionFilterInput';
 import { RankFilterInput } from './RankFilterInput';
@@ -125,6 +126,7 @@ export interface FilterBodyProps {
   fieldValues: string[];
   /** Available series for multi-series charts — enables the "Rank by" selector in rank mode. */
   availableSeries?: AvailableSeries[];
+  onModeChange: (mode: FilterMode) => void;
   onChange: (changes: Partial<StudioFilterState>) => void;
 }
 
@@ -140,12 +142,14 @@ export function FilterBody({
   activeOperator2,
   fieldValues,
   availableSeries,
+  onModeChange,
   onChange,
 }: FilterBodyProps) {
   const mode: FilterMode = filter.filterMode ?? 'condition';
 
   return (
     <Stack spacing={1} sx={{ px: 1.5, pb: 1.5 }}>
+      <FilterModeToggle mode={mode} onChange={onModeChange} compact />
       {mode === 'condition' && (
         <React.Fragment>
           <FormControl size="small">

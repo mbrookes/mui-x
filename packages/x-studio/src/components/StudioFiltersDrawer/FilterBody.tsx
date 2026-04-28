@@ -116,6 +116,8 @@ function SecondCondition(props: SecondConditionProps) {
   );
 }
 
+import type { AvailableSeries } from './RankFilterInput';
+
 export interface FilterBodyProps {
   filter: StudioFilterState;
   fieldType: FieldType | undefined;
@@ -123,6 +125,8 @@ export interface FilterBodyProps {
   activeOperator: StudioFilterOperator;
   activeOperator2: StudioFilterOperator;
   fieldValues: string[];
+  /** Available series for multi-series charts — enables the "Rank by" selector in rank mode. */
+  availableSeries?: AvailableSeries[];
   onChange: (changes: Partial<StudioFilterState>) => void;
 }
 
@@ -133,6 +137,7 @@ export function FilterBody({
   activeOperator,
   activeOperator2,
   fieldValues,
+  availableSeries,
   onChange,
 }: FilterBodyProps) {
   const mode: FilterMode = filter.filterMode ?? 'condition';
@@ -145,6 +150,7 @@ export function FilterBody({
       value2Ref: undefined,
       conjunction: undefined,
       rankByField: undefined,
+      rankMultiSeriesBy: undefined,
       valueRef: undefined,
     };
     if (newMode === 'selection') {
@@ -212,6 +218,8 @@ export function FilterBody({
         <RankFilterInput
           direction={filter.rankDirection ?? 'top'}
           n={typeof filter.value === 'number' ? filter.value : undefined}
+          rankMultiSeriesBy={filter.rankMultiSeriesBy}
+          availableSeries={availableSeries}
           onChange={onChange}
         />
       )}

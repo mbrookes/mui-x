@@ -827,4 +827,95 @@ describe('applyRankToMultiSeries', () => {
     const result = applyRankToMultiSeries(data, makeFilter({ filterMode: 'rank', value: 10, rankDirection: 'top' }));
     expect(result.labels).toHaveLength(4);
   });
+
+  // ── rankMultiSeriesBy: aggregation modes ──────────────────────────────────
+
+  it('__sum is the default (same as omitting rankMultiSeriesBy)', () => {
+    // Totals: A=30, B=40, C=50, D=50
+    const explicit = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom', rankMultiSeriesBy: '__sum' }),
+    );
+    const implicit = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom' }),
+    );
+    expect(explicit.labels).toEqual(implicit.labels);
+  });
+
+  it('__avg: ranks by average of all series per label', () => {
+    // Averages: A=(10+20)/2=15, B=(30+10)/2=20, C=(20+30)/2=25, D=(5+45)/2=25
+    // Top 1 by avg: C or D (tied), bottom 1 by avg: A
+    const bottom = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom', rankMultiSeriesBy: '__avg' }),
+    );
+    expect(bottom.labels).toEqual(['A']);
+
+    const top = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top', rankMultiSeriesBy: '__avg' }),
+    );
+    expect(top.labels).toHaveLength(2);
+    expect(top.labels.every((l) => ['C', 'D'].includes(l as string))).toBe(true);
+  });
+
+  it('__max: ranks by maximum series value per label', () => {
+    // Max values: A=max(10,20)=20, B=max(30,10)=30, C=max(20,30)=30, D=max(5,45)=45
+    // Top 1 by max: D
+    const top = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top', rankMultiSeriesBy: '__max' }),
+    );
+    expect(top.labels).toEqual(['D']);
+  });
+
+  it('__min: ranks by minimum series value per label', () => {
+    // Min values: A=min(10,20)=10, B=min(30,10)=10, C=min(20,30)=20, D=min(5,45)=5
+    // Bottom 1 by min: D (min=5)
+    const bottom = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom', rankMultiSeriesBy: '__min' }),
+    );
+    expect(bottom.labels).toEqual(['D']);
+  });
+
+  it('specific fieldId: ranks by that series only', () => {
+    // S1 values: A=10, B=30, C=20, D=5 — top 1 = B
+    const topByS1 = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top', rankMultiSeriesBy: 'S1' }),
+    );
+    expect(topByS1.labels).toEqual(['B']);
+
+    // S2 values: A=20, B=10, C=30, D=45 — top 1 = D
+    const topByS2 = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top', rankMultiSeriesBy: 'S2' }),
+    );
+    expect(topByS2.labels).toEqual(['D']);
+  });
+
+  it('specific fieldId: both series values are kept in sync with ranked labels', () => {
+    // Rank top 2 by S2 (values: A=20, B=10, C=30, D=45) → D and C
+    const result = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top', rankMultiSeriesBy: 'S2' }),
+    );
+    expect(result.labels.sort()).toEqual(['C', 'D']);
+    // S1 values should correspond: C=20, D=5
+    const labelIdx = (l: string) => result.labels.indexOf(l);
+    const s1 = result.series.find((s) => s.fieldId === 'S1')!;
+    expect(s1.values[labelIdx('C')]).toBe(20);
+    expect(s1.values[labelIdx('D')]).toBe(5);
+  });
+
+  it('unknown fieldId falls back to 0 score (treats all labels as equal)', () => {
+    // All scores = 0, so top 1 returns whichever has index 0 after stable sort
+    const result = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top', rankMultiSeriesBy: 'nonexistent' }),
+    );
+    expect(result.labels).toHaveLength(1);
+  });
 });

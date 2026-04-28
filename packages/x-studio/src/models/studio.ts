@@ -191,6 +191,15 @@ export interface StudioFilterState {
   rankDirection?: 'top' | 'bottom';
   /** Numeric field to aggregate by when ranking a non-numeric dimension (e.g. rank countries by revenue). */
   rankByField?: string;
+  /**
+   * Controls how scores are computed when ranking multi-series chart data.
+   * - `'__sum'` (default): sum all series values per label
+   * - `'__avg'`: average all series values per label
+   * - `'__max'`: maximum value across series per label
+   * - `'__min'`: minimum value across series per label
+   * - `<fieldId>`: rank by the values of the specific series with that fieldId
+   */
+  rankMultiSeriesBy?: string;
   scope: 'page' | 'widget' | 'cross-filter';
   widgetId?: string;
   /** For cross-filters: the widget ID that originated the filter */

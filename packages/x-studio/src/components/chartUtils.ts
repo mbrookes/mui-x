@@ -393,7 +393,12 @@ export function applyRankToAggregated(
 
 /**
  * Apply a rank filter to multi-series aggregated data.
- * Ranks by the sum of all series values per label and keeps top/bottom N labels.
+ * Ranking score per label is computed according to `rankFilter.rankMultiSeriesBy`:
+ * - `undefined` / `'__sum'`: sum of all series values (default)
+ * - `'__avg'`: average across all series
+ * - `'__max'`: maximum value across all series
+ * - `'__min'`: minimum value across all series
+ * - `<fieldId>`: use only the series with that fieldId
  */
 export function applyRankToMultiSeries(
   data: MultiYSeriesData,
@@ -407,11 +412,32 @@ export function applyRankToMultiSeries(
     return data;
   }
   const dir = rankFilter.rankDirection ?? 'top';
-  const totals = data.labels.map((_, i) =>
-    data.series.reduce((sum, s) => sum + (s.values[i] ?? 0), 0),
-  );
+  const rankBy = rankFilter.rankMultiSeriesBy ?? '__sum';
+
+  const scores = data.labels.map((_, i) => {
+    if (rankBy === '__sum') {
+      return data.series.reduce((acc, s) => acc + (s.values[i] ?? 0), 0);
+    }
+    if (rankBy === '__avg') {
+      const count = data.series.length;
+      if (count === 0) {
+        return 0;
+      }
+      return data.series.reduce((acc, s) => acc + (s.values[i] ?? 0), 0) / count;
+    }
+    if (rankBy === '__max') {
+      return Math.max(...data.series.map((s) => s.values[i] ?? -Infinity));
+    }
+    if (rankBy === '__min') {
+      return Math.min(...data.series.map((s) => s.values[i] ?? Infinity));
+    }
+    // rank by a specific series fieldId
+    const series = data.series.find((s) => s.fieldId === rankBy);
+    return series ? (series.values[i] ?? 0) : 0;
+  });
+
   const indices = data.labels.map((_, i) => i);
-  indices.sort((a, b) => (dir === 'top' ? totals[b] - totals[a] : totals[a] - totals[b]));
+  indices.sort((a, b) => (dir === 'top' ? scores[b] - scores[a] : scores[a] - scores[b]));
   const keepIndices = new Set(indices.slice(0, n));
   const keepMask = data.labels.map((_, i) => keepIndices.has(i));
   return {

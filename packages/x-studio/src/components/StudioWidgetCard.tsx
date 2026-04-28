@@ -135,10 +135,11 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const showEditActions =
     mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
-  const isTopRow = isFirstRow;
+  const actionButtonSx = { width: 16, height: 16, padding: 0, '& svg': { fontSize: 12 } } as const;
+
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
   // inside the card for top-row widgets (where there's no room above to overhang).
-  const overlayTopSx = isTopRow
+  const overlayTopSx = isFirstRow
     ? { top: 6 }
     : { top: 0, transform: 'translateY(-50%)' };
 
@@ -202,17 +203,19 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
             <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
               <IconButton
                 size="small"
+                sx={actionButtonSx}
                 onClick={handleExport}
                 aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
                 tabIndex={showEditActions ? 0 : -1}
               >
-                <DownloadIcon fontSize="small" />
+                <DownloadIcon />
               </IconButton>
             </Tooltip>
           )}
           <Tooltip title="Duplicate widget">
             <IconButton
               size="small"
+              sx={actionButtonSx}
               onClick={(event) => {
                 event.stopPropagation();
                 controller.duplicateWidget(widgetId);
@@ -220,12 +223,13 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
               aria-label="Duplicate widget"
               tabIndex={showEditActions ? 0 : -1}
             >
-              <ContentCopyIcon fontSize="small" />
+              <ContentCopyIcon />
             </IconButton>
           </Tooltip>
           <Tooltip title="Delete widget">
             <IconButton
               size="small"
+              sx={actionButtonSx}
               onClick={(event) => {
                 event.stopPropagation();
                 controller.removeWidget(widgetId);
@@ -233,7 +237,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
               aria-label="Delete widget"
               tabIndex={showEditActions ? 0 : -1}
             >
-              <CloseIcon fontSize="small" />
+              <CloseIcon />
             </IconButton>
           </Tooltip>
         </Stack>
@@ -257,11 +261,12 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
           <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
             <IconButton
               size="small"
+              sx={actionButtonSx}
               onClick={handleExport}
               aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
               tabIndex={showViewExport ? 0 : -1}
             >
-              <DownloadIcon fontSize="small" />
+              <DownloadIcon />
             </IconButton>
           </Tooltip>
         </Box>

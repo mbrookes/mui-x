@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import type { StudioMetricRef } from '../../models';
 import { useStudioSelector } from '../../context';
+import { fieldsForCapability, fieldHasCapability } from '../../utils/fieldCapabilities';
 
 interface MetricRefInputProps {
   value: StudioMetricRef | undefined;
@@ -43,7 +44,7 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
 
   // Numeric fields available on the selected source
   const numericFields = React.useMemo(
-    () => selectedSource?.fields.filter((f) => f.type === 'number') ?? [],
+    () => fieldsForCapability(selectedSource?.fields ?? [], 'numeric'),
     [selectedSource],
   );
 
@@ -58,7 +59,7 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
 
   const handleSourceChange = (sourceId: string) => {
     const src = dataSources[sourceId];
-    const firstNumericField = src?.fields.find((f) => f.type === 'number')?.id ?? '';
+    const firstNumericField = src?.fields.find((f) => fieldHasCapability(f, 'numeric'))?.id ?? '';
     onChange({ sourceId, rowId: '', field: firstNumericField });
   };
 

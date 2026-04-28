@@ -6,6 +6,7 @@ import type { StudioDataSource, StudioWidget } from '../models';
 import { useStudioController, useStudioSelector } from '../context';
 import { applyFilters, resolveMetricRefs } from './chartUtils';
 import { formatFieldValue } from './numberFormat';
+import { fieldHasCapability } from '../utils/fieldCapabilities';
 
 export interface StudioGridWidgetProps {
   widget: StudioWidget;
@@ -88,7 +89,7 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
       const crossFilterFieldId = widget.config.crossFilterField;
       const filterField = crossFilterFieldId
         ? dataSource?.fields.find((f) => f.id === crossFilterFieldId)
-        : dataSource?.fields.find((f) => f.type === 'string' && !f.hidden);
+        : dataSource?.fields.find((f) => fieldHasCapability(f, 'categorical') && !f.hidden);
 
       if (!filterField) {
         return;

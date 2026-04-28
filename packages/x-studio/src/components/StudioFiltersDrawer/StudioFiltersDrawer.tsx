@@ -57,6 +57,30 @@ export function StudioFiltersDrawer() {
     return source?.fields.find((f) => f.id === chartYFieldId)?.label ?? chartYFieldId;
   }, [chartYFieldId, selectedWidget?.sourceId, dataSources]);
 
+  // Derive available series for the rank-by selector (multi-series charts only)
+  const chartAvailableSeries = React.useMemo(() => {
+    if (selectedWidget?.kind !== 'chart' || !selectedWidget.sourceId) {
+      return undefined;
+    }
+    const source = dataSources[selectedWidget.sourceId];
+    if (!source) {
+      return undefined;
+    }
+    const yFields =
+      selectedWidget.config.ySeries && selectedWidget.config.ySeries.length > 1
+        ? selectedWidget.config.ySeries
+        : null;
+    if (!yFields) {
+      return undefined;
+    }
+    return yFields
+      .filter((s) => !!s.fieldId)
+      .map((s) => ({
+        fieldId: s.fieldId as string,
+        label: source.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId ?? s.fieldId,
+      }));
+  }, [selectedWidget, dataSources]);
+
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f: StudioFilterState) => f.scope === 'page',
   );
@@ -124,6 +148,7 @@ export function StudioFiltersDrawer() {
             onRemoveFilter={(id) => controller.removeFilter(id)}
             chartXField={chartXField}
             chartYFieldLabel={chartYFieldLabel}
+            chartAvailableSeries={chartAvailableSeries}
           />
         </React.Fragment>
       ) : null}

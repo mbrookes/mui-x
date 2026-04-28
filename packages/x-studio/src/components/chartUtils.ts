@@ -547,6 +547,137 @@ export function applyRankToMultiSeries(
   };
 }
 
+// ─── Date grouping helpers ────────────────────────────────────────────────────
+
+export type XGroupBy = 'day' | 'week' | 'month' | 'quarter' | 'year';
+
+/** Normalise any date-like value (Date, ms number, or string) to a Date. */
+export function normalizeToDate(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === 'number') {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof value === 'string') {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+/** ISO week number (1–53) for a given date. */
+function isoWeek(d: Date): { year: number; week: number } {
+  // Shift to Thursday of the same week (ISO weeks start on Monday)
+  const tmp = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return { year: tmp.getUTCFullYear(), week };
+}
+
+/**
+ * Truncate a date-like value to a granularity and return a sort-stable ISO key.
+ * Returns null if the value cannot be parsed as a date.
+ *
+ * Examples (UTC):
+ *   'day'     → '2024-01-15'
+ *   'week'    → '2024-W03'
+ *   'month'   → '2024-01'
+ *   'quarter' → '2024-Q1'
+ *   'year'    → '2024'
+ */
+export function truncateToGranularity(value: unknown, granularity: XGroupBy): string | null {
+  const d = normalizeToDate(value);
+  if (!d) {
+    return null;
+  }
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth(); // 0-indexed
+  switch (granularity) {
+    case 'day': {
+      const mm = String(m + 1).padStart(2, '0');
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      return `${y}-${mm}-${dd}`;
+    }
+    case 'week': {
+      const { year, week } = isoWeek(d);
+      return `${year}-W${String(week).padStart(2, '0')}`;
+    }
+    case 'month': {
+      return `${y}-${String(m + 1).padStart(2, '0')}`;
+    }
+    case 'quarter': {
+      const q = Math.floor(m / 3) + 1;
+      return `${y}-Q${q}`;
+    }
+    case 'year': {
+      return `${y}`;
+    }
+    default:
+      return null;
+  }
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Convert a sort-stable period key into a human-readable axis label.
+ *
+ * Examples:
+ *   '2024-01-15' → 'Jan 15, 2024'
+ *   '2024-W03'   → 'W03 2024'
+ *   '2024-01'    → 'Jan 2024'
+ *   '2024-Q1'    → 'Q1 2024'
+ *   '2024'       → '2024'
+ */
+export function formatPeriodLabel(key: string): string {
+  // Year only: '2024'
+  if (/^\d{4}$/.test(key)) {
+    return key;
+  }
+  // Quarter: '2024-Q1'
+  const qMatch = key.match(/^(\d{4})-Q(\d)$/);
+  if (qMatch) {
+    return `Q${qMatch[2]} ${qMatch[1]}`;
+  }
+  // Week: '2024-W03'
+  const wMatch = key.match(/^(\d{4})-W(\d{2})$/);
+  if (wMatch) {
+    return `Week ${parseInt(wMatch[2], 10)} ${wMatch[1]}`;
+  }
+  // Month: '2024-01'
+  const mMatch = key.match(/^(\d{4})-(\d{2})$/);
+  if (mMatch) {
+    const monthIndex = parseInt(mMatch[2], 10) - 1;
+    return `${MONTH_NAMES[monthIndex] ?? mMatch[2]} ${mMatch[1]}`;
+  }
+  // Day: '2024-01-15'
+  const dMatch = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dMatch) {
+    const monthIndex = parseInt(dMatch[2], 10) - 1;
+    return `${MONTH_NAMES[monthIndex] ?? dMatch[2]} ${parseInt(dMatch[3], 10)}, ${dMatch[1]}`;
+  }
+  return key;
+}
+
+/**
+ * Apply xGroupBy truncation to an x-axis value.
+ * Returns the original value when xGroupBy is not set or the value is not date-like.
+ */
+function applyXGroupBy(
+  value: string | number,
+  xGroupBy: XGroupBy | undefined,
+): string | number {
+  if (!xGroupBy) {
+    return value;
+  }
+  return truncateToGranularity(value, xGroupBy) ?? value;
+}
+
+
 /**
  * Sort x-axis labels: numeric labels sort numerically, date-like strings sort
  * chronologically, everything else sorts lexicographically.
@@ -571,15 +702,20 @@ function sortLabels(labels: (string | number)[]): (string | number)[] {
   return [...labels].sort((a, b) => String(a).localeCompare(String(b)));
 }
 
-export function aggregateByField(rows: Row[], xField: string, yField: string): AggregatedData {
+export function aggregateByField(
+  rows: Row[],
+  xField: string,
+  yField: string,
+  xGroupBy?: XGroupBy,
+): AggregatedData {
   const grouped = new Map<string | number, number>();
 
   for (const row of rows) {
-    const xVal = row[xField] as string | number;
+    const raw = row[xField] as string | number;
+    const xVal = applyXGroupBy(raw ?? '(empty)', xGroupBy);
     const yVal = Number(row[yField] ?? 0);
-    const key = xVal ?? '(empty)';
 
-    grouped.set(key, (grouped.get(key) ?? 0) + yVal);
+    grouped.set(xVal, (grouped.get(xVal) ?? 0) + yVal);
   }
 
   const labels = sortLabels(Array.from(grouped.keys()));
@@ -605,6 +741,7 @@ export function aggregateByTwoFields(
   xField: string,
   seriesField: string,
   yField: string,
+  xGroupBy?: XGroupBy,
 ): MultiSeriesData {
   // First pass: collect all unique x values and series values
   const xValuesSet = new Set<string | number>();
@@ -614,7 +751,8 @@ export function aggregateByTwoFields(
   const dataMap = new Map<string | number, Map<string | number, number>>();
 
   for (const row of rows) {
-    const xVal = (row[xField] as string | number) ?? '(empty)';
+    const raw = (row[xField] as string | number) ?? '(empty)';
+    const xVal = applyXGroupBy(raw, xGroupBy);
     const seriesVal = (row[seriesField] as string | number) ?? '(empty)';
     const yVal = Number(row[yField] ?? 0);
 
@@ -655,6 +793,7 @@ export function aggregateMultipleSeries(
   rows: Row[],
   xField: string,
   yFields: string[],
+  xGroupBy?: XGroupBy,
 ): MultiYSeriesData {
   const labelOrder: (string | number)[] = [];
   const labelSet = new Set<string | number>();
@@ -662,7 +801,8 @@ export function aggregateMultipleSeries(
   const dataMap = new Map<string | number, Map<string, number>>();
 
   for (const row of rows) {
-    const xVal = (row[xField] as string | number) ?? '(empty)';
+    const raw = (row[xField] as string | number) ?? '(empty)';
+    const xVal = applyXGroupBy(raw, xGroupBy);
     if (!labelSet.has(xVal)) {
       labelSet.add(xVal);
       labelOrder.push(xVal);

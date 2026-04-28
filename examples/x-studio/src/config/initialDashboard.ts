@@ -28,6 +28,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Overview',
       widgetRows: [
         ['widget-kpi-revenue', 'widget-kpi-orders', 'widget-kpi-customers', 'widget-kpi-ontime'],
+        ['widget-chart-revenue-trend'],
         ['widget-chart-category', 'widget-chart-country'],
         ['widget-orders-grid'],
       ],
@@ -134,6 +135,19 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         kpiValueField: 'onTime',
         kpiAggregation: 'avg',
+      },
+    },
+    'widget-chart-revenue-trend': {
+      id: 'widget-chart-revenue-trend',
+      kind: 'chart',
+      title: 'Monthly Revenue by Category',
+      sourceId: ORDER_ITEMS_SOURCE_ID,
+      bindings: orderItemsBindings,
+      config: {
+        chartType: 'line',
+        xField: 'date',
+        yField: 'total',
+        seriesField: 'category',
       },
     },
     'widget-chart-category': {

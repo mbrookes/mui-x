@@ -547,6 +547,30 @@ export function applyRankToMultiSeries(
   };
 }
 
+/**
+ * Sort x-axis labels: numeric labels sort numerically, date-like strings sort
+ * chronologically, everything else sorts lexicographically.
+ */
+function sortLabels(labels: (string | number)[]): (string | number)[] {
+  if (labels.length === 0) {
+    return labels;
+  }
+  // If all labels are numbers, sort numerically
+  if (labels.every((l) => typeof l === 'number')) {
+    return [...labels].sort((a, b) => (a as number) - (b as number));
+  }
+  // Try parsing all string labels as dates
+  const allDates = labels.every((l) => {
+    const s = String(l);
+    return s.length >= 4 && !Number.isNaN(Date.parse(s));
+  });
+  if (allDates) {
+    return [...labels].sort((a, b) => Date.parse(String(a)) - Date.parse(String(b)));
+  }
+  // Fall back to locale-aware string sort
+  return [...labels].sort((a, b) => String(a).localeCompare(String(b)));
+}
+
 export function aggregateByField(rows: Row[], xField: string, yField: string): AggregatedData {
   const grouped = new Map<string | number, number>();
 
@@ -558,7 +582,7 @@ export function aggregateByField(rows: Row[], xField: string, yField: string): A
     grouped.set(key, (grouped.get(key) ?? 0) + yVal);
   }
 
-  const labels = Array.from(grouped.keys());
+  const labels = sortLabels(Array.from(grouped.keys()));
   const values = labels.map((label) => grouped.get(label) ?? 0);
 
   return { labels, values };
@@ -604,7 +628,7 @@ export function aggregateByTwoFields(
     seriesMap.set(seriesVal, (seriesMap.get(seriesVal) ?? 0) + yVal);
   }
 
-  const labels = Array.from(xValuesSet);
+  const labels = sortLabels(Array.from(xValuesSet));
   const seriesNames = Array.from(seriesValuesSet);
 
   // Build series data arrays
@@ -651,12 +675,13 @@ export function aggregateMultipleSeries(
     }
   }
 
+  const sortedLabels = sortLabels(labelOrder);
   const series = yFields.map((fieldId) => ({
     fieldId,
-    values: labelOrder.map((label) => dataMap.get(label)?.get(fieldId) ?? 0),
+    values: sortedLabels.map((label) => dataMap.get(label)?.get(fieldId) ?? 0),
   }));
 
-  return { labels: labelOrder, series };
+  return { labels: sortedLabels, series };
 }
 
 export interface ScatterDataPoint {

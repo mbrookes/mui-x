@@ -111,8 +111,6 @@ export function PageFilterRow(props: PageFilterRowProps) {
     <FilterCard
       title={fieldLabel}
       summary={summarizeFilter(filter)}
-      mode={filter.filterMode ?? 'condition'}
-      onModeChange={handleModeChange}
       onRemove={() => onRemove(filter.id)}
     >
       <FilterBody
@@ -122,6 +120,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
         activeOperator={activeOperator}
         activeOperator2={activeOperator2}
         fieldValues={fieldValues}
+        onModeChange={handleModeChange}
         onChange={handleChange}
       />
     </FilterCard>

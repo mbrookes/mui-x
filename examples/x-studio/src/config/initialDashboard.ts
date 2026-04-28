@@ -142,7 +142,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'chart',
       title: 'Monthly Revenue by Category',
       sourceId: ORDER_ITEMS_SOURCE_ID,
-      bindings: orderItemsBindings,
       config: {
         chartType: 'line',
         xField: 'date',

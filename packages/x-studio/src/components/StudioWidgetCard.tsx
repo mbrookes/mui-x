@@ -46,25 +46,6 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const ref = React.useRef<HTMLDivElement>(null);
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
-  const [chartHeight, setChartHeight] = React.useState<number>(CHART_MIN_HEIGHT);
-
-  React.useEffect(() => {
-    if (widget?.kind !== 'chart') {
-      return undefined;
-    }
-    const node = chartContainerRef.current;
-    if (!node) {
-      return undefined;
-    }
-    const observer = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect.height ?? 0;
-      if (h > 0) {
-        setChartHeight(Math.max(h, CHART_MIN_HEIGHT));
-      }
-    });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [widget?.kind]);
 
   React.useEffect(() => {
     if (mode !== 'edit') {
@@ -167,11 +148,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
         backgroundColor: pageTheme?.cardBackground ?? undefined,
         cursor: isDragging ? 'grabbing' : 'pointer',
         p: pageTheme?.cardPadding ?? 2,
-        height: '100%',
         boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        opacity: isDragging ? 0.5 : 1,
         position: 'relative',
         transition: 'border-color 0.15s',
         '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
@@ -272,7 +249,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
           </Tooltip>
         </Box>
       )}
-      <Stack spacing={2} sx={{ flexGrow: 1 }}>
+      <Stack spacing={2}>
         {/* Widget header */}
         <div>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
@@ -293,8 +270,8 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
         {/* Widget content */}
         {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
         {widget.kind === 'chart' && (
-          <Box ref={chartContainerRef} sx={{ flexGrow: 1, minHeight: CHART_MIN_HEIGHT }}>
-            <StudioChartWidget widget={widget} dataSource={source} height={chartHeight} />
+          <Box ref={chartContainerRef} sx={{ minHeight: CHART_MIN_HEIGHT }}>
+            <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} />
           </Box>
         )}
         {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}

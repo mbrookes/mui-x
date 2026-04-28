@@ -2,7 +2,6 @@
 import * as React from 'react';
 import {
   Box,
-  Button,
   Collapse,
   IconButton,
   Stack,
@@ -121,11 +120,6 @@ export interface WidgetFilterSectionProps {
   chartYFieldLabel?: string;
   /** Available series for multi-series charts — enables "Rank by" selector in rank mode. */
   chartAvailableSeries?: AvailableSeries[];
-  /**
-   * When provided (chart widget with an xField), a "Rank" shortcut button is shown
-   * in the section header to quickly add a pre-configured rank filter.
-   */
-  onAddRankFilter?: () => void;
 }
 
 export function WidgetFilterSection(props: WidgetFilterSectionProps) {
@@ -140,32 +134,14 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
     chartXField,
     chartYFieldLabel,
     chartAvailableSeries,
-    onAddRankFilter,
   } = props;
   const hasAnySources = Object.keys(dataSources).length > 0;
-
-  const rankShortcut =
-    onAddRankFilter != null ? (
-      <Tooltip title="Add rank filter">
-        <Button
-          size="small"
-          sx={{ minWidth: 0, fontSize: 11, px: 0.75, py: 0.25, mr: 0.5 }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onAddRankFilter();
-          }}
-        >
-          Rank
-        </Button>
-      </Tooltip>
-    ) : undefined;
 
   return (
     <CollapsibleSection
       title={title}
       onAdd={onAddFilter}
       addDisabled={!hasAnySources}
-      secondaryAction={rankShortcut}
     >
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 0.5 }}>

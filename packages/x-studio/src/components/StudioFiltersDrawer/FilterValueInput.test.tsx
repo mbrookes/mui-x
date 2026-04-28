@@ -10,6 +10,12 @@ const mockDataSources = {
     fields: [{ id: 'value', type: 'number' }],
     rows: [{ id: 'BM-001', name: 'Pipeline', value: 12 }],
   },
+  products: {
+    id: 'products',
+    label: 'Products',
+    fields: [{ id: 'price', type: 'number' }],
+    rows: [{ id: 'P-001', name: 'Helmet', price: 55 }],
+  },
 };
 
 vi.mock('../../context', () => ({
@@ -94,5 +100,56 @@ describe('FilterValueInput', () => {
       rowId: 'BM-001',
       field: 'value',
     });
+  });
+
+  it('supports an atomic metric selection callback', () => {
+    const handleChange = vi.fn();
+    const handleMetricSelect = vi.fn();
+
+    render(
+      <FilterValueInput
+        fieldType="date"
+        operator="greater_than"
+        value={{ relative: true, amount: 3, unit: 'day', direction: 'past' }}
+        onChange={handleChange}
+        onValueRefChange={() => {}}
+        onMetricSelect={handleMetricSelect}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set from metric' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pipeline' }));
+
+    expect(handleChange).not.toHaveBeenCalled();
+    expect(handleMetricSelect).toHaveBeenCalledWith(
+      {
+        relative: true,
+        amount: 12,
+        unit: 'day',
+        direction: 'past',
+      },
+      {
+        sourceId: 'metrics',
+        rowId: 'BM-001',
+        field: 'value',
+      },
+    );
+  });
+
+  it('shows only business metrics in the picker menu', () => {
+    render(
+      <FilterValueInput
+        fieldType="date"
+        operator="greater_than"
+        value={{ relative: true, amount: 3, unit: 'day', direction: 'past' }}
+        onChange={() => {}}
+        onValueRefChange={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set from metric' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Pipeline' })).not.toBe(null);
+    expect(screen.queryByRole('menuitem', { name: 'Helmet' })).toBe(null);
   });
 });

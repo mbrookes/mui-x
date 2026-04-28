@@ -111,6 +111,7 @@ function SecondCondition(props: SecondConditionProps) {
         onChange={(v) => onChange({ value2: v })}
         valueRef={filter.value2Ref}
         onValueRefChange={(ref) => onChange({ value2Ref: ref })}
+        onMetricSelect={(value, ref) => onChange({ value2: value, value2Ref: ref })}
         fieldValues={fieldValues}
       />
     </React.Fragment>
@@ -128,6 +129,7 @@ export interface FilterBodyProps {
   availableSeries?: AvailableSeries[];
   onModeChange: (mode: FilterMode) => void;
   onChange: (changes: Partial<StudioFilterState>) => void;
+  disableRankMode?: boolean;
 }
 
 /**
@@ -144,12 +146,13 @@ export function FilterBody({
   availableSeries,
   onModeChange,
   onChange,
+  disableRankMode = false,
 }: FilterBodyProps) {
   const mode: FilterMode = filter.filterMode ?? 'condition';
 
   return (
     <Stack spacing={1} sx={{ px: 1.5, pb: 1.5 }}>
-      <FilterModeToggle mode={mode} onChange={onModeChange} compact />
+      <FilterModeToggle mode={mode} onChange={onModeChange} compact disableRank={disableRankMode} />
       {mode === 'condition' && (
         <React.Fragment>
           <FormControl size="small">
@@ -175,6 +178,7 @@ export function FilterBody({
             onChange={(v) => onChange({ value: v })}
             valueRef={filter.valueRef}
             onValueRefChange={(ref) => onChange({ valueRef: ref })}
+            onMetricSelect={(value, ref) => onChange({ value, valueRef: ref })}
             fieldValues={fieldValues}
           />
           <SecondCondition

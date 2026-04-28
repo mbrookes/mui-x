@@ -46,12 +46,14 @@ function RelativeDateInput({
   onChange,
   valueRef,
   onValueRefChange,
+  onMetricSelect,
   metricLabel,
 }: {
   value: RelativeDateValue;
   onChange: (v: RelativeDateValue) => void;
   valueRef?: StudioMetricRef;
   onValueRefChange?: (ref: StudioMetricRef | undefined) => void;
+  onMetricSelect?: (value: RelativeDateValue, ref: StudioMetricRef) => void;
   metricLabel?: string;
 }) {
   const amountField = (
@@ -79,8 +81,14 @@ function RelativeDateInput({
             {amountField}
             <MetricPickerButton
               onSelect={(opt) => {
-                onChange({ ...value, amount: Math.max(1, Math.trunc(opt.value) || 1) });
-                onValueRefChange({ sourceId: opt.sourceId, rowId: opt.rowId, field: opt.field });
+                const nextValue = { ...value, amount: Math.max(1, Math.trunc(opt.value) || 1) };
+                const nextRef = { sourceId: opt.sourceId, rowId: opt.rowId, field: opt.field };
+                if (onMetricSelect) {
+                  onMetricSelect(nextValue, nextRef);
+                  return;
+                }
+                onChange(nextValue);
+                onValueRefChange(nextRef);
               }}
             />
           </Box>
@@ -134,6 +142,7 @@ function DateValueInput({
   label,
   valueRef,
   onValueRefChange,
+  onMetricSelect,
   metricLabel,
 }: {
   value: unknown;
@@ -141,6 +150,7 @@ function DateValueInput({
   label?: string;
   valueRef?: StudioMetricRef;
   onValueRefChange?: (ref: StudioMetricRef | undefined) => void;
+  onMetricSelect?: (value: unknown, ref: StudioMetricRef) => void;
   metricLabel?: string;
 }) {
   const isRel = isRelativeDateValue(value);
@@ -189,6 +199,7 @@ function DateValueInput({
           onChange={onChange}
           valueRef={valueRef}
           onValueRefChange={onValueRefChange}
+          onMetricSelect={onMetricSelect as ((value: RelativeDateValue, ref: StudioMetricRef) => void) | undefined}
           metricLabel={metricLabel}
         />
       ) : (
@@ -217,6 +228,21 @@ interface MetricOption {
   value: number;
 }
 
+function isBusinessMetricSource(source: {
+  id: string;
+  label: string;
+  rows?: Record<string, unknown>[];
+}) {
+  const normalizedId = source.id.toLowerCase();
+  const normalizedLabel = source.label.toLowerCase();
+
+  if (normalizedLabel === 'business metrics' || normalizedId.includes('business-metrics')) {
+    return true;
+  }
+
+  return source.rows?.some((row) => typeof row.id === 'string' && row.id.startsWith('BM-')) ?? false;
+}
+
 /** Icon button that opens a dropdown of all numeric metrics from all data sources. */
 function MetricPickerButton({ onSelect }: { onSelect: (opt: MetricOption) => void }) {
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
@@ -225,7 +251,7 @@ function MetricPickerButton({ onSelect }: { onSelect: (opt: MetricOption) => voi
   const options = React.useMemo(() => {
     const result: MetricOption[] = [];
     for (const source of Object.values(dataSources)) {
-      if (!source.rows) {
+      if (!source.rows || !isBusinessMetricSource(source)) {
         continue;
       }
       for (const row of source.rows) {
@@ -316,9 +342,19 @@ export function FilterValueInput(props: {
   onChange: (v: unknown) => void;
   valueRef?: StudioMetricRef;
   onValueRefChange?: (ref: StudioMetricRef | undefined) => void;
+  onMetricSelect?: (value: unknown, ref: StudioMetricRef) => void;
   fieldValues?: string[];
 }) {
-  const { fieldType, operator, value, onChange, valueRef, onValueRefChange, fieldValues } = props;
+  const {
+    fieldType,
+    operator,
+    value,
+    onChange,
+    valueRef,
+    onValueRefChange,
+    onMetricSelect,
+    fieldValues,
+  } = props;
   const strVal = String(value ?? '');
   const canUseMetric = onValueRefChange !== undefined;
   const metricLabel = useMetricLabel(canUseMetric ? valueRef : undefined);
@@ -334,6 +370,7 @@ export function FilterValueInput(props: {
         onChange={onChange}
         valueRef={valueRef}
         onValueRefChange={onValueRefChange}
+        onMetricSelect={onMetricSelect}
         metricLabel={metricLabel}
       />
     );
@@ -396,8 +433,13 @@ export function FilterValueInput(props: {
         {textField}
         <MetricPickerButton
           onSelect={(opt) => {
+            const nextRef = { sourceId: opt.sourceId, rowId: opt.rowId, field: opt.field };
+            if (onMetricSelect) {
+              onMetricSelect(opt.value, nextRef);
+              return;
+            }
             onChange(opt.value);
-            onValueRefChange({ sourceId: opt.sourceId, rowId: opt.rowId, field: opt.field });
+            onValueRefChange(nextRef);
           }}
         />
       </Box>

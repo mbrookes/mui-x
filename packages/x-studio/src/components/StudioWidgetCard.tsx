@@ -8,7 +8,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import { useStudioController, useStudioSelector } from '../context';
 import type { StudioPageTheme } from '../models';
 import { StudioGridWidget } from './StudioGridWidget';
-import { StudioChartWidget } from './StudioChartWidget';
+import { StudioChartWidget, CHART_MIN_HEIGHT } from './StudioChartWidget';
 import { StudioKpiWidget } from './StudioKpiWidget';
 import { StudioTextWidget } from './StudioTextWidget';
 import { exportGridToCsv, exportChartToPng } from './widgetUtils';
@@ -46,6 +46,25 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const ref = React.useRef<HTMLDivElement>(null);
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
+  const [chartHeight, setChartHeight] = React.useState<number>(CHART_MIN_HEIGHT);
+
+  React.useEffect(() => {
+    if (widget?.kind !== 'chart') {
+      return undefined;
+    }
+    const node = chartContainerRef.current;
+    if (!node) {
+      return undefined;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height ?? 0;
+      if (h > 0) {
+        setChartHeight(Math.max(h, CHART_MIN_HEIGHT));
+      }
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [widget?.kind]);
 
   React.useEffect(() => {
     if (mode !== 'edit') {
@@ -268,8 +287,8 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
         {/* Widget content */}
         {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
         {widget.kind === 'chart' && (
-          <Box ref={chartContainerRef}>
-            <StudioChartWidget widget={widget} dataSource={source} />
+          <Box ref={chartContainerRef} sx={{ flexGrow: 1, minHeight: CHART_MIN_HEIGHT }}>
+            <StudioChartWidget widget={widget} dataSource={source} height={chartHeight} />
           </Box>
         )}
         {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}

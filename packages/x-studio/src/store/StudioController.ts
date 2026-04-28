@@ -336,10 +336,25 @@ export class StudioController {
 
   updateFilter = (filterId: string, changes: Partial<import('../models').StudioFilterState>) => {
     const state = this.store.state;
+    const hasExistingRankFilter = state.filters.some(
+      (filter) =>
+        filter.id !== filterId && filter.scope !== 'cross-filter' && filter.filterMode === 'rank',
+    );
 
     this.commitState({
       ...state,
-      filters: state.filters.map((f) => (f.id === filterId ? { ...f, ...changes } : f)),
+      filters: state.filters.map((filter) => {
+        if (filter.id !== filterId) {
+          return filter;
+        }
+
+        const nextFilter = { ...filter, ...changes };
+        if (changes.filterMode === 'rank' && filter.filterMode !== 'rank' && hasExistingRankFilter) {
+          return filter;
+        }
+
+        return nextFilter;
+      }),
     });
   };
 

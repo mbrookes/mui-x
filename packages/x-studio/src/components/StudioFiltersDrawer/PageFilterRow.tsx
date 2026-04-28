@@ -21,6 +21,7 @@ import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
 import { FilterCard } from './FilterCard';
 import { FilterBody } from './FilterBody';
+import { useStudioSelector } from '../../context';
 
 export interface PageFilterRowProps {
   filter: StudioFilterState;
@@ -46,12 +47,24 @@ export function PageFilterRow(props: PageFilterRowProps) {
       : operators[0].value;
   const fieldValues = useFieldValues(filter.field, fieldType);
   const fieldLabel = currentField?.label ?? filter.field;
+  const hasAnotherRankFilter = useStudioSelector((state) =>
+    state.filters.some(
+      (candidate) =>
+        candidate.id !== filter.id &&
+        candidate.scope !== 'cross-filter' &&
+        candidate.filterMode === 'rank',
+    ),
+  );
+  const disableRankMode = hasAnotherRankFilter && filter.filterMode !== 'rank';
 
   const handleChange = (changes: Partial<StudioFilterState>) => {
     controller.updateFilter(filter.id, changes);
   };
 
   const handleModeChange = (newMode: FilterMode) => {
+    if (newMode === 'rank' && disableRankMode) {
+      return;
+    }
     handleChange(buildModeReset(newMode));
   };
 
@@ -67,7 +80,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
 
     return (
       <Stack spacing={1}>
-        <FilterModeToggle mode={currentMode} onChange={handleModeChange} />
+        <FilterModeToggle mode={currentMode} onChange={handleModeChange} disableRank={disableRankMode} />
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
           <FormControl size="small" sx={{ flexGrow: 1 }}>
             <InputLabel>Select a field…</InputLabel>
@@ -122,6 +135,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
         fieldValues={fieldValues}
         onModeChange={handleModeChange}
         onChange={handleChange}
+        disableRankMode={disableRankMode}
       />
     </FilterCard>
   );

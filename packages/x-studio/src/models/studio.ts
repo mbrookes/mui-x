@@ -1,3 +1,5 @@
+import type { FieldCapability } from '../utils/fieldCapabilities';
+
 export type StudioMode = 'edit' | 'view';
 
 export type StudioDrawer = 'data' | 'compose' | 'filters';
@@ -149,6 +151,14 @@ export interface StudioDataField {
   format?: StudioNumberFormat;
   /** ISO 4217 currency code for currency format. Defaults to 'USD'. */
   currencyCode?: string;
+  /**
+   * Override the default type-derived field capabilities.
+   * Use sparingly — most fields should rely on type inference.
+   * Example: mark a low-cardinality number field as `['categorical']`
+   * so it appears in "Split by" pickers instead of numeric y-axis pickers.
+   * See `FieldCapability` in `utils/fieldCapabilities` for available values.
+   */
+  capabilities?: string[];
 }
 
 export interface StudioDataSource {

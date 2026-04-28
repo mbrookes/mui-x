@@ -149,6 +149,8 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
         p: pageTheme?.cardPadding ?? 2,
         height: '100%',
         boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
         opacity: isDragging ? 0.5 : 1,
         position: 'relative',
         transition: 'border-color 0.15s',
@@ -245,7 +247,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
           </Tooltip>
         </Box>
       )}
-      <Stack spacing={2}>
+      <Stack spacing={2} sx={{ flexGrow: 1 }}>
         {/* Widget header */}
         <div>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>

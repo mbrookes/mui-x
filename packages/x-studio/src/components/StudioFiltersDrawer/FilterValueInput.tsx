@@ -4,7 +4,9 @@ import {
   Autocomplete,
   Box,
   FormControl,
+  IconButton,
   InputLabel,
+  Menu,
   MenuItem,
   Select,
   Stack,
@@ -12,6 +14,7 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
+  Typography,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import type { Dayjs } from 'dayjs';
@@ -23,7 +26,7 @@ import type { StudioFilterOperator, StudioMetricRef } from '../../models';
 import type { RelativeDateUnit, RelativeDateValue } from '../filterTypes';
 import type { FieldType } from './filterDrawerTypes';
 import { isRelativeDateValue, absoluteToRelative, relativeToAbsolute } from './filterDrawerUtils';
-import { MetricRefInput } from './MetricRefInput';
+import { useStudioSelector } from '../../context';
 
 const RELATIVE_UNITS: { value: RelativeDateUnit; label: string }[] = [
   { value: 'second', label: 'seconds' },
@@ -150,6 +153,101 @@ function DateValueInput({
   );
 }
 
+interface MetricOption {
+  label: string;
+  sourceId: string;
+  rowId: string;
+  field: string;
+  value: number;
+}
+
+/** Icon button that opens a dropdown of all numeric metrics from all data sources. */
+function MetricPickerButton({ onSelect }: { onSelect: (opt: MetricOption) => void }) {
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+  const dataSources = useStudioSelector((state) => state.dataSources);
+
+  const options = React.useMemo(() => {
+    const result: MetricOption[] = [];
+    for (const source of Object.values(dataSources)) {
+      if (!source.rows) {
+        continue;
+      }
+      for (const row of source.rows) {
+        const nameVal = row.name ?? row.label ?? row.metric ?? row.title;
+        if (!nameVal) {
+          continue;
+        }
+        const numericFields = source.fields.filter((f) => f.type === 'number' && !f.hidden);
+        if (numericFields.length === 0) {
+          continue;
+        }
+        const primaryField = numericFields.find((f) => f.id === 'value') ?? numericFields[0];
+        const val = row[primaryField.id];
+        if (typeof val !== 'number') {
+          continue;
+        }
+        result.push({
+          label: String(nameVal),
+          sourceId: source.id,
+          rowId: String(row.id ?? ''),
+          field: primaryField.id,
+          value: val,
+        });
+      }
+    }
+    return result;
+  }, [dataSources]);
+
+  if (options.length === 0) {
+    return null;
+  }
+
+  return (
+    <React.Fragment>
+      <Tooltip title="Set from metric">
+        <IconButton size="small" onClick={(e) => setAnchorEl(e.currentTarget)}>
+          <BoltIcon sx={{ fontSize: 14 }} />
+        </IconButton>
+      </Tooltip>
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={() => setAnchorEl(null)}
+        slotProps={{ paper: { sx: { maxHeight: 300 } } }}
+      >
+        {options.map((opt) => (
+          <MenuItem
+            key={`${opt.sourceId}-${opt.rowId}`}
+            onClick={() => {
+              onSelect(opt);
+              setAnchorEl(null);
+            }}
+          >
+            {opt.label}
+          </MenuItem>
+        ))}
+      </Menu>
+    </React.Fragment>
+  );
+}
+
+/** Resolves the display name for a metric ref from the data sources. */
+function useMetricLabel(ref: StudioMetricRef | undefined): string | undefined {
+  const dataSources = useStudioSelector((state) => state.dataSources);
+  return React.useMemo(() => {
+    if (!ref?.sourceId || !ref.rowId) {
+      return undefined;
+    }
+    const source = dataSources[ref.sourceId];
+    const row = source?.rows?.find((r) => String(r.id ?? '') === ref.rowId);
+    if (!row) {
+      return undefined;
+    }
+    const name = row.name ?? row.label ?? row.metric ?? row.title;
+    return name ? String(name) : undefined;
+  }, [ref, dataSources]);
+}
+
 /** The value input appropriate for a field type and operator. Supports metric references. */
 export function FilterValueInput(props: {
   fieldType: FieldType | undefined;
@@ -162,110 +260,84 @@ export function FilterValueInput(props: {
 }) {
   const { fieldType, operator, value, onChange, valueRef, onValueRefChange, fieldValues } = props;
   const strVal = String(value ?? '');
-  const useMetric = Boolean(valueRef);
+  const canUseMetric = onValueRefChange !== undefined;
+  const metricLabel = useMetricLabel(canUseMetric ? valueRef : undefined);
 
   if (OPERATORS_NO_VALUE.has(operator)) {
     return null;
   }
 
-  const canUseMetric = onValueRefChange !== undefined;
+  if (fieldType === 'date' || fieldType === 'datetime') {
+    return <DateValueInput value={value} onChange={onChange} />;
+  }
 
-  // Metric mode: show the metric picker instead of the normal value input
-  if (useMetric && canUseMetric) {
+  if (fieldType === 'boolean') {
     return (
-      <Stack spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Tooltip title="Switch to literal value">
-            <ToggleButton
-              value="metric"
-              selected
-              size="small"
-              sx={{ px: 1, py: 0.25 }}
-              onChange={() => {
-                onValueRefChange(undefined);
-              }}
-            >
-              <BoltIcon sx={{ fontSize: 14, mr: 0.5 }} />
-              Metric
-            </ToggleButton>
-          </Tooltip>
-        </Box>
-        <MetricRefInput value={valueRef} onChange={onValueRefChange} />
-      </Stack>
+      <FormControl size="small" sx={{ minWidth: 90, flexGrow: 1 }}>
+        <InputLabel>Value</InputLabel>
+        <Select label="Value" value={strVal} onChange={(event) => onChange(event.target.value)}>
+          <MenuItem value="true">True</MenuItem>
+          <MenuItem value="false">False</MenuItem>
+        </Select>
+      </FormControl>
     );
   }
 
-  // Literal mode: normal value input with optional ⚡ toggle button
-  const literalInput = (() => {
-    if (fieldType === 'date' || fieldType === 'datetime') {
-      return <DateValueInput value={value} onChange={onChange} />;
-    }
-
-    if (fieldType === 'boolean') {
-      return (
-        <FormControl size="small" sx={{ minWidth: 90, flexGrow: 1 }}>
-          <InputLabel>Value</InputLabel>
-          <Select label="Value" value={strVal} onChange={(event) => onChange(event.target.value)}>
-            <MenuItem value="true">True</MenuItem>
-            <MenuItem value="false">False</MenuItem>
-          </Select>
-        </FormControl>
-      );
-    }
-
-    if (
-      (fieldType === 'string' || fieldType === undefined) &&
-      OPERATORS_WITH_AUTOCOMPLETE.has(operator) &&
-      fieldValues &&
-      fieldValues.length > 0
-    ) {
-      return (
-        <Autocomplete
-          freeSolo
-          size="small"
-          options={fieldValues}
-          value={strVal}
-          onInputChange={(_, newVal) => onChange(newVal)}
-          renderInput={(params) => <TextField {...params} label="Value" />}
-          sx={{ minWidth: 80, flexGrow: 1 }}
-        />
-      );
-    }
-
+  if (
+    (fieldType === 'string' || fieldType === undefined) &&
+    OPERATORS_WITH_AUTOCOMPLETE.has(operator) &&
+    fieldValues &&
+    fieldValues.length > 0
+  ) {
     return (
-      <TextField
+      <Autocomplete
+        freeSolo
         size="small"
-        label="Value"
+        options={fieldValues}
         value={strVal}
-        onChange={(event) => onChange(event.target.value)}
+        onInputChange={(_, newVal) => onChange(newVal)}
+        renderInput={(params) => <TextField {...params} label="Value" />}
         sx={{ minWidth: 80, flexGrow: 1 }}
       />
     );
-  })();
+  }
+
+  // Plain text/number field — show metric picker button when supported
+  const textField = (
+    <TextField
+      size="small"
+      label="Value"
+      value={strVal}
+      onChange={(event) => {
+        onChange(event.target.value);
+        if (valueRef && onValueRefChange) {
+          onValueRefChange(undefined);
+        }
+      }}
+      sx={{ minWidth: 80, flexGrow: 1 }}
+    />
+  );
 
   if (!canUseMetric) {
-    return literalInput;
+    return textField;
   }
 
   return (
-    <Stack spacing={0.5} sx={{ flexGrow: 1, minWidth: 0 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <Tooltip title="Use a business metric as the value">
-          <ToggleButton
-            value="metric"
-            selected={false}
-            size="small"
-            sx={{ px: 1, py: 0.25 }}
-            onChange={() => {
-              onValueRefChange({ sourceId: '', rowId: '', field: '' });
-            }}
-          >
-            <BoltIcon sx={{ fontSize: 14, mr: 0.5 }} />
-            Metric
-          </ToggleButton>
-        </Tooltip>
+    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        {textField}
+        <MetricPickerButton
+          onSelect={(opt) => {
+            onChange(opt.value);
+            onValueRefChange({ sourceId: opt.sourceId, rowId: opt.rowId, field: opt.field });
+          }}
+        />
       </Box>
-      {literalInput}
-    </Stack>
+      {metricLabel && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, ml: 0.25 }}>
+          {metricLabel}
+        </Typography>
+      )}
+    </Box>
   );
 }

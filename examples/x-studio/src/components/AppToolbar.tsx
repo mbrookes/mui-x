@@ -2,6 +2,8 @@ import { Box, IconButton, Switch, Tab, Tabs, Tooltip, Typography } from '@mui/ma
 import type { SwitchProps } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
+import RedoIcon from '@mui/icons-material/Redo';
+import UndoIcon from '@mui/icons-material/Undo';
 import type { StudioMode, StudioPage } from '@mui/x-studio';
 
 export interface AppToolbarProps {
@@ -13,10 +15,14 @@ export interface AppToolbarProps {
   pages: StudioPage[];
   activePageId: string;
   onPageChange: (event: React.SyntheticEvent, pageId: string) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 export function AppToolbar(props: AppToolbarProps) {
-  const { title, mode, onModeChange, onSave, onLoad, pages, activePageId, onPageChange } = props;
+  const { title, mode, onModeChange, onSave, onLoad, pages, activePageId, onPageChange, canUndo, canRedo, onUndo, onRedo } = props;
 
   return (
     <Box
@@ -59,6 +65,24 @@ export function AppToolbar(props: AppToolbarProps) {
           <FileDownloadIcon fontSize="small" />
         </IconButton>
       </Tooltip>
+      {mode === 'edit' && (
+        <>
+          <Tooltip title="Undo (⌘Z)">
+            <span>
+              <IconButton size="small" onClick={onUndo} disabled={!canUndo} aria-label="Undo">
+                <UndoIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Redo (⌘⇧Z)">
+            <span>
+              <IconButton size="small" onClick={onRedo} disabled={!canRedo} aria-label="Redo">
+                <RedoIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </>
+      )}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
         <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>
           View

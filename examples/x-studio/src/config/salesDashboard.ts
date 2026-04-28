@@ -14,7 +14,7 @@ import {
   shipmentItemsSource,
   SHIPMENTS_SOURCE_ID,
   shipmentsSource,
-} from '../data';
+} from '../salesData';
 
 export const INITIAL_STATE: Partial<StudioState> = {
   dashboard: {
@@ -28,7 +28,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Overview',
       widgetRows: [
         ['widget-kpi-revenue', 'widget-kpi-orders', 'widget-kpi-customers', 'widget-kpi-ontime'],
-        ['widget-chart-revenue-trend'],
+        ['widget-chart-revenue-by-category'],
         ['widget-chart-category', 'widget-chart-country'],
         ['widget-orders-grid'],
       ],
@@ -137,8 +137,8 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiAggregation: 'avg',
       },
     },
-    'widget-chart-revenue-trend': {
-      id: 'widget-chart-revenue-trend',
+    'widget-chart-revenue-by-category': {
+      id: 'widget-chart-revenue-by-category',
       kind: 'chart',
       title: 'Monthly Revenue by Category',
       sourceId: ORDER_ITEMS_SOURCE_ID,

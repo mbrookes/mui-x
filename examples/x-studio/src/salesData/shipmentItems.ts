@@ -5,6 +5,7 @@ export const SHIPMENT_ITEMS_SOURCE_ID = 'source-shipment-items';
 export const shipmentItemsSource: StudioDataSource = {
   id: SHIPMENT_ITEMS_SOURCE_ID,
   label: 'Shipment Items',
+  hidden: true,
   fields: [
     { id: 'id', label: 'ID', type: 'string', hidden: true },
     { id: 'shipmentId', label: 'Shipment ID', type: 'string', hidden: true },

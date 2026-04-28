@@ -3,23 +3,19 @@ import * as React from 'react';
 import {
   Autocomplete,
   Box,
-  Collapse,
   IconButton,
   Stack,
   TextField,
-  Typography,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useStudioController } from '../../context';
 import type { StudioFilterState } from '../../models';
-import type { FieldOption } from './filterDrawerTypes';
-import { getOperators, summarizeFilter, defaultValueForMode } from './filterDrawerUtils';
+import type { FieldOption, FilterMode } from './filterDrawerTypes';
+import { getOperators, summarizeFilter, buildModeReset, defaultValueForMode } from './filterDrawerUtils';
 import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
+import { FilterCard } from './FilterCard';
 import { FilterBody } from './FilterBody';
-
 import type { AvailableSeries } from './RankFilterInput';
 
 export interface WidgetFilterRowProps {
@@ -46,7 +42,6 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
     availableSeries,
   } = props;
   const controller = useStudioController();
-  const [expanded, setExpanded] = React.useState(true);
 
   const isChartRank = filter.filterMode === 'rank' && !!chartXField;
   // For chart rank filters, the field is always the chart's xField — treat as always "has field"
@@ -73,22 +68,14 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
     if (merged.filterMode === 'rank' && chartXField && !merged.field) {
       merged.field = chartXField;
     }
-    controller.removeFilter(filter.id);
-    controller.addFilter(merged);
+    controller.updateFilter(filter.id, merged);
+  };
+
+  const handleModeChange = (newMode: FilterMode) => {
+    handleChange(buildModeReset(newMode));
   };
 
   const currentMode = filter.filterMode ?? 'condition';
-
-  const handleModeChangePhase1 = (newMode: typeof currentMode) => {
-    handleChange({
-      filterMode: newMode,
-      value: defaultValueForMode(newMode),
-      rankDirection: newMode === 'rank' ? 'top' : undefined,
-      operator2: undefined,
-      value2: undefined,
-      conjunction: undefined,
-    });
-  };
 
   // Phase 1: no field selected yet — show mode toggle then autocomplete picker
   if (!hasField) {
@@ -111,7 +98,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
 
     return (
       <Stack spacing={1}>
-        <FilterModeToggle mode={currentMode} onChange={handleModeChangePhase1} />
+        <FilterModeToggle mode={currentMode} onChange={handleModeChange} />
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
           <Autocomplete
             size="small"
@@ -134,59 +121,30 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
     );
   }
 
-  // Phase 2: field selected (or chart rank auto-field) — collapsible filter card
-  return (
-    <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          px: 0.5,
-          py: 0.25,
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-        onClick={() => setExpanded((prev) => !prev)}
-      >
-        <IconButton size="small" tabIndex={-1}>
-          {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-        </IconButton>
-        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-          <Typography variant="body2" noWrap sx={{ fontWeight: 'medium' }}>
-            {isChartRank
-              ? `Rank${chartYFieldLabel ? ` by ${chartYFieldLabel}` : ''}`
-              : fieldLabel}
-          </Typography>
-          {!expanded && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              {summarizeFilter(filter)}
-            </Typography>
-          )}
-        </Box>
-        <IconButton
-          size="small"
-          onClick={(event) => {
-            event.stopPropagation();
-            onRemove(filter.id);
-          }}
-          aria-label="Remove filter"
-        >
-          <CloseIcon fontSize="small" />
-        </IconButton>
-      </Box>
+  // Phase 2: field selected (or chart rank auto-field) — collapsible filter card with mode in header
+  const cardTitle = isChartRank
+    ? `Rank${chartYFieldLabel ? ` by ${chartYFieldLabel}` : ''}`
+    : fieldLabel;
 
-      <Collapse in={expanded}>
-        <FilterBody
-          filter={filter}
-          fieldType={fieldType}
-          operators={operators}
-          activeOperator={activeOperator}
-          activeOperator2={activeOperator2}
-          fieldValues={fieldValues}
-          availableSeries={availableSeries}
-          onChange={handleChange}
-        />
-      </Collapse>
-    </Box>
+  return (
+    <FilterCard
+      title={cardTitle}
+      summary={summarizeFilter(filter)}
+      mode={currentMode}
+      onModeChange={handleModeChange}
+      onRemove={() => onRemove(filter.id)}
+    >
+      <FilterBody
+        filter={filter}
+        fieldType={fieldType}
+        operators={operators}
+        activeOperator={activeOperator}
+        activeOperator2={activeOperator2}
+        fieldValues={fieldValues}
+        availableSeries={availableSeries}
+        onChange={handleChange}
+      />
+    </FilterCard>
   );
 }
+

@@ -135,7 +135,8 @@ export function summarizeFilter(filter: StudioFilterState): string {
   if (mode === 'rank') {
     const dir = filter.rankDirection === 'bottom' ? 'Bottom' : 'Top';
     const n = filter.value ? String(filter.value) : '?';
-    return `${dir} ${n}`;
+    const field = filter.field ? ` · ${filter.field}` : '';
+    return `${dir} ${n}${field}`;
   }
 
   function summarizeCondition(op: StudioFilterOperator, value: unknown): string {
@@ -192,4 +193,23 @@ export function defaultValueForMode(mode: FilterMode): StudioFilterState['value'
     return [];
   }
   return '';
+}
+
+/**
+ * Returns the partial state changes needed when switching a filter's mode.
+ * Clears all mode-specific fields and sets the appropriate default value.
+ */
+export function buildModeReset(newMode: FilterMode): Partial<StudioFilterState> {
+  return {
+    filterMode: newMode,
+    value: defaultValueForMode(newMode),
+    rankDirection: newMode === 'rank' ? 'top' : undefined,
+    rankByField: undefined,
+    rankMultiSeriesBy: undefined,
+    operator2: undefined,
+    value2: undefined,
+    value2Ref: undefined,
+    conjunction: undefined,
+    valueRef: undefined,
+  };
 }

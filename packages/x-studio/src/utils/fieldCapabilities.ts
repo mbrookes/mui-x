@@ -27,7 +27,7 @@ const TYPE_CAPABILITIES: Record<StudioDataField['type'], FieldCapability[]> = {
  */
 export function getFieldCapabilities(field: StudioDataField): FieldCapability[] {
   if (field.capabilities && field.capabilities.length > 0) {
-    return field.capabilities;
+    return field.capabilities as FieldCapability[];
   }
   return TYPE_CAPABILITIES[field.type] ?? [];
 }

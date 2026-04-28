@@ -3,8 +3,8 @@ import * as React from 'react';
 import { Box, Typography } from '@mui/material';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
 
-import type { StudioDataSource, StudioWidget, StudioFilterState } from '../models';
-import { resolveRows, resolveMetricRefs } from './chartUtils';
+import type { StudioDataSource, StudioKpiAggregation, StudioWidget, StudioFilterState } from '../models';
+import { resolveRows, resolveMetricRefs, normalizeToDate } from './chartUtils';
 import { useStudioSelector } from '../context';
 import { formatNumber } from './numberFormat';
 
@@ -16,7 +16,7 @@ export interface StudioKpiWidgetProps {
 function computeAggregate(
   rows: Record<string, unknown>[],
   field: string,
-  aggregation: string,
+  aggregation: StudioKpiAggregation,
 ): number {
   if (aggregation === 'count') {
     return rows.length;
@@ -90,7 +90,7 @@ function computeSparklineData(
   rows: Record<string, unknown>[],
   timeField: string,
   valueField: string,
-  aggregation: string,
+  aggregation: StudioKpiAggregation,
   granularity: Granularity,
   cumulative: boolean,
 ): number[] {
@@ -101,8 +101,8 @@ function computeSparklineData(
     if (raw === null || raw === undefined) {
       continue;
     }
-    const date = new Date(raw as string | number);
-    if (Number.isNaN(date.getTime())) {
+    const date = normalizeToDate(raw);
+    if (!date) {
       continue;
     }
     const key = getBucketKey(date, granularity);

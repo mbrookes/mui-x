@@ -18,13 +18,20 @@ type Row = Record<string, unknown>;
 export function resolveMetricRef(
   ref: StudioMetricRef,
   dataSources: Record<string, StudioDataSource>,
-): unknown {
+): string | number | boolean | null | undefined {
   const source = dataSources[ref.sourceId];
   if (!source?.rows) {
     return undefined;
   }
-  const row = source.rows.find((r) => r.id === ref.rowId);
-  return row?.[ref.field];
+  const row = source.rows.find((r) => String(r.id ?? '') === ref.rowId);
+  const val = row?.[ref.field];
+  if (val === null || val === undefined) {
+    return val as null | undefined;
+  }
+  if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+    return val;
+  }
+  return undefined;
 }
 
 /**
@@ -146,7 +153,7 @@ function matchesFilter(row: Row, filter: StudioFilterState): boolean {
       return toComparable(rowVal, fieldType) <= toComparable(filterVal, fieldType);
     case 'between': {
       const range = filterVal as { from?: string; to?: string } | null;
-      if (!range) {
+      if (!range || typeof range !== 'object') {
         return true;
       }
       const cmp = toComparable(rowVal, fieldType);
@@ -198,8 +205,8 @@ function matchesFilterState(row: Row, filter: StudioFilterState): boolean {
   const mode = filter.filterMode ?? 'condition';
 
   if (mode === 'selection') {
-    const selected = filter.value as string[];
-    if (!Array.isArray(selected) || selected.length === 0) {
+    const selected = Array.isArray(filter.value) ? (filter.value as string[]) : [];
+    if (selected.length === 0) {
       return true;
     }
     const rowVal = String(row[filter.field] ?? '');
@@ -702,6 +709,23 @@ function sortLabels(labels: (string | number)[]): (string | number)[] {
   return [...labels].sort((a, b) => String(a).localeCompare(String(b)));
 }
 
+/** Safely extracts a row field value as a string or number suitable for chart grouping. */
+function toXValue(raw: unknown): string | number {
+  if (raw instanceof Date) {
+    return raw.toISOString();
+  }
+  if (typeof raw === 'boolean') {
+    return String(raw);
+  }
+  if (raw === null || raw === undefined) {
+    return '(empty)';
+  }
+  if (typeof raw === 'object') {
+    return String(raw);
+  }
+  return raw as string | number;
+}
+
 export function aggregateByField(
   rows: Row[],
   xField: string,
@@ -711,8 +735,8 @@ export function aggregateByField(
   const grouped = new Map<string | number, number>();
 
   for (const row of rows) {
-    const raw = row[xField] as string | number;
-    const xVal = applyXGroupBy(raw ?? '(empty)', xGroupBy);
+    const raw = toXValue(row[xField]);
+    const xVal = applyXGroupBy(raw, xGroupBy);
     const yVal = Number(row[yField] ?? 0);
 
     grouped.set(xVal, (grouped.get(xVal) ?? 0) + yVal);
@@ -751,9 +775,9 @@ export function aggregateByTwoFields(
   const dataMap = new Map<string | number, Map<string | number, number>>();
 
   for (const row of rows) {
-    const raw = (row[xField] as string | number) ?? '(empty)';
+    const raw = toXValue(row[xField]);
     const xVal = applyXGroupBy(raw, xGroupBy);
-    const seriesVal = (row[seriesField] as string | number) ?? '(empty)';
+    const seriesVal = toXValue(row[seriesField]);
     const yVal = Number(row[yField] ?? 0);
 
     xValuesSet.add(xVal);
@@ -801,7 +825,7 @@ export function aggregateMultipleSeries(
   const dataMap = new Map<string | number, Map<string, number>>();
 
   for (const row of rows) {
-    const raw = (row[xField] as string | number) ?? '(empty)';
+    const raw = toXValue(row[xField]);
     const xVal = applyXGroupBy(raw, xGroupBy);
     if (!labelSet.has(xVal)) {
       labelSet.add(xVal);

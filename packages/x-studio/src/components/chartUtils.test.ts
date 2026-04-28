@@ -745,6 +745,28 @@ describe('resolveMetricRefs', () => {
     const result = applyFilters(rows, filters);
     expect(result.map((r) => r.id)).toEqual([2]); // only months > 6
   });
+
+  it('resolves relative date metric refs into the amount while preserving the relative value object', () => {
+    const filters = [
+      makeFilter({
+        field: 'lastOrderDate',
+        fieldType: 'date',
+        operator: 'greater_than',
+        value: { relative: true, amount: 1, unit: 'month', direction: 'past' },
+        valueRef: { sourceId: 'metrics', rowId: 'BM-012', field: 'value' },
+      }),
+    ];
+
+    const result = resolveMetricRefs(filters, dataSources);
+
+    expect(result[0].value).toEqual({
+      relative: true,
+      amount: 6,
+      unit: 'month',
+      direction: 'past',
+    });
+    expect(result[0].valueRef).toEqual({ sourceId: 'metrics', rowId: 'BM-012', field: 'value' });
+  });
 });
 
 // ─── applyRankToAggregated ────────────────────────────────────────────────────

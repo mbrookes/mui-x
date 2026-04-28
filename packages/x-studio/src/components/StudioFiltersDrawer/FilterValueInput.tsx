@@ -44,23 +44,59 @@ const OPERATORS_NO_VALUE = new Set<StudioFilterOperator>(['is_empty', 'is_not_em
 function RelativeDateInput({
   value,
   onChange,
+  valueRef,
+  onValueRefChange,
+  metricLabel,
 }: {
   value: RelativeDateValue;
   onChange: (v: RelativeDateValue) => void;
+  valueRef?: StudioMetricRef;
+  onValueRefChange?: (ref: StudioMetricRef | undefined) => void;
+  metricLabel?: string;
 }) {
+  const amountField = (
+    <TextField
+      size="small"
+      type="number"
+      label="Amount"
+      value={value.amount}
+      onChange={(event) => {
+        onChange({ ...value, amount: Math.max(1, parseInt(event.target.value, 10) || 1) });
+        if (valueRef && onValueRefChange) {
+          onValueRefChange(undefined);
+        }
+      }}
+      fullWidth
+      slotProps={{ htmlInput: { min: 1 } }}
+    />
+  );
+
   return (
     <Stack spacing={0.75} sx={{ flexGrow: 1, minWidth: 0 }}>
-      <TextField
-        size="small"
-        type="number"
-        label="Amount"
-        value={value.amount}
-        onChange={(event) =>
-          onChange({ ...value, amount: Math.max(1, parseInt(event.target.value, 10) || 1) })
-        }
-        fullWidth
-        slotProps={{ htmlInput: { min: 1 } }}
-      />
+      {onValueRefChange ? (
+        <Box sx={{ minWidth: 0 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            {amountField}
+            <MetricPickerButton
+              onSelect={(opt) => {
+                onChange({ ...value, amount: Math.max(1, Math.trunc(opt.value) || 1) });
+                onValueRefChange({ sourceId: opt.sourceId, rowId: opt.rowId, field: opt.field });
+              }}
+            />
+          </Box>
+          {metricLabel && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', mt: 0.25, ml: 0.25 }}
+            >
+              {metricLabel}
+            </Typography>
+          )}
+        </Box>
+      ) : (
+        amountField
+      )}
       <FormControl size="small" fullWidth>
         <Select
           value={value.unit}
@@ -96,10 +132,16 @@ function DateValueInput({
   value,
   onChange,
   label,
+  valueRef,
+  onValueRefChange,
+  metricLabel,
 }: {
   value: unknown;
   onChange: (v: unknown) => void;
   label?: string;
+  valueRef?: StudioMetricRef;
+  onValueRefChange?: (ref: StudioMetricRef | undefined) => void;
+  metricLabel?: string;
 }) {
   const isRel = isRelativeDateValue(value);
   const mode = isRel ? 'relative' : 'absolute';
@@ -107,6 +149,9 @@ function DateValueInput({
   const handleModeChange = (_: React.MouseEvent, newMode: 'absolute' | 'relative' | null) => {
     if (!newMode || newMode === mode) {
       return;
+    }
+    if (valueRef && onValueRefChange) {
+      onValueRefChange(undefined);
     }
     if (newMode === 'relative') {
       onChange(absoluteToRelative(String(value ?? '')));
@@ -116,7 +161,7 @@ function DateValueInput({
   };
 
   const dayjsVal: Dayjs | null =
-    !isRel && value && typeof value === 'string' ? dayjs(value as string) : null;
+    !isRel && value && typeof value === 'string' ? dayjs(value) : null;
 
   return (
     <Stack spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
@@ -139,12 +184,23 @@ function DateValueInput({
       </ToggleButtonGroup>
 
       {isRel ? (
-        <RelativeDateInput value={value as RelativeDateValue} onChange={onChange} />
+        <RelativeDateInput
+          value={value as RelativeDateValue}
+          onChange={onChange}
+          valueRef={valueRef}
+          onValueRefChange={onValueRefChange}
+          metricLabel={metricLabel}
+        />
       ) : (
         <DatePicker
           label={label ?? 'Date'}
           value={dayjsVal?.isValid() ? dayjsVal : null}
-          onChange={(d) => onChange(d?.isValid() ? d.format('YYYY-MM-DD') : '')}
+          onChange={(d) => {
+            onChange(d?.isValid() ? d.format('YYYY-MM-DD') : '');
+            if (valueRef && onValueRefChange) {
+              onValueRefChange(undefined);
+            }
+          }}
           slotProps={{ textField: { size: 'small' } }}
           sx={{ flexGrow: 1, minWidth: 130 }}
         />
@@ -186,10 +242,14 @@ function MetricPickerButton({ onSelect }: { onSelect: (opt: MetricOption) => voi
         if (typeof val !== 'number') {
           continue;
         }
+        const rowId = row.id != null ? String(row.id) : undefined;
+        if (!rowId) {
+          continue;
+        }
         result.push({
           label: String(nameVal),
           sourceId: source.id,
-          rowId: String(row.id ?? ''),
+          rowId,
           field: primaryField.id,
           value: val,
         });
@@ -205,7 +265,7 @@ function MetricPickerButton({ onSelect }: { onSelect: (opt: MetricOption) => voi
   return (
     <React.Fragment>
       <Tooltip title="Set from metric">
-        <IconButton size="small" onClick={(e) => setAnchorEl(e.currentTarget)}>
+        <IconButton size="small" aria-label="Set from metric" onClick={(e) => setAnchorEl(e.currentTarget)}>
           <BoltIcon sx={{ fontSize: 14 }} />
         </IconButton>
       </Tooltip>
@@ -268,7 +328,15 @@ export function FilterValueInput(props: {
   }
 
   if (fieldType === 'date' || fieldType === 'datetime') {
-    return <DateValueInput value={value} onChange={onChange} />;
+    return (
+      <DateValueInput
+        value={value}
+        onChange={onChange}
+        valueRef={valueRef}
+        onValueRefChange={onValueRefChange}
+        metricLabel={metricLabel}
+      />
+    );
   }
 
   if (fieldType === 'boolean') {

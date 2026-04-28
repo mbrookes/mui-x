@@ -35,6 +35,7 @@ test-results/
 # Claude Code / Codex - ignore local/personal files, commit shared ones
 CLAUDE.local.md
 AGENTS.local.md
+**/*.local.md
 
 # typescript
 *.tsbuildinfo

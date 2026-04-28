@@ -1,4 +1,4 @@
-import type { StudioState } from '@mui/x-studio';
+import type { StudioState, RelativeDateValue } from '@mui/x-studio';
 import {
   BUSINESS_METRICS_SOURCE_ID,
   businessMetricsSource,
@@ -182,7 +182,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
         "amount": 6,
         "unit": "month",
         "direction": "past"
-      },
+      } satisfies RelativeDateValue,
       "scope": "widget",
       "widgetId": "widget-kpi-customers",
       "fieldType": "date",

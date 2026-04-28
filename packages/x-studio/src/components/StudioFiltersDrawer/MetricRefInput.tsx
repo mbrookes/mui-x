@@ -52,7 +52,7 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
     if (!value || !selectedSource?.rows) {
       return undefined;
     }
-    const row = selectedSource.rows.find((r) => r.id === value.rowId);
+    const row = selectedSource.rows.find((r) => String(r.id ?? '') === value.rowId);
     return row?.[value.field];
   }, [value, selectedSource]);
 
@@ -127,7 +127,12 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
 
       {resolvedValue !== undefined && (
         <Typography variant="caption" color="text.secondary">
-          Current value: <strong>{String(resolvedValue)}</strong>
+          Current value:{' '}
+          <strong>
+            {typeof resolvedValue === 'object'
+              ? JSON.stringify(resolvedValue)
+              : String(resolvedValue)}
+          </strong>
         </Typography>
       )}
     </Box>

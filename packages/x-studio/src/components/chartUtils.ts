@@ -361,6 +361,104 @@ export function resolveRows(
   return applyFilters(rows, nativeFilters);
 }
 
+/**
+ * Enriches widget rows with fields that exist on directly related sources but
+ * not on the widget's own source. For each requested field not found on the
+ * widget source, the function walks the relationship graph one hop, finds the
+ * related source that has the field, builds a lookup map (relatedId → fieldValue),
+ * and copies the value onto each widget row.
+ *
+ * This eliminates the need to denormalize fields (e.g. date from orders onto
+ * orderItems) just to make them available in chart aggregations.
+ *
+ * Only direct (single-hop) relationships are resolved. Multi-hop joins are
+ * not supported.
+ */
+export function enrichRowsWithRelatedFields(
+  rows: Row[],
+  widgetSourceId: string | undefined,
+  fieldIds: string[],
+  dataSources: Record<string, StudioDataSource>,
+  relationships: StudioRelationship[],
+): Row[] {
+  if (!widgetSourceId || rows.length === 0 || fieldIds.length === 0) {
+    return rows;
+  }
+
+  const widgetSource = dataSources[widgetSourceId];
+  const nativeFieldIds = new Set(widgetSource?.fields.map((f) => f.id) ?? []);
+
+  // Determine which fields need to be resolved from a related source
+  const foreignFieldNeeds: Array<{
+    fieldId: string;
+    widgetJoinField: string;
+    relatedJoinField: string;
+    relatedRows: Row[];
+  }> = [];
+
+  for (const fieldId of fieldIds) {
+    if (nativeFieldIds.has(fieldId)) {
+      continue; // already on the widget source
+    }
+
+    // Find a directly related source that has this field
+    for (const rel of relationships) {
+      let relatedSourceId: string | null = null;
+      let widgetJoinField: string | null = null;
+      let relatedJoinField: string | null = null;
+
+      if (rel.sourceId === widgetSourceId) {
+        relatedSourceId = rel.targetId;
+        widgetJoinField = rel.sourceField;
+        relatedJoinField = rel.targetField;
+      } else if (rel.targetId === widgetSourceId) {
+        relatedSourceId = rel.sourceId;
+        widgetJoinField = rel.targetField;
+        relatedJoinField = rel.sourceField;
+      } else {
+        continue;
+      }
+
+      const relatedSource = dataSources[relatedSourceId];
+      if (!relatedSource?.fields.some((f) => f.id === fieldId)) {
+        continue; // this related source doesn't have the field
+      }
+
+      foreignFieldNeeds.push({
+        fieldId,
+        widgetJoinField,
+        relatedJoinField,
+        relatedRows: relatedSource.rows ?? [],
+      });
+      break; // first matching relationship wins
+    }
+  }
+
+  if (foreignFieldNeeds.length === 0) {
+    return rows; // nothing to enrich
+  }
+
+  // Build lookup maps: relatedJoinValue → fieldValue  (one per foreign field)
+  const lookups = foreignFieldNeeds.map(({ fieldId, relatedJoinField, relatedRows }) => {
+    const map = new Map<unknown, unknown>();
+    for (const row of relatedRows) {
+      map.set(row[relatedJoinField], row[fieldId]);
+    }
+    return { fieldId, widgetJoinField: foreignFieldNeeds.find((n) => n.fieldId === fieldId)!.widgetJoinField, map };
+  });
+
+  // Enrich rows (non-mutating — spread each row)
+  return rows.map((row) => {
+    const extras: Row = {};
+    for (const { fieldId, widgetJoinField, map } of lookups) {
+      if (!(fieldId in row)) {
+        extras[fieldId] = map.get(row[widgetJoinField]);
+      }
+    }
+    return Object.keys(extras).length > 0 ? { ...row, ...extras } : row;
+  });
+}
+
 export interface AggregatedData {
   labels: (string | number)[];
   values: number[];

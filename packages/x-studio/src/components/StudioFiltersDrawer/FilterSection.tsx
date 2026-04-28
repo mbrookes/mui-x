@@ -104,6 +104,8 @@ export function FilterSection(props: FilterSectionProps) {
 
 // ─── Widget filter section ────────────────────────────────────────────────────
 
+import type { AvailableSeries } from './RankFilterInput';
+
 export interface WidgetFilterSectionProps {
   title: string;
   filters: StudioFilterState[];
@@ -114,6 +116,8 @@ export interface WidgetFilterSectionProps {
   onRemoveFilter: (id: string) => void;
   chartXField?: string;
   chartYFieldLabel?: string;
+  /** Available series for multi-series charts — enables "Rank by" selector in rank mode. */
+  chartAvailableSeries?: AvailableSeries[];
 }
 
 export function WidgetFilterSection(props: WidgetFilterSectionProps) {
@@ -127,6 +131,7 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
     title,
     chartXField,
     chartYFieldLabel,
+    chartAvailableSeries,
   } = props;
   const hasAnySources = Object.keys(dataSources).length > 0;
 
@@ -147,6 +152,7 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
               onRemove={onRemoveFilter}
               chartXField={chartXField}
               chartYFieldLabel={chartYFieldLabel}
+              availableSeries={chartAvailableSeries}
             />
           ))}
         </Stack>

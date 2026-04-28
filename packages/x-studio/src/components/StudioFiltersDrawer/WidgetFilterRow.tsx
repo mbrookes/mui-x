@@ -20,6 +20,8 @@ import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
 import { FilterBody } from './FilterBody';
 
+import type { AvailableSeries } from './RankFilterInput';
+
 export interface WidgetFilterRowProps {
   filter: StudioFilterState;
   widgetSourceId?: string;
@@ -29,10 +31,20 @@ export interface WidgetFilterRowProps {
   chartXField?: string;
   /** Label for the y-measure shown in the rank card header */
   chartYFieldLabel?: string;
+  /** Available series for multi-series charts — enables "Rank by" selector in rank mode. */
+  availableSeries?: AvailableSeries[];
 }
 
 export function WidgetFilterRow(props: WidgetFilterRowProps) {
-  const { filter, widgetSourceId, fieldOptions, onRemove, chartXField, chartYFieldLabel } = props;
+  const {
+    filter,
+    widgetSourceId,
+    fieldOptions,
+    onRemove,
+    chartXField,
+    chartYFieldLabel,
+    availableSeries,
+  } = props;
   const controller = useStudioController();
   const [expanded, setExpanded] = React.useState(true);
 
@@ -171,6 +183,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
           activeOperator={activeOperator}
           activeOperator2={activeOperator2}
           fieldValues={fieldValues}
+          availableSeries={availableSeries}
           onChange={handleChange}
         />
       </Collapse>

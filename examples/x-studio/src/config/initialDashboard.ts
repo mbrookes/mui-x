@@ -145,6 +145,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         chartType: 'line',
         xField: 'date',
+        xGroupBy: 'month',
         yField: 'total',
         seriesField: 'category',
       },

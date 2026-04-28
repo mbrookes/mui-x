@@ -28,6 +28,7 @@ import type { RelativeDateUnit, RelativeDateValue } from '../filterTypes';
 import type { FieldType } from './filterDrawerTypes';
 import { isRelativeDateValue, absoluteToRelative, relativeToAbsolute } from './filterDrawerUtils';
 import { useStudioSelector } from '../../context';
+import { fieldHasCapability } from '../../utils/fieldCapabilities';
 
 const RELATIVE_UNITS: { value: RelativeDateUnit; label: string }[] = [
   { value: 'second', label: 'seconds' },
@@ -67,15 +68,13 @@ function MetricPickerButton({
 
   const options = React.useMemo(() => {
     const result: MetricOption[] = [];
-    const isDateType = fieldType === 'date' || fieldType === 'datetime';
+    const cap = fieldType === 'date' || fieldType === 'datetime' ? 'temporal' : 'numeric';
     for (const source of Object.values(dataSources)) {
       if (!source.rows) {
         continue;
       }
       const suitableFields = source.fields.filter(
-        (f) =>
-          !f.hidden &&
-          (isDateType ? f.type === 'date' || f.type === 'datetime' : f.type === 'number'),
+        (f) => !f.hidden && fieldHasCapability(f, cap),
       );
       if (suitableFields.length === 0) {
         continue;
@@ -86,9 +85,9 @@ function MetricPickerButton({
           continue;
         }
         const primaryField =
-          (!isDateType && suitableFields.find((f) => f.id === 'value')) || suitableFields[0];
+          (cap === 'numeric' && suitableFields.find((f) => f.id === 'value')) || suitableFields[0];
         const val = row[primaryField.id];
-        if (isDateType ? typeof val !== 'string' : typeof val !== 'number') {
+        if (cap === 'temporal' ? typeof val !== 'string' : typeof val !== 'number') {
           continue;
         }
         const rowId = row.id != null ? String(row.id) : undefined;

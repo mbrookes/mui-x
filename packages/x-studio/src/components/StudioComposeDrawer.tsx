@@ -35,6 +35,7 @@ import type {
 
 import { CanvasScrollContext, useStudioController, useStudioSelector } from '../context';
 import { createDefaultWidget, WIDGET_TYPES, widgetKindRequiresDataSource } from './widgetUtils';
+import { fieldsForCapability, fieldHasCapability } from '../utils/fieldCapabilities';
 import {
   AreaIcon,
   Area100Icon,
@@ -497,7 +498,7 @@ function ChartSetupPanel(props: { widgetId: string }) {
       .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
   );
   const config = widget?.config ?? {};
-  const numericFields = allFields.filter((f) => f.type === 'number');
+  const numericFields = fieldsForCapability(allFields, 'numeric');
 
   const chartType: StudioChartType = config.chartType ?? 'bar';
 
@@ -525,34 +526,19 @@ function ChartSetupPanel(props: { widgetId: string }) {
       chartType === 'area-100') &&
     ySeries.length <= 1;
 
-  const categoryFields = allFields.filter((f) => f.type === 'string' || f.type === 'boolean');
+  const categoryFields = fieldsForCapability(allFields, 'categorical');
   const selectedSeriesField =
     config.seriesField ? (allFields.find((f) => f.id === config.seriesField) ?? null) : null;
   const isScatter = chartType === 'scatter';
 
   const handleChartTypeChange = (newType: StudioChartType) => {
-    const newSupportsSeriesField =
-      newType === 'bar' ||
-      newType === 'bar-stacked' ||
-      newType === 'bar-100' ||
-      newType === 'line' ||
-      newType === 'area' ||
-      newType === 'area-stacked' ||
-      newType === 'area-100';
-    controller.updateWidgetConfig(widgetId, {
-      chartType: newType,
-      ...(!newSupportsSeriesField ? { seriesField: undefined } : {}),
-    });
+    controller.updateWidgetConfig(widgetId, { chartType: newType });
   };
 
   const usedYFieldIds = ySeries.map((s) => s.fieldId).filter(Boolean);
 
   const handleAddSeries = () => {
-    // Adding a second Y series clears seriesField (incompatible)
-    controller.updateWidgetConfig(widgetId, {
-      ySeries: [...ySeries, { fieldId: '' }],
-      seriesField: undefined,
-    });
+    controller.updateWidgetConfig(widgetId, { ySeries: [...ySeries, { fieldId: '' }] });
   };
 
   const handleRemoveSeries = (index: number) => {
@@ -873,7 +859,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
     }
     const result: { id: string; label: string; sourceId: string; sourceLabel: string }[] = [];
     source.fields
-      .filter((f) => f.type === 'date' || f.type === 'datetime')
+      .filter((f) => fieldHasCapability(f, 'temporal'))
       .forEach((f) => result.push({ id: f.id, label: f.label, sourceId, sourceLabel: source.label }));
     for (const rel of relationships) {
       let relatedId: string | null = null;
@@ -890,7 +876,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
         continue;
       }
       relSource.fields
-        .filter((f) => f.type === 'date' || f.type === 'datetime')
+        .filter((f) => fieldHasCapability(f, 'temporal'))
         .forEach((f) => {
           if (!result.find((r) => r.id === f.id && r.sourceId === relatedId)) {
             result.push({

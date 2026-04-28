@@ -7,6 +7,10 @@ import {
   resolveMetricRef,
   resolveMetricRefs,
   resolveRows,
+  normalizeToDate,
+  truncateToGranularity,
+  formatPeriodLabel,
+  aggregateByField,
 } from './chartUtils';
 import type { StudioDataSource, StudioFilterState, StudioRelationship } from '../models';
 
@@ -917,5 +921,138 @@ describe('applyRankToMultiSeries', () => {
       makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top', rankMultiSeriesBy: 'nonexistent' }),
     );
     expect(result.labels).toHaveLength(1);
+  });
+});
+
+// ─── normalizeToDate ──────────────────────────────────────────────────────────
+
+describe('normalizeToDate', () => {
+  it('passes through a Date object unchanged', () => {
+    const d = new Date('2024-03-15');
+    expect(normalizeToDate(d)).toBe(d);
+  });
+
+  it('converts a numeric ms timestamp to Date', () => {
+    const ms = new Date('2024-03-15').getTime();
+    const result = normalizeToDate(ms);
+    expect(result).toBeInstanceOf(Date);
+    expect((result as Date).getFullYear()).toBe(2024);
+    expect((result as Date).getMonth()).toBe(2); // March = 2
+  });
+
+  it('converts an ISO date string to Date', () => {
+    const result = normalizeToDate('2024-06-01');
+    expect(result).toBeInstanceOf(Date);
+    expect((result as Date).getFullYear()).toBe(2024);
+  });
+
+  it('returns null for unparseable string', () => {
+    const result = normalizeToDate('not-a-date');
+    expect(result).toBeNull();
+  });
+});
+
+// ─── truncateToGranularity ────────────────────────────────────────────────────
+
+describe('truncateToGranularity', () => {
+  const d = new Date('2024-03-15');
+
+  it('day: returns YYYY-MM-DD', () => {
+    expect(truncateToGranularity(d, 'day')).toBe('2024-03-15');
+  });
+
+  it('month: returns YYYY-MM', () => {
+    expect(truncateToGranularity(d, 'month')).toBe('2024-03');
+  });
+
+  it('quarter: returns YYYY-QN', () => {
+    expect(truncateToGranularity(d, 'quarter')).toBe('2024-Q1');
+    expect(truncateToGranularity(new Date('2024-07-20'), 'quarter')).toBe('2024-Q3');
+  });
+
+  it('year: returns YYYY', () => {
+    expect(truncateToGranularity(d, 'year')).toBe('2024');
+  });
+
+  it('week: returns YYYY-WNN (ISO week)', () => {
+    const key = truncateToGranularity(new Date('2024-01-08'), 'week');
+    expect(key).toMatch(/^\d{4}-W\d{2}$/);
+    expect(key).toBe('2024-W02');
+  });
+
+  it('returns null for non-date input', () => {
+    expect(truncateToGranularity('not-a-date', 'month')).toBeNull();
+  });
+
+  it('accepts ISO string input', () => {
+    expect(truncateToGranularity('2024-06-20', 'month')).toBe('2024-06');
+  });
+});
+
+// ─── formatPeriodLabel ────────────────────────────────────────────────────────
+
+describe('formatPeriodLabel', () => {
+  it('formats YYYY-MM as "Mon YYYY"', () => {
+    expect(formatPeriodLabel('2024-01')).toBe('Jan 2024');
+    expect(formatPeriodLabel('2024-12')).toBe('Dec 2024');
+  });
+
+  it('formats YYYY-QN as "QN YYYY"', () => {
+    expect(formatPeriodLabel('2024-Q1')).toBe('Q1 2024');
+    expect(formatPeriodLabel('2024-Q4')).toBe('Q4 2024');
+  });
+
+  it('formats YYYY as itself', () => {
+    expect(formatPeriodLabel('2024')).toBe('2024');
+  });
+
+  it('formats YYYY-WNN as "Week N YYYY"', () => {
+    expect(formatPeriodLabel('2024-W03')).toBe('Week 3 2024');
+    expect(formatPeriodLabel('2024-W12')).toBe('Week 12 2024');
+  });
+
+  it('formats YYYY-MM-DD as locale day string', () => {
+    const label = formatPeriodLabel('2024-03-15');
+    expect(label).toMatch(/2024/);
+    expect(label).toMatch(/15|Mar|March/);
+  });
+
+  it('returns unknown keys as-is', () => {
+    expect(formatPeriodLabel('foo')).toBe('foo');
+  });
+});
+
+// ─── aggregateByField with xGroupBy ──────────────────────────────────────────
+
+describe('aggregateByField with xGroupBy', () => {
+  const rows = [
+    { date: '2024-01-05', revenue: 100 },
+    { date: '2024-01-20', revenue: 200 },
+    { date: '2024-02-10', revenue: 300 },
+    { date: '2024-02-25', revenue: 150 },
+    { date: '2024-03-01', revenue: 50 },
+  ];
+
+  it('groups by month', () => {
+    const result = aggregateByField(rows, 'date', 'revenue', 'month');
+    expect(result.labels).toEqual(['2024-01', '2024-02', '2024-03']);
+    expect(result.values).toEqual([300, 450, 50]);
+  });
+
+  it('groups by year', () => {
+    const result = aggregateByField(rows, 'date', 'revenue', 'year');
+    expect(result.labels).toEqual(['2024']);
+    expect(result.values).toEqual([800]);
+  });
+
+  it('groups by quarter', () => {
+    const result = aggregateByField(rows, 'date', 'revenue', 'quarter');
+    expect(result.labels).toEqual(['2024-Q1']);
+    expect(result.values).toEqual([800]);
+  });
+
+  it('no grouping: raw values remain separate', () => {
+    const result = aggregateByField(rows, 'date', 'revenue');
+    expect(result.labels).toHaveLength(5);
   });
 });

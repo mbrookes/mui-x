@@ -76,6 +76,8 @@ export interface StudioWidgetConfig {
   yField2?: string;
   /** Group/series field for grouped or stacked bar charts */
   seriesField?: string;
+  /** Granularity to truncate the x-axis date/datetime field before grouping. */
+  xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   // KPI config
   kpiValueField?: string;
   kpiAggregation?: StudioKpiAggregation;

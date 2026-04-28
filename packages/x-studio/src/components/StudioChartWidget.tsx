@@ -19,6 +19,8 @@ import {
   prepareScatterData,
   applyRankToAggregated,
   applyRankToMultiSeries,
+  formatPeriodLabel,
+  type XGroupBy,
 } from './chartUtils';
 import { useStudioController, useStudioSelector } from '../context';
 import { formatNumber } from './numberFormat';
@@ -62,6 +64,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   const { dataSource, widget, height: heightProp } = props;
   const chartHeight = heightProp ?? CHART_MIN_HEIGHT;
   const { config } = widget;
+  const xGroupBy = config.xGroupBy as XGroupBy | undefined;
   const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
   const dataSources = useStudioSelector((state) => state.dataSources);
@@ -70,6 +73,17 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     'bar' | 'line' | 'pie'
   > | null>(null);
   const [hoveredAxis, setHoveredAxis] = React.useState<AxisItemIdentifier[] | null>(null);
+
+  /** Format x-axis label: apply human-readable period labels when xGroupBy is set. */
+  const formatLabel = React.useCallback(
+    (label: string | number): string => {
+      if (xGroupBy) {
+        return formatPeriodLabel(String(label));
+      }
+      return String(label);
+    },
+    [xGroupBy],
+  );
 
   // Check if this widget has an active cross-filter
   const activeCrossFilter = filters.find(
@@ -139,8 +153,8 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     if (!xField || !seriesField || !yField || enrichedRows.length === 0) {
       return null;
     }
-    return aggregateByTwoFields(enrichedRows, xField, seriesField, yField);
-  }, [enrichedRows, config.xField, config.seriesField, activeYFields]);
+    return aggregateByTwoFields(enrichedRows, xField, seriesField, yField, xGroupBy);
+  }, [enrichedRows, config.xField, config.seriesField, activeYFields, xGroupBy]);
 
   const chartData = React.useMemo(() => {
     const xField = config.xField;
@@ -150,9 +164,9 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     if (isMultiSeries) {
       return null; // handled by multiYData
     }
-    const raw = aggregateByField(enrichedRows, xField, activeYFields[0]);
+    const raw = aggregateByField(enrichedRows, xField, activeYFields[0], xGroupBy);
     return applyRankToAggregated(raw, widgetRankFilter);
-  }, [enrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter]);
+  }, [enrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter, xGroupBy]);
 
   // Multi-Y-field data (multiple explicit series)
   const multiYData = React.useMemo(() => {
@@ -160,9 +174,9 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     if (!xField || activeYFields.length < 2 || enrichedRows.length === 0) {
       return null;
     }
-    const raw = aggregateMultipleSeries(enrichedRows, xField, activeYFields);
+    const raw = aggregateMultipleSeries(enrichedRows, xField, activeYFields, xGroupBy);
     return applyRankToMultiSeries(raw, widgetRankFilter);
-  }, [enrichedRows, config.xField, activeYFields, widgetRankFilter]);
+  }, [enrichedRows, config.xField, activeYFields, widgetRankFilter, xGroupBy]);
 
   // Data for scatter charts
   const scatterData = React.useMemo(() => {
@@ -261,7 +275,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   if (isBar) {
     // Multi-Y-field path: each y-field is its own series
     if (multiYData && multiYData.labels.length > 0) {
-      const xAxisData = multiYData.labels.map(String);
+      const xAxisData = multiYData.labels.map(formatLabel);
       const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
       const isStacked =
         normalizedChartType === 'bar-stacked' ||
@@ -343,7 +357,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
               innerRadius,
               data: chartData.labels.map((label, i) => ({
                 id: i,
-                label: String(label),
+                label: formatLabel(label),
                 value: chartData.values[i],
               })),
               highlightScope: { highlight: 'item', fade: 'global' },
@@ -381,7 +395,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
 
   // seriesField line chart: one line per unique category value
   if (seriesFieldData && seriesFieldData.seriesNames.length > 0 && normalizedChartType === 'line') {
-    const xAxisData = seriesFieldData.labels.map(String);
+    const xAxisData = seriesFieldData.labels.map(formatLabel);
     const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
     const series = seriesFieldData.seriesNames.map((name) => ({
       id: String(name),
@@ -404,7 +418,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   }
 
   if (multiYData && multiYData.labels.length > 0 && isLineOrArea) {
-    const xAxisData = multiYData.labels.map(String);
+    const xAxisData = multiYData.labels.map(formatLabel);
     const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
     const isArea = normalizedChartType !== 'line';
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
@@ -459,7 +473,7 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
     );
   }
 
-  const xAxisData = chartData!.labels.map(String);
+  const xAxisData = chartData!.labels.map(formatLabel);
   const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
   const seriesLabel = yFieldDef?.label ?? activeYFields[0] ?? 'Value';
   const seriesValueFormatter = makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode);

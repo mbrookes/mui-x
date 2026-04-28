@@ -574,6 +574,30 @@ function ChartSetupPanel(props: { widgetId: string }) {
         isOptionEqualToValue={(option, value) => option.id === value.id}
       />
 
+      {/* Group by — shown only when x field is a date/datetime type */}
+      {(selectedXField?.type === 'date' || selectedXField?.type === 'datetime') && (
+        <FormControl size="small" fullWidth>
+          <InputLabel>Group by</InputLabel>
+          <Select
+            label="Group by"
+            value={config.xGroupBy ?? ''}
+            onChange={(e) => {
+              const val = e.target.value as string;
+              controller.updateWidgetConfig(widgetId, {
+                xGroupBy: val ? (val as 'day' | 'week' | 'month' | 'quarter' | 'year') : undefined,
+              });
+            }}
+          >
+            <MenuItem value="">None (raw values)</MenuItem>
+            <MenuItem value="day">Day</MenuItem>
+            <MenuItem value="week">Week</MenuItem>
+            <MenuItem value="month">Month</MenuItem>
+            <MenuItem value="quarter">Quarter</MenuItem>
+            <MenuItem value="year">Year</MenuItem>
+          </Select>
+        </FormControl>
+      )}
+
       {/* Y series */}
       <div>
         <Stack direction="row" sx={{ alignItems: 'center', mb: 0.5 }}>

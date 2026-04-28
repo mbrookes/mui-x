@@ -130,8 +130,6 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
     <FilterCard
       title={cardTitle}
       summary={summarizeFilter(filter)}
-      mode={currentMode}
-      onModeChange={handleModeChange}
       onRemove={() => onRemove(filter.id)}
     >
       <FilterBody
@@ -142,6 +140,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
         activeOperator2={activeOperator2}
         fieldValues={fieldValues}
         availableSeries={availableSeries}
+        onModeChange={handleModeChange}
         onChange={handleChange}
       />
     </FilterCard>

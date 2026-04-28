@@ -106,7 +106,7 @@ function ChartTypePicker({
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(5, 1fr)',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(36px, 1fr))',
           gap: 0.5,
         }}
       >

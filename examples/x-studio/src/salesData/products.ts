@@ -7,7 +7,7 @@ export const productsSource: StudioDataSource = {
   label: 'Products',
   fields: [
     { id: 'id', label: 'Product ID', type: 'string', hidden: true },
-    { id: 'name', label: 'Product Name', type: 'string' },
+    { id: 'product', label: 'Product Name', type: 'string' },
     { id: 'category', label: 'Category', type: 'string' },
     { id: 'price', label: 'Unit Price', type: 'number', format: 'currency' },
     { id: 'cost', label: 'Unit Cost', type: 'number', format: 'currency' },
@@ -17,7 +17,7 @@ export const productsSource: StudioDataSource = {
   rows: [
     {
       id: 'PRD-001',
-      name: 'Laptop Pro 15"',
+      product: 'Laptop Pro 15"',
       category: 'Electronics',
       price: 1299,
       cost: 850,
@@ -26,7 +26,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-002',
-      name: 'Wireless Mouse',
+      product: 'Wireless Mouse',
       category: 'Electronics',
       price: 49,
       cost: 18,
@@ -35,7 +35,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-003',
-      name: 'USB-C Hub',
+      product: 'USB-C Hub',
       category: 'Electronics',
       price: 79,
       cost: 32,
@@ -44,7 +44,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-004',
-      name: 'Mechanical Keyboard',
+      product: 'Mechanical Keyboard',
       category: 'Electronics',
       price: 149,
       cost: 65,
@@ -53,7 +53,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-005',
-      name: 'Monitor 27" 4K',
+      product: 'Monitor 27" 4K',
       category: 'Electronics',
       price: 449,
       cost: 280,
@@ -62,7 +62,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-006',
-      name: 'Office Chair Ergonomic',
+      product: 'Office Chair Ergonomic',
       category: 'Furniture',
       price: 399,
       cost: 180,
@@ -71,7 +71,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-007',
-      name: 'Standing Desk',
+      product: 'Standing Desk',
       category: 'Furniture',
       price: 599,
       cost: 320,
@@ -80,7 +80,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-008',
-      name: 'Desk Lamp LED',
+      product: 'Desk Lamp LED',
       category: 'Furniture',
       price: 69,
       cost: 25,
@@ -89,7 +89,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-009',
-      name: 'Webcam HD',
+      product: 'Webcam HD',
       category: 'Electronics',
       price: 89,
       cost: 38,
@@ -98,7 +98,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-010',
-      name: 'Headphones Noise-Cancel',
+      product: 'Headphones Noise-Cancel',
       category: 'Electronics',
       price: 299,
       cost: 145,
@@ -107,7 +107,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-011',
-      name: 'Printer Laser',
+      product: 'Printer Laser',
       category: 'Electronics',
       price: 349,
       cost: 210,
@@ -116,7 +116,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-012',
-      name: 'Paper A4 (500 sheets)',
+      product: 'Paper A4 (500 sheets)',
       category: 'Supplies',
       price: 12,
       cost: 6,
@@ -125,7 +125,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-013',
-      name: 'Ink Cartridge Black',
+      product: 'Ink Cartridge Black',
       category: 'Supplies',
       price: 35,
       cost: 12,
@@ -134,7 +134,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-014',
-      name: 'Ink Cartridge Color',
+      product: 'Ink Cartridge Color',
       category: 'Supplies',
       price: 45,
       cost: 16,
@@ -143,7 +143,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-015',
-      name: 'Notebook Set (3-pack)',
+      product: 'Notebook Set (3-pack)',
       category: 'Supplies',
       price: 18,
       cost: 7,
@@ -152,7 +152,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-016',
-      name: 'Whiteboard 48x36"',
+      product: 'Whiteboard 48x36"',
       category: 'Furniture',
       price: 129,
       cost: 55,
@@ -161,7 +161,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-017',
-      name: 'Filing Cabinet',
+      product: 'Filing Cabinet',
       category: 'Furniture',
       price: 249,
       cost: 120,
@@ -170,7 +170,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-018',
-      name: 'External SSD 1TB',
+      product: 'External SSD 1TB',
       category: 'Electronics',
       price: 119,
       cost: 65,
@@ -179,7 +179,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-019',
-      name: 'Tablet 10"',
+      product: 'Tablet 10"',
       category: 'Electronics',
       price: 449,
       cost: 290,
@@ -188,7 +188,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-020',
-      name: 'Docking Station',
+      product: 'Docking Station',
       category: 'Electronics',
       price: 199,
       cost: 95,
@@ -197,7 +197,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-021',
-      name: 'Cloud Storage 1TB (Annual)',
+      product: 'Cloud Storage 1TB (Annual)',
       category: 'Software',
       price: 99,
       cost: 15,
@@ -206,7 +206,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-022',
-      name: 'Antivirus Suite (1-year)',
+      product: 'Antivirus Suite (1-year)',
       category: 'Software',
       price: 49,
       cost: 8,
@@ -215,7 +215,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-023',
-      name: 'Project Management Tool',
+      product: 'Project Management Tool',
       category: 'Software',
       price: 199,
       cost: 38,
@@ -224,7 +224,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-024',
-      name: 'VPN Service (Annual)',
+      product: 'VPN Service (Annual)',
       category: 'Software',
       price: 79,
       cost: 12,
@@ -233,7 +233,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-025',
-      name: 'Office Suite License',
+      product: 'Office Suite License',
       category: 'Software',
       price: 299,
       cost: 60,
@@ -242,7 +242,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-026',
-      name: 'IT Support - Basic (annual)',
+      product: 'IT Support - Basic (annual)',
       category: 'Services',
       price: 599,
       cost: 150,
@@ -251,7 +251,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-027',
-      name: 'IT Support - Premium (annual)',
+      product: 'IT Support - Premium (annual)',
       category: 'Services',
       price: 1499,
       cost: 400,
@@ -260,7 +260,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-028',
-      name: 'Network Setup Service',
+      product: 'Network Setup Service',
       category: 'Services',
       price: 899,
       cost: 250,
@@ -269,7 +269,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-029',
-      name: 'Data Backup Service (annual)',
+      product: 'Data Backup Service (annual)',
       category: 'Services',
       price: 249,
       cost: 60,
@@ -278,7 +278,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-030',
-      name: 'Cloud Migration Package',
+      product: 'Cloud Migration Package',
       category: 'Services',
       price: 2499,
       cost: 700,
@@ -287,7 +287,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-031',
-      name: 'Network Switch 24-Port',
+      product: 'Network Switch 24-Port',
       category: 'Networking',
       price: 249,
       cost: 110,
@@ -296,7 +296,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-032',
-      name: 'WiFi Router Enterprise',
+      product: 'WiFi Router Enterprise',
       category: 'Networking',
       price: 349,
       cost: 160,
@@ -305,7 +305,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-033',
-      name: 'Ethernet Cable Cat6 (100m)',
+      product: 'Ethernet Cable Cat6 (100m)',
       category: 'Networking',
       price: 39,
       cost: 12,
@@ -314,7 +314,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-034',
-      name: 'Patch Panel 24-Port',
+      product: 'Patch Panel 24-Port',
       category: 'Networking',
       price: 129,
       cost: 55,
@@ -323,7 +323,7 @@ export const productsSource: StudioDataSource = {
     },
     {
       id: 'PRD-035',
-      name: 'Network Rack 12U',
+      product: 'Network Rack 12U',
       category: 'Networking',
       price: 349,
       cost: 140,

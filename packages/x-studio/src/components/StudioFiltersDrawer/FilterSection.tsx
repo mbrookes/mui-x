@@ -2,6 +2,7 @@
 import * as React from 'react';
 import {
   Box,
+  Button,
   Collapse,
   IconButton,
   Stack,
@@ -15,6 +16,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useStudioController } from '../../context';
 import type { StudioDataSource, StudioFilterState } from '../../models';
 import type { FieldOption, SimpleField } from './filterDrawerTypes';
+import type { AvailableSeries } from './RankFilterInput';
 import { PageFilterRow } from './PageFilterRow';
 import { WidgetFilterRow } from './WidgetFilterRow';
 
@@ -25,10 +27,12 @@ interface CollapsibleSectionProps {
   children: React.ReactNode;
   onAdd: () => void;
   addDisabled?: boolean;
+  /** Optional secondary action shown next to the "+" button. */
+  secondaryAction?: React.ReactNode;
 }
 
 function CollapsibleSection(props: CollapsibleSectionProps) {
-  const { title, children, onAdd, addDisabled } = props;
+  const { title, children, onAdd, addDisabled, secondaryAction } = props;
   const [expanded, setExpanded] = React.useState(true);
 
   return (
@@ -43,6 +47,7 @@ function CollapsibleSection(props: CollapsibleSectionProps) {
         <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
           {title}
         </Typography>
+        {secondaryAction}
         <Tooltip title="Add filter">
           <span>
             <IconButton
@@ -104,8 +109,6 @@ export function FilterSection(props: FilterSectionProps) {
 
 // ─── Widget filter section ────────────────────────────────────────────────────
 
-import type { AvailableSeries } from './RankFilterInput';
-
 export interface WidgetFilterSectionProps {
   title: string;
   filters: StudioFilterState[];
@@ -118,6 +121,11 @@ export interface WidgetFilterSectionProps {
   chartYFieldLabel?: string;
   /** Available series for multi-series charts — enables "Rank by" selector in rank mode. */
   chartAvailableSeries?: AvailableSeries[];
+  /**
+   * When provided (chart widget with an xField), a "Rank" shortcut button is shown
+   * in the section header to quickly add a pre-configured rank filter.
+   */
+  onAddRankFilter?: () => void;
 }
 
 export function WidgetFilterSection(props: WidgetFilterSectionProps) {
@@ -132,11 +140,33 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
     chartXField,
     chartYFieldLabel,
     chartAvailableSeries,
+    onAddRankFilter,
   } = props;
   const hasAnySources = Object.keys(dataSources).length > 0;
 
+  const rankShortcut =
+    onAddRankFilter != null ? (
+      <Tooltip title="Add rank filter">
+        <Button
+          size="small"
+          sx={{ minWidth: 0, fontSize: 11, px: 0.75, py: 0.25, mr: 0.5 }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddRankFilter();
+          }}
+        >
+          Rank
+        </Button>
+      </Tooltip>
+    ) : undefined;
+
   return (
-    <CollapsibleSection title={title} onAdd={onAddFilter} addDisabled={!hasAnySources}>
+    <CollapsibleSection
+      title={title}
+      onAdd={onAddFilter}
+      addDisabled={!hasAnySources}
+      secondaryAction={rankShortcut}
+    >
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 0.5 }}>
           No filters applied.

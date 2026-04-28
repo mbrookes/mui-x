@@ -1,8 +1,8 @@
 'use client';
 import * as React from 'react';
 import {
+  Autocomplete,
   Box,
-  Collapse,
   FormControl,
   IconButton,
   InputLabel,
@@ -10,17 +10,16 @@ import {
   MenuItem,
   Select,
   Stack,
-  Typography,
+  TextField,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useStudioController } from '../../context';
 import type { StudioFilterState } from '../../models';
-import type { FieldOption, SimpleField } from './filterDrawerTypes';
-import { getOperators, summarizeFilter, defaultValueForMode } from './filterDrawerUtils';
+import type { FieldOption, FilterMode, SimpleField } from './filterDrawerTypes';
+import { getOperators, summarizeFilter, buildModeReset, defaultValueForMode } from './filterDrawerUtils';
 import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
+import { FilterCard } from './FilterCard';
 import { FilterBody } from './FilterBody';
 
 export interface PageFilterRowProps {
@@ -33,7 +32,6 @@ export interface PageFilterRowProps {
 export function PageFilterRow(props: PageFilterRowProps) {
   const { fields, fieldOptions, filter, onRemove } = props;
   const controller = useStudioController();
-  const [expanded, setExpanded] = React.useState(true);
 
   const hasField = !!filter.field;
   const currentField = fields.find((f) => f.id === filter.field);
@@ -50,10 +48,14 @@ export function PageFilterRow(props: PageFilterRowProps) {
   const fieldLabel = currentField?.label ?? filter.field;
 
   const handleChange = (changes: Partial<StudioFilterState>) => {
-    controller.addFilter({ ...filter, ...changes });
+    controller.updateFilter(filter.id, changes);
   };
 
-  // Phase 1: no field selected yet — show mode toggle then picker grouped by source
+  const handleModeChange = (newMode: FilterMode) => {
+    handleChange(buildModeReset(newMode));
+  };
+
+  // Phase 1: no field selected yet — show mode toggle + field picker
   if (!hasField) {
     const currentMode = filter.filterMode ?? 'condition';
     const pickableOptions =
@@ -62,17 +64,6 @@ export function PageFilterRow(props: PageFilterRowProps) {
       (acc[opt.sourceLabel] ??= []).push(opt);
       return acc;
     }, {});
-
-    const handleModeChange = (newMode: typeof currentMode) => {
-      handleChange({
-        filterMode: newMode,
-        value: defaultValueForMode(newMode),
-        rankDirection: newMode === 'rank' ? 'top' : undefined,
-        operator2: undefined,
-        value2: undefined,
-        conjunction: undefined,
-      });
-    };
 
     return (
       <Stack spacing={1}>
@@ -115,56 +106,25 @@ export function PageFilterRow(props: PageFilterRowProps) {
     );
   }
 
-  // Phase 2: field selected — collapsible filter card
+  // Phase 2: field selected — collapsible filter card with mode toggle in header
   return (
-    <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          px: 0.5,
-          py: 0.25,
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-        onClick={() => setExpanded((prev) => !prev)}
-      >
-        <IconButton size="small" tabIndex={-1}>
-          {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-        </IconButton>
-        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-          <Typography variant="body2" noWrap sx={{ fontWeight: 'medium' }}>
-            {fieldLabel}
-          </Typography>
-          {!expanded && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              {summarizeFilter(filter)}
-            </Typography>
-          )}
-        </Box>
-        <IconButton
-          size="small"
-          onClick={(event) => {
-            event.stopPropagation();
-            onRemove(filter.id);
-          }}
-          aria-label="Remove filter"
-        >
-          <CloseIcon fontSize="small" />
-        </IconButton>
-      </Box>
-
-      <Collapse in={expanded}>
-        <FilterBody
-          filter={filter}
-          fieldType={fieldType}
-          operators={operators}
-          activeOperator={activeOperator}
-          activeOperator2={activeOperator2}
-          fieldValues={fieldValues}
-          onChange={handleChange}
-        />
-      </Collapse>
-    </Box>
+    <FilterCard
+      title={fieldLabel}
+      summary={summarizeFilter(filter)}
+      mode={filter.filterMode ?? 'condition'}
+      onModeChange={handleModeChange}
+      onRemove={() => onRemove(filter.id)}
+    >
+      <FilterBody
+        filter={filter}
+        fieldType={fieldType}
+        operators={operators}
+        activeOperator={activeOperator}
+        activeOperator2={activeOperator2}
+        fieldValues={fieldValues}
+        onChange={handleChange}
+      />
+    </FilterCard>
   );
 }
+

@@ -3,14 +3,14 @@ import * as React from 'react';
 import {
   Divider,
   FormControl,
-  FormControlLabel,
+  InputAdornment,
   InputLabel,
   MenuItem,
-  Radio,
-  RadioGroup,
   Select,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import type { StudioFilterState } from '../../models';
 
@@ -43,36 +43,40 @@ export function RankFilterInput({
 
   return (
     <Stack spacing={1}>
-      <RadioGroup
-        row
-        value={direction}
-        onChange={(event) => onChange({ rankDirection: event.target.value as 'top' | 'bottom' })}
-        sx={{ gap: 1, justifyContent: 'center' }}
-      >
-        <FormControlLabel
-          value="top"
-          control={<Radio size="small" sx={{ p: 0.5 }} />}
-          label="Top"
-          sx={{ '& .MuiFormControlLabel-label': { fontSize: 13 } }}
+      {/* Compact inline row: [Top | Bottom] [N items] */}
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={direction}
+          onChange={(_event, val) => {
+            if (val) {
+              onChange({ rankDirection: val as 'top' | 'bottom' });
+            }
+          }}
+        >
+          <ToggleButton value="top" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: 'none' }}>
+            Top
+          </ToggleButton>
+          <ToggleButton value="bottom" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: 'none' }}>
+            Bottom
+          </ToggleButton>
+        </ToggleButtonGroup>
+        <TextField
+          size="small"
+          type="number"
+          value={n ?? ''}
+          onChange={(event) =>
+            onChange({ value: Math.max(1, parseInt(event.target.value, 10) || 1) })
+          }
+          slotProps={{
+            htmlInput: { min: 1, style: { width: 48, textAlign: 'center' } },
+            input: { endAdornment: <InputAdornment position="end" sx={{ mr: -0.5, fontSize: 12 }}>items</InputAdornment> },
+          }}
+          sx={{ width: 100 }}
         />
-        <FormControlLabel
-          value="bottom"
-          control={<Radio size="small" sx={{ p: 0.5 }} />}
-          label="Bottom"
-          sx={{ '& .MuiFormControlLabel-label': { fontSize: 13 } }}
-        />
-      </RadioGroup>
-      <TextField
-        size="small"
-        label="Count"
-        type="number"
-        value={n ?? ''}
-        onChange={(event) =>
-          onChange({ value: Math.max(1, parseInt(event.target.value, 10) || 1) })
-        }
-        slotProps={{ htmlInput: { min: 1 } }}
-        fullWidth
-      />
+      </Stack>
+
       {showRankBy && (
         <FormControl size="small" fullWidth>
           <InputLabel>Rank by</InputLabel>

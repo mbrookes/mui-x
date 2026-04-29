@@ -12,12 +12,46 @@ import {
   useStudioController,
   useStudioSelector,
 } from '../context';
-import type { StudioController } from '../store';
+import type { StudioMode, StudioState } from '../models';
+import { StudioController } from '../store';
+import type { SerializedStudioState, MigrationResult } from '../store/statePersistence';
 import { DrawerPanel } from './DrawerPanel';
 import { StudioCanvas } from './StudioCanvas';
 import { StudioDataDrawer } from './StudioDataDrawer';
 import { StudioComposeDrawer } from './StudioComposeDrawer';
 import { StudioFiltersDrawer } from './StudioFiltersDrawer';
+
+// ── Public imperative handle ──────────────────────────────────────────────────
+
+/**
+ * Imperative handle exposed via `ref` on the `Studio` component.
+ * Obtain it with `React.useRef<StudioHandle>()`.
+ */
+export interface StudioHandle {
+  /** Undo the last action. */
+  undo(): void;
+  /** Redo the last undone action. */
+  redo(): void;
+  /** Returns true if there is an action to undo. */
+  canUndo(): boolean;
+  /** Returns true if there is an action to redo. */
+  canRedo(): boolean;
+  /** Switch between `'edit'` and `'view'` mode. */
+  setMode(mode: StudioMode): void;
+  /** Set the active page by id. */
+  setActivePage(pageId: string): void;
+  /** Return a snapshot of the current studio state. */
+  getState(): StudioState;
+  /** Serialise the current state to a plain JSON-safe object. */
+  serializeState(): SerializedStudioState;
+  /**
+   * Load a previously serialised state, applying schema migrations as needed.
+   * @returns A `MigrationResult` describing success or validation errors.
+   */
+  loadSerializedState(data: unknown): MigrationResult;
+}
+
+// ── Slots / Props ─────────────────────────────────────────────────────────────
 
 export interface StudioSlots {
   dataDrawer?: React.ReactNode;
@@ -27,8 +61,27 @@ export interface StudioSlots {
 }
 
 export interface StudioProps extends StudioSlots {
-  controller: StudioController;
+  /**
+   * Initial state used to seed the studio at mount.
+   * Treated like `defaultValue` — changes after mount are ignored.
+   * To replace state programmatically, call `ref.loadSerializedState()`.
+   */
+  initialState?: Partial<StudioState>;
+  /**
+   * Called on every state change. Use this to sync derived values
+   * (mode, title, pages) into your own React state for toolbar rendering.
+   * `canUndo` / `canRedo` are not part of `StudioState`; read them from the ref:
+   * ```ts
+   * onStateChange={(state) => {
+   *   setMode(state.mode);
+   *   setCanUndo(ref.current?.canUndo() ?? false);
+   * }}
+   * ```
+   */
+  onStateChange?: (state: StudioState) => void;
 }
+
+// ── Internal content (needs context) ─────────────────────────────────────────
 
 function StudioContent(props: StudioSlots) {
   const { canvas, composeDrawer, dataDrawer, filtersDrawer } = props;
@@ -150,12 +203,65 @@ function StudioContent(props: StudioSlots) {
   );
 }
 
-export function Studio(props: StudioProps) {
-  const { controller, ...slots } = props;
+// ── Public component ──────────────────────────────────────────────────────────
+
+/**
+ * The Studio dashboard builder component.
+ *
+ * @example
+ * ```tsx
+ * const studioRef = React.useRef<StudioHandle>(null);
+ *
+ * <Studio
+ *   ref={studioRef}
+ *   initialState={INITIAL_STATE}
+ *   onStateChange={(state) => {
+ *     setMode(state.mode);
+ *     setCanUndo(studioRef.current?.canUndo() ?? false);
+ *   }}
+ * />
+ * ```
+ */
+export const Studio = React.forwardRef<StudioHandle, StudioProps>(function Studio(props, ref) {
+  const { initialState, onStateChange, ...slots } = props;
+
+  // Controller is created once at mount and never replaced.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const controller = React.useMemo(() => new StudioController(initialState), []);
+
+  // Wire onStateChange — re-subscribe whenever the callback identity changes.
+  const onStateChangeRef = React.useRef(onStateChange);
+  React.useLayoutEffect(() => {
+    onStateChangeRef.current = onStateChange;
+  });
+
+  React.useEffect(() => {
+    return controller.subscribe((state) => {
+      onStateChangeRef.current?.(state);
+    });
+  }, [controller]);
+
+  // Expose imperative handle to the parent via ref.
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      undo: () => controller.undo(),
+      redo: () => controller.redo(),
+      canUndo: () => controller.canUndo(),
+      canRedo: () => controller.canRedo(),
+      setMode: (mode) => controller.setMode(mode),
+      setActivePage: (pageId) => controller.setActivePage(pageId),
+      getState: () => controller.getState(),
+      serializeState: () => controller.serializeState(),
+      loadSerializedState: (data) => controller.loadSerializedState(data),
+    }),
+    [controller],
+  );
 
   return (
     <StudioProvider controller={controller}>
       <StudioContent {...slots} />
     </StudioProvider>
   );
-}
+});
+

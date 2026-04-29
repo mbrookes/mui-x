@@ -240,6 +240,7 @@ export function StudioCanvas() {
           <Box
             sx={{
               display: 'flex',
+              flexWrap: mode === 'edit' ? 'nowrap' : 'wrap',
               gap: mode === 'edit' ? 0 : 1,
               width: '100%',
               alignItems: 'stretch',
@@ -257,7 +258,7 @@ export function StudioCanvas() {
             )}
             {row.map((widgetId, colIndex) => (
               <React.Fragment key={widgetId}>
-                <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ flex: 1, minWidth: mode === 'edit' ? 0 : 280, display: 'flex', flexDirection: 'column' }}>
                   <StudioWidgetCard
                     widgetId={widgetId}
                     isFirstRow={rowIndex === 0}

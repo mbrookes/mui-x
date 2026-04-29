@@ -97,6 +97,7 @@ Principles:
 
 - Edit mode: create/configure/rearrange widgets and dashboard settings.
 - View mode: read-only composition with interactive filters and cross-filtering.
+- AG Studio docs: [Modes and Layout](https://www.ag-grid.com/studio/react/modes-layout/)
 
 ### 6.2 Core regions
 
@@ -108,6 +109,7 @@ Principles:
   - Filters drawer: page/widget/cross-filter configuration.
 - Optional theming surface for dashboard and widget styling.
 - Side surfaces are dismissible and can be toggled via top bar or keyboard.
+- AG Studio docs: [Panels](https://www.ag-grid.com/studio/react/modes-layout/#panels) · [Configuring Panels](https://www.ag-grid.com/studio/react/modes-layout/#configuring-panels)
 
 ### 6.3 Studio objects
 
@@ -117,6 +119,7 @@ Principles:
 - Data source.
 - Field, measure, calculated field.
 - Filter (page/widget/cross-filter).
+- AG Studio docs: [Studio Interface Overview](https://www.ag-grid.com/studio/react/studio-interface/) · [Data](https://www.ag-grid.com/studio/react/data/) · [Modes and Layout](https://www.ag-grid.com/studio/react/modes-layout/)
 
 ## 7. Detailed requirements
 
@@ -128,6 +131,7 @@ Principles:
 - Scope: MVP
 - Description: Main shell MUST expose dedicated Data, Compose, and Filters authoring surfaces. For this clone, these surfaces use collapsible drawers.
 - Implementation notes: Material UI Drawer components; drawers toggled via top bar buttons or keyboard shortcuts.
+- AG Studio docs: [Panels](https://www.ag-grid.com/studio/react/modes-layout/#panels) · [Configuring Panels](https://www.ag-grid.com/studio/react/modes-layout/#configuring-panels) · [Properties Reference (`panels`)](https://www.ag-grid.com/studio/react/studio-properties/#reference-layout)
 - Acceptance criteria:
   1. Each drawer (Data, Compose, Filters) can be opened and dismissed independently.
   2. Drawer state persists per session.
@@ -139,6 +143,7 @@ Principles:
 - Scope: MVP
 - Description: Canvas MUST support configurable multi-widget layout with drag, resize, reorder, and reflow behaviors. The clone may use a structured layout engine internally, but the user experience must remain dashboard-like rather than pane-manager-like.
 - Implementation notes: layout engine may combine grid packing and controlled resize handles; preserve predictable widget movement and responsive reflow.
+- AG Studio docs: [Layout Properties](https://www.ag-grid.com/studio/react/modes-layout/#layout-properties) · [Page Dimensions](https://www.ag-grid.com/studio/react/modes-layout/#page-dimensions) · [Properties Reference (`layout`)](https://www.ag-grid.com/studio/react/studio-properties/#reference-layout)
 - Acceptance criteria:
   1. User can drag widgets to new positions and see live placement feedback.
   2. User can resize widgets with enforced minimum dimensions by widget type.
@@ -151,6 +156,7 @@ Principles:
 - Scope: MVP
 - Description: Canvas layout presets and configurable layout options.
 - Implementation notes: preset selector in canvas toolbar or context menu.
+- AG Studio docs: [Layout Properties](https://www.ag-grid.com/studio/react/modes-layout/#layout-properties) · [Customising Panel Content (`overrides`)](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content)
 - Acceptance criteria:
   1. At least 2 presets available.
   2. Applying preset reconfigures widget panes without data loss.
@@ -161,6 +167,7 @@ Principles:
 - Scope: MVP
 - Description: Keyboard-accessible canvas layout controls.
 - Implementation notes: focusable widget move/resize handles or equivalent controls; arrow keys adjust position/size increments; ARIA values reflect layout state where applicable.
+- AG Studio docs: [Modes and Layout](https://www.ag-grid.com/studio/react/modes-layout/)
 - Acceptance criteria:
   1. Keyboard user can move focus to layout controls without a pointer.
   2. Arrow keys or equivalent commands adjust layout by fixed increments.
@@ -172,6 +179,7 @@ Principles:
 - Scope: Parity+
 - Description: Drawer behavior on narrower viewports and mobile.
 - Implementation notes: drawers collapse to overlay modals on narrow viewports; canvas remains interactive.
+- AG Studio docs: [Configuring Panels](https://www.ag-grid.com/studio/react/modes-layout/#configuring-panels)
 - Acceptance criteria:
   1. Drawers remain accessible via toggle buttons on narrow screens.
   2. Drawer overlay does not block critical canvas controls.
@@ -184,6 +192,7 @@ Principles:
 - Scope: MVP
 - Description: Canvas supports adding widgets from a library.
 - Implementation notes: drag from palette or click-to-add.
+- AG Studio docs: [Modes and Layout](https://www.ag-grid.com/studio/react/modes-layout/) · [Customising Panel Content (`overrides.widgetTypes`)](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content)
 - Acceptance criteria:
   1. New widget appears with default size and position.
   2. Widget receives focus after insertion.
@@ -194,6 +203,7 @@ Principles:
 - Scope: MVP
 - Description: Widgets can be moved and resized with snap behavior.
 - Implementation notes: drag-and-drop layout engine with snap increments and responsive reflow.
+- AG Studio docs: [Layout Properties](https://www.ag-grid.com/studio/react/modes-layout/#layout-properties) · [Page Dimensions](https://www.ag-grid.com/studio/react/modes-layout/#page-dimensions)
 - Acceptance criteria:
   1. Drag move updates position interactively.
   2. Resize handles enforce minimum dimensions by widget type.
@@ -206,6 +216,7 @@ Principles:
 - Scope: MVP
 - Description: Focus model for selected widget and contextual edit pane.
 - Implementation notes: selectedWidgetId in store; focus ring.
+- AG Studio docs: [Edit Panel](https://www.ag-grid.com/studio/react/modes-layout/#panels) · [Customising Panel Content](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content)
 - Acceptance criteria:
   1. Clicking widget selects it.
   2. Selected widget has visible focus state.
@@ -217,6 +228,7 @@ Principles:
 - Scope: Parity+
 - Description: Optional alignment guides and collision hints.
 - Implementation notes: guide overlays during drag/resize.
+- AG Studio docs: [Layout Properties](https://www.ag-grid.com/studio/react/modes-layout/#layout-properties)
 - Acceptance criteria:
   1. Alignment guides appear during manipulation.
   2. Guides disappear when interaction ends.
@@ -229,6 +241,7 @@ Principles:
 - Scope: MVP
 - Description: Provide widget gallery with core widget types.
 - Implementation notes: Material UI cards/list + category tabs.
+- AG Studio docs: [Customising Panel Content (`overrides.widgetTypes`)](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content)
 - Acceptance criteria:
   1. Widget categories are discoverable.
   2. User can insert a widget in <= 2 interactions.
@@ -240,6 +253,7 @@ Principles:
 - Scope: MVP
 - Description: KPI widget support for headline metrics.
 - Implementation notes: simple metric card widget with label, value, optional delta, formatting, and conditional styling.
+- AG Studio docs: [Customising Panel Content](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content) · [State](https://www.ag-grid.com/studio/react/state/)
 - Acceptance criteria:
   1. User can bind a KPI widget to a measure or computed metric.
   2. KPI value formatting can be configured without rebuilding the widget.
@@ -251,6 +265,7 @@ Principles:
 - Scope: MVP
 - Description: Widget actions: duplicate, delete, open settings.
 - Implementation notes: widget action bar with icon buttons.
+- AG Studio docs: [Customising Panel Content (`overrides.widgets`)](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content)
 - Acceptance criteria:
   1. Duplicate creates equivalent widget config with new ID.
   2. Delete removes widget and updates state.
@@ -261,6 +276,7 @@ Principles:
 - Scope: Parity+
 - Description: Widget action for download/export where supported.
 - Implementation notes: CSV export for table; image export for charts.
+- AG Studio docs: [Customising Panel Content (`overrides.widgets`)](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content)
 - Acceptance criteria:
   1. Export action disabled when unsupported.
   2. Export output matches visible widget content.
@@ -273,6 +289,7 @@ Principles:
 - Scope: MVP
 - Description: Table widget uses MUI X Data Grid with virtualization.
 - Implementation notes: DataGridPro or equivalent capability set.
+- AG Studio docs: [Customising Panel Content (`overrides.widgets`)](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content) · [State (`widgets[].type: 'grid'`)](https://www.ag-grid.com/studio/react/state/)
 - Acceptance criteria:
   1. Handles large row counts with smooth scroll.
   2. Supports sorting by visible columns.
@@ -283,6 +300,7 @@ Principles:
 - Scope: MVP
 - Description: Grouping and aggregation.
 - Implementation notes: grouping model + aggregation model persisted in widget state.
+- AG Studio docs: [State (widget `dataMapping`)](https://www.ag-grid.com/studio/react/state/) · [Data](https://www.ag-grid.com/studio/react/data/)
 - Acceptance criteria:
   1. Aggregated values update correctly on filter changes.
   2. Group expand/collapse is responsive.
@@ -293,6 +311,7 @@ Principles:
 - Scope: MVP
 - Description: Basic table formatting controls.
 - Implementation notes: column visibility, number/date formatting, alignment.
+- AG Studio docs: [Synchronous Data Sources (field definitions)](https://www.ag-grid.com/studio/react/data-sync/#fields) · [State](https://www.ag-grid.com/studio/react/state/)
 - Acceptance criteria:
   1. Formatting updates apply without re-adding widget.
   2. Formatting is saved in widget configuration.
@@ -303,6 +322,7 @@ Principles:
 - Scope: Parity+
 - Description: Pinned columns and advanced pivot-like views.
 - Implementation notes: optional advanced grid feature layer.
+- AG Studio docs: [Customising Panel Content (`overrides.widgets`)](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content)
 - Acceptance criteria:
   1. Pinned columns remain stable during horizontal scroll.
 
@@ -314,6 +334,7 @@ Principles:
 - Scope: MVP
 - Description: Core chart types: bar, line, pie/donut.
 - Implementation notes: MUI X Charts components with unified config model.
+- AG Studio docs: [State (`widgets[].type: 'chart'`)](https://www.ag-grid.com/studio/react/state/) · [Data](https://www.ag-grid.com/studio/react/data/)
 - Acceptance criteria:
   1. User maps x/category and y/measure fields.
   2. Chart renders valid result from mapped data.
@@ -324,6 +345,7 @@ Principles:
 - Scope: MVP
 - Description: Additional chart types: scatter, area, grouped bar/column, and stacked bar/column.
 - Implementation notes: chart type registry.
+- AG Studio docs: [Customising Panel Content (`overrides.widgets`)](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content) · [State](https://www.ag-grid.com/studio/react/state/)
 - Acceptance criteria:
   1. Type switch preserves compatible mappings.
   2. Incompatible mappings surface actionable validation.
@@ -334,6 +356,7 @@ Principles:
 - Scope: MVP
 - Description: Chart interactivity (tooltip, legend, highlight).
 - Implementation notes: configure chart interactions per widget.
+- AG Studio docs: [Customising Panel Content](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content)
 - Acceptance criteria:
   1. Tooltip shows mapped field values on hover.
   2. Series toggle/legend interaction works where applicable.
@@ -344,6 +367,7 @@ Principles:
 - Scope: Parity+
 - Description: Advanced chart family extensions (histogram, treemap, gauge, heatmap).
 - Implementation notes: extension layer that can support non-MUI-X-first charting for missing types.
+- AG Studio docs: [Customising Panel Content (`overrides.widgetTypes`)](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content)
 - Acceptance criteria:
   1. Each added chart type follows common config and state schema.
 
@@ -355,6 +379,7 @@ Principles:
 - Scope: MVP
 - Description: Support one or more data sources with typed fields.
 - Implementation notes: normalized source registry and field metadata.
+- AG Studio docs: [Data Overview](https://www.ag-grid.com/studio/react/data/) · [Synchronous Data Sources](https://www.ag-grid.com/studio/react/data-sync/) · [Properties Reference (`data`)](https://www.ag-grid.com/studio/react/studio-properties/#reference-data)
 - Acceptance criteria:
   1. Data panel lists sources and fields.
   2. Widgets can bind to source fields.
@@ -365,6 +390,7 @@ Principles:
 - Scope: MVP
 - Description: Relationship support across sources.
 - Implementation notes: relationship config with validation for join paths.
+- AG Studio docs: [Relationships](https://www.ag-grid.com/studio/react/data/#relationships) · [Data Overview](https://www.ag-grid.com/studio/react/data/)
 - Acceptance criteria:
   1. Related fields can be used together when relationship exists.
   2. Invalid combinations produce clear error.
@@ -375,6 +401,7 @@ Principles:
 - Scope: MVP
 - Description: Calculated fields and measures.
 - Implementation notes: expression parser/evaluator for row-level and aggregate-level logic; support computed columns and expressions aligned with public AG Studio positioning.
+- AG Studio docs: [Data Overview (`expressionFields`)](https://www.ag-grid.com/studio/react/data/) · [Synchronous Data Sources (field definitions)](https://www.ag-grid.com/studio/react/data-sync/#fields)
 - Acceptance criteria:
   1. Expression validation catches syntax and type errors.
   2. Computed values update on source/filter changes.
@@ -385,6 +412,7 @@ Principles:
 - Scope: Parity+
 - Description: Async source loading and shared data engine abstraction.
 - Implementation notes: cache layer and refresh lifecycle hooks.
+- AG Studio docs: [Asynchronous Data Sources](https://www.ag-grid.com/studio/react/data-async/) · [Shared Data Engine](https://www.ag-grid.com/studio/react/data-engine/) · [API Reference (`api.reload()`)](https://www.ag-grid.com/studio/react/studio-api/#reference-data)
 - Acceptance criteria:
   1. Widgets display loading and error states.
   2. Repeated source requests are deduplicated.
@@ -397,6 +425,7 @@ Principles:
 - Scope: MVP
 - Description: Page-level filters and widget-level filters.
 - Implementation notes: filter store with scope tagging and field/operator/value model.
+- AG Studio docs: [Panels (Filters Panel)](https://www.ag-grid.com/studio/react/modes-layout/#panels) · [Configuring Panels](https://www.ag-grid.com/studio/react/modes-layout/#configuring-panels)
 - Acceptance criteria:
   1. Page filters affect all linked widgets.
   2. Widget filters only affect that widget.
@@ -407,6 +436,7 @@ Principles:
 - Scope: MVP
 - Description: Cross-filter interactions from chart/grid selections.
 - Implementation notes: interaction events emit filter intents with source widget ID.
+- AG Studio docs: [Panels (Filters Panel)](https://www.ag-grid.com/studio/react/modes-layout/#panels) · [Events Reference](https://www.ag-grid.com/studio/react/studio-events/)
 - Acceptance criteria:
   1. Selecting visual element updates target widgets according to mode.
   2. Clear action removes active cross-filter.
@@ -417,6 +447,7 @@ Principles:
 - Scope: MVP
 - Description: Filter panel visibility of active filters and provenance.
 - Implementation notes: list active filters with source and scope.
+- AG Studio docs: [Panels (Filters Panel)](https://www.ag-grid.com/studio/react/modes-layout/#panels)
 - Acceptance criteria:
   1. User can inspect and remove any active filter.
 
@@ -428,6 +459,7 @@ Principles:
 - Scope: MVP
 - Description: Contextual edit panel sections: Setup and Format.
 - Implementation notes: dynamic panel content keyed by selected widget type.
+- AG Studio docs: [Panels (Edit Panel)](https://www.ag-grid.com/studio/react/modes-layout/#panels) · [Customising Panel Content (`overrides`)](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content)
 - Acceptance criteria:
   1. Setup section controls data mapping.
   2. Format section controls visual style.
@@ -438,6 +470,7 @@ Principles:
 - Scope: MVP
 - Description: Validation UX in setup forms.
 - Implementation notes: immediate inline validation and submit guards.
+- AG Studio docs: [Studio Interface (errors)](https://www.ag-grid.com/studio/react/studio-interface/#studio-errors) · [Events Reference (`onErrorRaised`)](https://www.ag-grid.com/studio/react/studio-events/)
 - Acceptance criteria:
   1. Invalid config states are clearly explained.
   2. User is guided to fix errors.
@@ -448,6 +481,7 @@ Principles:
 - Scope: Parity+
 - Description: Field capability hints and presets.
 - Implementation notes: contextual suggestions based on field type.
+- AG Studio docs: [Synchronous Data Sources (field definitions)](https://www.ag-grid.com/studio/react/data-sync/#fields) · [Customising Panel Content](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content)
 - Acceptance criteria:
   1. Suggested mappings reduce invalid config attempts.
 
@@ -457,6 +491,7 @@ Principles:
 - Scope: MVP
 - Description: Theming controls for dashboard and widget styling.
 - Implementation notes: theme section covers palette, typography, spacing, surface styling, and AG Grid-compatible theme token mapping where possible.
+- AG Studio docs: [Theming](https://www.ag-grid.com/studio/react/theming/) · [Theme Reference](https://www.ag-grid.com/studio/react/studio-theme/) · [Properties Reference (`theme`)](https://www.ag-grid.com/studio/react/studio-properties/#reference-theme)
 - Acceptance criteria:
   1. User can adjust dashboard-level theme settings without editing source code.
   2. Theme changes propagate consistently across grid, chart, and KPI widgets.
@@ -470,6 +505,7 @@ Principles:
 - Scope: MVP
 - Description: Full studio state is serializable and restorable.
 - Implementation notes: public controller/state API on Studio instance/controller; exact method names may differ from AG Studio.
+- AG Studio docs: [State](https://www.ag-grid.com/studio/react/state/) · [API Reference (`getState` / `setState`)](https://www.ag-grid.com/studio/react/studio-api/#reference-state) · [Properties Reference (`initialState`)](https://www.ag-grid.com/studio/react/studio-properties/#reference-state)
 - Acceptance criteria:
   1. getState returns pages, layout, widgets, mappings, filters, settings.
   2. setState restores equivalent visual and interaction state.
@@ -480,6 +516,7 @@ Principles:
 - Scope: MVP
 - Description: Stable schema with versioned migrations.
 - Implementation notes: schemaVersion + migration pipeline.
+- AG Studio docs: [State](https://www.ag-grid.com/studio/react/state/) · [Studio State Reference (`AgReportState`)](https://www.ag-grid.com/studio/react/studio-state/)
 - Acceptance criteria:
   1. Older state can be migrated to current schema.
   2. Migration failures produce diagnostics.
@@ -490,6 +527,7 @@ Principles:
 - Scope: Parity+
 - Description: Autosave hooks and dirty-state tracking.
 - Implementation notes: onStateChange callback with throttling.
+- AG Studio docs: [Events Reference (`onStateUpdated`)](https://www.ag-grid.com/studio/react/studio-events/#reference-state) · [Studio Lifecycle (`stateUpdated`)](https://www.ag-grid.com/studio/react/studio-lifecycle/#state-updated) · [State](https://www.ag-grid.com/studio/react/state/)
 - Acceptance criteria:
   1. Dirty indicator updates accurately.
   2. Autosave does not degrade interaction performance.
@@ -500,6 +538,7 @@ Principles:
 - Scope: Parity+
 - Description: Production-ready export/code generation for supported host frameworks.
 - Implementation notes: generate framework-specific configuration/module output for React, Angular, Vue 3, and vanilla JavaScript hosts.
+- AG Studio docs: [Quick Start](https://www.ag-grid.com/studio/react/quick-start/) · [Studio Interface](https://www.ag-grid.com/studio/react/studio-interface/)
 - Acceptance criteria:
   1. Generated output captures dashboard structure, widget bindings, and theme configuration.
   2. Output is valid for the selected framework target with minimal manual editing.
@@ -512,6 +551,7 @@ Principles:
 - Scope: MVP
 - Description: Keyboard navigation across panes, widgets, and controls.
 - Implementation notes: roving tabindex where needed; clear focus order.
+- AG Studio docs: [Properties Reference (`enableRtl`)](https://www.ag-grid.com/studio/react/studio-properties/#reference-interactivity)
 - Acceptance criteria:
   1. Full authoring flow possible via keyboard for core tasks.
 
@@ -521,6 +561,7 @@ Principles:
 - Scope: MVP
 - Description: ARIA labels and announcements for mode, selection, and layout changes.
 - Implementation notes: polite live region for structural updates.
+- AG Studio docs: [Localisation](https://www.ag-grid.com/studio/react/localisation/)
 - Acceptance criteria:
   1. Screen readers announce key state transitions.
 
@@ -530,6 +571,7 @@ Principles:
 - Scope: Parity+
 - Description: High contrast and reduced motion support.
 - Implementation notes: theme tokens and reduced-motion animation fallbacks.
+- AG Studio docs: [Theming](https://www.ag-grid.com/studio/react/theming/) · [Theme Reference](https://www.ag-grid.com/studio/react/studio-theme/)
 - Acceptance criteria:
   1. Motion-heavy interactions degrade gracefully when reduced motion is enabled.
 
@@ -559,6 +601,7 @@ Principles:
 - Scope: Parity+
 - Description: Public AG Studio scale claims benchmark coverage.
 - Implementation notes: benchmark representative scenarios for joins, aggregations, computed columns, and enterprise-scale row models.
+- AG Studio docs: [Data Overview](https://www.ag-grid.com/studio/react/data/) · [Asynchronous Data Sources](https://www.ag-grid.com/studio/react/data-async/)
 - Acceptance criteria:
   1. Benchmark suite includes hundreds-of-thousands-row scenarios with joins, aggregations, and computed columns.
   2. Stretch benchmark documents behavior approaching 1 million rows on supported row models/hardware.
@@ -570,6 +613,7 @@ Principles:
 - Scope: Parity+
 - Description: Background computation and incremental updates.
 - Implementation notes: memoization, worker offload candidates for heavy transforms.
+- AG Studio docs: [Asynchronous Data Sources](https://www.ag-grid.com/studio/react/data-async/) · [Shared Data Engine](https://www.ag-grid.com/studio/react/data-engine/)
 - Acceptance criteria:
   1. Expensive transformations do not block UI thread during active interactions.
 
@@ -605,6 +649,7 @@ Principles:
 - Scope: Parity+
 - Description: Natural-language dashboard assistance aligned with AG Studio public AI positioning.
 - Implementation notes: AI playground/assistant capable of creating dashboards, rearranging layouts, adding filters, and answering data questions through conversational prompts.
+- AG Studio docs: [AI Assistant](https://www.ag-grid.com/studio/react/ai/) · [Building an Adapter](https://www.ag-grid.com/studio/react/ai-adapter/) · [AI Configuration](https://www.ag-grid.com/studio/react/ai-configuration/)
 - Acceptance criteria:
   1. User can issue natural-language prompts that mutate dashboard configuration with preview/confirm controls.
   2. Assistant can explain proposed changes before applying them.
@@ -721,6 +766,7 @@ MVP excludes:
 - Keyboard and screen reader flows validated for core interactions.
 - Load/performance smoke tests pass with representative data.
 - State roundtrip tests validate getState/setState fidelity.
+- AG Studio docs: [API Reference](https://www.ag-grid.com/studio/react/studio-api/) · [Events Reference](https://www.ag-grid.com/studio/react/studio-events/) · [Studio Lifecycle](https://www.ag-grid.com/studio/react/studio-lifecycle/)
 
 ## 13. Requirement traceability index
 

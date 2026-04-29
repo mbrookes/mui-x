@@ -285,6 +285,7 @@ function WidgetTypeCard({ wt, canAdd, onAdd }: WidgetTypeCardProps) {
 function AddWidgetView() {
   const controller = useStudioController();
   const dataSources = useStudioSelector((state) => state.dataSources);
+  const widgets = useStudioSelector((state) => state.widgets);
   const canvasScrollRef = React.useContext(CanvasScrollContext);
 
   const handleAdd = (kind: StudioWidgetKind) => {
@@ -292,7 +293,16 @@ function AddWidgetView() {
     if (widgetKindRequiresDataSource(kind) && sources.length === 0) {
       return;
     }
-    controller.addWidget(createDefaultWidget(kind, sources[0]));
+    // Prefer the source most used by existing widgets, falling back to first source
+    const usageCounts = Object.values(widgets).reduce<Record<string, number>>((acc, w) => {
+      if (w.sourceId) {
+        acc[w.sourceId] = (acc[w.sourceId] ?? 0) + 1;
+      }
+      return acc;
+    }, {});
+    const defaultSource =
+      sources.reduce((best, s) => ((usageCounts[s.id] ?? 0) >= (usageCounts[best.id] ?? 0) ? s : best), sources[0]);
+    controller.addWidget(createDefaultWidget(kind, defaultSource));
     // Scroll the canvas to the bottom so the new widget is visible
     requestAnimationFrame(() => {
       canvasScrollRef?.current?.scrollTo({
@@ -495,20 +505,38 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
   const dataSources = useStudioSelector((state) => state.dataSources);
   const relationships = useStudioSelector((state) => state.relationships);
+  const expressionFields = useStudioSelector((state) => state.expressionFields);
 
   const allFields = React.useMemo(() => {
     const sourceId = widget?.sourceId;
     const reachable = sourceId
       ? getReachableSourceIds(sourceId, relationships)
       : new Set(Object.keys(dataSources));
-    return Object.values(dataSources)
+    const physicalFields = Object.values(dataSources)
       .filter((ds) => !ds.hidden && reachable.has(ds.id))
       .flatMap((ds) =>
         ds.fields
           .filter((f) => !f.hidden)
           .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
       );
-  }, [dataSources, relationships, widget?.sourceId]);
+    const exprFields = expressionFields
+      .filter((ef) => !ef.hidden && reachable.has(ef.sourceId))
+      .map((ef) => {
+        const ds = dataSources[ef.sourceId];
+        return {
+          id: ef.id,
+          label: ef.label,
+          description: ef.description,
+          type: ef.type ?? ('number' as const),
+          format: ef.format,
+          currencyCode: ef.currencyCode,
+          generated: true,
+          sourceId: ef.sourceId,
+          sourceLabel: ds?.label ?? ef.sourceId,
+        };
+      });
+    return [...physicalFields, ...exprFields];
+  }, [dataSources, relationships, expressionFields, widget?.sourceId]);
   const config = widget?.config ?? {};
   const numericFields = fieldsForCapability(allFields, 'numeric');
 
@@ -740,6 +768,7 @@ function KpiSetupPanel(props: { widgetId: string }) {
   const controller = useStudioController();
   const dataSources = useStudioSelector((state) => state.dataSources);
   const relationships = useStudioSelector((state) => state.relationships);
+  const expressionFields = useStudioSelector((state) => state.expressionFields);
   const config = widget?.config ?? {};
 
   // Gather fields from reachable data sources only
@@ -748,14 +777,31 @@ function KpiSetupPanel(props: { widgetId: string }) {
     const reachable = sourceId
       ? getReachableSourceIds(sourceId, relationships)
       : new Set(Object.keys(dataSources));
-    return Object.values(dataSources)
+    const physicalFields = Object.values(dataSources)
       .filter((ds) => !ds.hidden && reachable.has(ds.id))
       .flatMap((ds) =>
         ds.fields
           .filter((f) => !f.hidden)
           .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
       );
-  }, [dataSources, relationships, widget?.sourceId]);
+    const exprFields = expressionFields
+      .filter((ef) => !ef.hidden && reachable.has(ef.sourceId))
+      .map((ef) => {
+        const ds = dataSources[ef.sourceId];
+        return {
+          id: ef.id,
+          label: ef.label,
+          description: ef.description,
+          type: ef.type ?? ('number' as const),
+          format: ef.format,
+          currencyCode: ef.currencyCode,
+          generated: true,
+          sourceId: ef.sourceId,
+          sourceLabel: ds?.label ?? ef.sourceId,
+        };
+      });
+    return [...physicalFields, ...exprFields];
+  }, [dataSources, relationships, expressionFields, widget?.sourceId]);
   const selectedField = allFields.find((f) => f.id === config.kpiValueField);
   const selectedFieldType = selectedField?.type ?? null;
 

@@ -18,13 +18,11 @@ export interface StudioWidgetCardProps {
   widgetId: string;
   isFirstRow?: boolean;
   pageTheme?: StudioPageTheme;
-  /** Zero-based index used to stagger content loading: slot N loads after N+1 rAF frames. */
-  loadSlot?: number;
 }
 
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
-  const { widgetId, isFirstRow = false, pageTheme, loadSlot = 0 } = props;
+  const { widgetId, isFirstRow = false, pageTheme } = props;
   const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
@@ -61,25 +59,17 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
 
-  // Defer heavy widget content across frames so each widget loads in its own rAF
-  // slot. Widget at loadSlot=N waits N+1 rAF frames before rendering content,
-  // spreading the work across frames and keeping each frame under ~50ms.
+  // Defer heavy widget content to after the first browser paint so the card
+  // shells are visible immediately. All widgets load together in one batched
+  // transition after the first rAF, which is more efficient than staggering.
   const [showContent, setShowContent] = React.useState(false);
   const [, startContentTransition] = React.useTransition();
   React.useEffect(() => {
-    let rafId: number;
-    let remaining = loadSlot;
-    const step = () => {
-      if (remaining > 0) {
-        remaining -= 1;
-        rafId = requestAnimationFrame(step);
-      } else {
-        startContentTransition(() => setShowContent(true));
-      }
-    };
-    rafId = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafId);
-  }, [loadSlot]);
+    const raf = requestAnimationFrame(() => {
+      startContentTransition(() => setShowContent(true));
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   React.useEffect(() => {
     if (mode !== 'edit') {

@@ -119,7 +119,7 @@ function InsertionPoint({
   );
 }
 
-export function StudioCanvas() {
+export const StudioCanvas = React.memo(function StudioCanvas() {
   const mode = useStudioSelector((state) => state.mode);
   const activePage = useStudioSelector(
     (state) => state.pages[state.dashboard.activePageId],
@@ -292,4 +292,4 @@ export function StudioCanvas() {
       ))}
     </Box>
   );
-}
+});

@@ -1,7 +1,9 @@
 import * as React from 'react';
 
 import type {
+  StudioChartType,
   StudioDataSource,
+  StudioKpiAggregation,
   StudioWidget,
   StudioWidgetKind,
 } from '../models';
@@ -99,6 +101,100 @@ export function createDefaultWidget(
     sourceId: source.id,
     config: { kpiValueField: valueField, kpiAggregation: 'sum' },
   };
+}
+
+const CHART_TYPE_LABELS: Record<StudioChartType, string> = {
+  bar: 'Bar chart',
+  'bar-stacked': 'Stacked bar chart',
+  'bar-grouped': 'Grouped bar chart',
+  'bar-100': '100% bar chart',
+  line: 'Line chart',
+  area: 'Area chart',
+  'area-stacked': 'Stacked area chart',
+  'area-100': '100% area chart',
+  pie: 'Pie chart',
+  donut: 'Donut chart',
+  scatter: 'Scatter plot',
+};
+
+const KPI_AGG_PREFIXES: Record<StudioKpiAggregation, string> = {
+  sum: 'Total',
+  avg: 'Average',
+  count: 'Count of',
+  min: 'Min',
+  max: 'Max',
+};
+
+/**
+ * Infer a human-readable title and subtitle for a widget based on its current config.
+ * Used when titleMode/subtitleMode is 'auto' (the default).
+ */
+export function inferWidgetTitles(
+  widget: StudioWidget,
+  dataSources: Record<string, StudioDataSource>,
+): { title: string; subtitle: string } {
+  const source = widget.sourceId ? dataSources[widget.sourceId] : undefined;
+  const config = widget.config;
+
+  const findFieldLabel = (fieldId: string | undefined, sourceId?: string): string | undefined => {
+    if (!fieldId) {
+      return undefined;
+    }
+    const ds = sourceId ? dataSources[sourceId] : source;
+    return ds?.fields.find((f) => f.id === fieldId)?.label;
+  };
+
+  switch (widget.kind) {
+    case 'chart': {
+      const xLabel = findFieldLabel(config.xField);
+      const yLabels = (config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : []))
+        .map((s) => findFieldLabel(s.fieldId))
+        .filter((l): l is string => Boolean(l));
+
+      const seriesLabel = findFieldLabel(config.seriesField);
+      const chartType = config.chartType ?? 'bar';
+      const isScatter = chartType === 'scatter';
+
+      let title = source ? `${source.label} chart` : 'Chart';
+      if (isScatter && xLabel && yLabels.length > 0) {
+        title = `${yLabels[0]} vs ${xLabel}`;
+      } else if (yLabels.length > 0 && xLabel) {
+        title = `${yLabels.join(', ')} by ${xLabel}`;
+      } else if (yLabels.length > 0) {
+        title = yLabels.join(', ');
+      }
+
+      const chartTypeLabel = CHART_TYPE_LABELS[chartType] ?? 'Chart';
+      const groupByLabel = config.xGroupBy ? ` · by ${config.xGroupBy}` : '';
+      const splitLabel = seriesLabel ? ` · split by ${seriesLabel}` : '';
+      const subtitle = `${chartTypeLabel}${groupByLabel}${splitLabel}`;
+
+      return { title, subtitle };
+    }
+
+    case 'kpi': {
+      const fieldLabel = findFieldLabel(config.kpiValueField);
+      const aggPrefix = KPI_AGG_PREFIXES[config.kpiAggregation ?? 'sum'] ?? '';
+      const title = fieldLabel
+        ? `${aggPrefix} ${fieldLabel}`.trim()
+        : source
+        ? `${source.label} KPI`
+        : 'KPI';
+      const subtitle = source?.label ?? '';
+      return { title, subtitle };
+    }
+
+    case 'grid': {
+      const title = source?.label ?? 'Table';
+      return { title, subtitle: '' };
+    }
+
+    case 'text':
+      return { title: widget.title, subtitle: widget.subtitle ?? '' };
+
+    default:
+      return { title: widget.title, subtitle: widget.subtitle ?? '' };
+  }
 }
 
 /**

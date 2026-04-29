@@ -18,6 +18,8 @@ import {
   type MigrationResult,
 } from './statePersistence';
 
+import { inferWidgetTitles } from '../components/widgetUtils';
+
 const MAX_UNDO_HISTORY = 100;
 
 export class StudioController {
@@ -27,6 +29,21 @@ export class StudioController {
 
   constructor(initialState?: Partial<StudioState>) {
     this.store = Store.create(createDefaultStudioState(initialState));
+  }
+
+  private applyInferredTitles(
+    widget: StudioWidget,
+    dataSources: Record<string, StudioDataSource>,
+  ): StudioWidget {
+    if (widget.kind === 'text') {
+      return widget;
+    }
+    const inferred = inferWidgetTitles(widget, dataSources);
+    return {
+      ...widget,
+      title: widget.titleMode === 'manual' ? widget.title : inferred.title,
+      subtitle: widget.subtitleMode === 'manual' ? widget.subtitle : inferred.subtitle,
+    };
   }
 
   getState = () => this.store.state;
@@ -263,11 +280,19 @@ export class StudioController {
       return;
     }
 
+    const updated: StudioWidget = { ...existing, ...changes };
+    // Re-infer titles when source changes, or when switching back to auto mode.
+    // Skip re-inference when the caller is explicitly providing a title/subtitle value.
+    const isExplicitTitleChange = 'title' in changes || 'subtitle' in changes;
+    const withTitles = isExplicitTitleChange
+      ? updated
+      : this.applyInferredTitles(updated, state.dataSources);
+
     this.commitState({
       ...state,
       widgets: {
         ...state.widgets,
-        [widgetId]: { ...existing, ...changes },
+        [widgetId]: withTitles,
       },
     });
   };
@@ -283,11 +308,14 @@ export class StudioController {
       return;
     }
 
+    const updated: StudioWidget = { ...existing, config: { ...existing.config, ...config } };
+    const withTitles = this.applyInferredTitles(updated, state.dataSources);
+
     this.commitState({
       ...state,
       widgets: {
         ...state.widgets,
-        [widgetId]: { ...existing, config: { ...existing.config, ...config } },
+        [widgetId]: withTitles,
       },
     });
   };

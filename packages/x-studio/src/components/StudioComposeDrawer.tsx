@@ -3,10 +3,12 @@ import * as React from 'react';
 import {
   Alert,
   Box,
+  Chip,
   Divider,
   FormControl,
   FormControlLabel,
   IconButton,
+  InputAdornment,
   InputLabel,
   ListSubheader,
   MenuItem,
@@ -24,6 +26,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
+import AutorenewIcon from '@mui/icons-material/Autorenew';
 import type {
   StudioNumberFormat,
   StudioChartType,
@@ -34,7 +37,7 @@ import type {
 } from '../models';
 
 import { CanvasScrollContext, useStudioController, useStudioSelector } from '../context';
-import { createDefaultWidget, WIDGET_TYPES, widgetKindRequiresDataSource } from './widgetUtils';
+import { createDefaultWidget, inferWidgetTitles, WIDGET_TYPES, widgetKindRequiresDataSource } from './widgetUtils';
 import { fieldsForCapability, fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from './chartUtils';
 import {
@@ -1165,16 +1168,54 @@ function FormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
+  const dataSources = useStudioSelector((state) => state.dataSources);
   const [title, setTitle] = React.useState(widget?.title ?? '');
+  const [subtitle, setSubtitle] = React.useState(widget?.subtitle ?? '');
+
+  const isAutoTitle = !widget?.titleMode || widget.titleMode === 'auto';
+  const isAutoSubtitle = !widget?.subtitleMode || widget.subtitleMode === 'auto';
 
   React.useEffect(() => {
     setTitle(widget?.title ?? '');
-  }, [widget?.title, widgetId]);
+    setSubtitle(widget?.subtitle ?? '');
+  }, [widget?.title, widget?.subtitle, widgetId]);
 
   const handleTitleBlur = () => {
-    if (title !== widget?.title) {
-      controller.updateWidget(widgetId, { title });
+    const trimmed = title.trim();
+    if (trimmed && trimmed !== widget?.title) {
+      controller.updateWidget(widgetId, { title: trimmed, titleMode: 'manual' });
+    } else if (!trimmed && !isAutoTitle) {
+      // Empty → reset to auto
+      controller.updateWidget(widgetId, { titleMode: 'auto' });
     }
+  };
+
+  const handleResetTitle = () => {
+    if (!widget) {
+      return;
+    }
+    const inferred = inferWidgetTitles(widget, dataSources);
+    controller.updateWidget(widgetId, { title: inferred.title, titleMode: 'auto' });
+    setTitle(inferred.title);
+  };
+
+  const handleSubtitleBlur = () => {
+    const trimmed = subtitle.trim();
+    if (trimmed !== (widget?.subtitle ?? '')) {
+      controller.updateWidget(widgetId, {
+        subtitle: trimmed || undefined,
+        subtitleMode: trimmed ? 'manual' : 'auto',
+      });
+    }
+  };
+
+  const handleResetSubtitle = () => {
+    if (!widget) {
+      return;
+    }
+    const inferred = inferWidgetTitles(widget, dataSources);
+    controller.updateWidget(widgetId, { subtitle: inferred.subtitle, subtitleMode: 'auto' });
+    setSubtitle(inferred.subtitle);
   };
 
   return (
@@ -1184,12 +1225,71 @@ function FormatPanel(props: { widgetId: string }) {
         size="small"
         fullWidth
         value={title}
-        onChange={(event) => setTitle(event.target.value)}
+        onChange={(event) => {
+          setTitle(event.target.value);
+          // Typing implicitly marks as manual so the Auto chip disappears immediately
+          if (isAutoTitle && event.target.value !== widget?.title) {
+            controller.updateWidget(widgetId, { titleMode: 'manual' });
+          }
+        }}
         onBlur={handleTitleBlur}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
             handleTitleBlur();
           }
+        }}
+        slotProps={{
+          input: {
+            endAdornment: (
+              <InputAdornment position="end">
+                {isAutoTitle ? (
+                  <Chip label="Auto" size="small" />
+                ) : (
+                  <Tooltip title="Reset to auto-generated title">
+                    <IconButton size="small" onClick={handleResetTitle} edge="end">
+                      <AutorenewIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </InputAdornment>
+            ),
+          },
+        }}
+      />
+      <TextField
+        label="Subtitle"
+        size="small"
+        fullWidth
+        value={subtitle}
+        placeholder={isAutoSubtitle ? '' : 'No subtitle'}
+        onChange={(event) => {
+          setSubtitle(event.target.value);
+          if (isAutoSubtitle && event.target.value !== (widget?.subtitle ?? '')) {
+            controller.updateWidget(widgetId, { subtitleMode: 'manual' });
+          }
+        }}
+        onBlur={handleSubtitleBlur}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            handleSubtitleBlur();
+          }
+        }}
+        slotProps={{
+          input: {
+            endAdornment: (
+              <InputAdornment position="end">
+                {isAutoSubtitle ? (
+                  <Chip label="Auto" size="small" />
+                ) : (
+                  <Tooltip title="Reset to auto-generated subtitle">
+                    <IconButton size="small" onClick={handleResetSubtitle} edge="end">
+                      <AutorenewIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </InputAdornment>
+            ),
+          },
         }}
       />
     </Stack>

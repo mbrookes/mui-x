@@ -1182,11 +1182,8 @@ function FormatPanel(props: { widgetId: string }) {
 
   const handleTitleBlur = () => {
     const trimmed = title.trim();
-    if (trimmed && trimmed !== widget?.title) {
+    if (trimmed !== (widget?.title ?? '')) {
       controller.updateWidget(widgetId, { title: trimmed, titleMode: 'manual' });
-    } else if (!trimmed && !isAutoTitle) {
-      // Empty → reset to auto
-      controller.updateWidget(widgetId, { titleMode: 'auto' });
     }
   };
 

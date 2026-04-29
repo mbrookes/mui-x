@@ -73,6 +73,13 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
   > | null>(null);
   const [hoveredAxis, setHoveredAxis] = React.useState<AxisItemIdentifier[] | null>(null);
 
+  // Clear stale hovered item when chart type or series field changes to avoid
+  // "controlled/uncontrolled" errors from stale seriesIds referencing old series.
+  React.useEffect(() => {
+    setHoveredItem(null);
+    setHoveredAxis(null);
+  }, [config.chartType, config.seriesField]);
+
   /** Format x-axis label: apply human-readable period labels when xGroupBy is set. */
   const formatLabel = React.useCallback(
     (label: string | number): string => {
@@ -421,6 +428,10 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           series={series}
           height={chartHeight}
           margin={{ top: 16, right: 16, bottom: 32, left: 60 }}
+          highlightedItem={controlledHighlightedItem}
+          onHighlightChange={(item) =>
+            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+          }
         />
       </div>
     );
@@ -445,6 +456,10 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
           series={series}
           height={chartHeight}
           margin={{ top: 16, right: 16, bottom: 32, left: 60 }}
+          highlightedItem={controlledHighlightedItem}
+          onHighlightChange={(item) =>
+            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+          }
         />
       </div>
     );

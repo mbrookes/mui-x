@@ -40,7 +40,7 @@ import { CanvasScrollContext, useStudioController, useStudioSelector } from '../
 import { createDefaultWidget, inferWidgetTitles, WIDGET_TYPES, widgetKindRequiresDataSource } from '../internals/widgetUtils';
 import { fieldsForCapability, fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
-import { FieldTypeIcon } from '../FieldTypeIcon';
+import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { AreaIcon } from '../icons/AreaIcon';
 import { Area100Icon } from '../icons/Area100Icon';
 import { AreaStackedIcon } from '../icons/AreaStackedIcon';

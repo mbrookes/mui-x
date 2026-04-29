@@ -285,7 +285,6 @@ function WidgetTypeCard({ wt, canAdd, onAdd }: WidgetTypeCardProps) {
 function AddWidgetView() {
   const controller = useStudioController();
   const dataSources = useStudioSelector((state) => state.dataSources);
-  const widgets = useStudioSelector((state) => state.widgets);
   const canvasScrollRef = React.useContext(CanvasScrollContext);
 
   const handleAdd = (kind: StudioWidgetKind) => {
@@ -293,16 +292,7 @@ function AddWidgetView() {
     if (widgetKindRequiresDataSource(kind) && sources.length === 0) {
       return;
     }
-    // Prefer the source most used by existing widgets, falling back to first source
-    const usageCounts = Object.values(widgets).reduce<Record<string, number>>((acc, w) => {
-      if (w.sourceId) {
-        acc[w.sourceId] = (acc[w.sourceId] ?? 0) + 1;
-      }
-      return acc;
-    }, {});
-    const defaultSource =
-      sources.reduce((best, s) => ((usageCounts[s.id] ?? 0) >= (usageCounts[best.id] ?? 0) ? s : best), sources[0]);
-    controller.addWidget(createDefaultWidget(kind, defaultSource));
+    controller.addWidget(createDefaultWidget(kind));
     // Scroll the canvas to the bottom so the new widget is visible
     requestAnimationFrame(() => {
       canvasScrollRef?.current?.scrollTo({

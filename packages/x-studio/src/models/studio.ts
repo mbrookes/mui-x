@@ -112,6 +112,11 @@ export interface StudioWidget {
   id: string;
   kind: StudioWidgetKind;
   title: string;
+  /** 'auto' = recompute from config on every change (default). 'manual' = user-set title. */
+  titleMode?: 'auto' | 'manual';
+  subtitle?: string;
+  /** 'auto' = recompute from config on every change (default). 'manual' = user-set subtitle. */
+  subtitleMode?: 'auto' | 'manual';
   sourceId?: string;
   config: StudioWidgetConfig;
 }

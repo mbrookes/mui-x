@@ -1,4 +1,4 @@
-import type { StudioDataField } from '../models';
+import type { StudioDataField, StudioExpressionField } from '../models';
 
 /**
  * Named capabilities that a field can have.
@@ -22,7 +22,7 @@ const TYPE_CAPABILITIES: Record<StudioDataField['type'], FieldCapability[]> = {
 };
 
 /**
- * Return the capabilities for a field.
+ * Return the capabilities for a physical field.
  * Respects an explicit `capabilities` override on the field definition when present.
  */
 export function getFieldCapabilities(field: StudioDataField): FieldCapability[] {
@@ -44,3 +44,23 @@ export function fieldsForCapability<T extends StudioDataField>(
 ): T[] {
   return fields.filter((f) => fieldHasCapability(f, cap));
 }
+
+/**
+ * Return the capabilities for an expression field, derived from its resolved type.
+ * Measures only get numeric capabilities (they cannot be filtered/grouped like columns).
+ */
+export function getExpressionFieldCapabilities(
+  field: StudioExpressionField,
+): FieldCapability[] {
+  const resolvedType = field.type ?? 'number';
+  return TYPE_CAPABILITIES[resolvedType] ?? [];
+}
+
+/** Returns true if an expression field has the given capability. */
+export function expressionFieldHasCapability(
+  field: StudioExpressionField,
+  cap: FieldCapability,
+): boolean {
+  return getExpressionFieldCapabilities(field).includes(cap);
+}
+

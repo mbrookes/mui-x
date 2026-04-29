@@ -481,8 +481,8 @@ function GridSetupPanel(props: { widgetId: string }) {
             }
           }}
         >
-          <Typography variant="body2">{field.label}</Typography>
           <FieldTypeIcon type={field.type} generated={field.generated} size={14} />
+          <Typography variant="body2">{field.label}</Typography>
         </Box>
       ))}
     </Stack>

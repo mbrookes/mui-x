@@ -1,6 +1,9 @@
 'use client';
 import * as React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Stack, Tooltip, Typography } from '@mui/material';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import TrendingDownIcon from '@mui/icons-material/TrendingDown';
+import TrendingFlatIcon from '@mui/icons-material/TrendingFlat';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
 
 import type { StudioDataSource, StudioKpiAggregation, StudioWidget, StudioFilterState } from '../models';
@@ -171,6 +174,88 @@ function extractDateRange(filter: StudioFilterState): { start: Date; end: Date }
   return null;
 }
 
+type TrendComparison = 'previous-period' | 'previous-calendar-period' | 'year-over-year';
+
+/**
+ * Given a current [start, end] date range and a comparison mode, computes the
+ * [start, end] of the previous comparison period.
+ */
+function computePreviousPeriodRange(
+  start: Date,
+  end: Date,
+  mode: TrendComparison,
+): { start: Date; end: Date } {
+  if (mode === 'year-over-year') {
+    const prevStart = new Date(start);
+    prevStart.setFullYear(start.getFullYear() - 1);
+    const prevEnd = new Date(end);
+    prevEnd.setFullYear(end.getFullYear() - 1);
+    return { start: prevStart, end: prevEnd };
+  }
+
+  if (mode === 'previous-calendar-period') {
+    const granularity = autoGranularity(start, end);
+    if (granularity === 'year') {
+      return {
+        start: new Date(start.getFullYear() - 1, 0, 1),
+        end: new Date(start.getFullYear() - 1, 11, 31, 23, 59, 59, 999),
+      };
+    }
+    if (granularity === 'quarter') {
+      const q = Math.floor(start.getMonth() / 3);
+      const prevQ = q === 0 ? 3 : q - 1;
+      const prevYear = q === 0 ? start.getFullYear() - 1 : start.getFullYear();
+      return {
+        start: new Date(prevYear, prevQ * 3, 1),
+        end: new Date(prevYear, prevQ * 3 + 3, 0, 23, 59, 59, 999),
+      };
+    }
+    if (granularity === 'week') {
+      // Previous 7-day block
+      const ms = 7 * 24 * 60 * 60 * 1000;
+      return {
+        start: new Date(start.getTime() - ms),
+        end: new Date(end.getTime() - ms),
+      };
+    }
+    // month (default)
+    const prevMonth = start.getMonth() === 0 ? 11 : start.getMonth() - 1;
+    const prevYear = start.getMonth() === 0 ? start.getFullYear() - 1 : start.getFullYear();
+    return {
+      start: new Date(prevYear, prevMonth, 1),
+      end: new Date(prevYear, prevMonth + 1, 0, 23, 59, 59, 999),
+    };
+  }
+
+  // Default: 'previous-period' — shift by the current window duration
+  const duration = end.getTime() - start.getTime();
+  return {
+    start: new Date(start.getTime() - duration),
+    end: new Date(start.getTime() - 1),
+  };
+}
+
+/** Format a date as a short human-readable label, e.g. "Mar 2026" or "Mar 1–31". */
+function formatPeriodShort(start: Date, end: Date): string {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  if (start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth()) {
+    return `${months[start.getMonth()]} ${start.getFullYear()}`;
+  }
+  if (start.getFullYear() === end.getFullYear()) {
+    return `${months[start.getMonth()]}–${months[end.getMonth()]} ${start.getFullYear()}`;
+  }
+  return `${months[start.getMonth()]} ${start.getFullYear()}–${months[end.getMonth()]} ${end.getFullYear()}`;
+}
+
+/** Format a full date range for a tooltip, e.g. "Mar 1 – Mar 31, 2026". */
+function formatDateRangeLong(start: Date, end: Date): string {
+  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+  const startStr = start.toLocaleDateString(undefined, opts);
+  const endStr = end.toLocaleDateString(undefined, { ...opts, year: 'numeric' });
+  return `${startStr} – ${endStr}`;
+}
+
 export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: StudioKpiWidgetProps) {
   const { dataSource, widget } = props;
   const { config } = widget;
@@ -179,9 +264,9 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const relationships = useStudioSelector((state) => state.relationships);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
 
-  const { displayValue, hasData, sparklineData, sparklineTimeField } = React.useMemo(() => {
+  const { displayValue, hasData, sparklineData, sparklineTimeField, trendResult } = React.useMemo(() => {
     if (!dataSource?.rows || !config.kpiValueField) {
-      return { displayValue: '—', hasData: false, sparklineData: null, sparklineTimeField: null };
+      return { displayValue: '—', hasData: false, sparklineData: null, sparklineTimeField: null, trendResult: null };
     }
 
     const pageFilters = filters.filter((f) => f.scope === 'page');
@@ -281,11 +366,76 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       }
     }
 
+    // Trend
+    let kpiTrend: {
+      delta: number;
+      previousValue: number;
+      previousStart: Date;
+      previousEnd: Date;
+    } | null = null;
+
+    if (config.kpiTrend && config.kpiValueField) {
+      const dateFilter = findDateFilter(filters, widget.id, dataSource);
+      if (dateFilter) {
+        const currentRange = extractDateRange(dateFilter);
+        if (currentRange) {
+          const comparisonMode = config.kpiTrendComparison ?? 'previous-period';
+          const prevRange = computePreviousPeriodRange(
+            currentRange.start,
+            currentRange.end,
+            comparisonMode,
+          );
+
+          // Build a modified filter set: replace the date filter with the previous period range
+          const prevDateFilter: StudioFilterState = {
+            ...dateFilter,
+            operator: 'greater_than_or_equal',
+            value: prevRange.start.toISOString().slice(0, 10),
+            operator2: 'less_than_or_equal',
+            value2: prevRange.end.toISOString().slice(0, 10),
+            conjunction: 'and',
+          };
+          const prevFilters = allFilters.map((f) =>
+            f.id === dateFilter.id ? prevDateFilter : f,
+          );
+          const prevRows = resolveRows(
+            dataSource.rows,
+            widget.sourceId,
+            prevFilters,
+            dataSources,
+            relationships,
+            expressionFields,
+          );
+          const previousValue = measureExprField
+            ? evaluateMeasure(measureExprField, prevRows, expressionFields)
+            : computeAggregate(prevRows, config.kpiValueField, aggregation);
+
+          if (previousValue !== 0) {
+            kpiTrend = {
+              delta: (value - previousValue) / Math.abs(previousValue),
+              previousValue,
+              previousStart: prevRange.start,
+              previousEnd: prevRange.end,
+            };
+          } else if (value !== 0) {
+            // previous was zero but current is non-zero — show as "new"
+            kpiTrend = {
+              delta: Infinity,
+              previousValue,
+              previousStart: prevRange.start,
+              previousEnd: prevRange.end,
+            };
+          }
+        }
+      }
+    }
+
     return {
       displayValue: kpiDisplay,
       hasData: true,
       sparklineData: kpiSparklineData,
       sparklineTimeField: kpiSparklineTimeField,
+      trendResult: kpiTrend,
     };
   }, [dataSource, filters, dataSources, relationships, expressionFields, config, widget.id, widget.sourceId]);
 
@@ -294,6 +444,28 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const hasSparkline = config.kpiSparkline && sparklineData && sparklineData.length > 1;
   const showSparklineHint =
     config.kpiSparkline && (!sparklineData || sparklineData.length <= 1) && sparklineTimeField === null;
+
+  const hasTrend = config.kpiTrend && trendResult != null;
+  const trendUp = hasTrend && trendResult!.delta > 0;
+  const trendDown = hasTrend && trendResult!.delta < 0;
+  const trendFlat = hasTrend && trendResult!.delta === 0;
+  const isInverted = config.kpiTrendInvert ?? false;
+  const trendColor = trendFlat
+    ? 'text.secondary'
+    : ((trendUp && !isInverted) || (trendDown && isInverted))
+      ? 'success.main'
+      : 'error.main';
+
+  let trendLabel = '';
+  let trendTooltip = '';
+  if (hasTrend) {
+    const pct = Number.isFinite(trendResult!.delta)
+      ? `${trendResult!.delta >= 0 ? '+' : ''}${(trendResult!.delta * 100).toFixed(1)}%`
+      : 'New';
+    const periodShort = formatPeriodShort(trendResult!.previousStart, trendResult!.previousEnd);
+    trendLabel = `${pct} vs. ${periodShort}`;
+    trendTooltip = formatDateRangeLong(trendResult!.previousStart, trendResult!.previousEnd);
+  }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, height: '100%' }}>
@@ -333,6 +505,19 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           </Typography>
         )}
       </Box>
+
+      {hasTrend && (
+        <Tooltip title={`Previous period: ${trendTooltip}`} placement="bottom-start">
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', cursor: 'default' }}>
+            {trendFlat && <TrendingFlatIcon fontSize="small" sx={{ color: trendColor }} />}
+            {trendUp && <TrendingUpIcon fontSize="small" sx={{ color: trendColor }} />}
+            {trendDown && <TrendingDownIcon fontSize="small" sx={{ color: trendColor }} />}
+            <Typography variant="body2" sx={{ color: trendColor, fontWeight: 500 }}>
+              {trendLabel}
+            </Typography>
+          </Stack>
+        </Tooltip>
+      )}
     </Box>
   );
 });

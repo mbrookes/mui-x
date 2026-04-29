@@ -1,4 +1,4 @@
-import { createDefaultStudioState, type StudioState } from '../models';
+import { createDefaultStudioState, type StudioState, type StudioExpressionField } from '../models';
 
 /**
  * Current schema version for the studio state
@@ -17,6 +17,7 @@ export interface SerializedStudioState {
   widgets: StudioState['widgets'];
   filters: StudioState['filters'];
   relationships?: StudioState['relationships'];
+  expressionFields?: StudioExpressionField[];
 }
 
 /**
@@ -154,6 +155,7 @@ export function serializeState(state: StudioState): SerializedStudioState {
     widgets: state.widgets,
     filters: state.filters.filter((f) => f.scope !== 'cross-filter'),
     relationships: state.relationships,
+    expressionFields: state.expressionFields.length > 0 ? state.expressionFields : undefined,
   };
 }
 
@@ -178,6 +180,7 @@ export function deserializeState(
     dataSources,
     filters: serialized.filters,
     relationships: serialized.relationships ?? [],
+    expressionFields: serialized.expressionFields ?? [],
     shell: {
       ...defaultState.shell,
       ...shellOverrides,

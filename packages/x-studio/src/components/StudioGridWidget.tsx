@@ -7,6 +7,7 @@ import { useStudioController, useStudioSelector } from '../context';
 import { applyFilters, resolveMetricRefs } from './chartUtils';
 import { formatFieldValue } from './numberFormat';
 import { fieldHasCapability } from '../utils/fieldCapabilities';
+import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 
 export interface StudioGridWidgetProps {
   widget: StudioWidget;
@@ -18,6 +19,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
   const dataSources = useStudioSelector((state) => state.dataSources);
+  const expressionFields = useStudioSelector((state) => state.expressionFields);
 
   // Check if this widget has an active cross-filter
   const activeCrossFilter = filters.find(
@@ -62,13 +64,14 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       dataSources,
     );
 
-    const filteredRows = applyFilters(dataSource.rows, allFilters);
+    const enrichedRows = enrichRowsWithExpressions(dataSource.rows, expressionFields, widget.sourceId ?? '');
+    const filteredRows = applyFilters(enrichedRows, allFilters);
 
     return filteredRows.map((row, index) => ({
       id: row.id ?? `${widget.id}-${index}`,
       ...row,
     }));
-  }, [dataSource, widget.id, filters, dataSources]);
+  }, [dataSource, widget.id, widget.sourceId, filters, dataSources, expressionFields]);
 
   const handleRowSelectionChange = React.useCallback(
     (selection: GridRowSelectionModel) => {

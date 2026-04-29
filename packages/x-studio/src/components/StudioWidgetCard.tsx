@@ -95,7 +95,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
       }
       if (widget.kind === 'grid') {
         // Compute filtered rows lazily at export time — no need for a reactive subscription
-        const { filters, dataSources, relationships } = controller.getState();
+        const { filters, dataSources, relationships, expressionFields } = controller.getState();
         const pageFilters = filters.filter((f) => f.scope === 'page');
         const widgetFilters = filters.filter(
           (f) => f.scope === 'widget' && f.widgetId === widget.id,
@@ -105,7 +105,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
         );
         const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
         const rows = source?.rows
-          ? resolveRows(source.rows, widget.sourceId, allFilters, dataSources, relationships)
+          ? resolveRows(source.rows, widget.sourceId, allFilters, dataSources, relationships, expressionFields)
           : [];
         exportGridToCsv(widget, source, rows);
       } else if (widget.kind === 'chart') {

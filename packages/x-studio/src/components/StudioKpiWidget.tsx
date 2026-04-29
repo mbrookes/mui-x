@@ -7,6 +7,7 @@ import type { StudioDataSource, StudioKpiAggregation, StudioWidget, StudioFilter
 import { resolveRows, resolveMetricRefs, normalizeToDate } from './chartUtils';
 import { useStudioSelector } from '../context';
 import { formatNumber } from './numberFormat';
+import { evaluateMeasure } from '../utils/expressionEvaluator';
 
 export interface StudioKpiWidgetProps {
   widget: StudioWidget;
@@ -176,6 +177,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const filters = useStudioSelector((state) => state.filters);
   const dataSources = useStudioSelector((state) => state.dataSources);
   const relationships = useStudioSelector((state) => state.relationships);
+  const expressionFields = useStudioSelector((state) => state.expressionFields);
 
   const { displayValue, hasData, sparklineData, sparklineTimeField } = React.useMemo(() => {
     if (!dataSource?.rows || !config.kpiValueField) {
@@ -192,11 +194,21 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       allFilters,
       dataSources,
       relationships,
+      expressionFields,
     );
     const aggregation = config.kpiAggregation ?? 'sum';
-    const value = computeAggregate(rows, config.kpiValueField, aggregation);
 
-    const fieldDef = dataSource.fields.find((f) => f.id === config.kpiValueField);
+    // Check if the KPI value field is a measure expression field
+    const measureExprField = expressionFields.find(
+      (ef) => ef.id === config.kpiValueField && ef.isMeasure,
+    );
+    const value = measureExprField
+      ? evaluateMeasure(measureExprField, rows, expressionFields)
+      : computeAggregate(rows, config.kpiValueField, aggregation);
+
+    const fieldDef =
+      dataSource.fields.find((f) => f.id === config.kpiValueField) ??
+      expressionFields.find((ef) => ef.id === config.kpiValueField);
     // avg of a boolean field is a 0–1 ratio; scale to 0–100 and display as percent
     const isBooleanAvg = fieldDef?.type === 'boolean' && aggregation === 'avg';
     const formatted = formatNumber(
@@ -275,7 +287,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       sparklineData: kpiSparklineData,
       sparklineTimeField: kpiSparklineTimeField,
     };
-  }, [dataSource, filters, dataSources, relationships, config, widget.id, widget.sourceId]);
+  }, [dataSource, filters, dataSources, relationships, expressionFields, config, widget.id, widget.sourceId]);
 
   const fieldDef = dataSource?.fields.find((f) => f.id === config.kpiValueField);
 

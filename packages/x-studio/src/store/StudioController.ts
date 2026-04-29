@@ -4,6 +4,7 @@ import {
   createDefaultStudioState,
   type StudioDataSource,
   type StudioDrawer,
+  type StudioExpressionField,
   type StudioMode,
   type StudioPage,
   type StudioState,
@@ -215,6 +216,43 @@ export class StudioController {
           fields: source.fields.map((f) => (f.id === fieldId ? { ...f, ...updates } : f)),
         },
       },
+    });
+  };
+
+  addExpressionField = (field: StudioExpressionField) => {
+    const state = this.store.state;
+    const exists = state.expressionFields.some((ef) => ef.id === field.id);
+    if (exists) {
+      return;
+    }
+    this.commitState({
+      ...state,
+      expressionFields: [...state.expressionFields, field],
+    });
+  };
+
+  updateExpressionField = (
+    fieldId: string,
+    updates: Partial<Omit<StudioExpressionField, 'id'>>,
+  ) => {
+    const state = this.store.state;
+    const existing = state.expressionFields.find((ef) => ef.id === fieldId);
+    if (!existing) {
+      return;
+    }
+    this.commitState({
+      ...state,
+      expressionFields: state.expressionFields.map((ef) =>
+        ef.id === fieldId ? { ...ef, ...updates } : ef,
+      ),
+    });
+  };
+
+  removeExpressionField = (fieldId: string) => {
+    const state = this.store.state;
+    this.commitState({
+      ...state,
+      expressionFields: state.expressionFields.filter((ef) => ef.id !== fieldId),
     });
   };
 

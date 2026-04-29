@@ -2,10 +2,12 @@ import dayjs from 'dayjs';
 import type { RelativeDateValue } from './filterTypes';
 import type {
   StudioDataSource,
+  StudioExpressionField,
   StudioFilterState,
   StudioMetricRef,
   StudioRelationship,
 } from '../models';
+import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 
 type Row = Record<string, unknown>;
 
@@ -345,6 +347,9 @@ function findJoinPath(
  * relationships. Cross-source filters (filterSourceId != widgetSourceId) are
  * applied to the foreign source first; the result semi-joins back to the widget's
  * rows using the join fields discovered from the relationship graph.
+ *
+ * Expression fields are evaluated and merged into rows before filtering, so that
+ * filters can target computed columns.
  */
 export function resolveRows(
   widgetRows: Row[],
@@ -352,7 +357,15 @@ export function resolveRows(
   filters: StudioFilterState[],
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[] = [],
+  expressionFields: StudioExpressionField[] = [],
 ): Row[] {
+  // Enrich rows with computed (non-measure) expression field values first so they
+  // can be referenced in filters and downstream aggregations.
+  const enrichedRows =
+    widgetSourceId && expressionFields.length > 0
+      ? enrichRowsWithExpressions(widgetRows, expressionFields, widgetSourceId)
+      : widgetRows;
+
   const nativeFilters: StudioFilterState[] = [];
   const crossFilters: (StudioFilterState & { filterSourceId: string })[] = [];
 
@@ -364,7 +377,7 @@ export function resolveRows(
     }
   }
 
-  let rows = widgetRows;
+  let rows = enrichedRows;
 
   for (const f of crossFilters) {
     const foreignSource = dataSources[f.filterSourceId];

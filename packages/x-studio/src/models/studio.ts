@@ -165,7 +165,7 @@ export interface StudioDataField {
    * so it appears in "Split by" pickers instead of numeric y-axis pickers.
    * See `FieldCapability` in `utils/fieldCapabilities` for available values.
    */
-  capabilities?: string[];
+  capabilities?: FieldCapability[];
 }
 
 export interface StudioDataSource {
@@ -174,6 +174,82 @@ export interface StudioDataSource {
   fields: StudioDataField[];
   rows?: Record<string, unknown>[];
   /** When true, the source is hidden from the data drawer panel and widget config selects */
+  hidden?: boolean;
+}
+
+// ─── Expression field types ───────────────────────────────────────────────────
+
+export type StudioExpressionOperator =
+  | 'add'
+  | 'subtract'
+  | 'multiply'
+  | 'divide'
+  | 'modulo'
+  | 'equals'
+  | 'notEqual'
+  | 'lessThan'
+  | 'greaterThan'
+  | 'lessThanOrEqual'
+  | 'greaterThanOrEqual'
+  | 'and'
+  | 'or'
+  | 'not'
+  | 'negate'
+  | 'if'
+  | 'in'
+  | 'isTrue'
+  | 'isFalse'
+  | 'isNull'
+  | 'isNotNull'
+  | 'datediff';
+
+/** A function/operator node with one or more input sub-expressions. */
+export interface StudioFunctionExpression {
+  operator: StudioExpressionOperator;
+  inputs: StudioExpression[];
+}
+
+/** A literal constant value. */
+export interface StudioValueExpression {
+  type: 'number' | 'string' | 'boolean';
+  value: string | number | boolean | null;
+}
+
+/** A reference to a physical or expression field, with optional aggregation. */
+export interface StudioFieldExpression {
+  id: string;
+  /** Aggregation to apply when this field is used as a measure input. */
+  aggregation?: StudioKpiAggregation;
+}
+
+export type StudioExpression =
+  | StudioFunctionExpression
+  | StudioValueExpression
+  | StudioFieldExpression;
+
+/** A user-defined computed field derived from an expression tree. */
+export interface StudioExpressionField {
+  id: string;
+  label: string;
+  description?: string;
+  /** The data source this expression field computes over. */
+  sourceId: string;
+  /**
+   * When true, this is a Measure: a single aggregate value over the full (filtered) dataset.
+   * When false (default), this is a Calculated Column: a per-row scalar value.
+   */
+  isMeasure: boolean;
+  expression: StudioExpression;
+  /**
+   * Output type override. Inferred from the expression tree if omitted.
+   * Arithmetic operators infer 'number'; comparison/logical infer 'boolean'.
+   */
+  type?: StudioDataField['type'];
+  /** Display format for numeric expression fields. */
+  format?: StudioNumberFormat;
+  /** ISO 4217 currency code for currency format. Defaults to 'USD'. */
+  currencyCode?: string;
+  /** When true, the expression field is hidden from pickers. */
   hidden?: boolean;
 }
 
@@ -255,6 +331,8 @@ export interface StudioState {
   dataSources: Record<string, StudioDataSource>;
   relationships: StudioRelationship[];
   filters: StudioFilterState[];
+  /** User-authored expression fields (calculated columns and measures). Persisted. */
+  expressionFields: StudioExpressionField[];
   shell: StudioShellState;
 }
 
@@ -280,6 +358,7 @@ export function createDefaultStudioState(overrides?: Partial<StudioState>): Stud
     dataSources: {},
     relationships: [],
     filters: [],
+    expressionFields: [],
     shell: {
       openDrawers: {
         data: true,
@@ -314,5 +393,6 @@ export function createDefaultStudioState(overrides?: Partial<StudioState>): Stud
     dataSources: overrides?.dataSources ?? baseState.dataSources,
     relationships: overrides?.relationships ?? baseState.relationships,
     filters: overrides?.filters ?? baseState.filters,
+    expressionFields: overrides?.expressionFields ?? baseState.expressionFields,
   };
 }

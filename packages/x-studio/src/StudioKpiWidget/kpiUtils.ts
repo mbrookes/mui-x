@@ -2,7 +2,8 @@
  * Pure utility functions for KPI widget computations.
  * Extracted here so they can be unit-tested independently of the React component.
  */
-import type { StudioDataSource, StudioFilterState } from '../models';
+import type { StudioDataSource, StudioFilterState, StudioKpiAggregation } from '../models';
+import { normalizeToDate } from '../internals/chartUtils';
 import { isRelativeDateValue, relativeToAbsolute } from '../StudioFiltersDrawer/filterDrawerUtils';
 
 // ─── Granularity ──────────────────────────────────────────────────────────────
@@ -143,4 +144,127 @@ export function computePreviousPeriodRange(
     start: new Date(start.getTime() - duration),
     end: new Date(start.getTime() - 1),
   };
+}
+
+// ─── Aggregation ──────────────────────────────────────────────────────────────
+
+export function computeAggregate(
+  rows: Record<string, unknown>[],
+  field: string,
+  aggregation: StudioKpiAggregation,
+): number {
+  if (aggregation === 'count') {
+    return rows.length;
+  }
+
+  const values = rows.map((row) => Number(row[field] ?? 0)).filter((v) => !Number.isNaN(v));
+
+  if (values.length === 0) {
+    return 0;
+  }
+
+  switch (aggregation) {
+    case 'sum':
+      return values.reduce((acc, v) => acc + v, 0);
+    case 'avg':
+      return values.reduce((acc, v) => acc + v, 0) / values.length;
+    case 'min':
+      return Math.min(...values);
+    case 'max':
+      return Math.max(...values);
+    default:
+      return values.reduce((acc, v) => acc + v, 0);
+  }
+}
+
+// ─── Sparkline bucketing ──────────────────────────────────────────────────────
+
+export function getBucketKey(date: Date, granularity: Granularity): string {
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+  switch (granularity) {
+    case 'day':
+      return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    case 'week': {
+      const day = date.getDay() || 7;
+      const monday = new Date(date);
+      monday.setDate(d - day + 1);
+      return `${monday.getFullYear()}-W${String(monday.getDate()).padStart(2, '0')}-${String(monday.getMonth() + 1).padStart(2, '0')}`;
+    }
+    case 'month':
+      return `${y}-${String(m + 1).padStart(2, '0')}`;
+    case 'quarter':
+      return `${y}-Q${Math.floor(m / 3) + 1}`;
+    case 'year':
+      return `${y}`;
+    default:
+      return `${y}-${String(m + 1).padStart(2, '0')}`;
+  }
+}
+
+export function computeSparklineData(
+  rows: Record<string, unknown>[],
+  timeField: string,
+  valueField: string,
+  aggregation: StudioKpiAggregation,
+  granularity: Granularity,
+  cumulative: boolean,
+): number[] {
+  const buckets = new Map<string, Record<string, unknown>[]>();
+
+  for (const row of rows) {
+    const raw = row[timeField];
+    if (raw === null || raw === undefined) {
+      continue;
+    }
+    const date = normalizeToDate(raw);
+    if (!date) {
+      continue;
+    }
+    const key = getBucketKey(date, granularity);
+    if (!buckets.has(key)) {
+      buckets.set(key, []);
+    }
+    buckets.get(key)!.push(row);
+  }
+
+  const sortedKeys = Array.from(buckets.keys()).sort();
+  const periodValues = sortedKeys.map((key) =>
+    computeAggregate(buckets.get(key)!, valueField, aggregation),
+  );
+
+  if (!cumulative) {
+    return periodValues;
+  }
+
+  let running = 0;
+  return periodValues.map((v) => {
+    running += v;
+    return running;
+  });
+}
+
+// ─── Period formatting ────────────────────────────────────────────────────────
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Format a date as a short human-readable label, e.g. "Mar 2026" or "Mar–Apr 2026". */
+export function formatPeriodShort(start: Date, end: Date): string {
+  if (start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth()) {
+    return `${MONTH_ABBR[start.getMonth()]} ${start.getFullYear()}`;
+  }
+  if (start.getFullYear() === end.getFullYear()) {
+    return `${MONTH_ABBR[start.getMonth()]}–${MONTH_ABBR[end.getMonth()]} ${start.getFullYear()}`;
+  }
+  return `${MONTH_ABBR[start.getMonth()]} ${start.getFullYear()}–${MONTH_ABBR[end.getMonth()]} ${end.getFullYear()}`;
+}
+
+/** Format a full date range for a tooltip, e.g. "Mar 1 – Mar 31, 2026". */
+export function formatDateRangeLong(start: Date, end: Date): string {
+  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+  const startStr = start.toLocaleDateString(undefined, opts);
+  const endStr = end.toLocaleDateString(undefined, { ...opts, year: 'numeric' });
+  return `${startStr} – ${endStr}`;
 }

@@ -264,9 +264,9 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const relationships = useStudioSelector((state) => state.relationships);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
 
-  const { displayValue, hasData, sparklineData, sparklineTimeField, trendResult } = React.useMemo(() => {
+  const { displayValue, hasData, sparklineData, sparklineTimeField, trendResult, trendNeedsDateFilter } = React.useMemo(() => {
     if (!dataSource?.rows || !config.kpiValueField) {
-      return { displayValue: '—', hasData: false, sparklineData: null, sparklineTimeField: null, trendResult: null };
+      return { displayValue: '—', hasData: false, sparklineData: null, sparklineTimeField: null, trendResult: null, trendNeedsDateFilter: false };
     }
 
     const pageFilters = filters.filter((f) => f.scope === 'page');
@@ -374,6 +374,10 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       previousEnd: Date;
     } | null = null;
 
+    const trendNeedsDateFilter =
+      !!(config.kpiTrend && config.kpiValueField) &&
+      !findDateFilter(filters, widget.id, dataSource);
+
     if (config.kpiTrend && config.kpiValueField) {
       const dateFilter = findDateFilter(filters, widget.id, dataSource);
       if (dateFilter) {
@@ -436,6 +440,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       sparklineData: kpiSparklineData,
       sparklineTimeField: kpiSparklineTimeField,
       trendResult: kpiTrend,
+      trendNeedsDateFilter,
     };
   }, [dataSource, filters, dataSources, relationships, expressionFields, config, widget.id, widget.sourceId]);
 
@@ -517,6 +522,12 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             </Typography>
           </Stack>
         </Tooltip>
+      )}
+
+      {trendNeedsDateFilter && (
+        <Typography variant="caption" color="text.secondary">
+          Add a date filter to show the trend.
+        </Typography>
       )}
     </Box>
   );

@@ -97,6 +97,21 @@ export interface StudioWidgetConfig {
   kpiSparklineGranularity?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /** When true, the sparkline shows a cumulative running total instead of per-period values. */
   kpiSparklineCumulative?: boolean;
+  // KPI trend indicator
+  /** When true, shows a period-over-period percentage change badge below the headline value. */
+  kpiTrend?: boolean;
+  /**
+   * How to determine the comparison (previous) period.
+   * - 'previous-period': shift the current window back by its own duration (default)
+   * - 'previous-calendar-period': previous calendar month / quarter / year
+   * - 'year-over-year': same window shifted back exactly one year
+   */
+  kpiTrendComparison?: 'previous-period' | 'previous-calendar-period' | 'year-over-year';
+  /**
+   * When true, reverses the colour coding so that an increase shows as red and a
+   * decrease shows as green. Use for cost, error-rate, or other "lower is better" metrics.
+   */
+  kpiTrendInvert?: boolean;
   // Grid cross-filter
   /** Field used when a row is selected to emit a cross-filter to other widgets. Defaults to first string field. */
   crossFilterField?: string;

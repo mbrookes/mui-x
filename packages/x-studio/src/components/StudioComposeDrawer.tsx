@@ -898,6 +898,55 @@ function KpiSetupPanel(props: { widgetId: string }) {
       />
 
       {config.kpiSparkline && <KpiSparklineOptions widgetId={widgetId} config={config} />}
+
+      <FormControlLabel
+        control={
+          <Switch
+            size="small"
+            checked={config.kpiTrend ?? false}
+            onChange={(event) =>
+              controller.updateWidgetConfig(widgetId, { kpiTrend: event.target.checked })
+            }
+          />
+        }
+        label="Trend (period-over-period)"
+      />
+
+      {config.kpiTrend && (
+        <Stack spacing={1.5} sx={{ pl: 1 }}>
+          <FormControl size="small" fullWidth>
+            <InputLabel>Comparison period</InputLabel>
+            <Select
+              label="Comparison period"
+              value={config.kpiTrendComparison ?? 'previous-period'}
+              onChange={(event) =>
+                controller.updateWidgetConfig(widgetId, {
+                  kpiTrendComparison: event.target.value as
+                    | 'previous-period'
+                    | 'previous-calendar-period'
+                    | 'year-over-year',
+                })
+              }
+            >
+              <MenuItem value="previous-period">Previous period (matching duration)</MenuItem>
+              <MenuItem value="previous-calendar-period">Previous calendar period</MenuItem>
+              <MenuItem value="year-over-year">Same period last year</MenuItem>
+            </Select>
+          </FormControl>
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={config.kpiTrendInvert ?? false}
+                onChange={(event) =>
+                  controller.updateWidgetConfig(widgetId, { kpiTrendInvert: event.target.checked })
+                }
+              />
+            }
+            label="Invert colours (lower is better)"
+          />
+        </Stack>
+      )}
     </Stack>
   );
 }

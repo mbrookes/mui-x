@@ -1,0 +1,23 @@
+import * as React from 'react';
+import { ChartSvg, type BasicIconProps } from './utils';
+
+export function FunnelIcon({ size, color = 'currentColor' }: BasicIconProps) {
+  const layers = [
+    { t: 3, b: 9, lT: 3, rT: 29, lB: 6, rB: 26, op: 1 },
+    { t: 10, b: 16, lT: 6, rT: 26, lB: 9, rB: 23, op: 0.75 },
+    { t: 17, b: 23, lT: 9, rT: 23, lB: 12, rB: 20, op: 0.5 },
+    { t: 24, b: 29, lT: 12, rT: 20, lB: 14, rB: 18, op: 0.3 },
+  ];
+  return (
+    <ChartSvg size={size}>
+      {layers.map((l, i) => (
+        <polygon
+          key={i}
+          points={`${l.lT},${l.t} ${l.rT},${l.t} ${l.rB},${l.b} ${l.lB},${l.b}`}
+          fill={color}
+          opacity={l.op}
+        />
+      ))}
+    </ChartSvg>
+  );
+}

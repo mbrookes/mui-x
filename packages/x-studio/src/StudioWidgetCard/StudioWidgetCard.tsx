@@ -20,7 +20,7 @@ export interface StudioWidgetCardProps {
   pageTheme?: StudioPageTheme;
 }
 
-export function StudioWidgetCard(props: StudioWidgetCardProps) {
+export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
   const { widgetId, isFirstRow = false, pageTheme } = props;
   const controller = useStudioController();
@@ -28,8 +28,12 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
   // Narrow selector: only re-render when THIS widget's selection state changes
   const isSelected = useStudioSelector((state) => state.shell.selectedWidgetId === widgetId);
-  // Narrow selector: only re-render when the "nothing selected" state changes (for hover actions)
-  const noWidgetSelected = useStudioSelector((state) => state.shell.selectedWidgetId == null);
+  // Narrow selector: true when another widget is selected (hides hover actions on this card).
+  // Using `widgetId !== selectedId` avoids global "nothing selected" subscription — when
+  // selection moves from A→B only cards A and B re-render rather than all N cards.
+  const dimmed = useStudioSelector(
+    (state) => state.shell.selectedWidgetId !== null && state.shell.selectedWidgetId !== widgetId,
+  );
   const source = useStudioSelector((state) =>
     widget?.sourceId ? state.dataSources[widget.sourceId] : undefined,
   );
@@ -121,7 +125,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
 
   const canExport = widget.kind === 'grid' || widget.kind === 'chart';
   const showEditActions =
-    mode === 'edit' && (isSelected || (!isSelected && noWidgetSelected && hovered));
+    mode === 'edit' && (isSelected || (!dimmed && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
   const actionButtonSx = { width: 24, height: 24, padding: 0, '& svg': { fontSize: 16 } } as const;
 
@@ -293,4 +297,4 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
       </Stack>
     </Paper>
   );
-}
+});

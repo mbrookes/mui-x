@@ -1,7 +1,6 @@
 import * as React from 'react';
 
 import type {
-  StudioChartType,
   StudioDataSource,
   StudioKpiAggregation,
   StudioWidget,
@@ -103,20 +102,6 @@ export function createDefaultWidget(
   };
 }
 
-const CHART_TYPE_LABELS: Record<StudioChartType, string> = {
-  bar: 'Bar chart',
-  'bar-stacked': 'Stacked bar chart',
-  'bar-grouped': 'Grouped bar chart',
-  'bar-100': '100% bar chart',
-  line: 'Line chart',
-  area: 'Area chart',
-  'area-stacked': 'Stacked area chart',
-  'area-100': '100% area chart',
-  pie: 'Pie chart',
-  donut: 'Donut chart',
-  scatter: 'Scatter plot',
-};
-
 const KPI_AGG_PREFIXES: Record<StudioKpiAggregation, string> = {
   sum: 'Total',
   avg: 'Average',
@@ -164,10 +149,10 @@ export function inferWidgetTitles(
         title = yLabels.join(', ');
       }
 
-      const chartTypeLabel = CHART_TYPE_LABELS[chartType] ?? 'Chart';
-      const groupByLabel = config.xGroupBy ? ` · by ${config.xGroupBy}` : '';
-      const splitLabel = seriesLabel ? ` · split by ${seriesLabel}` : '';
-      const subtitle = `${chartTypeLabel}${groupByLabel}${splitLabel}`;
+      const groupByLabel = config.xGroupBy ? `by ${config.xGroupBy}` : '';
+      const splitLabel = seriesLabel ? `split by ${seriesLabel}` : '';
+      const subtitleParts = [groupByLabel, splitLabel].filter(Boolean);
+      const subtitle = subtitleParts.join(' · ');
 
       return { title, subtitle };
     }

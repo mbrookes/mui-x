@@ -68,6 +68,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   const filters = useStudioSelector((state) => state.filters);
   const dataSources = useStudioSelector((state) => state.dataSources);
   const relationships = useStudioSelector((state) => state.relationships);
+  const expressionFields = useStudioSelector((state) => state.expressionFields);
   const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<
     'bar' | 'line' | 'pie'
   > | null>(null);
@@ -120,8 +121,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       dataSources,
     );
 
-    return resolveRows(dataSource.rows, widget.sourceId, allFilters, dataSources, relationships);
-  }, [dataSource, filters, dataSources, relationships, widget.id, widget.sourceId]);
+    return resolveRows(dataSource.rows, widget.sourceId, allFilters, dataSources, relationships, expressionFields);
+  }, [dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId]);
 
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {

@@ -8,5 +8,6 @@ export * from './StudioTextWidget';
 export * from './StudioDataDrawer';
 export * from './StudioComposeDrawer';
 export * from './StudioFiltersDrawer';
+export * from './StudioExpressionFieldDialog';
 export * from './FieldTypeIcon';
 export type { RelativeDateValue, RelativeDateUnit } from './filterTypes';

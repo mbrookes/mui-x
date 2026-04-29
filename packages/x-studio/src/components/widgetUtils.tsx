@@ -63,42 +63,33 @@ export function createDefaultWidget(
     };
   }
 
-  if (!source) {
-    throw new Error(`A data source is required to create a ${kind} widget.`);
-  }
-
   if (kind === 'grid') {
     return {
       id,
       kind,
-      title: `${source.label} table`,
-      sourceId: source.id,
-      config: { columns: source.fields.map((f) => f.id) },
+      title: '',
+      config: { columns: source ? source.fields.map((f) => f.id) : [] },
+      ...(source ? { sourceId: source.id } : {}),
     };
   }
 
   if (kind === 'chart') {
-    const xField = source.fields.find((f) => f.type === 'string')?.id ?? source.fields[0]?.id;
-    const yField = source.fields.find((f) => f.type === 'number')?.id ?? source.fields[1]?.id;
-
     return {
       id,
       kind,
-      title: `${source.label} chart`,
-      sourceId: source.id,
-      config: { chartType: 'bar', xField, yField },
+      title: '',
+      config: { chartType: 'bar' },
+      ...(source ? { sourceId: source.id } : {}),
     };
   }
 
   // KPI
-  const valueField = source.fields.find((f) => f.type === 'number')?.id ?? '';
-
   return {
     id,
     kind,
-    title: `${source.label} KPI`,
-    sourceId: source.id,
-    config: { kpiValueField: valueField, kpiAggregation: 'sum' },
+    title: '',
+    config: { kpiAggregation: 'sum' },
+    ...(source ? { sourceId: source.id } : {}),
   };
 }
 

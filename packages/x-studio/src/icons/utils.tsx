@@ -77,8 +77,8 @@ export function GeneratedFieldSvg({
       aria-hidden
     >
       {/* Equals indicator */}
-      <line x1="0.5" y1="6" x2="2.5" y2="6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <line x1="0.5" y1="8.5" x2="2.5" y2="8.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="0.5" y1="7" x2="3.5" y2="7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="0.5" y1="9.5" x2="3.5" y2="9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       {/* Icon content starts at x=4 */}
       {children}
     </svg>

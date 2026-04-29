@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChartSvg, type BasicIconProps } from './utils';
+import { ChartSvg, type BasicIconProps } from '../utils';
 
 export function HeatmapIcon({ size, color = 'currentColor' }: BasicIconProps) {
   const opacities = [

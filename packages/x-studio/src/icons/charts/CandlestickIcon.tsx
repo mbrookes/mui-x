@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChartSvg, type IconProps } from './utils';
+import { ChartSvg, type IconProps } from '../utils';
 
 export function CandlestickIcon({
   size,

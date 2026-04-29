@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChartSvg, type BasicIconProps } from './utils';
+import { ChartSvg, type BasicIconProps } from '../utils';
 
 export function AreaIcon({ size, color = 'currentColor' }: BasicIconProps) {
   const ys = [22, 12, 18, 8, 14];

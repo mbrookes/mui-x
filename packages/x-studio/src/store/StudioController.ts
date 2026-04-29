@@ -19,7 +19,7 @@ import {
   type MigrationResult,
 } from './statePersistence';
 
-import { inferWidgetTitles } from '../components/widgetUtils';
+import { inferWidgetTitles } from '../internals/widgetUtils';
 
 const MAX_UNDO_HISTORY = 100;
 

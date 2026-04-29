@@ -13,7 +13,7 @@ export interface StudioGridWidgetProps {
   dataSource?: StudioDataSource;
 }
 
-export function StudioGridWidget(props: StudioGridWidgetProps) {
+export const StudioGridWidget = React.memo(function StudioGridWidget(props: StudioGridWidgetProps) {
   const { dataSource, widget } = props;
   const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
@@ -137,4 +137,4 @@ export function StudioGridWidget(props: StudioGridWidgetProps) {
       />
     </div>
   );
-}
+});

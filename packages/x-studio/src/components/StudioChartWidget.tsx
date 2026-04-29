@@ -59,7 +59,7 @@ function normalizeCrossFilterValue(value: string | number | Date | undefined) {
   return String(value);
 }
 
-export function StudioChartWidget(props: StudioChartWidgetProps) {
+export const StudioChartWidget = React.memo(function StudioChartWidget(props: StudioChartWidgetProps) {
   const { dataSource, widget, height: heightProp } = props;
   const chartHeight = heightProp ?? CHART_MIN_HEIGHT;
   const { config } = widget;
@@ -641,4 +641,4 @@ export function StudioChartWidget(props: StudioChartWidgetProps) {
       />
     </div>
   );
-}
+});

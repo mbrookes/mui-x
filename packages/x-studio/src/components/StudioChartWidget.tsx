@@ -94,25 +94,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   );
 
   // Check if this widget has an active cross-filter
-  if (!dataSource || !config.xField) {
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: chartHeight,
-          color: 'text.disabled',
-        }}
-      >
-        <Typography variant="body2">
-          Use the Setup tab to configure this chart.
-        </Typography>
-      </Box>
-    );
-  }
-
-  // Check if this widget has an active cross-filter
   const activeCrossFilter = filters.find(
     (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id,
   );
@@ -259,6 +240,25 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   const controlledHighlightedItem = selectedFilterValue == null ? hoveredItem : null;
   const controlledHighlightedAxis =
     selectedFilterValue == null ? (hoveredAxis ?? undefined) : undefined;
+
+  // Guard: return placeholder if chart isn't configured yet (must be after all hooks)
+  if (!dataSource || !config.xField) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: chartHeight,
+          color: 'text.disabled',
+        }}
+      >
+        <Typography variant="body2">
+          Use the Setup tab to configure this chart.
+        </Typography>
+      </Box>
+    );
+  }
 
   // Scatter chart
   if (normalizedChartType === 'scatter') {

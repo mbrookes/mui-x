@@ -128,6 +128,14 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
   const pageTheme = activePage?.theme;
   const controller = useStudioController();
 
+  // Flat widget-index lookup for load-slot staggering: slot N loads after N+1 rAF frames.
+  const widgetSlot = React.useMemo(() => {
+    const map = new Map<string, number>();
+    let index = 0;
+    widgetRows?.forEach((row) => row.forEach((id) => map.set(id, index++)));
+    return map;
+  }, [widgetRows]);
+
   // Drop handler for insertion points.
   // orientation='horizontal' → insert a brand-new row at rowIndex.
   // orientation='vertical'   → insert into the existing row at colIndex.
@@ -263,6 +271,7 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
                     widgetId={widgetId}
                     isFirstRow={rowIndex === 0}
                     pageTheme={pageTheme}
+                    loadSlot={widgetSlot.get(widgetId) ?? 0}
                   />
                 </Box>
                 {/* Insertion point after this widget */}

@@ -2,7 +2,6 @@
 import * as React from 'react';
 import {
   Alert,
-  Chip,
   Collapse,
   List,
   ListItemButton,
@@ -15,15 +14,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
 import { useStudioController, useStudioSelector } from '../context';
 import type { StudioDataSource } from '../models';
-
-const fieldTypeColor: Record<string, 'default' | 'primary' | 'secondary' | 'success' | 'warning'> =
-  {
-    string: 'default',
-    number: 'primary',
-    boolean: 'secondary',
-    date: 'success',
-    datetime: 'warning',
-  };
+import { FieldTypeIcon } from './FieldTypeIcon';
 
 function DataSourceSection(props: { source: StudioDataSource }) {
   const { source } = props;
@@ -71,23 +62,7 @@ function DataSourceSection(props: { source: StudioDataSource }) {
                         <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
                           {field.label}
                         </Typography>
-                        <Chip
-                          label={field.type}
-                          size="small"
-                          color={fieldTypeColor[field.type] ?? 'default'}
-                          variant="outlined"
-                          sx={{
-                            alignSelf: 'center',
-                            height: 16,
-                            '& .MuiChip-label': {
-                              px: 0.75,
-                              fontSize: 10,
-                              display: 'flex',
-                              alignItems: 'center',
-                              height: '100%',
-                            },
-                          }}
-                        />
+                        <FieldTypeIcon type={field.type} generated={field.generated} size={15} />
                       </Stack>
                     }
                   />

@@ -19,11 +19,11 @@ const TYPE_ICON: Record<FieldType, React.ElementType> = {
 };
 
 const TYPE_COLOR: Record<FieldType, string> = {
-  string: 'text.secondary',
-  number: 'primary.main',
-  date: 'success.main',
-  datetime: 'info.main',
-  boolean: 'secondary.main',
+  string: 'text.disabled',
+  number: 'text.disabled',
+  date: 'text.disabled',
+  datetime: 'text.disabled',
+  boolean: 'text.disabled',
 };
 
 const TYPE_LABEL: Record<FieldType, string> = {

@@ -38,9 +38,6 @@ export { StudioFiltersDrawer } from './StudioFiltersDrawer/StudioFiltersDrawer';
 export { StudioExpressionFieldDialog } from './StudioExpressionFieldDialog/StudioExpressionFieldDialog';
 export type { StudioExpressionFieldDialogProps } from './StudioExpressionFieldDialog/StudioExpressionFieldDialog';
 
-// ─── FieldTypeIcon ────────────────────────────────────────────────────────────
-export { FieldTypeIcon } from './FieldTypeIcon/FieldTypeIcon';
-
 // ─── Context / Provider ───────────────────────────────────────────────────────
 export { StudioProvider, useStudioController, useStudioSelector, useStudioState, CanvasScrollContext } from './context/StudioContext';
 export type { StudioProviderProps } from './context/StudioContext';
@@ -93,7 +90,6 @@ export type {
 } from './models/studio';
 
 // ─── Utility types ────────────────────────────────────────────────────────────
-export type { FieldType } from './FieldTypeIcon/FieldTypeIcon';
 export type { RelativeDateValue, RelativeDateUnit } from './internals/filterTypes';
 
 // ─── Schema version ───────────────────────────────────────────────────────────

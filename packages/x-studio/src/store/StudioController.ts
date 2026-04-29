@@ -596,6 +596,11 @@ export class StudioController {
   };
 }
 
+/**
+ * @deprecated Create a controller directly with `new StudioController(initialState)`,
+ * or — for React usage — pass `initialState` to `<Studio>` and use a `ref` for
+ * imperative access instead.
+ */
 export function createStudioController(initialState?: Partial<StudioState>) {
   return new StudioController(initialState);
 }

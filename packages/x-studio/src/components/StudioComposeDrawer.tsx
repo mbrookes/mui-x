@@ -496,6 +496,8 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const dataSources = useStudioSelector((state) => state.dataSources);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
 
+  const relationships = useStudioSelector((state) => state.relationships);
+
   const allFields = React.useMemo(() => {
     const physicalFields = Object.values(dataSources)
       .filter((ds) => !ds.hidden)
@@ -522,8 +524,18 @@ function ChartSetupPanel(props: { widgetId: string }) {
       });
     return [...physicalFields, ...exprFields];
   }, [dataSources, expressionFields]);
+
+  // Once the X field anchors a source, restrict all other pickers to reachable sources.
+  const reachableFields = React.useMemo(() => {
+    if (!widget?.sourceId) {
+      return allFields;
+    }
+    const reachableIds = getReachableSourceIds(widget.sourceId, relationships);
+    return allFields.filter((f) => reachableIds.has(f.sourceId));
+  }, [allFields, widget?.sourceId, relationships]);
+
   const config = widget?.config ?? {};
-  const numericFields = fieldsForCapability(allFields, 'numeric');
+  const numericFields = fieldsForCapability(reachableFields, 'numeric');
 
   const chartType: StudioChartType = config.chartType ?? 'bar';
 
@@ -551,9 +563,9 @@ function ChartSetupPanel(props: { widgetId: string }) {
       chartType === 'area-100') &&
     ySeries.length <= 1;
 
-  const categoryFields = fieldsForCapability(allFields, 'categorical');
+  const categoryFields = fieldsForCapability(reachableFields, 'categorical');
   const selectedSeriesField =
-    config.seriesField ? (allFields.find((f) => f.id === config.seriesField) ?? null) : null;
+    config.seriesField ? (reachableFields.find((f) => f.id === config.seriesField) ?? null) : null;
   const isScatter = chartType === 'scatter';
 
   const handleChartTypeChange = (newType: StudioChartType) => {
@@ -601,7 +613,7 @@ function ChartSetupPanel(props: { widgetId: string }) {
       <Autocomplete
         size="small"
         fullWidth
-        options={isScatter ? numericFields : allFields}
+        options={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}
         groupBy={(option) => option.sourceLabel}
         getOptionLabel={(option) => option.label}
         value={selectedXField}
@@ -756,9 +768,10 @@ function KpiSetupPanel(props: { widgetId: string }) {
   const controller = useStudioController();
   const dataSources = useStudioSelector((state) => state.dataSources);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
+  const relationships = useStudioSelector((state) => state.relationships);
   const config = widget?.config ?? {};
 
-  // Gather fields from all data sources
+  // Gather fields from all data sources (used for the value field anchor picker)
   const allFields = React.useMemo(() => {
     const physicalFields = Object.values(dataSources)
       .filter((ds) => !ds.hidden)
@@ -785,7 +798,18 @@ function KpiSetupPanel(props: { widgetId: string }) {
       });
     return [...physicalFields, ...exprFields];
   }, [dataSources, expressionFields]);
-  const selectedField = allFields.find((f) => f.id === config.kpiValueField);
+
+  // Once the value field anchors a source, restrict subsequent pickers to reachable sources.
+  const reachableFields = React.useMemo(() => {
+    if (!widget?.sourceId) {
+      return allFields;
+    }
+    const reachableIds = getReachableSourceIds(widget.sourceId, relationships);
+    return allFields.filter((f) => reachableIds.has(f.sourceId));
+  }, [allFields, widget?.sourceId, relationships]);
+
+  const selectedField = reachableFields.find((f) => f.id === config.kpiValueField)
+    ?? allFields.find((f) => f.id === config.kpiValueField);
   const selectedFieldType = selectedField?.type ?? null;
 
   // Aggregation options by type

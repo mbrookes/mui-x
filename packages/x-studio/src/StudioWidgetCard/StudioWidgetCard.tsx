@@ -307,10 +307,6 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         )}
         {showContent && widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
         {showContent && widget.kind === 'text' && <StudioTextWidget widget={widget} />}
-        {/* Placeholder keeps card height stable before content loads */}
-        {!showContent && widget.kind !== 'text' && (
-          <Box sx={{ minHeight: CHART_MIN_HEIGHT }} />
-        )}
       </Stack>
     </Paper>
   );

@@ -59,10 +59,10 @@ function DataSourceSection(props: { source: StudioDataSource }) {
                   <ListItemText
                     primary={
                       <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                        <FieldTypeIcon type={field.type} generated={field.generated} size={15} />
                         <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
                           {field.label}
                         </Typography>
-                        <FieldTypeIcon type={field.type} generated={field.generated} size={15} />
                       </Stack>
                     }
                   />

@@ -1,13 +1,11 @@
 'use client';
 import * as React from 'react';
 import { Box, Tooltip } from '@mui/material';
-import {
-  StringFieldIcon,
-  NumberFieldIcon,
-  DateFieldIcon,
-  DateTimeFieldIcon,
-  BooleanFieldIcon,
-} from '../internals/icons/FieldTypeIcons';
+import { StringFieldIcon } from '../icons/StringFieldIcon';
+import { NumberFieldIcon } from '../icons/NumberFieldIcon';
+import { DateFieldIcon } from '../icons/DateFieldIcon';
+import { DateTimeFieldIcon } from '../icons/DateTimeFieldIcon';
+import { BooleanFieldIcon } from '../icons/BooleanFieldIcon';
 import type { StudioDataField } from '../models';
 
 export type FieldType = StudioDataField['type'];

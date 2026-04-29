@@ -843,19 +843,6 @@ function KpiSetupPanel(props: { widgetId: string }) {
         control={
           <Switch
             size="small"
-            checked={config.kpiCompact ?? true}
-            onChange={(event) =>
-              controller.updateWidgetConfig(widgetId, { kpiCompact: event.target.checked })
-            }
-          />
-        }
-        label="Compact numbers"
-      />
-
-      <FormControlLabel
-        control={
-          <Switch
-            size="small"
             checked={config.kpiSparkline ?? false}
             onChange={(event) =>
               controller.updateWidgetConfig(widgetId, { kpiSparkline: event.target.checked })
@@ -1217,6 +1204,20 @@ function FormatPanel(props: { widgetId: string }) {
 
   return (
     <Stack spacing={2}>
+      {widget?.kind === 'kpi' && (
+        <FormControlLabel
+          control={
+            <Switch
+              size="small"
+              checked={widget.config.kpiCompact ?? true}
+              onChange={(event) =>
+                controller.updateWidgetConfig(widgetId, { kpiCompact: event.target.checked })
+              }
+            />
+          }
+          label="Compact numbers"
+        />
+      )}
       <TextField
         label="Widget title"
         size="small"

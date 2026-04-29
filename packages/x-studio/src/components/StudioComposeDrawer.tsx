@@ -1301,16 +1301,12 @@ function WidgetConfigView(props: { widgetId: string }) {
 
   return (
     <div>
-      <Typography variant="caption" color="text.secondary">
-        {KIND_LABEL[widget.kind]} widget
-      </Typography>
-
       {!isText && (
         <Tabs
           value={tab}
           onChange={(_event, v) => setTab(v)}
           variant="fullWidth"
-          sx={{ mt: 1.5, minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+          sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
         >
           <Tab label="Setup" />
           <Tab label="Format" />

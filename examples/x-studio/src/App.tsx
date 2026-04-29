@@ -2,58 +2,55 @@ import * as React from 'react';
 import { Alert, Box, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { Studio, createStudioController } from '@mui/x-studio';
-import type { StudioMode, StudioPage } from '@mui/x-studio';
+import { Studio } from '@mui/x-studio';
+import type { StudioHandle, StudioMode, StudioPage, StudioState } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { AppToolbar } from './components/AppToolbar';
 import { downloadJson, uploadJson } from './utils/fileUtils';
 import { theme } from './theme';
 
-const controller = createStudioController(INITIAL_STATE);
-
 export default function App() {
-  const [mode, setMode] = React.useState<StudioMode>(controller.getState().mode);
-  const [title, setTitle] = React.useState(controller.getState().dashboard.title);
-  const [pages, setPages] = React.useState<Record<string, StudioPage>>(controller.getState().pages);
-  const [activePageId, setActivePageId] = React.useState(
-    controller.getState().dashboard.activePageId,
-  );
-  const [canUndo, setCanUndo] = React.useState(controller.canUndo());
-  const [canRedo, setCanRedo] = React.useState(controller.canRedo());
+  const studioRef = React.useRef<StudioHandle>(null);
+  const [mode, setMode] = React.useState<StudioMode>('edit');
+  const [title, setTitle] = React.useState('');
+  const [pages, setPages] = React.useState<Record<string, StudioPage>>({});
+  const [activePageId, setActivePageId] = React.useState('');
+  const [canUndo, setCanUndo] = React.useState(false);
+  const [canRedo, setCanRedo] = React.useState(false);
   const [snackbar, setSnackbar] = React.useState<{
     open: boolean;
     message: string;
     severity: 'success' | 'error' | 'info';
   }>({ open: false, message: '', severity: 'info' });
 
-  React.useEffect(() => {
-    return controller.subscribe((state) => {
-      setMode(state.mode);
-      setTitle(state.dashboard.title);
-      setPages(state.pages);
-      setActivePageId(state.dashboard.activePageId);
-      setCanUndo(controller.canUndo());
-      setCanRedo(controller.canRedo());
-    });
+  const handleStateChange = React.useCallback((state: StudioState) => {
+    setMode(state.mode);
+    setTitle(state.dashboard.title);
+    setPages(state.pages);
+    setActivePageId(state.dashboard.activePageId);
+    setCanUndo(studioRef.current?.canUndo() ?? false);
+    setCanRedo(studioRef.current?.canRedo() ?? false);
   }, []);
 
   const handleModeChange = React.useCallback(
     (_event: React.ChangeEvent<HTMLInputElement>, checked: boolean) => {
-      const newMode = checked ? 'edit' : 'view';
-      if (newMode === 'view') {
-        controller.clearSelection();
-      }
-      controller.setMode(newMode);
+      studioRef.current?.setMode(checked ? 'edit' : 'view');
     },
     [],
   );
 
-  const handleUndo = React.useCallback(() => { controller.undo(); }, []);
-  const handleRedo = React.useCallback(() => { controller.redo(); }, []);
+  const handleUndo = React.useCallback(() => { studioRef.current?.undo(); }, []);
+  const handleRedo = React.useCallback(() => { studioRef.current?.redo(); }, []);
 
   const handleSave = React.useCallback(() => {
-    const serialized = controller.serializeState();
-    const dashboardTitle = controller.getState().dashboard.title.replace(/[^a-z0-9]/gi, '_');
+    const serialized = studioRef.current?.serializeState();
+    if (!serialized) {
+      return;
+    }
+    const dashboardTitle = (studioRef.current?.getState().dashboard.title ?? 'dashboard').replace(
+      /[^a-z0-9]/gi,
+      '_',
+    );
     downloadJson(serialized, `${dashboardTitle}_dashboard.json`);
     setSnackbar({ open: true, message: 'Dashboard saved successfully', severity: 'success' });
   }, []);
@@ -61,7 +58,10 @@ export default function App() {
   const handleLoad = React.useCallback(async () => {
     try {
       const data = await uploadJson();
-      const result = controller.loadSerializedState(data);
+      const result = studioRef.current?.loadSerializedState(data);
+      if (!result) {
+        return;
+      }
       if (result.success) {
         if (result.fromVersion !== result.toVersion) {
           setSnackbar({
@@ -97,8 +97,7 @@ export default function App() {
   };
 
   const handlePageChange = React.useCallback((_event: React.SyntheticEvent, pageId: string) => {
-    controller.setActivePage(pageId);
-    setActivePageId(pageId);
+    studioRef.current?.setActivePage(pageId);
   }, []);
 
   const pageList = Object.values(pages);
@@ -123,7 +122,11 @@ export default function App() {
             onRedo={handleRedo}
           />
           <Box sx={{ flexGrow: 1, minHeight: 0 }}>
-            <Studio controller={controller} />
+            <Studio
+              ref={studioRef}
+              initialState={INITIAL_STATE}
+              onStateChange={handleStateChange}
+            />
           </Box>
         </Box>
         <Snackbar
@@ -140,3 +143,4 @@ export default function App() {
     </ThemeProvider>
   );
 }
+

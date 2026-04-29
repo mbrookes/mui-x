@@ -6,6 +6,11 @@ import { NumberFieldIcon } from '../icons/NumberFieldIcon';
 import { DateFieldIcon } from '../icons/DateFieldIcon';
 import { DateTimeFieldIcon } from '../icons/DateTimeFieldIcon';
 import { BooleanFieldIcon } from '../icons/BooleanFieldIcon';
+import { StringFieldGeneratedIcon } from '../icons/StringFieldGeneratedIcon';
+import { NumberFieldGeneratedIcon } from '../icons/NumberFieldGeneratedIcon';
+import { DateFieldGeneratedIcon } from '../icons/DateFieldGeneratedIcon';
+import { DateTimeFieldGeneratedIcon } from '../icons/DateTimeFieldGeneratedIcon';
+import { BooleanFieldGeneratedIcon } from '../icons/BooleanFieldGeneratedIcon';
 import type { StudioDataField } from '../models';
 
 export type FieldType = StudioDataField['type'];
@@ -16,6 +21,14 @@ const TYPE_ICON: Record<FieldType, React.ComponentType<{ size?: number }>> = {
   date: DateFieldIcon,
   datetime: DateTimeFieldIcon,
   boolean: BooleanFieldIcon,
+};
+
+const TYPE_GENERATED_ICON: Record<FieldType, React.ComponentType<{ size?: number }>> = {
+  string: StringFieldGeneratedIcon,
+  number: NumberFieldGeneratedIcon,
+  date: DateFieldGeneratedIcon,
+  datetime: DateTimeFieldGeneratedIcon,
+  boolean: BooleanFieldGeneratedIcon,
 };
 
 const TYPE_LABEL: Record<FieldType, string> = {
@@ -33,7 +46,8 @@ interface FieldTypeIconProps {
 }
 
 export function FieldTypeIcon({ type, generated = false, size = 16 }: FieldTypeIconProps) {
-  const Icon = TYPE_ICON[type] ?? StringFieldIcon;
+  const iconMap = generated ? TYPE_GENERATED_ICON : TYPE_ICON;
+  const Icon = iconMap[type] ?? (generated ? StringFieldGeneratedIcon : StringFieldIcon);
   const label = `${TYPE_LABEL[type] ?? type}${generated ? ' (generated)' : ''}`;
 
   return (
@@ -43,26 +57,13 @@ export function FieldTypeIcon({ type, generated = false, size = 16 }: FieldTypeI
         sx={{
           display: 'inline-flex',
           alignItems: 'center',
-          gap: '1px',
           flexShrink: 0,
           color: 'text.disabled',
         }}
       >
-        {generated && (
-          <Box
-            component="span"
-            sx={{
-              fontSize: size * 0.7,
-              fontWeight: 700,
-              lineHeight: 1,
-              fontFamily: 'monospace',
-            }}
-          >
-            =
-          </Box>
-        )}
         <Icon size={size} />
       </Box>
     </Tooltip>
   );
 }
+

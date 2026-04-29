@@ -57,6 +57,34 @@ export function FieldSvg({
   );
 }
 
+// ─── Generated field icon SVG wrapper (20×16 viewBox, = mark built-in) ────────
+// "size" is the height; width is proportionally wider (20/16 × size).
+
+export function GeneratedFieldSvg({
+  size = FIELD_DEFAULT_SIZE,
+  children,
+}: {
+  size?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <svg
+      width={(size * 20) / 16}
+      height={size}
+      viewBox="0 0 20 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      {/* Equals indicator */}
+      <line x1="0.5" y1="6" x2="2.5" y2="6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="0.5" y1="8.5" x2="2.5" y2="8.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      {/* Icon content starts at x=4 */}
+      {children}
+    </svg>
+  );
+}
+
 // ─── Polar geometry helpers (used by Pie / Donut) ─────────────────────────────
 
 export function polarToXY(

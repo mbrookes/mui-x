@@ -170,7 +170,7 @@ function extractDateRange(filter: StudioFilterState): { start: Date; end: Date }
   return null;
 }
 
-export function StudioKpiWidget(props: StudioKpiWidgetProps) {
+export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: StudioKpiWidgetProps) {
   const { dataSource, widget } = props;
   const { config } = widget;
   const filters = useStudioSelector((state) => state.filters);
@@ -323,4 +323,4 @@ export function StudioKpiWidget(props: StudioKpiWidgetProps) {
       </Box>
     </Box>
   );
-}
+});

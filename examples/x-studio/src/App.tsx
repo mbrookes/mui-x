@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Alert, Box, CssBaseline, Snackbar, ThemeProvider, createTheme } from '@mui/material';
+import { Alert, Box, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { Studio, createStudioController } from '@mui/x-studio';
@@ -7,13 +7,9 @@ import type { StudioMode, StudioPage } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { AppToolbar } from './components/AppToolbar';
 import { downloadJson, uploadJson } from './utils/fileUtils';
+import { theme } from './theme';
 
 const controller = createStudioController(INITIAL_STATE);
-
-const theme = createTheme({
-  cssVariables: true,
-  colorSchemes: { light: true, dark: true },
-});
 
 export default function App() {
   const [mode, setMode] = React.useState<StudioMode>(controller.getState().mode);

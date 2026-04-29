@@ -6,7 +6,10 @@ import type {
   StudioWidget,
   StudioWidgetKind,
 } from '../models';
-import { TextWidgetIcon, KpiWidgetIcon, TableWidgetIcon, BarGroupedIcon } from './icons/ChartIcons';
+import { TextWidgetIcon } from '../icons/TextWidgetIcon';
+import { KpiWidgetIcon } from '../icons/KpiWidgetIcon';
+import { TableWidgetIcon } from '../icons/TableWidgetIcon';
+import { BarGroupedIcon } from '../icons/BarGroupedIcon';
 
 export const WIDGET_TYPES: {
   kind: StudioWidgetKind;

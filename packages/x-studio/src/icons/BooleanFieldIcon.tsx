@@ -1,0 +1,11 @@
+import * as React from 'react';
+import { FieldSvg } from './utils';
+
+export function BooleanFieldIcon({ size }: { size?: number }) {
+  return (
+    <FieldSvg size={size}>
+      <rect x="1.5" y="5" width="13" height="6" rx="3" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="10.5" cy="8" r="2.2" fill="currentColor" />
+    </FieldSvg>
+  );
+}

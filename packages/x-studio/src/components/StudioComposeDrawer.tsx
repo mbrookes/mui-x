@@ -3,7 +3,6 @@ import * as React from 'react';
 import {
   Alert,
   Box,
-  Chip,
   Divider,
   FormControl,
   FormControlLabel,
@@ -27,6 +26,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
+import BoltIcon from '@mui/icons-material/Bolt';
 import type {
   StudioNumberFormat,
   StudioChartType,
@@ -1240,7 +1240,9 @@ function FormatPanel(props: { widgetId: string }) {
             endAdornment: (
               <InputAdornment position="end">
                 {isAutoTitle ? (
-                  <Chip label="Auto" size="small" />
+                  <Tooltip title="Auto-generated title">
+                    <BoltIcon fontSize="small" color="action" />
+                  </Tooltip>
                 ) : (
                   <Tooltip title="Reset to auto-generated title">
                     <IconButton size="small" onClick={handleResetTitle} edge="end">
@@ -1276,7 +1278,9 @@ function FormatPanel(props: { widgetId: string }) {
             endAdornment: (
               <InputAdornment position="end">
                 {isAutoSubtitle ? (
-                  <Chip label="Auto" size="small" />
+                  <Tooltip title="Auto-generated subtitle">
+                    <BoltIcon fontSize="small" color="action" />
+                  </Tooltip>
                 ) : (
                   <Tooltip title="Reset to auto-generated subtitle">
                     <IconButton size="small" onClick={handleResetSubtitle} edge="end">

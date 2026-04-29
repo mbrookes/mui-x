@@ -2,7 +2,6 @@
 import * as React from 'react';
 import {
   Alert,
-  Chip,
   Collapse,
   IconButton,
   List,
@@ -17,7 +16,6 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import FunctionsIcon from '@mui/icons-material/Functions';
 import TableChartIcon from '@mui/icons-material/TableChart';
 
 import { useStudioController, useStudioSelector } from '../context';
@@ -35,6 +33,7 @@ interface ExpressionFieldRowProps {
 }
 
 function ExpressionFieldRow({ field, isEditMode, onEdit, onDelete }: ExpressionFieldRowProps) {
+  const type = field.type ?? (field.isMeasure ? 'number' : 'string');
   return (
     <ListItemButton
       sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
@@ -44,20 +43,10 @@ function ExpressionFieldRow({ field, isEditMode, onEdit, onDelete }: ExpressionF
       <ListItemText
         primary={
           <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-            <FunctionsIcon
-              sx={{ fontSize: 15, color: 'primary.main', flexShrink: 0 }}
-            />
+            <FieldTypeIcon type={type} generated size={15} />
             <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
               {field.label}
             </Typography>
-            {field.isMeasure && (
-              <Chip
-                label="M"
-                size="small"
-                color="secondary"
-                sx={{ height: 16, fontSize: '0.6rem', '& .MuiChip-label': { px: 0.5 } }}
-              />
-            )}
           </Stack>
         }
       />

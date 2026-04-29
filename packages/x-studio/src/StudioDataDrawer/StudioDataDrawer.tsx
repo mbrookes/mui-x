@@ -20,7 +20,7 @@ import TableChartIcon from '@mui/icons-material/TableChart';
 
 import { useStudioController, useStudioSelector } from '../context';
 import type { StudioDataSource, StudioExpressionField } from '../models';
-import { FieldTypeIcon } from '../FieldTypeIcon';
+import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
 // ─── Expression field row ─────────────────────────────────────────────────────

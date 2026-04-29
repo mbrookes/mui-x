@@ -152,6 +152,8 @@ export interface StudioDataField {
   type: 'string' | 'number' | 'boolean' | 'date' | 'datetime';
   /** When true, the field is hidden from the data drawer and widget config selects */
   hidden?: boolean;
+  /** When true, the field value is computed/derived rather than stored directly in source data */
+  generated?: boolean;
   /** Display format for number fields */
   format?: StudioNumberFormat;
   /** ISO 4217 currency code for currency format. Defaults to 'USD'. */

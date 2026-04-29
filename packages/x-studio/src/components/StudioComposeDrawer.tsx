@@ -40,6 +40,7 @@ import { CanvasScrollContext, useStudioController, useStudioSelector } from '../
 import { createDefaultWidget, inferWidgetTitles, WIDGET_TYPES, widgetKindRequiresDataSource } from './widgetUtils';
 import { fieldsForCapability, fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from './chartUtils';
+import { FieldTypeIcon } from './FieldTypeIcon';
 import {
   AreaIcon,
   Area100Icon,
@@ -481,9 +482,7 @@ function GridSetupPanel(props: { widgetId: string }) {
           }}
         >
           <Typography variant="body2">{field.label}</Typography>
-          <Typography variant="caption" color="text.secondary">
-            {field.type}
-          </Typography>
+          <FieldTypeIcon type={field.type} generated={field.generated} size={14} />
         </Box>
       ))}
     </Stack>

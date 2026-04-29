@@ -41,18 +41,16 @@ import { createDefaultWidget, inferWidgetTitles, WIDGET_TYPES, widgetKindRequire
 import { fieldsForCapability, fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import { FieldTypeIcon } from '../FieldTypeIcon';
-import {
-  AreaIcon,
-  Area100Icon,
-  AreaStackedIcon,
-  BarGroupedIcon,
-  Bar100Icon,
-  BarStackedIcon,
-  DonutIcon,
-  LineIcon,
-  PieIcon,
-  ScatterIcon,
-} from '../internals/icons/ChartIcons';
+import { AreaIcon } from '../icons/AreaIcon';
+import { Area100Icon } from '../icons/Area100Icon';
+import { AreaStackedIcon } from '../icons/AreaStackedIcon';
+import { BarGroupedIcon } from '../icons/BarGroupedIcon';
+import { Bar100Icon } from '../icons/Bar100Icon';
+import { BarStackedIcon } from '../icons/BarStackedIcon';
+import { DonutIcon } from '../icons/DonutIcon';
+import { LineIcon } from '../icons/LineIcon';
+import { PieIcon } from '../icons/PieIcon';
+import { ScatterIcon } from '../icons/ScatterIcon';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

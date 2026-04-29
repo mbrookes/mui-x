@@ -37,7 +37,7 @@ describe('inferWidgetTitles — chart', () => {
   it('falls back to source label when no fields are configured', () => {
     const { title, subtitle } = inferWidgetTitles(makeWidget(), SOURCES);
     expect(title).toBe('Orders chart');
-    expect(subtitle).toBe('Bar chart');
+    expect(subtitle).toBe('');
   });
 
   it('builds "Y by X" title from configured fields', () => {
@@ -66,7 +66,7 @@ describe('inferWidgetTitles — chart', () => {
       makeWidget({ config: { xField: 'month', yField: 'revenue', ySeries: [{ fieldId: 'revenue' }], xGroupBy: 'month' } }),
       SOURCES,
     );
-    expect(subtitle).toBe('Bar chart · by month');
+    expect(subtitle).toBe('by month');
   });
 
   it('includes seriesField split in subtitle', () => {
@@ -80,7 +80,22 @@ describe('inferWidgetTitles — chart', () => {
       }),
       SOURCES,
     );
-    expect(subtitle).toBe('Bar chart · split by Category');
+    expect(subtitle).toBe('split by Category');
+  });
+
+  it('combines xGroupBy and seriesField in subtitle', () => {
+    const { subtitle } = inferWidgetTitles(
+      makeWidget({
+        config: {
+          xField: 'month',
+          ySeries: [{ fieldId: 'revenue' }],
+          xGroupBy: 'month',
+          seriesField: 'category',
+        },
+      }),
+      SOURCES,
+    );
+    expect(subtitle).toBe('by month · split by Category');
   });
 
   it('uses chartType label in subtitle', () => {
@@ -88,7 +103,7 @@ describe('inferWidgetTitles — chart', () => {
       makeWidget({ config: { chartType: 'line', xField: 'month', ySeries: [{ fieldId: 'revenue' }] } }),
       SOURCES,
     );
-    expect(subtitle).toBe('Line chart');
+    expect(subtitle).toBe('');
   });
 
   it('uses "Y vs X" for scatter charts', () => {
@@ -97,7 +112,7 @@ describe('inferWidgetTitles — chart', () => {
       SOURCES,
     );
     expect(title).toBe('Revenue vs Category');
-    expect(subtitle).toBe('Scatter plot');
+    expect(subtitle).toBe('');
   });
 });
 

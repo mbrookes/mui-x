@@ -11,6 +11,7 @@ import { resolveRows, resolveMetricRefs, normalizeToDate } from './chartUtils';
 import { useStudioSelector } from '../context';
 import { formatNumber } from './numberFormat';
 import { evaluateMeasure } from '../utils/expressionEvaluator';
+import { isRelativeDateValue, relativeToAbsolute } from './StudioFiltersDrawer/filterDrawerUtils';
 
 export interface StudioKpiWidgetProps {
   widget: StudioWidget;
@@ -153,7 +154,9 @@ function extractDateRange(filter: StudioFilterState): { start: Date; end: Date }
     if (!v) {
       return null;
     }
-    const d = new Date(v as string);
+    // Resolve relative date values (e.g. "1 month ago") to concrete date strings first
+    const str = isRelativeDateValue(v) ? relativeToAbsolute(v) : (v as string);
+    const d = new Date(str);
     return Number.isNaN(d.getTime()) ? null : d;
   };
 
@@ -166,10 +169,8 @@ function extractDateRange(filter: StudioFilterState): { start: Date; end: Date }
     return { start, end };
   }
   if (v1) {
-    // Single-sided — use v1 ± 1 year as a fallback range
-    const start = new Date(v1);
-    start.setFullYear(start.getFullYear() - 1);
-    return { start, end: v1 };
+    // Single-sided — treat today as the end, v1 as the start
+    return { start: v1, end: new Date() };
   }
   return null;
 }

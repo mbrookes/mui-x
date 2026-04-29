@@ -5,8 +5,17 @@ export function StringFieldGeneratedIcon({ size }: { size?: number }) {
   return (
     <GeneratedFieldSvg size={size}>
       <g transform="translate(4, 0)">
-        <line x1="3" y1="3.5" x2="13" y2="3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        <line x1="8" y1="3.5" x2="8" y2="13.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <text
+          x="0.5"
+          y="11.5"
+          fontSize="8"
+          fontFamily="sans-serif"
+          fontWeight="700"
+          fill="currentColor"
+          letterSpacing="-0.2"
+        >
+          Abc
+        </text>
       </g>
     </GeneratedFieldSvg>
   );

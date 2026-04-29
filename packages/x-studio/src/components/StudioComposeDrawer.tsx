@@ -1159,8 +1159,8 @@ function FormatPanel(props: { widgetId: string }) {
   const [title, setTitle] = React.useState(widget?.title ?? '');
   const [subtitle, setSubtitle] = React.useState(widget?.subtitle ?? '');
 
-  const isAutoTitle = !widget?.titleMode || widget.titleMode === 'auto';
-  const isAutoSubtitle = !widget?.subtitleMode || widget.subtitleMode === 'auto';
+  const isAutoTitle = widget?.titleMode === 'auto' || (!widget?.titleMode && !widget?.title);
+  const isAutoSubtitle = widget?.subtitleMode === 'auto' || (!widget?.subtitleMode && !widget?.subtitle);
 
   React.useEffect(() => {
     setTitle(widget?.title ?? '');

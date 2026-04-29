@@ -7,7 +7,7 @@ export interface StudioTextWidgetProps {
   widget: StudioWidget;
 }
 
-export function StudioTextWidget(props: StudioTextWidgetProps) {
+export const StudioTextWidget = React.memo(function StudioTextWidget(props: StudioTextWidgetProps) {
   const { widget } = props;
   const subtitle = widget.config.textSubtitle?.trim();
   const body = widget.config.textBody?.trim();
@@ -31,4 +31,4 @@ export function StudioTextWidget(props: StudioTextWidgetProps) {
       ) : null}
     </Box>
   );
-}
+});

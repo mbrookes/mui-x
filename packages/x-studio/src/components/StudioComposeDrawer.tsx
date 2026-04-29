@@ -1222,13 +1222,7 @@ function FormatPanel(props: { widgetId: string }) {
         size="small"
         fullWidth
         value={title}
-        onChange={(event) => {
-          setTitle(event.target.value);
-          // Typing implicitly marks as manual so the Auto chip disappears immediately
-          if (isAutoTitle && event.target.value !== widget?.title) {
-            controller.updateWidget(widgetId, { titleMode: 'manual' });
-          }
-        }}
+        onChange={(event) => setTitle(event.target.value)}
         onBlur={handleTitleBlur}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
@@ -1239,17 +1233,17 @@ function FormatPanel(props: { widgetId: string }) {
           input: {
             endAdornment: (
               <InputAdornment position="end">
-                {isAutoTitle ? (
+                {isAutoTitle && title === (widget?.title ?? '') ? (
                   <Tooltip title="Auto-generated title">
                     <BoltIcon fontSize="small" color="action" />
                   </Tooltip>
-                ) : (
+                ) : !isAutoTitle ? (
                   <Tooltip title="Reset to auto-generated title">
                     <IconButton size="small" onClick={handleResetTitle} edge="end">
                       <AutorenewIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
-                )}
+                ) : null}
               </InputAdornment>
             ),
           },
@@ -1261,12 +1255,7 @@ function FormatPanel(props: { widgetId: string }) {
         fullWidth
         value={subtitle}
         placeholder={isAutoSubtitle ? '' : 'No subtitle'}
-        onChange={(event) => {
-          setSubtitle(event.target.value);
-          if (isAutoSubtitle && event.target.value !== (widget?.subtitle ?? '')) {
-            controller.updateWidget(widgetId, { subtitleMode: 'manual' });
-          }
-        }}
+        onChange={(event) => setSubtitle(event.target.value)}
         onBlur={handleSubtitleBlur}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
@@ -1277,17 +1266,17 @@ function FormatPanel(props: { widgetId: string }) {
           input: {
             endAdornment: (
               <InputAdornment position="end">
-                {isAutoSubtitle ? (
+                {isAutoSubtitle && subtitle === (widget?.subtitle ?? '') ? (
                   <Tooltip title="Auto-generated subtitle">
                     <BoltIcon fontSize="small" color="action" />
                   </Tooltip>
-                ) : (
+                ) : !isAutoSubtitle ? (
                   <Tooltip title="Reset to auto-generated subtitle">
                     <IconButton size="small" onClick={handleResetSubtitle} edge="end">
                       <AutorenewIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
-                )}
+                ) : null}
               </InputAdornment>
             ),
           },
@@ -1510,10 +1499,11 @@ export function StudioComposeDrawer() {
   const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
   const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
 
+  if (selectedWidgetId) {
+    return <WidgetConfigView widgetId={selectedWidgetId} />;
+  }
+
   const widgetsContent = (() => {
-    if (selectedWidgetId) {
-      return <WidgetConfigView widgetId={selectedWidgetId} />;
-    }
     if (selectedFieldId) {
       return <FieldDetailView />;
     }

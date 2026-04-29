@@ -26,14 +26,21 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
   const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
-  const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
-  const filters = useStudioSelector((state) => state.filters);
-  const isSelected = selectedWidgetId === widgetId;
+  // Narrow selector: only re-render when THIS widget's selection state changes
+  const isSelected = useStudioSelector((state) => state.shell.selectedWidgetId === widgetId);
+  // Narrow selector: only re-render when the "nothing selected" state changes (for hover actions)
+  const noWidgetSelected = useStudioSelector((state) => state.shell.selectedWidgetId == null);
   const source = useStudioSelector((state) =>
     widget?.sourceId ? state.dataSources[widget.sourceId] : undefined,
   );
-  const activeRankFilter = widget?.kind === 'chart'
-    ? filters.find(
+  // Narrow selector: only extract the rank filter for this widget to avoid
+  // re-rendering all cards whenever any filter changes
+  const activeRankFilter = useStudioSelector((state) => {
+    if (widget?.kind !== 'chart') {
+      return null;
+    }
+    return (
+      state.filters.find(
         (f) =>
           f.scope === 'widget' &&
           f.widgetId === widgetId &&
@@ -41,7 +48,8 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
           typeof f.value === 'number' &&
           f.value > 0,
       ) ?? null
-    : null;
+    );
+  });
 
   const ref = React.useRef<HTMLDivElement>(null);
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
@@ -79,20 +87,6 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
     };
   }, [widgetId, mode, controller]);
 
-  const filteredRows = React.useMemo(() => {
-    if (!source?.rows || !widget) {
-      return [];
-    }
-    const { dataSources, relationships } = controller.getState();
-    const pageFilters = filters.filter((f) => f.scope === 'page');
-    const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
-    const crossFilters = filters.filter(
-      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
-    );
-    const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
-    return resolveRows(source.rows, widget.sourceId, allFilters, dataSources, relationships);
-  }, [source, widget, filters, controller]);
-
   const handleExport = React.useCallback(
     (event: React.MouseEvent) => {
       event.stopPropagation();
@@ -100,12 +94,25 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
         return;
       }
       if (widget.kind === 'grid') {
-        exportGridToCsv(widget, source, filteredRows);
+        // Compute filtered rows lazily at export time — no need for a reactive subscription
+        const { filters, dataSources, relationships } = controller.getState();
+        const pageFilters = filters.filter((f) => f.scope === 'page');
+        const widgetFilters = filters.filter(
+          (f) => f.scope === 'widget' && f.widgetId === widget.id,
+        );
+        const crossFilters = filters.filter(
+          (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
+        );
+        const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
+        const rows = source?.rows
+          ? resolveRows(source.rows, widget.sourceId, allFilters, dataSources, relationships)
+          : [];
+        exportGridToCsv(widget, source, rows);
       } else if (widget.kind === 'chart') {
         exportChartToPng(widget, chartContainerRef.current);
       }
     },
-    [widget, source, filteredRows],
+    [widget, source, controller],
   );
 
   if (!widget) {
@@ -114,7 +121,7 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
 
   const canExport = widget.kind === 'grid' || widget.kind === 'chart';
   const showEditActions =
-    mode === 'edit' && (isSelected || (!isSelected && !selectedWidgetId && hovered));
+    mode === 'edit' && (isSelected || (!isSelected && noWidgetSelected && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
   const actionButtonSx = { width: 24, height: 24, padding: 0, '& svg': { fontSize: 16 } } as const;
 

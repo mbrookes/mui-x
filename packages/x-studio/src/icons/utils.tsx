@@ -85,6 +85,31 @@ export function GeneratedFieldSvg({
   );
 }
 
+// ─── Padded field icon SVG wrapper (20×16 viewBox, no prefix mark) ────────────
+// Matches the geometry of GeneratedFieldSvg so that icon content (at x+4) lines
+// up vertically with generated variants. The left 4 units are intentional whitespace.
+
+export function PaddedFieldSvg({
+  size = FIELD_DEFAULT_SIZE,
+  children,
+}: {
+  size?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <svg
+      width={(size * 20) / 16}
+      height={size}
+      viewBox="0 0 20 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      {children}
+    </svg>
+  );
+}
+
 // ─── Polar geometry helpers (used by Pie / Donut) ─────────────────────────────
 
 export function polarToXY(

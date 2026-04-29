@@ -52,23 +52,16 @@ export function FieldTypeIcon({ type, generated = false, size = 16 }: FieldTypeI
         sx={{
           display: 'inline-flex',
           alignItems: 'center',
-          justifyContent: 'center',
-          position: 'relative',
+          gap: '1px',
           flexShrink: 0,
-          width: size + (generated ? 6 : 0),
-          height: size,
           color,
         }}
       >
-        <Icon sx={{ fontSize: size }} />
         {generated && (
           <Box
             component="span"
             sx={{
-              position: 'absolute',
-              bottom: -1,
-              right: 0,
-              fontSize: size * 0.55,
+              fontSize: size * 0.7,
               fontWeight: 700,
               lineHeight: 1,
               color,
@@ -78,6 +71,7 @@ export function FieldTypeIcon({ type, generated = false, size = 16 }: FieldTypeI
             =
           </Box>
         )}
+        <Icon sx={{ fontSize: size }} />
       </Box>
     </Tooltip>
   );

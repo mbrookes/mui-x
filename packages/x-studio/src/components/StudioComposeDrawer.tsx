@@ -494,23 +494,18 @@ function ChartSetupPanel(props: { widgetId: string }) {
   const controller = useStudioController();
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
   const dataSources = useStudioSelector((state) => state.dataSources);
-  const relationships = useStudioSelector((state) => state.relationships);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
 
   const allFields = React.useMemo(() => {
-    const sourceId = widget?.sourceId;
-    const reachable = sourceId
-      ? getReachableSourceIds(sourceId, relationships)
-      : new Set(Object.keys(dataSources));
     const physicalFields = Object.values(dataSources)
-      .filter((ds) => !ds.hidden && reachable.has(ds.id))
+      .filter((ds) => !ds.hidden)
       .flatMap((ds) =>
         ds.fields
           .filter((f) => !f.hidden)
           .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
       );
     const exprFields = expressionFields
-      .filter((ef) => !ef.hidden && reachable.has(ef.sourceId))
+      .filter((ef) => !ef.hidden)
       .map((ef) => {
         const ds = dataSources[ef.sourceId];
         return {
@@ -526,7 +521,7 @@ function ChartSetupPanel(props: { widgetId: string }) {
         };
       });
     return [...physicalFields, ...exprFields];
-  }, [dataSources, relationships, expressionFields, widget?.sourceId]);
+  }, [dataSources, expressionFields]);
   const config = widget?.config ?? {};
   const numericFields = fieldsForCapability(allFields, 'numeric');
 
@@ -610,9 +605,12 @@ function ChartSetupPanel(props: { widgetId: string }) {
         groupBy={(option) => option.sourceLabel}
         getOptionLabel={(option) => option.label}
         value={selectedXField}
-        onChange={(_e, newValue) =>
-          controller.updateWidgetConfig(widgetId, { xField: newValue?.id ?? '' })
-        }
+        onChange={(_e, newValue) => {
+          controller.updateWidgetConfig(widgetId, { xField: newValue?.id ?? '' });
+          if (newValue?.sourceId && newValue.sourceId !== widget?.sourceId) {
+            controller.updateWidget(widgetId, { sourceId: newValue.sourceId });
+          }
+        }}
         renderInput={(params) => (
           <TextField {...params} label={isScatter ? 'X field (numeric)' : 'X / Category field'} />
         )}
@@ -757,25 +755,20 @@ function KpiSetupPanel(props: { widgetId: string }) {
   const widget = useStudioSelector((state) => state.widgets[props.widgetId]);
   const controller = useStudioController();
   const dataSources = useStudioSelector((state) => state.dataSources);
-  const relationships = useStudioSelector((state) => state.relationships);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
   const config = widget?.config ?? {};
 
-  // Gather fields from reachable data sources only
+  // Gather fields from all data sources
   const allFields = React.useMemo(() => {
-    const sourceId = widget?.sourceId;
-    const reachable = sourceId
-      ? getReachableSourceIds(sourceId, relationships)
-      : new Set(Object.keys(dataSources));
     const physicalFields = Object.values(dataSources)
-      .filter((ds) => !ds.hidden && reachable.has(ds.id))
+      .filter((ds) => !ds.hidden)
       .flatMap((ds) =>
         ds.fields
           .filter((f) => !f.hidden)
           .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
       );
     const exprFields = expressionFields
-      .filter((ef) => !ef.hidden && reachable.has(ef.sourceId))
+      .filter((ef) => !ef.hidden)
       .map((ef) => {
         const ds = dataSources[ef.sourceId];
         return {
@@ -791,7 +784,7 @@ function KpiSetupPanel(props: { widgetId: string }) {
         };
       });
     return [...physicalFields, ...exprFields];
-  }, [dataSources, relationships, expressionFields, widget?.sourceId]);
+  }, [dataSources, expressionFields]);
   const selectedField = allFields.find((f) => f.id === config.kpiValueField);
   const selectedFieldType = selectedField?.type ?? null;
 
@@ -827,16 +820,6 @@ function KpiSetupPanel(props: { widgetId: string }) {
 
   const { widgetId } = props;
 
-  const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
-
-  if (!source) {
-    return (
-      <Alert severity="warning" sx={{ mt: 1 }}>
-        No data source bound to this widget.
-      </Alert>
-    );
-  }
-
   return (
     <Stack spacing={2}>
       <Autocomplete
@@ -848,6 +831,9 @@ function KpiSetupPanel(props: { widgetId: string }) {
         value={allFields.find((f) => f.id === config.kpiValueField) || null}
         onChange={(_e, newValue) => {
           controller.updateWidgetConfig(widgetId, { kpiValueField: newValue?.id || '' });
+          if (newValue?.sourceId && newValue.sourceId !== widget?.sourceId) {
+            controller.updateWidget(widgetId, { sourceId: newValue.sourceId });
+          }
         }}
         renderInput={(params) => <TextField {...params} label="Value field" />}
         isOptionEqualToValue={(option, value) =>

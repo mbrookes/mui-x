@@ -8,6 +8,7 @@ import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box } from '@mui/material';
 
+import { Typography } from '@mui/material';
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
   resolveRows,
@@ -91,6 +92,25 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     },
     [xGroupBy],
   );
+
+  // Check if this widget has an active cross-filter
+  if (!dataSource || !config.xField) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: chartHeight,
+          color: 'text.disabled',
+        }}
+      >
+        <Typography variant="body2">
+          Use the Setup tab to configure this chart.
+        </Typography>
+      </Box>
+    );
+  }
 
   // Check if this widget has an active cross-filter
   const activeCrossFilter = filters.find(

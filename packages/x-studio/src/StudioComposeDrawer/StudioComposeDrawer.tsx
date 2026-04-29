@@ -41,16 +41,16 @@ import { createDefaultWidget, inferWidgetTitles, WIDGET_TYPES, widgetKindRequire
 import { fieldsForCapability, fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
-import { AreaIcon } from '../icons/AreaIcon';
-import { Area100Icon } from '../icons/Area100Icon';
-import { AreaStackedIcon } from '../icons/AreaStackedIcon';
-import { BarGroupedIcon } from '../icons/BarGroupedIcon';
-import { Bar100Icon } from '../icons/Bar100Icon';
-import { BarStackedIcon } from '../icons/BarStackedIcon';
-import { DonutIcon } from '../icons/DonutIcon';
-import { LineIcon } from '../icons/LineIcon';
-import { PieIcon } from '../icons/PieIcon';
-import { ScatterIcon } from '../icons/ScatterIcon';
+import { AreaIcon } from '../icons/charts/AreaIcon';
+import { Area100Icon } from '../icons/charts/Area100Icon';
+import { AreaStackedIcon } from '../icons/charts/AreaStackedIcon';
+import { BarGroupedIcon } from '../icons/charts/BarGroupedIcon';
+import { Bar100Icon } from '../icons/charts/Bar100Icon';
+import { BarStackedIcon } from '../icons/charts/BarStackedIcon';
+import { DonutIcon } from '../icons/charts/DonutIcon';
+import { LineIcon } from '../icons/charts/LineIcon';
+import { PieIcon } from '../icons/charts/PieIcon';
+import { ScatterIcon } from '../icons/charts/ScatterIcon';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

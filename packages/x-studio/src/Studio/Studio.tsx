@@ -83,7 +83,8 @@ export interface StudioProps extends StudioSlots {
 
 // ── Internal content (needs context) ─────────────────────────────────────────
 
-function StudioContent(props: StudioSlots) {
+// Memoized so it doesn't re-render when Studio re-renders for unrelated reasons.
+const StudioContent = React.memo(function StudioContent(props: StudioSlots) {
   const { canvas, composeDrawer, dataDrawer, filtersDrawer } = props;
   const mode = useStudioSelector((state) => state.mode);
   const controller = useStudioController();
@@ -201,7 +202,7 @@ function StudioContent(props: StudioSlots) {
       </Box>
     </Box>
   );
-}
+});
 
 // ── Public component ──────────────────────────────────────────────────────────
 
@@ -222,7 +223,8 @@ function StudioContent(props: StudioSlots) {
  * />
  * ```
  */
-export const Studio = React.forwardRef<StudioHandle, StudioProps>(function Studio(props, ref) {
+export const Studio = React.memo(
+  React.forwardRef<StudioHandle, StudioProps>(function Studio(props, ref) {
   const { initialState, onStateChange, ...slots } = props;
 
   // Controller is created once at mount and never replaced.
@@ -263,5 +265,6 @@ export const Studio = React.forwardRef<StudioHandle, StudioProps>(function Studi
       <StudioContent {...slots} />
     </StudioProvider>
   );
-});
+}),
+);
 

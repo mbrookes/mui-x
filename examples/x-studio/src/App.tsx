@@ -24,10 +24,14 @@ export default function App() {
   }>({ open: false, message: '', severity: 'info' });
 
   const handleStateChange = React.useCallback((state: StudioState) => {
-    setMode(state.mode);
-    setTitle(state.dashboard.title);
-    setPages(state.pages);
-    setActivePageId(state.dashboard.activePageId);
+    // Use functional updates so React can skip if the value is unchanged,
+    // and so the 6 calls are batched into a single App re-render (React 18+).
+    setMode((prev) => (prev === state.mode ? prev : state.mode));
+    setTitle((prev) => (prev === state.dashboard.title ? prev : state.dashboard.title));
+    setPages((prev) => (prev === state.pages ? prev : state.pages));
+    setActivePageId((prev) =>
+      prev === state.dashboard.activePageId ? prev : state.dashboard.activePageId,
+    );
     setCanUndo(studioRef.current?.canUndo() ?? false);
     setCanRedo(studioRef.current?.canRedo() ?? false);
   }, []);

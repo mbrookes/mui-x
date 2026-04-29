@@ -1,11 +1,22 @@
 import * as React from 'react';
-import { FieldSvg } from './utils';
+import { PaddedFieldSvg } from './utils';
 
 export function StringFieldIcon({ size }: { size?: number }) {
   return (
-    <FieldSvg size={size}>
-      <line x1="3" y1="3.5" x2="13" y2="3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <line x1="8" y1="3.5" x2="8" y2="13.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </FieldSvg>
+    <PaddedFieldSvg size={size}>
+      <g transform="translate(4, 0)">
+        <text
+          x="0.5"
+          y="11.5"
+          fontSize="8"
+          fontFamily="sans-serif"
+          fontWeight="700"
+          fill="currentColor"
+          letterSpacing="-0.2"
+        >
+          Abc
+        </text>
+      </g>
+    </PaddedFieldSvg>
   );
 }

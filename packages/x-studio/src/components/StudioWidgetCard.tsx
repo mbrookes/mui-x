@@ -253,9 +253,16 @@ export function StudioWidgetCard(props: StudioWidgetCardProps) {
         {/* Widget header */}
         <div>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <Typography variant="h6" noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
-              {widget.title}
-            </Typography>
+            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+              <Typography variant="h6" noWrap>
+                {widget.title}
+              </Typography>
+              {widget.subtitle && (
+                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                  {widget.subtitle}
+                </Typography>
+              )}
+            </Box>
             {activeRankFilter && (
               <Chip
                 size="small"

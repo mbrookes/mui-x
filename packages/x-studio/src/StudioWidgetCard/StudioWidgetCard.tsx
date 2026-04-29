@@ -59,6 +59,19 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
 
+  // Defer heavy widget content (chart, kpi, grid) to after the first browser paint.
+  // On initial mount all cards show empty shells so the browser can paint the layout
+  // immediately; content then loads as a concurrent transition (time-sliced, yields
+  // to the browser between React work chunks).
+  const [showContent, setShowContent] = React.useState(false);
+  const [, startContentTransition] = React.useTransition();
+  React.useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      startContentTransition(() => setShowContent(true));
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   React.useEffect(() => {
     if (mode !== 'edit') {
       return undefined;
@@ -285,15 +298,19 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             )}
           </Stack>
         </div>
-        {/* Widget content */}
-        {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
-        {widget.kind === 'chart' && (
+        {/* Widget content — deferred to after first paint to avoid blocking initial render */}
+        {showContent && widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
+        {showContent && widget.kind === 'chart' && (
           <Box ref={chartContainerRef} sx={{ minHeight: CHART_MIN_HEIGHT }}>
             <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} />
           </Box>
         )}
-        {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
-        {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
+        {showContent && widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
+        {showContent && widget.kind === 'text' && <StudioTextWidget widget={widget} />}
+        {/* Placeholder keeps card height stable before content loads */}
+        {!showContent && widget.kind !== 'text' && (
+          <Box sx={{ minHeight: CHART_MIN_HEIGHT }} />
+        )}
       </Stack>
     </Paper>
   );

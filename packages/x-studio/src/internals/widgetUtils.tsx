@@ -9,7 +9,7 @@ import type {
 import { TextWidgetIcon } from '../icons/TextWidgetIcon';
 import { KpiWidgetIcon } from '../icons/KpiWidgetIcon';
 import { TableWidgetIcon } from '../icons/TableWidgetIcon';
-import { BarGroupedIcon } from '../icons/BarGroupedIcon';
+import { BarGroupedIcon } from '../icons/charts/BarGroupedIcon';
 
 export const WIDGET_TYPES: {
   kind: StudioWidgetKind;

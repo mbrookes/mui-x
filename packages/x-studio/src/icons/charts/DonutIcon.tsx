@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChartSvg, donutSlicePath, type IconProps } from './utils';
+import { ChartSvg, donutSlicePath, type IconProps } from '../utils';
 
 export function DonutIcon({
   size,

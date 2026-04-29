@@ -64,6 +64,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./themeAugmentation": "./src/themeAugmentation/index.ts",
     "./*": "./src/*/index.ts"
   }
 }

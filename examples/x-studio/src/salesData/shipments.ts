@@ -129,7 +129,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0010',
       orderId: 'ORD-0011',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: '3ZZP3CW0NOIL',
       shipDate: '2024-01-09',
       estimatedDeliveryDate: '2024-01-12',
@@ -141,7 +141,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0011',
       orderId: 'ORD-0012',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: '2A6LHHORZK6N',
       shipDate: '2024-01-19',
       estimatedDeliveryDate: '2024-01-26',
@@ -189,7 +189,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0015',
       orderId: 'ORD-0016',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'KF8WBDW3IN5J',
       shipDate: '2024-03-02',
       estimatedDeliveryDate: '2024-03-06',
@@ -201,7 +201,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0016',
       orderId: 'ORD-0017',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'IB4YBTWGC6IO',
       shipDate: '2024-03-13',
       estimatedDeliveryDate: '2024-03-18',
@@ -213,7 +213,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0017',
       orderId: 'ORD-0018',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'GL19EV327BC0',
       shipDate: '2024-03-26',
       estimatedDeliveryDate: '2024-04-01',
@@ -477,7 +477,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0039',
       orderId: 'ORD-0047',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'WJT3WEWLNZPG',
       shipDate: '2023-02-07',
       estimatedDeliveryDate: '2023-02-13',
@@ -537,7 +537,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0044',
       orderId: 'ORD-0052',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'PGSW6T4N260P',
       shipDate: '2023-04-20',
       estimatedDeliveryDate: '2023-04-26',
@@ -681,7 +681,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0056',
       orderId: 'ORD-0063',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'GQM95Y7STBJL',
       shipDate: '2023-10-16',
       estimatedDeliveryDate: '2023-10-23',
@@ -717,7 +717,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0059',
       orderId: 'ORD-0066',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'R7ZW4Q0E2MJJ',
       shipDate: '2023-11-22',
       estimatedDeliveryDate: '2023-11-26',
@@ -825,7 +825,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0068',
       orderId: 'ORD-0075',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'E4DY3VNRW5N0',
       shipDate: '2024-06-22',
       estimatedDeliveryDate: '2024-06-26',
@@ -993,7 +993,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0082',
       orderId: 'ORD-0088',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'CY4VV7Q6EB20',
       shipDate: '2024-10-15',
       estimatedDeliveryDate: '2024-10-21',
@@ -1485,7 +1485,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0123',
       orderId: 'ORD-0136',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'DNW6RHTPIO0Y',
       shipDate: '2023-12-16',
       estimatedDeliveryDate: '2023-12-21',
@@ -1593,7 +1593,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0132',
       orderId: 'ORD-0144',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'FK6BCE1IVXQZ',
       shipDate: '2024-09-01',
       estimatedDeliveryDate: '2024-09-06',
@@ -1641,7 +1641,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0136',
       orderId: 'ORD-0148',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'VOSRFWQ0504P',
       shipDate: '2024-12-11',
       estimatedDeliveryDate: '2024-12-15',
@@ -1893,7 +1893,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0157',
       orderId: 'ORD-0170',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: '52EGEDH5X3G2',
       shipDate: '2025-06-10',
       estimatedDeliveryDate: '2025-06-13',
@@ -1929,7 +1929,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0160',
       orderId: 'ORD-0173',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: '2DVAVXM8UF7F',
       shipDate: '2025-06-26',
       estimatedDeliveryDate: '2025-07-02',
@@ -2157,7 +2157,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0179',
       orderId: 'ORD-0191',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'C0WOZQW8UBCJ',
       shipDate: '2025-10-22',
       estimatedDeliveryDate: '2025-10-28',
@@ -2229,7 +2229,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0185',
       orderId: 'ORD-0197',
-      carrier: 'Royal Mail',
+      carrier: 'Evri',
       trackingNumber: 'PY43ACJB3YMQ',
       shipDate: '2025-12-03',
       estimatedDeliveryDate: '2025-12-06',

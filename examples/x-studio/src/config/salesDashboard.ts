@@ -135,6 +135,10 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         kpiValueField: 'company',
         kpiAggregation: 'count',
+        kpiSparkline: true,
+        kpiSparklineField: 'since',
+        kpiSparklinePlotType: 'bar',
+        kpiSparklineGranularity: 'month',
       },
     },
     'widget-kpi-ontime': {
@@ -145,6 +149,10 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         kpiValueField: 'onTime',
         kpiAggregation: 'avg',
+        kpiSparkline: true,
+        kpiSparklineField: 'shipDate',
+        kpiSparklinePlotType: 'line',
+        kpiSparklineGranularity: 'month',
       },
     },
     'widget-chart-revenue-by-category': {

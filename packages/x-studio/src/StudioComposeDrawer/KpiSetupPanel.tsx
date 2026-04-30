@@ -400,7 +400,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             }
           />
         }
-        label="Trend (period-over-period)"
+        label="Trend"
       />
 
       {config.kpiTrend && (

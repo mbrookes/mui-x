@@ -272,7 +272,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           </Tooltip>
         </Box>
       )}
-      <Stack spacing={2}>
+      <Stack spacing={widget.kind === 'grid' ? 2 : 0.5}>
         {/* Widget header */}
         <div>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>

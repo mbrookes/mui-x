@@ -12,7 +12,7 @@ export function KpiValue(props: KpiValueProps) {
   return (
     <Typography
       variant="h3"
-      sx={{ fontSize: 36, fontWeight: 700, lineHeight: 1, flexShrink: 0 }}
+      sx={{ fontSize: 32, fontWeight: 700, lineHeight: 1, flexShrink: 0 }}
       color={hasData ? 'text.primary' : 'text.disabled'}
     >
       {value}

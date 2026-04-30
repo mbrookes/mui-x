@@ -45,12 +45,15 @@ export function KpiTrend(props: KpiTrendProps) {
 
     return (
       <Tooltip title={`Previous period: ${trendTooltip}`} placement="bottom-start">
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', cursor: 'default' }}>
-          {trendFlat && <TrendingFlatIcon fontSize="small" sx={{ color: trendColor }} />}
-          {trendUp && <TrendingUpIcon fontSize="small" sx={{ color: trendColor }} />}
-          {trendDown && <TrendingDownIcon fontSize="small" sx={{ color: trendColor }} />}
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'baseline', cursor: 'default' }}>
+          {trendFlat && <TrendingFlatIcon fontSize="small" sx={{ color: trendColor, alignSelf: 'center' }} />}
+          {trendUp && <TrendingUpIcon fontSize="small" sx={{ color: trendColor, alignSelf: 'center' }} />}
+          {trendDown && <TrendingDownIcon fontSize="small" sx={{ color: trendColor, alignSelf: 'center' }} />}
           <Typography variant="body2" sx={{ color: trendColor, fontWeight: 500 }}>
-            {trendLabel}
+            {pct}
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+            vs. {periodShort}
           </Typography>
         </Stack>
       </Tooltip>

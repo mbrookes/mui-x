@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import type { Dayjs } from 'dayjs';
+import { NumberField } from '../internals/NumberField';
 import dayjs from 'dayjs';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
@@ -175,20 +176,19 @@ function RelativeDateInput({
 }) {
   const isLinked = Boolean(valueRef);
   const amountField = (
-    <TextField
+    <NumberField
       size="small"
-      type="number"
       label="Amount"
       value={value.amount}
       disabled={isLinked}
-      onChange={(event) => {
-        onChange({ ...value, amount: Math.max(1, parseInt(event.target.value, 10) || 1) });
+      onValueChange={(v) => {
+        onChange({ ...value, amount: Math.max(1, v ?? 1) });
         if (valueRef && onValueRefChange) {
           onValueRefChange(undefined);
         }
       }}
+      min={1}
       fullWidth
-      slotProps={{ htmlInput: { min: 1 } }}
     />
   );
 

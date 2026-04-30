@@ -8,12 +8,17 @@ export interface StudioTextWidgetProps {
   widget: StudioWidget;
 }
 
+const FONT_FAMILY: Record<string, string> = {
+  serif: "Georgia, 'Times New Roman', Times, serif",
+  monospace: "'Courier New', Courier, monospace",
+};
+
 export const StudioTextWidget = React.memo(function StudioTextWidget(props: StudioTextWidgetProps) {
   const { widget } = props;
-  const subtitle = widget.config.textSubtitle?.trim();
-  const body = widget.config.textBody?.trim();
+  const { config } = widget;
+  const subtitle = config.textSubtitle?.trim();
+  const body = config.textBody?.trim();
 
-  // If both subtitle and body are empty, render nothing (take no space)
   if (!subtitle && !body) {
     return null;
   }
@@ -21,12 +26,33 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       {subtitle ? (
-        <Typography variant="subtitle2" color="text.secondary">
+        <Typography
+          variant="subtitle1"
+          color={config.textSubtitleColor ?? 'text.secondary'}
+          sx={{
+            ...(config.textSubtitleFontFamily && {
+              fontFamily: FONT_FAMILY[config.textSubtitleFontFamily],
+            }),
+            ...(config.textSubtitleFontSize && { fontSize: config.textSubtitleFontSize }),
+            ...(config.textSubtitleAlign && { textAlign: config.textSubtitleAlign }),
+          }}
+        >
           {subtitle}
         </Typography>
       ) : null}
       {body ? (
-        <Typography variant="body2" color="text.primary" sx={{ whiteSpace: 'pre-wrap' }}>
+        <Typography
+          variant="body2"
+          color={config.textBodyColor ?? 'text.primary'}
+          sx={{
+            whiteSpace: 'pre-wrap',
+            ...(config.textBodyFontFamily && {
+              fontFamily: FONT_FAMILY[config.textBodyFontFamily],
+            }),
+            ...(config.textBodyFontSize && { fontSize: config.textBodyFontSize }),
+            ...(config.textBodyAlign && { textAlign: config.textBodyAlign }),
+          }}
+        >
           {body}
         </Typography>
       ) : null}

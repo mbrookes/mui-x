@@ -3,16 +3,15 @@ import * as React from 'react';
 import {
   Divider,
   FormControl,
-  InputAdornment,
   InputLabel,
   MenuItem,
   Select,
   Stack,
-  TextField,
   ToggleButton,
   ToggleButtonGroup,
 } from '@mui/material';
 import type { StudioFilterState } from '../models';
+import { NumberField } from '../internals/NumberField';
 
 export interface AvailableSeries {
   fieldId: string;
@@ -62,18 +61,12 @@ export function RankFilterInput({
         </ToggleButton>
       </ToggleButtonGroup>
 
-      {/* N items text field */}
-      <TextField
+      {/* N items number field */}
+      <NumberField
         size="small"
-        type="number"
-        value={n ?? ''}
-        onChange={(event) =>
-          onChange({ value: Math.max(1, parseInt(event.target.value, 10) || 1) })
-        }
-        slotProps={{
-          htmlInput: { min: 1, style: { textAlign: 'center' } },
-          input: { endAdornment: <InputAdornment position="end" sx={{ mr: -0.5, fontSize: 12 }}>items</InputAdornment> },
-        }}
+        value={n ?? null}
+        min={1}
+        onValueChange={(v) => onChange({ value: Math.max(1, v ?? 1) })}
       />
 
       {showRankBy && (

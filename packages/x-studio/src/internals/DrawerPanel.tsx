@@ -145,7 +145,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
         </IconButton>
       </Box>
       <Divider />
-      <Box sx={{ p: 2, overflow: 'auto', flexGrow: 1 }}>{children}</Box>
+      <Box sx={{ p: 1, overflow: 'auto', flexGrow: 1 }}>{children}</Box>
     </Box>
   );
 }

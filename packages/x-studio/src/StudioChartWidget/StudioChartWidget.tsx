@@ -5,8 +5,14 @@ import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import { PieChart } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
+import {
+  blueberryTwilightPalette,
+  mangoFusionPalette,
+  cheerfulFiestaPalette,
+  rainbowSurgePalette,
+} from '@mui/x-charts';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
-import { Box } from '@mui/material';
+import { Box, useTheme } from '@mui/material';
 
 import { Typography } from '@mui/material';
 import type { StudioDataSource, StudioWidget } from '../models';
@@ -70,10 +76,33 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   const dataSources = useStudioSelector((state) => state.dataSources);
   const relationships = useStudioSelector((state) => state.relationships);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
+  const pageTheme = useStudioSelector(
+    (state) => state.pages[state.dashboard.activePageId]?.theme,
+  );
+  const muiTheme = useTheme();
   const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<
     'bar' | 'line' | 'pie'
   > | null>(null);
   const [hoveredAxis, setHoveredAxis] = React.useState<AxisItemIdentifier[] | null>(null);
+
+  // Resolve page-level chart colour palette → string[] passed to every chart.
+  const chartColors = React.useMemo((): string[] | undefined => {
+    const palette = pageTheme?.chartPalette;
+    if (!palette) {
+      return undefined;
+    }
+    if (palette === 'custom') {
+      return pageTheme?.chartCustomColors?.length ? pageTheme.chartCustomColors : undefined;
+    }
+    const mode = muiTheme.palette.mode;
+    const paletteMap = {
+      blueberryTwilight: blueberryTwilightPalette,
+      mangoFusion: mangoFusionPalette,
+      cheerfulFiesta: cheerfulFiestaPalette,
+      rainbowSurge: rainbowSurgePalette,
+    } as const;
+    return paletteMap[palette]?.(mode);
+  }, [pageTheme, muiTheme.palette.mode]);
 
   // Clear stale hovered item when chart type or series field changes to avoid
   // "controlled/uncontrolled" errors from stale seriesIds referencing old series.
@@ -284,6 +313,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
               // label removed per requirements
             },
           ]}
+          colors={chartColors}
           height={chartHeight}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
@@ -338,6 +368,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
             yAxis={yAxes}
             series={series}
+            colors={chartColors}
             height={chartHeight}
             margin={{ top: 16, right: 40, bottom: 32, left: 40 }}
             highlightedAxis={
@@ -390,6 +421,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
               highlightScope: { highlight: 'item', fade: 'global' },
             },
           ]}
+          colors={chartColors}
           height={chartHeight}
           slotProps={{}} // legend positioning uses default
           margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
@@ -447,6 +479,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         <BarChart
           xAxis={[{ data: xAxisData, scaleType: 'band' }]}
           series={series}
+          colors={chartColors}
           height={chartHeight}
           margin={{ top: 16, right: 16, bottom: 32, left: 60 }}
           highlightedItem={controlledHighlightedItem}
@@ -475,6 +508,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         <LineChart
           xAxis={[{ data: xAxisData, scaleType: 'point' }]}
           series={series}
+          colors={chartColors}
           height={chartHeight}
           margin={{ top: 16, right: 16, bottom: 32, left: 60 }}
           highlightedItem={controlledHighlightedItem}
@@ -518,6 +552,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point' }]}
           yAxis={yAxes}
           series={series}
+          colors={chartColors}
           height={chartHeight}
           margin={{ top: 16, right: 40, bottom: 32, left: 40 }}
           highlightedItem={
@@ -563,6 +598,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
               valueFormatter: seriesValueFormatter,
             },
           ]}
+          colors={chartColors}
           height={chartHeight}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
@@ -606,6 +642,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
               valueFormatter: seriesValueFormatter,
             },
           ]}
+          colors={chartColors}
           height={chartHeight}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
@@ -642,6 +679,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             valueFormatter: seriesValueFormatter,
           },
         ]}
+        colors={chartColors}
         height={chartHeight}
         hideLegend
         margin={{ top: 16, right: 16, bottom: 32, left: 40 }}

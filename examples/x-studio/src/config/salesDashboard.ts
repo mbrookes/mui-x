@@ -35,8 +35,18 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
     'page-2': {
       id: 'page-2',
-      title: 'Details',
-      widgetRows: [],
+      title: 'Products & Logistics',
+      widgetRows: [
+        [
+          'widget-kpi2-margin',
+          'widget-kpi2-units-sold',
+          'widget-kpi2-avg-discount',
+          'widget-kpi2-items-shipped',
+        ],
+        ['widget-chart2-shipments-trend', 'widget-chart2-orders-by-country'],
+        ['widget-chart2-price-vs-margin', 'widget-chart2-stock-by-category'],
+        ['widget-grid2-products'],
+      ],
     },
   },
   dataSources: {
@@ -171,6 +181,131 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: ORDERS_SOURCE_ID,
       config: { columns: ['id', 'date', 'customerId', 'status'] },
     },
+
+    // ── Page 2: Products & Logistics ────────────────────────────────────────
+
+    'widget-kpi2-margin': {
+      id: 'widget-kpi2-margin',
+      kind: 'kpi',
+      title: 'Avg Unit Margin',
+      titleMode: 'manual',
+      sourceId: PRODUCTS_SOURCE_ID,
+      config: {
+        kpiValueField: 'expr-product-margin',
+        kpiAggregation: 'avg',
+        kpiCompact: false,
+      },
+    },
+    'widget-kpi2-units-sold': {
+      id: 'widget-kpi2-units-sold',
+      kind: 'kpi',
+      title: 'Units Sold',
+      titleMode: 'manual',
+      sourceId: ORDER_ITEMS_SOURCE_ID,
+      config: {
+        kpiValueField: 'quantity',
+        kpiAggregation: 'sum',
+        kpiCompact: true,
+        kpiSparkline: true,
+        kpiSparklineField: 'date',
+        kpiSparklineSourceId: ORDERS_SOURCE_ID,
+        kpiSparklinePlotType: 'bar',
+        kpiSparklineGranularity: 'month',
+      },
+    },
+    'widget-kpi2-avg-discount': {
+      id: 'widget-kpi2-avg-discount',
+      kind: 'kpi',
+      title: 'Avg Discount',
+      titleMode: 'manual',
+      sourceId: ORDER_ITEMS_SOURCE_ID,
+      config: {
+        kpiValueField: 'discount',
+        kpiAggregation: 'avg',
+      },
+    },
+    'widget-kpi2-items-shipped': {
+      id: 'widget-kpi2-items-shipped',
+      kind: 'kpi',
+      title: 'Items Shipped',
+      titleMode: 'manual',
+      sourceId: SHIPMENTS_SOURCE_ID,
+      config: {
+        kpiValueField: 'itemCount',
+        kpiAggregation: 'sum',
+        kpiCompact: true,
+        kpiSparkline: true,
+        kpiSparklineField: 'shipDate',
+        kpiSparklinePlotType: 'bar',
+        kpiSparklineGranularity: 'month',
+      },
+    },
+
+    'widget-chart2-shipments-trend': {
+      id: 'widget-chart2-shipments-trend',
+      kind: 'chart',
+      title: 'Shipments by Carrier',
+      titleMode: 'manual',
+      sourceId: SHIPMENTS_SOURCE_ID,
+      config: {
+        chartType: 'line',
+        xField: 'shipDate',
+        xGroupBy: 'month',
+        yField: 'itemCount',
+        seriesField: 'carrier',
+      },
+    },
+    'widget-chart2-orders-by-country': {
+      id: 'widget-chart2-orders-by-country',
+      kind: 'chart',
+      title: 'Revenue by Country Over Time',
+      titleMode: 'manual',
+      sourceId: ORDERS_SOURCE_ID,
+      config: {
+        chartType: 'bar-stacked',
+        xField: 'date',
+        xGroupBy: 'quarter',
+        yField: 'total',
+        seriesField: 'country',
+      },
+    },
+
+    'widget-chart2-price-vs-margin': {
+      id: 'widget-chart2-price-vs-margin',
+      kind: 'chart',
+      title: 'Price vs. Unit Margin',
+      titleMode: 'manual',
+      sourceId: PRODUCTS_SOURCE_ID,
+      config: {
+        chartType: 'scatter',
+        xField: 'price',
+        yField: 'expr-product-margin',
+      },
+    },
+    'widget-chart2-stock-by-category': {
+      id: 'widget-chart2-stock-by-category',
+      kind: 'chart',
+      title: 'Stock by Category',
+      titleMode: 'manual',
+      sourceId: PRODUCTS_SOURCE_ID,
+      config: {
+        chartType: 'bar',
+        xField: 'product',
+        yField: 'stock',
+      },
+    },
+
+    'widget-grid2-products': {
+      id: 'widget-grid2-products',
+      kind: 'grid',
+      title: 'Product Catalogue',
+      titleMode: 'manual',
+      sourceId: PRODUCTS_SOURCE_ID,
+      config: {
+        columns: ['product', 'category', 'price', 'cost', 'expr-product-margin', 'expr-product-margin-pct', 'stock', 'reorderLevel'],
+        crossFilterField: 'category',
+      },
+    },
   },
   "filters": [
     {
@@ -188,6 +323,40 @@ export const INITIAL_STATE: Partial<StudioState> = {
       "fieldType": "date",
       "filterSourceId": "source-orders"
     }
+  ],
+  expressionFields: [
+    {
+      id: 'expr-product-margin',
+      label: 'Unit Margin',
+      description: 'Selling price minus cost per unit',
+      sourceId: PRODUCTS_SOURCE_ID,
+      isMeasure: false,
+      type: 'number',
+      format: 'currency',
+      expression: {
+        operator: 'subtract',
+        inputs: [{ id: 'price' }, { id: 'cost' }],
+      },
+    },
+    {
+      id: 'expr-product-margin-pct',
+      label: 'Margin %',
+      description: 'Gross margin as a percentage of selling price',
+      sourceId: PRODUCTS_SOURCE_ID,
+      isMeasure: false,
+      type: 'number',
+      format: 'percent',
+      expression: {
+        operator: 'divide',
+        inputs: [
+          {
+            operator: 'subtract',
+            inputs: [{ id: 'price' }, { id: 'cost' }],
+          },
+          { id: 'price' },
+        ],
+      },
+    },
   ],
   shell: {
     // TODO: make these optional

@@ -39,6 +39,7 @@ import FormatAlignRightIcon from '@mui/icons-material/FormatAlignRight';
 import type {
   StudioNumberFormat,
   StudioChartType,
+  StudioChartPaletteName,
   StudioKpiAggregation,
   StudioPageTheme,
   StudioWidgetKind,
@@ -1253,6 +1254,151 @@ function TextSetupPanel(props: { widgetId: string }) {
   );
 }
 
+// ── Text formatting ────────────────────────────────────────────────────────────
+
+interface TextSectionFormatProps {
+  label: string;
+  fontFamily?: 'serif' | 'monospace';
+  fontSize?: number;
+  color?: string;
+  align?: 'left' | 'center' | 'right';
+  onFontFamilyChange: (v: 'serif' | 'monospace' | undefined) => void;
+  onFontSizeChange: (v: number | undefined) => void;
+  onColorChange: (v: string | undefined) => void;
+  onAlignChange: (v: 'left' | 'center' | 'right' | undefined) => void;
+}
+
+function TextSectionFormat(props: TextSectionFormatProps) {
+  const { label, fontFamily, fontSize, color, align,
+    onFontFamilyChange, onFontSizeChange, onColorChange, onAlignChange } = props;
+
+  return (
+    <Accordion
+      disableGutters
+      elevation={0}
+      sx={{ border: 1, borderColor: 'divider', borderRadius: 1, '&:before': { display: 'none' } }}
+    >
+      <AccordionSummary expandIcon={<ExpandMoreIcon fontSize="small" />} sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { my: 0 } }}>
+        <Typography variant="body2">{label}</Typography>
+      </AccordionSummary>
+      <AccordionDetails sx={{ pt: 0, pb: 2 }}>
+        <Stack spacing={1.5}>
+          <FormControl size="small" fullWidth>
+            <InputLabel>Font family</InputLabel>
+            <Select
+              label="Font family"
+              value={fontFamily ?? ''}
+              onChange={(event) => {
+                const v = event.target.value as string;
+                onFontFamilyChange(v === '' ? undefined : (v as 'serif' | 'monospace'));
+              }}
+            >
+              <MenuItem value="">Default (theme)</MenuItem>
+              <MenuItem value="serif">Serif</MenuItem>
+              <MenuItem value="monospace">Monospace</MenuItem>
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" fullWidth>
+            <InputLabel>Font size</InputLabel>
+            <Select
+              label="Font size"
+              value={fontSize ?? 0}
+              onChange={(event) => {
+                const v = Number(event.target.value);
+                onFontSizeChange(v === 0 ? undefined : v);
+              }}
+            >
+              <MenuItem value={0}>Default</MenuItem>
+              <MenuItem value={12}>12 px</MenuItem>
+              <MenuItem value={14}>14 px</MenuItem>
+              <MenuItem value={16}>16 px</MenuItem>
+              <MenuItem value={18}>18 px</MenuItem>
+              <MenuItem value={20}>20 px</MenuItem>
+              <MenuItem value={24}>24 px</MenuItem>
+              <MenuItem value={32}>32 px</MenuItem>
+            </Select>
+          </FormControl>
+
+          <ColorInput
+            label="Colour"
+            value={color ?? ''}
+            onChange={(v) => onColorChange(v || undefined)}
+            placeholder="Default"
+          />
+
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+              Alignment
+            </Typography>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={align ?? 'left'}
+              onChange={(_event, val) => {
+                if (val) {
+                  onAlignChange(val === 'left' ? undefined : (val as 'center' | 'right'));
+                }
+              }}
+            >
+              <ToggleButton value="left" aria-label="Align left">
+                <FormatAlignLeftIcon fontSize="small" />
+              </ToggleButton>
+              <ToggleButton value="center" aria-label="Align center">
+                <FormatAlignCenterIcon fontSize="small" />
+              </ToggleButton>
+              <ToggleButton value="right" aria-label="Align right">
+                <FormatAlignRightIcon fontSize="small" />
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+        </Stack>
+      </AccordionDetails>
+    </Accordion>
+  );
+}
+
+function TextFormatPanel(props: { widgetId: string }) {
+  const { widgetId } = props;
+  const controller = useStudioController();
+  const config = useStudioSelector((state) => state.widgets[widgetId]?.config);
+
+  if (!config) {
+    return null;
+  }
+
+  const update = (changes: Partial<StudioWidgetConfig>) =>
+    controller.updateWidgetConfig(widgetId, changes);
+
+  return (
+    <Stack spacing={1.5}>
+      <TextSectionFormat
+        label="Subtitle"
+        fontFamily={config.textSubtitleFontFamily}
+        fontSize={config.textSubtitleFontSize}
+        color={config.textSubtitleColor}
+        align={config.textSubtitleAlign}
+        onFontFamilyChange={(v) => update({ textSubtitleFontFamily: v })}
+        onFontSizeChange={(v) => update({ textSubtitleFontSize: v })}
+        onColorChange={(v) => update({ textSubtitleColor: v })}
+        onAlignChange={(v) => update({ textSubtitleAlign: v })}
+      />
+      <TextSectionFormat
+        label="Body"
+        fontFamily={config.textBodyFontFamily}
+        fontSize={config.textBodyFontSize}
+        color={config.textBodyColor}
+        align={config.textBodyAlign}
+        onFontFamilyChange={(v) => update({ textBodyFontFamily: v })}
+        onFontSizeChange={(v) => update({ textBodyFontSize: v })}
+        onColorChange={(v) => update({ textBodyColor: v })}
+        onAlignChange={(v) => update({ textBodyAlign: v })}
+      />
+    </Stack>
+  );
+}
+
+
 function FormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
@@ -1400,38 +1546,31 @@ function WidgetConfigView(props: { widgetId: string }) {
     return null;
   }
 
-  const isText = widget.kind === 'text';
-
   return (
     <div>
-      {!isText && (
-        <Tabs
-          value={tab}
-          onChange={(_event, v) => setTab(v)}
-          variant="fullWidth"
-          sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
-        >
-          <Tab label="Setup" />
-          <Tab label="Format" />
-        </Tabs>
-      )}
+      <Tabs
+        value={tab}
+        onChange={(_event, v) => setTab(v)}
+        variant="fullWidth"
+        sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+      >
+        <Tab label="Setup" />
+        <Tab label="Format" />
+      </Tabs>
 
-      {isText ? (
-        <Box sx={{ mt: 2 }}>
-          <TextSetupPanel widgetId={widgetId} />
-        </Box>
-      ) : (
-        <React.Fragment>
-          <TabPanel value={tab} index={0}>
-            {widget.kind === 'grid' && <GridSetupPanel widgetId={widgetId} />}
-            {widget.kind === 'chart' && <ChartSetupPanel widgetId={widgetId} />}
-            {widget.kind === 'kpi' && <KpiSetupPanel widgetId={widgetId} />}
-          </TabPanel>
-          <TabPanel value={tab} index={1}>
-            <FormatPanel widgetId={widgetId} />
-          </TabPanel>
-        </React.Fragment>
-      )}
+      <TabPanel value={tab} index={0}>
+        {widget.kind === 'text' && <TextSetupPanel widgetId={widgetId} />}
+        {widget.kind === 'grid' && <GridSetupPanel widgetId={widgetId} />}
+        {widget.kind === 'chart' && <ChartSetupPanel widgetId={widgetId} />}
+        {widget.kind === 'kpi' && <KpiSetupPanel widgetId={widgetId} />}
+      </TabPanel>
+      <TabPanel value={tab} index={1}>
+        {widget.kind === 'text' ? (
+          <TextFormatPanel widgetId={widgetId} />
+        ) : (
+          <FormatPanel widgetId={widgetId} />
+        )}
+      </TabPanel>
     </div>
   );
 }
@@ -1482,6 +1621,213 @@ function ColorInput({
         slotProps={{ htmlInput: { spellCheck: false } }}
       />
     </Box>
+  );
+}
+
+// ── Chart palette UI helpers ──────────────────────────────────────────────────
+
+/** Hard-coded light-mode swatches for each named palette (first 6 colors). */
+const NAMED_PALETTES: { id: StudioChartPaletteName; label: string; swatches: string[] }[] = [
+  {
+    id: 'blueberryTwilight',
+    label: 'Blueberry Twilight',
+    swatches: ['#02B2AF', '#2E96FF', '#B800D8', '#60009B', '#2731C8', '#03008D'],
+  },
+  {
+    id: 'mangoFusion',
+    label: 'Mango Fusion',
+    swatches: ['#173A5E', '#00A3A0', '#C91B63', '#EF5350', '#FFA726', '#B800D8'],
+  },
+  {
+    id: 'cheerfulFiesta',
+    label: 'Cheerful Fiesta',
+    swatches: ['#003A75', '#007FFF', '#FFC24C', '#FF9D09', '#CA6C00', '#127D94'],
+  },
+  {
+    id: 'rainbowSurge',
+    label: 'Rainbow Surge',
+    swatches: ['#4254FB', '#FFB422', '#FA4F58', '#0DBEFF', '#22BF75', '#FA83B4'],
+  },
+];
+
+function PaletteSwatches({ colors }: { colors: string[] }) {
+  return (
+    <Box sx={{ display: 'flex', gap: 0.5 }}>
+      {colors.map((color) => (
+        <Box
+          key={color}
+          sx={{ width: 16, height: 16, borderRadius: '50%', bgcolor: color, flexShrink: 0 }}
+        />
+      ))}
+    </Box>
+  );
+}
+
+function ChartPalettePanel({
+  pageTheme,
+  update,
+}: {
+  pageTheme: StudioPageTheme;
+  update: (changes: Partial<StudioPageTheme>) => void;
+}) {
+  const selected = pageTheme.chartPalette;
+
+  const handleSelect = (id: StudioChartPaletteName | undefined) => {
+    update({ chartPalette: id, chartCustomColors: undefined });
+  };
+
+  const customColors = pageTheme.chartCustomColors ?? [];
+
+  const handleCustomColorChange = (index: number, value: string) => {
+    const next = [...customColors];
+    next[index] = value;
+    update({ chartCustomColors: next });
+  };
+
+  const handleAddCustomColor = () => {
+    update({ chartCustomColors: [...customColors, '#000000'] });
+  };
+
+  const handleRemoveCustomColor = (index: number) => {
+    const next = customColors.filter((_, i) => i !== index);
+    update({ chartCustomColors: next.length ? next : undefined });
+  };
+
+  return (
+    <Stack spacing={1.5}>
+      <Typography variant="subtitle2">Chart colours</Typography>
+
+      <Stack spacing={0.5}>
+        {/* "Default" (no override) option */}
+        <Box
+          onClick={() => handleSelect(undefined)}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            px: 1.5,
+            py: 1,
+            borderRadius: 1,
+            cursor: 'pointer',
+            border: 1,
+            borderColor: !selected ? 'primary.main' : 'divider',
+            bgcolor: !selected ? 'action.selected' : 'transparent',
+          }}
+        >
+          <Typography variant="body2" sx={{ flexGrow: 1 }}>
+            Theme default
+          </Typography>
+          {!selected && (
+            <Typography variant="caption" color="primary">
+              ✓
+            </Typography>
+          )}
+        </Box>
+
+        {NAMED_PALETTES.map((p) => (
+          <Box
+            key={p.id}
+            onClick={() => handleSelect(p.id)}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+              px: 1.5,
+              py: 1,
+              borderRadius: 1,
+              cursor: 'pointer',
+              border: 1,
+              borderColor: selected === p.id ? 'primary.main' : 'divider',
+              bgcolor: selected === p.id ? 'action.selected' : 'transparent',
+            }}
+          >
+            <PaletteSwatches colors={p.swatches} />
+            <Typography variant="body2" sx={{ flexGrow: 1 }}>
+              {p.label}
+            </Typography>
+            {selected === p.id && (
+              <Typography variant="caption" color="primary">
+                ✓
+              </Typography>
+            )}
+          </Box>
+        ))}
+
+        {/* Custom option */}
+        <Box
+          onClick={() => {
+            if (selected !== 'custom') {
+              update({ chartPalette: 'custom', chartCustomColors: customColors.length ? customColors : ['#2196f3', '#f44336', '#4caf50'] });
+            }
+          }}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            px: 1.5,
+            py: 1,
+            borderRadius: 1,
+            cursor: 'pointer',
+            border: 1,
+            borderColor: selected === 'custom' ? 'primary.main' : 'divider',
+            bgcolor: selected === 'custom' ? 'action.selected' : 'transparent',
+          }}
+        >
+          {selected === 'custom' && customColors.length > 0 ? (
+            <PaletteSwatches colors={customColors.slice(0, 6)} />
+          ) : (
+            <Box sx={{ width: 16, height: 16, borderRadius: '50%', border: 1, borderColor: 'text.secondary', flexShrink: 0 }} />
+          )}
+          <Typography variant="body2" sx={{ flexGrow: 1 }}>
+            Custom
+          </Typography>
+          {selected === 'custom' && (
+            <Typography variant="caption" color="primary">
+              ✓
+            </Typography>
+          )}
+        </Box>
+      </Stack>
+
+      {selected === 'custom' && (
+        <Stack spacing={1}>
+          {customColors.map((color, index) => (
+            <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box
+                sx={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: '50%',
+                  bgcolor: color,
+                  border: 1,
+                  borderColor: 'divider',
+                  flexShrink: 0,
+                }}
+              />
+              <TextField
+                size="small"
+                value={color}
+                onChange={(e) => handleCustomColorChange(index, e.target.value)}
+                sx={{ flex: 1 }}
+                inputProps={{ style: { fontFamily: 'monospace', fontSize: 13 } }}
+              />
+              <IconButton
+                size="small"
+                onClick={() => handleRemoveCustomColor(index)}
+                disabled={customColors.length <= 1}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          ))}
+          <Box>
+            <IconButton size="small" onClick={handleAddCustomColor}>
+              <AddIcon fontSize="small" />
+            </IconButton>
+          </Box>
+        </Stack>
+      )}
+    </Stack>
   );
 }
 
@@ -1579,6 +1925,10 @@ function PageConfigPanel() {
           />
         </React.Fragment>
       )}
+
+      <Divider />
+
+      <ChartPalettePanel pageTheme={pageTheme} update={update} />
     </Stack>
   );
 }

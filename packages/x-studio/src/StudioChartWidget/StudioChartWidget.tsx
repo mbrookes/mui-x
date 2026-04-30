@@ -338,8 +338,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         normalizedChartType === 'bar-stacked' ||
         normalizedChartType === 'bar-100' ||
         (normalizedChartType === 'bar' && barLayout === 'stacked');
-      const stackStrategy =
-        normalizedChartType === 'bar-100' ? ('allPositive' as const) : undefined;
+      const stackOffset: 'expand' | undefined =
+        normalizedChartType === 'bar-100' ? 'expand' : undefined;
       // For grouped multi-Y, give each series its own independent Y axis so
       // fields with very different magnitudes are all visible. Stacked charts share one axis.
       const useIndependentAxes = !isStacked && multiYData.series.length > 1;
@@ -356,7 +356,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           data: s.values,
           label: fieldDef?.label ?? s.fieldId,
           stack: isStacked ? 'total' : undefined,
-          stackStrategy,
+          stackOffset,
           yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
           highlightScope: { highlight: 'item' as const, fade: 'global' as const },
           valueFormatter: makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode),
@@ -467,11 +467,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       normalizedChartType === 'bar-100' ||
       (normalizedChartType === 'bar' && barLayout === 'stacked');
     const stackId = isStacked ? 'stack' : undefined;
+    const stackOffset: 'expand' | undefined =
+      normalizedChartType === 'bar-100' ? 'expand' : undefined;
     const series = seriesFieldData.seriesNames.map((name) => ({
       id: String(name),
       data: seriesFieldData.seriesData[name],
       label: String(name),
       stack: stackId,
+      stackOffset,
       valueFormatter: makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode),
     }));
     return (
@@ -525,6 +528,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
     const isArea = normalizedChartType !== 'line';
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
+    const stackOffset: 'expand' | undefined =
+      normalizedChartType === 'area-100' ? 'expand' : undefined;
 
     const useIndependentAxes = !isStacked && multiYData.series.length > 1;
     const yAxes = useIndependentAxes
@@ -541,6 +546,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         label: fieldDef?.label ?? s.fieldId,
         area: isArea,
         stack: isStacked ? 'total' : undefined,
+        stackOffset,
         yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
         highlightScope: { highlight: 'item' as const, fade: 'global' as const },
         valueFormatter: makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode),

@@ -199,11 +199,11 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'grid',
       title: 'Recent Orders',
       sourceId: ORDERS_SOURCE_ID,
-      config: { columns: ['id', 'date', 'customerId', 'status'] },
+      config: { columns: ['id', 'date', 'customerId', 'status'], gridSortField: 'id', gridSortDirection: 'desc' },
     },
 
     // ── Page 2: Products & Logistics ────────────────────────────────────────
-    
+
     'widget-kpi2-units-sold': {
       id: 'widget-kpi2-units-sold',
       kind: 'kpi',
@@ -294,7 +294,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       titleMode: 'manual',
       sourceId: ORDERS_SOURCE_ID,
       config: {
-        chartType: 'bar-stacked',
+        chartType: 'area-stacked',
         xField: 'date',
         xGroupBy: 'quarter',
         yField: 'total',
@@ -420,6 +420,16 @@ export const INITIAL_STATE: Partial<StudioState> = {
       value: { relative: true, amount: 12, unit: 'month', direction: 'past' } satisfies RelativeDateValue,
       scope: 'widget' as const,
       widgetId: 'widget-kpi2-items-shipped',
+      fieldType: 'date' as const,
+      filterSourceId: SHIPMENTS_SOURCE_ID,
+    },
+    {
+      id: 'filter-kpi2-ontime-date',
+      field: 'shipDate',
+      operator: 'greater_than_or_equal',
+      value: { relative: true, amount: 12, unit: 'month', direction: 'past' } satisfies RelativeDateValue,
+      scope: 'widget' as const,
+      widgetId: 'widget-kpi2-ontime',
       fieldType: 'date' as const,
       filterSourceId: SHIPMENTS_SOURCE_ID,
     },

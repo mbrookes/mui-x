@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@babel/runtime": "catalog:",
+    "@base-ui/react": "catalog:",
     "@mui/x-charts": "workspace:*",
     "@mui/x-data-grid": "workspace:*",
     "@mui/x-date-pickers": "workspace:*",

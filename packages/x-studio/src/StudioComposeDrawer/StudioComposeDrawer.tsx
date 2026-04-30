@@ -1,6 +1,9 @@
 'use client';
 import * as React from 'react';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Divider,
@@ -18,6 +21,8 @@ import {
   Tab,
   Tabs,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
   Autocomplete,
@@ -27,6 +32,10 @@ import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import BoltIcon from '@mui/icons-material/Bolt';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import FormatAlignLeftIcon from '@mui/icons-material/FormatAlignLeft';
+import FormatAlignCenterIcon from '@mui/icons-material/FormatAlignCenter';
+import FormatAlignRightIcon from '@mui/icons-material/FormatAlignRight';
 import type {
   StudioNumberFormat,
   StudioChartType,
@@ -41,6 +50,7 @@ import { createDefaultWidget, inferWidgetTitles, WIDGET_TYPES, widgetKindRequire
 import { fieldsForCapability, fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
+import { NumberField } from '../internals/NumberField';
 import { AreaIcon } from '../icons/charts/AreaIcon';
 import { Area100Icon } from '../icons/charts/Area100Icon';
 import { AreaStackedIcon } from '../icons/charts/AreaStackedIcon';
@@ -1531,16 +1541,13 @@ function PageConfigPanel() {
         </Select>
       </FormControl>
 
-      <TextField
+      <NumberField
         size="small"
         label="Corner radius (px)"
-        type="number"
-        value={pageTheme.cardRadius ?? ''}
-        placeholder="4"
-        onChange={(event) =>
-          update({ cardRadius: event.target.value === '' ? undefined : Number(event.target.value) })
-        }
-        slotProps={{ htmlInput: { min: 0, max: 64 } }}
+        value={pageTheme.cardRadius ?? null}
+        min={0}
+        max={64}
+        onValueChange={(v) => update({ cardRadius: v ?? undefined })}
       />
 
       <FormControlLabel
@@ -1562,18 +1569,13 @@ function PageConfigPanel() {
             onChange={(v) => update({ cardBorderColor: v || undefined })}
             placeholder="e.g. #e0e0e0"
           />
-          <TextField
+          <NumberField
             size="small"
             label="Border width (px)"
-            type="number"
-            value={pageTheme.cardBorderWidth ?? ''}
-            placeholder="1"
-            onChange={(event) =>
-              update({
-                cardBorderWidth: event.target.value === '' ? undefined : Number(event.target.value),
-              })
-            }
-            slotProps={{ htmlInput: { min: 1, max: 16 } }}
+            value={pageTheme.cardBorderWidth ?? null}
+            min={1}
+            max={16}
+            onValueChange={(v) => update({ cardBorderWidth: v ?? undefined })}
           />
         </React.Fragment>
       )}

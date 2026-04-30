@@ -29,11 +29,8 @@ export function useDrawerSubheader(node: React.ReactNode) {
   const ctx = React.useContext(DrawerSubheaderContext);
   React.useLayoutEffect(() => {
     ctx?.setSubheader(node);
-  });
-  React.useEffect(() => {
     return () => ctx?.setSubheader(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx]);
+  }, [ctx, node]);
 }
 
 export interface DrawerPanelProps {

@@ -27,7 +27,12 @@ export const INITIAL_STATE: Partial<StudioState> = {
       id: 'page-1',
       title: 'Overview',
       widgetRows: [
-        ['widget-kpi-revenue', 'widget-kpi-orders', 'widget-kpi-customers', 'widget-kpi-ontime'],
+        [
+          'widget-kpi-orders', 
+          'widget-kpi-revenue',
+          'widget-kpi-customers',
+          'widget-kpi-avg-discount', 
+        ],
         ['widget-chart-revenue-by-category'],
         ['widget-chart-category', 'widget-chart-country'],
         ['widget-orders-grid'],
@@ -38,10 +43,10 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Products & Logistics',
       widgetRows: [
         [
-          'widget-kpi2-margin',
           'widget-kpi2-units-sold',
-          'widget-kpi2-avg-discount',
+          'widget-kpi2-margin',
           'widget-kpi2-items-shipped',
+          'widget-kpi2-ontime',
         ],
         ['widget-chart2-shipments-trend', 'widget-chart2-orders-by-country'],
         ['widget-chart2-price-vs-margin', 'widget-chart2-stock-by-category'],
@@ -101,6 +106,19 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
   ],
   widgets: {
+    'widget-kpi-orders': {
+      id: 'widget-kpi-orders',
+      kind: 'kpi',
+      title: 'Total Orders',
+      sourceId: ORDERS_SOURCE_ID,
+      config: {
+        kpiValueField: 'status',
+        kpiAggregation: 'count',
+        kpiTrend: true,
+        kpiSparkline: true,
+        kpiSparklineField: 'date',
+      },
+    },
     'widget-kpi-revenue': {
       id: 'widget-kpi-revenue',
       kind: 'kpi',
@@ -116,17 +134,22 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiSparklineCumulative: true,
       },
     },
-    'widget-kpi-orders': {
-      id: 'widget-kpi-orders',
+    'widget-kpi-avg-discount': {
+      id: 'widget-kpi-avg-discount',
       kind: 'kpi',
-      title: 'Total Orders',
-      sourceId: ORDERS_SOURCE_ID,
+      title: 'Avg Discount',
+      titleMode: 'manual',
+      sourceId: ORDER_ITEMS_SOURCE_ID,
       config: {
-        kpiValueField: 'status',
-        kpiAggregation: 'count',
+        kpiValueField: 'discount',
+        kpiAggregation: 'avg',
         kpiTrend: true,
+        kpiTrendInvert: true,
         kpiSparkline: true,
         kpiSparklineField: 'date',
+        kpiSparklineSourceId: ORDERS_SOURCE_ID,
+        kpiSparklinePlotType: 'line',
+        kpiSparklineGranularity: 'month',
       },
     },
     'widget-kpi-customers': {
@@ -141,22 +164,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiSparkline: true,
         kpiSparklineField: 'since',
         kpiSparklinePlotType: 'bar',
-        kpiSparklineGranularity: 'month',
-      },
-    },
-    'widget-kpi-ontime': {
-      id: 'widget-kpi-ontime',
-      kind: 'kpi',
-      title: 'On-Time Shipments',
-      sourceId: SHIPMENTS_SOURCE_ID,
-      config: {
-        kpiValueField: 'onTime',
-        kpiAggregation: 'avg',
-        kpiTrend: true,
-        kpiTrendInvert: true,
-        kpiSparkline: true,
-        kpiSparklineField: 'shipDate',
-        kpiSparklinePlotType: 'line',
         kpiSparklineGranularity: 'month',
       },
     },
@@ -196,25 +203,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
 
     // ── Page 2: Products & Logistics ────────────────────────────────────────
-
-    'widget-kpi2-margin': {
-      id: 'widget-kpi2-margin',
-      kind: 'kpi',
-      title: 'Avg Unit Margin',
-      titleMode: 'manual',
-      sourceId: PRODUCTS_SOURCE_ID,
-      config: {
-        kpiValueField: 'expr-product-margin',
-        kpiAggregation: 'avg',
-        kpiCompact: false,
-        kpiTrend: true,
-        kpiSparkline: true,
-        kpiSparklineField: 'date',
-        kpiSparklineSourceId: ORDERS_SOURCE_ID,
-        kpiSparklinePlotType: 'line',
-        kpiSparklineGranularity: 'quarter',
-      },
-    },
+    
     'widget-kpi2-units-sold': {
       id: 'widget-kpi2-units-sold',
       kind: 'kpi',
@@ -233,22 +222,22 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiSparklineGranularity: 'month',
       },
     },
-    'widget-kpi2-avg-discount': {
-      id: 'widget-kpi2-avg-discount',
+    'widget-kpi2-margin': {
+      id: 'widget-kpi2-margin',
       kind: 'kpi',
-      title: 'Avg Discount',
+      title: 'Avg Unit Margin',
       titleMode: 'manual',
-      sourceId: ORDER_ITEMS_SOURCE_ID,
+      sourceId: PRODUCTS_SOURCE_ID,
       config: {
-        kpiValueField: 'discount',
+        kpiValueField: 'expr-product-margin',
         kpiAggregation: 'avg',
+        kpiCompact: false,
         kpiTrend: true,
-        kpiTrendInvert: true,
         kpiSparkline: true,
         kpiSparklineField: 'date',
         kpiSparklineSourceId: ORDERS_SOURCE_ID,
         kpiSparklinePlotType: 'line',
-        kpiSparklineGranularity: 'month',
+        kpiSparklineGranularity: 'quarter',
       },
     },
     'widget-kpi2-items-shipped': {
@@ -268,7 +257,22 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiSparklineGranularity: 'month',
       },
     },
-
+    'widget-kpi2-ontime': {
+      id: 'widget-kpi2-ontime',
+      kind: 'kpi',
+      title: 'On-Time Shipments',
+      sourceId: SHIPMENTS_SOURCE_ID,
+      config: {
+        kpiValueField: 'onTime',
+        kpiAggregation: 'avg',
+        kpiTrend: true,
+        kpiTrendInvert: true,
+        kpiSparkline: true,
+        kpiSparklineField: 'shipDate',
+        kpiSparklinePlotType: 'line',
+        kpiSparklineGranularity: 'month',
+      },
+    },
     'widget-chart2-shipments-trend': {
       id: 'widget-chart2-shipments-trend',
       kind: 'chart',

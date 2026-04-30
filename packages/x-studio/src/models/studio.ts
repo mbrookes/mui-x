@@ -20,7 +20,7 @@ export type StudioChartType =
   // Legacy aliases kept for backwards compatibility
   | 'bar-grouped';
 
-export type StudioBarLayout = 'grouped' | 'stacked';
+export type StudioBarLayout = 'grouped' | 'stacked' | 'horizontal';
 
 export type StudioNumberFormat = 'integer' | 'decimal' | 'percent' | 'currency';
 

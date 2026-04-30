@@ -317,7 +317,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           colors={chartColors}
           height={chartHeight}
           hideLegend
-          margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+          margin={{ top: 16, right: 16, bottom: 8, left: 40 }}
           sx={{ cursor: 'pointer' }}
         />
       </div>
@@ -348,8 +348,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         ? multiYData.series.map((s, i) => ({
             id: `y-${i}`,
             position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
+            width: 'auto' as const,
           }))
-        : undefined;
+        : [{ width: 'auto' as const }];
       const series = multiYData.series.map((s, i) => {
         const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
         return {
@@ -366,12 +367,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       return (
         <div>
           <BarChart
-            xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
+            xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto' }]}
             yAxis={yAxes}
             series={series}
             colors={chartColors}
             height={chartHeight}
-            margin={{ top: 16, right: 40, bottom: 32, left: 40 }}
+            margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
             highlightedAxis={
               selectedDataIndex >= 0
                 ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
@@ -481,11 +482,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     return (
       <div>
         <BarChart
-          xAxis={[{ data: xAxisData, scaleType: 'band' }]}
+          xAxis={[{ data: xAxisData, scaleType: 'band', height: 'auto' }]}
+          yAxis={[{ width: 'auto' }]}
           series={series}
           colors={chartColors}
           height={chartHeight}
-          margin={{ top: 16, right: 16, bottom: 32, left: 60 }}
+          margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={controlledHighlightedItem}
           onHighlightChange={(item) =>
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
@@ -510,11 +512,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     return (
       <div>
         <LineChart
-          xAxis={[{ data: xAxisData, scaleType: 'point' }]}
+          xAxis={[{ data: xAxisData, scaleType: 'point', height: 'auto' }]}
+          yAxis={[{ width: 'auto' }]}
           series={series}
           colors={chartColors}
           height={chartHeight}
-          margin={{ top: 16, right: 16, bottom: 32, left: 60 }}
+          margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={controlledHighlightedItem}
           onHighlightChange={(item) =>
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
@@ -537,8 +540,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       ? multiYData.series.map((s, i) => ({
           id: `y-${i}`,
           position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
+          width: 'auto' as const,
         }))
-      : undefined;
+      : [{ width: 'auto' as const }];
     const series = multiYData.series.map((s, i) => {
       const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
       return {
@@ -556,12 +560,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     return (
       <div>
         <LineChart
-          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point' }]}
+          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point', height: 'auto' }]}
           yAxis={yAxes}
           series={series}
           colors={chartColors}
           height={chartHeight}
-          margin={{ top: 16, right: 40, bottom: 32, left: 40 }}
+          margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
           highlightedItem={
             selectedDataIndex >= 0
               ? {
@@ -594,7 +598,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     return (
       <div>
         <LineChart
-          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point' }]}
+          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point', height: 'auto' }]}
+          yAxis={[{ width: 'auto' }]}
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
@@ -608,7 +613,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           colors={chartColors}
           height={chartHeight}
           hideLegend
-          margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+          margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={
             selectedDataIndex >= 0
               ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
@@ -637,7 +642,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     return (
       <div>
         <LineChart
-          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point' }]}
+          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point', height: 'auto' }]}
+          yAxis={[{ width: 'auto' }]}
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
@@ -652,7 +658,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           colors={chartColors}
           height={chartHeight}
           hideLegend
-          margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+          margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={
             selectedDataIndex >= 0
               ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
@@ -674,16 +680,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
 
   // Default: bar chart (vertical or horizontal)
   const isHorizontal = barLayout === 'horizontal';
-  const yAxisLabelWidth = isHorizontal
-    ? Math.min(Math.max(xAxisData.reduce((m, l) => Math.max(m, String(l).length), 0) * 7, 60), 200)
-    : undefined;
 
   if (isHorizontal) {
     return (
       <div>
         <BarChart
           layout="horizontal"
-          yAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', width: yAxisLabelWidth }]}
+          xAxis={[{ height: 'auto' }]}
+          yAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', width: 'auto' }]}
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
@@ -696,7 +700,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           colors={chartColors}
           height={chartHeight}
           hideLegend
-          margin={{ top: 16, right: 40, bottom: 16, left: 8 }}
+          margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
           highlightedItem={
             selectedDataIndex >= 0
               ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
@@ -719,7 +723,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   return (
     <div>
       <BarChart
-        xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
+        xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto' }]}
+        yAxis={[{ width: 'auto' }]}
         series={[
           {
             id: CROSS_FILTER_SERIES_ID,
@@ -732,7 +737,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         colors={chartColors}
         height={chartHeight}
         hideLegend
-        margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+        margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
         highlightedItem={
           selectedDataIndex >= 0
             ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }

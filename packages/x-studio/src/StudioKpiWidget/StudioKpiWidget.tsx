@@ -215,7 +215,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const showSparklineHintArea = showSparkline && sparklineTimeField === null;
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, height: '100%' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, height: '100%', minWidth: 232 }}>
       <Box
         sx={{
           display: 'flex',

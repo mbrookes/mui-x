@@ -211,17 +211,16 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const fieldDef = dataSource?.fields.find((f) => f.id === config.kpiValueField);
 
   const showSparkline = config.kpiSparkline ?? false;
-  const showSparklineArea = showSparkline && sparklineData !== null && sparklineData.length > 1;
-  const showSparklineHintArea = showSparkline && sparklineTimeField === null;
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, height: '100%', minWidth: 232, minHeight: 73 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 232, minHeight: 73 }}>
       <Box
         sx={{
           display: 'flex',
           alignItems: 'center',
           gap: 1,
-          flexGrow: showSparklineArea || showSparklineHintArea ? 1 : 0,
+          flexGrow: 1,
+          justifyContent: 'flex-start',
         }}
       >
         <KpiValue value={displayValue} hasData={hasData} />
@@ -241,7 +240,6 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         trendResult={trendResult}
         needsDateFilter={trendNeedsDateFilter}
         isInverted={config.kpiTrendInvert ?? false}
-        sx={{ mt: 'auto' }}
       />
     </Box>
   );

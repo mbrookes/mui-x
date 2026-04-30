@@ -1652,10 +1652,10 @@ const NAMED_PALETTES: { id: StudioChartPaletteName; label: string; swatches: str
 
 function PaletteSwatches({ colors }: { colors: string[] }) {
   return (
-    <Box sx={{ display: 'flex', gap: 0.5 }}>
-      {colors.map((color) => (
+    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+      {colors.map((color, i) => (
         <Box
-          key={color}
+          key={`${color}-${i}`}
           sx={{ width: 16, height: 16, borderRadius: '50%', bgcolor: color, flexShrink: 0 }}
         />
       ))}
@@ -1685,12 +1685,23 @@ function ChartPalettePanel({
   };
 
   const handleAddCustomColor = () => {
-    update({ chartCustomColors: [...customColors, '#000000'] });
+    update({ chartCustomColors: [...customColors, '#2196f3'] });
   };
 
   const handleRemoveCustomColor = (index: number) => {
     const next = customColors.filter((_, i) => i !== index);
     update({ chartCustomColors: next.length ? next : undefined });
+  };
+
+  const handleSelectCustom = () => {
+    if (selected !== 'custom') {
+      // Seed custom colors from the currently-selected named palette, or a default set
+      const currentPalette = NAMED_PALETTES.find((p) => p.id === selected);
+      const seed = currentPalette
+        ? currentPalette.swatches
+        : NAMED_PALETTES[0].swatches;
+      update({ chartPalette: 'custom', chartCustomColors: [...seed] });
+    }
   };
 
   return (
@@ -1702,9 +1713,6 @@ function ChartPalettePanel({
         <Box
           onClick={() => handleSelect(undefined)}
           sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.5,
             px: 1.5,
             py: 1,
             borderRadius: 1,
@@ -1714,14 +1722,14 @@ function ChartPalettePanel({
             bgcolor: !selected ? 'action.selected' : 'transparent',
           }}
         >
-          <Typography variant="body2" sx={{ flexGrow: 1 }}>
-            Theme default
-          </Typography>
-          {!selected && (
-            <Typography variant="caption" color="primary">
-              ✓
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+              Theme default
             </Typography>
-          )}
+            {!selected && (
+              <Typography variant="caption" color="primary">✓</Typography>
+            )}
+          </Box>
         </Box>
 
         {NAMED_PALETTES.map((p) => (
@@ -1729,9 +1737,6 @@ function ChartPalettePanel({
             key={p.id}
             onClick={() => handleSelect(p.id)}
             sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1.5,
               px: 1.5,
               py: 1,
               borderRadius: 1,
@@ -1741,50 +1746,41 @@ function ChartPalettePanel({
               bgcolor: selected === p.id ? 'action.selected' : 'transparent',
             }}
           >
-            <PaletteSwatches colors={p.swatches} />
-            <Typography variant="body2" sx={{ flexGrow: 1 }}>
-              {p.label}
-            </Typography>
-            {selected === p.id && (
-              <Typography variant="caption" color="primary">
-                ✓
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.75 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+                {p.label}
               </Typography>
-            )}
+              {selected === p.id && (
+                <Typography variant="caption" color="primary">✓</Typography>
+              )}
+            </Box>
+            <PaletteSwatches colors={p.swatches} />
           </Box>
         ))}
 
         {/* Custom option */}
         <Box
-          onClick={() => {
-            if (selected !== 'custom') {
-              update({ chartPalette: 'custom', chartCustomColors: customColors.length ? customColors : ['#2196f3', '#f44336', '#4caf50'] });
-            }
-          }}
+          onClick={handleSelectCustom}
           sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.5,
             px: 1.5,
             py: 1,
             borderRadius: 1,
-            cursor: 'pointer',
+            cursor: selected === 'custom' ? 'default' : 'pointer',
             border: 1,
             borderColor: selected === 'custom' ? 'primary.main' : 'divider',
             bgcolor: selected === 'custom' ? 'action.selected' : 'transparent',
           }}
         >
-          {selected === 'custom' && customColors.length > 0 ? (
-            <PaletteSwatches colors={customColors.slice(0, 6)} />
-          ) : (
-            <Box sx={{ width: 16, height: 16, borderRadius: '50%', border: 1, borderColor: 'text.secondary', flexShrink: 0 }} />
-          )}
-          <Typography variant="body2" sx={{ flexGrow: 1 }}>
-            Custom
-          </Typography>
-          {selected === 'custom' && (
-            <Typography variant="caption" color="primary">
-              ✓
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: customColors.length ? 0.75 : 0 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+              Custom
             </Typography>
+            {selected === 'custom' && (
+              <Typography variant="caption" color="primary">✓</Typography>
+            )}
+          </Box>
+          {customColors.length > 0 && (
+            <PaletteSwatches colors={customColors} />
           )}
         </Box>
       </Stack>
@@ -1793,15 +1789,25 @@ function ChartPalettePanel({
         <Stack spacing={1}>
           {customColors.map((color, index) => (
             <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {/* Native color picker */}
               <Box
+                component="input"
+                type="color"
+                value={color}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  handleCustomColorChange(index, e.target.value)
+                }
                 sx={{
-                  width: 20,
-                  height: 20,
+                  width: 28,
+                  height: 28,
                   borderRadius: '50%',
-                  bgcolor: color,
                   border: 1,
                   borderColor: 'divider',
+                  padding: 0,
+                  cursor: 'pointer',
                   flexShrink: 0,
+                  '&::-webkit-color-swatch-wrapper': { padding: 0 },
+                  '&::-webkit-color-swatch': { borderRadius: '50%', border: 'none' },
                 }}
               />
               <TextField

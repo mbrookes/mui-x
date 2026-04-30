@@ -67,6 +67,10 @@ export interface StudioMetricRef {
 export interface StudioWidgetConfig {
   // Grid config
   columns?: string[];
+  /** Default sort field for the grid. */
+  gridSortField?: string;
+  /** Default sort direction for the grid. @default 'asc' */
+  gridSortDirection?: 'asc' | 'desc';
   // Chart config
   chartType?: StudioChartType;
   barLayout?: StudioBarLayout;
@@ -119,6 +123,14 @@ export interface StudioWidgetConfig {
   textSubtitle?: string;
   textBody?: string;
   // Text formatting — undefined means "use the default" and is never persisted
+  /** Font family for the title section. undefined = theme default. */
+  textTitleFontFamily?: 'serif' | 'monospace';
+  /** Font size in px for the title section. undefined = variant default (~20px). */
+  textTitleFontSize?: number;
+  /** CSS colour for the title section. undefined = theme text.primary. */
+  textTitleColor?: string;
+  /** Text alignment for the title section. undefined = left. */
+  textTitleAlign?: 'left' | 'center' | 'right';
   /** Font family for the subtitle section. undefined = theme default. */
   textSubtitleFontFamily?: 'serif' | 'monospace';
   /** Font size in px for the subtitle section. undefined = variant default (~16px). */

@@ -633,7 +633,11 @@ function ChartSetupPanel(props: { widgetId: string }) {
           }
         }}
         renderInput={(params) => (
-          <TextField {...params} label={isScatter ? 'X field (numeric)' : 'X / Category field'} />
+          <TextField
+            {...params}
+            label={isScatter ? 'X field (numeric)' : 'X / Category field'}
+            helperText={isScatter ? 'Plotted on the horizontal axis' : 'Groups data along the horizontal axis'}
+          />
         )}
         isOptionEqualToValue={(option, value) =>
           option.id === value.id && option.sourceId === value.sourceId
@@ -710,6 +714,7 @@ function ChartSetupPanel(props: { widgetId: string }) {
                     <TextField
                       {...params}
                       label={ySeries.length > 1 ? `Series ${index + 1}` : 'Y / Measure field'}
+                      helperText="Numeric field summed or averaged per category"
                     />
                   )}
                   isOptionEqualToValue={(option, value) =>
@@ -740,7 +745,7 @@ function ChartSetupPanel(props: { widgetId: string }) {
                   yField: newValue?.id ?? '',
                 });
               }}
-              renderInput={(params) => <TextField {...params} label="Y / Measure field" />}
+              renderInput={(params) => <TextField {...params} label="Y / Measure field" helperText="Numeric field summed or averaged per category" />}
               isOptionEqualToValue={(option, value) =>
                 option.id === value.id && option.sourceId === value.sourceId
               }
@@ -762,7 +767,7 @@ function ChartSetupPanel(props: { widgetId: string }) {
               seriesField: newValue?.id ?? undefined,
             })
           }
-          renderInput={(params) => <TextField {...params} label="Split by (series field)" />}
+          renderInput={(params) => <TextField {...params} label="Split by (series field)" helperText="Divides data into a separate series per value" />}
           isOptionEqualToValue={(option, value) =>
             option.id === value.id && option.sourceId === value.sourceId
           }
@@ -868,7 +873,7 @@ function KpiSetupPanel(props: { widgetId: string }) {
             controller.updateWidget(widgetId, { sourceId: newValue.sourceId });
           }
         }}
-        renderInput={(params) => <TextField {...params} label="Value field" />}
+        renderInput={(params) => <TextField {...params} label="Value field" helperText="Numeric field to aggregate" />}
         isOptionEqualToValue={(option, value) =>
           option.id === value.id && option.sourceId === value.sourceId
         }
@@ -1224,6 +1229,7 @@ function TextSetupPanel(props: { widgetId: string }) {
         label="Title"
         size="small"
         fullWidth
+        helperText="Heading displayed at the top of the widget"
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         onBlur={handleTitleBlur}
@@ -1237,6 +1243,7 @@ function TextSetupPanel(props: { widgetId: string }) {
         label="Subtitle"
         size="small"
         fullWidth
+        helperText="Smaller text below the heading"
         value={subtitle}
         onChange={(event) => setSubtitle(event.target.value)}
         onBlur={handleBlur}
@@ -1246,6 +1253,7 @@ function TextSetupPanel(props: { widgetId: string }) {
         fullWidth
         multiline
         minRows={5}
+        helperText="Main content of the widget; supports plain text"
         value={body}
         onChange={(event) => setBody(event.target.value)}
         onBlur={handleBlur}
@@ -1470,6 +1478,7 @@ function FormatPanel(props: { widgetId: string }) {
         label="Widget title"
         size="small"
         fullWidth
+        helperText="Shown in the widget header"
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         onBlur={handleTitleBlur}
@@ -1502,6 +1511,7 @@ function FormatPanel(props: { widgetId: string }) {
         label="Subtitle"
         size="small"
         fullWidth
+        helperText="Optional line shown beneath the title"
         value={subtitle}
         placeholder={isAutoSubtitle ? '' : 'No subtitle'}
         onChange={(event) => setSubtitle(event.target.value)}
@@ -1617,6 +1627,7 @@ function ColorInput({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder ?? '#rrggbb'}
+        helperText="Hex colour code"
         sx={{ flexGrow: 1 }}
         slotProps={{ htmlInput: { spellCheck: false } }}
       />

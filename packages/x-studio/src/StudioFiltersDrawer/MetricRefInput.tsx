@@ -105,7 +105,7 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
           onChange={handleRowChange}
           getOptionLabel={(opt) => (opt.label ? `${opt.id} · ${opt.label}` : opt.id)}
           isOptionEqualToValue={(opt, val) => opt.id === val.id}
-          renderInput={(params) => <TextField {...params} label="Metric row" />}
+          renderInput={(params) => <TextField {...params} label="Metric row" helperText="Identifies the row in the business metrics table" />}
         />
       )}
 

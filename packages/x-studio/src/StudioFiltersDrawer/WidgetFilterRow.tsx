@@ -124,7 +124,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
             isOptionEqualToValue={(option, value) =>
               option.id === value.id && option.sourceId === value.sourceId
             }
-            renderInput={(params) => <TextField {...params} label="Select a field…" />}
+            renderInput={(params) => <TextField {...params} label="Select a field…" helperText="Field this filter applies to" />}
           />
           <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label="Remove filter">
             <CloseIcon fontSize="small" />

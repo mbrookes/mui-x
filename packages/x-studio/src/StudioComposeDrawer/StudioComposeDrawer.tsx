@@ -76,7 +76,7 @@ function TabPanel(props: TabPanelProps) {
   const { children, index, value } = props;
 
   return (
-    <Box role="tabpanel" hidden={value !== index} sx={{ pt: 2 }}>
+    <Box role="tabpanel" hidden={value !== index} sx={{ pt: 1.5 }}>
       {value === index ? children : null}
     </Box>
   );
@@ -1565,15 +1565,17 @@ function WidgetConfigView(props: { widgetId: string }) {
 
   return (
     <div>
-      <Tabs
-        value={tab}
-        onChange={(_event, v) => setTab(v)}
-        variant="fullWidth"
-        sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
-      >
-        <Tab label="Setup" />
-        <Tab label="Format" />
-      </Tabs>
+      <Box sx={{ mx: -2, mt: -2, position: 'sticky', top: 0, zIndex: 1, bgcolor: 'background.paper' }}>
+        <Tabs
+          value={tab}
+          onChange={(_event, v) => setTab(v)}
+          variant="fullWidth"
+          sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+        >
+          <Tab label="Setup" />
+          <Tab label="Format" />
+        </Tabs>
+      </Box>
 
       <TabPanel value={tab} index={0}>
         {widget.kind === 'text' && <TextSetupPanel widgetId={widgetId} />}
@@ -1978,15 +1980,17 @@ export function StudioComposeDrawer() {
 
   return (
     <div>
-      <Tabs
-        value={mainTab}
-        onChange={(_event, v) => setMainTab(v)}
-        variant="fullWidth"
-        sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
-      >
-        <Tab label="Widgets" />
-        <Tab label="Page" />
-      </Tabs>
+      <Box sx={{ mx: -2, mt: -2, position: 'sticky', top: 0, zIndex: 1, bgcolor: 'background.paper' }}>
+        <Tabs
+          value={mainTab}
+          onChange={(_event, v) => setMainTab(v)}
+          variant="fullWidth"
+          sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+        >
+          <Tab label="Widgets" />
+          <Tab label="Page" />
+        </Tabs>
+      </Box>
 
       <TabPanel value={mainTab} index={0}>
         {widgetsContent}

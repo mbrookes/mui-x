@@ -1,9 +1,6 @@
 'use client';
 import * as React from 'react';
 import {
-  Accordion,
-  AccordionDetails,
-  AccordionSummary,
   Alert,
   Box,
   Divider,
@@ -32,13 +29,14 @@ import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import BoltIcon from '@mui/icons-material/Bolt';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { CollapsibleSection } from '../internals/CollapsibleSection';
 import FormatAlignLeftIcon from '@mui/icons-material/FormatAlignLeft';
 import FormatAlignCenterIcon from '@mui/icons-material/FormatAlignCenter';
 import FormatAlignRightIcon from '@mui/icons-material/FormatAlignRight';
 import type {
   StudioNumberFormat,
   StudioChartType,
+  StudioBarLayout,
   StudioChartPaletteName,
   StudioKpiAggregation,
   StudioPageTheme,
@@ -58,6 +56,9 @@ import { AreaStackedIcon } from '../icons/charts/AreaStackedIcon';
 import { BarGroupedIcon } from '../icons/charts/BarGroupedIcon';
 import { Bar100Icon } from '../icons/charts/Bar100Icon';
 import { BarStackedIcon } from '../icons/charts/BarStackedIcon';
+import { BarHorizontalIcon } from '../icons/charts/BarHorizontalIcon';
+import { BarStackedHorizontalIcon } from '../icons/charts/BarStackedHorizontalIcon';
+import { Bar100HorizontalIcon } from '../icons/charts/Bar100HorizontalIcon';
 import { DonutIcon } from '../icons/charts/DonutIcon';
 import { LineIcon } from '../icons/charts/LineIcon';
 import { PieIcon } from '../icons/charts/PieIcon';
@@ -84,30 +85,36 @@ function TabPanel(props: TabPanelProps) {
 // ── Chart type picker ─────────────────────────────────────────────────────────
 
 interface ChartTypeOption {
-  value: StudioChartType;
+  chartType: StudioChartType;
+  barLayout?: StudioBarLayout;
   label: string;
   Icon: React.FC<{ size?: number; color?: string; secondaryColor?: string }>;
 }
 
 const CHART_TYPE_OPTIONS: ChartTypeOption[] = [
-  { value: 'bar', label: 'Bar (grouped)', Icon: BarGroupedIcon },
-  { value: 'bar-stacked', label: 'Bar (stacked)', Icon: BarStackedIcon },
-  { value: 'bar-100', label: 'Bar (100%)', Icon: Bar100Icon },
-  { value: 'line', label: 'Line', Icon: LineIcon },
-  { value: 'area', label: 'Area', Icon: AreaIcon },
-  { value: 'area-stacked', label: 'Area (stacked)', Icon: AreaStackedIcon },
-  { value: 'area-100', label: 'Area (100%)', Icon: Area100Icon },
-  { value: 'scatter', label: 'Scatter', Icon: ScatterIcon },
-  { value: 'pie', label: 'Pie', Icon: PieIcon },
-  { value: 'donut', label: 'Donut', Icon: DonutIcon },
+  { chartType: 'bar', label: 'Bar (grouped)', Icon: BarGroupedIcon },
+  { chartType: 'bar-stacked', label: 'Bar (stacked)', Icon: BarStackedIcon },
+  { chartType: 'bar-100', label: 'Bar (100%)', Icon: Bar100Icon },
+  { chartType: 'bar', barLayout: 'horizontal', label: 'Bar (horizontal)', Icon: BarHorizontalIcon },
+  { chartType: 'bar-stacked', barLayout: 'horizontal', label: 'Bar (stacked, horizontal)', Icon: BarStackedHorizontalIcon },
+  { chartType: 'bar-100', barLayout: 'horizontal', label: 'Bar (100%, horizontal)', Icon: Bar100HorizontalIcon },
+  { chartType: 'line', label: 'Line', Icon: LineIcon },
+  { chartType: 'area', label: 'Area', Icon: AreaIcon },
+  { chartType: 'area-stacked', label: 'Area (stacked)', Icon: AreaStackedIcon },
+  { chartType: 'area-100', label: 'Area (100%)', Icon: Area100Icon },
+  { chartType: 'scatter', label: 'Scatter', Icon: ScatterIcon },
+  { chartType: 'pie', label: 'Pie', Icon: PieIcon },
+  { chartType: 'donut', label: 'Donut', Icon: DonutIcon },
 ];
 
 function ChartTypePicker({
-  value,
+  chartType,
+  barLayout,
   onChange,
 }: {
-  value: StudioChartType;
-  onChange: (v: StudioChartType) => void;
+  chartType: StudioChartType;
+  barLayout?: StudioBarLayout;
+  onChange: (chartType: StudioChartType, barLayout?: StudioBarLayout) => void;
 }) {
   const theme = useTheme();
   const primary = theme.palette.primary.main;
@@ -126,18 +133,18 @@ function ChartTypePicker({
         }}
       >
         {CHART_TYPE_OPTIONS.map((opt) => {
-          const selected = value === opt.value;
+          const selected = opt.chartType === chartType && (opt.barLayout ?? 'grouped') === (barLayout ?? 'grouped');
           return (
-            <Tooltip key={opt.value} title={opt.label} placement="top">
+            <Tooltip key={`${opt.chartType}-${opt.barLayout ?? ''}`} title={opt.label} placement="top">
               <Box
                 role="button"
                 tabIndex={0}
                 aria-label={opt.label}
                 aria-pressed={selected}
-                onClick={() => onChange(opt.value)}
+                onClick={() => onChange(opt.chartType, opt.barLayout)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
-                    onChange(opt.value);
+                    onChange(opt.chartType, opt.barLayout);
                   }
                 }}
                 sx={{
@@ -577,8 +584,11 @@ function ChartSetupPanel(props: { widgetId: string }) {
     config.seriesField ? (reachableFields.find((f) => f.id === config.seriesField) ?? null) : null;
   const isScatter = chartType === 'scatter';
 
-  const handleChartTypeChange = (newType: StudioChartType) => {
-    controller.updateWidgetConfig(widgetId, { chartType: newType });
+  const handleChartTypeChange = (newType: StudioChartType, newBarLayout?: StudioBarLayout) => {
+    controller.updateWidgetConfig(widgetId, {
+      chartType: newType,
+      barLayout: newBarLayout,
+    });
   };
 
   const usedYFieldIds = ySeries.map((s) => s.fieldId).filter(Boolean);
@@ -614,7 +624,7 @@ function ChartSetupPanel(props: { widgetId: string }) {
   return (
     <Stack spacing={2}>
       {/* Chart type icon picker */}
-      <ChartTypePicker value={chartType} onChange={handleChartTypeChange} />
+      <ChartTypePicker chartType={chartType} barLayout={config.barLayout} onChange={handleChartTypeChange} />
 
       <Divider />
 
@@ -1286,16 +1296,8 @@ function TextSectionFormat(props: TextSectionFormatProps) {
     onFontFamilyChange, onFontSizeChange, onColorChange, onAlignChange } = props;
 
   return (
-    <Accordion
-      disableGutters
-      elevation={0}
-      sx={{ border: 1, borderColor: 'divider', borderRadius: 1, '&:before': { display: 'none' } }}
-    >
-      <AccordionSummary expandIcon={<ExpandMoreIcon fontSize="small" />} sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { my: 0 } }}>
-        <Typography variant="body2">{label}</Typography>
-      </AccordionSummary>
-      <AccordionDetails sx={{ pt: 0, pb: 2 }}>
-        <Stack spacing={1.5}>
+    <CollapsibleSection title={label}>
+      <Stack spacing={1.5} sx={{ pb: 1.5 }}>
           <FormControl size="small" fullWidth>
             <InputLabel>Font family</InputLabel>
             <Select
@@ -1366,8 +1368,7 @@ function TextSectionFormat(props: TextSectionFormatProps) {
             </ToggleButtonGroup>
           </Box>
         </Stack>
-      </AccordionDetails>
-    </Accordion>
+    </CollapsibleSection>
   );
 }
 

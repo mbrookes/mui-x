@@ -12,19 +12,51 @@ import type { StudioDrawer } from '../models';
 export const DRAWER_WIDTH = 215;
 export const COLLAPSED_WIDTH = 36;
 
+/**
+ * Context that lets content rendered inside a DrawerPanel's scroll area inject
+ * a node into the fixed subheader slot (above the scroll, below the title bar).
+ */
+interface DrawerSubheaderContextValue {
+  setSubheader: (node: React.ReactNode) => void;
+}
+export const DrawerSubheaderContext = React.createContext<DrawerSubheaderContextValue | null>(null);
+
+/**
+ * Call inside a DrawerPanel child to render `node` in the fixed subheader slot.
+ * Uses useLayoutEffect so the node appears on the first paint with no flash.
+ */
+export function useDrawerSubheader(node: React.ReactNode) {
+  const ctx = React.useContext(DrawerSubheaderContext);
+  React.useLayoutEffect(() => {
+    ctx?.setSubheader(node);
+  });
+  React.useEffect(() => {
+    return () => ctx?.setSubheader(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx]);
+}
+
 export interface DrawerPanelProps {
   drawer: StudioDrawer;
   title: string;
   icon?: React.ReactNode;
   badge?: number;
   onBack?: () => void;
+  /** Rendered between the title divider and the scrollable content — never scrolls away. */
+  subheader?: React.ReactNode;
   children?: React.ReactNode;
 }
 
 export function DrawerPanel(props: DrawerPanelProps) {
-  const { badge, children, drawer, icon, onBack, title } = props;
+  const { badge, children, drawer, icon, onBack, subheader: subheaderProp, title } = props;
   const controller = useStudioController();
   const open = useStudioSelector((state) => state.shell.openDrawers[drawer]);
+  const [injectedSubheader, setInjectedSubheader] = React.useState<React.ReactNode>(null);
+  const ctxValue = React.useMemo<DrawerSubheaderContextValue>(
+    () => ({ setSubheader: setInjectedSubheader }),
+    [],
+  );
+  const subheader = subheaderProp ?? injectedSubheader;
 
   if (!open) {
     return (
@@ -105,6 +137,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
   }
 
   return (
+    <DrawerSubheaderContext.Provider value={ctxValue}>
     <Box
       sx={{
         width: DRAWER_WIDTH,
@@ -145,7 +178,9 @@ export function DrawerPanel(props: DrawerPanelProps) {
         </IconButton>
       </Box>
       <Divider />
+      {subheader}
       <Box sx={{ p: 1, overflow: 'auto', flexGrow: 1 }}>{children}</Box>
     </Box>
+    </DrawerSubheaderContext.Provider>
   );
 }

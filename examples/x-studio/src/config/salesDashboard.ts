@@ -248,7 +248,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       titleMode: 'manual',
       sourceId: SHIPMENTS_SOURCE_ID,
       config: {
-        chartType: 'line',
+        chartType: 'bar-100',
         xField: 'shipDate',
         xGroupBy: 'month',
         yField: 'itemCount',

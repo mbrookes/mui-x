@@ -238,6 +238,8 @@ export const Studio = React.memo(
   });
 
   React.useEffect(() => {
+    // Fire once on mount so consumers can seed their local state from the initial value.
+    onStateChangeRef.current?.(controller.getState());
     return controller.subscribe((state) => {
       onStateChangeRef.current?.(state);
     });

@@ -226,9 +226,16 @@ export function PageConfigPanel() {
     useStudioSelector((state) => state.pages[state.dashboard.activePageId]?.theme) ??
     EMPTY_PAGE_THEME;
 
-  const update = (changes: Partial<StudioPageTheme>) => {
-    controller.updateActivePage({ theme: { ...pageTheme, ...changes } });
-  };
+  const update = React.useCallback(
+    (changes: Partial<StudioPageTheme>) => {
+      // Read the latest theme from the store at call time to avoid stale closures when
+      // the active page changes while an event (e.g. native color picker) is in flight.
+      const state = controller.getState();
+      const currentTheme = state.pages[state.dashboard.activePageId]?.theme ?? EMPTY_PAGE_THEME;
+      controller.updateActivePage({ theme: { ...currentTheme, ...changes } });
+    },
+    [controller],
+  );
 
   const cardBorder = pageTheme.cardBorder !== false; // default true
 

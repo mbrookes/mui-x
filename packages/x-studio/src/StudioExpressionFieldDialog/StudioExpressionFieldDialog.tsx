@@ -564,6 +564,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
             size="small"
             fullWidth
             required
+            helperText="Used as the field label in pickers and grid columns"
             value={label}
             onChange={(event) => setLabel(event.target.value)}
             placeholder="e.g. Profit, Revenue per Unit"
@@ -576,6 +577,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
             fullWidth
             multiline
             rows={2}
+            helperText="Optional. Shown as a tooltip in field pickers"
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder="Optional: describe what this field computes"

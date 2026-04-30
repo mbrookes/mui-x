@@ -477,7 +477,7 @@ export function FilterValueInput(props: {
         options={fieldValues}
         value={strVal}
         onInputChange={(_, newVal) => onChange(newVal)}
-        renderInput={(params) => <TextField {...params} label="Value" />}
+        renderInput={(params) => <TextField {...params} label="Value" helperText="Value to compare against" />}
         sx={{ minWidth: 80, flexGrow: 1 }}
       />
     );
@@ -489,6 +489,7 @@ export function FilterValueInput(props: {
     <TextField
       size="small"
       label="Value"
+      helperText="Value to compare against"
       value={strVal}
       disabled={isLinked}
       onChange={(event) => {

@@ -1565,7 +1565,7 @@ function WidgetConfigView(props: { widgetId: string }) {
 
   return (
     <div>
-      <Box sx={{ mx: -2, mt: -2, position: 'sticky', top: 0, zIndex: 1, bgcolor: 'background.paper' }}>
+      <Box sx={{ position: 'sticky', top: 0, zIndex: 1, bgcolor: 'background.paper' }}>
         <Tabs
           value={tab}
           onChange={(_event, v) => setTab(v)}
@@ -1980,7 +1980,7 @@ export function StudioComposeDrawer() {
 
   return (
     <div>
-      <Box sx={{ mx: -2, mt: -2, position: 'sticky', top: 0, zIndex: 1, bgcolor: 'background.paper' }}>
+      <Box sx={{ position: 'sticky', top: 0, zIndex: 1, bgcolor: 'background.paper' }}>
         <Tabs
           value={mainTab}
           onChange={(_event, v) => setMainTab(v)}

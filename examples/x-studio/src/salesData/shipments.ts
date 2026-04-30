@@ -57,7 +57,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0004',
       orderId: 'ORD-0004',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'V8M5YN52E341',
       shipDate: '2024-02-02',
       estimatedDeliveryDate: '2024-02-09',
@@ -69,7 +69,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0005',
       orderId: 'ORD-0005',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'HNJ3YMJG41MU',
       shipDate: '2024-02-14',
       estimatedDeliveryDate: '2024-02-17',
@@ -117,7 +117,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0009',
       orderId: 'ORD-0008',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'CF0V4Z0KNIHQ',
       shipDate: '2024-03-26',
       estimatedDeliveryDate: '2024-04-01',
@@ -141,7 +141,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0011',
       orderId: 'ORD-0012',
-      carrier: 'Parcelforce',
+      carrier: 'Royal Mail',
       trackingNumber: '2A6LHHORZK6N',
       shipDate: '2024-01-19',
       estimatedDeliveryDate: '2024-01-26',
@@ -225,7 +225,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0018',
       orderId: 'ORD-0021',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'WU1TA604Q7DN',
       shipDate: '2024-01-12',
       estimatedDeliveryDate: '2024-01-18',
@@ -237,7 +237,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0019',
       orderId: 'ORD-0022',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'IG0471R61YMM',
       shipDate: '2024-01-26',
       estimatedDeliveryDate: '2024-02-01',
@@ -249,7 +249,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0020',
       orderId: 'ORD-0023',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'UAXPTYZI5IKA',
       shipDate: '2024-02-06',
       estimatedDeliveryDate: '2024-02-10',
@@ -297,7 +297,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0024',
       orderId: 'ORD-0029',
-      carrier: 'OnTrac',
+      carrier: 'UPS',
       trackingNumber: '7PUH8HGTI5GD',
       shipDate: '2024-01-13',
       estimatedDeliveryDate: '2024-01-16',
@@ -309,7 +309,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0025',
       orderId: 'ORD-0030',
-      carrier: 'OnTrac',
+      carrier: 'UPS',
       trackingNumber: '6LF7X11AA7C4',
       shipDate: '2024-01-30',
       estimatedDeliveryDate: '2024-02-05',
@@ -345,7 +345,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0028',
       orderId: 'ORD-0033',
-      carrier: 'OnTrac',
+      carrier: 'UPS',
       trackingNumber: '45XGC2K6WQI8',
       shipDate: '2024-03-10',
       estimatedDeliveryDate: '2024-03-14',
@@ -393,7 +393,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0032',
       orderId: 'ORD-0039',
-      carrier: 'Purolator',
+      carrier: 'UPS',
       trackingNumber: 'KZ1MFAFGZ8L0',
       shipDate: '2024-02-16',
       estimatedDeliveryDate: '2024-02-20',
@@ -417,7 +417,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0034',
       orderId: 'ORD-0040',
-      carrier: 'Canada Post',
+      carrier: 'USPS',
       trackingNumber: '2J5TO7PDQ0HG',
       shipDate: '2024-03-05',
       estimatedDeliveryDate: '2024-03-08',
@@ -429,7 +429,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0035',
       orderId: 'ORD-0041',
-      carrier: 'Purolator',
+      carrier: 'UPS',
       trackingNumber: 'X5CBVSS2WASN',
       shipDate: '2024-03-17',
       estimatedDeliveryDate: '2024-03-24',
@@ -477,7 +477,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0039',
       orderId: 'ORD-0047',
-      carrier: 'Parcelforce',
+      carrier: 'Royal Mail',
       trackingNumber: 'WJT3WEWLNZPG',
       shipDate: '2023-02-07',
       estimatedDeliveryDate: '2023-02-13',
@@ -489,7 +489,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0040',
       orderId: 'ORD-0048',
-      carrier: 'Purolator',
+      carrier: 'UPS',
       trackingNumber: 'O7Q57R7YCQXW',
       shipDate: '2023-02-19',
       estimatedDeliveryDate: '2023-02-23',
@@ -513,7 +513,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0042',
       orderId: 'ORD-0050',
-      carrier: 'OnTrac',
+      carrier: 'UPS',
       trackingNumber: 'NE1LAAR3WLLM',
       shipDate: '2023-03-23',
       estimatedDeliveryDate: '2023-03-26',
@@ -585,7 +585,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0048',
       orderId: 'ORD-0056',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'F5KGXNBBDCDO',
       shipDate: '2023-06-23',
       estimatedDeliveryDate: '2023-06-30',
@@ -597,7 +597,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0049',
       orderId: 'ORD-0057',
-      carrier: 'TNT',
+      carrier: 'DHL',
       trackingNumber: '3J4X1W8Q2PV8',
       shipDate: '2023-07-11',
       estimatedDeliveryDate: '2023-07-17',
@@ -609,7 +609,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0050',
       orderId: 'ORD-0058',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'JSL61PNA4KUL',
       shipDate: '2023-07-27',
       estimatedDeliveryDate: '2023-08-03',
@@ -621,7 +621,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0051',
       orderId: 'ORD-0059',
-      carrier: 'OnTrac',
+      carrier: 'UPS',
       trackingNumber: 'CMR83CK1BTNI',
       shipDate: '2023-08-13',
       estimatedDeliveryDate: '2023-08-19',
@@ -657,7 +657,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0054',
       orderId: 'ORD-0061',
-      carrier: 'Australia Post',
+      carrier: 'GLS',
       trackingNumber: 'KX0XTN593NDY',
       shipDate: '2023-09-17',
       estimatedDeliveryDate: '2023-09-21',
@@ -717,7 +717,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0059',
       orderId: 'ORD-0066',
-      carrier: 'Parcelforce',
+      carrier: 'Royal Mail',
       trackingNumber: 'R7ZW4Q0E2MJJ',
       shipDate: '2023-11-22',
       estimatedDeliveryDate: '2023-11-26',
@@ -741,7 +741,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0061',
       orderId: 'ORD-0068',
-      carrier: 'Purolator',
+      carrier: 'UPS',
       trackingNumber: '4TVML0LOZ27E',
       shipDate: '2023-12-20',
       estimatedDeliveryDate: '2023-12-26',
@@ -753,7 +753,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0062',
       orderId: 'ORD-0069',
-      carrier: 'OnTrac',
+      carrier: 'UPS',
       trackingNumber: 'FS6H2KZL61XT',
       shipDate: '2024-05-04',
       estimatedDeliveryDate: '2024-05-11',
@@ -765,7 +765,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0063',
       orderId: 'ORD-0070',
-      carrier: 'Australia Post',
+      carrier: 'GLS',
       trackingNumber: 'QKZN7RUIJIJF',
       shipDate: '2024-05-11',
       estimatedDeliveryDate: '2024-05-17',
@@ -813,7 +813,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0067',
       orderId: 'ORD-0074',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: '1BS77Q874K7R',
       shipDate: '2024-06-13',
       estimatedDeliveryDate: '2024-06-19',
@@ -825,7 +825,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0068',
       orderId: 'ORD-0075',
-      carrier: 'Parcelforce',
+      carrier: 'Royal Mail',
       trackingNumber: 'E4DY3VNRW5N0',
       shipDate: '2024-06-22',
       estimatedDeliveryDate: '2024-06-26',
@@ -849,7 +849,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0070',
       orderId: 'ORD-0077',
-      carrier: 'TNT',
+      carrier: 'DHL',
       trackingNumber: 'GTZ7SX6JGOXF',
       shipDate: '2024-07-11',
       estimatedDeliveryDate: '2024-07-18',
@@ -909,7 +909,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0075',
       orderId: 'ORD-0081',
-      carrier: 'TNT',
+      carrier: 'DHL',
       trackingNumber: 'GIEWNT5F64KN',
       shipDate: '2024-08-15',
       estimatedDeliveryDate: '2024-08-22',
@@ -933,7 +933,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0077',
       orderId: 'ORD-0083',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'GUUSX77PVCO1',
       shipDate: '2024-09-02',
       estimatedDeliveryDate: '2024-09-05',
@@ -957,7 +957,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0079',
       orderId: 'ORD-0085',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'FZOEZYXSQIE2',
       shipDate: '2024-09-19',
       estimatedDeliveryDate: '2024-09-23',
@@ -969,7 +969,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0080',
       orderId: 'ORD-0086',
-      carrier: 'OnTrac',
+      carrier: 'UPS',
       trackingNumber: 'K7WFMA6HNUHV',
       shipDate: '2024-09-29',
       estimatedDeliveryDate: '2024-10-06',
@@ -1029,7 +1029,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0085',
       orderId: 'ORD-0091',
-      carrier: 'TNT',
+      carrier: 'DHL',
       trackingNumber: 'L4VN480VLYYM',
       shipDate: '2024-11-08',
       estimatedDeliveryDate: '2024-11-14',
@@ -1065,7 +1065,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0088',
       orderId: 'ORD-0094',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: '0CN63ZC3YV9J',
       shipDate: '2024-12-02',
       estimatedDeliveryDate: '2024-12-07',
@@ -1137,7 +1137,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0094',
       orderId: 'ORD-0101',
-      carrier: 'StarTrack',
+      carrier: 'FedEx',
       trackingNumber: 'GPZMK2HR4ITH',
       shipDate: '2025-01-07',
       estimatedDeliveryDate: '2025-01-14',
@@ -1173,7 +1173,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0097',
       orderId: 'ORD-0104',
-      carrier: 'OnTrac',
+      carrier: 'UPS',
       trackingNumber: 'G2K363E97SF3',
       shipDate: '2025-01-21',
       estimatedDeliveryDate: '2025-01-25',
@@ -1233,7 +1233,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0102',
       orderId: 'ORD-0109',
-      carrier: 'TNT',
+      carrier: 'DHL',
       trackingNumber: 'AZQFEMXVIULF',
       shipDate: '2025-02-14',
       estimatedDeliveryDate: '2025-02-17',
@@ -1245,7 +1245,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0103',
       orderId: 'ORD-0110',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'JZSSIGOF36VZ',
       shipDate: '2025-02-19',
       estimatedDeliveryDate: '2025-02-24',
@@ -1317,7 +1317,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0109',
       orderId: 'ORD-0117',
-      carrier: 'TNT',
+      carrier: 'DHL',
       trackingNumber: '2VUS0XFM11K5',
       shipDate: '2025-03-16',
       estimatedDeliveryDate: '2025-03-19',
@@ -1353,7 +1353,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0112',
       orderId: 'ORD-0122',
-      carrier: 'StarTrack',
+      carrier: 'FedEx',
       trackingNumber: 'DJ9XDYIZXON8',
       shipDate: '2025-03-26',
       estimatedDeliveryDate: '2025-04-01',
@@ -1377,7 +1377,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0114',
       orderId: 'ORD-0124',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'KSO5451Y38WV',
       shipDate: '2025-03-29',
       estimatedDeliveryDate: '2025-04-04',
@@ -1389,7 +1389,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0115',
       orderId: 'ORD-0126',
-      carrier: 'OnTrac',
+      carrier: 'UPS',
       trackingNumber: '3JD9ZIMYR7Y2',
       shipDate: '2025-03-30',
       estimatedDeliveryDate: '2025-04-03',
@@ -1413,7 +1413,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0117',
       orderId: 'ORD-0128',
-      carrier: 'StarTrack',
+      carrier: 'FedEx',
       trackingNumber: 'HD0SDVASQZ3M',
       shipDate: '2025-03-30',
       estimatedDeliveryDate: '2025-04-02',
@@ -1449,7 +1449,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0120',
       orderId: 'ORD-0133',
-      carrier: 'Canada Post',
+      carrier: 'USPS',
       trackingNumber: 'DR2VE4S7EK5X',
       shipDate: '2023-10-06',
       estimatedDeliveryDate: '2023-10-10',
@@ -1473,7 +1473,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0122',
       orderId: 'ORD-0135',
-      carrier: 'Australia Post',
+      carrier: 'GLS',
       trackingNumber: 'TGTURWFM9OT7',
       shipDate: '2023-12-03',
       estimatedDeliveryDate: '2023-12-07',
@@ -1485,7 +1485,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0123',
       orderId: 'ORD-0136',
-      carrier: 'Parcelforce',
+      carrier: 'Royal Mail',
       trackingNumber: 'DNW6RHTPIO0Y',
       shipDate: '2023-12-16',
       estimatedDeliveryDate: '2023-12-21',
@@ -1497,7 +1497,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0124',
       orderId: 'ORD-0137',
-      carrier: 'Purolator',
+      carrier: 'UPS',
       trackingNumber: '6MNGOD8BTZEU',
       shipDate: '2024-01-06',
       estimatedDeliveryDate: '2024-01-11',
@@ -1509,7 +1509,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0125',
       orderId: 'ORD-0138',
-      carrier: 'Australia Post',
+      carrier: 'GLS',
       trackingNumber: 'QAP1N5NIJNAB',
       shipDate: '2024-02-15',
       estimatedDeliveryDate: '2024-02-19',
@@ -1593,7 +1593,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0132',
       orderId: 'ORD-0144',
-      carrier: 'Parcelforce',
+      carrier: 'Royal Mail',
       trackingNumber: 'FK6BCE1IVXQZ',
       shipDate: '2024-09-01',
       estimatedDeliveryDate: '2024-09-06',
@@ -1605,7 +1605,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0133',
       orderId: 'ORD-0145',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'QBI00PVML53O',
       shipDate: '2024-09-16',
       estimatedDeliveryDate: '2024-09-22',
@@ -1629,7 +1629,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0135',
       orderId: 'ORD-0147',
-      carrier: 'StarTrack',
+      carrier: 'FedEx',
       trackingNumber: '9EJRDJ5XARGE',
       shipDate: '2024-11-21',
       estimatedDeliveryDate: '2024-11-25',
@@ -1641,7 +1641,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0136',
       orderId: 'ORD-0148',
-      carrier: 'Parcelforce',
+      carrier: 'Royal Mail',
       trackingNumber: 'VOSRFWQ0504P',
       shipDate: '2024-12-11',
       estimatedDeliveryDate: '2024-12-15',
@@ -1653,7 +1653,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0137',
       orderId: 'ORD-0150',
-      carrier: 'Canada Post',
+      carrier: 'USPS',
       trackingNumber: 'OLYVLWSJQPIZ',
       shipDate: '2025-03-01',
       estimatedDeliveryDate: '2025-03-07',
@@ -1665,7 +1665,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0138',
       orderId: 'ORD-0151',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'ADSUCFRRYTPM',
       shipDate: '2025-03-06',
       estimatedDeliveryDate: '2025-03-13',
@@ -1689,7 +1689,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0140',
       orderId: 'ORD-0153',
-      carrier: 'OnTrac',
+      carrier: 'UPS',
       trackingNumber: 'SGOAHVKEK8I1',
       shipDate: '2025-03-15',
       estimatedDeliveryDate: '2025-03-21',
@@ -1773,7 +1773,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0147',
       orderId: 'ORD-0160',
-      carrier: 'Canada Post',
+      carrier: 'USPS',
       trackingNumber: '4HNYGYLFRTH5',
       shipDate: '2025-04-18',
       estimatedDeliveryDate: '2025-04-21',
@@ -1893,7 +1893,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0157',
       orderId: 'ORD-0170',
-      carrier: 'Parcelforce',
+      carrier: 'Royal Mail',
       trackingNumber: '52EGEDH5X3G2',
       shipDate: '2025-06-10',
       estimatedDeliveryDate: '2025-06-13',
@@ -1905,7 +1905,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0158',
       orderId: 'ORD-0171',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'IQB1TO35PHV7',
       shipDate: '2025-06-14',
       estimatedDeliveryDate: '2025-06-21',
@@ -1929,7 +1929,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0160',
       orderId: 'ORD-0173',
-      carrier: 'Parcelforce',
+      carrier: 'Royal Mail',
       trackingNumber: '2DVAVXM8UF7F',
       shipDate: '2025-06-26',
       estimatedDeliveryDate: '2025-07-02',
@@ -1953,7 +1953,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0162',
       orderId: 'ORD-0175',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'OBIV2BVZK3EK',
       shipDate: '2025-07-06',
       estimatedDeliveryDate: '2025-07-09',
@@ -1989,7 +1989,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0165',
       orderId: 'ORD-0178',
-      carrier: 'StarTrack',
+      carrier: 'FedEx',
       trackingNumber: '0UIZKQY43W71',
       shipDate: '2025-07-24',
       estimatedDeliveryDate: '2025-07-27',
@@ -2025,7 +2025,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0168',
       orderId: 'ORD-0180',
-      carrier: 'Purolator',
+      carrier: 'UPS',
       trackingNumber: '2URWT1F2VPXE',
       shipDate: '2025-08-09',
       estimatedDeliveryDate: '2025-08-15',
@@ -2169,7 +2169,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0180',
       orderId: 'ORD-0192',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'QPL7RZTOQBHD',
       shipDate: '2025-10-29',
       estimatedDeliveryDate: '2025-11-01',
@@ -2181,7 +2181,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0181',
       orderId: 'ORD-0193',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'SIRNSMI2SFY0',
       shipDate: '2025-11-05',
       estimatedDeliveryDate: '2025-11-10',
@@ -2229,7 +2229,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0185',
       orderId: 'ORD-0197',
-      carrier: 'Parcelforce',
+      carrier: 'Royal Mail',
       trackingNumber: 'PY43ACJB3YMQ',
       shipDate: '2025-12-03',
       estimatedDeliveryDate: '2025-12-06',
@@ -2265,7 +2265,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0188',
       orderId: 'ORD-0200',
-      carrier: 'Hermes',
+      carrier: 'DPD',
       trackingNumber: 'UWSZFDYEOH13',
       shipDate: '2025-12-23',
       estimatedDeliveryDate: '2025-12-30',
@@ -2361,7 +2361,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0196',
       orderId: 'ORD-0207',
-      carrier: 'OnTrac',
+      carrier: 'UPS',
       trackingNumber: 'Y0FTGUKY1NLW',
       shipDate: '2026-02-20',
       estimatedDeliveryDate: '2026-02-24',
@@ -2397,7 +2397,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0199',
       orderId: 'ORD-0210',
-      carrier: 'Canada Post',
+      carrier: 'USPS',
       trackingNumber: 'PDYKO19JAL01',
       shipDate: '2026-03-12',
       estimatedDeliveryDate: '2026-03-18',
@@ -2481,7 +2481,7 @@ export const shipmentsSource: StudioDataSource = {
     {
       id: 'SHP-0206',
       orderId: 'ORD-0216',
-      carrier: 'Canada Post',
+      carrier: 'USPS',
       trackingNumber: '40OSPI5AC2VQ',
       shipDate: '2026-04-20',
       estimatedDeliveryDate: '2026-04-23',

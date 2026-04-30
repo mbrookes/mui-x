@@ -179,7 +179,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
       </Box>
       <Divider />
       {subheader}
-      <Box sx={{ p: 1, overflow: 'auto', flexGrow: 1 }}>{children}</Box>
+      <Box sx={{ p: 1.5, overflow: 'auto', flexGrow: 1 }}>{children}</Box>
     </Box>
     </DrawerSubheaderContext.Provider>
   );

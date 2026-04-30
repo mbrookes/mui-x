@@ -1565,12 +1565,12 @@ function WidgetConfigView(props: { widgetId: string }) {
 
   return (
     <div>
-      <Box sx={{ position: 'sticky', top: 0, zIndex: 1, bgcolor: 'background.paper' }}>
+      <Box sx={{ position: 'sticky', top: 0, zIndex: 1 }}>
         <Tabs
           value={tab}
           onChange={(_event, v) => setTab(v)}
           variant="fullWidth"
-          sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+          sx={{ minHeight: 36, bgcolor: 'background.paper', '& .MuiTab-root': { minHeight: 36, py: 0 } }}
         >
           <Tab label="Setup" />
           <Tab label="Format" />
@@ -1980,12 +1980,12 @@ export function StudioComposeDrawer() {
 
   return (
     <div>
-      <Box sx={{ position: 'sticky', top: 0, zIndex: 1, bgcolor: 'background.paper' }}>
+      <Box sx={{ position: 'sticky', top: 0, zIndex: 1 }}>
         <Tabs
           value={mainTab}
           onChange={(_event, v) => setMainTab(v)}
           variant="fullWidth"
-          sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+          sx={{ minHeight: 36, bgcolor: 'background.paper', '& .MuiTab-root': { minHeight: 36, py: 0 } }}
         >
           <Tab label="Widgets" />
           <Tab label="Page" />

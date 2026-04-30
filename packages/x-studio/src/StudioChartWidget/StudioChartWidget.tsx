@@ -168,7 +168,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     }
 
     return (
-      <div>
+      <div style={{ height: chartHeight }}>
         <ScatterChart
           series={[
             {
@@ -177,9 +177,17 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             },
           ]}
           colors={chartColors}
-          height={chartHeight}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 8, left: 40 }}
+          slotProps={{
+            legend: {
+              sx: {
+                overflowY: 'auto',
+                flexWrap: 'nowrap',
+                maxHeight: '100%',
+              },
+            },
+          }}
           sx={{ cursor: 'pointer' }}
         />
       </div>
@@ -250,13 +258,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         };
       });
       return (
-        <div>
+        <div style={{ height: chartHeight }}>
           <BarChart
             xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto' }]}
             yAxis={yAxes}
             series={series}
             colors={chartColors}
-            height={chartHeight}
             margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
             highlightedAxis={
               selectedDataIndex >= 0
@@ -270,6 +277,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
               }
             }}
             sx={{ cursor: 'pointer' }}
+            slotProps={{
+              legend: {
+                sx: {
+                  overflowY: 'auto',
+                  flexWrap: 'nowrap',
+                  maxHeight: '100%',
+                },
+              },
+            }}
           />
         </div>
       );
@@ -294,7 +310,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     const selectedDataIndex = getSelectedDataIndex(chartData.labels);
 
     return (
-      <div>
+      <div style={{ height: chartHeight }}>
         <PieChart
           series={[
             {
@@ -309,8 +325,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             },
           ]}
           colors={chartColors}
-          height={chartHeight}
-          slotProps={{}} // legend positioning uses default
+          slotProps={{
+            legend: {
+              sx: {
+                overflowY: 'auto',
+                flexWrap: 'nowrap',
+                maxHeight: '100%',
+              },
+            },
+          }} 
           margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
           highlightedItem={
             selectedDataIndex >= 0
@@ -382,7 +405,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       };
     });
     return (
-      <div>
+      <div style={{ height: chartHeight }}>
         <BarChart
           xAxis={[{ data: xAxisData, scaleType: 'band', height: 'auto' }]}
           yAxis={[
@@ -397,12 +420,20 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           ]}
           series={series}
           colors={chartColors}
-          height={chartHeight}
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={controlledHighlightedItem}
           onHighlightChange={(item) =>
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
+          slotProps={{
+            legend: {
+              sx: {
+                overflowY: 'auto',
+                flexWrap: 'nowrap',
+                maxHeight: '100%',
+              },
+            },
+          }}
         />
       </div>
     );
@@ -421,18 +452,26 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       valueFormatter: makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode),
     }));
     return (
-      <div>
+      <div style={{ height: chartHeight }}>
         <LineChart
           xAxis={[{ data: xAxisData, scaleType: 'point', height: 'auto' }]}
           yAxis={[{ width: 'auto' }]}
           series={series}
           colors={chartColors}
-          height={chartHeight}
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={controlledHighlightedItem}
           onHighlightChange={(item) =>
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
+          slotProps={{
+            legend: {
+              sx: {
+                overflowY: 'auto',
+                flexWrap: 'nowrap',
+                maxHeight: '100%',
+              },
+            },
+          }}
         />
       </div>
     );
@@ -469,13 +508,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       };
     });
     return (
-      <div>
+      <div style={{ height: chartHeight }}>
         <LineChart
           xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point', height: 'auto' }]}
           yAxis={yAxes}
           series={series}
           colors={chartColors}
-          height={chartHeight}
           margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
           highlightedItem={
             selectedDataIndex >= 0
@@ -494,6 +532,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             }
           }}
           sx={{ cursor: 'pointer' }}
+          slotProps={{
+            legend: {
+              sx: {
+                overflowY: 'auto',
+                flexWrap: 'nowrap',
+                maxHeight: '100%',
+              },
+            },
+          }}
         />
       </div>
     );
@@ -507,7 +554,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
 
   if (normalizedChartType === 'line') {
     return (
-      <div>
+      <div style={{ height: chartHeight }}>
         <LineChart
           xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point', height: 'auto' }]}
           yAxis={[{ width: 'auto' }]}
@@ -522,7 +569,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             },
           ]}
           colors={chartColors}
-          height={chartHeight}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={
@@ -539,6 +585,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             }
           }}
           sx={{ cursor: 'pointer' }}
+          slotProps={{
+            legend: {
+              sx: {
+                overflowY: 'auto',
+                flexWrap: 'nowrap',
+                maxHeight: '100%',
+              },
+            },
+          }}
         />
       </div>
     );
@@ -551,7 +606,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   ) {
     const isStacked100 = normalizedChartType === 'area-100';
     return (
-      <div>
+      <div style={{ height: chartHeight }}>
         <LineChart
           xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point', height: 'auto' }]}
           yAxis={[{ width: 'auto' }]}
@@ -567,7 +622,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             },
           ]}
           colors={chartColors}
-          height={chartHeight}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={
@@ -584,6 +638,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             }
           }}
           sx={{ cursor: 'pointer' }}
+          slotProps={{
+            legend: {
+              sx: {
+                overflowY: 'auto',
+                flexWrap: 'nowrap',
+                maxHeight: '100%',
+              },
+            },
+          }}
         />
       </div>
     );
@@ -594,7 +657,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
 
   if (isHorizontal) {
     return (
-      <div>
+      <div style={{ height: chartHeight }}>
         <BarChart
           layout="horizontal"
           xAxis={[{ height: 'auto' }]}
@@ -609,7 +672,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             },
           ]}
           colors={chartColors}
-          height={chartHeight}
           hideLegend
           margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
           highlightedItem={
@@ -626,13 +688,22 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             }
           }}
           sx={{ cursor: 'pointer' }}
+          slotProps={{
+            legend: {
+              sx: {
+                overflowY: 'auto',
+                flexWrap: 'nowrap',
+                maxHeight: '100%',
+              },
+            },
+          }}
         />
       </div>
     );
   }
 
   return (
-    <div>
+    <div style={{ height: chartHeight }}>
       <BarChart
         xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto' }]}
         yAxis={[{ width: 'auto' }]}
@@ -646,7 +717,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           },
         ]}
         colors={chartColors}
-        height={chartHeight}
         hideLegend
         margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
         highlightedItem={
@@ -663,6 +733,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           }
         }}
         sx={{ cursor: 'pointer' }}
+        slotProps={{
+          legend: {
+            sx: {
+              overflowY: 'auto',
+              flexWrap: 'nowrap',
+              maxHeight: '100%',
+            },
+          },
+        }}
       />
     </div>
   );

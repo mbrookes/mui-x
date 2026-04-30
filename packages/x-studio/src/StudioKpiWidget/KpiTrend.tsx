@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Stack, Tooltip, Typography, type SxProps, type Theme } from '@mui/material';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import TrendingFlatIcon from '@mui/icons-material/TrendingFlat';
@@ -20,10 +20,11 @@ export interface KpiTrendProps {
   needsDateFilter: boolean;
   /** Invert the colour convention (e.g. lower is better). */
   isInverted?: boolean;
+  sx?: SxProps<Theme>;
 }
 
 export function KpiTrend(props: KpiTrendProps) {
-  const { trendResult, needsDateFilter, isInverted = false } = props;
+  const { trendResult, needsDateFilter, isInverted = false, sx } = props;
 
   if (trendResult) {
     const trendUp = trendResult.delta > 0;
@@ -40,12 +41,11 @@ export function KpiTrend(props: KpiTrendProps) {
       ? `${trendResult.delta >= 0 ? '+' : ''}${(trendResult.delta * 100).toFixed(1)}%`
       : 'New';
     const periodShort = formatPeriodShort(trendResult.previousStart, trendResult.previousEnd);
-    const trendLabel = `${pct} vs. ${periodShort}`;
     const trendTooltip = formatDateRangeLong(trendResult.previousStart, trendResult.previousEnd);
 
     return (
       <Tooltip title={`Previous period: ${trendTooltip}`} placement="bottom-start">
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'baseline', cursor: 'default' }}>
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'baseline', cursor: 'default', ...sx }}>
           {trendFlat && <TrendingFlatIcon fontSize="small" sx={{ color: trendColor, alignSelf: 'center' }} />}
           {trendUp && <TrendingUpIcon fontSize="small" sx={{ color: trendColor, alignSelf: 'center' }} />}
           {trendDown && <TrendingDownIcon fontSize="small" sx={{ color: trendColor, alignSelf: 'center' }} />}
@@ -62,9 +62,11 @@ export function KpiTrend(props: KpiTrendProps) {
 
   if (needsDateFilter) {
     return (
-      <Typography variant="caption" color="text.secondary">
-        Add a date filter to show the trend.
-      </Typography>
+      <Box sx={sx}>
+        <Typography variant="caption" color="text.secondary">
+          Add a date filter to show the trend.
+        </Typography>
+      </Box>
     );
   }
 

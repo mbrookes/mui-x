@@ -125,6 +125,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       {crossFilterIndicator}
       <DataGrid
         autoHeight
+        density="compact"
         columns={columns}
         disableColumnMenu
         rows={rows}

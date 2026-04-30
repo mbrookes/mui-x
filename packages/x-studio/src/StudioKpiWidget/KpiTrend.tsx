@@ -31,11 +31,15 @@ export function KpiTrend(props: KpiTrendProps) {
     const trendDown = trendResult.delta < 0;
     const trendFlat = trendResult.delta === 0;
 
-    const trendColor = trendFlat
-      ? 'text.secondary'
-      : ((trendUp && !isInverted) || (trendDown && isInverted))
-        ? 'success.main'
-        : 'error.main';
+    const isPositiveTrend = (trendUp && !isInverted) || (trendDown && isInverted);
+    let trendColor: string;
+    if (trendFlat) {
+      trendColor = 'text.secondary';
+    } else if (isPositiveTrend) {
+      trendColor = 'success.main';
+    } else {
+      trendColor = 'error.main';
+    }
 
     const pct = Number.isFinite(trendResult.delta)
       ? `${trendResult.delta >= 0 ? '+' : ''}${(trendResult.delta * 100).toFixed(1)}%`

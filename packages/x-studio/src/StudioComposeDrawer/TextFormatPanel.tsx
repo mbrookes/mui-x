@@ -127,6 +127,17 @@ export function TextFormatPanel(props: { widgetId: string }) {
   return (
     <Stack spacing={1.5}>
       <TextSectionFormat
+        label="Title"
+        fontFamily={config.textTitleFontFamily}
+        fontSize={config.textTitleFontSize}
+        color={config.textTitleColor}
+        align={config.textTitleAlign}
+        onFontFamilyChange={(v) => update({ textTitleFontFamily: v })}
+        onFontSizeChange={(v) => update({ textTitleFontSize: v })}
+        onColorChange={(v) => update({ textTitleColor: v })}
+        onAlignChange={(v) => update({ textTitleAlign: v })}
+      />
+      <TextSectionFormat
         label="Subtitle"
         fontFamily={config.textSubtitleFontFamily}
         fontSize={config.textSubtitleFontSize}

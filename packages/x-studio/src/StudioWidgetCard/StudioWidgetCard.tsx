@@ -277,7 +277,20 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         <div>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Typography variant="h6" noWrap>
+              <Typography
+                variant="h6"
+                noWrap
+                color={widget.kind === 'text' ? (widget.config.textTitleColor ?? undefined) : undefined}
+                sx={widget.kind === 'text' ? {
+                  ...(widget.config.textTitleFontFamily && {
+                    fontFamily: widget.config.textTitleFontFamily === 'serif'
+                      ? "Georgia, 'Times New Roman', Times, serif"
+                      : "'Courier New', Courier, monospace",
+                  }),
+                  ...(widget.config.textTitleFontSize && { fontSize: widget.config.textTitleFontSize }),
+                  ...(widget.config.textTitleAlign && { textAlign: widget.config.textTitleAlign }),
+                } : undefined}
+              >
                 {widget.title}
               </Typography>
               {widget.subtitle && (

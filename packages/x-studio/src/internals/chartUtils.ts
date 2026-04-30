@@ -591,7 +591,39 @@ export function applyRankToMultiSeries(
   };
 }
 
-// ─── Date grouping helpers ────────────────────────────────────────────────────
+/**
+ * Apply a rank filter to seriesField aggregated data (MultiSeriesData).
+ * Ranks the series dimension (e.g. countries) by their total value across all x-labels,
+ * and keeps the top/bottom N series.
+ */
+export function applyRankToSeriesFieldData(
+  data: MultiSeriesData,
+  rankFilter: import('../models').StudioFilterState | null,
+): MultiSeriesData {
+  if (!rankFilter) {
+    return data;
+  }
+  const n = Math.round(Number(rankFilter.value));
+  if (!Number.isFinite(n) || n <= 0) {
+    return data;
+  }
+  const dir = rankFilter.rankDirection ?? 'top';
+  const scored = data.seriesNames.map((name) => ({
+    name,
+    score: (data.seriesData[name] ?? []).reduce((acc, v) => acc + (v ?? 0), 0),
+  }));
+  scored.sort((a, b) => (dir === 'top' ? b.score - a.score : a.score - b.score));
+  const keepNames = new Set(scored.slice(0, n).map((s) => s.name));
+  return {
+    labels: data.labels,
+    seriesNames: data.seriesNames.filter((name) => keepNames.has(name)),
+    seriesData: Object.fromEntries(
+      Object.entries(data.seriesData).filter(([name]) => keepNames.has(name as string | number)),
+    ),
+  };
+}
+
+
 
 export type XGroupBy = 'day' | 'week' | 'month' | 'quarter' | 'year';
 

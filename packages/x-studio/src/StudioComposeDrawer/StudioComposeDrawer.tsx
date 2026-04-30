@@ -30,6 +30,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import BoltIcon from '@mui/icons-material/Bolt';
 import { CollapsibleSection } from '../internals/CollapsibleSection';
+import { useDrawerSubheader } from '../internals/DrawerPanel';
 import FormatAlignLeftIcon from '@mui/icons-material/FormatAlignLeft';
 import FormatAlignCenterIcon from '@mui/icons-material/FormatAlignCenter';
 import FormatAlignRightIcon from '@mui/icons-material/FormatAlignRight';
@@ -1559,24 +1560,24 @@ function WidgetConfigView(props: { widgetId: string }) {
   const [tab, setTab] = React.useState(0);
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
 
+  useDrawerSubheader(
+    <Tabs
+      value={tab}
+      onChange={(_event, v) => setTab(v)}
+      variant="fullWidth"
+      sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+    >
+      <Tab label="Setup" />
+      <Tab label="Format" />
+    </Tabs>,
+  );
+
   if (!widget) {
     return null;
   }
 
   return (
     <div>
-      <Box sx={{ position: 'sticky', top: 0, zIndex: 1 }}>
-        <Tabs
-          value={tab}
-          onChange={(_event, v) => setTab(v)}
-          variant="fullWidth"
-          sx={{ minHeight: 36, bgcolor: 'background.paper', '& .MuiTab-root': { minHeight: 36, py: 0 } }}
-        >
-          <Tab label="Setup" />
-          <Tab label="Format" />
-        </Tabs>
-      </Box>
-
       <TabPanel value={tab} index={0}>
         {widget.kind === 'text' && <TextSetupPanel widgetId={widgetId} />}
         {widget.kind === 'grid' && <GridSetupPanel widgetId={widgetId} />}
@@ -1967,6 +1968,20 @@ export function StudioComposeDrawer() {
   const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
   const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
 
+  useDrawerSubheader(
+    selectedWidgetId ? null : (
+      <Tabs
+        value={mainTab}
+        onChange={(_event, v) => setMainTab(v)}
+        variant="fullWidth"
+        sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+      >
+        <Tab label="Widgets" />
+        <Tab label="Page" />
+      </Tabs>
+    ),
+  );
+
   if (selectedWidgetId) {
     return <WidgetConfigView widgetId={selectedWidgetId} />;
   }
@@ -1980,18 +1995,6 @@ export function StudioComposeDrawer() {
 
   return (
     <div>
-      <Box sx={{ position: 'sticky', top: 0, zIndex: 1 }}>
-        <Tabs
-          value={mainTab}
-          onChange={(_event, v) => setMainTab(v)}
-          variant="fullWidth"
-          sx={{ minHeight: 36, bgcolor: 'background.paper', '& .MuiTab-root': { minHeight: 36, py: 0 } }}
-        >
-          <Tab label="Widgets" />
-          <Tab label="Page" />
-        </Tabs>
-      </Box>
-
       <TabPanel value={mainTab} index={0}>
         {widgetsContent}
       </TabPanel>

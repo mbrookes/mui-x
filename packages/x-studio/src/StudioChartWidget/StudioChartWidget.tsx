@@ -674,18 +674,52 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
 
   // Default: bar chart (vertical or horizontal)
   const isHorizontal = barLayout === 'horizontal';
-  // For horizontal bars, size left margin to fit the longest category label.
-  // ~7px per character at the default tick font size; clamp to 60–200px.
-  const maxLabelLen = isHorizontal
-    ? xAxisData.reduce((m, l) => Math.max(m, String(l).length), 0)
-    : 0;
-  const leftMargin = isHorizontal ? Math.min(Math.max(maxLabelLen * 7, 60), 200) : 40;
+  const yAxisLabelWidth = isHorizontal
+    ? Math.min(Math.max(xAxisData.reduce((m, l) => Math.max(m, String(l).length), 0) * 7, 60), 200)
+    : undefined;
+
+  if (isHorizontal) {
+    return (
+      <div>
+        <BarChart
+          layout="horizontal"
+          yAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', width: yAxisLabelWidth }]}
+          series={[
+            {
+              id: CROSS_FILTER_SERIES_ID,
+              data: chartData!.values,
+              label: seriesLabel,
+              highlightScope: { highlight: 'item', fade: 'global' },
+              valueFormatter: seriesValueFormatter,
+            },
+          ]}
+          colors={chartColors}
+          height={chartHeight}
+          hideLegend
+          margin={{ top: 16, right: 40, bottom: 16, left: 8 }}
+          highlightedItem={
+            selectedDataIndex >= 0
+              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
+              : controlledHighlightedItem
+          }
+          onHighlightChange={(item) =>
+            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+          }
+          onAxisClick={(_event, params) => {
+            if (params?.axisValue !== undefined) {
+              handleItemClick(params.axisValue);
+            }
+          }}
+          sx={{ cursor: 'pointer' }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div>
       <BarChart
-        layout={isHorizontal ? 'horizontal' : 'vertical'}
-        xAxis={isHorizontal ? undefined : [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
-        yAxis={isHorizontal ? [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }] : undefined}
+        xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
         series={[
           {
             id: CROSS_FILTER_SERIES_ID,
@@ -698,7 +732,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         colors={chartColors}
         height={chartHeight}
         hideLegend
-        margin={{ top: 16, right: 16, bottom: isHorizontal ? 32 : 32, left: leftMargin }}
+        margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
         highlightedItem={
           selectedDataIndex >= 0
             ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }

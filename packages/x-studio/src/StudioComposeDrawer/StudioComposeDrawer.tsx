@@ -1809,7 +1809,7 @@ function ChartPalettePanel({
                 value={color}
                 onChange={(e) => handleCustomColorChange(index, e.target.value)}
                 sx={{ flex: 1 }}
-                inputProps={{ style: { fontFamily: 'monospace', fontSize: 13 } }}
+                slotProps={{ htmlInput: { style: { fontFamily: 'monospace', fontSize: 13 } } }}
               />
               <IconButton
                 size="small"

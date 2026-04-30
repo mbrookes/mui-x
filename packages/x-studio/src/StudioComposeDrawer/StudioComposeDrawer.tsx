@@ -54,17 +54,27 @@ function WidgetConfigView(props: { widgetId: string }) {
   const [tab, setTab] = React.useState(0);
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
 
-  useDrawerSubheader(
-    <Tabs
-      value={tab}
-      onChange={(_event, v) => setTab(v)}
-      variant="fullWidth"
-      sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
-    >
-      <Tab label="Setup" />
-      <Tab label="Format" />
-    </Tabs>,
+  const handleTabChange = React.useCallback(
+    (_event: React.SyntheticEvent, v: number) => setTab(v),
+    [],
   );
+
+  const subheaderNode = React.useMemo(
+    () => (
+      <Tabs
+        value={tab}
+        onChange={handleTabChange}
+        variant="fullWidth"
+        sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+      >
+        <Tab label="Setup" />
+        <Tab label="Format" />
+      </Tabs>
+    ),
+    [tab, handleTabChange],
+  );
+
+  useDrawerSubheader(subheaderNode);
 
   if (!widget) {
     return null;
@@ -96,19 +106,28 @@ export function StudioComposeDrawer() {
   const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
   const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
 
-  useDrawerSubheader(
-    selectedWidgetId ? null : (
-      <Tabs
-        value={mainTab}
-        onChange={(_event, v) => setMainTab(v)}
-        variant="fullWidth"
-        sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
-      >
-        <Tab label="Widgets" />
-        <Tab label="Page" />
-      </Tabs>
-    ),
+  const handleMainTabChange = React.useCallback(
+    (_event: React.SyntheticEvent, v: number) => setMainTab(v),
+    [],
   );
+
+  const subheaderNode = React.useMemo(
+    () =>
+      selectedWidgetId ? null : (
+        <Tabs
+          value={mainTab}
+          onChange={handleMainTabChange}
+          variant="fullWidth"
+          sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
+        >
+          <Tab label="Widgets" />
+          <Tab label="Page" />
+        </Tabs>
+      ),
+    [selectedWidgetId, mainTab, handleMainTabChange],
+  );
+
+  useDrawerSubheader(subheaderNode);
 
   if (selectedWidgetId) {
     return <WidgetConfigView widgetId={selectedWidgetId} />;

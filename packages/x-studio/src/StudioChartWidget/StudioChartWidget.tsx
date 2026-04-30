@@ -439,23 +439,61 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     );
   }
 
-  // seriesField line chart: one line per unique category value
-  if (seriesFieldData && seriesFieldData.seriesNames.length > 0 && normalizedChartType === 'line') {
+  // seriesField line/area chart: one line (or area) per unique series-field value
+  if (
+    seriesFieldData &&
+    seriesFieldData.seriesNames.length > 0 &&
+    (normalizedChartType === 'line' ||
+      normalizedChartType === 'area' ||
+      normalizedChartType === 'area-stacked' ||
+      normalizedChartType === 'area-100')
+  ) {
     const xAxisData = seriesFieldData.labels.map(formatLabel);
     const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
-    const series = seriesFieldData.seriesNames.map((name) => ({
-      id: String(name),
-      data: seriesFieldData.seriesData[name],
-      label: String(name),
-      area: false,
-      highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-      valueFormatter: makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode),
-    }));
+    const isArea = normalizedChartType !== 'line';
+    const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
+    const is100 = normalizedChartType === 'area-100';
+
+    // Pre-normalize to 0-100% per x-position (avoids floating-point issues with stackOffset:'expand')
+    const totals100 = is100
+      ? seriesFieldData.labels.map((_, i) =>
+          seriesFieldData.seriesNames.reduce<number>(
+            (sum, name) => sum + ((seriesFieldData.seriesData[name][i] ?? 0) as number),
+            0,
+          ),
+        )
+      : null;
+
+    const series = seriesFieldData.seriesNames.map((name) => {
+      const rawData = seriesFieldData.seriesData[name];
+      const data = totals100
+        ? rawData.map((v, i) => {
+            const total = totals100[i];
+            return total ? ((v as number) / total) * 100 : 0;
+          })
+        : rawData;
+      return {
+        id: String(name),
+        data,
+        label: String(name),
+        area: isArea,
+        stack: isStacked ? 'total' : undefined,
+        highlightScope: { highlight: 'item' as const, fade: 'global' as const },
+        valueFormatter: is100
+          ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
+          : makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode),
+      };
+    });
     return (
       <div style={{ height: chartHeight }}>
         <LineChart
           xAxis={[{ data: xAxisData, scaleType: 'point', height: 'auto' }]}
-          yAxis={[{ width: 'auto' }]}
+          yAxis={[
+            {
+              width: 'auto',
+              ...(is100 && { min: 0, max: 100, valueFormatter: (v: number) => `${Math.round(v)}%` }),
+            },
+          ]}
           series={series}
           colors={chartColors}
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
@@ -482,8 +520,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
     const isArea = normalizedChartType !== 'line';
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
-    const stackOffset: 'expand' | undefined =
-      normalizedChartType === 'area-100' ? 'expand' : undefined;
+    const is100 = normalizedChartType === 'area-100';
+
+    // Pre-normalize to 0-100% per x-position for area-100
+    const totals100 = is100
+      ? multiYData.labels.map((_, i) =>
+          multiYData.series.reduce<number>((sum, s) => sum + ((s.values[i] ?? 0) as number), 0),
+        )
+      : null;
 
     const useIndependentAxes = !isStacked && multiYData.series.length > 1;
     const yAxes = useIndependentAxes
@@ -492,19 +536,31 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
           width: 'auto' as const,
         }))
-      : [{ width: 'auto' as const }];
+      : [
+          {
+            width: 'auto' as const,
+            ...(is100 && { min: 0, max: 100, valueFormatter: (v: number) => `${Math.round(v)}%` }),
+          },
+        ];
     const series = multiYData.series.map((s, i) => {
       const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
+      const data = totals100
+        ? s.values.map((v, idx) => {
+            const total = totals100[idx];
+            return total ? ((v as number) / total) * 100 : 0;
+          })
+        : s.values;
       return {
         id: `${s.fieldId}-${i}`,
-        data: s.values,
+        data,
         label: fieldDef?.label ?? s.fieldId,
         area: isArea,
         stack: isStacked ? 'total' : undefined,
-        stackOffset,
         yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
         highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-        valueFormatter: makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode),
+        valueFormatter: is100
+          ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
+          : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode),
       };
     });
     return (
@@ -604,7 +660,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     normalizedChartType === 'area-stacked' ||
     normalizedChartType === 'area-100'
   ) {
-    const isStacked100 = normalizedChartType === 'area-100';
+    // Single-series: stacking has no visual effect; area-100 shows a flat 100% fill
     return (
       <div style={{ height: chartHeight }}>
         <LineChart
@@ -616,7 +672,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
               data: chartData!.values,
               label: seriesLabel,
               area: true,
-              stack: isStacked100 ? 'total' : undefined,
               highlightScope: { highlight: 'item', fade: 'global' },
               valueFormatter: seriesValueFormatter,
             },

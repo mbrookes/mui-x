@@ -52,7 +52,7 @@ export const theme = createTheme({
     },
   },
   typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+    fontFamily: '"Source Sans 3", "Inter", "Roboto", "Helvetica", "Arial", sans-serif',
     h6: { fontWeight: 600 },
   },
   shape: {

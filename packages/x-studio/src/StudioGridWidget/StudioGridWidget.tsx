@@ -137,6 +137,16 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
               page: 0,
             },
           },
+          ...(widget.config.gridSortField && {
+            sorting: {
+              sortModel: [
+                {
+                  field: widget.config.gridSortField,
+                  sort: widget.config.gridSortDirection ?? 'asc',
+                },
+              ],
+            },
+          }),
         }}
         onRowSelectionModelChange={handleRowSelectionChange}
       />

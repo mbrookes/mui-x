@@ -5,33 +5,18 @@ import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import { PieChart } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
-import {
-  blueberryTwilightPalette,
-  mangoFusionPalette,
-  cheerfulFiestaPalette,
-  rainbowSurgePalette,
-} from '@mui/x-charts';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
-import { Box, useTheme } from '@mui/material';
+import { Box } from '@mui/material';
 
 import { Typography } from '@mui/material';
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
-  resolveRows,
-  resolveMetricRefs,
-  aggregateByField,
-  aggregateByTwoFields,
-  aggregateMultipleSeries,
-  enrichRowsWithRelatedFields,
-  prepareScatterData,
-  applyRankToAggregated,
-  applyRankToMultiSeries,
-  applyRankToSeriesFieldData,
   formatPeriodLabel,
 } from '../internals/chartUtils';
 import { useStudioController, useStudioSelector } from '../context';
 import { formatNumber } from '../internals/numberFormat';
 import type { StudioNumberFormat } from '../models/studio';
+import { useChartWidgetData } from './useChartWidgetData';
 
 export interface StudioChartWidgetProps {
   widget: StudioWidget;
@@ -74,36 +59,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   const xGroupBy = config.xGroupBy;
   const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
-  const dataSources = useStudioSelector((state) => state.dataSources);
-  const relationships = useStudioSelector((state) => state.relationships);
-  const expressionFields = useStudioSelector((state) => state.expressionFields);
-  const pageTheme = useStudioSelector(
-    (state) => state.pages[state.dashboard.activePageId]?.theme,
-  );
-  const muiTheme = useTheme();
   const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<
     'bar' | 'line' | 'pie'
   > | null>(null);
   const [hoveredAxis, setHoveredAxis] = React.useState<AxisItemIdentifier[] | null>(null);
 
-  // Resolve page-level chart colour palette → string[] passed to every chart.
-  const chartColors = React.useMemo((): string[] | undefined => {
-    const palette = pageTheme?.chartPalette;
-    if (!palette) {
-      return undefined;
-    }
-    if (palette === 'custom') {
-      return pageTheme?.chartCustomColors?.length ? pageTheme.chartCustomColors : undefined;
-    }
-    const mode = muiTheme.palette.mode;
-    const paletteMap = {
-      blueberryTwilight: blueberryTwilightPalette,
-      mangoFusion: mangoFusionPalette,
-      cheerfulFiesta: cheerfulFiestaPalette,
-      rainbowSurge: rainbowSurgePalette,
-    } as const;
-    return paletteMap[palette]?.(mode);
-  }, [pageTheme, muiTheme.palette.mode]);
+  const { chartColors, activeYFields, isMultiSeries, seriesFieldData, chartData, multiYData, scatterData } =
+    useChartWidgetData(widget, dataSource);
 
   // Clear stale hovered item when chart type or series field changes to avoid
   // "controlled/uncontrolled" errors from stale seriesIds referencing old series.
@@ -127,106 +89,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   const activeCrossFilter = filters.find(
     (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id,
   );
-
-  // Separate rank widget filters (applied post-aggregation) from row-level filters
-  const widgetRankFilter = filters.find(
-    (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode === 'rank',
-  ) ?? null;
-
-  // Get filtered rows (rank filters are excluded — applied after aggregation)
-  const filteredRows = React.useMemo(() => {
-    if (!dataSource?.rows) {
-      return [];
-    }
-
-    const pageFilters = filters.filter((f) => f.scope === 'page');
-    // Exclude rank filters from row-level filtering
-    const widgetFilters = filters.filter(
-      (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode !== 'rank',
-    );
-    const crossFilters = filters.filter(
-      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
-    );
-    const allFilters = resolveMetricRefs(
-      [...pageFilters, ...widgetFilters, ...crossFilters],
-      dataSources,
-    );
-
-    return resolveRows(dataSource.rows, widget.sourceId, allFilters, dataSources, relationships, expressionFields);
-  }, [dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId]);
-
-  // Resolve active y-fields: prefer ySeries, fall back to yField
-  const activeYFields = React.useMemo(() => {
-    if (config.ySeries && config.ySeries.length > 0) {
-      const ids = config.ySeries.map((s) => s.fieldId).filter(Boolean);
-      return [...new Set(ids)]; // deduplicate, preserving order
-    }
-    return config.yField ? [config.yField] : [];
-  }, [config.ySeries, config.yField]);
-
-  // Enrich rows with fields from directly related sources when those fields
-  // are not present on the widget's own source (e.g. 'date' from orders on orderItems rows).
-  const enrichedRows = React.useMemo(() => {
-    const candidateFields = [
-      config.xField,
-      ...activeYFields,
-      config.seriesField,
-    ].filter((f): f is string => Boolean(f));
-    return enrichRowsWithRelatedFields(
-      filteredRows,
-      widget.sourceId,
-      candidateFields,
-      dataSources,
-      relationships,
-    );
-  }, [filteredRows, widget.sourceId, config.xField, activeYFields, config.seriesField, dataSources, relationships]);
-
-  const isMultiSeries = activeYFields.length > 1;
-
-  // seriesField data: one line per unique value of the series field
-  const seriesFieldData = React.useMemo(() => {
-    const xField = config.xField;
-    const seriesField = config.seriesField;
-    const yField = activeYFields[0];
-    if (!xField || !seriesField || !yField || enrichedRows.length === 0) {
-      return null;
-    }
-    return applyRankToSeriesFieldData(aggregateByTwoFields(enrichedRows, xField, seriesField, yField, xGroupBy), widgetRankFilter);
-  }, [enrichedRows, config.xField, config.seriesField, activeYFields, xGroupBy, widgetRankFilter]);
-
-  const chartData = React.useMemo(() => {
-    const xField = config.xField;
-    if (!xField || activeYFields.length === 0 || enrichedRows.length === 0) {
-      return null;
-    }
-    if (isMultiSeries) {
-      return null; // handled by multiYData
-    }
-    const raw = aggregateByField(enrichedRows, xField, activeYFields[0], xGroupBy);
-    return applyRankToAggregated(raw, widgetRankFilter);
-  }, [enrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter, xGroupBy]);
-
-  // Multi-Y-field data (multiple explicit series)
-  const multiYData = React.useMemo(() => {
-    const xField = config.xField;
-    if (!xField || activeYFields.length < 2 || enrichedRows.length === 0) {
-      return null;
-    }
-    const raw = aggregateMultipleSeries(enrichedRows, xField, activeYFields, xGroupBy);
-    return applyRankToMultiSeries(raw, widgetRankFilter);
-  }, [enrichedRows, config.xField, activeYFields, widgetRankFilter, xGroupBy]);
-
-  // Data for scatter charts
-  const scatterData = React.useMemo(() => {
-    const xField = config.xField;
-    const yField = config.yField;
-
-    if (!xField || !yField || enrichedRows.length === 0) {
-      return null;
-    }
-
-    return prepareScatterData(enrichedRows, xField, yField);
-  }, [enrichedRows, config.xField, config.yField]);
 
   const handleItemClick = React.useCallback(
     (label: string | number | Date) => {
@@ -339,29 +201,52 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         normalizedChartType === 'bar-stacked' ||
         normalizedChartType === 'bar-100' ||
         (normalizedChartType === 'bar' && barLayout === 'stacked');
-      const stackOffset: 'expand' | undefined =
-        normalizedChartType === 'bar-100' ? 'expand' : undefined;
+      const is100 = normalizedChartType === 'bar-100';
       // For grouped multi-Y, give each series its own independent Y axis so
       // fields with very different magnitudes are all visible. Stacked charts share one axis.
       const useIndependentAxes = !isStacked && multiYData.series.length > 1;
+      // Pre-compute per-label totals for 100% normalization.
+      const totals100 = is100
+        ? multiYData.labels.map((_, li) =>
+            multiYData.series.reduce<number>((sum, ms) => sum + ((ms.values[li] ?? 0) as number), 0),
+          )
+        : null;
       const yAxes = useIndependentAxes
         ? multiYData.series.map((s, i) => ({
             id: `y-${i}`,
             position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
             width: 'auto' as const,
           }))
-        : [{ width: 'auto' as const }];
+        : [
+            {
+              width: 'auto' as const,
+              ...(is100 && {
+                min: 0,
+                max: 100,
+                valueFormatter: (v: number) => `${Math.round(v)}%`,
+              }),
+            },
+          ];
       const series = multiYData.series.map((s, i) => {
         const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
+        const data = totals100
+          ? s.values.map((v, li) => {
+              const total = totals100[li];
+              return total ? ((v ?? 0) / total) * 100 : 0;
+            })
+          : s.values;
+        const valueFormatter = is100
+          ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
+          : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode) ??
+            ((v: number | null) => (v == null ? '' : String(v)));
         return {
           id: `${s.fieldId}-${i}`,
-          data: s.values,
+          data,
           label: fieldDef?.label ?? s.fieldId,
           stack: isStacked ? 'total' : undefined,
-          stackOffset,
           yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
           highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-          valueFormatter: makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode),
+          valueFormatter,
         };
       });
       return (
@@ -469,21 +354,47 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       normalizedChartType === 'bar-100' ||
       (normalizedChartType === 'bar' && barLayout === 'stacked');
     const stackId = isStacked ? 'stack' : undefined;
-    const stackOffset: 'expand' | undefined =
-      normalizedChartType === 'bar-100' ? 'expand' : undefined;
-    const series = seriesFieldData.seriesNames.map((name) => ({
-      id: String(name),
-      data: seriesFieldData.seriesData[name],
-      label: String(name),
-      stack: stackId,
-      stackOffset,
-      valueFormatter: makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode),
-    }));
+    const is100 = normalizedChartType === 'bar-100';
+    const totals100 = is100
+      ? seriesFieldData.labels.map((_, i) =>
+          seriesFieldData.seriesNames.reduce<number>(
+            (sum, name) => sum + ((seriesFieldData.seriesData[name][i] ?? 0) as number),
+            0,
+          ),
+        )
+      : null;
+    const series = seriesFieldData.seriesNames.map((name) => {
+      const rawData = seriesFieldData.seriesData[name];
+      const data = totals100
+        ? rawData.map((v, i) => {
+            const total = totals100[i];
+            return total ? (v / total) * 100 : 0;
+          })
+        : rawData;
+      return {
+        id: String(name),
+        data,
+        label: String(name),
+        stack: stackId,
+        valueFormatter: is100
+          ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
+          : makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode),
+      };
+    });
     return (
       <div>
         <BarChart
           xAxis={[{ data: xAxisData, scaleType: 'band', height: 'auto' }]}
-          yAxis={[{ width: 'auto' }]}
+          yAxis={[
+            {
+              width: 'auto',
+              ...(is100 && {
+                min: 0,
+                max: 100,
+                valueFormatter: (v: number) => `${Math.round(v)}%`,
+              }),
+            },
+          ]}
           series={series}
           colors={chartColors}
           height={chartHeight}

@@ -118,6 +118,23 @@ export interface StudioWidgetConfig {
   // Text config
   textSubtitle?: string;
   textBody?: string;
+  // Text formatting — undefined means "use the default" and is never persisted
+  /** Font family for the subtitle section. undefined = theme default. */
+  textSubtitleFontFamily?: 'serif' | 'monospace';
+  /** Font size in px for the subtitle section. undefined = variant default (~16px). */
+  textSubtitleFontSize?: number;
+  /** CSS colour for the subtitle section. undefined = theme text.secondary. */
+  textSubtitleColor?: string;
+  /** Text alignment for the subtitle section. undefined = left. */
+  textSubtitleAlign?: 'left' | 'center' | 'right';
+  /** Font family for the body section. undefined = theme default. */
+  textBodyFontFamily?: 'serif' | 'monospace';
+  /** Font size in px for the body section. undefined = variant default (~14px). */
+  textBodyFontSize?: number;
+  /** CSS colour for the body section. undefined = theme text.primary. */
+  textBodyColor?: string;
+  /** Text alignment for the body section. undefined = left. */
+  textBodyAlign?: 'left' | 'center' | 'right';
   // Shared
   measures?: string[];
   dimensions?: string[];
@@ -136,6 +153,13 @@ export interface StudioWidget {
   config: StudioWidgetConfig;
 }
 
+export type StudioChartPaletteName =
+  | 'blueberryTwilight'
+  | 'mangoFusion'
+  | 'cheerfulFiesta'
+  | 'rainbowSurge'
+  | 'custom';
+
 export interface StudioPageTheme {
   /** Canvas background colour (CSS colour string). Default: theme grey. */
   pageBackground?: string;
@@ -151,6 +175,17 @@ export interface StudioPageTheme {
   cardBorderColor?: string;
   /** Widget card border width in px. Default: 1. */
   cardBorderWidth?: number;
+  /**
+   * Named x-charts colour palette for all chart widgets on this page.
+   * undefined = use the MUI theme default palette.
+   * 'custom' = use chartCustomColors instead of a named palette.
+   */
+  chartPalette?: StudioChartPaletteName;
+  /**
+   * User-defined colour list, used when chartPalette === 'custom'.
+   * Each entry is a CSS colour string (e.g. '#ff5500').
+   */
+  chartCustomColors?: string[];
 }
 
 export interface StudioPage {

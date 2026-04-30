@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Tooltip } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget, StudioFilterState, StudioExpressionField } from '../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
@@ -246,7 +246,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const showSparkline = config.kpiSparkline ?? false;
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 232, minHeight: 73 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 232, minHeight: 93 }}>
       <Box
         sx={{
           display: 'flex',
@@ -256,7 +256,11 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           justifyContent: 'flex-start',
         }}
       >
-        <KpiValue value={displayValue} hasData={hasData} />
+        <Tooltip title={filterSubtitle || ''} disableHoverListener={!filterSubtitle} placement="top">
+          <span>
+            <KpiValue value={displayValue} hasData={hasData} />
+          </span>
+        </Tooltip>
         {showSparkline && (
           <KpiSparkline
             data={sparklineData}
@@ -274,11 +278,6 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         needsDateFilter={trendNeedsDateFilter}
         isInverted={config.kpiTrendInvert ?? false}
       />
-      {filterSubtitle && (
-        <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', mt: 0.5 }}>
-          {filterSubtitle}
-        </Typography>
-      )}
     </Box>
   );
 });

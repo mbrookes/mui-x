@@ -899,6 +899,7 @@ function KpiSetupPanel(props: { widgetId: string }) {
       </FormControl>
 
       <FormControlLabel
+        slotProps={{ typography: { variant: 'body2' } }}
         control={
           <Switch
             size="small"
@@ -914,6 +915,7 @@ function KpiSetupPanel(props: { widgetId: string }) {
       {config.kpiSparkline && <KpiSparklineOptions widgetId={widgetId} config={config} />}
 
       <FormControlLabel
+        slotProps={{ typography: { variant: 'body2' } }}
         control={
           <Switch
             size="small"
@@ -948,6 +950,7 @@ function KpiSetupPanel(props: { widgetId: string }) {
             </Select>
           </FormControl>
           <FormControlLabel
+        slotProps={{ typography: { variant: 'body2' } }}
             control={
               <Switch
                 size="small"
@@ -1163,6 +1166,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
 
       {plotType === 'line' && (
         <FormControlLabel
+        slotProps={{ typography: { variant: 'body2' } }}
           control={
             <Switch
               size="small"
@@ -1179,6 +1183,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
       )}
 
       <FormControlLabel
+        slotProps={{ typography: { variant: 'body2' } }}
         control={
           <Switch
             size="small"
@@ -1462,6 +1467,7 @@ function FormatPanel(props: { widgetId: string }) {
     <Stack spacing={2}>
       {widget?.kind === 'kpi' && (
         <FormControlLabel
+        slotProps={{ typography: { variant: 'body2' } }}
           control={
             <Switch
               size="small"
@@ -1914,6 +1920,7 @@ function PageConfigPanel() {
       />
 
       <FormControlLabel
+        slotProps={{ typography: { variant: 'body2' } }}
         control={
           <Switch
             checked={cardBorder}

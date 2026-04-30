@@ -202,6 +202,11 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiValueField: 'expr-product-margin',
         kpiAggregation: 'avg',
         kpiCompact: false,
+        kpiSparkline: true,
+        kpiSparklineField: 'date',
+        kpiSparklineSourceId: ORDERS_SOURCE_ID,
+        kpiSparklinePlotType: 'line',
+        kpiSparklineGranularity: 'quarter',
       },
     },
     'widget-kpi2-units-sold': {
@@ -230,6 +235,11 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         kpiValueField: 'discount',
         kpiAggregation: 'avg',
+        kpiSparkline: true,
+        kpiSparklineField: 'date',
+        kpiSparklineSourceId: ORDERS_SOURCE_ID,
+        kpiSparklinePlotType: 'line',
+        kpiSparklineGranularity: 'month',
       },
     },
     'widget-kpi2-items-shipped': {

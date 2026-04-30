@@ -26,6 +26,7 @@ import {
   prepareScatterData,
   applyRankToAggregated,
   applyRankToMultiSeries,
+  applyRankToSeriesFieldData,
   formatPeriodLabel,
 } from '../internals/chartUtils';
 import { useStudioController, useStudioSelector } from '../context';
@@ -190,8 +191,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     if (!xField || !seriesField || !yField || enrichedRows.length === 0) {
       return null;
     }
-    return aggregateByTwoFields(enrichedRows, xField, seriesField, yField, xGroupBy);
-  }, [enrichedRows, config.xField, config.seriesField, activeYFields, xGroupBy]);
+    return applyRankToSeriesFieldData(aggregateByTwoFields(enrichedRows, xField, seriesField, yField, xGroupBy), widgetRankFilter);
+  }, [enrichedRows, config.xField, config.seriesField, activeYFields, xGroupBy, widgetRankFilter]);
 
   const chartData = React.useMemo(() => {
     const xField = config.xField;
@@ -671,11 +672,20 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     );
   }
 
-  // Default: bar chart
+  // Default: bar chart (vertical or horizontal)
+  const isHorizontal = barLayout === 'horizontal';
+  // For horizontal bars, size left margin to fit the longest category label.
+  // ~7px per character at the default tick font size; clamp to 60–200px.
+  const maxLabelLen = isHorizontal
+    ? xAxisData.reduce((m, l) => Math.max(m, String(l).length), 0)
+    : 0;
+  const leftMargin = isHorizontal ? Math.min(Math.max(maxLabelLen * 7, 60), 200) : 40;
   return (
     <div>
       <BarChart
-        xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
+        layout={isHorizontal ? 'horizontal' : 'vertical'}
+        xAxis={isHorizontal ? undefined : [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }]}
+        yAxis={isHorizontal ? [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band' }] : undefined}
         series={[
           {
             id: CROSS_FILTER_SERIES_ID,
@@ -688,7 +698,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         colors={chartColors}
         height={chartHeight}
         hideLegend
-        margin={{ top: 16, right: 16, bottom: 32, left: 40 }}
+        margin={{ top: 16, right: 16, bottom: isHorizontal ? 32 : 32, left: leftMargin }}
         highlightedItem={
           selectedDataIndex >= 0
             ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }

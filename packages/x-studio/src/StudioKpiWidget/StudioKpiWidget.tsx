@@ -1,8 +1,9 @@
 'use client';
 import * as React from 'react';
-import { Box } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 
-import type { StudioDataSource, StudioWidget, StudioFilterState } from '../models';
+import type { StudioDataSource, StudioWidget, StudioFilterState, StudioExpressionField } from '../models';
+import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { resolveRows, resolveMetricRefs } from '../internals/chartUtils';
 import { useStudioSelector } from '../context';
 import { formatNumber } from '../internals/numberFormat';
@@ -23,6 +24,20 @@ import { KpiTrend, type KpiTrendResult } from './KpiTrend';
 export interface StudioKpiWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
+}
+
+function getFieldLabel(
+  fieldId: string,
+  dataSources: Record<string, StudioDataSource>,
+  expressionFields: StudioExpressionField[],
+): string {
+  for (const ds of Object.values(dataSources)) {
+    const field = ds.fields.find((f) => f.id === fieldId);
+    if (field) {
+      return field.label;
+    }
+  }
+  return expressionFields.find((ef) => ef.id === fieldId)?.label ?? fieldId;
 }
 
 export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: StudioKpiWidgetProps) {
@@ -210,6 +225,24 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
 
   const fieldDef = dataSource?.fields.find((f) => f.id === config.kpiValueField);
 
+  const filterSubtitle = React.useMemo(() => {
+    if (!dataSource) {
+      return '';
+    }
+    const relevant = filters.filter(
+      (f) => f.scope === 'page' || (f.scope === 'widget' && f.widgetId === widget.id),
+    );
+    if (relevant.length === 0) {
+      return '';
+    }
+    return relevant
+      .map((f) => {
+        const label = getFieldLabel(f.field, dataSources, expressionFields);
+        return `${label}: ${summarizeFilter(f)}`;
+      })
+      .join(' · ');
+  }, [filters, dataSources, expressionFields, dataSource, widget.id]);
+
   const showSparkline = config.kpiSparkline ?? false;
 
   return (
@@ -241,6 +274,11 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         needsDateFilter={trendNeedsDateFilter}
         isInverted={config.kpiTrendInvert ?? false}
       />
+      {filterSubtitle && (
+        <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', mt: 0.5 }}>
+          {filterSubtitle}
+        </Typography>
+      )}
     </Box>
   );
 });

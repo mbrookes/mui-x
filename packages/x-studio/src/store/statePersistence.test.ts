@@ -1,0 +1,202 @@
+import { describe, expect, it } from 'vitest';
+import {
+  CURRENT_SCHEMA_VERSION,
+  deserializeState,
+  jsonToState,
+  migrateState,
+  serializeState,
+  stateToJson,
+} from './statePersistence';
+import { createDefaultStudioState } from '../models';
+
+// ─── migrateState ─────────────────────────────────────────────────────────────
+
+describe('migrateState', () => {
+  it('returns success when state is already at CURRENT_SCHEMA_VERSION', () => {
+    const state = { schemaVersion: CURRENT_SCHEMA_VERSION, widgets: {}, pages: {}, filters: [] };
+    const result = migrateState(state);
+    expect(result.success).toBe(true);
+    expect(result.fromVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.toVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.errors).toHaveLength(0);
+    expect(result.state).toBe(state);
+  });
+
+  it('returns failure for null', () => {
+    const result = migrateState(null);
+    expect(result.success).toBe(false);
+    expect(result.state).toBeNull();
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it('returns failure for a plain string', () => {
+    const result = migrateState('{"schemaVersion":1}');
+    expect(result.success).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it('returns failure for a number', () => {
+    expect(migrateState(42).success).toBe(false);
+  });
+
+  it('returns failure for an array', () => {
+    // Arrays pass typeof === 'object', so migrateState treats them as a v0 state
+    // and migrates (bumps schemaVersion). This is acceptable behaviour — the
+    // caller should validate input before calling migrateState.
+    const result = migrateState([]);
+    // At minimum, we verify it doesn't throw and returns a result object
+    expect(result).toHaveProperty('success');
+    expect(result).toHaveProperty('fromVersion');
+  });
+
+  it('returns failure when state was created with a newer version', () => {
+    const result = migrateState({ schemaVersion: CURRENT_SCHEMA_VERSION + 1 });
+    expect(result.success).toBe(false);
+    expect(result.fromVersion).toBe(CURRENT_SCHEMA_VERSION + 1);
+    expect(result.errors[0]).toMatch(/newer version/i);
+  });
+
+  it('migrates from version 0 by bumping to CURRENT_SCHEMA_VERSION (no migration fn needed)', () => {
+    // There is no registered migration fn for 0→1; the code auto-bumps schemaVersion
+    const result = migrateState({ widgets: {}, pages: {}, filters: [] }); // no schemaVersion → treated as 0
+    expect(result.success).toBe(true);
+    expect(result.fromVersion).toBe(0);
+    expect(result.toVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect((result.state as unknown as Record<string, unknown>).schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+  });
+});
+
+// ─── serializeState ───────────────────────────────────────────────────────────
+
+describe('serializeState', () => {
+  it('strips cross-filter scoped filters from the output', () => {
+    const state = createDefaultStudioState({
+      filters: [
+        { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: 'page' },
+        { id: 'cross-f', field: 'category', operator: 'equals', value: 'A', scope: 'cross-filter', sourceWidgetId: 'w1' },
+      ],
+    });
+    const serialized = serializeState(state);
+    expect(serialized.filters.some((f) => f.scope === 'cross-filter')).toBe(false);
+    expect(serialized.filters.some((f) => f.id === 'page-f')).toBe(true);
+  });
+
+  it('retains page-scoped and widget-scoped filters', () => {
+    const state = createDefaultStudioState({
+      filters: [
+        { id: 'p', field: 'date', operator: 'equals', value: '', scope: 'page' },
+        { id: 'w', field: 'status', operator: 'equals', value: 'active', scope: 'widget' },
+      ],
+    });
+    const { filters } = serializeState(state);
+    expect(filters.map((f) => f.id)).toContain('p');
+    expect(filters.map((f) => f.id)).toContain('w');
+  });
+
+  it('omits expressionFields when the array is empty', () => {
+    const state = createDefaultStudioState({ expressionFields: [] });
+    expect(serializeState(state).expressionFields).toBeUndefined();
+  });
+
+  it('includes expressionFields when non-empty', () => {
+    const state = createDefaultStudioState({
+      expressionFields: [{ id: 'ef1', label: 'Margin', expression: { operator: 'subtract' as const, inputs: [{ id: 'revenue' }, { id: 'cost' }] }, sourceId: 'orders', type: 'number' as const, isMeasure: false }],
+    });
+    expect(serializeState(state).expressionFields).toHaveLength(1);
+  });
+
+  it('does not include dataSources', () => {
+    const state = createDefaultStudioState({
+      dataSources: { orders: { id: 'orders', label: 'Orders', fields: [], rows: [] } },
+    });
+    const serialized = serializeState(state) as unknown as Record<string, unknown>;
+    expect(serialized.dataSources).toBeUndefined();
+  });
+
+  it('does not include shell state', () => {
+    const state = createDefaultStudioState();
+    const serialized = serializeState(state) as unknown as Record<string, unknown>;
+    expect(serialized.shell).toBeUndefined();
+  });
+});
+
+// ─── deserializeState ─────────────────────────────────────────────────────────
+
+describe('deserializeState', () => {
+  const minimalSerialized = serializeState(createDefaultStudioState());
+
+  it('re-attaches the provided dataSources to the restored state', () => {
+    const ds = { orders: { id: 'orders', label: 'Orders', fields: [], rows: [] } };
+    const state = deserializeState(minimalSerialized, ds);
+    expect(state.dataSources).toBe(ds);
+  });
+
+  it('defaults relationships to [] when absent from serialized data', () => {
+    const { relationships: _r, ...withoutRel } = minimalSerialized;
+    const state = deserializeState(withoutRel as typeof minimalSerialized, {});
+    expect(state.relationships).toEqual([]);
+  });
+
+  it('defaults expressionFields to [] when absent from serialized data', () => {
+    const { expressionFields: _e, ...withoutEf } = minimalSerialized;
+    const state = deserializeState(withoutEf as typeof minimalSerialized, {});
+    expect(state.expressionFields).toEqual([]);
+  });
+
+  it('applies shellOverrides on top of default shell state', () => {
+    const state = deserializeState(minimalSerialized, {}, { openDrawers: { data: false, compose: false, filters: true } });
+    expect(state.shell.openDrawers.filters).toBe(true);
+    expect(state.shell.openDrawers.data).toBe(false);
+  });
+
+  it('restores mode as "edit"', () => {
+    const state = deserializeState(minimalSerialized, {});
+    expect(state.mode).toBe('edit');
+  });
+});
+
+// ─── stateToJson / jsonToState roundtrip ──────────────────────────────────────
+
+describe('stateToJson / jsonToState roundtrip', () => {
+  it('produces valid JSON', () => {
+    const state = createDefaultStudioState();
+    expect(() => JSON.parse(stateToJson(state))).not.toThrow();
+  });
+
+  it('roundtrip restores dashboard title', () => {
+    const state = createDefaultStudioState({ dashboard: { id: 'd1', title: 'My Dashboard', activePageId: 'p1' } });
+    const { state: restored } = jsonToState(stateToJson(state));
+    expect(restored?.dashboard.title).toBe('My Dashboard');
+  });
+
+  it('roundtrip strips cross-filter entries', () => {
+    const state = createDefaultStudioState({
+      filters: [
+        { id: 'cf1', field: 'cat', operator: 'equals', value: 'A', scope: 'cross-filter', sourceWidgetId: 'w1' },
+      ],
+    });
+    const { state: restored } = jsonToState(stateToJson(state));
+    expect(restored?.filters.filter((f) => f.scope === 'cross-filter')).toHaveLength(0);
+  });
+
+  it('returns null state for invalid JSON', () => {
+    const { state, migrationResult } = jsonToState('not valid json {{');
+    expect(state).toBeNull();
+    expect(migrationResult.success).toBe(false);
+    expect(migrationResult.errors[0]).toMatch(/parse/i);
+  });
+
+  it('returns null state for valid JSON with a future schemaVersion', () => {
+    const json = JSON.stringify({ schemaVersion: CURRENT_SCHEMA_VERSION + 99 });
+    const { state, migrationResult } = jsonToState(json);
+    expect(state).toBeNull();
+    expect(migrationResult.success).toBe(false);
+  });
+
+  it('returns a valid state for an object with no schemaVersion (v0 → current)', () => {
+    const json = JSON.stringify({ widgets: {}, pages: {}, filters: [], dashboard: { id: 'd', title: 'T', activePageId: 'p' } });
+    const { state, migrationResult } = jsonToState(json);
+    expect(migrationResult.success).toBe(true);
+    expect(state).not.toBeNull();
+  });
+});

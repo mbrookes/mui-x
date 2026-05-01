@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { StudioController } from './StudioController';
-import type { StudioFilterState } from '../models';
+import type { StudioFilterState, StudioWidget } from '../models';
 
 function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
   return {
@@ -168,5 +168,411 @@ describe('StudioController.clearCrossFilter', () => {
     controller.clearCrossFilter('widget-nonexistent');
 
     expect(controller.getState().filters).toHaveLength(1);
+  });
+});
+
+// ─── StudioController — widget CRUD ──────────────────────────────────────────
+
+function makeWidget(id: string, overrides: Partial<StudioWidget> = {}): StudioWidget {
+  return {
+    id,
+    kind: 'kpi',
+    title: 'Test Widget',
+    config: { kpiAggregation: 'sum' },
+    ...overrides,
+  };
+}
+
+describe('StudioController.addWidget', () => {
+  it('adds the widget to the widgets map', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    expect(controller.getState().widgets['w1']).toBeDefined();
+  });
+
+  it('adds the widget id to widgetRows on the active page', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    const activePageId = controller.getState().dashboard.activePageId;
+    const rows = controller.getState().pages[activePageId].widgetRows;
+    expect(rows.flat()).toContain('w1');
+  });
+
+  it('sets selectedWidgetId to the new widget', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    expect(controller.getState().shell.selectedWidgetId).toBe('w1');
+  });
+
+  it('appends a second widget as a new row', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    const activePageId = controller.getState().dashboard.activePageId;
+    expect(controller.getState().pages[activePageId].widgetRows).toHaveLength(2);
+  });
+});
+
+describe('StudioController.removeWidget', () => {
+  it('removes the widget from the widgets map', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.removeWidget('w1');
+    expect(controller.getState().widgets['w1']).toBeUndefined();
+  });
+
+  it('removes the widget id from widgetRows', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.removeWidget('w1');
+    const activePageId = controller.getState().dashboard.activePageId;
+    expect(controller.getState().pages[activePageId].widgetRows.flat()).not.toContain('w1');
+  });
+
+  it('clears selectedWidgetId when the selected widget is removed', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    // selectedWidgetId is now 'w1'
+    controller.removeWidget('w1');
+    expect(controller.getState().shell.selectedWidgetId).toBeNull();
+  });
+
+  it('preserves selectedWidgetId when a different widget is removed', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    // selectedWidgetId is now 'w2' (last added)
+    controller.removeWidget('w1');
+    expect(controller.getState().shell.selectedWidgetId).toBe('w2');
+  });
+
+  it('leaves other widgets intact', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    controller.removeWidget('w1');
+    expect(controller.getState().widgets['w2']).toBeDefined();
+  });
+});
+
+describe('StudioController.duplicateWidget', () => {
+  it('creates a new widget with a different id', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1', { title: 'Revenue' }));
+    controller.duplicateWidget('w1');
+    const ids = Object.keys(controller.getState().widgets);
+    expect(ids).toHaveLength(2);
+    expect(ids.every((id) => id !== 'w1' || ids.some((id2) => id2 !== 'w1'))).toBe(true);
+  });
+
+  it('appends " (copy)" to the duplicated widget title', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1', { title: 'Revenue' }));
+    controller.duplicateWidget('w1');
+    const copyWidget = Object.values(controller.getState().widgets).find((w) => w.id !== 'w1');
+    expect(copyWidget?.title).toBe('Revenue (copy)');
+  });
+
+  it('sets selectedWidgetId to the copy', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1', { title: 'Revenue' }));
+    controller.duplicateWidget('w1');
+    const copyId = Object.keys(controller.getState().widgets).find((id) => id !== 'w1');
+    expect(controller.getState().shell.selectedWidgetId).toBe(copyId);
+  });
+
+  it('adds the copy to widgetRows', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.duplicateWidget('w1');
+    const activePageId = controller.getState().dashboard.activePageId;
+    const flat = controller.getState().pages[activePageId].widgetRows.flat();
+    const copyId = Object.keys(controller.getState().widgets).find((id) => id !== 'w1');
+    expect(flat).toContain(copyId);
+  });
+
+  it('is a no-op for an unknown widgetId', () => {
+    const controller = new StudioController();
+    controller.duplicateWidget('nonexistent');
+    expect(Object.keys(controller.getState().widgets)).toHaveLength(0);
+  });
+});
+
+// ─── StudioController — filter CRUD ──────────────────────────────────────────
+
+describe('StudioController.addFilter / removeFilter', () => {
+  it('addFilter appends a filter to the list', () => {
+    const controller = new StudioController();
+    controller.addFilter(makeFilter({ id: 'f1' }));
+    expect(controller.getState().filters).toHaveLength(1);
+    expect(controller.getState().filters[0].id).toBe('f1');
+  });
+
+  it('addFilter preserves existing filters', () => {
+    const controller = new StudioController({ filters: [makeFilter({ id: 'f1' })] });
+    controller.addFilter(makeFilter({ id: 'f2' }));
+    expect(controller.getState().filters).toHaveLength(2);
+  });
+
+  it('removeFilter removes only the matching filter', () => {
+    const controller = new StudioController({
+      filters: [makeFilter({ id: 'f1' }), makeFilter({ id: 'f2' })],
+    });
+    controller.removeFilter('f1');
+    expect(controller.getState().filters.map((f) => f.id)).toEqual(['f2']);
+  });
+
+  it('removeFilter is a no-op for an unknown id', () => {
+    const controller = new StudioController({ filters: [makeFilter({ id: 'f1' })] });
+    controller.removeFilter('nonexistent');
+    expect(controller.getState().filters).toHaveLength(1);
+  });
+});
+
+describe('StudioController.clearAllCrossFilters', () => {
+  it('removes all cross-filter scoped entries', () => {
+    const controller = new StudioController({
+      filters: [
+        makeFilter({ id: 'page-f', scope: 'page' }),
+        makeFilter({ id: 'cf1', scope: 'cross-filter', sourceWidgetId: 'w1' }),
+        makeFilter({ id: 'cf2', scope: 'cross-filter', sourceWidgetId: 'w2' }),
+      ],
+    });
+    controller.clearAllCrossFilters();
+    expect(controller.getState().filters.filter((f) => f.scope === 'cross-filter')).toHaveLength(0);
+  });
+
+  it('preserves page-scoped and widget-scoped filters', () => {
+    const controller = new StudioController({
+      filters: [
+        makeFilter({ id: 'page-f', scope: 'page' }),
+        makeFilter({ id: 'widget-f', scope: 'widget' }),
+        makeFilter({ id: 'cf1', scope: 'cross-filter', sourceWidgetId: 'w1' }),
+      ],
+    });
+    controller.clearAllCrossFilters();
+    const ids = controller.getState().filters.map((f) => f.id);
+    expect(ids).toContain('page-f');
+    expect(ids).toContain('widget-f');
+  });
+});
+
+// ─── StudioController — expression field CRUD ────────────────────────────────
+
+describe('StudioController expression fields', () => {
+  const ef = {
+    id: 'ef1',
+    label: 'Margin',
+    expression: { operator: 'subtract' as const, inputs: [{ id: 'revenue' }, { id: 'cost' }] },
+    sourceId: 'orders',
+    type: 'number' as const,
+    isMeasure: false,
+  };
+
+  it('addExpressionField appends a new field', () => {
+    const controller = new StudioController();
+    controller.addExpressionField(ef);
+    expect(controller.getState().expressionFields).toHaveLength(1);
+    expect(controller.getState().expressionFields[0].id).toBe('ef1');
+  });
+
+  it('addExpressionField is a no-op when the id already exists', () => {
+    const controller = new StudioController({ expressionFields: [ef] });
+    controller.addExpressionField({ ...ef, label: 'Different' });
+    expect(controller.getState().expressionFields).toHaveLength(1);
+    expect(controller.getState().expressionFields[0].label).toBe('Margin');
+  });
+
+  it('updateExpressionField merges partial changes', () => {
+    const controller = new StudioController({ expressionFields: [ef] });
+    controller.updateExpressionField('ef1', { label: 'Profit Margin' });
+    expect(controller.getState().expressionFields[0].label).toBe('Profit Margin');
+    expect(controller.getState().expressionFields[0].expression).toEqual(ef.expression);
+  });
+
+  it('updateExpressionField is a no-op for unknown id', () => {
+    const controller = new StudioController({ expressionFields: [ef] });
+    controller.updateExpressionField('nonexistent', { label: 'X' });
+    expect(controller.getState().expressionFields[0].label).toBe('Margin');
+  });
+
+  it('removeExpressionField removes the matching field', () => {
+    const ef2 = { ...ef, id: 'ef2', label: 'Other' };
+    const controller = new StudioController({ expressionFields: [ef, ef2] });
+    controller.removeExpressionField('ef1');
+    expect(controller.getState().expressionFields.map((e) => e.id)).toEqual(['ef2']);
+  });
+});
+
+// ─── StudioController — undo / redo ──────────────────────────────────────────
+
+describe('StudioController undo/redo', () => {
+  it('canUndo returns false before any undoable action', () => {
+    const controller = new StudioController();
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it('canUndo returns true after an undoable action', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('New Title');
+    expect(controller.canUndo()).toBe(true);
+  });
+
+  it('undo restores the previous state', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('Step 1');
+    controller.setDashboardTitle('Step 2');
+    controller.undo();
+    expect(controller.getState().dashboard.title).toBe('Step 1');
+  });
+
+  it('undo returns false when there is nothing to undo', () => {
+    const controller = new StudioController();
+    expect(controller.undo()).toBe(false);
+  });
+
+  it('undo makes redo available', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('New Title');
+    controller.undo();
+    expect(controller.canRedo()).toBe(true);
+  });
+
+  it('redo re-applies the undone change', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('New Title');
+    controller.undo();
+    controller.redo();
+    expect(controller.getState().dashboard.title).toBe('New Title');
+  });
+
+  it('redo returns false when there is nothing to redo', () => {
+    const controller = new StudioController();
+    expect(controller.redo()).toBe(false);
+  });
+
+  it('a new undoable action clears the redo stack', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('A');
+    controller.undo();
+    // redo stack has one entry; now take a new action
+    controller.setDashboardTitle('B');
+    expect(controller.canRedo()).toBe(false);
+  });
+
+  it('non-undoable actions (setSelectedWidget) do not push to the undo stack', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    const undoDepth = controller.canUndo();
+    controller.setSelectedWidget('w1');
+    // Undo state should be the same as before setSelectedWidget
+    expect(controller.canUndo()).toBe(undoDepth);
+  });
+
+  it('caps undo history at MAX_UNDO_HISTORY (100)', () => {
+    const controller = new StudioController();
+    for (let i = 0; i < 101; i += 1) {
+      controller.setDashboardTitle(`Title ${i}`);
+    }
+    // After 101 actions, the stack should be at most 100 deep
+    let undoCount = 0;
+    while (controller.canUndo()) {
+      controller.undo();
+      undoCount += 1;
+      if (undoCount > 110) break; // safety guard
+    }
+    expect(undoCount).toBe(100);
+  });
+});
+
+// ─── StudioController — misc ──────────────────────────────────────────────────
+
+describe('StudioController.setDashboardTitle', () => {
+  it('updates the dashboard title', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('Quarterly Report');
+    expect(controller.getState().dashboard.title).toBe('Quarterly Report');
+  });
+});
+
+describe('StudioController.setActivePage', () => {
+  it('changes the active page id', () => {
+    const controller = new StudioController({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+        'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+      },
+    });
+    controller.setActivePage('page-2');
+    expect(controller.getState().dashboard.activePageId).toBe('page-2');
+  });
+
+  it('is a no-op when the page is already active', () => {
+    const controller = new StudioController({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
+    });
+    controller.setActivePage('page-1');
+    // Should not push to undo stack or change state
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it('is a no-op for an unknown page id', () => {
+    const controller = new StudioController({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
+    });
+    controller.setActivePage('nonexistent');
+    expect(controller.getState().dashboard.activePageId).toBe('page-1');
+  });
+});
+
+describe('StudioController.loadSerializedState', () => {
+  it('replaces the dashboard title from the serialized state', () => {
+    const source = new StudioController();
+    source.setDashboardTitle('Saved Dashboard');
+    const serialized = source.serializeState();
+
+    const target = new StudioController();
+    target.setDashboardTitle('Old Title');
+    target.loadSerializedState(serialized);
+
+    expect(target.getState().dashboard.title).toBe('Saved Dashboard');
+  });
+
+  it('preserves the host dataSources after load', () => {
+    const ds = { orders: { id: 'orders', label: 'Orders', fields: [], rows: [] } };
+    const controller = new StudioController();
+    controller.upsertDataSource(ds.orders);
+    const serialized = controller.serializeState();
+
+    // Load into a controller that has a different data source
+    const target = new StudioController();
+    const liveDs = { live: { id: 'live', label: 'Live', fields: [], rows: [] } };
+    target.upsertDataSource(liveDs.live);
+    target.loadSerializedState(serialized);
+
+    // The live data source should be preserved
+    expect(target.getState().dataSources['live']).toBeDefined();
+  });
+
+  it('resets undo/redo history after a successful load', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('A');
+    controller.setDashboardTitle('B');
+
+    const serialized = controller.serializeState();
+    controller.loadSerializedState(serialized);
+
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(false);
+  });
+
+  it('returns a failed migration result for invalid input', () => {
+    const controller = new StudioController();
+    const result = controller.loadSerializedState('not-an-object');
+    expect(result.success).toBe(false);
+    expect(controller.getState().dashboard.title).toBe('Untitled Dashboard'); // unchanged
   });
 });

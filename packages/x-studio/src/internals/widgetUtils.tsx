@@ -179,31 +179,28 @@ export function inferWidgetTitles(
 /**
  * Export grid data as CSV
  */
-export function exportGridToCsv(
+/**
+ * Build a CSV string for the given widget/source/rows without triggering a download.
+ * Exported for testing.
+ */
+export function buildCsvContent(
   widget: StudioWidget,
-  dataSource: StudioDataSource | undefined,
+  dataSource: StudioDataSource,
   rows: Record<string, unknown>[],
-): void {
-  if (!dataSource) {
-    return;
-  }
-
+): string {
   const visibleColumns = widget.config.columns?.length
     ? widget.config.columns
-    : (dataSource.fields.map((f) => f.id));
+    : dataSource.fields.map((f) => f.id);
 
-  // Create header row
   const headers = visibleColumns.map((col) => {
     const field = dataSource.fields.find((f) => f.id === col);
     return field?.label ?? col;
   });
 
-  // Create data rows
   const csvRows = rows.map((row) =>
     visibleColumns
       .map((col) => {
         const value = row[col];
-        // Escape quotes and wrap in quotes if contains comma, quote, or newline
         const strVal = String(value ?? '');
         if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n')) {
           return `"${strVal.replace(/"/g, '""')}"`;
@@ -213,7 +210,19 @@ export function exportGridToCsv(
       .join(','),
   );
 
-  const csvContent = [headers.join(','), ...csvRows].join('\n');
+  return [headers.join(','), ...csvRows].join('\n');
+}
+
+export function exportGridToCsv(
+  widget: StudioWidget,
+  dataSource: StudioDataSource | undefined,
+  rows: Record<string, unknown>[],
+): void {
+  if (!dataSource) {
+    return;
+  }
+
+  const csvContent = buildCsvContent(widget, dataSource, rows);
 
   // Download the file
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });

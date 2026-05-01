@@ -637,6 +637,135 @@ describe('resolveRows', () => {
   });
 });
 
+// ─── resolveRows — cross-filter regression (ORDER_ITEMS → ORDERS) ─────────────
+//
+// Mirrors the real bug: a "Revenue by Category" chart (ORDER_ITEMS source) emits
+// a cross-filter. A "Revenue by Country" chart (ORDERS source) receives it.
+// Without filterSourceId the filter was treated as native → ORDERS has no
+// "category" field → undefined == "Electronics" is false → 0 rows → blank chart.
+
+describe('resolveRows — cross-filter via ORDER_ITEMS → ORDERS join', () => {
+  const orders = [
+    { id: 'ORD-1', country: 'Germany', total: 100 },
+    { id: 'ORD-2', country: 'France', total: 200 },
+    { id: 'ORD-3', country: 'Germany', total: 300 },
+  ];
+
+  const orderItems = [
+    { id: 'ITEM-1', orderId: 'ORD-1', category: 'Electronics', amount: 50 },
+    { id: 'ITEM-2', orderId: 'ORD-1', category: 'Clothing', amount: 50 },
+    { id: 'ITEM-3', orderId: 'ORD-2', category: 'Electronics', amount: 200 },
+    { id: 'ITEM-4', orderId: 'ORD-3', category: 'Clothing', amount: 300 },
+  ];
+
+  const dataSources: Record<string, StudioDataSource> = {
+    orders: makeSource(orders),
+    orderItems: makeSource(orderItems),
+  };
+
+  const relationships: StudioRelationship[] = [
+    {
+      id: 'rel-orderitems-orders',
+      sourceId: 'orderItems',
+      sourceField: 'orderId',
+      targetId: 'orders',
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+  ];
+
+  it('with filterSourceId: filters ORDERS to those with an Electronics item', () => {
+    const result = resolveRows(
+      orders,
+      'orders',
+      [
+        makeFilter({
+          field: 'category',
+          operator: 'equals',
+          value: 'Electronics',
+          filterSourceId: 'orderItems',
+        }),
+      ],
+      dataSources,
+      relationships,
+    );
+    // ORD-1 has an Electronics item; ORD-2 has an Electronics item; ORD-3 does not
+    expect(result.map((r) => r.id).sort()).toEqual(['ORD-1', 'ORD-2']);
+  });
+
+  it('regression: without filterSourceId the filter is applied natively and returns no rows', () => {
+    // This demonstrates the bug that was fixed: when applyCrossFilter did not
+    // attach filterSourceId, the filter landed as a native ORDERS filter.
+    // ORDERS rows have no "category" field, so "category == Electronics" is
+    // undefined == "Electronics" → false for every row → empty result.
+    const result = resolveRows(
+      orders,
+      'orders',
+      [
+        makeFilter({
+          field: 'category',
+          operator: 'equals',
+          value: 'Electronics',
+          // no filterSourceId — treated as native filter on ORDERS
+        }),
+      ],
+      dataSources,
+      relationships,
+    );
+    expect(result).toHaveLength(0);
+  });
+
+  it('with filterSourceId: cross-filter on orderItems combined with native filter on orders', () => {
+    const result = resolveRows(
+      orders,
+      'orders',
+      [
+        makeFilter({
+          field: 'category',
+          operator: 'equals',
+          value: 'Electronics',
+          filterSourceId: 'orderItems',
+        }),
+        makeFilter({ id: 'f2', field: 'country', operator: 'equals', value: 'Germany' }),
+      ],
+      dataSources,
+      relationships,
+    );
+    // Electronics orders: ORD-1 and ORD-2; German orders: ORD-1 and ORD-3 → intersection: ORD-1
+    expect(result.map((r) => r.id)).toEqual(['ORD-1']);
+  });
+
+  it('with filterSourceId: multiple cross-filters from the same source are ANDed', () => {
+    const result = resolveRows(
+      orders,
+      'orders',
+      [
+        makeFilter({
+          id: 'cf1',
+          field: 'category',
+          operator: 'equals',
+          value: 'Electronics',
+          filterSourceId: 'orderItems',
+        }),
+        makeFilter({
+          id: 'cf2',
+          field: 'amount',
+          operator: 'greater_than',
+          value: 100,
+          fieldType: 'number',
+          filterSourceId: 'orderItems',
+        }),
+      ],
+      dataSources,
+      relationships,
+    );
+    // Electronics items: ITEM-1 (amount 50, ORD-1), ITEM-3 (amount 200, ORD-2)
+    // amount > 100: ITEM-3 (ORD-2)
+    // Cross-filters are applied sequentially, so only ORD-2 survives both
+    expect(result.map((r) => r.id)).toEqual(['ORD-2']);
+  });
+});
+
 // ─── resolveMetricRef ─────────────────────────────────────────────────────────
 
 describe('resolveMetricRef', () => {

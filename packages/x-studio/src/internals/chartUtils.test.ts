@@ -4,6 +4,7 @@ import {
   applyFilters,
   applyRankToAggregated,
   applyRankToMultiSeries,
+  applyRankToSeriesFieldData,
   resolveMetricRef,
   resolveMetricRefs,
   resolveRows,
@@ -11,6 +12,11 @@ import {
   truncateToGranularity,
   formatPeriodLabel,
   aggregateByField,
+  aggregateByTwoFields,
+  aggregateMultipleSeries,
+  enrichRowsWithRelatedFields,
+  getReachableSourceIds,
+  prepareScatterData,
 } from './chartUtils';
 import type { StudioDataSource, StudioFilterState, StudioRelationship } from '../models';
 
@@ -1205,5 +1211,330 @@ describe('aggregateByField with xGroupBy', () => {
   it('no grouping: raw values remain separate', () => {
     const result = aggregateByField(rows, 'date', 'revenue');
     expect(result.labels).toHaveLength(5);
+  });
+});
+
+// ─── getReachableSourceIds ────────────────────────────────────────────────────
+
+describe('getReachableSourceIds', () => {
+  const relationships: StudioRelationship[] = [
+    { id: 'r1', sourceId: 'orderItems', sourceField: 'orderId', targetId: 'orders', targetField: 'id', type: 'many-to-one' },
+    { id: 'r2', sourceId: 'orders', sourceField: 'customerId', targetId: 'customers', targetField: 'id', type: 'many-to-one' },
+  ];
+
+  it('always includes the sourceId itself', () => {
+    const result = getReachableSourceIds('orders', relationships);
+    expect(result.has('orders')).toBe(true);
+  });
+
+  it('includes targets of outgoing relationships', () => {
+    const result = getReachableSourceIds('orders', relationships);
+    expect(result.has('customers')).toBe(true);
+  });
+
+  it('includes sources of incoming relationships (reverse hop)', () => {
+    const result = getReachableSourceIds('orders', relationships);
+    expect(result.has('orderItems')).toBe(true);
+  });
+
+  it('returns only the source itself when no relationships exist', () => {
+    const result = getReachableSourceIds('orphan', []);
+    expect(result.size).toBe(1);
+    expect(result.has('orphan')).toBe(true);
+  });
+
+  it('handles unrelated sources being absent from the result', () => {
+    const result = getReachableSourceIds('orderItems', relationships);
+    expect(result.has('customers')).toBe(false); // customers is not directly related to orderItems
+    expect(result.has('orders')).toBe(true);
+  });
+});
+
+// ─── enrichRowsWithRelatedFields ─────────────────────────────────────────────
+
+describe('enrichRowsWithRelatedFields', () => {
+  const orders = [
+    { id: 'ORD-1', customerId: 'CUS-1' },
+    { id: 'ORD-2', customerId: 'CUS-2' },
+    { id: 'ORD-3', customerId: 'CUS-1' },
+  ];
+  const customers = [
+    { id: 'CUS-1', country: 'Germany', tier: 'gold' },
+    { id: 'CUS-2', country: 'France', tier: 'silver' },
+  ];
+
+  const dataSources: Record<string, StudioDataSource> = {
+    orders: {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'customerId', label: 'Customer ID', type: 'string' },
+      ],
+      rows: orders,
+    },
+    customers: {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'country', label: 'Country', type: 'string' },
+        { id: 'tier', label: 'Tier', type: 'string' },
+      ],
+      rows: customers,
+    },
+  };
+
+  const relationships: StudioRelationship[] = [
+    { id: 'r1', sourceId: 'orders', sourceField: 'customerId', targetId: 'customers', targetField: 'id', type: 'many-to-one' },
+  ];
+
+  it('enriches rows with a field from a related source via a one-hop join', () => {
+    const result = enrichRowsWithRelatedFields(orders, 'orders', ['country'], dataSources, relationships);
+    expect(result[0].country).toBe('Germany'); // ORD-1 → CUS-1
+    expect(result[1].country).toBe('France');  // ORD-2 → CUS-2
+    expect(result[2].country).toBe('Germany'); // ORD-3 → CUS-1
+  });
+
+  it('enriches multiple fields in a single call', () => {
+    const result = enrichRowsWithRelatedFields(orders, 'orders', ['country', 'tier'], dataSources, relationships);
+    expect(result[0].country).toBe('Germany');
+    expect(result[0].tier).toBe('gold');
+  });
+
+  it('leaves rows unchanged when the field already exists on the native source', () => {
+    const result = enrichRowsWithRelatedFields(orders, 'orders', ['id'], dataSources, relationships);
+    // 'id' is already in the orders schema; rows should be the same references
+    expect(result).toBe(orders);
+  });
+
+  it('skips unknown fields with no matching relationship and returns rows unchanged', () => {
+    const result = enrichRowsWithRelatedFields(orders, 'orders', ['nonExistentField'], dataSources, relationships);
+    expect(result).toBe(orders);
+  });
+
+  it('returns rows unchanged for an empty fieldIds array', () => {
+    const result = enrichRowsWithRelatedFields(orders, 'orders', [], dataSources, relationships);
+    expect(result).toBe(orders);
+  });
+
+  it('returns rows unchanged for an empty rows array', () => {
+    const result = enrichRowsWithRelatedFields([], 'orders', ['country'], dataSources, relationships);
+    expect(result).toEqual([]);
+  });
+
+  it('does not mutate the original row objects', () => {
+    const origCountry = (orders[0] as Record<string, unknown>).country; // undefined
+    enrichRowsWithRelatedFields(orders, 'orders', ['country'], dataSources, relationships);
+    expect((orders[0] as Record<string, unknown>).country).toBe(origCountry);
+  });
+
+  it('skips a field when no related source has it registered in its fields', () => {
+    // 'nonExistentField' is not in any source's fields[] declaration, so it should be skipped
+    const result = enrichRowsWithRelatedFields(
+      [{ id: 'CUS-1', country: 'Germany' }],
+      'customers',
+      ['nonExistentField'],
+      dataSources,
+      relationships,
+    );
+    // No enrichment possible → same reference returned
+    expect(result).toEqual([{ id: 'CUS-1', country: 'Germany' }]);
+  });
+});
+
+// ─── applyRankToSeriesFieldData ───────────────────────────────────────────────
+
+describe('applyRankToSeriesFieldData', () => {
+  const data = {
+    labels: ['Q1', 'Q2', 'Q3'],
+    seriesNames: ['Alpha', 'Beta', 'Gamma'],
+    seriesData: {
+      Alpha: [10, 20, 30],  // total 60
+      Beta:  [50, 10, 10],  // total 70
+      Gamma: [5,  5,  5],   // total 15
+    },
+  };
+
+  function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
+    return {
+      id: 'f1', field: '', operator: 'equals', value: 3, scope: 'widget',
+      ...overrides,
+    };
+  }
+
+  it('null filter returns original data unchanged', () => {
+    expect(applyRankToSeriesFieldData(data, null)).toBe(data);
+  });
+
+  it('top 2 keeps the 2 series with highest total', () => {
+    const result = applyRankToSeriesFieldData(data, makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top' }));
+    expect(result.seriesNames).toHaveLength(2);
+    expect(result.seriesNames).toContain('Beta');  // 70
+    expect(result.seriesNames).toContain('Alpha'); // 60
+    expect(result.seriesNames).not.toContain('Gamma');
+  });
+
+  it('bottom 1 keeps the series with lowest total', () => {
+    const result = applyRankToSeriesFieldData(data, makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom' }));
+    expect(result.seriesNames).toEqual(['Gamma']);
+  });
+
+  it('removes excluded series from seriesData as well', () => {
+    const result = applyRankToSeriesFieldData(data, makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }));
+    expect(Object.keys(result.seriesData)).not.toContain('Alpha');
+    expect(Object.keys(result.seriesData)).not.toContain('Gamma');
+    expect(Object.keys(result.seriesData)).toContain('Beta');
+  });
+
+  it('preserves labels unchanged', () => {
+    const result = applyRankToSeriesFieldData(data, makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }));
+    expect(result.labels).toEqual(data.labels);
+  });
+
+  it('N=0 is a no-op', () => {
+    const result = applyRankToSeriesFieldData(data, makeFilter({ filterMode: 'rank', value: 0, rankDirection: 'top' }));
+    expect(result).toBe(data);
+  });
+
+  it('N >= length returns all series', () => {
+    const result = applyRankToSeriesFieldData(data, makeFilter({ filterMode: 'rank', value: 99, rankDirection: 'top' }));
+    expect(result.seriesNames).toHaveLength(3);
+  });
+});
+
+// ─── aggregateByTwoFields ─────────────────────────────────────────────────────
+
+describe('aggregateByTwoFields', () => {
+  const rows = [
+    { region: 'North', product: 'A', revenue: 100 },
+    { region: 'South', product: 'A', revenue: 50 },
+    { region: 'North', product: 'B', revenue: 200 },
+    { region: 'North', product: 'A', revenue: 75 },  // second North/A row → sum 175
+    { region: 'South', product: 'B', revenue: 30 },
+  ];
+
+  it('produces one label per unique x value', () => {
+    const result = aggregateByTwoFields(rows, 'region', 'product', 'revenue');
+    expect(result.labels.sort()).toEqual(['North', 'South']);
+  });
+
+  it('produces one series name per unique series field value', () => {
+    const result = aggregateByTwoFields(rows, 'region', 'product', 'revenue');
+    expect(result.seriesNames.sort()).toEqual(['A', 'B']);
+  });
+
+  it('sums values for the same x+series combination', () => {
+    const result = aggregateByTwoFields(rows, 'region', 'product', 'revenue');
+    const northIdx = result.labels.indexOf('North');
+    const aIdx = result.seriesNames.indexOf('A');
+    // North/A: 100 + 75 = 175
+    expect(result.seriesData['A'][northIdx]).toBe(175);
+  });
+
+  it('fills missing x+series combinations with 0', () => {
+    // There is no South/B row in the original data — wait, there is. Let me use a sparser set.
+    const sparse = [
+      { region: 'North', product: 'A', revenue: 100 },
+      { region: 'South', product: 'B', revenue: 50 },
+    ];
+    const result = aggregateByTwoFields(sparse, 'region', 'product', 'revenue');
+    const northIdx = result.labels.indexOf('North');
+    const southIdx = result.labels.indexOf('South');
+    expect(result.seriesData['B'][northIdx]).toBe(0); // North has no product B
+    expect(result.seriesData['A'][southIdx]).toBe(0); // South has no product A
+  });
+});
+
+// ─── aggregateMultipleSeries ──────────────────────────────────────────────────
+
+describe('aggregateMultipleSeries', () => {
+  const rows = [
+    { month: '2024-01', revenue: 100, cost: 60 },
+    { month: '2024-02', revenue: 200, cost: 90 },
+    { month: '2024-01', revenue: 50,  cost: 30 },  // second Jan row
+  ];
+
+  it('returns one series entry per yField', () => {
+    const result = aggregateMultipleSeries(rows, 'month', ['revenue', 'cost']);
+    expect(result.series).toHaveLength(2);
+    expect(result.series.map((s) => s.fieldId).sort()).toEqual(['cost', 'revenue']);
+  });
+
+  it('produces one label per unique x value', () => {
+    const result = aggregateMultipleSeries(rows, 'month', ['revenue', 'cost']);
+    expect(result.labels.sort()).toEqual(['2024-01', '2024-02']);
+  });
+
+  it('sums values for duplicate x rows within each series', () => {
+    const result = aggregateMultipleSeries(rows, 'month', ['revenue', 'cost']);
+    const janIdx = result.labels.indexOf('2024-01');
+    const revSeries = result.series.find((s) => s.fieldId === 'revenue')!;
+    expect(revSeries.values[janIdx]).toBe(150); // 100 + 50
+  });
+
+  it('fills 0 for a missing y value', () => {
+    const sparse = [
+      { month: '2024-01', revenue: 100 },  // no 'cost' field
+    ];
+    const result = aggregateMultipleSeries(sparse, 'month', ['revenue', 'cost']);
+    const costSeries = result.series.find((s) => s.fieldId === 'cost')!;
+    expect(costSeries.values[0]).toBe(0);
+  });
+
+  it('returns empty series when yFields is empty', () => {
+    const result = aggregateMultipleSeries(rows, 'month', []);
+    expect(result.series).toHaveLength(0);
+    expect(result.labels.length).toBeGreaterThan(0); // labels still computed
+  });
+
+  it('applies xGroupBy date truncation', () => {
+    const dated = [
+      { date: '2024-03-15', revenue: 100 },
+      { date: '2024-03-28', revenue: 200 },
+      { date: '2024-04-05', revenue: 50 },
+    ];
+    const result = aggregateMultipleSeries(dated, 'date', ['revenue'], 'month');
+    expect(result.labels).toContain('2024-03');
+    expect(result.labels).toContain('2024-04');
+    const marIdx = result.labels.indexOf('2024-03');
+    expect(result.series[0].values[marIdx]).toBe(300); // 100 + 200
+  });
+});
+
+// ─── prepareScatterData ───────────────────────────────────────────────────────
+
+describe('prepareScatterData', () => {
+  it('maps rows to {x, y, id} objects', () => {
+    const rows = [
+      { sales: 10, profit: 3 },
+      { sales: 20, profit: 7 },
+    ];
+    const result = prepareScatterData(rows, 'sales', 'profit');
+    expect(result).toEqual([
+      { x: 10, y: 3, id: 0 },
+      { x: 20, y: 7, id: 1 },
+    ]);
+  });
+
+  it('defaults null/undefined x and y to 0', () => {
+    const result = prepareScatterData([{ sales: null, profit: undefined }], 'sales', 'profit');
+    expect(result[0]).toEqual({ x: 0, y: 0, id: 0 });
+  });
+
+  it('coerces string numbers to numeric values', () => {
+    const result = prepareScatterData([{ x: '5', y: '3.5' }], 'x', 'y');
+    expect(result[0].x).toBe(5);
+    expect(result[0].y).toBe(3.5);
+  });
+
+  it('uses the row index as id', () => {
+    const rows = [{ x: 1, y: 2 }, { x: 3, y: 4 }, { x: 5, y: 6 }];
+    const result = prepareScatterData(rows, 'x', 'y');
+    expect(result.map((p) => p.id)).toEqual([0, 1, 2]);
+  });
+
+  it('returns empty array for empty rows', () => {
+    expect(prepareScatterData([], 'x', 'y')).toEqual([]);
   });
 });

@@ -70,6 +70,10 @@ export interface StudioMetricRef {
 export interface StudioWidgetConfig {
   // Grid config
   columns?: string[];
+  /** Optional field used to group raw rows into one aggregated grid row per unique value. */
+  gridGroupByField?: string;
+  /** Per-column aggregations applied when gridGroupByField is set. */
+  gridAggregations?: Record<string, StudioGridSummaryAggregation>;
   /** Default sort field for the grid. */
   gridSortField?: string;
   /** Default sort direction for the grid. @default 'asc' */

@@ -95,6 +95,27 @@ export function useChartWidgetData(
     );
   }, [dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId, activePageId]);
 
+  // Rows filtered by page+widget filters only (no cross-filters).
+  // Used to compute the stable full set of series names for consistent color assignment.
+  const filteredRowsNoCross = React.useMemo(() => {
+    if (!dataSource?.rows) {
+      return [];
+    }
+    const pageFilters = filters.filter((f) => f.scope === 'page');
+    const widgetFilters = filters.filter(
+      (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode !== 'rank',
+    );
+    const allFilters = resolveMetricRefs([...pageFilters, ...widgetFilters], dataSources);
+    return resolveRows(
+      dataSource.rows,
+      widget.sourceId,
+      allFilters,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+  }, [dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId]);
+
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {
     if (config.ySeries && config.ySeries.length > 0) {
@@ -154,6 +175,32 @@ export function useChartWidgetData(
     relationships,
   ]);
 
+  // Enriched rows from non-cross-filtered data — used to compute stable series names.
+  const allEnrichedRows = React.useMemo(() => {
+    if (!chartSupport.supported) {
+      return [];
+    }
+    return resolveChartRowsForAggregation(
+      filteredRowsNoCross,
+      widget.sourceId,
+      config.xField,
+      activeYFields,
+      config.seriesField,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+  }, [
+    chartSupport.supported,
+    filteredRowsNoCross,
+    widget.sourceId,
+    config.xField,
+    activeYFields,
+    config.seriesField,
+    dataSources,
+    relationships,
+  ]);
+
   const isMultiSeries = activeYFields.length > 1;
 
   // seriesField data: one line per unique value of the series field
@@ -169,6 +216,29 @@ export function useChartWidgetData(
       widgetRankFilter,
     );
   }, [enrichedRows, config.xField, config.seriesField, activeYFields, xGroupBy, widgetRankFilter]);
+
+  // Full series names from non-cross-filtered data (with rank applied).
+  // Used to assign stable colors so series don't change color when cross-filters hide some of them.
+  const allSeriesNames = React.useMemo((): (string | number)[] => {
+    const xField = config.xField;
+    const seriesField = config.seriesField;
+    const yField = activeYFields[0];
+    if (!xField || !seriesField || !yField || allEnrichedRows.length === 0) {
+      return [];
+    }
+    return applyRankToSeriesFieldData(
+      aggregateByTwoFields(allEnrichedRows, xField, seriesField, yField, xGroupBy),
+      widgetRankFilter,
+    ).seriesNames;
+  }, [allEnrichedRows, config.xField, config.seriesField, activeYFields, xGroupBy, widgetRankFilter]);
+
+  // Always-resolved palette: used for stable per-series color assignment.
+  const resolvedChartColors = React.useMemo((): string[] => {
+    if (chartColors) {
+      return chartColors;
+    }
+    return blueberryTwilightPalette(muiTheme.palette.mode);
+  }, [chartColors, muiTheme.palette.mode]);
 
   const chartData = React.useMemo(() => {
     const xField = config.xField;
@@ -206,6 +276,8 @@ export function useChartWidgetData(
 
   return {
     chartColors,
+    resolvedChartColors,
+    allSeriesNames,
     chartSupport,
     filteredRows,
     activeYFields,

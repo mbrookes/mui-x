@@ -63,12 +63,12 @@ function createLineXAxisConfig(
 }
 
 function makeValueFormatter(format?: StudioNumberFormat, currencyCode?: string) {
-  if (!format) {
-    return undefined;
-  }
   return (value: number | null) => {
     if (value === null) {
       return '';
+    }
+    if (!format) {
+      return String(value);
     }
     return formatNumber(value, format, currencyCode);
   };
@@ -378,8 +378,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           : s.values;
         const valueFormatter = is100
           ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
-          : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode) ??
-            ((v: number | null) => (v == null ? '' : String(v)));
+          : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode);
         return {
           id: `${s.fieldId}-${i}`,
           data,

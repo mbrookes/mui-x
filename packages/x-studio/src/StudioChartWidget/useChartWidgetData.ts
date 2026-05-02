@@ -35,6 +35,7 @@ export function useChartWidgetData(
   const dataSources = useStudioSelector((state) => state.dataSources);
   const relationships = useStudioSelector((state) => state.relationships);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
+  const activePageId = useStudioSelector((state) => state.dashboard.activePageId);
   const pageTheme = useStudioSelector(
     (state) => state.pages[state.dashboard.activePageId]?.theme,
   );
@@ -77,7 +78,7 @@ export function useChartWidgetData(
       (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode !== 'rank',
     );
     const crossFilters = filters.filter(
-      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
+      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
     );
     const allFilters = resolveMetricRefs(
       [...pageFilters, ...widgetFilters, ...crossFilters],
@@ -92,7 +93,7 @@ export function useChartWidgetData(
       relationships,
       expressionFields,
     );
-  }, [dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId]);
+  }, [dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId, activePageId]);
 
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {

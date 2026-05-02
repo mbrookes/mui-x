@@ -60,6 +60,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   const xGroupBy = config.xGroupBy;
   const controller = useStudioController();
   const filters = useStudioSelector((state) => state.filters);
+  const activePageId = useStudioSelector((state) => state.dashboard.activePageId);
   const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<
     'bar' | 'line' | 'pie'
   > | null>(null);
@@ -86,9 +87,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     [xGroupBy],
   );
 
-  // Check if this widget has an active cross-filter
+  // Check if this widget has an active cross-filter on the current page
   const activeCrossFilter = filters.find(
-    (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id,
+    (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === activePageId,
   );
 
   const handleItemClick = React.useCallback(
@@ -409,10 +410,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       : null;
     const series = seriesFieldData.seriesNames.map((name) => {
       const rawData = seriesFieldData.seriesData[name];
-      const data = totals100
+      const data: (number | null)[] = totals100
         ? rawData.map((v, i) => {
             const total = totals100[i];
-            return total ? (v / total) * 100 : 0;
+            return total ? ((v ?? 0) / total) * 100 : 0;
           })
         : rawData;
       return {
@@ -487,10 +488,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
 
     const series = seriesFieldData.seriesNames.map((name) => {
       const rawData = seriesFieldData.seriesData[name];
-      const data = totals100
+      const data: (number | null)[] = totals100
         ? rawData.map((v, i) => {
             const total = totals100[i];
-            return total ? ((v as number) / total) * 100 : 0;
+            return total ? ((v ?? 0) / total) * 100 : 0;
           })
         : rawData;
       return {

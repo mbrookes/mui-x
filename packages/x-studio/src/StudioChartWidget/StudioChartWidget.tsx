@@ -12,6 +12,7 @@ import { Typography } from '@mui/material';
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
   formatPeriodLabel,
+  getChartSupportMessage,
 } from '../internals/chartUtils';
 import { useStudioController, useStudioSelector } from '../context';
 import { formatNumber } from '../internals/numberFormat';
@@ -64,7 +65,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   > | null>(null);
   const [hoveredAxis, setHoveredAxis] = React.useState<AxisItemIdentifier[] | null>(null);
 
-  const { chartColors, activeYFields, isMultiSeries, seriesFieldData, chartData, multiYData, scatterData } =
+  const { chartColors, chartSupport, activeYFields, isMultiSeries, seriesFieldData, chartData, multiYData, scatterData } =
     useChartWidgetData(widget, dataSource);
 
   // Clear stale hovered item when chart type or series field changes to avoid
@@ -147,6 +148,26 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       >
         <Typography variant="body2">
           Use the Setup tab to configure this chart.
+        </Typography>
+      </Box>
+    );
+  }
+
+  if (!chartSupport.supported && chartSupport.reason) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: chartHeight,
+          color: 'text.disabled',
+          px: 2,
+          textAlign: 'center',
+        }}
+      >
+        <Typography variant="body2">
+          {getChartSupportMessage(chartSupport.reason)}
         </Typography>
       </Box>
     );

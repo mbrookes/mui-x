@@ -26,43 +26,43 @@ describe('computeGridSummary', () => {
     const result = computeGridSummary(ROWS, [numField('amount')], {
       fields: { amount: 'sum' },
     });
-    expect(result.amount).toBe('Σ 450');
+    expect(result.amount).toBe('Total: 450');
   });
 
   it('computes average for a numeric field', () => {
     const result = computeGridSummary(ROWS, [numField('amount')], {
       fields: { amount: 'avg' },
     });
-    expect(result.amount).toBe('Avg 150');
+    expect(result.amount).toBe('Avg: 150');
   });
 
   it('computes count for a numeric field', () => {
     const result = computeGridSummary(ROWS, [numField('amount')], {
       fields: { amount: 'count' },
     });
-    expect(result.amount).toBe('Count 3');
+    expect(result.amount).toBe('Count: 3');
   });
 
   it('computes min for a numeric field', () => {
     const result = computeGridSummary(ROWS, [numField('amount')], {
       fields: { amount: 'min' },
     });
-    expect(result.amount).toBe('Min 100');
+    expect(result.amount).toBe('Min: 100');
   });
 
   it('computes max for a numeric field', () => {
     const result = computeGridSummary(ROWS, [numField('amount')], {
       fields: { amount: 'max' },
     });
-    expect(result.amount).toBe('Max 200');
+    expect(result.amount).toBe('Max: 200');
   });
 
   it('computes multiple fields in one call', () => {
     const result = computeGridSummary(ROWS, [numField('amount'), numField('qty')], {
       fields: { amount: 'sum', qty: 'count' },
     });
-    expect(result.amount).toBe('Σ 450');
-    expect(result.qty).toBe('Count 3');
+    expect(result.amount).toBe('Total: 450');
+    expect(result.qty).toBe('Count: 3');
   });
 
   it('falls back to count for a string field with a numeric aggregation', () => {
@@ -70,14 +70,14 @@ describe('computeGridSummary', () => {
       fields: { name: 'sum' },
     });
     // sum on string field → falls back to count
-    expect(result.name).toBe('Count 3');
+    expect(result.name).toBe('Count: 3');
   });
 
   it('allows count on string fields', () => {
     const result = computeGridSummary(ROWS, [strField('name')], {
       fields: { name: 'count' },
     });
-    expect(result.name).toBe('Count 3');
+    expect(result.name).toBe('Count: 3');
   });
 
   it('returns 0 for sum/avg/min/max when all values are missing', () => {
@@ -85,7 +85,7 @@ describe('computeGridSummary', () => {
     const result = computeGridSummary(rows, [numField('amount')], {
       fields: { amount: 'sum' },
     });
-    expect(result.amount).toBe('Σ 0');
+    expect(result.amount).toBe('Total: 0');
   });
 
   it('ignores NaN values when computing numeric aggregations', () => {
@@ -97,7 +97,7 @@ describe('computeGridSummary', () => {
     const result = computeGridSummary(rows, [numField('amount')], {
       fields: { amount: 'sum' },
     });
-    expect(result.amount).toBe('Σ 300');
+    expect(result.amount).toBe('Total: 300');
   });
 
   it('ignores non-numeric values (strings) when computing sum', () => {
@@ -109,21 +109,21 @@ describe('computeGridSummary', () => {
     const result = computeGridSummary(rows, [numField('amount')], {
       fields: { amount: 'sum' },
     });
-    expect(result.amount).toBe('Σ 200');
+    expect(result.amount).toBe('Total: 200');
   });
 
   it('handles empty rows array gracefully', () => {
     const result = computeGridSummary([], [numField('amount')], {
       fields: { amount: 'sum' },
     });
-    expect(result.amount).toBe('Σ 0');
+    expect(result.amount).toBe('Total: 0');
   });
 
   it('handles empty rows array for count', () => {
     const result = computeGridSummary([], [numField('qty')], {
       fields: { qty: 'count' },
     });
-    expect(result.qty).toBe('Count 0');
+    expect(result.qty).toBe('Count: 0');
   });
 
   it('only produces keys for fields listed in config', () => {
@@ -139,7 +139,7 @@ describe('computeGridSummary', () => {
       fields: { unknownField: 'sum' },
     });
     // fieldDef is undefined → isNumeric is false → count fallback
-    expect(result.unknownField).toBe('Count 3');
+    expect(result.unknownField).toBe('Count: 3');
   });
 
   it('applies field format when formatting sum', () => {
@@ -149,17 +149,17 @@ describe('computeGridSummary', () => {
     const rows = [{ id: '1', revenue: 1000 }, { id: '2', revenue: 2000 }];
     const result = computeGridSummary(rows, fields, { fields: { revenue: 'sum' } });
     // Should include a currency symbol
-    expect(result.revenue).toMatch(/Σ.*\$.*3/);
+    expect(result.revenue).toMatch(/Total:.*\$.*3/);
   });
 });
 
 describe('aggregationLabel', () => {
   it.each([
-    ['sum', 'Σ'],
-    ['avg', 'Avg'],
-    ['count', 'Count'],
-    ['min', 'Min'],
-    ['max', 'Max'],
+    ['sum', 'Total:'],
+    ['avg', 'Avg:'],
+    ['count', 'Count:'],
+    ['min', 'Min:'],
+    ['max', 'Max:'],
   ] as const)('returns correct label for %s', (agg, expected) => {
     expect(aggregationLabel(agg)).toBe(expected);
   });

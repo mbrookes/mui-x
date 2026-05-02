@@ -363,7 +363,7 @@ export function resolveRows(
   // can be referenced in filters and downstream aggregations.
   const enrichedRows =
     widgetSourceId && expressionFields.length > 0
-      ? enrichRowsWithExpressions(widgetRows, expressionFields, widgetSourceId)
+      ? enrichRowsWithExpressions(widgetRows, expressionFields, widgetSourceId, dataSources, relationships)
       : widgetRows;
 
   const nativeFilters: StudioFilterState[] = [];

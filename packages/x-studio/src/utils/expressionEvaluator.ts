@@ -8,7 +8,10 @@ import type {
   StudioFunctionExpression,
   StudioValueExpression,
   StudioFieldExpression,
+  StudioJoinFieldExpression,
   StudioKpiAggregation,
+  StudioDataSource,
+  StudioRelationship,
 } from '../models';
 
 // ─── Type guards ──────────────────────────────────────────────────────────────
@@ -25,6 +28,10 @@ export function isFieldExpression(expr: StudioExpression): expr is StudioFieldEx
   return 'id' in expr && !('operator' in expr) && !('type' in expr && 'value' in expr);
 }
 
+export function isJoinFieldExpression(expr: StudioExpression): expr is StudioJoinFieldExpression {
+  return 'joinSourceId' in expr && 'fieldId' in expr;
+}
+
 // ─── Evaluation context ───────────────────────────────────────────────────────
 
 export interface EvaluationContext {
@@ -34,6 +41,12 @@ export interface EvaluationContext {
   row: Record<string, unknown>;
   /** All rows in the dataset (needed to evaluate measure sub-expressions inside non-measure contexts). */
   allRows: Record<string, unknown>[];
+  /** The data source ID that owns the rows being evaluated. */
+  sourceId?: string;
+  /** All data sources (needed to resolve join field expressions). */
+  dataSources?: Record<string, StudioDataSource>;
+  /** Declared source relationships (needed to resolve join field expressions). */
+  relationships?: StudioRelationship[];
 }
 
 // ─── Core evaluator ──────────────────────────────────────────────────────────
@@ -72,6 +85,27 @@ export function evaluateExpression(
 ): ScalarValue {
   if (isValueExpression(expr)) {
     return expr.value as ScalarValue;
+  }
+
+  if (isJoinFieldExpression(expr)) {
+    const { joinSourceId, fieldId } = expr;
+    const { row, sourceId, dataSources, relationships } = context;
+    if (!dataSources || !relationships || !sourceId) {
+      return null;
+    }
+    const rel = relationships.find(
+      (r) => r.sourceId === sourceId && r.targetId === joinSourceId,
+    );
+    if (!rel) {
+      return null;
+    }
+    const fkValue = row[rel.sourceField];
+    if (fkValue == null) {
+      return null;
+    }
+    const relatedSource = dataSources[joinSourceId];
+    const relatedRow = relatedSource?.rows?.find((r) => r[rel.targetField] === fkValue);
+    return (relatedRow?.[fieldId] ?? null) as ScalarValue;
   }
 
   if (isFieldExpression(expr)) {
@@ -208,6 +242,8 @@ export function enrichRowsWithExpressions(
   rows: Record<string, unknown>[],
   expressionFields: StudioExpressionField[],
   sourceId: string,
+  dataSources?: Record<string, StudioDataSource>,
+  relationships?: StudioRelationship[],
 ): Record<string, unknown>[] {
   const columnFields = expressionFields.filter(
     (ef) => ef.sourceId === sourceId && !ef.isMeasure,
@@ -228,6 +264,9 @@ export function enrichRowsWithExpressions(
         expressionFields,
         row,
         allRows: rows,
+        sourceId,
+        dataSources,
+        relationships,
       };
       const value = evaluateExpression(ef.expression, ctx);
       if (!(ef.id in row)) {
@@ -268,6 +307,11 @@ function evalMeasureExpression(
     const { aggregation = 'sum' } = expr;
     const values = rows.map((r) => toNumber(r[expr.id])).filter((v) => !Number.isNaN(v));
     return aggregate(values, aggregation);
+  }
+
+  if (isJoinFieldExpression(expr)) {
+    // Join field expressions yield string values — treat as 0 in numeric measure context
+    return 0;
   }
 
   // FunctionExpression — recursively evaluate each input as a measure scalar,
@@ -390,7 +434,12 @@ export function inferExpressionType(
     return 'string';
   }
 
-  const { operator } = expr;
+  if (isJoinFieldExpression(expr)) {
+    // Type is unknown without schema info — default to string
+    return 'string';
+  }
+
+  const { operator } = expr as StudioFunctionExpression;
 
   if (NUMERIC_OPERATORS.has(operator)) {
     return 'number';
@@ -468,7 +517,12 @@ function validateExpression(
     return errors;
   }
 
-  const { operator, inputs } = expr;
+  if (isJoinFieldExpression(expr)) {
+    // Join field expressions are structurally valid by construction
+    return errors;
+  }
+
+  const { operator, inputs } = expr as StudioFunctionExpression;
 
   // Validate arity
   const minArity: Partial<Record<StudioExpressionOperator, number>> = {

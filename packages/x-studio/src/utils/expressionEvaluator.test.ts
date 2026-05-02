@@ -5,6 +5,7 @@ import type {
   StudioFunctionExpression,
   StudioValueExpression,
   StudioFieldExpression,
+  StudioJoinFieldExpression,
 } from '../models';
 
 import {
@@ -17,6 +18,7 @@ import {
   isFunctionExpression,
   isValueExpression,
   isFieldExpression,
+  isJoinFieldExpression,
   type EvaluationContext,
 } from './expressionEvaluator';
 
@@ -65,6 +67,14 @@ describe('type guards', () => {
     expect(isFieldExpression(field('x'))).toBe(true);
     expect(isFieldExpression(numVal(1))).toBe(false);
     expect(isFieldExpression(fn('add', numVal(1)))).toBe(false);
+  });
+
+  it('isJoinFieldExpression', () => {
+    const joinExpr: StudioJoinFieldExpression = { joinSourceId: 'source-customers', fieldId: 'country' };
+    expect(isJoinFieldExpression(joinExpr)).toBe(true);
+    expect(isJoinFieldExpression(field('x'))).toBe(false);
+    expect(isJoinFieldExpression(numVal(1))).toBe(false);
+    expect(isJoinFieldExpression(fn('add', numVal(1)))).toBe(false);
   });
 });
 
@@ -335,6 +345,114 @@ describe('enrichRowsWithExpressions', () => {
     const rowsWithProfit = [{ id: 1, revenue: 1000, cost: 600, profit: 999 }];
     const result = enrichRowsWithExpressions(rowsWithProfit, expressionFields, 'sales');
     expect(result[0].profit).toBe(999);
+  });
+});
+
+// ─── Join field expressions ──────────────────────────────────────────────────
+
+describe('StudioJoinFieldExpression', () => {
+  const customers = {
+    id: 'source-customers',
+    label: 'Customers',
+    fields: [
+      { id: 'id', label: 'Customer ID', type: 'string' as const },
+      { id: 'country', label: 'Country', type: 'string' as const },
+    ],
+    rows: [
+      { id: 'CUS-001', country: 'Germany' },
+      { id: 'CUS-002', country: 'UK' },
+    ],
+  };
+
+  const relationships = [
+    {
+      id: 'rel-orders-customers',
+      sourceId: 'source-orders',
+      targetId: 'source-customers',
+      sourceField: 'customerId',
+      targetField: 'id',
+      type: 'many-to-one' as const,
+    },
+  ];
+
+  const dataSources = { 'source-customers': customers };
+
+  const joinExpr: StudioJoinFieldExpression = {
+    joinSourceId: 'source-customers',
+    fieldId: 'country',
+  };
+
+  it('resolves a join field expression to the related field value', () => {
+    const context: EvaluationContext = {
+      expressionFields: [],
+      row: { id: 'ORD-001', customerId: 'CUS-001', total: 100 },
+      allRows: [],
+      sourceId: 'source-orders',
+      dataSources,
+      relationships,
+    };
+    expect(evaluateExpression(joinExpr, context)).toBe('Germany');
+  });
+
+  it('returns null when the foreign key does not match any related row', () => {
+    const context: EvaluationContext = {
+      expressionFields: [],
+      row: { id: 'ORD-002', customerId: 'CUS-999', total: 50 },
+      allRows: [],
+      sourceId: 'source-orders',
+      dataSources,
+      relationships,
+    };
+    expect(evaluateExpression(joinExpr, context)).toBeNull();
+  });
+
+  it('returns null when the relationship is not declared', () => {
+    const context: EvaluationContext = {
+      expressionFields: [],
+      row: { id: 'ORD-001', customerId: 'CUS-001' },
+      allRows: [],
+      sourceId: 'source-orders',
+      dataSources,
+      relationships: [], // no relationships
+    };
+    expect(evaluateExpression(joinExpr, context)).toBeNull();
+  });
+
+  it('returns null when dataSources are not in context', () => {
+    const context: EvaluationContext = {
+      expressionFields: [],
+      row: { id: 'ORD-001', customerId: 'CUS-001' },
+      allRows: [],
+      sourceId: 'source-orders',
+      // dataSources omitted
+      relationships,
+    };
+    expect(evaluateExpression(joinExpr, context)).toBeNull();
+  });
+
+  it('enriches rows with join expression fields', () => {
+    const joinField: StudioExpressionField = {
+      id: 'expr-order-country',
+      label: 'Country',
+      sourceId: 'source-orders',
+      isMeasure: false,
+      expression: joinExpr,
+    };
+    const orderRows = [
+      { id: 'ORD-001', customerId: 'CUS-001', total: 100 },
+      { id: 'ORD-002', customerId: 'CUS-002', total: 200 },
+      { id: 'ORD-003', customerId: 'CUS-999', total: 50 },
+    ];
+    const result = enrichRowsWithExpressions(
+      orderRows,
+      [joinField],
+      'source-orders',
+      dataSources,
+      relationships,
+    );
+    expect(result[0]['expr-order-country']).toBe('Germany');
+    expect(result[1]['expr-order-country']).toBe('UK');
+    expect(result[2]['expr-order-country']).toBeNull();
   });
 });
 

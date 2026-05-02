@@ -199,7 +199,12 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'grid',
       title: 'Recent Orders',
       sourceId: ORDERS_SOURCE_ID,
-      config: { columns: ['id', 'date', 'customerId', 'status'], gridSortField: 'id', gridSortDirection: 'desc' },
+      config: {
+        columns: ['id', 'date', 'customerId', 'status'],
+        gridSortField: 'id',
+        gridSortDirection: 'desc',
+        gridSummaryFields: { id: 'count' },
+      },
     },
 
     // ── Page 2: Products & Logistics ────────────────────────────────────────
@@ -337,6 +342,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         columns: ['product', 'category', 'price', 'cost', 'expr-product-margin', 'expr-product-margin-pct', 'stock', 'reorderLevel'],
         crossFilterField: 'category',
+        gridSummaryFields: { price: 'avg', cost: 'avg', stock: 'sum', reorderLevel: 'sum' },
       },
     },
   },

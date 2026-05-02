@@ -40,10 +40,14 @@ export class StudioController {
       return widget;
     }
     const inferred = inferWidgetTitles(widget, dataSources);
+    const isAutoTitle = widget.titleMode === 'auto' || (!widget.titleMode && !widget.title);
+    const isAutoSubtitle =
+      widget.subtitleMode === 'auto' || (!widget.subtitleMode && !widget.subtitle);
+
     return {
       ...widget,
-      title: widget.titleMode === 'manual' ? widget.title : inferred.title,
-      subtitle: widget.subtitleMode === 'manual' ? widget.subtitle : inferred.subtitle,
+      title: isAutoTitle ? inferred.title : widget.title,
+      subtitle: isAutoSubtitle ? inferred.subtitle : widget.subtitle,
     };
   }
 

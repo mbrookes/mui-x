@@ -259,6 +259,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     normalizedChartType === 'bar-stacked' ||
     normalizedChartType === 'bar-100';
 
+  const isLineOrArea =
+    normalizedChartType === 'line' ||
+    normalizedChartType === 'area' ||
+    normalizedChartType === 'area-stacked' ||
+    normalizedChartType === 'area-100';
+
   const barChartData = React.useMemo(() => {
     if (!isBar || !chartData) {
       return chartData;
@@ -315,6 +321,63 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       }),
     };
   }, [isBar, multiYData]);
+
+  const lineChartData = React.useMemo(() => {
+    if (!isLineOrArea || !chartData) {
+      return chartData;
+    }
+    const labels = fillTemporalLabelGaps(chartData.labels);
+    if (labels === chartData.labels) {
+      return chartData;
+    }
+    const valueByLabel = new Map(chartData.labels.map((label, index) => [label, chartData.values[index]]));
+    return {
+      labels,
+      values: labels.map((label) => valueByLabel.get(label) ?? null),
+    };
+  }, [isLineOrArea, chartData]);
+
+  const lineSeriesFieldData = React.useMemo(() => {
+    if (!isLineOrArea || !seriesFieldData) {
+      return seriesFieldData;
+    }
+    const labels = fillTemporalLabelGaps(seriesFieldData.labels);
+    if (labels === seriesFieldData.labels) {
+      return seriesFieldData;
+    }
+    return {
+      labels,
+      seriesNames: seriesFieldData.seriesNames,
+      seriesData: Object.fromEntries(
+        seriesFieldData.seriesNames.map((seriesName) => {
+          const valueByLabel = new Map(
+            seriesFieldData.labels.map((label, index) => [label, seriesFieldData.seriesData[seriesName][index]]),
+          );
+          return [seriesName, labels.map((label) => valueByLabel.get(label) ?? null)];
+        }),
+      ),
+    };
+  }, [isLineOrArea, seriesFieldData]);
+
+  const lineMultiYData = React.useMemo(() => {
+    if (!isLineOrArea || !multiYData) {
+      return multiYData;
+    }
+    const labels = fillTemporalLabelGaps(multiYData.labels);
+    if (labels === multiYData.labels) {
+      return multiYData;
+    }
+    return {
+      labels,
+      series: multiYData.series.map((series) => {
+        const valueByLabel = new Map(multiYData.labels.map((label, index) => [label, series.values[index]]));
+        return {
+          fieldId: series.fieldId,
+          values: labels.map((label) => valueByLabel.get(label) ?? null),
+        };
+      }),
+    };
+  }, [isLineOrArea, multiYData]);
 
   if (isBar) {
     // Multi-Y-field path: each y-field is its own series
@@ -471,13 +534,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     );
   }
 
-  // For multi-Y line/area charts
-  const isLineOrArea =
-    normalizedChartType === 'line' ||
-    normalizedChartType === 'area' ||
-    normalizedChartType === 'area-stacked' ||
-    normalizedChartType === 'area-100';
-
   // seriesField stacked/grouped bar chart: one series per unique category value
   if (
     barSeriesFieldData &&
@@ -557,14 +613,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
 
   // seriesField line/area chart: one line (or area) per unique series-field value
   if (
-    seriesFieldData &&
-    seriesFieldData.seriesNames.length > 0 &&
+    lineSeriesFieldData &&
+    lineSeriesFieldData.seriesNames.length > 0 &&
     (normalizedChartType === 'line' ||
       normalizedChartType === 'area' ||
       normalizedChartType === 'area-stacked' ||
       normalizedChartType === 'area-100')
   ) {
-    const xAxis = createLineXAxis(seriesFieldData.labels);
+    const xAxis = createLineXAxis(lineSeriesFieldData.labels);
     const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
     const isArea = normalizedChartType !== 'line';
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
@@ -572,16 +628,16 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
 
     // Pre-normalize to 0-100% per x-position (avoids floating-point issues with stackOffset:'expand')
     const totals100 = is100
-      ? seriesFieldData.labels.map((_, i) =>
-          seriesFieldData.seriesNames.reduce<number>(
-            (sum, name) => sum + ((seriesFieldData.seriesData[name][i] ?? 0) as number),
+      ? lineSeriesFieldData.labels.map((_, i) =>
+          lineSeriesFieldData.seriesNames.reduce<number>(
+            (sum, name) => sum + ((lineSeriesFieldData.seriesData[name][i] ?? 0) as number),
             0,
           ),
         )
       : null;
 
-    const series = seriesFieldData.seriesNames.map((name) => {
-      const rawData = seriesFieldData.seriesData[name];
+    const series = lineSeriesFieldData.seriesNames.map((name) => {
+      const rawData = lineSeriesFieldData.seriesData[name];
       const data: (number | null)[] = totals100
         ? rawData.map((v, i) => {
             const total = totals100[i];
@@ -631,23 +687,23 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     );
   }
 
-  if (multiYData && multiYData.labels.length > 0 && isLineOrArea) {
-    const xAxis = createLineXAxis(multiYData.labels, CROSS_FILTER_AXIS_ID);
-    const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
+  if (lineMultiYData && lineMultiYData.labels.length > 0 && isLineOrArea) {
+    const xAxis = createLineXAxis(lineMultiYData.labels, CROSS_FILTER_AXIS_ID);
+    const selectedDataIndex = getSelectedDataIndex(lineMultiYData.labels);
     const isArea = normalizedChartType !== 'line';
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
     const is100 = normalizedChartType === 'area-100';
 
     // Pre-normalize to 0-100% per x-position for area-100
     const totals100 = is100
-      ? multiYData.labels.map((_, i) =>
-          multiYData.series.reduce<number>((sum, s) => sum + ((s.values[i] ?? 0) as number), 0),
+      ? lineMultiYData.labels.map((_, i) =>
+          lineMultiYData.series.reduce<number>((sum, s) => sum + ((s.values[i] ?? 0) as number), 0),
         )
       : null;
 
-    const useIndependentAxes = !isStacked && multiYData.series.length > 1;
+    const useIndependentAxes = !isStacked && lineMultiYData.series.length > 1;
     const yAxes = useIndependentAxes
-      ? multiYData.series.map((s, i) => ({
+      ? lineMultiYData.series.map((s, i) => ({
           id: `y-${i}`,
           position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
           width: 'auto' as const,
@@ -658,7 +714,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             ...(is100 && { min: 0, max: 100, valueFormatter: (v: number) => `${Math.round(v)}%` }),
           },
         ];
-    const series = multiYData.series.map((s, i) => {
+    const series = lineMultiYData.series.map((s, i) => {
       const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
       const data = totals100
         ? s.values.map((v, idx) => {
@@ -690,7 +746,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           highlightedItem={
             selectedDataIndex >= 0
               ? {
-                  seriesId: multiYData.series[0]?.fieldId ?? CROSS_FILTER_SERIES_ID,
+                  seriesId: lineMultiYData.series[0]?.fieldId ?? CROSS_FILTER_SERIES_ID,
                   dataIndex: selectedDataIndex,
                 }
               : controlledHighlightedItem
@@ -718,7 +774,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     );
   }
 
-  const singleSeriesChartData = isBar ? barChartData : chartData;
+  const singleSeriesChartData = isBar ? barChartData : isLineOrArea ? lineChartData : chartData;
   const xAxisData = singleSeriesChartData!.labels.map(formatLabel);
   const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
   const seriesLabel = yFieldDef?.label ?? activeYFields[0] ?? 'Value';

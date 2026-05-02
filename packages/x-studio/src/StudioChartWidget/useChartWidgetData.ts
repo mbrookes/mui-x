@@ -15,7 +15,8 @@ import {
   aggregateByField,
   aggregateByTwoFields,
   aggregateMultipleSeries,
-  enrichRowsWithRelatedFields,
+  analyzeChartSupport,
+  resolveChartRowsForAggregation,
   prepareScatterData,
   applyRankToAggregated,
   applyRankToMultiSeries,
@@ -102,20 +103,47 @@ export function useChartWidgetData(
     return config.yField ? [config.yField] : [];
   }, [config.ySeries, config.yField]);
 
-  // Enrich rows with fields from directly related sources when those fields
-  // are not present on the widget's own source (e.g. 'date' from orders on orderItems rows).
-  const enrichedRows = React.useMemo(() => {
-    const candidateFields = [config.xField, ...activeYFields, config.seriesField].filter(
-      (f): f is string => Boolean(f),
-    );
-    return enrichRowsWithRelatedFields(
-      filteredRows,
+  const chartSupport = React.useMemo(
+    () =>
+      analyzeChartSupport(
+        widget.sourceId,
+        config.xField,
+        activeYFields,
+        config.seriesField,
+        config.chartType,
+        dataSources,
+        relationships,
+        expressionFields,
+      ),
+    [
       widget.sourceId,
-      candidateFields,
+      config.xField,
+      activeYFields,
+      config.seriesField,
+      config.chartType,
       dataSources,
       relationships,
+      expressionFields,
+    ],
+  );
+
+  // Resolve chart rows at the right grain for direct related fields used by x/series/y.
+  const enrichedRows = React.useMemo(() => {
+    if (!chartSupport.supported) {
+      return [];
+    }
+    return resolveChartRowsForAggregation(
+      filteredRows,
+      widget.sourceId,
+      config.xField,
+      activeYFields,
+      config.seriesField,
+      dataSources,
+      relationships,
+      expressionFields,
     );
   }, [
+    chartSupport.supported,
     filteredRows,
     widget.sourceId,
     config.xField,
@@ -177,6 +205,7 @@ export function useChartWidgetData(
 
   return {
     chartColors,
+    chartSupport,
     filteredRows,
     activeYFields,
     enrichedRows,

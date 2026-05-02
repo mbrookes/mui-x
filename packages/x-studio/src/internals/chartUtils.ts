@@ -393,7 +393,13 @@ export function resolveRows(
     // Destructure filterSourceId out so baseFilter is a plain StudioFilterState for applyFilters
     const { filterSourceId: removedField, ...baseFilter } = f;
     void removedField;
-    const matchingForeignRows = applyFilters(foreignSource.rows, [baseFilter]);
+    // Enrich the foreign source rows with expression fields before filtering so
+    // that cross-filters targeting computed fields (e.g. expr-order-country) work.
+    const enrichedForeignRows =
+      expressionFields.length > 0
+        ? enrichRowsWithExpressions(foreignSource.rows, expressionFields, f.filterSourceId, dataSources, relationships)
+        : foreignSource.rows;
+    const matchingForeignRows = applyFilters(enrichedForeignRows, [baseFilter]);
 
     // Build the allowed set from the join field in the foreign source
     const allowedValues = new Set(matchingForeignRows.map((r) => r[joinPath.filterJoinField]));

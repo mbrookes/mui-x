@@ -19,7 +19,7 @@ import {
 } from '@mui/material';
 import { useStudioController, useStudioSelector } from '../context';
 import { fieldsForCapability } from '../utils/fieldCapabilities';
-import { getReachableSourceIds } from '../internals/chartUtils';
+import { analyzeChartSupport, getChartSupportMessage, getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioChartType, StudioBarLayout } from '../models';
 import { ChartTypePicker } from './ChartTypePicker';
 import { renderFieldOption } from './FieldOption';
@@ -115,6 +115,57 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const selectedSeriesField =
     config.seriesField ? (reachableFields.find((f) => f.id === config.seriesField) ?? null) : null;
   const isScatter = chartType === 'scatter';
+  const chartSupport = React.useMemo(
+    () =>
+      analyzeChartSupport(
+        widget?.sourceId,
+        config.xField,
+        ySeries.map((series) => series.fieldId).filter(Boolean),
+        config.seriesField,
+        chartType,
+        dataSources,
+        relationships,
+        expressionFields,
+      ),
+    [
+      widget?.sourceId,
+      config.xField,
+      ySeries,
+      config.seriesField,
+      chartType,
+      dataSources,
+      relationships,
+      expressionFields,
+    ],
+  );
+
+  const analyzeCombination = React.useCallback(
+    (overrides: {
+      xField?: string | undefined;
+      yFields?: string[];
+      seriesField?: string | undefined;
+    }) =>
+      analyzeChartSupport(
+        widget?.sourceId,
+        overrides.xField ?? config.xField,
+        overrides.yFields ?? ySeries.map((series) => series.fieldId).filter(Boolean),
+        overrides.seriesField ?? config.seriesField,
+        chartType,
+        dataSources,
+        relationships,
+        expressionFields,
+      ),
+    [
+      widget?.sourceId,
+      config.xField,
+      config.seriesField,
+      ySeries,
+      chartType,
+      dataSources,
+      relationships,
+      expressionFields,
+    ],
+  );
 
   const handleChartTypeChange = (newType: StudioChartType, newBarLayout?: StudioBarLayout) => {
     controller.updateWidgetConfig(widgetId, {
@@ -155,6 +206,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
   return (
     <Stack spacing={2}>
+      {!chartSupport.supported && chartSupport.reason ? (
+        <Alert severity="warning">{getChartSupportMessage(chartSupport.reason)}</Alert>
+      ) : null}
+
       {/* Chart type icon picker */}
       <ChartTypePicker chartType={chartType} barLayout={config.barLayout} onChange={handleChartTypeChange} />
 
@@ -168,6 +223,12 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         groupBy={(option) => option.sourceLabel}
         getOptionLabel={(option) => option.label}
         renderOption={renderFieldOption}
+        getOptionDisabled={(option) => {
+          if (option.id === config.xField) {
+            return false;
+          }
+          return !analyzeCombination({ xField: option.id }).supported;
+        }}
         value={selectedXField}
         onChange={(_e, newValue) => {
           controller.updateWidgetConfig(widgetId, { xField: newValue?.id ?? '' });
@@ -250,7 +311,13 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   getOptionLabel={(option) => option.label}
                   renderOption={renderFieldOption}
                   getOptionDisabled={(option) =>
-                    option.id !== s.fieldId && usedYFieldIds.includes(option.id)
+                    (option.id !== s.fieldId && usedYFieldIds.includes(option.id)) ||
+                    (option.id !== s.fieldId &&
+                      !analyzeCombination({
+                        yFields: ySeries.map((series, seriesIndex) =>
+                          seriesIndex === index ? option.id : series.fieldId,
+                        ).filter(Boolean),
+                      }).supported)
                   }
                   value={selectedField}
                   onChange={(_e, newValue) => handleSeriesFieldChange(index, newValue?.id ?? '')}
@@ -283,6 +350,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               groupBy={(option) => option.sourceLabel}
               getOptionLabel={(option) => option.label}
               renderOption={renderFieldOption}
+              getOptionDisabled={(option) => !analyzeCombination({ yFields: [option.id] }).supported}
               value={null}
               onChange={(_e, newValue) => {
                 controller.updateWidgetConfig(widgetId, {
@@ -307,6 +375,12 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           groupBy={(option) => option.sourceLabel}
           getOptionLabel={(option) => option.label}
           renderOption={renderFieldOption}
+          getOptionDisabled={(option) => {
+            if (option.id === config.seriesField) {
+              return false;
+            }
+            return !analyzeCombination({ seriesField: option.id }).supported;
+          }}
           value={selectedSeriesField}
           onChange={(_e, newValue) =>
             controller.updateWidgetConfig(widgetId, {

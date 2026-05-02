@@ -795,6 +795,345 @@ function toXValue(raw: unknown): string | number {
   return raw as string | number;
 }
 
+function hasRowLevelField(
+  sourceId: string,
+  fieldId: string,
+  dataSources: Record<string, StudioDataSource>,
+  expressionFields: StudioExpressionField[],
+): boolean {
+  const source = dataSources[sourceId];
+  return (
+    source?.fields.some((field) => field.id === fieldId) === true ||
+    expressionFields.some(
+      (field) => field.sourceId === sourceId && field.id === fieldId && !field.isMeasure,
+    )
+  );
+}
+
+function findDirectRelationship(
+  sourceA: string,
+  sourceB: string,
+  relationships: StudioRelationship[],
+): StudioRelationship | null {
+  return (
+    relationships.find(
+      (relationship) =>
+        (relationship.sourceId === sourceA && relationship.targetId === sourceB) ||
+        (relationship.sourceId === sourceB && relationship.targetId === sourceA),
+    ) ?? null
+  );
+}
+
+function isSafeWidgetBridgeOwner(
+  widgetSourceId: string,
+  ownerSourceId: string,
+  relationships: StudioRelationship[],
+): boolean {
+  if (ownerSourceId === widgetSourceId) {
+    return true;
+  }
+
+  const relationship = findDirectRelationship(widgetSourceId, ownerSourceId, relationships);
+  if (!relationship) {
+    return false;
+  }
+
+  if (relationship.type === 'one-to-one') {
+    return true;
+  }
+
+  return relationship.sourceId === widgetSourceId;
+}
+
+function findDirectFieldOwner(
+  widgetSourceId: string,
+  fieldId: string,
+  dataSources: Record<string, StudioDataSource>,
+  relationships: StudioRelationship[],
+  expressionFields: StudioExpressionField[],
+): string | null {
+  if (hasRowLevelField(widgetSourceId, fieldId, dataSources, expressionFields)) {
+    return widgetSourceId;
+  }
+
+  for (const relationship of relationships) {
+    let relatedSourceId: string | null = null;
+
+    if (relationship.sourceId === widgetSourceId) {
+      relatedSourceId = relationship.targetId;
+    } else if (relationship.targetId === widgetSourceId) {
+      relatedSourceId = relationship.sourceId;
+    }
+
+    if (
+      relatedSourceId &&
+      hasRowLevelField(relatedSourceId, fieldId, dataSources, expressionFields)
+    ) {
+      return relatedSourceId;
+    }
+  }
+
+  return null;
+}
+
+function enrichSourceRowsWithExpressions(
+  rows: Row[],
+  sourceId: string,
+  dataSources: Record<string, StudioDataSource>,
+  relationships: StudioRelationship[],
+  expressionFields: StudioExpressionField[],
+): Row[] {
+  return expressionFields.length > 0
+    ? enrichRowsWithExpressions(rows, expressionFields, sourceId, dataSources, relationships)
+    : rows;
+}
+
+export type ChartSupportReason =
+  | 'field_not_found_or_not_direct'
+  | 'mixed_cross_source_fields'
+  | 'scatter_cross_source_not_supported';
+
+export interface ChartSupportResult {
+  supported: boolean;
+  reason?: ChartSupportReason;
+}
+
+export function getChartSupportMessage(reason: ChartSupportReason): string {
+  switch (reason) {
+    case 'field_not_found_or_not_direct':
+      return 'This chart configuration uses fields that are not available on the widget source or a directly related source.';
+    case 'mixed_cross_source_fields':
+      return 'This chart configuration mixes cross-source fields in a way that does not have a single safe aggregation grain yet.';
+    case 'scatter_cross_source_not_supported':
+      return 'Scatter charts do not support cross-source field combinations yet.';
+    default:
+      return 'This chart configuration is not supported yet.';
+  }
+}
+
+export function analyzeChartSupport(
+  widgetSourceId: string | undefined,
+  xField: string | undefined,
+  yFields: string[],
+  seriesField: string | undefined,
+  chartType: string | undefined,
+  dataSources: Record<string, StudioDataSource>,
+  relationships: StudioRelationship[],
+  expressionFields: StudioExpressionField[] = [],
+): ChartSupportResult {
+  const requestedFields = [xField, ...yFields, seriesField].filter(
+    (field): field is string => Boolean(field),
+  );
+
+  if (!widgetSourceId || requestedFields.length === 0) {
+    return { supported: true };
+  }
+
+  const fieldOwners = new Map<string, string>();
+  for (const fieldId of requestedFields) {
+    const owner = findDirectFieldOwner(
+      widgetSourceId,
+      fieldId,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    if (!owner) {
+      return { supported: false, reason: 'field_not_found_or_not_direct' };
+    }
+    fieldOwners.set(fieldId, owner);
+  }
+
+  if (chartType === 'scatter' && Array.from(fieldOwners.values()).some((owner) => owner !== widgetSourceId)) {
+    return { supported: false, reason: 'scatter_cross_source_not_supported' };
+  }
+
+  const ySourceIds = [...new Set(
+    yFields
+      .map((fieldId) => fieldOwners.get(fieldId))
+      .filter((sourceId): sourceId is string => Boolean(sourceId)),
+  )];
+
+  let anchorSourceId = widgetSourceId;
+  if (ySourceIds.length === 1 && ySourceIds[0] !== widgetSourceId) {
+    const anchorRelationship = findDirectRelationship(widgetSourceId, ySourceIds[0], relationships);
+    if (
+      anchorRelationship &&
+      anchorRelationship.sourceId === ySourceIds[0] &&
+      anchorRelationship.targetId === widgetSourceId
+    ) {
+      anchorSourceId = ySourceIds[0];
+    }
+  }
+
+  if (anchorSourceId === widgetSourceId && ySourceIds.filter((sourceId) => sourceId !== widgetSourceId).length > 1) {
+    return { supported: false, reason: 'mixed_cross_source_fields' };
+  }
+
+  for (const [fieldId, owner] of fieldOwners.entries()) {
+    if (yFields.includes(fieldId)) {
+      if (owner !== anchorSourceId) {
+        return { supported: false, reason: 'mixed_cross_source_fields' };
+      }
+      continue;
+    }
+
+    if (owner === anchorSourceId) {
+      continue;
+    }
+
+    if (!isSafeWidgetBridgeOwner(widgetSourceId, owner, relationships)) {
+      return { supported: false, reason: 'mixed_cross_source_fields' };
+    }
+  }
+
+  return { supported: true };
+}
+
+export function resolveChartRowsForAggregation(
+  widgetRows: Row[],
+  widgetSourceId: string | undefined,
+  xField: string | undefined,
+  yFields: string[],
+  seriesField: string | undefined,
+  dataSources: Record<string, StudioDataSource>,
+  relationships: StudioRelationship[],
+  expressionFields: StudioExpressionField[] = [],
+): Row[] {
+  const requestedFields = [xField, ...yFields, seriesField].filter(
+    (field): field is string => Boolean(field),
+  );
+
+  if (!widgetSourceId || widgetRows.length === 0 || requestedFields.length === 0) {
+    return widgetRows;
+  }
+
+  const support = analyzeChartSupport(
+    widgetSourceId,
+    xField,
+    yFields,
+    seriesField,
+    undefined,
+    dataSources,
+    relationships,
+    expressionFields,
+  );
+
+  if (!support.supported) {
+    return [];
+  }
+
+  const ySourceIds = [...new Set(
+    yFields
+      .map((fieldId) =>
+        findDirectFieldOwner(widgetSourceId, fieldId, dataSources, relationships, expressionFields),
+      )
+      .filter((sourceId): sourceId is string => Boolean(sourceId)),
+  )];
+
+  let anchorSourceId = widgetSourceId;
+  if (ySourceIds.length === 1 && ySourceIds[0] !== widgetSourceId) {
+    const anchorRelationship = findDirectRelationship(widgetSourceId, ySourceIds[0], relationships);
+    if (
+      anchorRelationship &&
+      anchorRelationship.sourceId === ySourceIds[0] &&
+      anchorRelationship.targetId === widgetSourceId
+    ) {
+      anchorSourceId = ySourceIds[0];
+    }
+  }
+
+  if (anchorSourceId === widgetSourceId) {
+    return enrichRowsWithRelatedFields(
+      widgetRows,
+      widgetSourceId,
+      requestedFields,
+      dataSources,
+      relationships,
+    );
+  }
+
+  const anchorRelationship = findDirectRelationship(widgetSourceId, anchorSourceId, relationships);
+  if (
+    !anchorRelationship ||
+    anchorRelationship.sourceId !== anchorSourceId ||
+    anchorRelationship.targetId !== widgetSourceId
+  ) {
+    return enrichRowsWithRelatedFields(
+      widgetRows,
+      widgetSourceId,
+      requestedFields,
+      dataSources,
+      relationships,
+    );
+  }
+
+  const fieldOwners = new Map<string, string>();
+  for (const fieldId of requestedFields) {
+    const owner = findDirectFieldOwner(
+      widgetSourceId,
+      fieldId,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    if (!owner) {
+      return [];
+    }
+
+    if (yFields.includes(fieldId)) {
+      if (owner !== anchorSourceId) {
+        return [];
+      }
+    } else if (owner !== anchorSourceId && !isSafeWidgetBridgeOwner(widgetSourceId, owner, relationships)) {
+      return [];
+    }
+
+    fieldOwners.set(fieldId, owner);
+  }
+
+  const widgetJoinField = anchorRelationship.targetField;
+  const anchorJoinField = anchorRelationship.sourceField;
+  const allowedWidgetKeys = new Set(widgetRows.map((row) => row[widgetJoinField]));
+  const anchorRows = enrichSourceRowsWithExpressions(
+    dataSources[anchorSourceId]?.rows ?? [],
+    anchorSourceId,
+    dataSources,
+    relationships,
+    expressionFields,
+  ).filter((row) => allowedWidgetKeys.has(row[anchorJoinField]));
+
+  const widgetRowsForLookup = enrichRowsWithRelatedFields(
+    widgetRows,
+    widgetSourceId,
+    requestedFields.filter((fieldId) => fieldOwners.get(fieldId) !== anchorSourceId),
+    dataSources,
+    relationships,
+  );
+
+  const widgetRowLookup = new Map<unknown, Row>();
+  for (const row of widgetRowsForLookup) {
+    widgetRowLookup.set(row[widgetJoinField], row);
+  }
+
+  return anchorRows.map((anchorRow) => {
+    const widgetRow = widgetRowLookup.get(anchorRow[anchorJoinField]);
+    if (!widgetRow) {
+      return anchorRow;
+    }
+
+    const extras: Row = {};
+    for (const fieldId of requestedFields) {
+      if (fieldOwners.get(fieldId) === anchorSourceId || fieldId in anchorRow) {
+        continue;
+      }
+      extras[fieldId] = widgetRow[fieldId];
+    }
+
+    return Object.keys(extras).length > 0 ? { ...anchorRow, ...extras } : anchorRow;
+  });
+}
+
 export function aggregateByField(
   rows: Row[],
   xField: string,

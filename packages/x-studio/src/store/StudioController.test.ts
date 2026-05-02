@@ -255,6 +255,40 @@ describe('StudioController.removeWidget', () => {
   });
 });
 
+describe('StudioController.updateWidgetConfig', () => {
+  it('preserves an existing chart title when titleMode is undefined and chart type changes', () => {
+    const controller = new StudioController({
+      dataSources: {
+        orders: {
+          id: 'orders',
+          label: 'Orders',
+          fields: [
+            { id: 'month', label: 'Month', type: 'date' },
+            { id: 'revenue', label: 'Revenue', type: 'number' },
+          ],
+        },
+      },
+      widgets: {
+        chart1: {
+          id: 'chart1',
+          kind: 'chart',
+          sourceId: 'orders',
+          title: 'Revenue by Month',
+          config: {
+            chartType: 'bar',
+            xField: 'month',
+            yField: 'revenue',
+          },
+        },
+      },
+    });
+
+    controller.updateWidgetConfig('chart1', { chartType: 'line' });
+
+    expect(controller.getState().widgets.chart1.title).toBe('Revenue by Month');
+  });
+});
+
 describe('StudioController.duplicateWidget', () => {
   it('creates a new widget with a different id', () => {
     const controller = new StudioController();

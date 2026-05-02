@@ -1452,8 +1452,8 @@ describe('resolveChartRowsForAggregation', () => {
       labels: ['France', 'Germany'],
       seriesNames: ['Germany', 'France'],
       seriesData: {
-        Germany: [0, 150],
-        France: [70, 0],
+        Germany: [null, 150],
+        France: [70, null],
       },
     });
   });
@@ -1756,8 +1756,8 @@ describe('resolveChartRowsForAggregation bridge case', () => {
       labels: ['France', 'Germany'],
       seriesNames: ['CUS-1', 'CUS-2'],
       seriesData: {
-        'CUS-1': [0, 150],
-        'CUS-2': [70, 0],
+        'CUS-1': [null, 150],
+        'CUS-2': [70, null],
       },
     });
   });
@@ -1852,7 +1852,7 @@ describe('aggregateByTwoFields', () => {
     expect(result.seriesData['A'][northIdx]).toBe(175);
   });
 
-  it('fills missing x+series combinations with 0', () => {
+  it('fills missing x+series combinations with null', () => {
     // There is no South/B row in the original data — wait, there is. Let me use a sparser set.
     const sparse = [
       { region: 'North', product: 'A', revenue: 100 },
@@ -1861,8 +1861,8 @@ describe('aggregateByTwoFields', () => {
     const result = aggregateByTwoFields(sparse, 'region', 'product', 'revenue');
     const northIdx = result.labels.indexOf('North');
     const southIdx = result.labels.indexOf('South');
-    expect(result.seriesData['B'][northIdx]).toBe(0); // North has no product B
-    expect(result.seriesData['A'][southIdx]).toBe(0); // South has no product A
+    expect(result.seriesData['B'][northIdx]).toBeNull(); // North has no product B
+    expect(result.seriesData['A'][southIdx]).toBeNull(); // South has no product A
   });
 });
 

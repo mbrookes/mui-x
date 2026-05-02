@@ -73,15 +73,15 @@ export function computeGridSummary(
 export function aggregationLabel(agg: StudioGridSummaryAggregation): string {
   switch (agg) {
     case 'sum':
-      return 'Σ';
+      return 'Total:';
     case 'avg':
-      return 'Avg';
+      return 'Avg:';
     case 'count':
-      return 'Count';
+      return 'Count:';
     case 'min':
-      return 'Min';
+      return 'Min:';
     case 'max':
-      return 'Max';
+      return 'Max:';
     default:
       return '';
   }

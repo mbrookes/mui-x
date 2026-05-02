@@ -40,7 +40,7 @@ export function AppToolbar(props: AppToolbarProps) {
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
-        <StudioWordmark height={28} />
+        <StudioWordmark height={30} />
         {title && (
           <React.Fragment>
             <Box
@@ -48,7 +48,7 @@ export function AppToolbar(props: AppToolbarProps) {
               aria-hidden
             />
             <Typography
-              variant="body2"
+              variant="body1"
               sx={{ color: 'text.secondary', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {title}

@@ -11,7 +11,10 @@ import { Box } from '@mui/material';
 import { Typography } from '@mui/material';
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
+  fillTemporalLabelGaps,
+  formatTemporalAxisLabel,
   formatPeriodLabel,
+  getTemporalAxisData,
   getChartSupportMessage,
 } from '../internals/chartUtils';
 import { useStudioController, useStudioSelector } from '../context';
@@ -28,6 +31,35 @@ export interface StudioChartWidgetProps {
 export const CHART_MIN_HEIGHT = 260;
 const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
+
+function densifyBarLabels(labels: (string | number)[]) {
+  return fillTemporalLabelGaps(labels);
+}
+
+function createLineXAxisConfig(
+  labels: (string | number)[],
+  xGroupBy: StudioWidget['config']['xGroupBy'],
+  formatLabel: (label: string | number) => string,
+  axisId?: string,
+) {
+  const temporalData = getTemporalAxisData(labels);
+  if (temporalData) {
+    return [{
+      ...(axisId ? { id: axisId } : {}),
+      data: temporalData,
+      scaleType: 'utc' as const,
+      height: 'auto' as const,
+      valueFormatter: (value: Date) => formatTemporalAxisLabel(value, xGroupBy),
+    }];
+  }
+
+  return [{
+    ...(axisId ? { id: axisId } : {}),
+    data: labels.map(formatLabel),
+    scaleType: 'point' as const,
+    height: 'auto' as const,
+  }];
+}
 
 function makeValueFormatter(format?: StudioNumberFormat, currencyCode?: string) {
   if (!format) {
@@ -85,6 +117,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       return String(label);
     },
     [xGroupBy],
+  );
+
+  const createLineXAxis = React.useCallback(
+    (labels: (string | number)[], axisId?: string) => createLineXAxisConfig(labels, xGroupBy, formatLabel, axisId),
+    [formatLabel, xGroupBy],
   );
 
   // Check if this widget has an active cross-filter on the current page
@@ -222,11 +259,68 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     normalizedChartType === 'bar-stacked' ||
     normalizedChartType === 'bar-100';
 
+  const barChartData = React.useMemo(() => {
+    if (!isBar || !chartData) {
+      return chartData;
+    }
+    const labels = densifyBarLabels(chartData.labels);
+    if (labels === chartData.labels) {
+      return chartData;
+    }
+    const valueByLabel = new Map(chartData.labels.map((label, index) => [label, chartData.values[index]]));
+    return {
+      labels,
+      values: labels.map((label) => valueByLabel.get(label) ?? null),
+    };
+  }, [isBar, chartData]);
+
+  const barSeriesFieldData = React.useMemo(() => {
+    if (!isBar || !seriesFieldData) {
+      return seriesFieldData;
+    }
+    const labels = densifyBarLabels(seriesFieldData.labels);
+    if (labels === seriesFieldData.labels) {
+      return seriesFieldData;
+    }
+    return {
+      labels,
+      seriesNames: seriesFieldData.seriesNames,
+      seriesData: Object.fromEntries(
+        seriesFieldData.seriesNames.map((seriesName) => {
+          const valueByLabel = new Map(
+            seriesFieldData.labels.map((label, index) => [label, seriesFieldData.seriesData[seriesName][index]]),
+          );
+          return [seriesName, labels.map((label) => valueByLabel.get(label) ?? null)];
+        }),
+      ),
+    };
+  }, [isBar, seriesFieldData]);
+
+  const barMultiYData = React.useMemo(() => {
+    if (!isBar || !multiYData) {
+      return multiYData;
+    }
+    const labels = densifyBarLabels(multiYData.labels);
+    if (labels === multiYData.labels) {
+      return multiYData;
+    }
+    return {
+      labels,
+      series: multiYData.series.map((series) => {
+        const valueByLabel = new Map(multiYData.labels.map((label, index) => [label, series.values[index]]));
+        return {
+          fieldId: series.fieldId,
+          values: labels.map((label) => valueByLabel.get(label) ?? null),
+        };
+      }),
+    };
+  }, [isBar, multiYData]);
+
   if (isBar) {
     // Multi-Y-field path: each y-field is its own series
-    if (multiYData && multiYData.labels.length > 0) {
-      const xAxisData = multiYData.labels.map(formatLabel);
-      const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
+    if (barMultiYData && barMultiYData.labels.length > 0) {
+      const xAxisData = barMultiYData.labels.map(formatLabel);
+      const selectedDataIndex = getSelectedDataIndex(barMultiYData.labels);
       const isStacked =
         normalizedChartType === 'bar-stacked' ||
         normalizedChartType === 'bar-100' ||
@@ -234,15 +328,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       const is100 = normalizedChartType === 'bar-100';
       // For grouped multi-Y, give each series its own independent Y axis so
       // fields with very different magnitudes are all visible. Stacked charts share one axis.
-      const useIndependentAxes = !isStacked && multiYData.series.length > 1;
+      const useIndependentAxes = !isStacked && barMultiYData.series.length > 1;
       // Pre-compute per-label totals for 100% normalization.
       const totals100 = is100
-        ? multiYData.labels.map((_, li) =>
-            multiYData.series.reduce<number>((sum, ms) => sum + ((ms.values[li] ?? 0) as number), 0),
+        ? barMultiYData.labels.map((_, li) =>
+            barMultiYData.series.reduce<number>((sum, ms) => sum + ((ms.values[li] ?? 0) as number), 0),
           )
         : null;
       const yAxes = useIndependentAxes
-        ? multiYData.series.map((s, i) => ({
+        ? barMultiYData.series.map((s, i) => ({
             id: `y-${i}`,
             position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
             width: 'auto' as const,
@@ -257,7 +351,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
               }),
             },
           ];
-      const series = multiYData.series.map((s, i) => {
+      const series = barMultiYData.series.map((s, i) => {
         const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
         const data = totals100
           ? s.values.map((v, li) => {
@@ -386,13 +480,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
 
   // seriesField stacked/grouped bar chart: one series per unique category value
   if (
-    seriesFieldData &&
-    seriesFieldData.seriesNames.length > 0 &&
+    barSeriesFieldData &&
+    barSeriesFieldData.seriesNames.length > 0 &&
     (normalizedChartType === 'bar' ||
       normalizedChartType === 'bar-stacked' ||
       normalizedChartType === 'bar-100')
   ) {
-    const xAxisData = seriesFieldData.labels.map(formatLabel);
+    const xAxisData = barSeriesFieldData.labels.map(formatLabel);
     const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
     const isStacked =
       normalizedChartType === 'bar-stacked' ||
@@ -401,15 +495,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     const stackId = isStacked ? 'stack' : undefined;
     const is100 = normalizedChartType === 'bar-100';
     const totals100 = is100
-      ? seriesFieldData.labels.map((_, i) =>
-          seriesFieldData.seriesNames.reduce<number>(
-            (sum, name) => sum + ((seriesFieldData.seriesData[name][i] ?? 0) as number),
+      ? barSeriesFieldData.labels.map((_, i) =>
+          barSeriesFieldData.seriesNames.reduce<number>(
+            (sum, name) => sum + ((barSeriesFieldData.seriesData[name][i] ?? 0) as number),
             0,
           ),
         )
       : null;
-    const series = seriesFieldData.seriesNames.map((name) => {
-      const rawData = seriesFieldData.seriesData[name];
+    const series = barSeriesFieldData.seriesNames.map((name) => {
+      const rawData = barSeriesFieldData.seriesData[name];
       const data: (number | null)[] = totals100
         ? rawData.map((v, i) => {
             const total = totals100[i];
@@ -470,7 +564,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       normalizedChartType === 'area-stacked' ||
       normalizedChartType === 'area-100')
   ) {
-    const xAxisData = seriesFieldData.labels.map(formatLabel);
+    const xAxis = createLineXAxis(seriesFieldData.labels);
     const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
     const isArea = normalizedChartType !== 'line';
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
@@ -509,7 +603,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     return (
       <div style={{ height: chartHeight }}>
         <LineChart
-          xAxis={[{ data: xAxisData, scaleType: 'point', height: 'auto' }]}
+          xAxis={xAxis}
           yAxis={[
             {
               width: 'auto',
@@ -538,7 +632,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   }
 
   if (multiYData && multiYData.labels.length > 0 && isLineOrArea) {
-    const xAxisData = multiYData.labels.map(formatLabel);
+    const xAxis = createLineXAxis(multiYData.labels, CROSS_FILTER_AXIS_ID);
     const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
     const isArea = normalizedChartType !== 'line';
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
@@ -588,7 +682,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     return (
       <div style={{ height: chartHeight }}>
         <LineChart
-          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point', height: 'auto' }]}
+          xAxis={xAxis}
           yAxis={yAxes}
           series={series}
           colors={chartColors}
@@ -624,22 +718,24 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     );
   }
 
-  const xAxisData = chartData!.labels.map(formatLabel);
+  const singleSeriesChartData = isBar ? barChartData : chartData;
+  const xAxisData = singleSeriesChartData!.labels.map(formatLabel);
   const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
   const seriesLabel = yFieldDef?.label ?? activeYFields[0] ?? 'Value';
   const seriesValueFormatter = makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode);
-  const selectedDataIndex = getSelectedDataIndex(chartData!.labels);
+  const selectedDataIndex = getSelectedDataIndex(singleSeriesChartData!.labels);
 
   if (normalizedChartType === 'line') {
+    const xAxis = createLineXAxis(singleSeriesChartData!.labels, CROSS_FILTER_AXIS_ID);
     return (
       <div style={{ height: chartHeight }}>
         <LineChart
-          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point', height: 'auto' }]}
+          xAxis={xAxis}
           yAxis={[{ width: 'auto' }]}
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
-              data: chartData!.values,
+              data: singleSeriesChartData!.values,
               label: seriesLabel,
               area: false,
               highlightScope: { highlight: 'item', fade: 'global' },
@@ -683,15 +779,16 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     normalizedChartType === 'area-100'
   ) {
     // Single-series: stacking has no visual effect; area-100 shows a flat 100% fill
+    const xAxis = createLineXAxis(singleSeriesChartData!.labels, CROSS_FILTER_AXIS_ID);
     return (
       <div style={{ height: chartHeight }}>
         <LineChart
-          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'point', height: 'auto' }]}
+          xAxis={xAxis}
           yAxis={[{ width: 'auto' }]}
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
-              data: chartData!.values,
+              data: singleSeriesChartData!.values,
               label: seriesLabel,
               area: true,
               highlightScope: { highlight: 'item', fade: 'global' },
@@ -742,7 +839,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
-              data: chartData!.values,
+              data: singleSeriesChartData!.values,
               label: seriesLabel,
               highlightScope: { highlight: 'item', fade: 'global' },
               valueFormatter: seriesValueFormatter,
@@ -787,7 +884,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         series={[
           {
             id: CROSS_FILTER_SERIES_ID,
-            data: chartData!.values,
+            data: singleSeriesChartData!.values,
             label: seriesLabel,
             highlightScope: { highlight: 'item', fade: 'global' },
             valueFormatter: seriesValueFormatter,

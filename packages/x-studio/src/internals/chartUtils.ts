@@ -745,6 +745,150 @@ export function formatPeriodLabel(key: string): string {
   return key;
 }
 
+type TemporalLabelKind = 'day' | 'week' | 'month' | 'quarter' | 'year';
+
+function parseTemporalLabelKind(label: string): TemporalLabelKind | null {
+  if (/^\d{4}$/.test(label)) {
+    return 'year';
+  }
+  if (/^\d{4}-Q[1-4]$/.test(label)) {
+    return 'quarter';
+  }
+  if (/^\d{4}-W\d{2}$/.test(label)) {
+    return 'week';
+  }
+  if (/^\d{4}-\d{2}$/.test(label)) {
+    return 'month';
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(label) || /^\d{4}-\d{2}-\d{2}T00:00:00(?:\.000)?Z$/.test(label)) {
+    return 'day';
+  }
+  return null;
+}
+
+function parseIsoWeekLabel(label: string): Date | null {
+  const match = label.match(/^(\d{4})-W(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+  const year = Number(match[1]);
+  const week = Number(match[2]);
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const jan4Day = jan4.getUTCDay() || 7;
+  const monday = new Date(jan4);
+  monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1 + (week - 1) * 7);
+  return monday;
+}
+
+function parseTemporalLabelValue(label: string, kind: TemporalLabelKind): Date | null {
+  switch (kind) {
+    case 'day':
+      return normalizeToDate(label);
+    case 'week':
+      return parseIsoWeekLabel(label);
+    case 'month': {
+      const match = label.match(/^(\d{4})-(\d{2})$/);
+      return match ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1)) : null;
+    }
+    case 'quarter': {
+      const match = label.match(/^(\d{4})-Q([1-4])$/);
+      return match ? new Date(Date.UTC(Number(match[1]), (Number(match[2]) - 1) * 3, 1)) : null;
+    }
+    case 'year': {
+      const match = label.match(/^(\d{4})$/);
+      return match ? new Date(Date.UTC(Number(match[1]), 0, 1)) : null;
+    }
+    default:
+      return null;
+  }
+}
+
+function stepTemporalDate(date: Date, kind: TemporalLabelKind): Date {
+  const next = new Date(date);
+  switch (kind) {
+    case 'day':
+      next.setUTCDate(next.getUTCDate() + 1);
+      return next;
+    case 'week':
+      next.setUTCDate(next.getUTCDate() + 7);
+      return next;
+    case 'month':
+      next.setUTCMonth(next.getUTCMonth() + 1, 1);
+      return next;
+    case 'quarter':
+      next.setUTCMonth(next.getUTCMonth() + 3, 1);
+      return next;
+    case 'year':
+      next.setUTCFullYear(next.getUTCFullYear() + 1, 0, 1);
+      return next;
+    default:
+      return next;
+  }
+}
+
+function serializeTemporalLabel(date: Date, kind: TemporalLabelKind, sampleLabel: string): string {
+  if (kind === 'day' && sampleLabel.includes('T')) {
+    return date.toISOString();
+  }
+  return truncateToGranularity(date.toISOString(), kind) ?? sampleLabel;
+}
+
+export function fillTemporalLabelGaps(labels: (string | number)[]): (string | number)[] {
+  if (labels.length < 2 || !labels.every((label) => typeof label === 'string')) {
+    return labels;
+  }
+
+  const stringLabels = sortLabels(labels) as string[];
+  const kind = parseTemporalLabelKind(stringLabels[0]);
+  if (!kind || !stringLabels.every((label) => parseTemporalLabelKind(label) === kind)) {
+    return labels;
+  }
+
+  const start = parseTemporalLabelValue(stringLabels[0], kind);
+  const end = parseTemporalLabelValue(stringLabels[stringLabels.length - 1], kind);
+  if (!start || !end) {
+    return labels;
+  }
+
+  const filled: string[] = [];
+  for (let cursor = new Date(start); cursor <= end; cursor = stepTemporalDate(cursor, kind)) {
+    filled.push(serializeTemporalLabel(cursor, kind, stringLabels[0]));
+  }
+
+  return filled.length > stringLabels.length ? filled : labels;
+}
+
+export function getTemporalAxisData(labels: (string | number)[]): Date[] | null {
+  if (labels.length === 0 || !labels.every((label) => typeof label === 'string')) {
+    return null;
+  }
+
+  const stringLabels = sortLabels(labels) as string[];
+  const kind = parseTemporalLabelKind(stringLabels[0]);
+
+  if (kind && stringLabels.every((label) => parseTemporalLabelKind(label) === kind)) {
+    const axisData = stringLabels.map((label) => parseTemporalLabelValue(label, kind));
+    return axisData.every((value) => value != null) ? (axisData as Date[]) : null;
+  }
+
+  const axisData = stringLabels.map((label) => normalizeToDate(label));
+  return axisData.every((value) => value != null) ? (axisData as Date[]) : null;
+}
+
+export function formatTemporalAxisLabel(value: Date, xGroupBy?: XGroupBy): string {
+  if (xGroupBy) {
+    const grouped = truncateToGranularity(value, xGroupBy);
+    return grouped ? formatPeriodLabel(grouped) : value.toISOString();
+  }
+
+  return value.toLocaleDateString(undefined, {
+    timeZone: 'UTC',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 /**
  * Apply xGroupBy truncation to an x-axis value.
  * Returns the original value when xGroupBy is not set or the value is not date-like.

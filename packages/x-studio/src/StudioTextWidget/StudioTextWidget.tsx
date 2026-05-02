@@ -28,8 +28,8 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
       {subtitle ? (
         <Typography
           variant="subtitle1"
-          color={config.textSubtitleColor ?? 'text.secondary'}
           sx={{
+            color: config.textSubtitleColor ?? 'text.secondary',
             ...(config.textSubtitleFontFamily && {
               fontFamily: FONT_FAMILY[config.textSubtitleFontFamily],
             }),
@@ -43,8 +43,8 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
       {body ? (
         <Typography
           variant="body2"
-          color={config.textBodyColor ?? 'text.primary'}
           sx={{
+            color: config.textBodyColor ?? 'text.primary',
             whiteSpace: 'pre-wrap',
             ...(config.textBodyFontFamily && {
               fontFamily: FONT_FAMILY[config.textBodyFontFamily],

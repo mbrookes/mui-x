@@ -280,8 +280,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
               <Typography
                 variant="h6"
                 noWrap
-                color={widget.kind === 'text' ? (widget.config.textTitleColor ?? undefined) : undefined}
                 sx={widget.kind === 'text' ? {
+                  ...(widget.config.textTitleColor && { color: widget.config.textTitleColor }),
                   ...(widget.config.textTitleFontFamily && {
                     fontFamily: widget.config.textTitleFontFamily === 'serif'
                       ? "Georgia, 'Times New Roman', Times, serif"

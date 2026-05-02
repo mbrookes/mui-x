@@ -59,9 +59,8 @@ export function createDefaultWidget(
       kind,
       title: 'Text block',
       config: {
-        textSubtitle: 'Add supporting context',
-        textBody:
-          'Use this widget for narrative context, callouts, or guidance that complements the data on the page.',
+        textSubtitle: '',
+        textBody: '',
       },
     };
   }

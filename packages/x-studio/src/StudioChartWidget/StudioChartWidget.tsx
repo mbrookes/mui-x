@@ -98,7 +98,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   > | null>(null);
   const [hoveredAxis, setHoveredAxis] = React.useState<AxisItemIdentifier[] | null>(null);
 
-  const { chartColors, chartSupport, activeYFields, isMultiSeries, seriesFieldData, chartData, multiYData, scatterData } =
+  const { chartColors, resolvedChartColors, allSeriesNames, chartSupport, activeYFields, isMultiSeries, seriesFieldData, chartData, multiYData, scatterData } =
     useChartWidgetData(widget, dataSource);
 
   // Clear stale hovered item when chart type or series field changes to avoid
@@ -127,6 +127,22 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   // Check if this widget has an active cross-filter on the current page
   const activeCrossFilter = filters.find(
     (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === activePageId,
+  );
+
+  /**
+   * Returns the stable color for a series name, based on its position in the full
+   * (unfiltered) set of series names. This prevents colors shifting when cross-filters
+   * hide some series.
+   */
+  const getSeriesColor = React.useCallback(
+    (name: string | number): string | undefined => {
+      const idx = allSeriesNames.indexOf(name);
+      if (idx < 0) {
+        return undefined;
+      }
+      return resolvedChartColors[idx % resolvedChartColors.length];
+    },
+    [allSeriesNames, resolvedChartColors],
   );
 
   const handleItemClick = React.useCallback(
@@ -515,6 +531,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         data,
         label: String(name),
         stack: stackId,
+        color: getSeriesColor(name),
         valueFormatter: is100
           ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
           : makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode),
@@ -595,6 +612,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         area: isArea,
         connectNulls: false,
         stack: isStacked ? 'total' : undefined,
+        color: getSeriesColor(name),
         highlightScope: { highlight: 'item' as const, fade: 'global' as const },
         valueFormatter: is100
           ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)

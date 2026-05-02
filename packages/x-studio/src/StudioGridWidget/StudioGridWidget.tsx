@@ -7,7 +7,6 @@ import type { StudioDataSource, StudioWidget } from '../models';
 import { useStudioController, useStudioSelector } from '../context';
 import { applyFilters, resolveMetricRefs } from '../internals/chartUtils';
 import { formatFieldValue } from '../internals/numberFormat';
-import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 import { computeGridSummary } from '../utils/gridSummary';
 
@@ -138,49 +137,48 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   }, [rows, dataSource, summaryConfig]);
 
   // Build the summary footer — one cell per visible column, matching the grid's flex layout.
-  const summaryFooter =
-    summaryValues ? (
-      <Box
-        sx={{
-          display: 'flex',
-          borderTop: 2,
-          borderColor: 'divider',
-          bgcolor: 'action.hover',
-          px: 0.5,
-        }}
-        role="row"
-        aria-label="Summary row"
-      >
-        {columns.map((col) => {
-          const value = summaryValues[col.field];
-          return (
-            <Box
-              key={col.field}
-              sx={{
-                flex: col.flex ?? 1,
-                minWidth: col.minWidth ?? 140,
-                py: 0.5,
-                px: 1,
-                overflow: 'hidden',
-              }}
-              role="cell"
-            >
-              {value ? (
-                <Tooltip title={value} placement="top">
-                  <Typography
-                    variant="caption"
-                    noWrap
-                    sx={{ fontWeight: 600, color: 'text.secondary', display: 'block' }}
-                  >
-                    {value}
-                  </Typography>
-                </Tooltip>
-              ) : null}
-            </Box>
-          );
-        })}
-      </Box>
-    ) : null;
+  const summaryFooter = summaryValues ? (
+    <Box
+      sx={{
+        display: 'flex',
+        borderTop: 2,
+        borderColor: 'divider',
+        bgcolor: 'action.hover',
+        px: 0.5,
+      }}
+      role="row"
+      aria-label="Summary row"
+    >
+      {columns.map((col) => {
+        const value = summaryValues[col.field];
+        return (
+          <Box
+            key={col.field}
+            sx={{
+              flex: col.flex ?? 1,
+              minWidth: col.minWidth ?? 140,
+              py: 0.5,
+              px: 1,
+              overflow: 'hidden',
+            }}
+            role="cell"
+          >
+            {value ? (
+              <Tooltip title={value} placement="top">
+                <Typography
+                  variant="caption"
+                  noWrap
+                  sx={{ fontWeight: 600, color: 'text.secondary', display: 'block' }}
+                >
+                  {value}
+                </Typography>
+              </Tooltip>
+            ) : null}
+          </Box>
+        );
+      })}
+    </Box>
+  ) : null;
 
   return (
     <div>

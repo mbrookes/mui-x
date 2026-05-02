@@ -192,7 +192,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'chart',
       title: 'Revenue by Country',
       sourceId: ORDERS_SOURCE_ID,
-      config: { chartType: 'pie', xField: 'country', yField: 'total' },
+      config: { chartType: 'pie', xField: 'expr-order-country', yField: 'total' },
     },
     'widget-orders-grid': {
       id: 'widget-orders-grid',
@@ -303,7 +303,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
         xField: 'date',
         xGroupBy: 'quarter',
         yField: 'total',
-        seriesField: 'country',
+        seriesField: 'expr-order-country',
       },
     },
 
@@ -441,7 +441,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
     {
       id: 'filter-country-rank',
-      field: 'country',
+      field: 'expr-order-country',
       filterMode: 'rank' as const,
       operator: 'equals',
       value: 5,
@@ -465,6 +465,18 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
   ],
   expressionFields: [
+    {
+      id: 'expr-order-country',
+      label: 'Country',
+      description: 'Country of the customer who placed the order',
+      sourceId: ORDERS_SOURCE_ID,
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        joinSourceId: CUSTOMERS_SOURCE_ID,
+        fieldId: 'country',
+      },
+    },
     {
       id: 'expr-product-margin',
       label: 'Unit Margin',

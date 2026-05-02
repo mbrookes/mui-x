@@ -616,7 +616,7 @@ export function applyRankToSeriesFieldData(
   const dir = rankFilter.rankDirection ?? 'top';
   const scored = data.seriesNames.map((name) => ({
     name,
-    score: (data.seriesData[name] ?? []).reduce((acc, v) => acc + (v ?? 0), 0),
+    score: (data.seriesData[name] ?? []).reduce<number>((acc, v) => acc + (v ?? 0), 0),
   }));
   scored.sort((a, b) => (dir === 'top' ? b.score - a.score : a.score - b.score));
   const keepNames = new Set(scored.slice(0, n).map((s) => s.name));
@@ -1168,7 +1168,7 @@ export function aggregateByField(
 export interface MultiSeriesData {
   labels: (string | number)[];
   seriesNames: (string | number)[];
-  seriesData: Record<string | number, number[]>;
+  seriesData: Record<string | number, (number | null)[]>;
 }
 
 /**
@@ -1207,12 +1207,14 @@ export function aggregateByTwoFields(
   const labels = sortLabels(Array.from(xValuesSet));
   const seriesNames = Array.from(seriesValuesSet);
 
-  // Build series data arrays
-  const seriesData: Record<string | number, number[]> = {};
+  // Build series data arrays — use null (not 0) for missing points so that
+  // line/area charts render visible gaps instead of collapsing to zero.
+  const seriesData: Record<string | number, (number | null)[]> = {};
   for (const seriesName of seriesNames) {
     seriesData[seriesName] = labels.map((label) => {
       const seriesMap = dataMap.get(label);
-      return seriesMap?.get(seriesName) ?? 0;
+      const val = seriesMap?.get(seriesName);
+      return val !== undefined ? val : null;
     });
   }
 

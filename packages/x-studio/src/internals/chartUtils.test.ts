@@ -16,7 +16,10 @@ import {
   aggregateMultipleSeries,
   enrichRowsWithRelatedFields,
   getReachableSourceIds,
+  getChartSupportMessage,
   prepareScatterData,
+  analyzeChartSupport,
+  resolveChartRowsForAggregation,
 } from './chartUtils';
 import type { StudioDataSource, StudioFilterState, StudioRelationship } from '../models';
 
@@ -1340,6 +1343,401 @@ describe('enrichRowsWithRelatedFields', () => {
     );
     // No enrichment possible → same reference returned
     expect(result).toEqual([{ id: 'CUS-1', country: 'Germany' }]);
+  });
+});
+
+// ─── resolveChartRowsForAggregation ──────────────────────────────────────────
+
+describe('resolveChartRowsForAggregation', () => {
+  const customers = [
+    { id: 'CUS-1', country: 'Germany' },
+    { id: 'CUS-2', country: 'France' },
+  ];
+  const orders = [
+    { id: 'ORD-1', customerId: 'CUS-1', total: 100 },
+    { id: 'ORD-2', customerId: 'CUS-1', total: 50 },
+    { id: 'ORD-3', customerId: 'CUS-2', total: 70 },
+  ];
+
+  const dataSources: Record<string, StudioDataSource> = {
+    customers: {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'Customer ID', type: 'string' },
+        { id: 'country', label: 'Country', type: 'string' },
+      ],
+      rows: customers,
+    },
+    orders: {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'Order ID', type: 'string' },
+        { id: 'customerId', label: 'Customer ID', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: orders,
+    },
+  };
+
+  const relationships: StudioRelationship[] = [
+    {
+      id: 'rel-orders-customers',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+  ];
+
+  it('anchors aggregation rows on the many-side when Y is on the many-side and X is native', () => {
+    const resolvedRows = resolveChartRowsForAggregation(
+      customers,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      dataSources,
+      relationships,
+      [],
+    );
+
+    expect(resolvedRows).toHaveLength(3);
+    expect(resolvedRows.map((row) => row.country)).toEqual(['Germany', 'Germany', 'France']);
+    expect(aggregateByField(resolvedRows, 'country', 'total')).toEqual({
+      labels: ['France', 'Germany'],
+      values: [70, 150],
+    });
+  });
+
+  it('matches the direct orders-grain aggregation for the same country totals', () => {
+    const joinedRows = resolveChartRowsForAggregation(
+      customers,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      dataSources,
+      relationships,
+      [],
+    );
+    const directRows = enrichRowsWithRelatedFields(
+      orders,
+      'orders',
+      ['country'],
+      dataSources,
+      relationships,
+    );
+
+    expect(aggregateByField(joinedRows, 'country', 'total')).toEqual(
+      aggregateByField(directRows, 'country', 'total'),
+    );
+  });
+
+  it('resolves a series field from the widget source onto many-side anchor rows', () => {
+    const resolvedRows = resolveChartRowsForAggregation(
+      customers,
+      'customers',
+      'country',
+      ['total'],
+      'country',
+      dataSources,
+      relationships,
+      [],
+    );
+
+    expect(aggregateByTwoFields(resolvedRows, 'country', 'country', 'total')).toEqual({
+      labels: ['France', 'Germany'],
+      seriesNames: ['Germany', 'France'],
+      seriesData: {
+        Germany: [0, 150],
+        France: [70, 0],
+      },
+    });
+  });
+});
+
+describe('analyzeChartSupport', () => {
+  const customers = [
+    { id: 'CUS-1', country: 'Germany' },
+    { id: 'CUS-2', country: 'France' },
+  ];
+  const orders = [
+    { id: 'ORD-1', customerId: 'CUS-1', total: 100 },
+    { id: 'ORD-2', customerId: 'CUS-1', total: 50 },
+    { id: 'ORD-3', customerId: 'CUS-2', total: 70 },
+  ];
+
+  const dataSources: Record<string, StudioDataSource> = {
+    customers: {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'Customer ID', type: 'string' },
+        { id: 'country', label: 'Country', type: 'string' },
+      ],
+      rows: customers,
+    },
+    orders: {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'Order ID', type: 'string' },
+        { id: 'customerId', label: 'Customer ID', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: orders,
+    },
+  };
+
+  const relationships: StudioRelationship[] = [
+    {
+      id: 'rel-orders-customers',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+  ];
+
+  it('supports the direct one-to-many chart case already implemented', () => {
+    expect(
+      analyzeChartSupport(
+        'customers',
+        'country',
+        ['total'],
+        undefined,
+        'pie',
+        dataSources,
+        relationships,
+        [],
+      ),
+    ).toEqual({ supported: true });
+  });
+
+  it('flags scatter cross-source combinations as unsupported', () => {
+    expect(
+      analyzeChartSupport(
+        'customers',
+        'country',
+        ['total'],
+        undefined,
+        'scatter',
+        dataSources,
+        relationships,
+        [],
+      ),
+    ).toEqual({ supported: false, reason: 'scatter_cross_source_not_supported' });
+  });
+
+  it('flags unresolved fields as unsupported', () => {
+    expect(
+      analyzeChartSupport(
+        'customers',
+        'region',
+        ['total'],
+        undefined,
+        'pie',
+        dataSources,
+        relationships,
+        [],
+      ),
+    ).toEqual({ supported: false, reason: 'field_not_found_or_not_direct' });
+  });
+
+  it('returns stable message copy for reason codes', () => {
+    expect(getChartSupportMessage('mixed_cross_source_fields')).toMatch('single safe aggregation grain');
+  });
+
+  it('supports bridging many-side Y through the widget source to a safe one-side dimension source', () => {
+    expect(
+      analyzeChartSupport(
+        'orders',
+        'country',
+        ['total'],
+        undefined,
+        'pie',
+        {
+          customers: dataSources.customers,
+          orders: dataSources.orders,
+          orderItems: {
+            id: 'orderItems',
+            label: 'Order Items',
+            fields: [
+              { id: 'id', label: 'Order Item ID', type: 'string' },
+              { id: 'orderId', label: 'Order ID', type: 'string' },
+              { id: 'total', label: 'Total', type: 'number' },
+            ],
+            rows: [
+              { id: 'OI-1', orderId: 'ORD-1', total: 30 },
+              { id: 'OI-2', orderId: 'ORD-1', total: 70 },
+              { id: 'OI-3', orderId: 'ORD-2', total: 50 },
+              { id: 'OI-4', orderId: 'ORD-3', total: 70 },
+            ],
+          },
+        },
+        [
+          ...relationships,
+          {
+            id: 'rel-orderitems-orders',
+            sourceId: 'orderItems',
+            sourceField: 'orderId',
+            targetId: 'orders',
+            targetField: 'id',
+            type: 'many-to-one',
+          },
+        ],
+        [],
+      ),
+    ).toEqual({ supported: true });
+  });
+
+  it('rejects bridging through another many-side source as unsupported', () => {
+    expect(
+      analyzeChartSupport(
+        'orders',
+        'status',
+        ['total'],
+        undefined,
+        'pie',
+        {
+          customers: dataSources.customers,
+          orders: dataSources.orders,
+          shipments: {
+            id: 'shipments',
+            label: 'Shipments',
+            fields: [
+              { id: 'id', label: 'Shipment ID', type: 'string' },
+              { id: 'orderId', label: 'Order ID', type: 'string' },
+              { id: 'status', label: 'Status', type: 'string' },
+            ],
+            rows: [
+              { id: 'S-1', orderId: 'ORD-1', status: 'Packed' },
+              { id: 'S-2', orderId: 'ORD-1', status: 'Shipped' },
+            ],
+          },
+          orderItems: {
+            id: 'orderItems',
+            label: 'Order Items',
+            fields: [
+              { id: 'id', label: 'Order Item ID', type: 'string' },
+              { id: 'orderId', label: 'Order ID', type: 'string' },
+              { id: 'total', label: 'Total', type: 'number' },
+            ],
+            rows: [{ id: 'OI-1', orderId: 'ORD-1', total: 30 }],
+          },
+        },
+        [
+          ...relationships,
+          {
+            id: 'rel-orderitems-orders',
+            sourceId: 'orderItems',
+            sourceField: 'orderId',
+            targetId: 'orders',
+            targetField: 'id',
+            type: 'many-to-one',
+          },
+          {
+            id: 'rel-shipments-orders',
+            sourceId: 'shipments',
+            sourceField: 'orderId',
+            targetId: 'orders',
+            targetField: 'id',
+            type: 'many-to-one',
+          },
+        ],
+        [],
+      ),
+    ).toEqual({ supported: false, reason: 'mixed_cross_source_fields' });
+  });
+});
+
+describe('resolveChartRowsForAggregation bridge case', () => {
+  const customers = [
+    { id: 'CUS-1', country: 'Germany' },
+    { id: 'CUS-2', country: 'France' },
+  ];
+  const orders = [
+    { id: 'ORD-1', customerId: 'CUS-1' },
+    { id: 'ORD-2', customerId: 'CUS-1' },
+    { id: 'ORD-3', customerId: 'CUS-2' },
+  ];
+  const orderItems = [
+    { id: 'OI-1', orderId: 'ORD-1', total: 30 },
+    { id: 'OI-2', orderId: 'ORD-1', total: 70 },
+    { id: 'OI-3', orderId: 'ORD-2', total: 50 },
+    { id: 'OI-4', orderId: 'ORD-3', total: 70 },
+  ];
+
+  const dataSources: Record<string, StudioDataSource> = {
+    customers: {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'Customer ID', type: 'string' },
+        { id: 'country', label: 'Country', type: 'string' },
+      ],
+      rows: customers,
+    },
+    orders: {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'Order ID', type: 'string' },
+        { id: 'customerId', label: 'Customer ID', type: 'string' },
+      ],
+      rows: orders,
+    },
+    orderItems: {
+      id: 'orderItems',
+      label: 'Order Items',
+      fields: [
+        { id: 'id', label: 'Order Item ID', type: 'string' },
+        { id: 'orderId', label: 'Order ID', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: orderItems,
+    },
+  };
+
+  const relationships: StudioRelationship[] = [
+    {
+      id: 'rel-orders-customers',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+    {
+      id: 'rel-orderitems-orders',
+      sourceId: 'orderItems',
+      sourceField: 'orderId',
+      targetId: 'orders',
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+  ];
+
+  it('aggregates many-side rows by a one-side field bridged through the widget source', () => {
+    const resolvedRows = resolveChartRowsForAggregation(
+      orders,
+      'orders',
+      'country',
+      ['total'],
+      undefined,
+      dataSources,
+      relationships,
+      [],
+    );
+
+    expect(aggregateByField(resolvedRows, 'country', 'total')).toEqual({
+      labels: ['France', 'Germany'],
+      values: [70, 150],
+    });
   });
 });
 

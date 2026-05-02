@@ -103,7 +103,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       if (activeCrossFilter && activeCrossFilter.value === filterValue) {
         controller.clearCrossFilter(widget.id);
       } else {
-        controller.applyCrossFilter(widget.id, config.xField, filterValue);
+        controller.applyCrossFilter(widget.id, config.xField, filterValue, widget.sourceId);
       }
     },
     [controller, widget.id, config.xField, activeCrossFilter],

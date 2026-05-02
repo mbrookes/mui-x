@@ -7,16 +7,40 @@ export interface StudioWordmarkProps {
   height?: number;
 }
 
+const CANVAS_HEIGHT = 32;
+// Fallback viewBox width used on first render (SSR / before measurement).
+// Overwritten after the first browser paint via getBBox().
+const FALLBACK_VB_WIDTH = 150;
+
 /**
  * MUI X Studio wordmark — the MUI X icon mark followed by the "MUI X Studio" logotype.
  * Automatically adapts text colour to the current MUI theme mode (light / dark).
+ * The SVG viewBox is measured after the first paint so it tightly wraps the content
+ * regardless of which fallback font is active.
  */
 export function StudioWordmark({ height = 28 }: StudioWordmarkProps) {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
+  const textRef = React.useRef<SVGTextElement>(null);
+  const [vbWidth, setVbWidth] = React.useState(FALLBACK_VB_WIDTH);
 
-  // Proportional width for the 150×32 viewBox
-  const width = Math.round((height * 150) / 32);
+  React.useLayoutEffect(() => {
+    if (!textRef.current) {
+      return;
+    }
+    try {
+      const bbox = textRef.current.getBBox();
+      // right edge of text + a 1px breathing room
+      const measured = Math.ceil(bbox.x + bbox.width) + 1;
+      if (measured > 0) {
+        setVbWidth(measured);
+      }
+    } catch {
+      // getBBox can throw in hidden/detached contexts — keep the fallback
+    }
+  }, []);
+
+  const width = Math.round((height * vbWidth) / CANVAS_HEIGHT);
 
   const muiXColor = isDark ? '#ffffff' : '#1C2025';
   const studioColor = '#0079f5';
@@ -24,7 +48,7 @@ export function StudioWordmark({ height = 28 }: StudioWordmarkProps) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 150 32"
+      viewBox={`0 0 ${vbWidth} ${CANVAS_HEIGHT}`}
       width={width}
       height={height}
       fill="none"
@@ -45,6 +69,7 @@ export function StudioWordmark({ height = 28 }: StudioWordmarkProps) {
 
       {/* Logotype */}
       <text
+        ref={textRef}
         x={32}
         y={22}
         fontFamily="'General Sans', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"

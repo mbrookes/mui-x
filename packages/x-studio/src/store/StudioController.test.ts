@@ -287,6 +287,27 @@ describe('StudioController.updateWidgetConfig', () => {
 
     expect(controller.getState().widgets.chart1.title).toBe('Revenue by Month');
   });
+
+  it('removes config keys when the incoming value is undefined', () => {
+    const controller = new StudioController({
+      widgets: {
+        text1: {
+          id: 'text1',
+          kind: 'text',
+          title: 'Notes',
+          config: {
+            textTitleColor: '#ff0000',
+            textBody: 'Body',
+          },
+        },
+      },
+    });
+
+    controller.updateWidgetConfig('text1', { textTitleColor: undefined });
+
+    expect(controller.getState().widgets.text1.config.textTitleColor).toBeUndefined();
+    expect('textTitleColor' in controller.getState().widgets.text1.config).toBe(false);
+  });
 });
 
 describe('StudioController.duplicateWidget', () => {

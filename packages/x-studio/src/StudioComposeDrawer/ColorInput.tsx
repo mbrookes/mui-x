@@ -1,9 +1,10 @@
 'use client';
 import * as React from 'react';
-import { Box, TextField } from '@mui/material';
+import { Box, IconButton, TextField } from '@mui/material';
 import CreateIcon from '@mui/icons-material/Create';
+import CloseIcon from '@mui/icons-material/Close';
 
-/** Returns 'white' or 'black' depending on which contrasts better against the hex colour. */
+/** Returns 'white' or 'black' depending on which contrasts better against the hex color. */
 function getContrastColor(hex: string): 'white' | 'black' {
   const clean = hex.replace('#', '');
   if (clean.length !== 6) {
@@ -16,7 +17,7 @@ function getContrastColor(hex: string): 'white' | 'black' {
   return luminance > 0.55 ? 'black' : 'white';
 }
 
-/** A circular colour swatch button with a centred crayon icon in a contrasting colour. */
+/** A circular color swatch button with a centred crayon icon in a contrasting color. */
 export function ColorSwatch({
   value,
   onChange,
@@ -58,7 +59,7 @@ export function ColorSwatch({
           '&::-webkit-color-swatch-wrapper': { padding: 0 },
           '&::-webkit-color-swatch': { borderRadius: '50%', border: 'none' },
         }}
-        aria-label={label ?? 'Colour picker'}
+        aria-label={label ?? 'Color picker'}
       />
       <CreateIcon
         sx={{
@@ -72,7 +73,7 @@ export function ColorSwatch({
   );
 }
 
-/** Inline colour swatch + hex text field. Uses native <input type="color"> for the picker. */
+/** Inline color swatch + text field. Uses native <input type="color"> for the picker. */
 export function ColorInput({
   label,
   value,
@@ -86,16 +87,31 @@ export function ColorInput({
 }) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-      <ColorSwatch value={value} onChange={onChange} label={`${label} colour picker`} />
+      <ColorSwatch value={value} onChange={onChange} label={`${label} color picker`} />
       <TextField
         size="small"
         label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder ?? '#rrggbb'}
-        helperText="Hex colour code"
         sx={{ flexGrow: 1 }}
-        slotProps={{ htmlInput: { spellCheck: false } }}
+        slotProps={{
+          htmlInput: { spellCheck: false },
+          input: value
+            ? {
+                endAdornment: (
+                  <IconButton
+                    size="small"
+                    edge="end"
+                    aria-label={`Clear ${label.toLowerCase()}`}
+                    onClick={() => onChange('')}
+                  >
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                ),
+              }
+            : undefined,
+        }}
       />
     </Box>
   );

@@ -527,7 +527,7 @@ describe('StudioController.setActivePage', () => {
     expect(controller.getState().dashboard.activePageId).toBe('page-1');
   });
 
-  it('clears cross-filters when navigating to a different page', () => {
+  it('stamps the cross-filter with the active page id', () => {
     const controller = new StudioController({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
       pages: {
@@ -536,12 +536,11 @@ describe('StudioController.setActivePage', () => {
       },
     });
     controller.applyCrossFilter('widget-a', 'country', 'Germany');
-    expect(controller.getState().filters.some((f) => f.scope === 'cross-filter')).toBe(true);
-    controller.setActivePage('page-2');
-    expect(controller.getState().filters.some((f) => f.scope === 'cross-filter')).toBe(false);
+    const cf = controller.getState().filters.find((f) => f.scope === 'cross-filter');
+    expect(cf?.pageId).toBe('page-1');
   });
 
-  it('preserves non-cross-filter entries when navigating pages', () => {
+  it('preserves cross-filters when navigating to a different page', () => {
     const controller = new StudioController({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
       pages: {
@@ -550,19 +549,9 @@ describe('StudioController.setActivePage', () => {
       },
     });
     controller.applyCrossFilter('widget-a', 'country', 'Germany');
-    // Add a page-scoped filter directly (simulate pre-existing widget filter)
-    const state = controller.getState();
-    controller['commitState']({
-      ...state,
-      filters: [
-        ...state.filters,
-        makeFilter({ id: 'page-filter', scope: 'page', field: 'status', operator: 'equals', value: 'Active' }),
-      ],
-    });
     controller.setActivePage('page-2');
-    const remaining = controller.getState().filters;
-    expect(remaining.some((f) => f.scope === 'cross-filter')).toBe(false);
-    expect(remaining.some((f) => f.id === 'page-filter')).toBe(true);
+    // Cross-filter remains in state (page-scoped by pageId, not removed)
+    expect(controller.getState().filters.some((f) => f.scope === 'cross-filter' && f.pageId === 'page-1')).toBe(true);
   });
 });
 

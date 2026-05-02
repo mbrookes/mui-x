@@ -451,6 +451,7 @@ export class StudioController {
       value,
       scope: 'cross-filter',
       sourceWidgetId,
+      pageId: state.dashboard.activePageId,
       ...(filterSourceId && { filterSourceId }),
     };
 
@@ -515,8 +516,6 @@ export class StudioController {
       {
         ...state,
         dashboard: { ...state.dashboard, activePageId: pageId },
-        // Clear cross-filters when leaving a page — they are page-scoped interactions.
-        filters: state.filters.filter((f) => f.scope !== 'cross-filter'),
       },
       { undoable: false },
     );

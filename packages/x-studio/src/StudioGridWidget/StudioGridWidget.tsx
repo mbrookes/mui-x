@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { DataGridPro, type GridColDef, type GridRowSelectionModel } from '@mui/x-data-grid-pro';
+import { DataGridPro, type GridColDef, type GridCellParams } from '@mui/x-data-grid-pro';
 import { Chip, Stack } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
@@ -13,13 +13,6 @@ import { computeGridSummary } from '../utils/gridSummary';
 export interface StudioGridWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
-}
-
-export function getDefaultCrossFilterFieldId(
-  widget: StudioWidget,
-  dataSource?: StudioDataSource,
-) {
-  return widget.config.columns?.[0] ?? dataSource?.fields.find((field) => !field.hidden)?.id;
 }
 
 export const StudioGridWidget = React.memo(function StudioGridWidget(props: StudioGridWidgetProps) {
@@ -83,45 +76,49 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     }));
   }, [dataSource, widget.id, widget.sourceId, filters, dataSources, expressionFields, relationships, activePageId]);
 
-  const handleRowSelectionChange = React.useCallback(
-    (selection: GridRowSelectionModel) => {
-      const ids = Array.from(selection.ids);
-      if (ids.length === 0) {
+  const handleCellClick = React.useCallback(
+    (params: GridCellParams) => {
+      // Don't cross-filter from the summary pinned row
+      if (params.id === '__summary__') {
+        return;
+      }
+
+      const fieldId = params.field;
+      const value = params.value;
+
+      // Toggle: clicking the same field+value clears the filter
+      if (
+        activeCrossFilter &&
+        activeCrossFilter.field === fieldId &&
+        String(activeCrossFilter.value) === String(value)
+      ) {
         controller.clearCrossFilter(widget.id);
-        return;
-      }
-
-      // Use the first selected row for cross-filtering
-      const selectedRowId = ids[0];
-      const selectedRow = rows.find((r) => r.id === selectedRowId);
-      if (!selectedRow) {
-        return;
-      }
-
-      // Use configured field, fall back to the first visible grid column.
-      const crossFilterFieldId = widget.config.crossFilterField;
-      const filterField = crossFilterFieldId
-        ? dataSource?.fields.find((f) => f.id === crossFilterFieldId)
-        : dataSource?.fields.find((f) => f.id === getDefaultCrossFilterFieldId(widget, dataSource));
-
-      if (!filterField) {
-        return;
-      }
-
-      const value = (selectedRow as Record<string, unknown>)[filterField.id];
-      if (value !== undefined) {
-        controller.applyCrossFilter(widget.id, filterField.id, value, widget.sourceId);
+      } else {
+        controller.applyCrossFilter(widget.id, fieldId, value, widget.sourceId);
       }
     },
-    [controller, widget.id, widget.config.columns, widget.config.crossFilterField, rows, dataSource],
+    [controller, widget.id, widget.sourceId, activeCrossFilter],
   );
+
+  // Resolve the active filter field's display label for the chip
+  const activeCrossFilterLabel = React.useMemo(() => {
+    if (!activeCrossFilter) {
+      return null;
+    }
+    const exprField = expressionFields.find((ef) => ef.id === activeCrossFilter.field);
+    if (exprField) {
+      return exprField.label;
+    }
+    const dataField = dataSource?.fields.find((f) => f.id === activeCrossFilter.field);
+    return dataField?.label ?? activeCrossFilter.field;
+  }, [activeCrossFilter, expressionFields, dataSource]);
 
   // Cross-filter indicator
   const crossFilterIndicator = activeCrossFilter ? (
     <Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: 'center' }}>
       <Chip
         size="small"
-        label={`Filtering: ${activeCrossFilter.field} = ${activeCrossFilter.value}`}
+        label={`${activeCrossFilterLabel} = ${activeCrossFilter.value}`}
         onDelete={() => controller.clearCrossFilter(widget.id)}
         color="primary"
         variant="outlined"
@@ -156,7 +153,23 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         rows={rows}
         pinnedRows={pinnedRows}
         hideFooter
-        sx={{ height: 400 }}
+        disableRowSelectionOnClick
+        sx={{
+          height: 400,
+          '& .MuiDataGrid-cell': { cursor: 'pointer' },
+          '& .StudioGrid-crossFilterMatch': {
+            bgcolor: 'action.selected',
+          },
+        }}
+        getRowClassName={(params) => {
+          if (!activeCrossFilter || params.id === '__summary__') {
+            return '';
+          }
+          const rowValue = (params.row as Record<string, unknown>)[activeCrossFilter.field];
+          return String(rowValue) === String(activeCrossFilter.value)
+            ? 'StudioGrid-crossFilterMatch'
+            : '';
+        }}
         initialState={{
           ...(widget.config.gridSortField && {
             sorting: {
@@ -169,7 +182,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
             },
           }),
         }}
-        onRowSelectionModelChange={handleRowSelectionChange}
+        onCellClick={handleCellClick}
       />
     </div>
   );

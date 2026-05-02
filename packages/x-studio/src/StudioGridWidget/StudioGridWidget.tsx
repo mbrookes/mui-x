@@ -8,6 +8,7 @@ import { useStudioController, useStudioSelector } from '../context';
 import { applyFilters, resolveMetricRefs } from '../internals/chartUtils';
 import { formatFieldValue } from '../internals/numberFormat';
 import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
+import { buildGroupedGridRows } from '../utils/gridGrouping';
 import { computeGridSummary } from '../utils/gridSummary';
 
 export interface StudioGridWidgetProps {
@@ -23,6 +24,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const expressionFields = useStudioSelector((state) => state.expressionFields);
   const relationships = useStudioSelector((state) => state.relationships);
   const activePageId = useStudioSelector((state) => state.dashboard.activePageId);
+  const visibleFields = widget.config.columns?.length
+    ? widget.config.columns
+    : (dataSource?.fields.map((f) => f.id) ?? []);
 
   // Check if this widget has an active cross-filter (on the current page)
   const activeCrossFilter = filters.find(
@@ -30,26 +34,30 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   );
 
   const columns = React.useMemo<GridColDef[]>(() => {
-    const visibleFields = widget.config.columns?.length
-      ? widget.config.columns
-      : (dataSource?.fields.map((f) => f.id) ?? []);
-
     return visibleFields.map((fieldName) => {
       const field = dataSource?.fields.find((candidate) => candidate.id === fieldName);
+      const expressionField = expressionFields.find((candidate) => candidate.id === fieldName);
+      const fieldType = field?.type ?? expressionField?.type;
+      const fieldFormat = field?.format ?? expressionField?.format;
 
       return {
         field: fieldName,
         flex: 1,
-        headerName: field?.label ?? fieldName,
+        headerName: field?.label ?? expressionField?.label ?? fieldName,
         minWidth: 140,
-        type: field?.type === 'number' ? 'number' : 'string',
+        type: fieldType === 'number' ? 'number' : 'string',
         valueFormatter:
-          field?.type === 'number' && field.format
-            ? (value: unknown) => formatFieldValue(value, field)
+          fieldType === 'number' && fieldFormat
+            ? (value: unknown) =>
+                formatFieldValue(value, {
+                  type: 'number',
+                  format: fieldFormat,
+                  currencyCode: field?.currencyCode,
+                })
             : undefined,
       };
     });
-  }, [dataSource, widget.config.columns]);
+  }, [dataSource, expressionFields, visibleFields]);
 
   const rows = React.useMemo(() => {
     if (!dataSource?.rows) {
@@ -70,11 +78,34 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     const enrichedRows = enrichRowsWithExpressions(dataSource.rows, expressionFields, widget.sourceId ?? '', dataSources, relationships);
     const filteredRows = applyFilters(enrichedRows, allFilters);
 
+    if (widget.config.gridGroupByField) {
+      return buildGroupedGridRows(
+        filteredRows,
+        widget.config.gridGroupByField,
+        visibleFields,
+        widget.config.gridAggregations ?? {},
+        widget.id,
+      );
+    }
+
     return filteredRows.map((row, index) => ({
+      __rowId: row.id ?? `${widget.id}-${index}`,
       id: row.id ?? `${widget.id}-${index}`,
       ...row,
     }));
-  }, [dataSource, widget.id, widget.sourceId, filters, dataSources, expressionFields, relationships, activePageId]);
+  }, [
+    dataSource,
+    widget.config.gridAggregations,
+    widget.config.gridGroupByField,
+    widget.id,
+    widget.sourceId,
+    filters,
+    dataSources,
+    expressionFields,
+    relationships,
+    activePageId,
+    visibleFields,
+  ]);
 
   const handleCellClick = React.useCallback(
     (params: GridCellParams) => {
@@ -83,7 +114,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         return;
       }
 
-      const fieldId = params.field;
+      const fieldId = widget.config.crossFilterField ?? params.field;
       const value = params.value;
 
       // Toggle: clicking the same field+value clears the filter
@@ -97,7 +128,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         controller.applyCrossFilter(widget.id, fieldId, value, widget.sourceId);
       }
     },
-    [controller, widget.id, widget.sourceId, activeCrossFilter],
+    [controller, widget.id, widget.sourceId, activeCrossFilter, widget.config.crossFilterField],
   );
 
   // Resolve the active filter field's display label for the chip
@@ -154,6 +185,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         pinnedRows={pinnedRows}
         hideFooter
         disableRowSelectionOnClick
+        getRowId={(row) => (row as Record<string, unknown>).__rowId ?? (row as Record<string, unknown>).id}
         sx={{
           height: 400,
           '& .MuiDataGrid-cell': { cursor: 'pointer' },

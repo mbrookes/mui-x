@@ -376,6 +376,16 @@ export const INITIAL_STATE: Partial<StudioState> = {
       filterSourceId: ORDERS_SOURCE_ID,
     },
     {
+      id: 'filter-kpi-avg-discount-date',
+      field: 'date',
+      operator: 'greater_than_or_equal',
+      value: { relative: true, amount: 12, unit: 'month', direction: 'past' } satisfies RelativeDateValue,
+      scope: 'widget' as const,
+      widgetId: 'widget-kpi-avg-discount',
+      fieldType: 'date' as const,
+      filterSourceId: ORDERS_SOURCE_ID,
+    },
+    {
       id: 'filter-kpi-ontime-date',
       field: 'shipDate',
       operator: 'greater_than_or_equal',

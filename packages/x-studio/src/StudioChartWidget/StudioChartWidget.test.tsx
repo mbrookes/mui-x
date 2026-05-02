@@ -8,6 +8,7 @@ import { StudioChartWidget } from './StudioChartWidget';
 
 const barChartSpy = vi.fn();
 const lineChartSpy = vi.fn();
+const pieChartSpy = vi.fn();
 
 vi.mock('@mui/x-charts/BarChart', () => ({
   BarChart: (props: unknown) => {
@@ -24,7 +25,10 @@ vi.mock('@mui/x-charts/LineChart', () => ({
 }));
 
 vi.mock('@mui/x-charts/PieChart', () => ({
-  PieChart: () => <div data-testid="pie-chart" />,
+  PieChart: (props: unknown) => {
+    pieChartSpy(props);
+    return <div data-testid="pie-chart" />;
+  },
 }));
 
 vi.mock('@mui/x-charts/ScatterChart', () => ({
@@ -90,6 +94,7 @@ describe('<StudioChartWidget />', () => {
   beforeEach(() => {
     barChartSpy.mockClear();
     lineChartSpy.mockClear();
+    pieChartSpy.mockClear();
     controller.clearCrossFilter.mockClear();
     controller.applyCrossFilter.mockClear();
   });
@@ -165,6 +170,216 @@ describe('<StudioChartWidget />', () => {
       { label: 'B', color: '#222222' },
       { label: 'C', color: '#333333' },
     ]);
+  });
+
+  it('normalizes multi-y bar-100 series and configures a percent axis', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'bucket', label: 'Bucket', type: 'number' },
+        { id: 'revenue', label: 'Revenue', type: 'number' },
+        { id: 'profit', label: 'Profit', type: 'number' },
+      ],
+      rows: [
+        { id: '1', bucket: 1, revenue: 30, profit: 10 },
+        { id: '2', bucket: 2, revenue: 20, profit: 5 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-bar-100',
+      kind: 'chart',
+      title: 'Revenue Mix',
+      sourceId: 'orders',
+      config: {
+        chartType: 'bar-100',
+        xField: 'bucket',
+        yField: 'revenue',
+        ySeries: [{ fieldId: 'revenue' }, { fieldId: 'profit' }],
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+      yAxis: Array<{ min?: number; max?: number; valueFormatter?: (value: number) => string }>;
+      series: Array<{ label: string; stack?: string; data: number[]; valueFormatter?: (value: number | null) => string }>;
+    };
+
+    expect(props.yAxis).toHaveLength(1);
+    expect(props.yAxis[0].min).toBe(0);
+    expect(props.yAxis[0].max).toBe(100);
+    expect(props.yAxis[0].valueFormatter?.(42)).toBe('42%');
+    expect(props.series.map((series) => ({
+      label: series.label,
+      stack: series.stack,
+      data: series.data,
+      formatted: series.valueFormatter?.(series.data[0] ?? null),
+    }))).toEqual([
+      { label: 'Revenue', stack: 'total', data: [75, 80], formatted: '75.0%' },
+      { label: 'Profit', stack: 'total', data: [25, 20], formatted: '25.0%' },
+    ]);
+  });
+
+  it('highlights the selected x-value when a multi-y bar chart has an active cross-filter', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'bucket', label: 'Bucket', type: 'number' },
+        { id: 'revenue', label: 'Revenue', type: 'number' },
+        { id: 'profit', label: 'Profit', type: 'number' },
+      ],
+      rows: [
+        { id: '1', bucket: 1, revenue: 30, profit: 10 },
+        { id: '2', bucket: 2, revenue: 20, profit: 5 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-highlight',
+      kind: 'chart',
+      title: 'Revenue Mix',
+      sourceId: 'orders',
+      config: {
+        chartType: 'bar',
+        xField: 'bucket',
+        yField: 'revenue',
+        ySeries: [{ fieldId: 'revenue' }, { fieldId: 'profit' }],
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+      filters: [
+        {
+          id: 'cf-active',
+          scope: 'cross-filter',
+          sourceWidgetId: widget.id,
+          pageId: 'page-1',
+          field: 'bucket',
+          operator: 'equals',
+          value: 2,
+        },
+      ],
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+      highlightedAxis?: Array<{ axisId: string; dataIndex: number }>;
+    };
+
+    expect(props.highlightedAxis).toEqual([{ axisId: 'cross-filter-axis', dataIndex: 1 }]);
+  });
+
+  it('highlights the selected slice when a pie chart has an active cross-filter', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: '1', category: 'A', total: 10 },
+        { id: '2', category: 'B', total: 20 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-pie-highlight',
+      kind: 'chart',
+      title: 'Revenue by Category',
+      sourceId: 'orders',
+      config: {
+        chartType: 'pie',
+        xField: 'category',
+        yField: 'total',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+      filters: [
+        {
+          id: 'cf-pie-active',
+          scope: 'cross-filter',
+          sourceWidgetId: widget.id,
+          pageId: 'page-1',
+          field: 'category',
+          operator: 'equals',
+          value: 'B',
+        },
+      ],
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = pieChartSpy.mock.calls.at(-1)?.[0] as {
+      highlightedItem?: { seriesId: string; dataIndex: number };
+    };
+
+    expect(props.highlightedItem).toEqual({ seriesId: 'cross-filter-series', dataIndex: 1 });
+  });
+
+  it('highlights the selected point when a single-series line chart has an active cross-filter', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'bucket', label: 'Bucket', type: 'number' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: '1', bucket: 1, total: 10 },
+        { id: '2', bucket: 2, total: 20 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-line-highlight',
+      kind: 'chart',
+      title: 'Revenue Trend',
+      sourceId: 'orders',
+      config: {
+        chartType: 'line',
+        xField: 'bucket',
+        yField: 'total',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+      filters: [
+        {
+          id: 'cf-line-active',
+          scope: 'cross-filter',
+          sourceWidgetId: widget.id,
+          pageId: 'page-1',
+          field: 'bucket',
+          operator: 'equals',
+          value: 2,
+        },
+      ],
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+      highlightedItem?: { seriesId: string; dataIndex: number };
+    };
+
+    expect(props.highlightedItem).toEqual({ seriesId: 'cross-filter-series', dataIndex: 1 });
   });
 
   it('sets connectNulls to false for split-by line series', () => {

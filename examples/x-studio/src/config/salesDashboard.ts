@@ -200,10 +200,10 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Recent Orders',
       sourceId: ORDERS_SOURCE_ID,
       config: {
-        columns: ['id', 'date', 'customerId', 'status'],
+        columns: ['id', 'date', 'customerId', 'status', 'total'],
         gridSortField: 'id',
         gridSortDirection: 'desc',
-        gridSummaryFields: { id: 'count' },
+        gridSummaryFields: { id: 'count', total: 'sum' },
       },
     },
 

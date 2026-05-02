@@ -5,12 +5,17 @@ import {
   Autocomplete,
   Box,
   Divider,
+  IconButton,
+  ListItemIcon,
+  Menu,
   MenuItem,
-  Select,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import CheckIcon from '@mui/icons-material/Check';
 import type { StudioGridSummaryAggregation } from '../models';
 import { useStudioController, useStudioSelector } from '../context';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
@@ -39,6 +44,9 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const summaryFields: Record<string, StudioGridSummaryAggregation> =
     widget?.config?.gridSummaryFields ?? {};
 
+  // Menu anchor state: fieldId → anchor element
+  const [menuAnchor, setMenuAnchor] = React.useState<{ fieldId: string; el: HTMLElement } | null>(null);
+
   const handleColumnToggle = (fieldId: string) => {
     const next = visibleColumns.includes(fieldId)
       ? visibleColumns.filter((c) => c !== fieldId)
@@ -56,6 +64,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
     controller.updateWidgetConfig(widgetId, {
       gridSummaryFields: Object.keys(next).length > 0 ? next : undefined,
     });
+    setMenuAnchor(null);
   };
 
   if (!source) {
@@ -67,6 +76,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
   }
 
   const crossFilterFieldOption = allFields.find((f) => f.id === crossFilterField) ?? null;
+  const openFieldId = menuAnchor?.fieldId ?? null;
 
   return (
     <Stack spacing={2}>
@@ -98,7 +108,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
       {allFields.map((field) => {
         const isNumeric = field.type === 'number';
         const availableAggs = isNumeric ? NUMERIC_AGGREGATIONS : STRING_AGGREGATIONS;
-        const currentAgg = summaryFields[field.id] ?? '';
+        const currentAgg: StudioGridSummaryAggregation | '' = summaryFields[field.id] ?? '';
         const isVisible = visibleColumns.includes(field.id);
 
         return (
@@ -132,27 +142,54 @@ export function GridSetupPanel(props: { widgetId: string }) {
               <Typography variant="body2">{field.label}</Typography>
             </Box>
 
-            {/* Summary aggregation selector — only shown for visible columns */}
+            {/* Summary aggregation — ⋮ icon button with dense checkmark menu */}
             {isVisible && (
-              <Select
-                size="small"
-                displayEmpty
-                value={currentAgg}
-                onChange={(e) =>
-                  handleSummaryChange(field.id, e.target.value as StudioGridSummaryAggregation | '')
-                }
-                sx={{ minWidth: 90, fontSize: '0.75rem' }}
-                inputProps={{ 'aria-label': `Summary for ${field.label}` }}
-              >
-                <MenuItem value="">
-                  <em>None</em>
-                </MenuItem>
-                {availableAggs.map((agg) => (
-                  <MenuItem key={agg} value={agg}>
-                    {AGG_LABELS[agg]}
+              <>
+                <Tooltip title={currentAgg ? `Summary: ${AGG_LABELS[currentAgg]}` : 'Set summary'}>
+                  <IconButton
+                    size="small"
+                    aria-label={`Summary for ${field.label}`}
+                    aria-haspopup="true"
+                    aria-expanded={openFieldId === field.id}
+                    onClick={(e) => setMenuAnchor({ fieldId: field.id, el: e.currentTarget })}
+                    color={currentAgg ? 'primary' : 'default'}
+                  >
+                    <MoreVertIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Menu
+                  open={openFieldId === field.id}
+                  anchorEl={menuAnchor?.el}
+                  onClose={() => setMenuAnchor(null)}
+                  MenuListProps={{ dense: true }}
+                >
+                  <MenuItem
+                    onClick={() => handleSummaryChange(field.id, '')}
+                    selected={currentAgg === ''}
+                  >
+                    {currentAgg === '' ? (
+                      <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
+                    ) : (
+                      <ListItemIcon />
+                    )}
+                    None
                   </MenuItem>
-                ))}
-              </Select>
+                  {availableAggs.map((agg) => (
+                    <MenuItem
+                      key={agg}
+                      onClick={() => handleSummaryChange(field.id, agg)}
+                      selected={currentAgg === agg}
+                    >
+                      {currentAgg === agg ? (
+                        <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
+                      ) : (
+                        <ListItemIcon />
+                      )}
+                      {AGG_LABELS[agg]}
+                    </MenuItem>
+                  ))}
+                </Menu>
+              </>
             )}
           </Box>
         );

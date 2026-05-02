@@ -5,6 +5,7 @@ import { Box, Tooltip } from '@mui/material';
 import type { StudioDataSource, StudioWidget, StudioFilterState, StudioExpressionField } from '../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { resolveRows, resolveMetricRefs } from '../internals/chartUtils';
+import { usePageChartColors } from '../internals/usePageChartColors';
 import { useStudioSelector } from '../context';
 import { formatNumber } from '../internals/numberFormat';
 import { evaluateMeasure } from '../utils/expressionEvaluator';
@@ -47,6 +48,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const dataSources = useStudioSelector((state) => state.dataSources);
   const relationships = useStudioSelector((state) => state.relationships);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
+  const chartColors = usePageChartColors();
 
   const { displayValue, hasData, sparklineData, sparklineTimeField, trendResult, trendNeedsDateFilter } =
     React.useMemo(() => {
@@ -270,6 +272,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             compact={config.kpiCompact ?? true}
             fieldFormat={fieldDef?.format}
             fieldCurrencyCode={fieldDef?.currencyCode}
+            colors={chartColors}
           />
         )}
       </Box>

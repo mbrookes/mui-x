@@ -21,6 +21,7 @@ import { useStudioController, useStudioSelector } from '../context';
 import { formatNumber } from '../internals/numberFormat';
 import type { StudioNumberFormat } from '../models/studio';
 import { useChartWidgetData } from './useChartWidgetData';
+import { buildMultiYLineSeries } from './lineSeries';
 
 export interface StudioChartWidgetProps {
   widget: StudioWidget;
@@ -657,13 +658,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
     const is100 = normalizedChartType === 'area-100';
 
-    // Pre-normalize to 0-100% per x-position for area-100
-    const totals100 = is100
-      ? multiYData.labels.map((_, i) =>
-          multiYData.series.reduce<number>((sum, s) => sum + ((s.values[i] ?? 0) as number), 0),
-        )
-      : null;
-
     const useIndependentAxes = !isStacked && multiYData.series.length > 1;
     const yAxes = useIndependentAxes
       ? multiYData.series.map((s, i) => ({
@@ -677,28 +671,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             ...(is100 && { min: 0, max: 100, valueFormatter: (v: number) => `${Math.round(v)}%` }),
           },
         ];
-    const series = multiYData.series.map((s, i) => {
-      const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
-      const data = totals100
-        ? s.values.map((v, idx) => {
-            const total = totals100[idx];
-            return total ? ((v as number) / total) * 100 : 0;
-          })
-        : s.values;
-      return {
-        id: `${s.fieldId}-${i}`,
-        data,
-        label: fieldDef?.label ?? s.fieldId,
-        area: isArea,
-        connectNulls: false,
-        stack: isStacked ? 'total' : undefined,
-        yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
-        highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-        valueFormatter: is100
-          ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
-          : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode),
-      };
-    });
+    const series = buildMultiYLineSeries(multiYData, normalizedChartType, dataSource?.fields);
     return (
       <div style={{ height: chartHeight }}>
         <LineChart

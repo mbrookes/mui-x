@@ -3,9 +3,6 @@
 import * as React from 'react';
 import {
   blueberryTwilightPalette,
-  mangoFusionPalette,
-  cheerfulFiestaPalette,
-  rainbowSurgePalette,
 } from '@mui/x-charts';
 import { useTheme } from '@mui/material';
 import type { StudioDataSource, StudioWidget } from '../models';
@@ -23,6 +20,7 @@ import {
   applyRankToSeriesFieldData,
 } from '../internals/chartUtils';
 import { useStudioSelector } from '../context';
+import { usePageChartColors } from '../internals/usePageChartColors';
 
 export function useChartWidgetData(
   widget: StudioWidget,
@@ -36,9 +34,6 @@ export function useChartWidgetData(
   const relationships = useStudioSelector((state) => state.relationships);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
   const activePageId = useStudioSelector((state) => state.dashboard.activePageId);
-  const pageTheme = useStudioSelector(
-    (state) => state.pages[state.dashboard.activePageId]?.theme,
-  );
   const muiTheme = useTheme();
 
   // Separate rank widget filters (applied post-aggregation) from row-level filters
@@ -47,24 +42,8 @@ export function useChartWidgetData(
       (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode === 'rank',
     ) ?? null;
 
-  // Resolve page-level chart colour palette → string[] passed to every chart.
-  const chartColors = React.useMemo((): string[] | undefined => {
-    const palette = pageTheme?.chartPalette;
-    if (!palette) {
-      return undefined;
-    }
-    if (palette === 'custom') {
-      return pageTheme?.chartCustomColors?.length ? pageTheme.chartCustomColors : undefined;
-    }
-    const mode = muiTheme.palette.mode;
-    const paletteMap = {
-      blueberryTwilight: blueberryTwilightPalette,
-      mangoFusion: mangoFusionPalette,
-      cheerfulFiesta: cheerfulFiestaPalette,
-      rainbowSurge: rainbowSurgePalette,
-    } as const;
-    return paletteMap[palette]?.(mode);
-  }, [pageTheme, muiTheme.palette.mode]);
+  // Page-level chart colour palette (undefined → charts use their default).
+  const chartColors = usePageChartColors();
 
   // Get filtered rows (rank filters are excluded — applied after aggregation)
   const filteredRows = React.useMemo(() => {

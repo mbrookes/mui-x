@@ -199,12 +199,11 @@ describe('widgetKindRequiresDataSource', () => {
 // ─── createDefaultWidget ──────────────────────────────────────────────────────
 
 describe('createDefaultWidget', () => {
-  it('text: returns kind=text with default textSubtitle and textBody', () => {
+  it('text: returns kind=text with empty default textSubtitle and textBody', () => {
     const widget = createDefaultWidget('text');
     expect(widget.kind).toBe('text');
-    expect(widget.config.textSubtitle).toBeDefined();
-    expect(widget.config.textBody).toBeDefined();
-    expect(widget.config.textBody!.length).toBeGreaterThan(0);
+    expect(widget.config.textSubtitle).toBe('');
+    expect(widget.config.textBody).toBe('');
   });
 
   it('grid without source: config.columns is []', () => {

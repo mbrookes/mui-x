@@ -39,17 +39,17 @@ export function AppToolbar(props: AppToolbarProps) {
         minHeight: 48,
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
         <StudioWordmark height={30} />
         {title && (
           <React.Fragment>
             <Box
-              sx={{ width: '1px', height: 20, bgcolor: 'divider', flexShrink: 0 }}
+              sx={{ width: '1px', height: 20, bgcolor: 'divider', flexShrink: 0, mx: 1.5 }}
               aria-hidden
             />
             <Typography
               variant="body1"
-              sx={{ color: 'text.secondary', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              sx={{ fontSize: 18, color: 'text.secondary', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {title}
             </Typography>

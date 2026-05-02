@@ -5,12 +5,15 @@ import {
   applyRankToAggregated,
   applyRankToMultiSeries,
   applyRankToSeriesFieldData,
+  formatTemporalAxisLabel,
+  getTemporalAxisData,
   resolveMetricRef,
   resolveMetricRefs,
   resolveRows,
   normalizeToDate,
   truncateToGranularity,
   formatPeriodLabel,
+  fillTemporalLabelGaps,
   aggregateByField,
   aggregateByTwoFields,
   aggregateMultipleSeries,
@@ -1179,6 +1182,56 @@ describe('formatPeriodLabel', () => {
 
   it('returns unknown keys as-is', () => {
     expect(formatPeriodLabel('foo')).toBe('foo');
+  });
+});
+
+describe('fillTemporalLabelGaps', () => {
+  it('fills missing day buckets for date labels', () => {
+    expect(fillTemporalLabelGaps(['2024-01-01', '2024-01-03'])).toEqual([
+      '2024-01-01',
+      '2024-01-02',
+      '2024-01-03',
+    ]);
+  });
+
+  it('fills missing month buckets for grouped month labels', () => {
+    expect(fillTemporalLabelGaps(['2024-01', '2024-03'])).toEqual([
+      '2024-01',
+      '2024-02',
+      '2024-03',
+    ]);
+  });
+
+  it('preserves non-temporal labels unchanged', () => {
+    const labels = ['North', 'South'];
+    expect(fillTemporalLabelGaps(labels)).toBe(labels);
+  });
+});
+
+describe('getTemporalAxisData', () => {
+  it('converts grouped month labels into UTC dates', () => {
+    const result = getTemporalAxisData(['2024-01', '2024-03']);
+    expect(result).toHaveLength(2);
+    expect(result?.map((value) => value.toISOString())).toEqual([
+      '2024-01-01T00:00:00.000Z',
+      '2024-03-01T00:00:00.000Z',
+    ]);
+  });
+
+  it('converts raw ISO dates into UTC dates', () => {
+    const result = getTemporalAxisData(['2024-01-15', '2024-02-20']);
+    expect(result).toHaveLength(2);
+    expect(result?.[0].toISOString()).toBe('2024-01-15T00:00:00.000Z');
+  });
+
+  it('returns null for non-temporal labels', () => {
+    expect(getTemporalAxisData(['North', 'South'])).toBeNull();
+  });
+});
+
+describe('formatTemporalAxisLabel', () => {
+  it('formats grouped month dates using period labels', () => {
+    expect(formatTemporalAxisLabel(new Date('2024-03-01T00:00:00.000Z'), 'month')).toBe('Mar 2024');
   });
 });
 

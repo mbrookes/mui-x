@@ -1,7 +1,5 @@
 import type { StudioState, RelativeDateValue } from '@mui/x-studio';
 import {
-  BUSINESS_METRICS_SOURCE_ID,
-  businessMetricsSource,
   CUSTOMERS_SOURCE_ID,
   customersSource,
   ORDERS_SOURCE_ID,
@@ -61,7 +59,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
     [ORDER_ITEMS_SOURCE_ID]: orderItemsSource,
     [SHIPMENTS_SOURCE_ID]: shipmentsSource,
     [SHIPMENT_ITEMS_SOURCE_ID]: shipmentItemsSource,
-    [BUSINESS_METRICS_SOURCE_ID]: businessMetricsSource,
   },
   relationships: [
     {

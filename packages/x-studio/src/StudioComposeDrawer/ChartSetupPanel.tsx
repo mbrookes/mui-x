@@ -22,6 +22,7 @@ import { fieldsForCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioChartType, StudioBarLayout } from '../models';
 import { ChartTypePicker } from './ChartTypePicker';
+import { renderFieldOption } from './FieldOption';
 
 export function ChartSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
@@ -56,7 +57,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           sourceLabel: ds?.label ?? ef.sourceId,
         };
       });
-    return [...physicalFields, ...exprFields];
+    return [...physicalFields, ...exprFields].sort((a, b) =>
+      a.sourceLabel.localeCompare(b.sourceLabel),
+    );
   }, [dataSources, expressionFields]);
 
   // Once the X field anchors a source, restrict all other pickers to reachable sources.
@@ -69,7 +72,19 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   }, [allFields, widget?.sourceId, relationships]);
 
   const config = widget?.config ?? {};
-  const numericFields = fieldsForCapability(reachableFields, 'numeric');
+
+  const sortBySourceLabel = (a: { sourceLabel: string }, b: { sourceLabel: string }) =>
+    a.sourceLabel.localeCompare(b.sourceLabel);
+
+  const numericFields = React.useMemo(
+    () => fieldsForCapability(reachableFields, 'numeric').sort(sortBySourceLabel),
+    [reachableFields],
+  );
+
+  const categoryFields = React.useMemo(
+    () => fieldsForCapability(reachableFields, 'categorical').sort(sortBySourceLabel),
+    [reachableFields],
+  );
 
   const chartType: StudioChartType = config.chartType ?? 'bar';
 
@@ -97,7 +112,6 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       chartType === 'area-100') &&
     ySeries.length <= 1;
 
-  const categoryFields = fieldsForCapability(reachableFields, 'categorical');
   const selectedSeriesField =
     config.seriesField ? (reachableFields.find((f) => f.id === config.seriesField) ?? null) : null;
   const isScatter = chartType === 'scatter';
@@ -153,6 +167,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         options={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}
         groupBy={(option) => option.sourceLabel}
         getOptionLabel={(option) => option.label}
+        renderOption={renderFieldOption}
         value={selectedXField}
         onChange={(_e, newValue) => {
           controller.updateWidgetConfig(widgetId, { xField: newValue?.id ?? '' });
@@ -233,6 +248,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   options={numericFields}
                   groupBy={(option) => option.sourceLabel}
                   getOptionLabel={(option) => option.label}
+                  renderOption={renderFieldOption}
                   getOptionDisabled={(option) =>
                     option.id !== s.fieldId && usedYFieldIds.includes(option.id)
                   }
@@ -266,6 +282,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               options={numericFields}
               groupBy={(option) => option.sourceLabel}
               getOptionLabel={(option) => option.label}
+              renderOption={renderFieldOption}
               value={null}
               onChange={(_e, newValue) => {
                 controller.updateWidgetConfig(widgetId, {
@@ -289,6 +306,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           options={categoryFields}
           groupBy={(option) => option.sourceLabel}
           getOptionLabel={(option) => option.label}
+          renderOption={renderFieldOption}
           value={selectedSeriesField}
           onChange={(_e, newValue) =>
             controller.updateWidgetConfig(widgetId, {

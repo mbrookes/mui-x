@@ -33,6 +33,7 @@
     "@base-ui/react": "catalog:",
     "@mui/x-charts": "workspace:*",
     "@mui/x-data-grid": "workspace:*",
+    "@mui/x-data-grid-pro": "workspace:*",
     "@mui/x-date-pickers": "workspace:*",
     "@mui/x-date-pickers-pro": "workspace:*",
     "@mui/x-internals": "workspace:*",

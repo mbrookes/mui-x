@@ -526,6 +526,44 @@ describe('StudioController.setActivePage', () => {
     controller.setActivePage('nonexistent');
     expect(controller.getState().dashboard.activePageId).toBe('page-1');
   });
+
+  it('clears cross-filters when navigating to a different page', () => {
+    const controller = new StudioController({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+        'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+      },
+    });
+    controller.applyCrossFilter('widget-a', 'country', 'Germany');
+    expect(controller.getState().filters.some((f) => f.scope === 'cross-filter')).toBe(true);
+    controller.setActivePage('page-2');
+    expect(controller.getState().filters.some((f) => f.scope === 'cross-filter')).toBe(false);
+  });
+
+  it('preserves non-cross-filter entries when navigating pages', () => {
+    const controller = new StudioController({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+        'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+      },
+    });
+    controller.applyCrossFilter('widget-a', 'country', 'Germany');
+    // Add a page-scoped filter directly (simulate pre-existing widget filter)
+    const state = controller.getState();
+    controller['commitState']({
+      ...state,
+      filters: [
+        ...state.filters,
+        makeFilter({ id: 'page-filter', scope: 'page', field: 'status', operator: 'equals', value: 'Active' }),
+      ],
+    });
+    controller.setActivePage('page-2');
+    const remaining = controller.getState().filters;
+    expect(remaining.some((f) => f.scope === 'cross-filter')).toBe(false);
+    expect(remaining.some((f) => f.id === 'page-filter')).toBe(true);
+  });
 });
 
 describe('StudioController.loadSerializedState', () => {

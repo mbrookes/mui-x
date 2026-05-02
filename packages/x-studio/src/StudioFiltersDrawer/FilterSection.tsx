@@ -8,7 +8,7 @@ import {
   Typography,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioController } from '../context';
+import { useStudioController, useStudioSelector } from '../context';
 import type { StudioDataSource, StudioFilterState } from '../models';
 import type { FieldOption, SimpleField } from './filterDrawerTypes';
 import type { AvailableSeries } from './RankFilterInput';
@@ -119,6 +119,25 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
 
 export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }) {
   const controller = useStudioController();
+  const widgets = useStudioSelector((state) => state.widgets);
+  const expressionFields = useStudioSelector((state) => state.expressionFields);
+  const dataSources = useStudioSelector((state) => state.dataSources);
+
+  /** Resolve a human-readable label for a filter field ID. */
+  function resolveFieldLabel(fieldId: string, filterSourceId?: string): string {
+    const exprField = expressionFields.find((ef) => ef.id === fieldId);
+    if (exprField) {
+      return exprField.label;
+    }
+    if (filterSourceId) {
+      const source = dataSources[filterSourceId];
+      const dataField = source?.fields.find((f) => f.id === fieldId);
+      if (dataField) {
+        return dataField.label;
+      }
+    }
+    return fieldId;
+  }
 
   const clearAction = filters.length > 0 ? (
     <Tooltip title="Clear all cross-filters">
@@ -145,36 +164,44 @@ export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }
         </Typography>
       ) : (
         <Stack spacing={1} sx={{ pb: 0.5 }}>
-          {filters.map((filter: StudioFilterState) => (
-            <Box
-              key={filter.id}
-              sx={{
-                position: 'relative',
-                p: 1,
-                pr: 4,
-                borderRadius: 1,
-                border: 1,
-                borderColor: 'divider',
-              }}
-            >
-              <Typography variant="body2">
-                {filter.field} = {String(filter.value)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                From widget: {filter.sourceWidgetId}
-              </Typography>
-              <Tooltip title="Remove cross-filter">
-                <IconButton
-                  size="small"
-                  onClick={() => controller.removeFilter(filter.id)}
-                  aria-label="Remove cross-filter"
-                  sx={{ position: 'absolute', top: 2, right: 2 }}
-                >
-                  <CloseIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          ))}
+          {filters.map((filter: StudioFilterState) => {
+            const fieldLabel = resolveFieldLabel(filter.field, filter.filterSourceId);
+            const widgetTitle = filter.sourceWidgetId
+              ? (widgets[filter.sourceWidgetId]?.title ?? filter.sourceWidgetId)
+              : null;
+            return (
+              <Box
+                key={filter.id}
+                sx={{
+                  position: 'relative',
+                  p: 1,
+                  pr: 4,
+                  borderRadius: 1,
+                  border: 1,
+                  borderColor: 'divider',
+                }}
+              >
+                <Typography variant="body2">
+                  {fieldLabel} = {String(filter.value)}
+                </Typography>
+                {widgetTitle && (
+                  <Typography variant="caption" color="text.secondary">
+                    From: {widgetTitle}
+                  </Typography>
+                )}
+                <Tooltip title="Remove cross-filter">
+                  <IconButton
+                    size="small"
+                    onClick={() => controller.removeFilter(filter.id)}
+                    aria-label="Remove cross-filter"
+                    sx={{ position: 'absolute', top: 2, right: 2 }}
+                  >
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            );
+          })}
         </Stack>
       )}
     </CollapsibleSection>

@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { Box, IconButton, Switch, Tab, Tabs, Tooltip, Typography } from '@mui/material';
 import type { SwitchProps } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
@@ -5,6 +6,7 @@ import FileUploadIcon from '@mui/icons-material/FileUpload';
 import RedoIcon from '@mui/icons-material/Redo';
 import UndoIcon from '@mui/icons-material/Undo';
 import type { StudioMode, StudioPage } from '@mui/x-studio';
+import { StudioWordmark } from '@mui/x-studio';
 
 export interface AppToolbarProps {
   title: string;
@@ -37,9 +39,17 @@ export function AppToolbar(props: AppToolbarProps) {
         minHeight: 48,
       }}
     >
-      <Typography variant="h6" noWrap sx={{ color: 'text.primary', mr: 2, flexShrink: 0 }}>
-        {title}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0, mr: 1 }}>
+        <StudioWordmark height={26} />
+        {title && (
+          <React.Fragment>
+            <Box sx={{ width: 1, height: 20, bgcolor: 'divider', borderRadius: 1 }} aria-hidden />
+            <Typography variant="body2" noWrap sx={{ color: 'text.secondary' }}>
+              {title}
+            </Typography>
+          </React.Fragment>
+        )}
+      </Box>
       {pages.length > 1 && (
         <Tabs
           value={activePageId}

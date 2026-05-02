@@ -94,3 +94,7 @@ export type { RelativeDateValue, RelativeDateUnit } from './internals/filterType
 
 // ─── Schema version ───────────────────────────────────────────────────────────
 export { CURRENT_SCHEMA_VERSION } from './store/statePersistence';
+
+// ─── Brand ───────────────────────────────────────────────────────────────────
+export { StudioWordmark } from './icons/StudioWordmark';
+export type { StudioWordmarkProps } from './icons/StudioWordmark';

@@ -9,8 +9,72 @@ import { AppToolbar } from './components/AppToolbar';
 import { downloadJson, uploadJson } from './utils/fileUtils';
 import { theme } from './theme';
 
+function slugifyPageTitle(title: string) {
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function resolvePageIdFromQuery(
+  pageParam: string | undefined,
+  pages: Record<string, StudioPage> | undefined,
+) {
+  if (!pageParam || !pages) {
+    return undefined;
+  }
+
+  if (pages[pageParam]) {
+    return pageParam;
+  }
+
+  const pageList = Object.values(pages);
+  const pageIndex = Number.parseInt(pageParam, 10);
+  if (!Number.isNaN(pageIndex) && pageIndex >= 1 && pageIndex <= pageList.length) {
+    return pageList[pageIndex - 1]?.id;
+  }
+
+  return pageList.find((page) => slugifyPageTitle(page.title) === pageParam)?.id;
+}
+
+function getUrlPageParam() {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  return new URL(window.location.href).searchParams.get('page') ?? undefined;
+}
+
+function setUrlPageId(
+  pageId: string,
+  pages: Record<string, StudioPage> | undefined,
+) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const page = pages?.[pageId];
+  const url = new URL(window.location.href);
+  url.searchParams.set('page', page ? slugifyPageTitle(page.title) || page.id : pageId);
+  window.history.replaceState(window.history.state, '', url);
+}
+
 export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);
+  const initialState = React.useMemo<Partial<StudioState>>(() => {
+    const urlPageId = resolvePageIdFromQuery(getUrlPageParam(), INITIAL_STATE.pages);
+    if (!urlPageId) {
+      return INITIAL_STATE;
+    }
+
+    return {
+      ...INITIAL_STATE,
+      dashboard: {
+        ...INITIAL_STATE.dashboard,
+        activePageId: urlPageId,
+      },
+    };
+  }, []);
   const [mode, setMode] = React.useState<StudioMode>('edit');
   const [title, setTitle] = React.useState('');
   const [pages, setPages] = React.useState<Record<string, StudioPage>>({});
@@ -106,6 +170,13 @@ export default function App() {
 
   const pageList = Object.values(pages);
 
+  React.useEffect(() => {
+    if (!activePageId) {
+      return;
+    }
+    setUrlPageId(activePageId, pages);
+  }, [activePageId, pages]);
+
   return (
     <ThemeProvider theme={theme}>
       <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -128,7 +199,7 @@ export default function App() {
           <Box sx={{ flexGrow: 1, minHeight: 0 }}>
             <Studio
               ref={studioRef}
-              initialState={INITIAL_STATE}
+              initialState={initialState}
               onStateChange={handleStateChange}
             />
           </Box>

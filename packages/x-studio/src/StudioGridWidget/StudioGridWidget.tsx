@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
-import { DataGrid, type GridColDef, type GridRowSelectionModel } from '@mui/x-data-grid';
-import { Box, Chip, Stack, Tooltip, Typography } from '@mui/material';
+import { DataGridPro, type GridColDef, type GridRowSelectionModel } from '@mui/x-data-grid-pro';
+import { Chip, Stack } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import { useStudioController, useStudioSelector } from '../context';
@@ -136,67 +136,26 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     return computeGridSummary(rows, dataSource.fields, { fields: summaryConfig });
   }, [rows, dataSource, summaryConfig]);
 
-  // Build the summary footer — one cell per visible column, matching the grid's flex layout.
-  const summaryFooter = summaryValues ? (
-    <Box
-      sx={{
-        display: 'flex',
-        borderTop: 2,
-        borderColor: 'divider',
-        bgcolor: 'action.hover',
-        px: 0.5,
-      }}
-      role="row"
-      aria-label="Summary row"
-    >
-      {columns.map((col) => {
-        const value = summaryValues[col.field];
-        return (
-          <Box
-            key={col.field}
-            sx={{
-              flex: col.flex ?? 1,
-              minWidth: col.minWidth ?? 140,
-              py: 0.5,
-              px: 1,
-              overflow: 'hidden',
-            }}
-            role="cell"
-          >
-            {value ? (
-              <Tooltip title={value} placement="top">
-                <Typography
-                  variant="caption"
-                  noWrap
-                  sx={{ fontWeight: 600, color: 'text.secondary', display: 'block' }}
-                >
-                  {value}
-                </Typography>
-              </Tooltip>
-            ) : null}
-          </Box>
-        );
-      })}
-    </Box>
-  ) : null;
+  // Build a pinned bottom row for DataGridPro using the summary values.
+  const pinnedRows = React.useMemo(() => {
+    if (!summaryValues) {
+      return undefined;
+    }
+    return { bottom: [{ id: '__summary__', ...summaryValues }] };
+  }, [summaryValues]);
 
   return (
     <div>
       {crossFilterIndicator}
-      <DataGrid
-        autoHeight
+      <DataGridPro
         density="compact"
         columns={columns}
         disableColumnMenu
         rows={rows}
-        pageSizeOptions={[5, 10, 25]}
+        pinnedRows={pinnedRows}
+        hideFooter
+        sx={{ height: 400 }}
         initialState={{
-          pagination: {
-            paginationModel: {
-              pageSize: 5,
-              page: 0,
-            },
-          },
           ...(widget.config.gridSortField && {
             sorting: {
               sortModel: [
@@ -210,7 +169,6 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         }}
         onRowSelectionModelChange={handleRowSelectionChange}
       />
-      {summaryFooter}
     </div>
   );
 });

@@ -108,7 +108,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
       {allFields.map((field) => {
         const isNumeric = field.type === 'number';
         const availableAggs = isNumeric ? NUMERIC_AGGREGATIONS : STRING_AGGREGATIONS;
-        const currentAgg: StudioGridSummaryAggregation | '' = summaryFields[field.id] ?? '';
+        const currentAgg = summaryFields[field.id];
         const isVisible = visibleColumns.includes(field.id);
 
         return (
@@ -161,13 +161,13 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   open={openFieldId === field.id}
                   anchorEl={menuAnchor?.el}
                   onClose={() => setMenuAnchor(null)}
-                  MenuListProps={{ dense: true }}
+                  slotProps={{ list: { dense: true } }}
                 >
                   <MenuItem
                     onClick={() => handleSummaryChange(field.id, '')}
-                    selected={currentAgg === ''}
+                    selected={currentAgg == null}
                   >
-                    {currentAgg === '' ? (
+                    {currentAgg == null ? (
                       <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
                     ) : (
                       <ListItemIcon />

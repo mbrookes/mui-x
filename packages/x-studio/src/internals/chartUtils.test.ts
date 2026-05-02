@@ -1739,6 +1739,28 @@ describe('resolveChartRowsForAggregation bridge case', () => {
       values: [70, 150],
     });
   });
+
+  it('supports a bridged seriesField from the widget source onto many-side anchor rows', () => {
+    const resolvedRows = resolveChartRowsForAggregation(
+      orders,
+      'orders',
+      'country',
+      ['total'],
+      'customerId',
+      dataSources,
+      relationships,
+      [],
+    );
+
+    expect(aggregateByTwoFields(resolvedRows, 'country', 'customerId', 'total')).toEqual({
+      labels: ['France', 'Germany'],
+      seriesNames: ['CUS-1', 'CUS-2'],
+      seriesData: {
+        'CUS-1': [0, 150],
+        'CUS-2': [70, 0],
+      },
+    });
+  });
 });
 
 // ─── applyRankToSeriesFieldData ───────────────────────────────────────────────

@@ -1,12 +1,13 @@
 'use client';
 import * as React from 'react';
 import { DataGrid, type GridColDef, type GridRowSelectionModel } from '@mui/x-data-grid';
-import { Chip, Stack } from '@mui/material';
+import { Box, Chip, Stack, Tooltip, Typography } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import { useStudioController, useStudioSelector } from '../context';
 import { applyFilters, resolveMetricRefs } from '../internals/chartUtils';
 import { formatFieldValue } from '../internals/numberFormat';
+import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 import { computeGridSummary } from '../utils/gridSummary';
 
@@ -136,13 +137,50 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     return computeGridSummary(rows, dataSource.fields, { fields: summaryConfig });
   }, [rows, dataSource, summaryConfig]);
 
-  // Build a pinned bottom row from the computed summary values.
-  const pinnedBottomRows = React.useMemo(() => {
-    if (!summaryValues) {
-      return undefined;
-    }
-    return { bottom: [{ id: '__summary__', ...summaryValues }] };
-  }, [summaryValues]);
+  // Build the summary footer — one cell per visible column, matching the grid's flex layout.
+  const summaryFooter =
+    summaryValues ? (
+      <Box
+        sx={{
+          display: 'flex',
+          borderTop: 2,
+          borderColor: 'divider',
+          bgcolor: 'action.hover',
+          px: 0.5,
+        }}
+        role="row"
+        aria-label="Summary row"
+      >
+        {columns.map((col) => {
+          const value = summaryValues[col.field];
+          return (
+            <Box
+              key={col.field}
+              sx={{
+                flex: col.flex ?? 1,
+                minWidth: col.minWidth ?? 140,
+                py: 0.5,
+                px: 1,
+                overflow: 'hidden',
+              }}
+              role="cell"
+            >
+              {value ? (
+                <Tooltip title={value} placement="top">
+                  <Typography
+                    variant="caption"
+                    noWrap
+                    sx={{ fontWeight: 600, color: 'text.secondary', display: 'block' }}
+                  >
+                    {value}
+                  </Typography>
+                </Tooltip>
+              ) : null}
+            </Box>
+          );
+        })}
+      </Box>
+    ) : null;
 
   return (
     <div>
@@ -153,20 +191,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         columns={columns}
         disableColumnMenu
         rows={rows}
-        pinnedRows={pinnedBottomRows}
         pageSizeOptions={[5, 10, 25]}
-        getRowClassName={(params) =>
-          params.id === '__summary__' ? 'StudioGridWidget-summaryRow' : ''
-        }
-        isRowSelectable={(params) => params.id !== '__summary__'}
-        sx={{
-          '& .StudioGridWidget-summaryRow': {
-            fontWeight: 700,
-            bgcolor: 'action.hover',
-            color: 'text.secondary',
-            '& .MuiDataGrid-cell': { borderTop: '2px solid', borderColor: 'divider' },
-          },
-        }}
         initialState={{
           pagination: {
             paginationModel: {
@@ -187,6 +212,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         }}
         onRowSelectionModelChange={handleRowSelectionChange}
       />
+      {summaryFooter}
     </div>
   );
 });

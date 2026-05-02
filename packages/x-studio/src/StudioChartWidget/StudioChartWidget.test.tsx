@@ -9,6 +9,7 @@ import { StudioChartWidget } from './StudioChartWidget';
 const barChartSpy = vi.fn();
 const lineChartSpy = vi.fn();
 const pieChartSpy = vi.fn();
+const scatterChartSpy = vi.fn();
 
 vi.mock('@mui/x-charts/BarChart', () => ({
   BarChart: (props: unknown) => {
@@ -32,7 +33,10 @@ vi.mock('@mui/x-charts/PieChart', () => ({
 }));
 
 vi.mock('@mui/x-charts/ScatterChart', () => ({
-  ScatterChart: () => <div data-testid="scatter-chart" />,
+  ScatterChart: (props: unknown) => {
+    scatterChartSpy(props);
+    return <div data-testid="scatter-chart" />;
+  },
 }));
 
 let mockState: StudioState;
@@ -95,6 +99,7 @@ describe('<StudioChartWidget />', () => {
     barChartSpy.mockClear();
     lineChartSpy.mockClear();
     pieChartSpy.mockClear();
+    scatterChartSpy.mockClear();
     controller.clearCrossFilter.mockClear();
     controller.applyCrossFilter.mockClear();
   });
@@ -224,6 +229,63 @@ describe('<StudioChartWidget />', () => {
     }))).toEqual([
       { label: 'Revenue', stack: 'total', data: [75, 80], formatted: '75.0%' },
       { label: 'Profit', stack: 'total', data: [25, 20], formatted: '25.0%' },
+    ]);
+  });
+
+  it('normalizes split-by bar-100 series and configures a percent axis', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'bucket', label: 'Bucket', type: 'number' },
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: '1', bucket: 1, category: 'A', total: 30 },
+        { id: '2', bucket: 1, category: 'B', total: 10 },
+        { id: '3', bucket: 2, category: 'A', total: 20 },
+        { id: '4', bucket: 2, category: 'B', total: 5 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-split-bar-100',
+      kind: 'chart',
+      title: 'Revenue Mix by Category',
+      sourceId: 'orders',
+      config: {
+        chartType: 'bar-100',
+        xField: 'bucket',
+        yField: 'total',
+        seriesField: 'category',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+      yAxis: Array<{ min?: number; max?: number; valueFormatter?: (value: number) => string }>;
+      series: Array<{ label: string; stack?: string; data: Array<number | null>; valueFormatter?: (value: number | null) => string }>;
+    };
+
+    expect(props.yAxis).toHaveLength(1);
+    expect(props.yAxis[0].min).toBe(0);
+    expect(props.yAxis[0].max).toBe(100);
+    expect(props.yAxis[0].valueFormatter?.(42)).toBe('42%');
+    expect(props.series.map((series) => ({
+      label: series.label,
+      stack: series.stack,
+      data: series.data,
+      formatted: series.valueFormatter?.(series.data[0]),
+    }))).toEqual([
+      { label: 'A', stack: 'stack', data: [75, 80], formatted: '75.0%' },
+      { label: 'B', stack: 'stack', data: [25, 20], formatted: '25.0%' },
     ]);
   });
 
@@ -382,6 +444,52 @@ describe('<StudioChartWidget />', () => {
     expect(props.highlightedItem).toEqual({ seriesId: 'cross-filter-series', dataIndex: 1 });
   });
 
+  it('passes prepared scatter data through as a single hidden-legend series', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'revenue', label: 'Revenue', type: 'number' },
+        { id: 'profit', label: 'Profit', type: 'number' },
+      ],
+      rows: [
+        { id: '1', revenue: 10, profit: 3 },
+        { id: '2', revenue: 20, profit: 7 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-scatter',
+      kind: 'chart',
+      title: 'Revenue vs Profit',
+      sourceId: 'orders',
+      config: {
+        chartType: 'scatter',
+        xField: 'revenue',
+        yField: 'profit',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = scatterChartSpy.mock.calls.at(-1)?.[0] as {
+      hideLegend?: boolean;
+      series: Array<{ data: Array<{ id: number; x: number; y: number }> }>;
+    };
+
+    expect(props.hideLegend).toBe(true);
+    expect(props.series).toHaveLength(1);
+    expect(props.series[0].data).toEqual([
+      { id: 0, x: 10, y: 3 },
+      { id: 1, x: 20, y: 7 },
+    ]);
+  });
+
   it('sets connectNulls to false for split-by line series', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',
@@ -425,6 +533,86 @@ describe('<StudioChartWidget />', () => {
     expect(props.xAxis[0].scaleType).toBe('point');
     expect(props.xAxis[0].data).toEqual(['Feb', 'Jan']);
     expect(props.series.every((series) => series.connectNulls === false)).toBe(true);
+  });
+
+  it('normalizes split-by area-100 series and keeps gaps disconnected', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'bucket', label: 'Bucket', type: 'number' },
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: '1', bucket: 1, category: 'A', total: 30 },
+        { id: '2', bucket: 1, category: 'B', total: 10 },
+        { id: '3', bucket: 2, category: 'A', total: 20 },
+        { id: '4', bucket: 2, category: 'B', total: 5 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-split-area-100',
+      kind: 'chart',
+      title: 'Revenue Mix Trend',
+      sourceId: 'orders',
+      config: {
+        chartType: 'area-100',
+        xField: 'bucket',
+        yField: 'total',
+        seriesField: 'category',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+      yAxis: Array<{ min?: number; max?: number; valueFormatter?: (value: number) => string }>;
+      series: Array<{
+        label: string;
+        area?: boolean;
+        stack?: string;
+        connectNulls?: boolean;
+        data: Array<number | null>;
+        valueFormatter?: (value: number | null) => string;
+      }>;
+    };
+
+    expect(props.yAxis).toHaveLength(1);
+    expect(props.yAxis[0].min).toBe(0);
+    expect(props.yAxis[0].max).toBe(100);
+    expect(props.yAxis[0].valueFormatter?.(42)).toBe('42%');
+    expect(props.series.map((series) => ({
+      label: series.label,
+      area: series.area,
+      stack: series.stack,
+      connectNulls: series.connectNulls,
+      data: series.data,
+      formatted: series.valueFormatter?.(series.data[0]),
+    }))).toEqual([
+      {
+        label: 'A',
+        area: true,
+        stack: 'total',
+        connectNulls: false,
+        data: [75, 80],
+        formatted: '75.0%',
+      },
+      {
+        label: 'B',
+        area: true,
+        stack: 'total',
+        connectNulls: false,
+        data: [25, 20],
+        formatted: '25.0%',
+      },
+    ]);
   });
 
   it('uses a UTC axis and keeps gaps disconnected for single-series area charts', () => {

@@ -350,7 +350,19 @@ export class StudioController {
       return;
     }
 
-    const updated: StudioWidget = { ...existing, config: { ...existing.config, ...config } };
+    const nextConfig = { ...existing.config } as Record<string, unknown>;
+    Object.entries(config).forEach(([key, value]) => {
+      if (value === undefined) {
+        delete nextConfig[key as keyof typeof nextConfig];
+      } else {
+        nextConfig[key] = value;
+      }
+    });
+
+    const updated: StudioWidget = {
+      ...existing,
+      config: nextConfig as StudioWidget['config'],
+    };
     const withTitles = this.applyInferredTitles(updated, state.dataSources);
 
     this.commitState({

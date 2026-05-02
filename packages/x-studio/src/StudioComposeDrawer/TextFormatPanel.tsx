@@ -76,7 +76,7 @@ function TextSectionFormat(props: TextSectionFormatProps) {
           </FormControl>
 
           <ColorInput
-            label="Colour"
+            label="Color"
             value={color ?? ''}
             onChange={(v) => onColorChange(v || undefined)}
             placeholder="Default"

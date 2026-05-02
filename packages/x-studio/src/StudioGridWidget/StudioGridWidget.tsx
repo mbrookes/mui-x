@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { DataGrid, type GridColDef, type GridRowSelectionModel } from '@mui/x-data-grid';
-import { Chip, Stack } from '@mui/material';
+import { Box, Chip, Stack, Tooltip, Typography } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import { useStudioController, useStudioSelector } from '../context';
@@ -9,10 +9,18 @@ import { applyFilters, resolveMetricRefs } from '../internals/chartUtils';
 import { formatFieldValue } from '../internals/numberFormat';
 import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
+import { computeGridSummary } from '../utils/gridSummary';
 
 export interface StudioGridWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
+}
+
+export function getDefaultCrossFilterFieldId(
+  widget: StudioWidget,
+  dataSource?: StudioDataSource,
+) {
+  return widget.config.columns?.[0] ?? dataSource?.fields.find((field) => !field.hidden)?.id;
 }
 
 export const StudioGridWidget = React.memo(function StudioGridWidget(props: StudioGridWidgetProps) {
@@ -89,11 +97,11 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         return;
       }
 
-      // Use configured field, fall back to first non-hidden string field
+      // Use configured field, fall back to the first visible grid column.
       const crossFilterFieldId = widget.config.crossFilterField;
       const filterField = crossFilterFieldId
         ? dataSource?.fields.find((f) => f.id === crossFilterFieldId)
-        : dataSource?.fields.find((f) => fieldHasCapability(f, 'categorical') && !f.hidden);
+        : dataSource?.fields.find((f) => f.id === getDefaultCrossFilterFieldId(widget, dataSource));
 
       if (!filterField) {
         return;
@@ -101,10 +109,10 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
       const value = (selectedRow as Record<string, unknown>)[filterField.id];
       if (value !== undefined) {
-        controller.applyCrossFilter(widget.id, filterField.id, value);
+        controller.applyCrossFilter(widget.id, filterField.id, value, widget.sourceId);
       }
     },
-    [controller, widget.id, widget.config.crossFilterField, rows, dataSource],
+    [controller, widget.id, widget.config.columns, widget.config.crossFilterField, rows, dataSource],
   );
 
   // Cross-filter indicator
@@ -119,6 +127,60 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       />
     </Stack>
   ) : null;
+
+  // Compute summary values over ALL filtered rows (not just the current page).
+  const summaryConfig = widget.config.gridSummaryFields;
+  const summaryValues = React.useMemo(() => {
+    if (!summaryConfig || Object.keys(summaryConfig).length === 0 || !dataSource) {
+      return null;
+    }
+    return computeGridSummary(rows, dataSource.fields, { fields: summaryConfig });
+  }, [rows, dataSource, summaryConfig]);
+
+  // Build the summary footer — one cell per visible column, matching the grid's flex layout.
+  const summaryFooter =
+    summaryValues ? (
+      <Box
+        sx={{
+          display: 'flex',
+          borderTop: 2,
+          borderColor: 'divider',
+          bgcolor: 'action.hover',
+          px: 0.5,
+        }}
+        role="row"
+        aria-label="Summary row"
+      >
+        {columns.map((col) => {
+          const value = summaryValues[col.field];
+          return (
+            <Box
+              key={col.field}
+              sx={{
+                flex: col.flex ?? 1,
+                minWidth: col.minWidth ?? 140,
+                py: 0.5,
+                px: 1,
+                overflow: 'hidden',
+              }}
+              role="cell"
+            >
+              {value ? (
+                <Tooltip title={value} placement="top">
+                  <Typography
+                    variant="caption"
+                    noWrap
+                    sx={{ fontWeight: 600, color: 'text.secondary', display: 'block' }}
+                  >
+                    {value}
+                  </Typography>
+                </Tooltip>
+              ) : null}
+            </Box>
+          );
+        })}
+      </Box>
+    ) : null;
 
   return (
     <div>
@@ -150,6 +212,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         }}
         onRowSelectionModelChange={handleRowSelectionChange}
       />
+      {summaryFooter}
     </div>
   );
 });

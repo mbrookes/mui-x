@@ -26,6 +26,9 @@ export type StudioNumberFormat = 'integer' | 'decimal' | 'percent' | 'currency';
 
 export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
+/** Aggregation function to show in the grid summary (totals) row. */
+export type StudioGridSummaryAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
+
 export type StudioFilterOperator =
   | 'equals'
   | 'in'
@@ -116,8 +119,15 @@ export interface StudioWidgetConfig {
    * decrease shows as green. Use for cost, error-rate, or other "lower is better" metrics.
    */
   kpiTrendInvert?: boolean;
+  // Grid summary (totals) row
+  /**
+   * Aggregation to show in the pinned summary footer for each field.
+   * Only fields included in this map will have a summary cell rendered.
+   * Numeric-only aggregations (sum, avg, min, max) are ignored for non-number fields.
+   */
+  gridSummaryFields?: Record<string, StudioGridSummaryAggregation>;
   // Grid cross-filter
-  /** Field used when a row is selected to emit a cross-filter to other widgets. Defaults to first string field. */
+  /** Field used when a row is selected to emit a cross-filter to other widgets. Defaults to the first visible grid column. */
   crossFilterField?: string;
   // Text config
   textSubtitle?: string;

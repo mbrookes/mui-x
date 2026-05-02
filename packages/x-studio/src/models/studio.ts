@@ -294,10 +294,22 @@ export interface StudioFieldExpression {
   aggregation?: StudioKpiAggregation;
 }
 
+/**
+ * A reference to a field on a related (joined) record, resolved at evaluation
+ * time via the declared source relationships.
+ *
+ * Example: pull `country` from the customers source for each order row.
+ */
+export interface StudioJoinFieldExpression {
+  joinSourceId: string;
+  fieldId: string;
+}
+
 export type StudioExpression =
   | StudioFunctionExpression
   | StudioValueExpression
-  | StudioFieldExpression;
+  | StudioFieldExpression
+  | StudioJoinFieldExpression;
 
 /** A user-defined computed field derived from an expression tree. */
 export interface StudioExpressionField {

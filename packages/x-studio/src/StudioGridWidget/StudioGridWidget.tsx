@@ -28,6 +28,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const filters = useStudioSelector((state) => state.filters);
   const dataSources = useStudioSelector((state) => state.dataSources);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
+  const relationships = useStudioSelector((state) => state.relationships);
 
   // Check if this widget has an active cross-filter
   const activeCrossFilter = filters.find(
@@ -72,14 +73,14 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       dataSources,
     );
 
-    const enrichedRows = enrichRowsWithExpressions(dataSource.rows, expressionFields, widget.sourceId ?? '');
+    const enrichedRows = enrichRowsWithExpressions(dataSource.rows, expressionFields, widget.sourceId ?? '', dataSources, relationships);
     const filteredRows = applyFilters(enrichedRows, allFilters);
 
     return filteredRows.map((row, index) => ({
       id: row.id ?? `${widget.id}-${index}`,
       ...row,
     }));
-  }, [dataSource, widget.id, widget.sourceId, filters, dataSources, expressionFields]);
+  }, [dataSource, widget.id, widget.sourceId, filters, dataSources, expressionFields, relationships]);
 
   const handleRowSelectionChange = React.useCallback(
     (selection: GridRowSelectionModel) => {

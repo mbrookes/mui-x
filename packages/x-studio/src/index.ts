@@ -86,6 +86,7 @@ export type {
   StudioValueExpression,
   StudioFunctionExpression,
   StudioFieldExpression,
+  StudioJoinFieldExpression,
   StudioExpressionOperator,
 } from './models/studio';
 

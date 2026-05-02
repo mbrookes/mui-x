@@ -2,24 +2,6 @@ import type { StudioDataSource } from '@mui/x-studio';
 
 export const ORDERS_SOURCE_ID = 'source-orders';
 
-// Customer → country lookup (denormalized to avoid a runtime join for chart grouping)
-const CUSTOMER_COUNTRY: Record<string, string> = {
-  'CUS-001': 'Germany', 'CUS-002': 'Germany', 'CUS-003': 'Germany',
-  'CUS-004': 'Germany', 'CUS-005': 'Germany',
-  'CUS-006': 'UK', 'CUS-007': 'UK', 'CUS-008': 'UK', 'CUS-009': 'UK', 'CUS-010': 'UK',
-  'CUS-047': 'UK', 'CUS-048': 'UK', 'CUS-049': 'UK', 'CUS-050': 'UK',
-  'CUS-011': 'France', 'CUS-012': 'France', 'CUS-013': 'France', 'CUS-014': 'France',
-  'CUS-015': 'USA', 'CUS-016': 'USA', 'CUS-017': 'USA', 'CUS-018': 'USA',
-  'CUS-043': 'USA', 'CUS-044': 'USA', 'CUS-045': 'USA', 'CUS-046': 'USA',
-  'CUS-019': 'Canada', 'CUS-020': 'Canada', 'CUS-021': 'Canada',
-  'CUS-035': 'Canada', 'CUS-036': 'Canada', 'CUS-037': 'Canada', 'CUS-038': 'Canada',
-  'CUS-022': 'Spain', 'CUS-023': 'Spain', 'CUS-024': 'Spain', 'CUS-025': 'Spain',
-  'CUS-026': 'Netherlands', 'CUS-027': 'Netherlands', 'CUS-028': 'Netherlands',
-  'CUS-029': 'Sweden', 'CUS-030': 'Sweden', 'CUS-031': 'Sweden',
-  'CUS-032': 'Poland', 'CUS-033': 'Poland', 'CUS-034': 'Poland',
-  'CUS-039': 'Australia', 'CUS-040': 'Australia', 'CUS-041': 'Australia', 'CUS-042': 'Australia',
-};
-
 const ordersSourceRaw: StudioDataSource = {
   id: ORDERS_SOURCE_ID,
   label: 'Orders',
@@ -30,7 +12,6 @@ const ordersSourceRaw: StudioDataSource = {
     { id: 'status', label: 'Status', type: 'string' },
     { id: 'total', label: 'Order Total', type: 'number', format: 'currency' },
     { id: 'currency', label: 'Currency', type: 'string' },
-    { id: 'country', label: 'Country', type: 'string' },
   ],
   rows: [
     {
@@ -1800,11 +1781,5 @@ const ordersSourceRaw: StudioDataSource = {
   ],
 };
 
-export const ordersSource: StudioDataSource = {
-  ...ordersSourceRaw,
-  rows: ordersSourceRaw.rows.map((r) => ({
-    ...r,
-    country: CUSTOMER_COUNTRY[String(r.customerId)] ?? 'Unknown',
-  })),
-};
+export const ordersSource: StudioDataSource = ordersSourceRaw;
 

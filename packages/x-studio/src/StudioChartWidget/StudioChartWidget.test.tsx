@@ -615,6 +615,140 @@ describe('<StudioChartWidget />', () => {
     ]);
   });
 
+  it('renders a setup placeholder when xField is not configured', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [{ id: 'total', label: 'Total', type: 'number' }],
+      rows: [{ id: '1', total: 10 }],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-no-xfield',
+      kind: 'chart',
+      title: 'Unconfigured Chart',
+      sourceId: 'orders',
+      config: { chartType: 'bar' } as StudioWidget['config'],
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+    });
+
+    const { getByText } = renderChart(widget, dataSource);
+
+    expect(barChartSpy).not.toHaveBeenCalled();
+    getByText('Use the Setup tab to configure this chart.');
+  });
+
+  it('renders an empty box for scatter when there is no data', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'revenue', label: 'Revenue', type: 'number' },
+        { id: 'profit', label: 'Profit', type: 'number' },
+      ],
+      rows: [],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-scatter-empty',
+      kind: 'chart',
+      title: 'Empty Scatter',
+      sourceId: 'orders',
+      config: {
+        chartType: 'scatter',
+        xField: 'revenue',
+        yField: 'profit',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+    });
+
+    renderChart(widget, dataSource);
+
+    expect(scatterChartSpy).not.toHaveBeenCalled();
+  });
+
+  it('renders an empty box for a bar chart when there is no data', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'bucket', label: 'Bucket', type: 'number' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-bar-empty',
+      kind: 'chart',
+      title: 'Empty Bar',
+      sourceId: 'orders',
+      config: {
+        chartType: 'bar',
+        xField: 'bucket',
+        yField: 'total',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+    });
+
+    renderChart(widget, dataSource);
+
+    expect(barChartSpy).not.toHaveBeenCalled();
+  });
+
+  it('passes hoveredItem as highlightedItem when no cross-filter is active', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'bucket', label: 'Bucket', type: 'number' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: '1', bucket: 1, total: 10 },
+        { id: '2', bucket: 2, total: 20 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-no-filter',
+      kind: 'chart',
+      title: 'Revenue Trend',
+      sourceId: 'orders',
+      config: {
+        chartType: 'line',
+        xField: 'bucket',
+        yField: 'total',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+      highlightedItem: { seriesId: string; dataIndex: number } | null;
+    };
+
+    // hoveredItem starts as null; with no active cross-filter it is passed through as-is
+    expect(props.highlightedItem).toBeNull();
+  });
+
   it('uses a UTC axis and keeps gaps disconnected for single-series area charts', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',

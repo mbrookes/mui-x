@@ -203,13 +203,16 @@ describe('<StudioChartWidget />', () => {
     renderChart(widget, dataSource);
 
     const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+      xAxis: Array<{ scaleType?: string; data: unknown[] }>;
       series: Array<{ connectNulls?: boolean }>;
     };
 
+    expect(props.xAxis[0].scaleType).toBe('point');
+    expect(props.xAxis[0].data).toEqual(['Feb', 'Jan']);
     expect(props.series.every((series) => series.connectNulls === false)).toBe(true);
   });
 
-  it('sets connectNulls to false for single-series area charts', () => {
+  it('uses a UTC axis and keeps gaps disconnected for single-series area charts', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',
       label: 'Orders',
@@ -243,9 +246,13 @@ describe('<StudioChartWidget />', () => {
     renderChart(widget, dataSource);
 
     const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+      xAxis: Array<{ scaleType?: string; data: unknown[] }>;
       series: Array<{ connectNulls?: boolean; area?: boolean }>;
     };
 
+    expect(props.xAxis[0].scaleType).toBe('utc');
+    expect(props.xAxis[0].data[0]).toBeInstanceOf(Date);
+    expect(props.xAxis[0].data[1]).toBeInstanceOf(Date);
     expect(props.series).toHaveLength(1);
     expect(props.series[0].area).toBe(true);
     expect(props.series[0].connectNulls).toBe(false);

@@ -29,10 +29,11 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const dataSources = useStudioSelector((state) => state.dataSources);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
   const relationships = useStudioSelector((state) => state.relationships);
+  const activePageId = useStudioSelector((state) => state.dashboard.activePageId);
 
-  // Check if this widget has an active cross-filter
+  // Check if this widget has an active cross-filter (on the current page)
   const activeCrossFilter = filters.find(
-    (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id,
+    (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === activePageId,
   );
 
   const columns = React.useMemo<GridColDef[]>(() => {
@@ -64,9 +65,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
     const pageFilters = filters.filter((f) => f.scope === 'page');
     const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
-    // Cross-filters from OTHER widgets affect this widget
+    // Cross-filters from OTHER widgets on the same page affect this widget
     const crossFilters = filters.filter(
-      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
+      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
     );
     const allFilters = resolveMetricRefs(
       [...pageFilters, ...widgetFilters, ...crossFilters],
@@ -80,7 +81,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       id: row.id ?? `${widget.id}-${index}`,
       ...row,
     }));
-  }, [dataSource, widget.id, widget.sourceId, filters, dataSources, expressionFields, relationships]);
+  }, [dataSource, widget.id, widget.sourceId, filters, dataSources, expressionFields, relationships, activePageId]);
 
   const handleRowSelectionChange = React.useCallback(
     (selection: GridRowSelectionModel) => {

@@ -385,6 +385,8 @@ export interface StudioFilterState {
   widgetId?: string;
   /** For cross-filters: the widget ID that originated the filter */
   sourceWidgetId?: string;
+  /** For cross-filters: the page on which the filter was applied */
+  pageId?: string;
   /**
    * For cross-source widget filters: the data source this filter's field belongs to.
    * When set (and different from the widget's source), the join path is resolved

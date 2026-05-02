@@ -18,6 +18,7 @@ import { useStudioController, useStudioSelector } from '../context';
 import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioKpiAggregation, StudioWidgetConfig } from '../models';
+import { renderFieldOption } from './FieldOption';
 
 function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConfig }) {
   const { widgetId, config } = props;
@@ -285,7 +286,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           sourceLabel: ds?.label ?? ef.sourceId,
         };
       });
-    return [...physicalFields, ...exprFields];
+    return [...physicalFields, ...exprFields].sort((a, b) =>
+      a.sourceLabel.localeCompare(b.sourceLabel),
+    );
   }, [dataSources, expressionFields]);
 
   // Once the value field anchors a source, restrict subsequent pickers to reachable sources.
@@ -341,6 +344,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         options={allFields}
         groupBy={(option) => option.sourceLabel}
         getOptionLabel={(option) => option.label}
+        renderOption={renderFieldOption}
         value={allFields.find((f) => f.id === config.kpiValueField) || null}
         onChange={(_e, newValue) => {
           controller.updateWidgetConfig(widgetId, { kpiValueField: newValue?.id || '' });

@@ -437,7 +437,7 @@ export class StudioController {
    * Applies a cross-filter from a source widget. This creates a filter that affects
    * all other widgets on the page except the source widget.
    */
-  applyCrossFilter = (sourceWidgetId: string, field: string, value: unknown) => {
+  applyCrossFilter = (sourceWidgetId: string, field: string, value: unknown, filterSourceId?: string) => {
     const state = this.store.state;
     // Remove any existing cross-filter from the same source widget
     const existingFilters = state.filters.filter(
@@ -451,6 +451,7 @@ export class StudioController {
       value,
       scope: 'cross-filter',
       sourceWidgetId,
+      ...(filterSourceId && { filterSourceId }),
     };
 
     this.commitState({

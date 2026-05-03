@@ -490,7 +490,7 @@ describe('<StudioChartWidget />', () => {
     ]);
   });
 
-  it('sets connectNulls to false for split-by line series', () => {
+  it('sets connectNulls to true for split-by line series', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',
       label: 'Orders',
@@ -532,10 +532,10 @@ describe('<StudioChartWidget />', () => {
 
     expect(props.xAxis[0].scaleType).toBe('point');
     expect(props.xAxis[0].data).toEqual(['Feb', 'Jan']);
-    expect(props.series.every((series) => series.connectNulls === false)).toBe(true);
+    expect(props.series.every((series) => series.connectNulls === true)).toBe(true);
   });
 
-  it('normalizes split-by area-100 series and keeps gaps disconnected', () => {
+  it('normalizes split-by area-100 series and connects across null values', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',
       label: 'Orders',
@@ -600,7 +600,7 @@ describe('<StudioChartWidget />', () => {
         label: 'A',
         area: true,
         stack: 'total',
-        connectNulls: false,
+        connectNulls: true,
         data: [75, 80],
         formatted: '75.0%',
       },
@@ -608,7 +608,7 @@ describe('<StudioChartWidget />', () => {
         label: 'B',
         area: true,
         stack: 'total',
-        connectNulls: false,
+        connectNulls: true,
         data: [25, 20],
         formatted: '25.0%',
       },
@@ -749,7 +749,7 @@ describe('<StudioChartWidget />', () => {
     expect(props.highlightedItem).toBeNull();
   });
 
-  it('uses a UTC axis and keeps gaps disconnected for single-series area charts', () => {
+  it('uses a UTC axis and connects across null values for single-series area charts', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',
       label: 'Orders',
@@ -792,6 +792,6 @@ describe('<StudioChartWidget />', () => {
     expect(props.xAxis[0].data[1]).toBeInstanceOf(Date);
     expect(props.series).toHaveLength(1);
     expect(props.series[0].area).toBe(true);
-    expect(props.series[0].connectNulls).toBe(false);
+    expect(props.series[0].connectNulls).toBe(true);
   });
 });

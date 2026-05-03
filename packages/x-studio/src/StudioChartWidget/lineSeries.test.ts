@@ -4,7 +4,7 @@ import type { StudioDataField } from '../models';
 import { buildMultiYLineSeries } from './lineSeries';
 
 describe('buildMultiYLineSeries', () => {
-  it('sets connectNulls to false for each multi-y line series', () => {
+  it('sets connectNulls to true for each multi-y line series', () => {
     const fields: StudioDataField[] = [
       { id: 'revenue', label: 'Revenue', type: 'number' },
       { id: 'profit', label: 'Profit', type: 'number' },
@@ -27,8 +27,8 @@ describe('buildMultiYLineSeries', () => {
       connectNulls: series.connectNulls,
       yAxisKey: series.yAxisKey,
     }))).toEqual([
-      { label: 'Revenue', connectNulls: false, yAxisKey: 'y-0' },
-      { label: 'Profit', connectNulls: false, yAxisKey: 'y-1' },
+      { label: 'Revenue', connectNulls: true, yAxisKey: 'y-0' },
+      { label: 'Profit', connectNulls: true, yAxisKey: 'y-1' },
     ]);
   });
 
@@ -46,7 +46,7 @@ describe('buildMultiYLineSeries', () => {
 
     expect(result[0].area).toBe(true);
     expect(result[0].stack).toBe('total');
-    expect(result[0].connectNulls).toBe(false);
+    expect(result[0].connectNulls).toBe(true);
     expect(result[0].yAxisKey).toBeUndefined();
     expect(result[0].data).toEqual([75, 50]);
     expect(result[1].data).toEqual([25, 50]);

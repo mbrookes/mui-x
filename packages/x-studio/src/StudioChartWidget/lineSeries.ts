@@ -43,7 +43,7 @@ export function buildMultiYLineSeries(
       data,
       label: fieldDef?.label ?? series.fieldId,
       area: isArea,
-      connectNulls: false as const,
+      connectNulls: true as const,
       stack: isStacked ? 'total' : undefined,
       yAxisKey: useIndependentAxes ? `y-${index}` : undefined,
       highlightScope: { highlight: 'item' as const, fade: 'global' as const },

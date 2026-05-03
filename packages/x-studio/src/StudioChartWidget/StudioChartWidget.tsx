@@ -525,7 +525,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             const total = totals100[i];
             return total ? ((v ?? 0) / total) * 100 : 0;
           })
-        : rawData;
+        : isStacked
+          ? rawData.map((v) => v ?? 0)
+          : rawData;
       return {
         id: String(name),
         data,
@@ -604,7 +606,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             const total = totals100[i];
             return total ? ((v ?? 0) / total) * 100 : 0;
           })
-        : rawData;
+        : isStacked
+          // Stacked area: null breaks the stacking algorithm → use 0
+          ? rawData.map((v) => v ?? 0)
+          : rawData;
       return {
         id: String(name),
         data,

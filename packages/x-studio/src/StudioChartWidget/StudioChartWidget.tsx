@@ -247,6 +247,69 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   const controlledHighlightedAxis =
     selectedFilterValue == null ? (hoveredAxis ?? undefined) : undefined;
 
+  // Grouped or stacked bar charts (by category field OR multiple y-fields)
+  const isBar =
+    normalizedChartType === 'bar' ||
+    normalizedChartType === 'bar-stacked' ||
+    normalizedChartType === 'bar-100';
+
+  const barChartData = React.useMemo(() => {
+    if (!isBar || !chartData) {
+      return chartData;
+    }
+    const labels = densifyBarLabels(chartData.labels);
+    if (labels === chartData.labels) {
+      return chartData;
+    }
+    const valueByLabel = new Map(chartData.labels.map((label, index) => [label, chartData.values[index]]));
+    return {
+      labels,
+      values: labels.map((label) => valueByLabel.get(label) ?? null),
+    };
+  }, [isBar, chartData]);
+
+  const barSeriesFieldData = React.useMemo(() => {
+    if (!isBar || !seriesFieldData) {
+      return seriesFieldData;
+    }
+    const labels = densifyBarLabels(seriesFieldData.labels);
+    if (labels === seriesFieldData.labels) {
+      return seriesFieldData;
+    }
+    return {
+      labels,
+      seriesNames: seriesFieldData.seriesNames,
+      seriesData: Object.fromEntries(
+        seriesFieldData.seriesNames.map((seriesName) => {
+          const valueByLabel = new Map(
+            seriesFieldData.labels.map((label, index) => [label, seriesFieldData.seriesData[seriesName][index]]),
+          );
+          return [seriesName, labels.map((label) => valueByLabel.get(label) ?? null)];
+        }),
+      ),
+    };
+  }, [isBar, seriesFieldData]);
+
+  const barMultiYData = React.useMemo(() => {
+    if (!isBar || !multiYData) {
+      return multiYData;
+    }
+    const labels = densifyBarLabels(multiYData.labels);
+    if (labels === multiYData.labels) {
+      return multiYData;
+    }
+    return {
+      labels,
+      series: multiYData.series.map((series) => {
+        const valueByLabel = new Map(multiYData.labels.map((label, index) => [label, series.values[index]]));
+        return {
+          fieldId: series.fieldId,
+          values: labels.map((label) => valueByLabel.get(label) ?? null),
+        };
+      }),
+    };
+  }, [isBar, multiYData]);
+
   // Guard: return placeholder if chart isn't configured yet (must be after all hooks)
   if (!dataSource || !config.xField) {
     return (
@@ -327,69 +390,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       </div>
     );
   }
-
-  // Grouped or stacked bar charts (by category field OR multiple y-fields)
-  const isBar =
-    normalizedChartType === 'bar' ||
-    normalizedChartType === 'bar-stacked' ||
-    normalizedChartType === 'bar-100';
-
-  const barChartData = React.useMemo(() => {
-    if (!isBar || !chartData) {
-      return chartData;
-    }
-    const labels = densifyBarLabels(chartData.labels);
-    if (labels === chartData.labels) {
-      return chartData;
-    }
-    const valueByLabel = new Map(chartData.labels.map((label, index) => [label, chartData.values[index]]));
-    return {
-      labels,
-      values: labels.map((label) => valueByLabel.get(label) ?? null),
-    };
-  }, [isBar, chartData]);
-
-  const barSeriesFieldData = React.useMemo(() => {
-    if (!isBar || !seriesFieldData) {
-      return seriesFieldData;
-    }
-    const labels = densifyBarLabels(seriesFieldData.labels);
-    if (labels === seriesFieldData.labels) {
-      return seriesFieldData;
-    }
-    return {
-      labels,
-      seriesNames: seriesFieldData.seriesNames,
-      seriesData: Object.fromEntries(
-        seriesFieldData.seriesNames.map((seriesName) => {
-          const valueByLabel = new Map(
-            seriesFieldData.labels.map((label, index) => [label, seriesFieldData.seriesData[seriesName][index]]),
-          );
-          return [seriesName, labels.map((label) => valueByLabel.get(label) ?? null)];
-        }),
-      ),
-    };
-  }, [isBar, seriesFieldData]);
-
-  const barMultiYData = React.useMemo(() => {
-    if (!isBar || !multiYData) {
-      return multiYData;
-    }
-    const labels = densifyBarLabels(multiYData.labels);
-    if (labels === multiYData.labels) {
-      return multiYData;
-    }
-    return {
-      labels,
-      series: multiYData.series.map((series) => {
-        const valueByLabel = new Map(multiYData.labels.map((label, index) => [label, series.values[index]]));
-        return {
-          fieldId: series.fieldId,
-          values: labels.map((label) => valueByLabel.get(label) ?? null),
-        };
-      }),
-    };
-  }, [isBar, multiYData]);
 
   if (isBar) {
     // Multi-Y-field path: each y-field is its own series

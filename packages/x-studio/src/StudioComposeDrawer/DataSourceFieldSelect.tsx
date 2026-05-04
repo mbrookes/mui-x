@@ -81,13 +81,24 @@ export function DataSourceFieldSelect({
 
   const selectedOption = computedFields.find((f) => f.id === value) ?? null;
 
+  const hasMultipleSources = React.useMemo(() => {
+    const sourceIds = new Set(computedFields.map((f) => f.sourceId));
+    return sourceIds.size > 1;
+  }, [computedFields]);
+
+  const getOptionLabel = React.useCallback(
+    (option: DataSourceFieldEntry) =>
+      hasMultipleSources ? `${option.sourceLabel} · ${option.label}` : option.label,
+    [hasMultipleSources],
+  );
+
   return (
     <Autocomplete
       size={size}
       fullWidth={fullWidth}
       options={computedFields}
       groupBy={(option) => option.sourceLabel}
-      getOptionLabel={(option) => option.label}
+      getOptionLabel={getOptionLabel}
       renderOption={renderFieldOption}
       getOptionDisabled={getOptionDisabled}
       value={selectedOption}

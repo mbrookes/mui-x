@@ -16,7 +16,6 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import TableChartIcon from '@mui/icons-material/TableChart';
 
 import { useStudioController, useStudioSelector } from '../context';
 import type { StudioDataSource, StudioExpressionField } from '../models';
@@ -196,7 +195,6 @@ function DataSourceSection(props: {
   return (
     <div>
       <ListItemButton onClick={() => setOpen((prev) => !prev)} sx={{ px: 0, py: 0.5 }}>
-        <TableChartIcon fontSize="small" sx={{ mr: 1, color: 'text.disabled', flexShrink: 0 }} />
         <ListItemText
           primary={
             <Typography variant="subtitle2" noWrap>

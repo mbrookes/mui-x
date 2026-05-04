@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { createRenderer } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { StudioDataSource, StudioState, StudioWidget } from '../models';
@@ -845,6 +846,78 @@ describe('<StudioChartWidget />', () => {
 
     // hoveredItem starts as null; with no active cross-filter it is passed through as-is
     expect(props.highlightedItem).toBeNull();
+  });
+
+  it('drops stale highlightedItem when chart fields change to a different bar series shape', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'bucket', label: 'Bucket', type: 'number' },
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+        { id: 'profit', label: 'Profit', type: 'number' },
+      ],
+      rows: [
+        { id: '1', bucket: 1, category: 'A', total: 10, profit: 2 },
+        { id: '2', bucket: 1, category: 'B', total: 20, profit: 4 },
+        { id: '3', bucket: 2, category: 'A', total: 15, profit: 3 },
+        { id: '4', bucket: 2, category: 'B', total: 25, profit: 5 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-stale-highlight',
+      kind: 'chart',
+      title: 'Revenue by Category',
+      sourceId: 'orders',
+      config: {
+        chartType: 'bar',
+        xField: 'bucket',
+        yField: 'total',
+        seriesField: 'category',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+    });
+
+    const view = renderChart(widget, dataSource);
+
+    const firstProps = barChartSpy.mock.calls.at(-1)?.[0] as {
+      highlightedItem: { seriesId: string; dataIndex: number } | null;
+      onHighlightChange: (item: { seriesId: string; dataIndex: number } | null) => void;
+    };
+
+    act(() => {
+      firstProps.onHighlightChange({ seriesId: 'A', dataIndex: 0 });
+    });
+
+    mockState.widgets[widget.id] = {
+      ...widget,
+      config: {
+        chartType: 'bar',
+        xField: 'bucket',
+        yField: 'total',
+        ySeries: [{ fieldId: 'total' }, { fieldId: 'profit' }],
+      },
+    };
+
+    expect(() =>
+      view.rerender(
+        <ThemeProvider theme={createTheme()}>
+          <StudioChartWidget widget={mockState.widgets[widget.id]} dataSource={dataSource} />
+        </ThemeProvider>,
+      ),
+    ).not.toThrow();
+
+    const nextProps = barChartSpy.mock.calls.at(-1)?.[0] as {
+      highlightedItem: { seriesId: string; dataIndex: number } | null;
+    };
+
+    expect(nextProps.highlightedItem).toBeNull();
   });
 
   it('uses a UTC axis and connects across null values for single-series area charts', () => {

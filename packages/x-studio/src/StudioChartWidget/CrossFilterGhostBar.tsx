@@ -71,9 +71,11 @@ export function CrossFilterGhostBar(props: BarProps) {
   } as React.SVGProps<SVGRectElement>;
 
   if (layout === 'vertical') {
-    const inset = Math.max(1, width * 0.15);
-    const fgWidth = Math.max(1, width - 2 * inset);
     const fgHeight = height * filteredRatio;
+    // Only inset when filtered > full (bar extends above ghost) so the ghost remains visible.
+    const needsInset = filteredRatio > 1;
+    const inset = needsInset ? Math.max(1, width * 0.15) : 0;
+    const fgWidth = Math.max(1, width - 2 * inset);
     // Anchor to the bottom of THIS segment (y + height), not the chart origin.
     // For stacked bars each segment has its own y; using yOrigin would misplace
     // the foreground on every segment except the bottom-most one.
@@ -108,9 +110,10 @@ export function CrossFilterGhostBar(props: BarProps) {
   }
 
   // Horizontal layout: width encodes value, height encodes band position
-  const insetY = Math.max(1, height * 0.15);
-  const fgHeight = height - 2 * insetY;
   const fgWidth = width * filteredRatio;
+  const needsInset = filteredRatio > 1;
+  const insetY = needsInset ? Math.max(1, height * 0.15) : 0;
+  const fgHeight = height - 2 * insetY;
 
   return (
     <>

@@ -46,7 +46,7 @@ BL-19: Add a "full-screen" icon to charts controls that displays them in a near 
 
 ~~BL-22: Remove chart colors selection controls from page settings, and all related logic and data. The App theme sets the colors.~~ **Fixed** (moved `chartPalette`/`chartCustomColors` from `StudioPageTheme` to `StudioDashboardState`; removed `ChartPalettePanel` from page config UI; updated hook, example, and tests)
 
-BL-23: Remove the table icon from the data sources panel list.
+~~BL-23: Remove the table icon from the data sources panel list.~~ **Fixed** (removed `TableChartIcon` from the data source list item in `StudioDataDrawer`)
 
 BL-24: In the widgets "On this page" section, give each page widget an icon acording to its sub-type (where applicable), for example chart tyle.
 

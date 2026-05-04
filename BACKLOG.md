@@ -44,8 +44,10 @@ BL-19: Add a "full-screen" icon to charts controls that displays them in a near 
 
 ~~BL-21: Products page still isn't using the theme default, but mango fusion instead.~~ **Fixed** (removed hardcoded `mangoFusion` palette from the Products page config so it inherits the dashboard default)
 
-BL-22: Remove chart colors selection controls from page settings, and all related logic and data. The App theme sets the colors.
+~~BL-22: Remove chart colors selection controls from page settings, and all related logic and data. The App theme sets the colors.~~ **Fixed** (moved `chartPalette`/`chartCustomColors` from `StudioPageTheme` to `StudioDashboardState`; removed `ChartPalettePanel` from page config UI; updated hook, example, and tests)
 
 BL-23: Remove the table icon from the data sources panel list.
 
 BL-24: In the widgets "On this page" section, give each page widget an icon acording to its sub-type (where applicable), for example chart tyle.
+
+BL-25: Don't allow selection/highlight of widgets in 

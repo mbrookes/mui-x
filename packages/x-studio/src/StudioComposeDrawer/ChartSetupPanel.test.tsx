@@ -91,6 +91,12 @@ vi.mock('../context', () => ({
 const { render } = createRenderer();
 
 describe('ChartSetupPanel', () => {
+  it('shows a section title for the category field', () => {
+    render(<ChartSetupPanel widgetId="widget-1" />);
+
+    expect(screen.getByText('Category field')).toBeVisible();
+  });
+
   it('disables unsupported cross-source X field options', async () => {
     const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
 

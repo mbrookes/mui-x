@@ -373,32 +373,37 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       </div>
       {/* Split by / series field */}
       {supportsSeriesField && (
-        <Tooltip
-          title={seriesFieldDisabled ? 'Remove extra measure fields to enable split-by' : ''}
-          placement="top"
-        >
-          <span>
-            <DataSourceFieldSelect
-              value={config.seriesField ?? ''}
-              onChange={(fieldId) =>
-                controller.updateWidgetConfig(widgetId, { seriesField: fieldId || undefined })
-              }
-              fields={categoryFields}
-              getOptionDisabled={(option) => {
-                if (seriesFieldDisabled) return true;
-                if (option.id === config.seriesField) return false;
-                return !analyzeCombination({ seriesField: option.id }).supported;
-              }}
-              disabled={seriesFieldDisabled}
-              label="Split by (series field)"
-              helperText={
-                seriesFieldDisabled
-                  ? 'Not available when multiple measure fields are configured'
-                  : 'Divides data into a separate series per value'
-              }
-            />
-          </span>
-        </Tooltip>
+        <div>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+            Category field
+          </Typography>
+          <Tooltip
+            title={seriesFieldDisabled ? 'Remove extra measure fields to enable split-by' : ''}
+            placement="top"
+          >
+            <span>
+              <DataSourceFieldSelect
+                value={config.seriesField ?? ''}
+                onChange={(fieldId) =>
+                  controller.updateWidgetConfig(widgetId, { seriesField: fieldId || undefined })
+                }
+                fields={categoryFields}
+                getOptionDisabled={(option) => {
+                  if (seriesFieldDisabled) return true;
+                  if (option.id === config.seriesField) return false;
+                  return !analyzeCombination({ seriesField: option.id }).supported;
+                }}
+                disabled={seriesFieldDisabled}
+                label="Split by (series field)"
+                helperText={
+                  seriesFieldDisabled
+                    ? 'Not available when multiple measure fields are configured'
+                    : 'Divides data into a separate series per value'
+                }
+              />
+            </span>
+          </Tooltip>
+        </div>
       )}
     </Stack>
   );

@@ -61,6 +61,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   }, [dataSources, expressionFields]);
 
   const config = widget?.config ?? {};
+  const widgetSourceId = widget?.sourceId;
 
   // selectedXField is used to conditionally show the Group By control below
   const selectedXField = allFields.find((f) => f.id === config.xField) ?? null;
@@ -119,7 +120,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const chartSupport = React.useMemo(
     () =>
       analyzeChartSupport(
-        supportSourceId,
+        widgetSourceId ?? supportSourceId,
         config.xField,
         ySeries.map((series) => series.fieldId).filter(Boolean),
         config.seriesField,
@@ -129,6 +130,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         expressionFields,
       ),
     [
+      widgetSourceId,
       supportSourceId,
       config.xField,
       ySeries,
@@ -147,7 +149,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       seriesField?: string | undefined;
     }) =>
       analyzeChartSupport(
-        supportSourceId,
+        widgetSourceId ?? supportSourceId,
         overrides.xField ?? config.xField,
         overrides.yFields ?? ySeries.map((series) => series.fieldId).filter(Boolean),
         overrides.seriesField ?? config.seriesField,
@@ -157,6 +159,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         expressionFields,
       ),
     [
+      widgetSourceId,
       supportSourceId,
       config.xField,
       config.seriesField,

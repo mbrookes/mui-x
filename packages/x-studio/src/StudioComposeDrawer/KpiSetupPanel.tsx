@@ -49,12 +49,10 @@ function CollapsibleFeatureSection({
   };
 
   const handleHeaderClick = () => {
-    if (enabled) {
-      setExpanded((prev) => !prev);
-    }
+    setExpanded((prev) => !prev);
   };
 
-  const isOpen = enabled && expanded;
+  const isOpen = expanded;
   const Chevron = isOpen ? ExpandMoreIcon : ChevronRightIcon;
 
   return (
@@ -74,18 +72,18 @@ function CollapsibleFeatureSection({
           gap: 0.5,
           px: 1,
           py: 0.5,
-          cursor: enabled ? 'pointer' : 'default',
+          cursor: 'pointer',
           userSelect: 'none',
         }}
       >
         <Chevron
           sx={{
             fontSize: 18,
-            color: enabled ? 'text.secondary' : 'text.disabled',
+            color: 'text.secondary',
             flexShrink: 0,
           }}
         />
-        <Typography variant="body2" sx={{ flexGrow: 1 }}>
+        <Typography variant="body2" sx={{ flexGrow: 1, color: enabled ? 'text.primary' : 'text.disabled' }}>
           {label}
         </Typography>
         {/* Stop click from toggling expand when clicking the switch */}
@@ -100,7 +98,10 @@ function CollapsibleFeatureSection({
 
       {/* Collapsible content */}
       <Collapse in={isOpen}>
-        <Stack spacing={1.5} sx={{ px: 1.5, pb: 1.5 }}>
+        <Stack
+          spacing={1.5}
+          sx={{ px: 1.5, pb: 1.5, opacity: enabled ? 1 : 0.45, pointerEvents: enabled ? 'auto' : 'none' }}
+        >
           {children}
         </Stack>
       </Collapse>

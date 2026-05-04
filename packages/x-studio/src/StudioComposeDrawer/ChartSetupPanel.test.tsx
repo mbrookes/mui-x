@@ -146,12 +146,67 @@ describe('ChartSetupPanel', () => {
     const statusOption = await screen.findByRole('option', { name: /Status$/ });
 
     expect(countryOption.getAttribute('aria-disabled')).toBe('false');
-    expect(statusOption.getAttribute('aria-disabled')).toBe('false');
+    expect(statusOption.getAttribute('aria-disabled')).toBe('true');
 
     mockState.widgets['widget-1'].config = {
       ...mockState.widgets['widget-1'].config,
       xField: 'id',
       ySeries: undefined,
+    };
+  });
+
+  it('does not warn for a safe order-items chart when the x field comes from orders', () => {
+    mockState.widgets['widget-1'] = {
+      ...mockState.widgets['widget-1'],
+      sourceId: 'orderItems',
+      config: {
+        chartType: 'bar-stacked',
+        xField: 'date',
+        xGroupBy: 'quarter',
+        yField: 'total',
+        seriesField: 'category',
+      },
+    };
+
+    mockState.dataSources.orders = {
+      ...mockState.dataSources.orders,
+      fields: [
+        { id: 'id', label: 'Order ID', type: 'string' },
+        { id: 'date', label: 'Order Date', type: 'date' },
+        { id: 'total', label: 'Order Total', type: 'number' },
+      ],
+    };
+
+    mockState.dataSources.orderItems = {
+      ...mockState.dataSources.orderItems,
+      fields: [
+        { id: 'total', label: 'Total', type: 'number' },
+        { id: 'category', label: 'Category', type: 'string' },
+      ],
+    };
+
+    render(<ChartSetupPanel widgetId="widget-1" />);
+
+    expect(screen.queryByText(/single safe aggregation grain/i)).toBeNull();
+
+    mockState.widgets['widget-1'] = {
+      ...mockState.widgets['widget-1'],
+      sourceId: 'orders',
+      config: {
+        chartType: 'bar',
+        xField: 'id',
+        yField: 'total',
+      },
+    };
+
+    mockState.dataSources.orders = {
+      ...mockState.dataSources.orders,
+      fields: [{ id: 'id', label: 'Order ID', type: 'string' }],
+    };
+
+    mockState.dataSources.orderItems = {
+      ...mockState.dataSources.orderItems,
+      fields: [{ id: 'total', label: 'Total', type: 'number' }],
     };
   });
 });

@@ -171,6 +171,156 @@ describe('StudioController.clearCrossFilter', () => {
   });
 });
 
+// ─── StudioController.applyInteractiveFilter ─────────────────────────────────
+
+describe('StudioController.applyInteractiveFilter', () => {
+  it('adds an interactive filter with scope interactive', () => {
+    const controller = new StudioController();
+
+    controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Electronics', 'Books'], {
+      filterMode: 'selection',
+    });
+
+    const filters = controller.getState().filters;
+    expect(filters).toHaveLength(1);
+    expect(filters[0]).toMatchObject({
+      scope: 'interactive',
+      sourceWidgetId: 'filter-widget-1',
+      field: 'category',
+      operator: 'in',
+      value: ['Electronics', 'Books'],
+      filterMode: 'selection',
+    });
+  });
+
+  it('stamps the active pageId on the filter', () => {
+    const controller = new StudioController();
+    const activePageId = controller.getState().dashboard.activePageId;
+
+    controller.applyInteractiveFilter('filter-widget-1', 'country', 'equals', 'AU');
+
+    const [f] = controller.getState().filters;
+    expect(f.pageId).toBe(activePageId);
+  });
+
+  it('replaces an existing interactive filter from the same widget', () => {
+    const controller = new StudioController();
+
+    controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Electronics']);
+    controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Books', 'Clothing']);
+
+    const filters = controller.getState().filters;
+    expect(filters.filter((f) => f.sourceWidgetId === 'filter-widget-1')).toHaveLength(1);
+    expect(filters[0].value).toEqual(['Books', 'Clothing']);
+  });
+
+  it('does not remove interactive filters from other widgets', () => {
+    const controller = new StudioController();
+
+    controller.applyInteractiveFilter('filter-widget-a', 'category', 'in', ['Electronics']);
+    controller.applyInteractiveFilter('filter-widget-b', 'country', 'equals', 'AU');
+
+    expect(controller.getState().filters).toHaveLength(2);
+  });
+
+  it('does not remove page/widget/cross filters', () => {
+    const controller = new StudioController({
+      filters: [
+        makeFilter({ id: 'page-f', scope: 'page' }),
+        makeFilter({ id: 'widget-f', scope: 'widget' }),
+        makeFilter({ id: 'cross-f', scope: 'cross-filter' }),
+      ],
+    });
+
+    controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Books']);
+
+    const ids = controller.getState().filters.map((f) => f.id);
+    expect(ids).toContain('page-f');
+    expect(ids).toContain('widget-f');
+    expect(ids).toContain('cross-f');
+  });
+});
+
+// ─── StudioController.clearInteractiveFilter ─────────────────────────────────
+
+describe('StudioController.clearInteractiveFilter', () => {
+  it('removes the interactive filter for the specified widget', () => {
+    const controller = new StudioController();
+    controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Books']);
+
+    controller.clearInteractiveFilter('filter-widget-1');
+
+    expect(
+      controller.getState().filters.filter((f) => f.scope === 'interactive'),
+    ).toHaveLength(0);
+  });
+
+  it('leaves interactive filters from other widgets untouched', () => {
+    const controller = new StudioController();
+    controller.applyInteractiveFilter('filter-a', 'category', 'in', ['Books']);
+    controller.applyInteractiveFilter('filter-b', 'country', 'equals', 'AU');
+
+    controller.clearInteractiveFilter('filter-a');
+
+    const remaining = controller.getState().filters;
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].sourceWidgetId).toBe('filter-b');
+  });
+
+  it('leaves page/widget/cross-filters untouched', () => {
+    const controller = new StudioController({
+      filters: [
+        makeFilter({ id: 'page-f', scope: 'page' }),
+      ],
+    });
+    controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Books']);
+
+    controller.clearInteractiveFilter('filter-widget-1');
+
+    expect(controller.getState().filters.map((f) => f.id)).toContain('page-f');
+  });
+
+  it('is a no-op when no interactive filter exists for the widget', () => {
+    const controller = new StudioController({
+      filters: [makeFilter({ id: 'page-f', scope: 'page' })],
+    });
+
+    controller.clearInteractiveFilter('nonexistent-widget');
+
+    expect(controller.getState().filters).toHaveLength(1);
+  });
+});
+
+// ─── StudioController.removeWidget + interactive filters ─────────────────────
+
+describe('StudioController.removeWidget — interactive filter cleanup', () => {
+  it('removes interactive filters when the source filter widget is deleted', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('filter-w1', { kind: 'filter' }));
+    controller.applyInteractiveFilter('filter-w1', 'category', 'in', ['Books']);
+
+    controller.removeWidget('filter-w1');
+
+    expect(
+      controller.getState().filters.filter((f) => f.sourceWidgetId === 'filter-w1'),
+    ).toHaveLength(0);
+  });
+
+  it('preserves interactive filters from other widgets when one widget is removed', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('filter-w1', { kind: 'filter' }));
+    controller.addWidget(makeWidget('filter-w2', { kind: 'filter' }));
+    controller.applyInteractiveFilter('filter-w1', 'category', 'in', ['Books']);
+    controller.applyInteractiveFilter('filter-w2', 'country', 'equals', 'AU');
+
+    controller.removeWidget('filter-w1');
+
+    const remaining = controller.getState().filters.filter((f) => f.scope === 'interactive');
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].sourceWidgetId).toBe('filter-w2');
+  });
+});
+
 // ─── StudioController — widget CRUD ──────────────────────────────────────────
 
 function makeWidget(id: string, overrides: Partial<StudioWidget> = {}): StudioWidget {

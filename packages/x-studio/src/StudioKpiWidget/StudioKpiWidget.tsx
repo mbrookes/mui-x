@@ -65,7 +65,10 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
 
       const pageFilters = filters.filter((f) => f.scope === 'page');
       const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
-      const allFilters = resolveMetricRefs([...pageFilters, ...widgetFilters], dataSources);
+      const interactiveFilters = filters.filter(
+        (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id,
+      );
+      const allFilters = resolveMetricRefs([...pageFilters, ...widgetFilters, ...interactiveFilters], dataSources);
 
       const rows = resolveRows(
         dataSource.rows,

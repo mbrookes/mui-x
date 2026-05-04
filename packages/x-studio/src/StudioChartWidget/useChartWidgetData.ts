@@ -59,8 +59,11 @@ export function useChartWidgetData(
     const crossFilters = filters.filter(
       (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
     );
+    const interactiveFilters = filters.filter(
+      (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+    );
     const allFilters = resolveMetricRefs(
-      [...pageFilters, ...widgetFilters, ...crossFilters],
+      [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters],
       dataSources,
     );
 

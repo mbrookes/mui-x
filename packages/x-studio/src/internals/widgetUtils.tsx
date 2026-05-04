@@ -10,6 +10,7 @@ import { TextWidgetIcon } from '../icons/TextWidgetIcon';
 import { KpiWidgetIcon } from '../icons/KpiWidgetIcon';
 import { TableWidgetIcon } from '../icons/TableWidgetIcon';
 import { BarGroupedIcon } from '../icons/charts/BarGroupedIcon';
+import { ListFilterWidgetIcon } from '../icons/ListFilterWidgetIcon';
 
 export const WIDGET_TYPES: {
   kind: StudioWidgetKind;
@@ -40,6 +41,12 @@ export const WIDGET_TYPES: {
     label: 'Table',
     description: 'Data grid with sorting & filtering',
     icon: <TableWidgetIcon size={28} />,
+  },
+  {
+    kind: 'filter',
+    label: 'Filter',
+    description: 'Interactive filter control for view mode',
+    icon: <ListFilterWidgetIcon size={28} />,
   },
 ];
 
@@ -81,6 +88,16 @@ export function createDefaultWidget(
       kind,
       title: '',
       config: { chartType: 'bar' },
+      ...(source ? { sourceId: source.id } : {}),
+    };
+  }
+
+  if (kind === 'filter') {
+    return {
+      id,
+      kind,
+      title: 'Filter',
+      config: { filterWidgetType: 'multi-select' as const },
       ...(source ? { sourceId: source.id } : {}),
     };
   }
@@ -164,6 +181,12 @@ export function inferWidgetTitles(
 
     case 'grid': {
       const title = source?.label ?? 'Table';
+      return { title, subtitle: '' };
+    }
+
+    case 'filter': {
+      const fieldLabel = findFieldLabel(config.filterWidgetField, config.filterWidgetSourceId);
+      const title = fieldLabel ? `Filter: ${fieldLabel}` : 'Filter';
       return { title, subtitle: '' };
     }
 

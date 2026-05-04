@@ -102,12 +102,32 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   const { chartColors, resolvedChartColors, allSeriesNames, chartSupport, activeYFields, isMultiSeries, seriesFieldData, chartData, multiYData, scatterData } =
     useChartWidgetData(widget, dataSource);
 
-  // Clear stale hovered item when chart type or series field changes to avoid
-  // "controlled/uncontrolled" errors from stale seriesIds referencing old series.
+  const chartHighlightStateKey = React.useMemo(
+    () =>
+      JSON.stringify({
+        chartType: config.chartType,
+        barLayout: config.barLayout,
+        xField: config.xField,
+        yField: config.yField,
+        ySeries: (config.ySeries ?? []).map((series) => series.fieldId ?? ''),
+        seriesField: config.seriesField,
+      }),
+    [
+      config.barLayout,
+      config.chartType,
+      config.seriesField,
+      config.xField,
+      config.yField,
+      config.ySeries,
+    ],
+  );
+
+  // Clear stale hover state when the chart's field/layout signature changes to avoid
+  // keeping series identifiers or axis highlights from a previous chart shape.
   React.useEffect(() => {
     setHoveredItem(null);
     setHoveredAxis(null);
-  }, [config.chartType, config.seriesField]);
+  }, [chartHighlightStateKey]);
 
   /** Format x-axis label: apply human-readable period labels when xGroupBy is set. */
   const formatLabel = React.useCallback(
@@ -186,7 +206,44 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     [selectedFilterValue],
   );
 
-  const controlledHighlightedItem = selectedFilterValue == null ? hoveredItem : null;
+  const currentHighlightableSeriesIds = React.useMemo(() => {
+    if (normalizedChartType === 'pie' || normalizedChartType === 'donut') {
+      return new Set([CROSS_FILTER_SERIES_ID]);
+    }
+
+    if (normalizedChartType === 'line' || normalizedChartType === 'area' || normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100') {
+      if (seriesFieldData && seriesFieldData.seriesNames.length > 0) {
+        return new Set(seriesFieldData.seriesNames.map((name) => String(name)));
+      }
+
+      if (multiYData && multiYData.labels.length > 0) {
+        return new Set(multiYData.series.map((series, index) => `${series.fieldId}-${index}`));
+      }
+
+      return new Set([CROSS_FILTER_SERIES_ID]);
+    }
+
+    if (normalizedChartType === 'bar' || normalizedChartType === 'bar-stacked' || normalizedChartType === 'bar-100') {
+      if (seriesFieldData && seriesFieldData.seriesNames.length > 0) {
+        return new Set(seriesFieldData.seriesNames.map((name) => String(name)));
+      }
+
+      if (multiYData && multiYData.labels.length > 0) {
+        return new Set<string>();
+      }
+
+      return new Set([CROSS_FILTER_SERIES_ID]);
+    }
+
+    return new Set<string>();
+  }, [multiYData, normalizedChartType, seriesFieldData]);
+
+  const controlledHighlightedItem =
+    selectedFilterValue == null &&
+    hoveredItem &&
+    currentHighlightableSeriesIds.has(hoveredItem.seriesId)
+      ? hoveredItem
+      : null;
   const controlledHighlightedAxis =
     selectedFilterValue == null ? (hoveredAxis ?? undefined) : undefined;
 
@@ -416,6 +473,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
             series={series}
             colors={chartColors}
             margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
+            highlightedItem={null}
             highlightedAxis={
               selectedDataIndex >= 0
                 ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]

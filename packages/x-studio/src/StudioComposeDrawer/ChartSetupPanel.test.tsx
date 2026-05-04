@@ -97,6 +97,47 @@ describe('ChartSetupPanel', () => {
     expect(screen.getByText('Category field')).toBeVisible();
   });
 
+  it('keeps the split-by field visible and disabled when multiple measure fields are configured', () => {
+    const previousConfig = mockState.widgets['widget-1'].config;
+    const previousOrdersFields = mockState.dataSources.orders.fields;
+
+    try {
+      mockState.widgets['widget-1'].config = {
+        ...previousConfig,
+        ySeries: [{ fieldId: 'total' }, { fieldId: 'revenue' }],
+        yField: 'total',
+        seriesField: undefined,
+      };
+
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: [
+          { id: 'id', label: 'Order ID', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+          { id: 'revenue', label: 'Revenue', type: 'number' },
+          { id: 'category', label: 'Category', type: 'string' },
+        ],
+      };
+
+      render(<ChartSetupPanel widgetId="widget-1" />);
+
+      expect(screen.getByText('Category field')).toBeVisible();
+      expect(screen.getByLabelText('Split by (series field)').getAttribute('disabled')).toBe('');
+      expect(
+        screen.getByText('Not available when multiple measure fields are configured'),
+      ).toBeVisible();
+    } finally {
+      mockState.widgets['widget-1'].config = {
+        ...previousConfig,
+      };
+
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+    }
+  });
+
   it('disables unsupported cross-source X field options', async () => {
     const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
 

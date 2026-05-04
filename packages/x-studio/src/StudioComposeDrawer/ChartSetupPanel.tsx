@@ -310,7 +310,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         </Stack>
         <Stack spacing={1}>
           {ySeries.map((s, index) => (
-            <Stack key={index} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            <Stack key={index} direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
               <DataSourceFieldSelect
                 value={s.fieldId ?? ''}
                 onChange={(fieldId) => handleSeriesFieldChange(index, fieldId)}
@@ -341,7 +341,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               />
               {ySeries.length > 1 && (
                 <Tooltip title="Remove series">
-                  <IconButton size="small" onClick={() => handleRemoveSeries(index)}>
+                  <IconButton
+                    size="small"
+                    onClick={() => handleRemoveSeries(index)}
+                    sx={{ mt: 1 }}
+                  >
                     <CloseIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>

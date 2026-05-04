@@ -152,17 +152,26 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
           return;
         }
         const newWidget = createDefaultWidget(data.kind, sources[0]);
-        controller.addWidget(newWidget);
+        // Build the target row layout first, then commit once (widget + layout + selection
+        // in a single store update so there's only one React render).
         const rows = widgetRows.map((r) => [...r]);
         if (orientation === 'horizontal') {
-          // Insert a new row at rowIndex containing only this widget
           rows.splice(rowIndex, 0, [newWidget.id]);
         } else {
           const row = rows[rowIndex] ?? [];
           row.splice(colIndex, 0, newWidget.id);
           rows[rowIndex] = row;
         }
-        updateRows(rows);
+        const state = controller.getState();
+        const activePage = state.pages[activePageId];
+        controller.updateState({
+          widgets: { ...state.widgets, [newWidget.id]: newWidget },
+          pages: {
+            ...state.pages,
+            [activePageId]: { ...activePage, widgetRows: rows },
+          },
+          shell: { ...state.shell, selectedWidgetId: newWidget.id },
+        });
       } else if (data?.type === 'canvas-widget' && data.widgetId) {
         // Remove the widget from wherever it currently lives
         const rows = widgetRows.map((r) => r.filter((id) => id !== data.widgetId));

@@ -19,7 +19,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
     id: 'dashboard-sales',
     title: 'Sales Dashboard',
     activePageId: 'page-1',
-    defaultTheme: { chartPalette: 'blueberryTwilight' as const },
+    chartPalette: 'blueberryTwilight' as const,
   },
   pages: {
     'page-1': {

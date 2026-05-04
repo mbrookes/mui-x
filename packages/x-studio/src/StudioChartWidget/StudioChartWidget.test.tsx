@@ -147,11 +147,15 @@ describe('<StudioChartWidget />', () => {
           id: 'page-1',
           title: 'Overview',
           widgetRows: [],
-          theme: {
-            chartPalette: 'custom',
-            chartCustomColors: ['#111111', '#222222', '#333333'],
-          },
+          theme: {},
         },
+      },
+      dashboard: {
+        id: 'test-dash',
+        title: 'Test',
+        activePageId: 'page-1',
+        chartPalette: 'custom',
+        chartCustomColors: ['#111111', '#222222', '#333333'],
       },
       filters: [
         {

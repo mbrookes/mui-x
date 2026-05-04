@@ -22,6 +22,8 @@ export function FormatPanel(props: { widgetId: string }) {
   const dataSources = useStudioSelector((state) => state.dataSources);
   const [title, setTitle] = React.useState(widget?.title ?? '');
   const [subtitle, setSubtitle] = React.useState(widget?.subtitle ?? '');
+  const [titleDirty, setTitleDirty] = React.useState(false);
+  const [subtitleDirty, setSubtitleDirty] = React.useState(false);
 
   const isAutoTitle = widget?.titleMode === 'auto' || (!widget?.titleMode && !widget?.title);
   const isAutoSubtitle = widget?.subtitleMode === 'auto' || (!widget?.subtitleMode && !widget?.subtitle);
@@ -29,13 +31,19 @@ export function FormatPanel(props: { widgetId: string }) {
   React.useEffect(() => {
     setTitle(widget?.title ?? '');
     setSubtitle(widget?.subtitle ?? '');
+    setTitleDirty(false);
+    setSubtitleDirty(false);
   }, [widget?.title, widget?.subtitle, widgetId]);
 
   const handleTitleBlur = () => {
+    if (!titleDirty) {
+      return;
+    }
     const trimmed = title.trim();
     if (trimmed !== (widget?.title ?? '')) {
       controller.updateWidget(widgetId, { title: trimmed, titleMode: 'manual' });
     }
+    setTitleDirty(false);
   };
 
   const handleResetTitle = () => {
@@ -48,6 +56,9 @@ export function FormatPanel(props: { widgetId: string }) {
   };
 
   const handleSubtitleBlur = () => {
+    if (!subtitleDirty) {
+      return;
+    }
     const trimmed = subtitle.trim();
     if (trimmed !== (widget?.subtitle ?? '')) {
       controller.updateWidget(widgetId, {
@@ -55,6 +66,7 @@ export function FormatPanel(props: { widgetId: string }) {
         subtitleMode: trimmed ? 'manual' : 'auto',
       });
     }
+    setSubtitleDirty(false);
   };
 
   const handleResetSubtitle = () => {
@@ -89,7 +101,10 @@ export function FormatPanel(props: { widgetId: string }) {
         fullWidth
         helperText="Shown in the widget header"
         value={title}
-        onChange={(event) => setTitle(event.target.value)}
+        onChange={(event) => {
+          setTitle(event.target.value);
+          setTitleDirty(true);
+        }}
         onBlur={handleTitleBlur}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
@@ -123,7 +138,10 @@ export function FormatPanel(props: { widgetId: string }) {
         helperText="Optional line shown beneath the title"
         value={subtitle}
         placeholder={isAutoSubtitle ? '' : 'No subtitle'}
-        onChange={(event) => setSubtitle(event.target.value)}
+        onChange={(event) => {
+          setSubtitle(event.target.value);
+          setSubtitleDirty(true);
+        }}
         onBlur={handleSubtitleBlur}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {

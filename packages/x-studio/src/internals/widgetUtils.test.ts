@@ -37,15 +37,16 @@ describe('inferWidgetTitles — chart', () => {
   it('falls back to source label when no fields are configured', () => {
     const { title, subtitle } = inferWidgetTitles(makeWidget(), SOURCES);
     expect(title).toBe('Orders chart');
-    expect(subtitle).toBe('');
+    expect(subtitle).toBe('Orders');
   });
 
   it('builds "Y by X" title from configured fields', () => {
-    const { title } = inferWidgetTitles(
+    const { title, subtitle } = inferWidgetTitles(
       makeWidget({ config: { xField: 'category', yField: 'revenue', ySeries: [{ fieldId: 'revenue' }] } }),
       SOURCES,
     );
     expect(title).toBe('Revenue by Category');
+    expect(subtitle).toBe('Orders');
   });
 
   it('joins multiple Y series labels', () => {
@@ -61,12 +62,13 @@ describe('inferWidgetTitles — chart', () => {
     expect(title).toBe('Revenue, LTV by Month');
   });
 
-  it('includes xGroupBy in subtitle', () => {
-    const { subtitle } = inferWidgetTitles(
+  it('uses xGroupBy granularity in the title', () => {
+    const { title, subtitle } = inferWidgetTitles(
       makeWidget({ config: { xField: 'month', yField: 'revenue', ySeries: [{ fieldId: 'revenue' }], xGroupBy: 'month' } }),
       SOURCES,
     );
-    expect(subtitle).toBe('by month');
+    expect(title).toBe('Monthly Revenue');
+    expect(subtitle).toBe('Orders');
   });
 
   it('includes seriesField split in subtitle', () => {
@@ -80,11 +82,11 @@ describe('inferWidgetTitles — chart', () => {
       }),
       SOURCES,
     );
-    expect(subtitle).toBe('split by Category');
+    expect(subtitle).toBe('Orders · split by Category');
   });
 
-  it('combines xGroupBy and seriesField in subtitle', () => {
-    const { subtitle } = inferWidgetTitles(
+  it('combines xGroupBy and seriesField in the title', () => {
+    const { title, subtitle } = inferWidgetTitles(
       makeWidget({
         config: {
           xField: 'month',
@@ -95,7 +97,31 @@ describe('inferWidgetTitles — chart', () => {
       }),
       SOURCES,
     );
-    expect(subtitle).toBe('by month · split by Category');
+    expect(title).toBe('Monthly Revenue by Category');
+    expect(subtitle).toBe('Orders');
+  });
+
+  it('keeps split information in the subtitle when there is no xGroupBy', () => {
+    const { title, subtitle } = inferWidgetTitles(
+      makeWidget({
+        config: {
+          xField: 'month',
+          ySeries: [{ fieldId: 'revenue' }],
+          seriesField: 'category',
+        },
+      }),
+      SOURCES,
+    );
+    expect(title).toBe('Revenue by Month');
+    expect(subtitle).toBe('Orders · split by Category');
+  });
+
+  it('uses the source label as chart subtitle when configured', () => {
+    const { subtitle } = inferWidgetTitles(
+      makeWidget({ config: { xField: 'month', ySeries: [{ fieldId: 'revenue' }] } }),
+      SOURCES,
+    );
+    expect(subtitle).toBe('Orders');
   });
 
   it('uses chartType label in subtitle', () => {
@@ -103,7 +129,7 @@ describe('inferWidgetTitles — chart', () => {
       makeWidget({ config: { chartType: 'line', xField: 'month', ySeries: [{ fieldId: 'revenue' }] } }),
       SOURCES,
     );
-    expect(subtitle).toBe('');
+    expect(subtitle).toBe('Orders');
   });
 
   it('uses "Y vs X" for scatter charts', () => {
@@ -112,7 +138,7 @@ describe('inferWidgetTitles — chart', () => {
       SOURCES,
     );
     expect(title).toBe('Revenue vs Category');
-    expect(subtitle).toBe('');
+    expect(subtitle).toBe('Orders');
   });
 });
 
@@ -157,13 +183,30 @@ describe('inferWidgetTitles — KPI', () => {
 });
 
 describe('inferWidgetTitles — grid', () => {
-  it('uses source label as title and empty subtitle', () => {
+  it('uses source label as title and visible columns as subtitle', () => {
     const { title, subtitle } = inferWidgetTitles(
       makeWidget({ kind: 'grid', config: {} }),
       SOURCES,
     );
     expect(title).toBe('Orders');
-    expect(subtitle).toBe('');
+    expect(subtitle).toBe('Category, Revenue, Month');
+  });
+
+  it('truncates long grid column lists in the subtitle', () => {
+    const { subtitle } = inferWidgetTitles(
+      makeWidget({
+        kind: 'grid',
+        config: { columns: ['category', 'revenue', 'month', 'status'] },
+      }),
+      {
+        ...SOURCES,
+        orders: {
+          ...SOURCES.orders,
+          fields: [...SOURCES.orders.fields, { id: 'status', label: 'Status', type: 'string' }],
+        },
+      },
+    );
+    expect(subtitle).toBe('Category, Revenue, Month +1 more');
   });
 });
 
@@ -184,14 +227,14 @@ describe('inferWidgetTitles — filter', () => {
     });
     const { title, subtitle } = inferWidgetTitles(widget, SOURCES);
     expect(title).toBe('Filter: Category');
-    expect(subtitle).toBe('');
+    expect(subtitle).toBe('Orders');
   });
 
   it('uses "Filter" as title when no field is configured', () => {
     const widget = makeWidget({ kind: 'filter', config: {} });
     const { title, subtitle } = inferWidgetTitles(widget, SOURCES);
     expect(title).toBe('Filter');
-    expect(subtitle).toBe('');
+    expect(subtitle).toBe('Orders');
   });
 });
 

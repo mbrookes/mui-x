@@ -298,7 +298,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                   ...(widget.config.textTitleAlign && { textAlign: widget.config.textTitleAlign }),
                 } : undefined}
               >
-                {widget.title}
+                {widget.title || (widget.kind === 'kpi' ? 'KPI' : widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1))}
               </Typography>
               {widget.subtitle && (
                 <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>

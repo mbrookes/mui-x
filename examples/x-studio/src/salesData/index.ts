@@ -4,3 +4,4 @@ export * from './orders';
 export * from './products';
 export * from './shipmentItems';
 export * from './shipments';
+export * from './generator';

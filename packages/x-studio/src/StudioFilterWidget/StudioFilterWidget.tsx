@@ -460,7 +460,14 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
 
   const sliderMin = config.filterWidgetMin ?? autoMin;
   const sliderMax = config.filterWidgetMax ?? autoMax;
-  const sliderStep = config.filterWidgetStep ?? (sliderMax - sliderMin > 100 ? Math.round((sliderMax - sliderMin) / 100) : 1);
+  const MS_PER_DAY = 86_400_000;
+  const sliderStep =
+    config.filterWidgetStep ??
+    (isDateField
+      ? MS_PER_DAY // default to 1-day steps for date sliders
+      : sliderMax - sliderMin > 100
+        ? Math.round((sliderMax - sliderMin) / 100)
+        : 1);
 
   const handleClear = React.useCallback(() => {
     controller.clearInteractiveFilter(widget.id);
@@ -545,7 +552,20 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   }
 
   if (filterWidgetType === 'slider') {
-    const val = activeFilter?.value as { from?: number; to?: number } | null | undefined;
+    // The filter stores dates as ISO strings; convert back to timestamps for the numeric slider.
+    const rawVal = activeFilter?.value as
+      | { from?: string | number; to?: string | number }
+      | null
+      | undefined;
+    const val: { from?: number; to?: number } | null =
+      rawVal == null
+        ? null
+        : isDateField
+          ? {
+              from: rawVal.from != null ? dayjs(rawVal.from as string).valueOf() : undefined,
+              to: rawVal.to != null ? dayjs(rawVal.to as string).valueOf() : undefined,
+            }
+          : (rawVal as { from?: number; to?: number });
     const fieldType = isDateField ? (field?.type ?? 'date') : 'number';
     return (
       <SliderControl

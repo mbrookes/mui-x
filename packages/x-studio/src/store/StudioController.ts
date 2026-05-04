@@ -54,7 +54,9 @@ export class StudioController {
     return {
       ...widget,
       title: isAutoTitle ? inferred.title : widget.title,
+      titleMode: isAutoTitle ? 'auto' : widget.titleMode,
       subtitle: isAutoSubtitle ? inferred.subtitle : widget.subtitle,
+      subtitleMode: isAutoSubtitle ? 'auto' : widget.subtitleMode,
     };
   }
 
@@ -273,12 +275,11 @@ export class StudioController {
     const widgetRows = activePage.widgetRows || [];
     // Add new widget as a new row by default
     const newWidgetRows = [...widgetRows, [widget.id]];
-    const withTitles = this.applyInferredTitles(widget, state.dataSources);
     this.commitState({
       ...state,
       widgets: {
         ...state.widgets,
-        [widget.id]: withTitles,
+        [widget.id]: widget,
       },
       pages: {
         ...state.pages,

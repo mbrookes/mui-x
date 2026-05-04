@@ -115,7 +115,71 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
   );
 }
 
-// ─── Cross-filter section ─────────────────────────────────────────────────────
+// ─── Interactive filter section ───────────────────────────────────────────────
+
+export function InteractiveFilterSection({ filters }: { filters: StudioFilterState[] }) {
+  const controller = useStudioController();
+  const widgets = useStudioSelector((state) => state.widgets);
+
+  return (
+    <CollapsibleSection title="Interactive filters">
+      {filters.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ px: 1, pb: 1 }}>
+          No interactive filters active. Use filter widgets on the canvas to set filters.
+        </Typography>
+      ) : (
+        <Stack spacing={1} sx={{ pb: 0.5 }}>
+          {filters.map((filter: StudioFilterState) => {
+            const widgetTitle = filter.sourceWidgetId
+              ? (widgets[filter.sourceWidgetId]?.title ?? filter.sourceWidgetId)
+              : null;
+            const displayValue = Array.isArray(filter.value)
+              ? `${(filter.value as unknown[]).length} selected`
+              : typeof filter.value === 'object' && filter.value !== null
+              ? Object.entries(filter.value as Record<string, unknown>)
+                  .filter(([, v]) => v != null)
+                  .map(([k, v]) => `${k}: ${String(v)}`)
+                  .join(' – ')
+              : String(filter.value ?? '');
+            return (
+              <Box
+                key={filter.id}
+                sx={{
+                  position: 'relative',
+                  p: 1,
+                  pr: 4,
+                  borderRadius: 1,
+                  border: 1,
+                  borderColor: 'divider',
+                }}
+              >
+                {widgetTitle && (
+                  <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                    {widgetTitle}
+                  </Typography>
+                )}
+                <Typography variant="caption" color="text.secondary">
+                  {displayValue}
+                </Typography>
+                <Tooltip title="Clear filter">
+                  <IconButton
+                    size="small"
+                    onClick={() => controller.removeFilter(filter.id)}
+                    aria-label="Clear interactive filter"
+                    sx={{ position: 'absolute', top: 2, right: 2 }}
+                  >
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            );
+          })}
+        </Stack>
+      )}
+    </CollapsibleSection>
+  );
+}
+
 
 export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }) {
   const controller = useStudioController();

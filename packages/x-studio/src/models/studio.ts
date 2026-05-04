@@ -4,7 +4,9 @@ export type StudioMode = 'edit' | 'view';
 
 export type StudioDrawer = 'data' | 'compose' | 'filters';
 
-export type StudioWidgetKind = 'grid' | 'chart' | 'kpi' | 'text';
+export type StudioWidgetKind = 'grid' | 'chart' | 'kpi' | 'text' | 'filter';
+
+export type StudioFilterWidgetType = 'date-range' | 'multi-select' | 'toggle' | 'slider' | 'search';
 
 export type StudioChartType =
   | 'bar'
@@ -161,6 +163,20 @@ export interface StudioWidgetConfig {
   textBodyColor?: string;
   /** Text alignment for the body section. undefined = left. */
   textBodyAlign?: 'left' | 'center' | 'right';
+  // Filter widget config
+  filterWidgetType?: StudioFilterWidgetType;
+  /** Field ID to filter on */
+  filterWidgetField?: string;
+  /** Source ID for the filter field — only needed when the field belongs to a related source */
+  filterWidgetSourceId?: string;
+  /** Optional label override shown above the control */
+  filterWidgetLabel?: string;
+  /** Minimum value for slider filter widgets */
+  filterWidgetMin?: number;
+  /** Maximum value for slider filter widgets */
+  filterWidgetMax?: number;
+  /** Step increment for slider filter widgets */
+  filterWidgetStep?: number;
   // Shared
   measures?: string[];
   dimensions?: string[];
@@ -385,7 +401,7 @@ export interface StudioFilterState {
    * - `<fieldId>`: rank by the values of the specific series with that fieldId
    */
   rankMultiSeriesBy?: string;
-  scope: 'page' | 'widget' | 'cross-filter';
+  scope: 'page' | 'widget' | 'cross-filter' | 'interactive';
   widgetId?: string;
   /** For cross-filters: the widget ID that originated the filter */
   sourceWidgetId?: string;

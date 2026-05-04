@@ -109,7 +109,7 @@ describe('<StudioChartWidget />', () => {
     vi.clearAllMocks();
   });
 
-  it('keeps split-by series colors stable when a cross-filter removes earlier categories', () => {
+  it('keeps split-by series colors stable and shows all categories as ghost bars when a cross-filter is active', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',
       label: 'Orders',
@@ -173,6 +173,7 @@ describe('<StudioChartWidget />', () => {
     };
 
     expect(props.series.map((series) => ({ label: series.label, color: series.color }))).toEqual([
+      { label: 'A', color: '#111111' },
       { label: 'B', color: '#222222' },
       { label: 'C', color: '#333333' },
     ]);

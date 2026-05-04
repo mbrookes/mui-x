@@ -60,16 +60,20 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     );
   }, [dataSources, expressionFields]);
 
+  const config = widget?.config ?? {};
+
+  // selectedXField is used to conditionally show the Group By control below
+  const selectedXField = allFields.find((f) => f.id === config.xField) ?? null;
+  const supportSourceId = selectedXField?.sourceId;
+
   // Once the X field anchors a source, restrict all other pickers to reachable sources.
   const reachableFields = React.useMemo(() => {
-    if (!widget?.sourceId) {
+    if (!supportSourceId) {
       return allFields;
     }
-    const reachableIds = getReachableSourceIds(widget.sourceId, relationships);
+    const reachableIds = getReachableSourceIds(supportSourceId, relationships);
     return allFields.filter((f) => reachableIds.has(f.sourceId));
-  }, [allFields, widget?.sourceId, relationships]);
-
-  const config = widget?.config ?? {};
+  }, [allFields, relationships, supportSourceId]);
 
   const sortBySourceLabel = (a: { sourceLabel: string }, b: { sourceLabel: string }) =>
     a.sourceLabel.localeCompare(b.sourceLabel);
@@ -91,9 +95,6 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
   // Y series: prefer ySeries, else seed from yField
   const ySeries = config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : []);
-
-  // selectedXField is used to conditionally show the Group By control below
-  const selectedXField = allFields.find((f) => f.id === config.xField) ?? null;
 
   const supportsMultipleSeries =
     chartType === 'bar' ||
@@ -118,7 +119,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const chartSupport = React.useMemo(
     () =>
       analyzeChartSupport(
-        widget?.sourceId,
+        supportSourceId,
         config.xField,
         ySeries.map((series) => series.fieldId).filter(Boolean),
         config.seriesField,
@@ -128,7 +129,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         expressionFields,
       ),
     [
-      widget?.sourceId,
+      supportSourceId,
       config.xField,
       ySeries,
       config.seriesField,
@@ -146,7 +147,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       seriesField?: string | undefined;
     }) =>
       analyzeChartSupport(
-        widget?.sourceId,
+        supportSourceId,
         overrides.xField ?? config.xField,
         overrides.yFields ?? ySeries.map((series) => series.fieldId).filter(Boolean),
         overrides.seriesField ?? config.seriesField,
@@ -156,7 +157,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         expressionFields,
       ),
     [
-      widget?.sourceId,
+      supportSourceId,
       config.xField,
       config.seriesField,
       ySeries,

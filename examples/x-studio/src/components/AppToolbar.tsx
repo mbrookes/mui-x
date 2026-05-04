@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Box, IconButton, Switch, Tab, Tabs, Tooltip, Typography } from '@mui/material';
+import { Box, Divider, IconButton, Switch, Tab, Tabs, Tooltip, Typography } from '@mui/material';
 import type { SwitchProps } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
@@ -71,16 +71,6 @@ export function AppToolbar(props: AppToolbarProps) {
         </Tabs>
       )}
       {pages.length <= 1 && <Box sx={{ flexGrow: 1 }} />}
-      <Tooltip title="Load dashboard">
-        <IconButton size="small" onClick={onLoad} aria-label="Load dashboard">
-          <FileUploadIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Tooltip title="Save dashboard">
-        <IconButton size="small" onClick={onSave} aria-label="Save dashboard">
-          <FileDownloadIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
       {mode === 'edit' && (
         <>
           <Tooltip title="Undo (⌘Z)">
@@ -97,9 +87,21 @@ export function AppToolbar(props: AppToolbarProps) {
               </IconButton>
             </span>
           </Tooltip>
+          <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
         </>
       )}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
+      <Tooltip title="Load dashboard">
+        <IconButton size="small" onClick={onLoad} aria-label="Load dashboard">
+          <FileUploadIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Save dashboard">
+        <IconButton size="small" onClick={onSave} aria-label="Save dashboard">
+          <FileDownloadIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>
           View
         </Typography>

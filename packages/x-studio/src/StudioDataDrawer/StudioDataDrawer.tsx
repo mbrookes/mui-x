@@ -153,7 +153,7 @@ function DataSourceSection(props: {
   isEditMode: boolean;
 }) {
   const { source, expressionFields, dataSources, relationships, isEditMode } = props;
-  const [open, setOpen] = React.useState(true);
+  const [open, setOpen] = React.useState(false);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingField, setEditingField] = React.useState<StudioExpressionField | undefined>(undefined);
   const controller = useStudioController();

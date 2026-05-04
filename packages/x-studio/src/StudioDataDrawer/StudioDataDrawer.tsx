@@ -149,9 +149,10 @@ function ExpressionFieldRow({
 function DataSourceSection(props: {
   source: StudioDataSource;
   expressionFields: StudioExpressionField[];
+  dataSources: Record<string, StudioDataSource>;
   isEditMode: boolean;
 }) {
-  const { source, expressionFields, isEditMode } = props;
+  const { source, expressionFields, dataSources, isEditMode } = props;
   const [open, setOpen] = React.useState(true);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingField, setEditingField] = React.useState<StudioExpressionField | undefined>(undefined);
@@ -166,8 +167,8 @@ function DataSourceSection(props: {
     if (!source.rows || source.rows.length === 0) {
       return source.rows;
     }
-    return enrichRowsWithExpressions(source.rows, expressionFields, source.id);
-  }, [source.rows, source.id, expressionFields]);
+    return enrichRowsWithExpressions(source.rows, expressionFields, source.id, dataSources);
+  }, [source.rows, source.id, expressionFields, dataSources]);
 
   const handleAddExpressionField = () => {
     setEditingField(undefined);
@@ -302,6 +303,7 @@ export function StudioDataDrawer() {
           key={source.id}
           source={source}
           expressionFields={expressionFields}
+          dataSources={dataSources}
           isEditMode={mode === 'edit'}
         />
       ))}

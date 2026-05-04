@@ -51,9 +51,29 @@ export function FilterSetupPanel(props: { widgetId: string }) {
   }
 
   const handleTypeChange = (newType: StudioFilterWidgetType) => {
+    // Determine if the currently selected field is compatible with the new type.
+    // Only clear the field if it's known to be incompatible; otherwise preserve it.
+    let clearField = false;
+    if (fieldId) {
+      const currentField = Object.values(dataSources)
+        .flatMap((ds) => ds.fields)
+        .find((f) => f.id === fieldId);
+      if (currentField) {
+        const fieldType = currentField.type;
+        if (newType === 'date-range') {
+          // date-range requires a temporal field
+          clearField = fieldType !== 'date' && fieldType !== 'datetime';
+        } else if (newType === 'slider') {
+          // slider requires numeric or temporal
+          clearField =
+            fieldType !== 'number' && fieldType !== 'date' && fieldType !== 'datetime';
+        }
+        // multi-select and toggle accept any field type — never clear
+      }
+    }
     controller.updateWidgetConfig(widgetId, {
       filterWidgetType: newType,
-      filterWidgetField: undefined,
+      ...(clearField ? { filterWidgetField: undefined } : {}),
     });
     controller.clearInteractiveFilter(widgetId);
   };

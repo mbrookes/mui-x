@@ -530,6 +530,10 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     );
   }
 
+  // Always pass filterSourceId so cross-source filtering works when this widget's
+  // source differs from a chart/KPI/grid's source (e.g. customers → orders join).
+  const filterSourceId = widget.sourceId;
+
   if (filterWidgetType === 'date-range') {
     const val = (activeFilter?.value as { from?: string; to?: string } | null) ?? null;
     return (
@@ -544,6 +548,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
           }
           controller.applyInteractiveFilter(widget.id, fieldId, 'between', value, {
             fieldType: field?.type ?? 'date',
+            filterSourceId,
           });
         }}
         onClear={handleClear}
@@ -566,6 +571,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
           controller.applyInteractiveFilter(widget.id, fieldId, 'in', v, {
             filterMode: 'selection',
             fieldType: field?.type ?? 'string',
+            filterSourceId,
           });
         }}
         onClear={handleClear}
@@ -584,6 +590,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
           controller.applyInteractiveFilter(widget.id, fieldId, 'in', v, {
             filterMode: 'selection',
             fieldType: field?.type ?? 'string',
+            filterSourceId,
           });
         }}
         onClear={handleClear}
@@ -603,6 +610,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
         onApply={(lo, hi) => {
           controller.applyInteractiveFilter(widget.id, fieldId, 'between', { from: lo, to: hi }, {
             fieldType: 'number',
+            filterSourceId,
           });
         }}
         onClear={handleClear}
@@ -620,6 +628,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
         onApply={(v) => {
           controller.applyInteractiveFilter(widget.id, fieldId, 'contains', v, {
             fieldType: 'string',
+            filterSourceId,
           });
         }}
         onClear={handleClear}

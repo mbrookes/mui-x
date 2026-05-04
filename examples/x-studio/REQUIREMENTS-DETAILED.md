@@ -20,7 +20,7 @@ MUI X demo app (`examples/x-studio`) — Sales Dashboard built on `@mui/x-studio
 | DB-03 | Dashboard | Cross-filter (click-to-filter) | ✅ Done |
 | DB-04 | Dashboard | Dashboard-level date range filter | 📋 Planned |
 | DB-05 | Dashboard | Drill-down / detail panel | 📋 Planned |
-| DB-06 | Dashboard | Additional demo pages (Customers etc.) | 📋 Planned |
+| DB-06 | Dashboard | Additional demo pages (Customers etc.) | ✅ Done |
 | DB-07 | Dashboard | Data refresh simulation | 📋 Planned |
 | DB-08 | Dashboard | State persistence (save/restore) | 🔭 Future |
 | DB-09 | Dashboard | Shareable filter links (URL encoding) | 🔭 Future |
@@ -152,6 +152,16 @@ MUI X demo app (`examples/x-studio`) — Sales Dashboard built on `@mui/x-studio
 - Memoized `StudioWidgetCard` and canvas rows
 - Field capability system (type-derived, per-field overridable)
 - Modular icon system; `DrawerSubheaderContext` for sticky tabs
+
+### DB-06 · Customers page
+- KPIs: Lifetime Value (sum of order totals), Customer Count, Avg Order Value, Enterprise Customer Count
+- Filter widgets: Segment toggle (chip buttons) and Signup Date Range (date picker pair)
+- Charts: Customer Acquisition Over Time (bar by year), Revenue by Segment (donut), Top Customers by Revenue (horizontal bar, top 12), Quarterly Revenue by Segment (stacked area)
+- Grid: Top 20 customers by total revenue, grouped by company with order count + revenue sum
+- Cross-source join: order-based charts use `expr-order-company`, `expr-order-segment`, `expr-order-country` expression fields
+- Filter widgets pass `filterSourceId` so interactive filters apply cross-source (e.g. segment filter on customers → orders join)
+- Bookmarkable tabs: page is navigable via URL hash (`#page-4`)
+- Page theme: `mangoFusion` chart palette
 
 ---
 

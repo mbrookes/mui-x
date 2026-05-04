@@ -15,12 +15,14 @@ MUI X demo app (`examples/x-studio`) showcasing a Sales Dashboard built on `@mui
 - Cross-source join projection for chart aggregations
 
 ### Dashboard
-- Two pages: Overview and Products & Logistics
+- Four pages: Overview, Products, Logistics, Customers
 - Page-level and widget-level filters
+- Interactive filter widgets (toggle, multi-select, date-range, slider, search) as canvas components
 - Cross-filters (clicking a chart filters other widgets)
 - Rank filters (Top N / Bottom N) with multi-series rank support
 - Date filters with relative date values
 - Metric refs: filter values driven by business metrics (dynamic thresholds)
+- Bookmarkable tabs (URL hash navigation between pages)
 
 ### Widget Types
 - **Grid**: sortable, exportable to CSV, cross-filter source, compact density
@@ -82,7 +84,6 @@ Higher priority items the app needs for a credible demo:
 - **Scheduled data refresh simulation** — show that widget data updates when the underlying source changes (e.g. a "refresh" button or polling interval in the demo)
 - **Dashboard-level date range filter** — single date picker that drives all KPIs and charts at once
 - **Drill-down / detail panel** — click a chart bar or grid row to open a slide-in detail panel (e.g. order → line items)
-- **More demo pages** — e.g. "Customers" page: lifetime value, acquisition over time, top customers table
 
 ### Widget Features
 - **Scatter chart configuration** — expose X/Y/size/colour fields in compose drawer (currently hardcoded)

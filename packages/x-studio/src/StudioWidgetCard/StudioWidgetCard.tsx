@@ -25,6 +25,7 @@ export interface StudioWidgetCardProps {
 // Widgets that have already been rendered once skip the defer on subsequent mounts
 // so rearranging cards doesn't cause a visible blank-shell flash.
 const hydratedWidgets = new Set<string>();
+const COMPACT_WIDGET_MIN_HEIGHT = 160;
 
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
@@ -69,15 +70,21 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // shells are visible immediately on initial load. Widgets that have already
   // been rendered (tracked in hydratedWidgets) skip the defer so that
   // drag-and-drop repositioning doesn't cause a blank-shell flash.
+  //
+  // NOTE: intentionally NOT using startTransition/useTransition here.
+  // Wrapping setShowContent in a transition makes it low-priority and lets
+  // continuous mouse events (mouseenter/mouseleave hover state) preempt it
+  // indefinitely, causing a ~5-second visible delay after DnD drops.
+  // The requestAnimationFrame delay alone is sufficient to avoid blocking the
+  // first paint without causing hover-induced starvation.
   const [showContent, setShowContent] = React.useState(() => hydratedWidgets.has(widgetId));
-  const [, startContentTransition] = React.useTransition();
   React.useEffect(() => {
     hydratedWidgets.add(widgetId);
     if (showContent) {
       return undefined;
     }
     const raf = requestAnimationFrame(() => {
-      startContentTransition(() => setShowContent(true));
+      setShowContent(true);
     });
     return () => cancelAnimationFrame(raf);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -188,6 +195,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         p: pageTheme?.cardPadding ?? 2,
         boxSizing: 'border-box',
         position: 'relative',
+        minHeight:
+          widget.kind === 'kpi' || widget.kind === 'filter'
+            ? COMPACT_WIDGET_MIN_HEIGHT
+            : undefined,
         outline: isSelected ? '2px solid' : undefined,
         outlineColor: isSelected ? 'primary.main' : undefined,
         outlineOffset: -1,

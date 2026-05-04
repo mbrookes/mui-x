@@ -26,7 +26,7 @@ vi.mock('../context', () => ({
 const { render } = createRenderer();
 
 describe('FilterValueInput', () => {
-  it('renders the link button inline with the amount field for relative date inputs', () => {
+  it('renders the link button inline with the amount field for relative date inputs', async () => {
     render(
       <FilterValueInput
         fieldType="date"
@@ -37,7 +37,7 @@ describe('FilterValueInput', () => {
       />,
     );
 
-    const amountField = screen.getByLabelText('Amount');
+    const amountField = await screen.findByLabelText('Amount');
     const linkButton = screen.getByRole('button', { name: 'Link to field' });
 
     // input > MuiInputBase-root > MuiFormControl-root > flex Box

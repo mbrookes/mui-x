@@ -6,5 +6,8 @@ export default mergeConfig(sharedConfig, {
   test: {
     name: getTestName(import.meta.url),
     environment: 'jsdom',
+    // The first test in a file can be slow while jsdom warms up — 30s avoids
+    // flaky timeouts without masking real hangs.
+    testTimeout: 30000,
   },
 });

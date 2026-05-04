@@ -197,13 +197,6 @@ export interface StudioWidget {
   config: StudioWidgetConfig;
 }
 
-export type StudioChartPaletteName =
-  | 'blueberryTwilight'
-  | 'mangoFusion'
-  | 'cheerfulFiesta'
-  | 'rainbowSurge'
-  | 'custom';
-
 export interface StudioPageTheme {
   /** Canvas background colour (CSS colour string). Default: theme grey. */
   pageBackground?: string;
@@ -419,17 +412,6 @@ export interface StudioDashboardState {
   activePageId: string;
   /** Default theme applied to all pages unless overridden by a page-level theme. */
   defaultTheme?: StudioPageTheme;
-  /**
-   * Named x-charts colour palette applied to all chart widgets across the dashboard.
-   * undefined = use the MUI theme default palette.
-   * 'custom' = use chartCustomColors instead of a named palette.
-   */
-  chartPalette?: StudioChartPaletteName;
-  /**
-   * User-defined colour list, used when chartPalette === 'custom'.
-   * Each entry is a CSS colour string (e.g. '#ff5500').
-   */
-  chartCustomColors?: string[];
 }
 
 export interface StudioState {

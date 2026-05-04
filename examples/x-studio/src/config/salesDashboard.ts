@@ -128,7 +128,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: ORDERS_SOURCE_ID,
       config: {
         filterWidgetType: 'toggle',
-        filterWidgetField: 'country',
+        filterWidgetField: 'expr-order-country',
         filterWidgetLabel: 'Country',
       },
     },

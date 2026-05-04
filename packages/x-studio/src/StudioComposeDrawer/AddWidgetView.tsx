@@ -217,13 +217,13 @@ function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
   );
 }
 
-/** Smoothly scrolls a container to targetY over `duration` ms using ease-out cubic. */
-function smoothScrollTo(container: HTMLElement, targetY: number, duration = 380) {
+/**
+ * Smoothly scrolls a container to its bottom over `duration` ms using ease-out cubic.
+ * The target is re-evaluated each frame so the animation tracks content that loads
+ * asynchronously (e.g. widget card content rendered via useTransition).
+ */
+function smoothScrollToBottom(container: HTMLElement, duration = 420) {
   const startY = container.scrollTop;
-  const distance = targetY - startY;
-  if (distance === 0) {
-    return;
-  }
   const startTime = performance.now();
   function easeOutCubic(t: number): number {
     return 1 - (1 - t) ** 3;
@@ -231,10 +231,16 @@ function smoothScrollTo(container: HTMLElement, targetY: number, duration = 380)
   function step(now: number) {
     const elapsed = now - startTime;
     const progress = Math.min(elapsed / duration, 1);
+    // Re-read bottom each frame — widget content may still be loading
+    const targetY = container.scrollHeight - container.clientHeight;
     // eslint-disable-next-line no-param-reassign
-    container.scrollTop = startY + distance * easeOutCubic(progress);
+    container.scrollTop = startY + (targetY - startY) * easeOutCubic(progress);
     if (progress < 1) {
       requestAnimationFrame(step);
+    } else {
+      // Final snap: catches any content that finished loading after the animation
+      // eslint-disable-next-line no-param-reassign
+      container.scrollTop = container.scrollHeight - container.clientHeight;
     }
   }
   requestAnimationFrame(step);
@@ -258,7 +264,7 @@ export function AddWidgetView() {
       requestAnimationFrame(() => {
         const container = canvasScrollRef?.current;
         if (container) {
-          smoothScrollTo(container, container.scrollHeight - container.clientHeight);
+          smoothScrollToBottom(container);
         }
       });
     });

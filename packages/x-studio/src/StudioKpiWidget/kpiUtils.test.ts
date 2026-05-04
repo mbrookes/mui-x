@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import dayjs from 'dayjs';
-import { extractDateRange, findDateFilter, computePreviousPeriodRange } from './kpiUtils';
+import { extractDateRange, findDateFilter, computePreviousPeriodRange, computeAggregate } from './kpiUtils';
 import type { StudioDataSource, StudioFilterState } from '../models';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -215,5 +215,47 @@ describe('KPI trend: relative date filter integration', () => {
     expect(Math.abs(range!.start.getTime() - expectedStart.getTime())).toBeLessThan(
       24 * 60 * 60 * 1000,
     );
+  });
+});
+
+// ─── computeAggregate ─────────────────────────────────────────────────────────
+
+describe('computeAggregate', () => {
+  const rows = [
+    { total: 100, label: 'A', date: '2024-01-01' },
+    { total: 200, label: 'B', date: '2024-02-01' },
+    { total: 300, label: 'C', date: '2024-03-01' },
+  ];
+
+  it('sum returns correct total for a numeric field', () => {
+    expect(computeAggregate(rows, 'total', 'sum')).toBe(600);
+  });
+
+  it('avg returns correct average for a numeric field', () => {
+    expect(computeAggregate(rows, 'total', 'avg')).toBe(200);
+  });
+
+  it('min returns minimum numeric value', () => {
+    expect(computeAggregate(rows, 'total', 'min')).toBe(100);
+  });
+
+  it('max returns maximum numeric value', () => {
+    expect(computeAggregate(rows, 'total', 'max')).toBe(300);
+  });
+
+  it('count returns row count regardless of field type', () => {
+    expect(computeAggregate(rows, 'label', 'count')).toBe(3);
+    expect(computeAggregate(rows, 'date', 'count')).toBe(3);
+  });
+
+  it('sum of date strings returns 0 (NaN-safe, not a meaningful operation)', () => {
+    // Date strings coerce to NaN — values filtered out — returns 0.
+    // The caller (KpiSetupPanel) is responsible for not passing 'sum' for date fields.
+    expect(computeAggregate(rows, 'date', 'sum')).toBe(0);
+  });
+
+  it('returns 0 for empty rows', () => {
+    expect(computeAggregate([], 'total', 'sum')).toBe(0);
+    expect(computeAggregate([], 'total', 'count')).toBe(0);
   });
 });

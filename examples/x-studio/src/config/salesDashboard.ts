@@ -618,6 +618,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
         xField: 'since',
         xGroupBy: 'year',
         yField: 'company',
+        yAggregation: 'count' as const,
       },
     },
     'widget-chart4-revenue-by-segment': {

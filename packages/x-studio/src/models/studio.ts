@@ -426,6 +426,8 @@ export interface StudioDashboardState {
   id: string;
   title: string;
   activePageId: string;
+  /** Default theme applied to all pages unless overridden by a page-level theme. */
+  defaultTheme?: StudioPageTheme;
 }
 
 export interface StudioState {

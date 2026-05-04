@@ -19,20 +19,21 @@ export const INITIAL_STATE: Partial<StudioState> = {
     id: 'dashboard-sales',
     title: 'Sales Dashboard',
     activePageId: 'page-1',
+    defaultTheme: { chartPalette: 'blueberryTwilight' as const },
   },
   pages: {
     'page-1': {
       id: 'page-1',
       title: 'Overview',
-      theme: { chartPalette: 'blueberryTwilight' as const },
       widgetRows: [
+        ['widget-text-hero'],
         [
           'widget-kpi-orders', 
           'widget-kpi-revenue',
           'widget-kpi-customers',
           'widget-kpi-avg-discount', 
         ],
-        ['widget-filter-country', 'widget-filter-category'],
+        ['widget-filter-country', 'widget-filter-date'],
         ['widget-chart-revenue-by-category'],
         ['widget-chart-category', 'widget-chart-country'],
         ['widget-orders-grid'],
@@ -41,10 +42,12 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'page-2': {
       id: 'page-2',
       title: 'Products',
+      theme: { chartPalette: 'mangoFusion' as const },
       widgetRows: [
-        ['widget-kpi2-units-sold', 'widget-kpi2-margin'],
-        ['widget-chart2-price-vs-margin', 'widget-chart2-stock-by-category'],
-        ['widget-chart2-units-by-category'],
+        ['widget-kpi2-units-sold', 'widget-kpi2-margin', 'widget-kpi2-inventory-value'],
+        ['widget-filter2-category'],
+        ['widget-chart2-margin-by-category', 'widget-chart2-stock-by-category'],
+        ['widget-chart2-price-vs-margin', 'widget-chart2-units-by-category'],
         ['widget-grid2-products'],
       ],
     },
@@ -121,6 +124,21 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
   ],
   widgets: {
+
+    // ── Page 1: Overview ────────────────────────────────────────────────────
+
+    'widget-text-hero': {
+      id: 'widget-text-hero',
+      kind: 'text',
+      title: 'Sales Performance Overview',
+      titleMode: 'manual' as const,
+      sourceId: undefined,
+      config: {
+        textTitleFontSize: 40,
+        textTitleAlign: 'center' as const,
+      },
+    },
+
     'widget-filter-country': {
       id: 'widget-filter-country',
       kind: 'filter',
@@ -133,16 +151,16 @@ export const INITIAL_STATE: Partial<StudioState> = {
         filterWidgetLabel: 'Country',
       },
     },
-    'widget-filter-category': {
-      id: 'widget-filter-category',
+    'widget-filter-date': {
+      id: 'widget-filter-date',
       kind: 'filter',
-      title: 'Filter by Category',
+      title: 'Order Date',
       titleMode: 'manual',
-      sourceId: ORDER_ITEMS_SOURCE_ID,
+      sourceId: ORDERS_SOURCE_ID,
       config: {
-        filterWidgetType: 'multi-select',
-        filterWidgetField: 'category',
-        filterWidgetLabel: 'Category',
+        filterWidgetType: 'slider' as const,
+        filterWidgetField: 'date',
+        filterWidgetLabel: 'Order Date',
       },
     },
     'widget-kpi-orders': {
@@ -282,6 +300,42 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiSparklineSourceId: ORDERS_SOURCE_ID,
         kpiSparklinePlotType: 'line',
         kpiSparklineGranularity: 'quarter',
+      },
+    },
+    'widget-kpi2-inventory-value': {
+      id: 'widget-kpi2-inventory-value',
+      kind: 'kpi',
+      title: 'Total Inventory Value',
+      titleMode: 'manual',
+      sourceId: PRODUCTS_SOURCE_ID,
+      config: {
+        kpiValueField: 'expr-product-inventory-value',
+        kpiAggregation: 'sum',
+        kpiCompact: true,
+      },
+    },
+    'widget-filter2-category': {
+      id: 'widget-filter2-category',
+      kind: 'filter',
+      title: 'Category',
+      titleMode: 'manual',
+      sourceId: PRODUCTS_SOURCE_ID,
+      config: {
+        filterWidgetType: 'toggle' as const,
+        filterWidgetField: 'category',
+      },
+    },
+    'widget-chart2-margin-by-category': {
+      id: 'widget-chart2-margin-by-category',
+      kind: 'chart',
+      title: 'Margin % by Category',
+      titleMode: 'manual',
+      sourceId: PRODUCTS_SOURCE_ID,
+      config: {
+        chartType: 'bar',
+        xField: 'category',
+        ySeries: [{ fieldId: 'expr-product-margin-pct' }],
+        yField: 'expr-product-margin-pct',
       },
     },
     'widget-chart2-price-vs-margin': {
@@ -762,6 +816,19 @@ export const INITIAL_STATE: Partial<StudioState> = {
       expression: {
         joinSourceId: CUSTOMERS_SOURCE_ID,
         fieldId: 'company',
+      },
+    },
+    {
+      id: 'expr-product-inventory-value',
+      label: 'Inventory Value',
+      description: 'Total stock value (stock × unit price)',
+      sourceId: PRODUCTS_SOURCE_ID,
+      isMeasure: false,
+      type: 'number',
+      format: 'currency',
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'stock' }, { id: 'price' }],
       },
     },
     {

@@ -72,6 +72,7 @@ function TextSectionFormat(props: TextSectionFormatProps) {
               <MenuItem value={20}>20 px</MenuItem>
               <MenuItem value={24}>24 px</MenuItem>
               <MenuItem value={32}>32 px</MenuItem>
+              <MenuItem value={40}>40 px</MenuItem>
             </Select>
           </FormControl>
 

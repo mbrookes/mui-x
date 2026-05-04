@@ -25,10 +25,12 @@ export function usePageChartColors(): string[] | undefined {
   const pageTheme = useStudioSelector(
     (state) => state.pages[state.dashboard.activePageId]?.theme,
   );
+  const defaultTheme = useStudioSelector((state) => state.dashboard.defaultTheme);
   const muiTheme = useTheme();
 
   return React.useMemo((): string[] | undefined => {
-    const palette = pageTheme?.chartPalette;
+    // Page-level palette takes precedence; fall back to dashboard-level default.
+    const palette = pageTheme?.chartPalette ?? defaultTheme?.chartPalette;
     if (!palette) {
       return undefined;
     }
@@ -36,5 +38,5 @@ export function usePageChartColors(): string[] | undefined {
       return pageTheme?.chartCustomColors?.length ? pageTheme.chartCustomColors : undefined;
     }
     return PALETTE_MAP[palette]?.(muiTheme.palette.mode);
-  }, [pageTheme, muiTheme.palette.mode]);
+  }, [pageTheme, defaultTheme, muiTheme.palette.mode]);
 }

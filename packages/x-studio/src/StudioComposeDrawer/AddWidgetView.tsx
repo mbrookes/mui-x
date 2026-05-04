@@ -217,6 +217,29 @@ function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
   );
 }
 
+/** Smoothly scrolls a container to targetY over `duration` ms using ease-out cubic. */
+function smoothScrollTo(container: HTMLElement, targetY: number, duration = 380) {
+  const startY = container.scrollTop;
+  const distance = targetY - startY;
+  if (distance === 0) {
+    return;
+  }
+  const startTime = performance.now();
+  function easeOutCubic(t: number): number {
+    return 1 - (1 - t) ** 3;
+  }
+  function step(now: number) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    // eslint-disable-next-line no-param-reassign
+    container.scrollTop = startY + distance * easeOutCubic(progress);
+    if (progress < 1) {
+      requestAnimationFrame(step);
+    }
+  }
+  requestAnimationFrame(step);
+}
+
 export function AddWidgetView() {
   const controller = useStudioController();
   const dataSources = useStudioSelector((state) => state.dataSources);
@@ -229,11 +252,14 @@ export function AddWidgetView() {
       return;
     }
     controller.addWidget(createDefaultWidget(kind));
-    // Scroll the canvas to the bottom so the new widget is visible
+    // Double-rAF: first waits for React to commit the new card, second for the
+    // browser to complete layout — so scrollHeight reflects the new widget height.
     requestAnimationFrame(() => {
-      canvasScrollRef?.current?.scrollTo({
-        top: canvasScrollRef.current.scrollHeight,
-        behavior: 'smooth',
+      requestAnimationFrame(() => {
+        const container = canvasScrollRef?.current;
+        if (container) {
+          smoothScrollTo(container, container.scrollHeight - container.clientHeight);
+        }
       });
     });
   }, [controller, dataSources, canvasScrollRef]);

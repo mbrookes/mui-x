@@ -1,6 +1,21 @@
 import type { StudioDataSource } from '@mui/x-studio';
+import { CATEGORY_REVENUE_MULTIPLIERS, roundCurrency } from './categoryRevenueMultipliers';
 
 export const PRODUCTS_SOURCE_ID = 'source-products';
+
+function boostProductCategoryRevenue(rows: StudioDataSource['rows']): StudioDataSource['rows'] {
+  return rows.map((row) => {
+    const multiplier = CATEGORY_REVENUE_MULTIPLIERS[String(row.category)] ?? 1;
+    if (multiplier === 1) {
+      return row;
+    }
+
+    return {
+      ...row,
+      price: roundCurrency(Number(row.price ?? 0) * multiplier),
+    };
+  });
+}
 
 export const productsSource: StudioDataSource = {
   id: PRODUCTS_SOURCE_ID,
@@ -14,7 +29,7 @@ export const productsSource: StudioDataSource = {
     { id: 'stock', label: 'In Stock', type: 'number', format: 'integer' },
     { id: 'reorderLevel', label: 'Reorder Level', type: 'number', format: 'integer' },
   ],
-  rows: [
+  rows: boostProductCategoryRevenue([
     {
       id: 'PRD-001',
       product: 'Laptop Pro 15"',
@@ -330,6 +345,6 @@ export const productsSource: StudioDataSource = {
       stock: 15,
       reorderLevel: 5,
     },
-  ],
+  ]),
 };
 

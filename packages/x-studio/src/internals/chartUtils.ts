@@ -663,8 +663,9 @@ export function normalizeToDate(value: unknown): Date | null {
  * - `datetime` fields → `"YYYY-MM-DDTHH:mm:ss.sssZ"` (full ISO-8601 UTC)
  *
  * Accepts JS `Date` objects, millisecond timestamps (numbers), and any string
- * that `new Date()` can parse. Values that are already in canonical form, or
- * that cannot be parsed, are left untouched.
+ * that `new Date()` can parse. The format is inferred once from the first
+ * non-null value of each field; if it's already canonical every row is skipped
+ * without per-cell regex checks.
  */
 export function normalizeDataSourceRows(dataSource: StudioDataSource): StudioDataSource {
   if (!dataSource.rows || dataSource.rows.length === 0) {
@@ -675,14 +676,32 @@ export function normalizeDataSourceRows(dataSource: StudioDataSource): StudioDat
   if (dateFieldIds.length === 0 && datetimeFieldIds.length === 0) {
     return dataSource;
   }
-  const normalizedRows = dataSource.rows.map((row) => {
+
+  const { rows } = dataSource;
+
+  // Infer once per field: find the first non-null value and decide whether
+  // normalization is needed at all. Fields already in canonical form are excluded.
+  const dateIdsToNormalize = dateFieldIds.filter((id) => {
+    const sample = rows.find((r) => r[id] != null)?.[id];
+    return sample !== undefined && !(typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(sample));
+  });
+  const datetimeIdsToNormalize = datetimeFieldIds.filter((id) => {
+    const sample = rows.find((r) => r[id] != null)?.[id];
+    return sample !== undefined && !(typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(sample));
+  });
+
+  if (dateIdsToNormalize.length === 0 && datetimeIdsToNormalize.length === 0) {
+    return dataSource;
+  }
+
+  const normalizedRows = rows.map((row) => {
     let changed = false;
     const next: Record<string, unknown> = { ...row };
 
-    for (const id of dateFieldIds) {
+    for (const id of dateIdsToNormalize) {
       const raw = row[id];
-      if (raw == null || (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw))) {
-        continue; // already canonical or absent
+      if (raw == null) {
+        continue;
       }
       const d = normalizeToDate(raw);
       if (d) {
@@ -691,10 +710,10 @@ export function normalizeDataSourceRows(dataSource: StudioDataSource): StudioDat
       }
     }
 
-    for (const id of datetimeFieldIds) {
+    for (const id of datetimeIdsToNormalize) {
       const raw = row[id];
-      if (raw == null || (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(raw))) {
-        continue; // already canonical or absent
+      if (raw == null) {
+        continue;
       }
       const d = normalizeToDate(raw);
       if (d) {

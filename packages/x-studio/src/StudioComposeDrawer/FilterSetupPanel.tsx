@@ -34,7 +34,17 @@ export function FilterSetupPanel(props: { widgetId: string }) {
 
   // Capability constraint for the field picker based on filter type
   const fieldCapability =
-    filterType === 'date-range' ? 'temporal' : filterType === 'slider' ? undefined : undefined;
+    filterType === 'date-range'
+      ? 'temporal'
+      : filterType === 'slider'
+        ? undefined // slider supports both numeric and temporal — filtered via getOptionDisabled
+        : undefined;
+
+  const sliderGetOptionDisabled =
+    filterType === 'slider'
+      ? (option: { type?: string }) =>
+          option.type !== 'number' && option.type !== 'date' && option.type !== 'datetime'
+      : undefined;
 
   if (!widget) {
     return null;
@@ -89,6 +99,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
         onChange={handleFieldChange}
         dataSources={dataSources}
         filterCapability={fieldCapability}
+        getOptionDisabled={sliderGetOptionDisabled}
         label="Field"
       />
 

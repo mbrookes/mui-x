@@ -223,6 +223,18 @@ describe('StudioController.applyInteractiveFilter', () => {
     expect(controller.getState().filters).toHaveLength(2);
   });
 
+  it('stores filterSourceId for cross-source filtering', () => {
+    const controller = new StudioController();
+
+    controller.applyInteractiveFilter('filter-widget-1', 'segment', 'in', ['Enterprise'], {
+      filterMode: 'selection',
+      filterSourceId: 'source-customers',
+    });
+
+    const [f] = controller.getState().filters;
+    expect(f.filterSourceId).toBe('source-customers');
+  });
+
   it('does not remove page/widget/cross filters', () => {
     const controller = new StudioController({
       filters: [

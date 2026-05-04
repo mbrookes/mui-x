@@ -42,7 +42,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'page-2': {
       id: 'page-2',
       title: 'Products',
-      theme: { chartPalette: 'mangoFusion' as const },
       widgetRows: [
         ['widget-text-products'],
         ['widget-filter2-category'],

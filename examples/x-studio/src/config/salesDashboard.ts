@@ -27,13 +27,13 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Overview',
       widgetRows: [
         ['widget-text-hero'],
+        ['widget-filter-country', 'widget-filter-date'],
         [
           'widget-kpi-orders', 
           'widget-kpi-revenue',
           'widget-kpi-customers',
           'widget-kpi-avg-discount', 
         ],
-        ['widget-filter-country', 'widget-filter-date'],
         ['widget-chart-revenue-by-category'],
         ['widget-chart-category', 'widget-chart-country'],
         ['widget-orders-grid'],
@@ -44,8 +44,9 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Products',
       theme: { chartPalette: 'mangoFusion' as const },
       widgetRows: [
-        ['widget-kpi2-units-sold', 'widget-kpi2-margin', 'widget-kpi2-inventory-value'],
+        ['widget-text-products'],
         ['widget-filter2-category'],
+        ['widget-kpi2-units-sold', 'widget-kpi2-margin', 'widget-kpi2-inventory-value'],
         ['widget-chart2-margin-by-category', 'widget-chart2-stock-by-category'],
         ['widget-chart2-price-vs-margin', 'widget-chart2-units-by-category'],
         ['widget-grid2-products'],
@@ -55,6 +56,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       id: 'page-3',
       title: 'Logistics',
       widgetRows: [
+        ['widget-text-logistics'],
         ['widget-kpi3-items-shipped', 'widget-kpi3-ontime'],
         ['widget-chart3-shipments-trend', 'widget-chart3-orders-by-country'],
         ['widget-chart3-shipments-by-status'],
@@ -65,8 +67,9 @@ export const INITIAL_STATE: Partial<StudioState> = {
       id: 'page-4',
       title: 'Customers',
       widgetRows: [
-        ['widget-kpi4-ltv', 'widget-kpi4-customers', 'widget-kpi4-avg-order', 'widget-kpi4-enterprise'],
+        ['widget-text-customers'],
         ['widget-filter4-segment', 'widget-filter4-signup-date'],
+        ['widget-kpi4-ltv', 'widget-kpi4-customers', 'widget-kpi4-avg-order', 'widget-kpi4-enterprise'],
         ['widget-chart4-acquisition', 'widget-chart4-revenue-by-segment'],
         ['widget-chart4-top-customers', 'widget-chart4-quarterly-segment'],
         ['widget-grid4-top-customers'],
@@ -134,7 +137,43 @@ export const INITIAL_STATE: Partial<StudioState> = {
       titleMode: 'manual' as const,
       sourceId: undefined,
       config: {
-        textTitleFontSize: 40,
+        textTitleFontSize: 32,
+        textTitleAlign: 'center' as const,
+      },
+    },
+
+    'widget-text-products': {
+      id: 'widget-text-products',
+      kind: 'text',
+      title: 'Product Portfolio',
+      titleMode: 'manual' as const,
+      sourceId: undefined,
+      config: {
+        textTitleFontSize: 32,
+        textTitleAlign: 'center' as const,
+      },
+    },
+
+    'widget-text-logistics': {
+      id: 'widget-text-logistics',
+      kind: 'text',
+      title: 'Logistics Operations',
+      titleMode: 'manual' as const,
+      sourceId: undefined,
+      config: {
+        textTitleFontSize: 32,
+        textTitleAlign: 'center' as const,
+      },
+    },
+
+    'widget-text-customers': {
+      id: 'widget-text-customers',
+      kind: 'text',
+      title: 'Customer Intelligence',
+      titleMode: 'manual' as const,
+      sourceId: undefined,
+      config: {
+        textTitleFontSize: 32,
         textTitleAlign: 'center' as const,
       },
     },

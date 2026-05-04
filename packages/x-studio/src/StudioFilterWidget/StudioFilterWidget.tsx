@@ -364,7 +364,8 @@ function SliderControl({
           </Tooltip>
         )}
       </Box>
-      <Box sx={{ px: 1 }}>
+      {/* Stop pointer events from bubbling to the widget card's drag handler */}
+      <Box sx={{ px: 1 }} onPointerDown={(e) => e.stopPropagation()}>
         <Slider
           value={localValue}
           onChange={handleChange}

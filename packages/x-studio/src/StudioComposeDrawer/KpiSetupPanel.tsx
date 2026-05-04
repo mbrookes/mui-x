@@ -1,12 +1,10 @@
 'use client';
 import * as React from 'react';
 import {
-  Autocomplete,
   Box,
   FormControl,
   FormControlLabel,
   InputLabel,
-  ListSubheader,
   MenuItem,
   Select,
   Stack,
@@ -18,7 +16,7 @@ import { useStudioController, useStudioSelector } from '../context';
 import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioKpiAggregation, StudioWidgetConfig } from '../models';
-import { renderFieldOption } from './FieldOption';
+import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 
 function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConfig }) {
   const { widgetId, config } = props;
@@ -33,14 +31,16 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
   const relationships = useStudioSelector((state) => state.relationships);
 
   // Collect date fields from primary source + all directly related sources
-  const allDateFieldsWithJoined = React.useMemo(() => {
+  const allDateFieldsWithJoined = React.useMemo<DataSourceFieldEntry[]>(() => {
     if (!source || !sourceId) {
       return [];
     }
-    const result: { id: string; label: string; sourceId: string; sourceLabel: string }[] = [];
+    const result: DataSourceFieldEntry[] = [];
     source.fields
       .filter((f) => fieldHasCapability(f, 'temporal'))
-      .forEach((f) => result.push({ id: f.id, label: f.label, sourceId, sourceLabel: source.label }));
+      .forEach((f) =>
+        result.push({ id: f.id, label: f.label, type: f.type, sourceId, sourceLabel: source.label }),
+      );
     for (const rel of relationships) {
       let relatedId: string | null = null;
       if (rel.sourceId === sourceId) {
@@ -62,6 +62,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
             result.push({
               id: f.id,
               label: f.label,
+              type: f.type,
               sourceId: relatedId!,
               sourceLabel: relSource.label,
             });
@@ -92,13 +93,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
     : null;
 
   // The composite value stored in the select: "sourceId:fieldId" (or just "fieldId" for primary)
-  let sparklineComposite = '';
-  if (config.kpiSparklineField) {
-    sparklineComposite =
-      config.kpiSparklineSourceId && config.kpiSparklineSourceId !== sourceId
-        ? `${config.kpiSparklineSourceId}:${config.kpiSparklineField}`
-        : config.kpiSparklineField;
-  }
+  // — kept for reference but no longer used by the Select (now Autocomplete uses fieldId directly)
 
   const plotType = config.kpiSparklinePlotType ?? 'line';
 
@@ -120,61 +115,17 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
           Using date filter: <strong>{autoFieldLabel}</strong>
         </Typography>
       ) : (
-        <FormControl size="small" fullWidth>
-          <InputLabel>Time field</InputLabel>
-          <Select
-            label="Time field"
-            value={sparklineComposite}
-            onChange={(event) => {
-              const val = event.target.value;
-              if (!val) {
-                controller.updateWidgetConfig(widgetId, {
-                  kpiSparklineField: undefined,
-                  kpiSparklineSourceId: undefined,
-                });
-                return;
-              }
-              const sepIdx = val.indexOf(':');
-              const [fSourceId, fieldId] =
-                sepIdx >= 0 ? [val.slice(0, sepIdx), val.slice(sepIdx + 1)] : [sourceId, val];
-              controller.updateWidgetConfig(widgetId, {
-                kpiSparklineField: fieldId,
-                kpiSparklineSourceId: fSourceId !== sourceId ? fSourceId : undefined,
-              });
-            }}
-          >
-            <MenuItem value="">
-              <em>None</em>
-            </MenuItem>
-            {(() => {
-              // Group by source label
-              const groups = new Map<string, typeof allDateFieldsWithJoined>();
-              for (const f of allDateFieldsWithJoined) {
-                if (!groups.has(f.sourceLabel)) {
-                  groups.set(f.sourceLabel, []);
-                }
-                groups.get(f.sourceLabel)!.push(f);
-              }
-              return Array.from(groups.entries()).flatMap(([srcLabel, fields]) => {
-                const isSecondary = fields[0]?.sourceId !== sourceId;
-                return [
-                  isSecondary ? (
-                    <ListSubheader key={`hdr-${srcLabel}`}>{srcLabel}</ListSubheader>
-                  ) : null,
-                  ...fields.map((f) => {
-                    const compositeKey =
-                      f.sourceId !== sourceId ? `${f.sourceId}:${f.id}` : f.id;
-                    return (
-                      <MenuItem key={compositeKey} value={compositeKey}>
-                        {f.label}
-                      </MenuItem>
-                    );
-                  }),
-                ].filter(Boolean);
-              });
-            })()}
-          </Select>
-        </FormControl>
+        <DataSourceFieldSelect
+          value={config.kpiSparklineField ?? ''}
+          onChange={(fieldId, fSourceId) => {
+            controller.updateWidgetConfig(widgetId, {
+              kpiSparklineField: fieldId || undefined,
+              kpiSparklineSourceId: fieldId && fSourceId !== sourceId ? fSourceId : undefined,
+            });
+          }}
+          fields={allDateFieldsWithJoined}
+          label="Time field"
+        />
       )}
 
       <FormControl size="small" fullWidth>
@@ -338,24 +289,17 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
   return (
     <Stack spacing={2}>
-      <Autocomplete
-        size="small"
-        fullWidth
-        options={allFields}
-        groupBy={(option) => option.sourceLabel}
-        getOptionLabel={(option) => option.label}
-        renderOption={renderFieldOption}
-        value={allFields.find((f) => f.id === config.kpiValueField) || null}
-        onChange={(_e, newValue) => {
-          controller.updateWidgetConfig(widgetId, { kpiValueField: newValue?.id || '' });
-          if (newValue?.sourceId && newValue.sourceId !== widget?.sourceId) {
-            controller.updateWidget(widgetId, { sourceId: newValue.sourceId });
+      <DataSourceFieldSelect
+        value={config.kpiValueField ?? ''}
+        onChange={(fieldId, fSourceId) => {
+          controller.updateWidgetConfig(widgetId, { kpiValueField: fieldId });
+          if (fSourceId && fSourceId !== widget?.sourceId) {
+            controller.updateWidget(widgetId, { sourceId: fSourceId });
           }
         }}
-        renderInput={(params) => <TextField {...params} label="Value field" helperText="Numeric field to aggregate" />}
-        isOptionEqualToValue={(option, value) =>
-          option.id === value.id && option.sourceId === value.sourceId
-        }
+        fields={allFields}
+        label="Value field"
+        helperText="Field to aggregate"
       />
 
       <FormControl size="small" fullWidth disabled={onlyOneAgg}>

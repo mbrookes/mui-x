@@ -4,7 +4,6 @@ import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import {
   Alert,
-  Autocomplete,
   Box,
   Divider,
   FormControl,
@@ -13,7 +12,6 @@ import {
   MenuItem,
   Select,
   Stack,
-  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -22,7 +20,7 @@ import { fieldsForCapability } from '../utils/fieldCapabilities';
 import { analyzeChartSupport, getChartSupportMessage, getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioChartType, StudioBarLayout } from '../models';
 import { ChartTypePicker } from './ChartTypePicker';
-import { renderFieldOption } from './FieldOption';
+import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
 export function ChartSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
@@ -91,6 +89,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   // Y series: prefer ySeries, else seed from yField
   const ySeries = config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : []);
 
+  // selectedXField is used to conditionally show the Group By control below
   const selectedXField = allFields.find((f) => f.id === config.xField) ?? null;
 
   const supportsMultipleSeries =
@@ -112,8 +111,6 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       chartType === 'area-100') &&
     ySeries.length <= 1;
 
-  const selectedSeriesField =
-    config.seriesField ? (reachableFields.find((f) => f.id === config.seriesField) ?? null) : null;
   const isScatter = chartType === 'scatter';
   const chartSupport = React.useMemo(
     () =>
@@ -216,36 +213,21 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       <Divider />
 
       {/* X field */}
-      <Autocomplete
-        size="small"
-        fullWidth
-        options={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}
-        groupBy={(option) => option.sourceLabel}
-        getOptionLabel={(option) => option.label}
-        renderOption={renderFieldOption}
-        getOptionDisabled={(option) => {
-          if (option.id === config.xField) {
-            return false;
+      <DataSourceFieldSelect
+        value={config.xField ?? ''}
+        onChange={(fieldId, sourceId) => {
+          controller.updateWidgetConfig(widgetId, { xField: fieldId });
+          if (sourceId && sourceId !== widget?.sourceId) {
+            controller.updateWidget(widgetId, { sourceId });
           }
+        }}
+        fields={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}
+        getOptionDisabled={(option) => {
+          if (option.id === config.xField) return false;
           return !analyzeCombination({ xField: option.id }).supported;
         }}
-        value={selectedXField}
-        onChange={(_e, newValue) => {
-          controller.updateWidgetConfig(widgetId, { xField: newValue?.id ?? '' });
-          if (newValue?.sourceId && newValue.sourceId !== widget?.sourceId) {
-            controller.updateWidget(widgetId, { sourceId: newValue.sourceId });
-          }
-        }}
-        renderInput={(params) => (
-          <TextField
-            {...params}
-            label={isScatter ? 'X field (numeric)' : 'X / Category field'}
-            helperText={isScatter ? 'Plotted on the horizontal axis' : 'Groups data along the horizontal axis'}
-          />
-        )}
-        isOptionEqualToValue={(option, value) =>
-          option.id === value.id && option.sourceId === value.sourceId
-        }
+        label={isScatter ? 'X field (numeric)' : 'X / Category field'}
+        helperText={isScatter ? 'Plotted on the horizontal axis' : 'Groups data along the horizontal axis'}
       />
 
       {/* Group by — shown only when x field is a date/datetime type */}
@@ -299,98 +281,68 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           )}
         </Stack>
         <Stack spacing={1}>
-          {ySeries.map((s, index) => {
-            const selectedField = allFields.find((f) => f.id === s.fieldId) ?? null;
-            return (
-              <Stack key={index} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                <Autocomplete
-                  size="small"
-                  fullWidth
-                  options={numericFields}
-                  groupBy={(option) => option.sourceLabel}
-                  getOptionLabel={(option) => option.label}
-                  renderOption={renderFieldOption}
-                  getOptionDisabled={(option) =>
-                    (option.id !== s.fieldId && usedYFieldIds.includes(option.id)) ||
-                    (option.id !== s.fieldId &&
-                      !analyzeCombination({
-                        yFields: ySeries.map((series, seriesIndex) =>
+          {ySeries.map((s, index) => (
+            <Stack key={index} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+              <DataSourceFieldSelect
+                value={s.fieldId ?? ''}
+                onChange={(fieldId) => handleSeriesFieldChange(index, fieldId)}
+                fields={numericFields}
+                getOptionDisabled={(option) =>
+                  (option.id !== s.fieldId && usedYFieldIds.includes(option.id)) ||
+                  (option.id !== s.fieldId &&
+                    !analyzeCombination({
+                      yFields: ySeries
+                        .map((series, seriesIndex) =>
                           seriesIndex === index ? option.id : series.fieldId,
-                        ).filter(Boolean),
-                      }).supported)
-                  }
-                  value={selectedField}
-                  onChange={(_e, newValue) => handleSeriesFieldChange(index, newValue?.id ?? '')}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label={ySeries.length > 1 ? `Series ${index + 1}` : 'Y / Measure field'}
-                      helperText="Numeric field summed or averaged per category"
-                    />
-                  )}
-                  isOptionEqualToValue={(option, value) =>
-                    option.id === value.id && option.sourceId === value.sourceId
-                  }
-                />
-                {ySeries.length > 1 && (
-                  <Tooltip title="Remove series">
-                    <IconButton size="small" onClick={() => handleRemoveSeries(index)}>
-                      <CloseIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
-              </Stack>
-            );
-          })}
+                        )
+                        .filter(Boolean),
+                    }).supported)
+                }
+                label={ySeries.length > 1 ? `Series ${index + 1}` : 'Y / Measure field'}
+                helperText="Numeric field summed or averaged per category"
+              />
+              {ySeries.length > 1 && (
+                <Tooltip title="Remove series">
+                  <IconButton size="small" onClick={() => handleRemoveSeries(index)}>
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Stack>
+          ))}
           {ySeries.length === 0 && (
-            <Autocomplete
-              size="small"
-              fullWidth
-              options={numericFields}
-              groupBy={(option) => option.sourceLabel}
-              getOptionLabel={(option) => option.label}
-              renderOption={renderFieldOption}
-              getOptionDisabled={(option) => !analyzeCombination({ yFields: [option.id] }).supported}
-              value={null}
-              onChange={(_e, newValue) => {
+            <DataSourceFieldSelect
+              value=""
+              onChange={(fieldId) => {
                 controller.updateWidgetConfig(widgetId, {
-                  ySeries: [{ fieldId: newValue?.id ?? '' }],
-                  yField: newValue?.id ?? '',
+                  ySeries: [{ fieldId }],
+                  yField: fieldId,
                 });
               }}
-              renderInput={(params) => <TextField {...params} label="Y / Measure field" helperText="Numeric field summed or averaged per category" />}
-              isOptionEqualToValue={(option, value) =>
-                option.id === value.id && option.sourceId === value.sourceId
+              fields={numericFields}
+              getOptionDisabled={(option) =>
+                !analyzeCombination({ yFields: [option.id] }).supported
               }
+              label="Y / Measure field"
+              helperText="Numeric field summed or averaged per category"
             />
           )}
         </Stack>
       </div>
       {/* Split by / series field */}
       {supportsSeriesField && (
-        <Autocomplete
-          size="small"
-          fullWidth
-          options={categoryFields}
-          groupBy={(option) => option.sourceLabel}
-          getOptionLabel={(option) => option.label}
-          renderOption={renderFieldOption}
+        <DataSourceFieldSelect
+          value={config.seriesField ?? ''}
+          onChange={(fieldId) =>
+            controller.updateWidgetConfig(widgetId, { seriesField: fieldId || undefined })
+          }
+          fields={categoryFields}
           getOptionDisabled={(option) => {
-            if (option.id === config.seriesField) {
-              return false;
-            }
+            if (option.id === config.seriesField) return false;
             return !analyzeCombination({ seriesField: option.id }).supported;
           }}
-          value={selectedSeriesField}
-          onChange={(_e, newValue) =>
-            controller.updateWidgetConfig(widgetId, {
-              seriesField: newValue?.id ?? undefined,
-            })
-          }
-          renderInput={(params) => <TextField {...params} label="Split by (series field)" helperText="Divides data into a separate series per value" />}
-          isOptionEqualToValue={(option, value) =>
-            option.id === value.id && option.sourceId === value.sourceId
-          }
+          label="Split by (series field)"
+          helperText="Divides data into a separate series per value"
         />
       )}
     </Stack>

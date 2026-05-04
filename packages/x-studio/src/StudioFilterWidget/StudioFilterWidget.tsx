@@ -21,6 +21,7 @@ import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import type { StudioWidget, StudioDataSource } from '../models';
 import { useStudioController, useStudioSelector } from '../context';
+import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 
 export interface StudioFilterWidgetProps {
   widget: StudioWidget;
@@ -396,6 +397,9 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   const { widget, dataSource } = props;
   const { config } = widget;
   const controller = useStudioController();
+  const dataSources = useStudioSelector((state) => state.dataSources);
+  const relationships = useStudioSelector((state) => state.relationships);
+  const expressionFields = useStudioSelector((state) => state.expressionFields);
 
   const filterWidgetType = config.filterWidgetType ?? 'multi-select';
   const fieldId = config.filterWidgetField ?? '';
@@ -405,8 +409,29 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     if (!fieldId || !dataSource) {
       return undefined;
     }
-    return dataSource.fields.find((f) => f.id === fieldId);
-  }, [fieldId, dataSource]);
+    return (
+      dataSource.fields.find((f) => f.id === fieldId) ??
+      expressionFields.find((ef) => ef.id === fieldId && ef.sourceId === widget.sourceId)
+    );
+  }, [fieldId, dataSource, expressionFields, widget.sourceId]);
+
+  const rows = React.useMemo(() => {
+    if (!dataSource?.rows) {
+      return [];
+    }
+
+    if (expressionFields.length === 0) {
+      return dataSource.rows;
+    }
+
+    return enrichRowsWithExpressions(
+      dataSource.rows,
+      expressionFields,
+      widget.sourceId,
+      dataSources,
+      relationships,
+    );
+  }, [dataSource?.rows, expressionFields, widget.sourceId, dataSources, relationships]);
 
   const label = config.filterWidgetLabel ?? field?.label ?? fieldId ?? 'Filter';
 
@@ -420,31 +445,31 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     if (
       (filterWidgetType !== 'multi-select' && filterWidgetType !== 'toggle') ||
       !fieldId ||
-      !dataSource?.rows
+      rows.length === 0
     ) {
       return [];
     }
     const seen = new Set<string>();
-    for (const row of dataSource.rows) {
+    for (const row of rows) {
       const v = row[fieldId];
       if (v != null && String(v) !== '') {
         seen.add(String(v));
       }
     }
     return Array.from(seen).sort();
-  }, [filterWidgetType, fieldId, dataSource]);
+  }, [filterWidgetType, fieldId, rows]);
 
   // Compute min/max for slider from data when not configured explicitly
   const isDateField =
     filterWidgetType === 'slider' && (field?.type === 'date' || field?.type === 'datetime');
 
   const { autoMin, autoMax } = React.useMemo(() => {
-    if (filterWidgetType !== 'slider' || !fieldId || !dataSource?.rows) {
+    if (filterWidgetType !== 'slider' || !fieldId || rows.length === 0) {
       return { autoMin: 0, autoMax: 100 };
     }
     let lo = Infinity;
     let hi = -Infinity;
-    for (const row of dataSource.rows) {
+    for (const row of rows) {
       const raw = row[fieldId];
       const v = isDateField ? dayjs(raw as string).valueOf() : Number(raw);
       if (Number.isFinite(v)) {
@@ -456,7 +481,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       autoMin: Number.isFinite(lo) ? lo : 0,
       autoMax: Number.isFinite(hi) ? hi : 100,
     };
-  }, [filterWidgetType, fieldId, dataSource, isDateField]);
+  }, [filterWidgetType, fieldId, rows, isDateField]);
 
   const sliderMin = config.filterWidgetMin ?? autoMin;
   const sliderMax = config.filterWidgetMax ?? autoMax;

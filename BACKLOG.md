@@ -24,4 +24,11 @@ BL-11: ~~Drag and drop performance. Really slow after dropping a card before the
 
 BL-12: ~~smooth scroll to widget added to chart by click.~~ **Fixed** (ease-out-cubic animation, target re-evaluated each frame to track widget content loading)
 
-BL-13: The Filter by Country filter widget doesn't show any chips. Chaning the field and changi it back populates it.
+BL-13: ~~The Filter by Country filter widget doesn't show any chips. Changing the field and changing it back populates it.~~ **Fixed** (filter widgets now resolve expression-backed fields from enriched rows on first render; the example Country filter now points at `expr-order-country`)
+
+BL-14: Category fieldd in the charts panel doesn't have section a title.
+
+BL-15: When pore than one measure field is added, the split-by select dissapears.
+
+BL-16: the delete button for fields doesn't line up vertically with the textfield, it's centered on the entire including the helper-text
+

@@ -6,7 +6,7 @@ BL-02: ~~Auto-generated titles should never be empty. At a minimum, if the widge
 
 BL-03: ~~Drag and drop horizontal insertion line shouldn't extend into the padding.~~ **Fixed** (inset line by 8px on each side to align with widget area)
 
-BL-04: Need a data generator to test performance at scale.
+~~BL-04: Need a data generator to test performance at scale.~~ **Fixed** (added `generateSalesData({ seed?, orderCount? })` in `examples/x-studio/src/salesData/generator.ts`; activates via `?rows=N` URL param; mulberry32 seeded PRNG, 6-table relational output with all FK guarantees; 23 unit tests)
 
 BL-05: ~~The widget card content shrinks when a widget is selected and has a blue border.~~ **Fixed** (use outline instead of border for selection indicator)
 
@@ -50,4 +50,4 @@ BL-19: Add a "full-screen" icon to charts controls that displays them in a near 
 
 ~~BL-24: In the widgets "On this page" section, give each page widget an icon acording to its sub-type (where applicable), for example chart tyle.~~ **Fixed** (added `getWidgetSubtypeIcon` helper to `widgetUtils`; renders a 16px chart-type/filter-type icon next to each widget in the instance list)
 
-BL-25: Widget filters make no sense for the filter widget.
+~~BL-25: Widget filters make no sense for the filter widget.~~ **Fixed** (hide `WidgetFilterSection` in the filters drawer when the selected widget is a filter widget)

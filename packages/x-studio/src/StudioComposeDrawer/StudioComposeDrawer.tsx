@@ -7,6 +7,7 @@ import { useStudioSelector } from '../context';
 import { AddWidgetView } from './AddWidgetView';
 import { ChartSetupPanel } from './ChartSetupPanel';
 import { FieldDetailView } from './FieldDetailView';
+import { FilterSetupPanel } from './FilterSetupPanel';
 import { FormatPanel } from './FormatPanel';
 import { GridSetupPanel } from './GridSetupPanel';
 import { KpiSetupPanel } from './KpiSetupPanel';
@@ -37,6 +38,7 @@ export const KIND_LABEL: Record<StudioWidgetKind, string> = {
   chart: 'Chart',
   kpi: 'KPI',
   text: 'Text',
+  filter: 'Filter',
 };
 
 export const TYPE_FORMAT_LABEL: Record<string, string> = {
@@ -87,6 +89,7 @@ function WidgetConfigView(props: { widgetId: string }) {
         {widget.kind === 'grid' && <GridSetupPanel widgetId={widgetId} />}
         {widget.kind === 'chart' && <ChartSetupPanel widgetId={widgetId} />}
         {widget.kind === 'kpi' && <KpiSetupPanel widgetId={widgetId} />}
+        {widget.kind === 'filter' && <FilterSetupPanel widgetId={widgetId} />}
       </TabPanel>
       <TabPanel value={tab} index={1}>
         {widget.kind === 'text' ? (

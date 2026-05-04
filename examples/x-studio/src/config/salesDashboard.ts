@@ -24,6 +24,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'page-1': {
       id: 'page-1',
       title: 'Overview',
+      theme: { chartPalette: 'blueberryTwilight' as const },
       widgetRows: [
         [
           'widget-kpi-orders', 

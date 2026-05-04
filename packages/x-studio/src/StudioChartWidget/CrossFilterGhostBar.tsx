@@ -74,7 +74,10 @@ export function CrossFilterGhostBar(props: BarProps) {
     const inset = Math.max(1, width * 0.15);
     const fgWidth = Math.max(1, width - 2 * inset);
     const fgHeight = height * filteredRatio;
-    const fgY = yOrigin - fgHeight;
+    // Anchor to the bottom of THIS segment (y + height), not the chart origin.
+    // For stacked bars each segment has its own y; using yOrigin would misplace
+    // the foreground on every segment except the bottom-most one.
+    const fgY = y + height - fgHeight;
 
     return (
       <>

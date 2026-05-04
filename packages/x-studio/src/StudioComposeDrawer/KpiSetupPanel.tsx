@@ -2,8 +2,8 @@
 import * as React from 'react';
 import {
   Box,
+  Collapse,
   FormControl,
-  FormControlLabel,
   InputLabel,
   MenuItem,
   Select,
@@ -12,11 +12,101 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useStudioController, useStudioSelector } from '../context';
 import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioKpiAggregation, StudioWidgetConfig } from '../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
+
+/**
+ * A collapsible section with a labeled header row containing a switch toggle on the
+ * right and an expand/collapse chevron on the left.  The switch turning ON also
+ * expands the panel; turning OFF collapses it.  The chevron (and header row) toggle
+ * expanded state independently when the switch is already on.
+ */
+function CollapsibleFeatureSection({
+  label,
+  enabled,
+  onToggle,
+  children,
+}: {
+  label: string;
+  enabled: boolean;
+  onToggle: (next: boolean) => void;
+  children: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+
+  const handleSwitch = (next: boolean) => {
+    onToggle(next);
+    if (next) {
+      setExpanded(true);
+    } else {
+      setExpanded(false);
+    }
+  };
+
+  const handleHeaderClick = () => {
+    if (enabled) {
+      setExpanded((prev) => !prev);
+    }
+  };
+
+  const isOpen = enabled && expanded;
+  const Chevron = isOpen ? ExpandMoreIcon : ChevronRightIcon;
+
+  return (
+    <Box
+      sx={{
+        bgcolor: 'action.hover',
+        borderRadius: 1,
+        overflow: 'hidden',
+      }}
+    >
+      {/* Header row */}
+      <Box
+        onClick={handleHeaderClick}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+          px: 1,
+          py: 0.5,
+          cursor: enabled ? 'pointer' : 'default',
+          userSelect: 'none',
+        }}
+      >
+        <Chevron
+          sx={{
+            fontSize: 18,
+            color: enabled ? 'text.secondary' : 'text.disabled',
+            flexShrink: 0,
+          }}
+        />
+        <Typography variant="body2" sx={{ flexGrow: 1 }}>
+          {label}
+        </Typography>
+        {/* Stop click from toggling expand when clicking the switch */}
+        <Box onClick={(e) => e.stopPropagation()}>
+          <Switch
+            size="small"
+            checked={enabled}
+            onChange={(e) => handleSwitch(e.target.checked)}
+          />
+        </Box>
+      </Box>
+
+      {/* Collapsible content */}
+      <Collapse in={isOpen}>
+        <Stack spacing={1.5} sx={{ px: 1.5, pb: 1.5 }}>
+          {children}
+        </Stack>
+      </Collapse>
+    </Box>
+  );
+}
 
 function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConfig }) {
   const { widgetId, config } = props;
@@ -109,7 +199,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
   ];
 
   return (
-    <Stack spacing={2} sx={{ pl: 1, borderLeft: 2, borderColor: 'divider' }}>
+    <>
       {autoDateFilter ? (
         <Typography variant="caption" color="text.secondary">
           Using date filter: <strong>{autoFieldLabel}</strong>
@@ -168,39 +258,33 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
       </FormControl>
 
       {plotType === 'line' && (
-        <FormControlLabel
-        slotProps={{ typography: { variant: 'body2' } }}
-          control={
-            <Switch
-              size="small"
-              checked={config.kpiSparklineArea ?? false}
-              onChange={(event) =>
-                controller.updateWidgetConfig(widgetId, {
-                  kpiSparklineArea: event.target.checked,
-                })
-              }
-            />
-          }
-          label="Fill area"
-        />
-      )}
-
-      <FormControlLabel
-        slotProps={{ typography: { variant: 'body2' } }}
-        control={
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography variant="body2">Fill area</Typography>
           <Switch
             size="small"
-            checked={config.kpiSparklineCumulative ?? false}
+            checked={config.kpiSparklineArea ?? false}
             onChange={(event) =>
               controller.updateWidgetConfig(widgetId, {
-                kpiSparklineCumulative: event.target.checked,
+                kpiSparklineArea: event.target.checked,
               })
             }
           />
-        }
-        label="Cumulative (running total)"
-      />
-    </Stack>
+        </Box>
+      )}
+
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography variant="body2">Cumulative (running total)</Typography>
+        <Switch
+          size="small"
+          checked={config.kpiSparklineCumulative ?? false}
+          onChange={(event) =>
+            controller.updateWidgetConfig(widgetId, {
+              kpiSparklineCumulative: event.target.checked,
+            })
+          }
+        />
+      </Box>
+    </>
   );
 }
 
@@ -332,72 +416,49 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         </Select>
       </FormControl>
 
-      <FormControlLabel
-        slotProps={{ typography: { variant: 'body2' } }}
-        control={
-          <Switch
-            size="small"
-            checked={config.kpiSparkline ?? false}
-            onChange={(event) =>
-              controller.updateWidgetConfig(widgetId, { kpiSparkline: event.target.checked })
-            }
-          />
-        }
+      <CollapsibleFeatureSection
         label="Sparkline"
-      />
+        enabled={config.kpiSparkline ?? false}
+        onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiSparkline: next })}
+      >
+        <KpiSparklineOptions widgetId={widgetId} config={config} />
+      </CollapsibleFeatureSection>
 
-      {config.kpiSparkline && <KpiSparklineOptions widgetId={widgetId} config={config} />}
-
-      <FormControlLabel
-        slotProps={{ typography: { variant: 'body2' } }}
-        control={
+      <CollapsibleFeatureSection
+        label="Trend"
+        enabled={config.kpiTrend ?? false}
+        onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTrend: next })}
+      >
+        <FormControl size="small" fullWidth>
+          <InputLabel>Comparison period</InputLabel>
+          <Select
+            label="Comparison period"
+            value={config.kpiTrendComparison ?? 'previous-period'}
+            onChange={(event) =>
+              controller.updateWidgetConfig(widgetId, {
+                kpiTrendComparison: event.target.value as
+                  | 'previous-period'
+                  | 'previous-calendar-period'
+                  | 'year-over-year',
+              })
+            }
+          >
+            <MenuItem value="previous-period">Previous period (matching duration)</MenuItem>
+            <MenuItem value="previous-calendar-period">Previous calendar period</MenuItem>
+            <MenuItem value="year-over-year">Same period last year</MenuItem>
+          </Select>
+        </FormControl>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography variant="body2">Invert colours (lower is better)</Typography>
           <Switch
             size="small"
-            checked={config.kpiTrend ?? false}
+            checked={config.kpiTrendInvert ?? false}
             onChange={(event) =>
-              controller.updateWidgetConfig(widgetId, { kpiTrend: event.target.checked })
+              controller.updateWidgetConfig(widgetId, { kpiTrendInvert: event.target.checked })
             }
           />
-        }
-        label="Trend"
-      />
-
-      {config.kpiTrend && (
-        <Stack spacing={1.5} sx={{ pl: 1 }}>
-          <FormControl size="small" fullWidth>
-            <InputLabel>Comparison period</InputLabel>
-            <Select
-              label="Comparison period"
-              value={config.kpiTrendComparison ?? 'previous-period'}
-              onChange={(event) =>
-                controller.updateWidgetConfig(widgetId, {
-                  kpiTrendComparison: event.target.value as
-                    | 'previous-period'
-                    | 'previous-calendar-period'
-                    | 'year-over-year',
-                })
-              }
-            >
-              <MenuItem value="previous-period">Previous period (matching duration)</MenuItem>
-              <MenuItem value="previous-calendar-period">Previous calendar period</MenuItem>
-              <MenuItem value="year-over-year">Same period last year</MenuItem>
-            </Select>
-          </FormControl>
-          <FormControlLabel
-        slotProps={{ typography: { variant: 'body2' } }}
-            control={
-              <Switch
-                size="small"
-                checked={config.kpiTrendInvert ?? false}
-                onChange={(event) =>
-                  controller.updateWidgetConfig(widgetId, { kpiTrendInvert: event.target.checked })
-                }
-              />
-            }
-            label="Invert colours (lower is better)"
-          />
-        </Stack>
-      )}
+        </Box>
+      </CollapsibleFeatureSection>
     </Stack>
   );
 }

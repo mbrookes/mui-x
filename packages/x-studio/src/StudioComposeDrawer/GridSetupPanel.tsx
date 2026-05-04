@@ -2,7 +2,6 @@
 import * as React from 'react';
 import {
   Alert,
-  Autocomplete,
   Box,
   Divider,
   IconButton,
@@ -10,7 +9,6 @@ import {
   Menu,
   MenuItem,
   Stack,
-  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -19,6 +17,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import type { StudioGridSummaryAggregation } from '../models';
 import { useStudioController, useStudioSelector } from '../context';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
+import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 
 const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = ['sum', 'avg', 'min', 'max', 'count'];
 const STRING_AGGREGATIONS: StudioGridSummaryAggregation[] = ['count'];
@@ -43,6 +42,19 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const crossFilterField = widget?.config?.crossFilterField ?? '';
   const summaryFields: Record<string, StudioGridSummaryAggregation> =
     widget?.config?.gridSummaryFields ?? {};
+
+  // Map allFields to DataSourceFieldEntry for DataSourceFieldSelect
+  const crossFilterFieldEntries = React.useMemo<DataSourceFieldEntry[]>(() => {
+    if (!source || !widget?.sourceId) return [];
+    return allFields.map((f) => ({
+      id: f.id,
+      label: f.label,
+      type: f.type,
+      generated: f.generated,
+      sourceId: widget.sourceId!,
+      sourceLabel: source.label,
+    }));
+  }, [allFields, source, widget?.sourceId]);
 
   // Menu anchor state: fieldId → anchor element
   const [menuAnchor, setMenuAnchor] = React.useState<{ fieldId: string; el: HTMLElement } | null>(null);
@@ -75,29 +87,19 @@ export function GridSetupPanel(props: { widgetId: string }) {
     );
   }
 
-  const crossFilterFieldOption = allFields.find((f) => f.id === crossFilterField) ?? null;
   const openFieldId = menuAnchor?.fieldId ?? null;
 
   return (
     <Stack spacing={2}>
       {/* Cross-filter field */}
-      <Autocomplete
-        size="small"
-        fullWidth
-        options={allFields}
-        getOptionLabel={(option) => option.label}
-        value={crossFilterFieldOption}
-        onChange={(_e, newValue) =>
-          controller.updateWidgetConfig(widgetId, { crossFilterField: newValue?.id ?? undefined })
+      <DataSourceFieldSelect
+        value={crossFilterField}
+        onChange={(fieldId) =>
+          controller.updateWidgetConfig(widgetId, { crossFilterField: fieldId || undefined })
         }
-        renderInput={(params) => (
-          <TextField
-            {...params}
-            label="Cross-filter field"
-            helperText="Field applied to other widgets when a row is selected; defaults to the first visible column"
-          />
-        )}
-        isOptionEqualToValue={(option, value) => option.id === value.id}
+        fields={crossFilterFieldEntries}
+        label="Cross-filter field"
+        helperText="Field applied to other widgets when a row is selected; defaults to the first visible column"
       />
 
       <Divider />

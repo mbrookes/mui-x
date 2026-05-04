@@ -20,6 +20,7 @@ import {
 } from './statePersistence';
 
 import { inferWidgetTitles } from '../internals/widgetUtils';
+import { normalizeDataSourceRows } from '../internals/chartUtils';
 
 const MAX_UNDO_HISTORY = 100;
 
@@ -29,16 +30,22 @@ export class StudioController {
   private redoStack: StudioState[] = [];
 
   constructor(initialState?: Partial<StudioState>) {
-    this.store = Store.create(createDefaultStudioState(initialState));
+    const state = createDefaultStudioState(initialState);
+    // Normalize date field values in any data sources provided at construction time.
+    if (Object.keys(state.dataSources).length > 0) {
+      const normalizedSources = Object.fromEntries(
+        Object.entries(state.dataSources).map(([id, ds]) => [id, normalizeDataSourceRows(ds)]),
+      );
+      this.store = Store.create({ ...state, dataSources: normalizedSources });
+    } else {
+      this.store = Store.create(state);
+    }
   }
 
   private applyInferredTitles(
     widget: StudioWidget,
     dataSources: Record<string, StudioDataSource>,
   ): StudioWidget {
-    if (widget.kind === 'text') {
-      return widget;
-    }
     const inferred = inferWidgetTitles(widget, dataSources);
     const isAutoTitle = widget.titleMode === 'auto' || (!widget.titleMode && !widget.title);
     const isAutoSubtitle =
@@ -189,12 +196,12 @@ export class StudioController {
 
   upsertDataSource = (dataSource: StudioDataSource) => {
     const state = this.store.state;
-
+    const normalized = normalizeDataSourceRows(dataSource);
     this.commitState({
       ...state,
       dataSources: {
         ...state.dataSources,
-        [dataSource.id]: dataSource,
+        [normalized.id]: normalized,
       },
     });
   };
@@ -266,11 +273,12 @@ export class StudioController {
     const widgetRows = activePage.widgetRows || [];
     // Add new widget as a new row by default
     const newWidgetRows = [...widgetRows, [widget.id]];
+    const withTitles = this.applyInferredTitles(widget, state.dataSources);
     this.commitState({
       ...state,
       widgets: {
         ...state.widgets,
-        [widget.id]: widget,
+        [widget.id]: withTitles,
       },
       pages: {
         ...state.pages,

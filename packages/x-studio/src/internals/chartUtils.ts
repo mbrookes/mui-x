@@ -655,6 +655,59 @@ export function normalizeToDate(value: unknown): Date | null {
   return null;
 }
 
+/**
+ * Normalise all date/datetime field values in a data source's rows to canonical
+ * ISO strings on ingestion, so the rest of the system can assume a single format.
+ *
+ * - `date`     fields → `"YYYY-MM-DD"`
+ * - `datetime` fields → `"YYYY-MM-DDTHH:mm:ss.sssZ"` (full ISO-8601 UTC)
+ *
+ * Accepts JS `Date` objects, millisecond timestamps (numbers), and any string
+ * that `new Date()` can parse. Values that are already in canonical form, or
+ * that cannot be parsed, are left untouched.
+ */
+export function normalizeDataSourceRows(dataSource: StudioDataSource): StudioDataSource {
+  if (!dataSource.rows || dataSource.rows.length === 0) {
+    return dataSource;
+  }
+  const dateFieldIds = dataSource.fields.filter((f) => f.type === 'date').map((f) => f.id);
+  const datetimeFieldIds = dataSource.fields.filter((f) => f.type === 'datetime').map((f) => f.id);
+  if (dateFieldIds.length === 0 && datetimeFieldIds.length === 0) {
+    return dataSource;
+  }
+  const normalizedRows = dataSource.rows.map((row) => {
+    let changed = false;
+    const next: Record<string, unknown> = { ...row };
+
+    for (const id of dateFieldIds) {
+      const raw = row[id];
+      if (raw == null || (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw))) {
+        continue; // already canonical or absent
+      }
+      const d = normalizeToDate(raw);
+      if (d) {
+        next[id] = d.toISOString().slice(0, 10);
+        changed = true;
+      }
+    }
+
+    for (const id of datetimeFieldIds) {
+      const raw = row[id];
+      if (raw == null || (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(raw))) {
+        continue; // already canonical or absent
+      }
+      const d = normalizeToDate(raw);
+      if (d) {
+        next[id] = d.toISOString();
+        changed = true;
+      }
+    }
+
+    return changed ? next : row;
+  });
+  return { ...dataSource, rows: normalizedRows };
+}
+
 /** ISO week number (1–53) for a given date. */
 function isoWeek(d: Date): { year: number; week: number } {
   // Shift to Thursday of the same week (ISO weeks start on Monday)

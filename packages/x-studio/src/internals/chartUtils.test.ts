@@ -11,6 +11,7 @@ import {
   resolveMetricRefs,
   resolveRows,
   normalizeToDate,
+  normalizeDataSourceRows,
   truncateToGranularity,
   formatPeriodLabel,
   fillTemporalLabelGaps,
@@ -2009,5 +2010,67 @@ describe('prepareScatterData', () => {
 
   it('returns empty array for empty rows', () => {
     expect(prepareScatterData([], 'x', 'y')).toEqual([]);
+  });
+});
+
+describe('normalizeDataSourceRows', () => {
+  const fields = [
+    { id: 'id', label: 'ID', type: 'string' as const },
+    { id: 'date', label: 'Date', type: 'date' as const },
+    { id: 'ts', label: 'Timestamp', type: 'datetime' as const },
+  ];
+
+  const makeSource = (rows: Record<string, unknown>[]): StudioDataSource => ({
+    id: 's1',
+    label: 'Source',
+    fields,
+    rows,
+  });
+
+  it('converts Date objects to ISO strings', () => {
+    const d = new Date('2024-03-15T12:00:00Z');
+    const result = normalizeDataSourceRows(makeSource([{ id: 1, date: d, ts: d }]));
+    expect(result.rows![0].date).toBe('2024-03-15');
+    expect(result.rows![0].ts).toBe('2024-03-15T12:00:00.000Z');
+  });
+
+  it('converts millisecond timestamps to ISO strings', () => {
+    const ms = new Date('2024-06-01T00:00:00Z').getTime();
+    const result = normalizeDataSourceRows(makeSource([{ id: 1, date: ms, ts: ms }]));
+    expect(result.rows![0].date).toBe('2024-06-01');
+    expect(result.rows![0].ts).toBe('2024-06-01T00:00:00.000Z');
+  });
+
+  it('leaves already-canonical ISO strings untouched (returns same row reference)', () => {
+    const row = { id: 1, date: '2024-01-01', ts: '2024-01-01T00:00:00.000Z' };
+    const source = makeSource([row]);
+    const result = normalizeDataSourceRows(source);
+    expect(result.rows![0]).toBe(row); // same reference — no copy made
+  });
+
+  it('leaves null/undefined values untouched', () => {
+    const result = normalizeDataSourceRows(makeSource([{ id: 1, date: null, ts: undefined }]));
+    expect(result.rows![0].date).toBeNull();
+    expect(result.rows![0].ts).toBeUndefined();
+  });
+
+  it('does not touch non-date fields', () => {
+    const result = normalizeDataSourceRows(makeSource([{ id: 'abc', date: '2024-01-01' }]));
+    expect(result.rows![0].id).toBe('abc');
+  });
+
+  it('returns original data source when there are no rows', () => {
+    const source: StudioDataSource = { id: 's1', label: 'S', fields, rows: [] };
+    expect(normalizeDataSourceRows(source)).toBe(source);
+  });
+
+  it('returns original data source when there are no date fields', () => {
+    const source: StudioDataSource = {
+      id: 's1',
+      label: 'S',
+      fields: [{ id: 'name', label: 'Name', type: 'string' }],
+      rows: [{ name: 'Alice' }],
+    };
+    expect(normalizeDataSourceRows(source)).toBe(source);
   });
 });

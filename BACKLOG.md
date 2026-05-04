@@ -26,7 +26,7 @@ BL-12: ~~smooth scroll to widget added to chart by click.~~ **Fixed** (ease-out-
 
 BL-13: ~~The Filter by Country filter widget doesn't show any chips. Changing the field and changing it back populates it.~~ **Fixed** (filter widgets now resolve expression-backed fields from enriched rows on first render; the example Country filter now points at `expr-order-country`)
 
-BL-14: Category field in the charts panel doesn't have section a title.
+BL-14: ~~Category field in the charts panel doesn't have section a title.~~ **Fixed** (the split-by/category picker now has a visible "Category field" section heading in the chart setup panel)
 
 BL-15: When more than one measure field is added, the split-by select dissapears.
 

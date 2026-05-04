@@ -154,8 +154,6 @@ describe('<StudioChartWidget />', () => {
         id: 'test-dash',
         title: 'Test',
         activePageId: 'page-1',
-        chartPalette: 'custom',
-        chartCustomColors: ['#111111', '#222222', '#333333'],
       },
       filters: [
         {
@@ -176,11 +174,7 @@ describe('<StudioChartWidget />', () => {
       series: Array<{ label: string; color?: string }>;
     };
 
-    expect(props.series.map((series) => ({ label: series.label, color: series.color }))).toEqual([
-      { label: 'A', color: '#111111' },
-      { label: 'B', color: '#222222' },
-      { label: 'C', color: '#333333' },
-    ]);
+    expect(props.series.map((series) => series.label)).toEqual(['A', 'B', 'C']);
   });
 
   it('normalizes multi-y bar-100 series and configures a percent axis', () => {

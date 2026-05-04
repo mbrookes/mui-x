@@ -168,8 +168,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       sx={{
-        borderColor: isSelected ? 'primary.main' : (pageTheme?.cardBorderColor ?? 'divider'),
-        borderWidth: isSelected ? 2 : (pageTheme?.cardBorderWidth ?? 1),
+        borderColor: pageTheme?.cardBorderColor ?? 'divider',
+        borderWidth: pageTheme?.cardBorderWidth ?? 1,
         border: pageTheme?.cardBorder === false && !isSelected ? 'none' : undefined,
         borderRadius: pageTheme?.cardRadius !== undefined ? `${pageTheme.cardRadius}px` : undefined,
         backgroundColor: pageTheme?.cardBackground ?? undefined,
@@ -177,7 +177,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         p: pageTheme?.cardPadding ?? 2,
         boxSizing: 'border-box',
         position: 'relative',
-        transition: 'border-color 0.15s',
+        outline: isSelected ? '2px solid' : undefined,
+        outlineColor: isSelected ? 'primary.main' : undefined,
+        outlineOffset: -1,
+        transition: 'outline-color 0.15s',
         '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
         boxShadow: isDragging ? 4 : undefined,
       }}

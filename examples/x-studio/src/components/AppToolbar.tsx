@@ -90,14 +90,14 @@ export function AppToolbar(props: AppToolbarProps) {
           <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
         </>
       )}
-      <Tooltip title="Load dashboard">
-        <IconButton size="small" onClick={onLoad} aria-label="Load dashboard">
-          <FileUploadIcon fontSize="small" />
+      <Tooltip title="Download dashboard">
+        <IconButton size="small" onClick={onSave} aria-label="Download dashboard">
+          <FileDownloadIcon fontSize="small" />
         </IconButton>
       </Tooltip>
-      <Tooltip title="Save dashboard">
-        <IconButton size="small" onClick={onSave} aria-label="Save dashboard">
-          <FileDownloadIcon fontSize="small" />
+      <Tooltip title="Upload dashboard">
+        <IconButton size="small" onClick={onLoad} aria-label="Upload dashboard">
+          <FileUploadIcon fontSize="small" />
         </IconButton>
       </Tooltip>
       <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />

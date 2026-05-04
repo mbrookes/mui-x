@@ -199,8 +199,7 @@ export function inferWidgetTitles(
         : source
         ? `${source.label} KPI`
         : 'KPI';
-      const subtitle = source?.label ?? '';
-      return { title, subtitle };
+      return { title, subtitle: '' };
     }
 
     case 'grid': {

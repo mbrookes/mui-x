@@ -5,6 +5,9 @@ import {
   Checkbox,
   Chip,
   InputAdornment,
+  ListItemText,
+  MenuItem,
+  Select,
   Slider,
   Stack,
   TextField,
@@ -92,19 +95,21 @@ function DateRangeControl({
           </Tooltip>
         )}
       </Box>
-      <DatePicker
-        label="From"
-        value={from}
-        onChange={handleFromChange}
-        slotProps={{ textField: { size: 'small', fullWidth: true } }}
-        data-field={fieldId}
-      />
-      <DatePicker
-        label="To"
-        value={to}
-        onChange={handleToChange}
-        slotProps={{ textField: { size: 'small', fullWidth: true } }}
-      />
+      <Stack direction="row" spacing={1}>
+        <DatePicker
+          label="From"
+          value={from}
+          onChange={handleFromChange}
+          slotProps={{ textField: { size: 'small', fullWidth: true } }}
+          data-field={fieldId}
+        />
+        <DatePicker
+          label="To"
+          value={to}
+          onChange={handleToChange}
+          slotProps={{ textField: { size: 'small', fullWidth: true } }}
+        />
+      </Stack>
     </Stack>
   );
 }
@@ -125,19 +130,22 @@ function MultiSelectControl({
   onClear: () => void;
 }) {
   const [search, setSearch] = React.useState('');
-  const filtered = values.filter((v) => v.toLowerCase().includes(search.toLowerCase()));
-
-  const toggle = (v: string) => {
-    const next = selected.includes(v)
-      ? selected.filter((s) => s !== v)
-      : [...selected, v];
-    onApply(next);
-  };
-
   const isActive = selected.length > 0;
 
+  const filtered = search
+    ? values.filter((v) => v.toLowerCase().includes(search.toLowerCase()))
+    : values;
+
+  const handleChange = (newValue: string[]) => {
+    if (newValue.length === 0) {
+      onClear();
+    } else {
+      onApply(newValue);
+    }
+  };
+
   return (
-    <Stack spacing={1}>
+    <Stack spacing={0.5}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
           {label}
@@ -158,63 +166,65 @@ function MultiSelectControl({
           </Tooltip>
         )}
       </Box>
-      {values.length > 6 && (
-        <TextField
-          size="small"
-          placeholder="Search…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ fontSize: 16 }} />
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
-      )}
-      <Box
-        sx={{
-          maxHeight: 200,
-          overflowY: 'auto',
-          border: 1,
-          borderColor: 'divider',
-          borderRadius: 1,
+      <Select
+        multiple
+        size="small"
+        fullWidth
+        value={selected}
+        onChange={(e) => handleChange(e.target.value as string[])}
+        displayEmpty
+        renderValue={(sel) => {
+          if ((sel as string[]).length === 0) return <em style={{ opacity: 0.5 }}>All</em>;
+          return `${(sel as string[]).length} selected`;
+        }}
+        MenuProps={{
+          slotProps: { paper: { sx: { maxHeight: 320 } } },
+          autoFocus: false,
         }}
       >
-        {filtered.length === 0 ? (
-          <Typography variant="caption" color="text.secondary" sx={{ p: 1, display: 'block' }}>
-            No options found.
-          </Typography>
-        ) : (
-          filtered.map((v) => (
-            <Box
-              key={v}
-              sx={{ display: 'flex', alignItems: 'center', px: 0.5, cursor: 'pointer' }}
-              onClick={() => toggle(v)}
-            >
-              <Checkbox
-                size="small"
-                checked={selected.includes(v)}
-                onChange={() => toggle(v)}
-                onClick={(e) => e.stopPropagation()}
-                sx={{ p: 0.5 }}
-                slotProps={{ input: { 'aria-label': v } }}
-              />
-              <Typography variant="body2" noWrap sx={{ flexGrow: 1, minWidth: 0, ml: 0.5 }}>
-                {v}
-              </Typography>
-            </Box>
-          ))
+        {/* Search inside the dropdown */}
+        <MenuItem
+          disableRipple
+          onKeyDown={(e) => e.stopPropagation()}
+          sx={{ position: 'sticky', top: 0, zIndex: 1, bgcolor: 'background.paper', pb: 0.5 }}
+        >
+          <TextField
+            size="small"
+            fullWidth
+            placeholder="Search…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ fontSize: 16 }} />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+        </MenuItem>
+        {filtered.map((v) => (
+          <MenuItem key={v} value={v} dense>
+            <Checkbox
+              size="small"
+              checked={selected.includes(v)}
+              sx={{ p: 0.5, mr: 0.5 }}
+              slotProps={{ input: { 'aria-label': v } }}
+            />
+            <ListItemText primary={v} />
+          </MenuItem>
+        ))}
+        {filtered.length === 0 && (
+          <MenuItem disabled>
+            <Typography variant="caption" color="text.secondary">
+              No options found
+            </Typography>
+          </MenuItem>
         )}
-      </Box>
-      {isActive && (
-        <Typography variant="caption" color="text.secondary">
-          {selected.length} selected
-        </Typography>
-      )}
+      </Select>
     </Stack>
   );
 }
@@ -283,13 +293,14 @@ function ToggleControl({
   );
 }
 
-// ─── Slider (numeric range) control ──────────────────────────────────────────
+// ─── Slider (numeric or date range) control ───────────────────────────────────
 
 function SliderControl({
   label,
   min,
   max,
   step,
+  isDate,
   currentValue,
   onApply,
   onClear,
@@ -298,6 +309,7 @@ function SliderControl({
   min: number;
   max: number;
   step: number;
+  isDate: boolean;
   currentValue: { from?: number; to?: number } | null;
   onApply: (from: number, to: number) => void;
   onClear: () => void;
@@ -307,7 +319,6 @@ function SliderControl({
     currentValue?.to ?? max,
   ]);
 
-  // Sync when external value is cleared
   React.useEffect(() => {
     setLocalValue([currentValue?.from ?? min, currentValue?.to ?? max]);
   }, [currentValue?.from, currentValue?.to, min, max]);
@@ -315,8 +326,7 @@ function SliderControl({
   const isActive = localValue[0] !== min || localValue[1] !== max;
 
   const handleChange = (_event: Event, newValue: number | number[]) => {
-    const [lo, hi] = newValue as [number, number];
-    setLocalValue([lo, hi]);
+    setLocalValue(newValue as [number, number]);
   };
 
   const handleChangeCommitted = (_event: React.SyntheticEvent | Event, newValue: number | number[]) => {
@@ -327,6 +337,9 @@ function SliderControl({
       onApply(lo, hi);
     }
   };
+
+  const formatLabel = (v: number) =>
+    isDate ? dayjs(v).format('D MMM YYYY') : v.toLocaleString();
 
   return (
     <Stack spacing={0.5}>
@@ -359,89 +372,18 @@ function SliderControl({
           max={max}
           step={step}
           valueLabelDisplay="auto"
+          valueLabelFormat={formatLabel}
           aria-label={label}
         />
       </Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
         <Typography variant="caption" color="text.secondary">
-          {localValue[0].toLocaleString()}
+          {formatLabel(localValue[0])}
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          {localValue[1].toLocaleString()}
+          {formatLabel(localValue[1])}
         </Typography>
       </Box>
-    </Stack>
-  );
-}
-
-// ─── Search (text) control ────────────────────────────────────────────────────
-
-function SearchControl({
-  label,
-  fieldId,
-  currentValue,
-  onApply,
-  onClear,
-}: {
-  label: string;
-  fieldId: string;
-  currentValue: string;
-  onApply: (v: string) => void;
-  onClear: () => void;
-}) {
-  const [localValue, setLocalValue] = React.useState(currentValue);
-
-  React.useEffect(() => {
-    setLocalValue(currentValue);
-  }, [currentValue]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.value;
-    setLocalValue(v);
-    if (v.trim() === '') {
-      onClear();
-    } else {
-      onApply(v.trim());
-    }
-  };
-
-  return (
-    <Stack spacing={0.5}>
-      <Typography variant="caption" color="text.secondary">
-        {label}
-      </Typography>
-      <TextField
-        size="small"
-        fullWidth
-        placeholder={`Search ${label}…`}
-        value={localValue}
-        onChange={handleChange}
-        data-field={fieldId}
-        slotProps={{
-          input: {
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon sx={{ fontSize: 16 }} />
-              </InputAdornment>
-            ),
-            endAdornment: localValue ? (
-              <InputAdornment position="end">
-                <Box
-                  component="span"
-                  role="button"
-                  tabIndex={0}
-                  aria-label="Clear search"
-                  onClick={() => { setLocalValue(''); onClear(); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setLocalValue(''); onClear(); } }}
-                  sx={{ cursor: 'pointer', color: 'text.secondary', display: 'flex' }}
-                >
-                  <CloseIcon sx={{ fontSize: 16 }} />
-                </Box>
-              </InputAdornment>
-            ) : null,
-          },
-        }}
-      />
     </Stack>
   );
 }
@@ -493,6 +435,9 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   }, [filterWidgetType, fieldId, dataSource]);
 
   // Compute min/max for slider from data when not configured explicitly
+  const isDateField =
+    filterWidgetType === 'slider' && (field?.type === 'date' || field?.type === 'datetime');
+
   const { autoMin, autoMax } = React.useMemo(() => {
     if (filterWidgetType !== 'slider' || !fieldId || !dataSource?.rows) {
       return { autoMin: 0, autoMax: 100 };
@@ -500,7 +445,8 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     let lo = Infinity;
     let hi = -Infinity;
     for (const row of dataSource.rows) {
-      const v = Number(row[fieldId]);
+      const raw = row[fieldId];
+      const v = isDateField ? dayjs(raw as string).valueOf() : Number(raw);
       if (Number.isFinite(v)) {
         if (v < lo) lo = v;
         if (v > hi) hi = v;
@@ -510,7 +456,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       autoMin: Number.isFinite(lo) ? lo : 0,
       autoMax: Number.isFinite(hi) ? hi : 100,
     };
-  }, [filterWidgetType, fieldId, dataSource]);
+  }, [filterWidgetType, fieldId, dataSource, isDateField]);
 
   const sliderMin = config.filterWidgetMin ?? autoMin;
   const sliderMax = config.filterWidgetMax ?? autoMax;
@@ -600,34 +546,21 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
 
   if (filterWidgetType === 'slider') {
     const val = activeFilter?.value as { from?: number; to?: number } | null | undefined;
+    const fieldType = isDateField ? (field?.type ?? 'date') : 'number';
     return (
       <SliderControl
         label={label}
         min={sliderMin}
         max={sliderMax}
         step={sliderStep}
+        isDate={isDateField}
         currentValue={val ?? null}
         onApply={(lo, hi) => {
-          controller.applyInteractiveFilter(widget.id, fieldId, 'between', { from: lo, to: hi }, {
-            fieldType: 'number',
-            filterSourceId,
-          });
-        }}
-        onClear={handleClear}
-      />
-    );
-  }
-
-  if (filterWidgetType === 'search') {
-    const val = typeof activeFilter?.value === 'string' ? activeFilter.value : '';
-    return (
-      <SearchControl
-        label={label}
-        fieldId={fieldId}
-        currentValue={val}
-        onApply={(v) => {
-          controller.applyInteractiveFilter(widget.id, fieldId, 'contains', v, {
-            fieldType: 'string',
+          // For date sliders, convert timestamps back to ISO strings for filter matching
+          const from = isDateField ? dayjs(lo).format('YYYY-MM-DD') : lo;
+          const to = isDateField ? dayjs(hi).format('YYYY-MM-DD') : hi;
+          controller.applyInteractiveFilter(widget.id, fieldId, 'between', { from, to }, {
+            fieldType,
             filterSourceId,
           });
         }}

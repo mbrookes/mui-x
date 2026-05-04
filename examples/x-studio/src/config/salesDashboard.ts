@@ -31,6 +31,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
           'widget-kpi-customers',
           'widget-kpi-avg-discount', 
         ],
+        ['widget-filter-country', 'widget-filter-category'],
         ['widget-chart-revenue-by-category'],
         ['widget-chart-category', 'widget-chart-country'],
         ['widget-orders-grid'],
@@ -62,6 +63,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       theme: { chartPalette: 'mangoFusion' },
       widgetRows: [
         ['widget-kpi4-ltv', 'widget-kpi4-customers', 'widget-kpi4-avg-order', 'widget-kpi4-enterprise'],
+        ['widget-filter4-segment', 'widget-filter4-signup-date'],
         ['widget-chart4-acquisition', 'widget-chart4-revenue-by-segment'],
         ['widget-chart4-top-customers', 'widget-chart4-quarterly-segment'],
         ['widget-grid4-top-customers'],
@@ -119,6 +121,30 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
   ],
   widgets: {
+    'widget-filter-country': {
+      id: 'widget-filter-country',
+      kind: 'filter',
+      title: 'Filter by Country',
+      titleMode: 'manual',
+      sourceId: ORDERS_SOURCE_ID,
+      config: {
+        filterWidgetType: 'toggle',
+        filterWidgetField: 'country',
+        filterWidgetLabel: 'Country',
+      },
+    },
+    'widget-filter-category': {
+      id: 'widget-filter-category',
+      kind: 'filter',
+      title: 'Filter by Category',
+      titleMode: 'manual',
+      sourceId: ORDER_ITEMS_SOURCE_ID,
+      config: {
+        filterWidgetType: 'multi-select',
+        filterWidgetField: 'category',
+        filterWidgetLabel: 'Category',
+      },
+    },
     'widget-kpi-orders': {
       id: 'widget-kpi-orders',
       kind: 'kpi',
@@ -399,6 +425,31 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
 
     // ── Page 4: Customers ────────────────────────────────────────────────────
+
+    'widget-filter4-segment': {
+      id: 'widget-filter4-segment',
+      kind: 'filter',
+      title: 'Filter by Segment',
+      titleMode: 'manual',
+      sourceId: CUSTOMERS_SOURCE_ID,
+      config: {
+        filterWidgetType: 'toggle',
+        filterWidgetField: 'segment',
+        filterWidgetLabel: 'Customer Segment',
+      },
+    },
+    'widget-filter4-signup-date': {
+      id: 'widget-filter4-signup-date',
+      kind: 'filter',
+      title: 'Signup Date Range',
+      titleMode: 'manual',
+      sourceId: CUSTOMERS_SOURCE_ID,
+      config: {
+        filterWidgetType: 'date-range',
+        filterWidgetField: 'since',
+        filterWidgetLabel: 'Signup Date',
+      },
+    },
 
     'widget-kpi4-ltv': {
       id: 'widget-kpi4-ltv',

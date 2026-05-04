@@ -25,6 +25,10 @@ export type { StudioKpiWidgetProps } from './StudioKpiWidget/StudioKpiWidget';
 export { StudioTextWidget } from './StudioTextWidget/StudioTextWidget';
 export type { StudioTextWidgetProps } from './StudioTextWidget/StudioTextWidget';
 
+// ─── StudioFilterWidget ───────────────────────────────────────────────────────
+export { StudioFilterWidget } from './StudioFilterWidget/StudioFilterWidget';
+export type { StudioFilterWidgetProps } from './StudioFilterWidget/StudioFilterWidget';
+
 // ─── StudioDataDrawer ─────────────────────────────────────────────────────────
 export { StudioDataDrawer } from './StudioDataDrawer/StudioDataDrawer';
 
@@ -88,6 +92,7 @@ export type {
   StudioFieldExpression,
   StudioJoinFieldExpression,
   StudioExpressionOperator,
+  StudioFilterWidgetType,
 } from './models/studio';
 
 // ─── Utility types ────────────────────────────────────────────────────────────

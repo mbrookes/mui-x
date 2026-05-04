@@ -306,6 +306,9 @@ export class StudioController {
           widgetRows: newWidgetRows,
         },
       },
+      filters: state.filters.filter(
+        (f) => !(f.sourceWidgetId === widgetId && f.scope === 'interactive'),
+      ),
       shell: {
         ...state.shell,
         selectedWidgetId:
@@ -447,6 +450,58 @@ export class StudioController {
       ...state,
       filters: state.filters.filter((f) => f.id !== filterId),
     });
+  };
+
+  /**
+   * Applies an interactive filter from a filter widget. Replaces any existing
+   * interactive filter from the same source widget.
+   */
+  applyInteractiveFilter = (
+    sourceWidgetId: string,
+    field: string,
+    operator: import('../models').StudioFilterOperator,
+    value: unknown,
+    options?: {
+      filterMode?: 'condition' | 'selection';
+      filterSourceId?: string;
+      fieldType?: import('../models').StudioDataField['type'];
+    },
+  ) => {
+    const state = this.store.state;
+    const existingFilters = state.filters.filter(
+      (f) => !(f.scope === 'interactive' && f.sourceWidgetId === sourceWidgetId),
+    );
+
+    const interactiveFilter: import('../models').StudioFilterState = {
+      id: `interactive-${sourceWidgetId}-${Date.now()}`,
+      field,
+      operator,
+      value,
+      scope: 'interactive',
+      sourceWidgetId,
+      pageId: state.dashboard.activePageId,
+      ...(options?.filterMode && { filterMode: options.filterMode }),
+      ...(options?.filterSourceId && { filterSourceId: options.filterSourceId }),
+      ...(options?.fieldType && { fieldType: options.fieldType }),
+    };
+
+    this.commitState({ ...state, filters: [...existingFilters, interactiveFilter] }, { undoable: false });
+  };
+
+  /**
+   * Clears the interactive filter originating from a specific filter widget.
+   */
+  clearInteractiveFilter = (sourceWidgetId: string) => {
+    const state = this.store.state;
+    this.commitState(
+      {
+        ...state,
+        filters: state.filters.filter(
+          (f) => !(f.scope === 'interactive' && f.sourceWidgetId === sourceWidgetId),
+        ),
+      },
+      { undoable: false },
+    );
   };
 
   /**

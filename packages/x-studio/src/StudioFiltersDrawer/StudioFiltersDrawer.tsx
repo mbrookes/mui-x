@@ -6,7 +6,7 @@ import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioDataSource, StudioFilterState } from '../models';
 import type { SimpleField } from './filterDrawerTypes';
 import { buildFieldOptions, generateId } from './filterDrawerUtils';
-import { FilterSection, WidgetFilterSection, CrossFilterSection } from './FilterSection';
+import { FilterSection, WidgetFilterSection, CrossFilterSection, InteractiveFilterSection } from './FilterSection';
 
 export function StudioFiltersDrawer() {
   const controller = useStudioController();
@@ -90,6 +90,9 @@ export function StudioFiltersDrawer() {
   const crossFilters = (filters as StudioFilterState[]).filter(
     (f: StudioFilterState) => f.scope === 'cross-filter',
   );
+  const interactiveFilters = (filters as StudioFilterState[]).filter(
+    (f: StudioFilterState) => f.scope === 'interactive',
+  );
 
   const handleAddPageFilter = () => {
     if (allFields.length === 0) {
@@ -151,6 +154,13 @@ export function StudioFiltersDrawer() {
           />
         </React.Fragment>
       ) : null}
+
+      {interactiveFilters.length > 0 && (
+        <React.Fragment>
+          <Divider />
+          <InteractiveFilterSection filters={interactiveFilters} />
+        </React.Fragment>
+      )}
 
       {crossFilters.length > 0 && (
         <React.Fragment>

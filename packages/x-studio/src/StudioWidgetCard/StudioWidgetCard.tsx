@@ -11,6 +11,7 @@ import { StudioGridWidget } from '../StudioGridWidget';
 import { StudioChartWidget, CHART_MIN_HEIGHT } from '../StudioChartWidget';
 import { StudioKpiWidget } from '../StudioKpiWidget';
 import { StudioTextWidget } from '../StudioTextWidget';
+import { StudioFilterWidget } from '../StudioFilterWidget';
 import { exportGridToCsv, exportChartToPng } from '../internals/widgetUtils';
 import { resolveRows } from '../internals/chartUtils';
 
@@ -119,7 +120,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         const crossFilters = filters.filter(
           (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
         );
-        const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters];
+        const interactiveFilters = filters.filter(
+          (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id,
+        );
+        const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters];
         const rows = source?.rows
           ? resolveRows(source.rows, widget.sourceId, allFilters, dataSources, relationships, expressionFields)
           : [];
@@ -319,6 +323,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         )}
         {showContent && widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
         {showContent && widget.kind === 'text' && <StudioTextWidget widget={widget} />}
+        {showContent && widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
       </Stack>
     </Paper>
   );

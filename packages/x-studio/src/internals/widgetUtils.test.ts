@@ -176,6 +176,25 @@ describe('inferWidgetTitles — text', () => {
   });
 });
 
+describe('inferWidgetTitles — filter', () => {
+  it('uses "Filter: <fieldLabel>" as title when field is configured', () => {
+    const widget = makeWidget({
+      kind: 'filter',
+      config: { filterWidgetField: 'category' },
+    });
+    const { title, subtitle } = inferWidgetTitles(widget, SOURCES);
+    expect(title).toBe('Filter: Category');
+    expect(subtitle).toBe('');
+  });
+
+  it('uses "Filter" as title when no field is configured', () => {
+    const widget = makeWidget({ kind: 'filter', config: {} });
+    const { title, subtitle } = inferWidgetTitles(widget, SOURCES);
+    expect(title).toBe('Filter');
+    expect(subtitle).toBe('');
+  });
+});
+
 // ─── widgetKindRequiresDataSource ─────────────────────────────────────────────
 
 describe('widgetKindRequiresDataSource', () => {
@@ -193,6 +212,10 @@ describe('widgetKindRequiresDataSource', () => {
 
   it('returns true for kpi widgets', () => {
     expect(widgetKindRequiresDataSource('kpi')).toBe(true);
+  });
+
+  it('returns true for filter widgets', () => {
+    expect(widgetKindRequiresDataSource('filter')).toBe(true);
   });
 });
 
@@ -234,6 +257,18 @@ describe('createDefaultWidget', () => {
     const widget = createDefaultWidget('kpi');
     expect(widget.kind).toBe('kpi');
     expect(widget.config.kpiAggregation).toBe('sum');
+  });
+
+  it('filter: config.filterWidgetType defaults to "multi-select"', () => {
+    const widget = createDefaultWidget('filter');
+    expect(widget.kind).toBe('filter');
+    expect(widget.config.filterWidgetType).toBe('multi-select');
+  });
+
+  it('filter with source: sourceId is set', () => {
+    const widget = createDefaultWidget('filter', SOURCES.orders);
+    expect(widget.sourceId).toBe('orders');
+    expect(widget.kind).toBe('filter');
   });
 
   it('generates an id with a "widget-<kind>-<timestamp>" format', () => {

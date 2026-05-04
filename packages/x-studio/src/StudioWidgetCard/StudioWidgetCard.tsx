@@ -21,6 +21,11 @@ export interface StudioWidgetCardProps {
   pageTheme?: StudioPageTheme;
 }
 
+// Module-level set survives component unmount/remount (e.g. drag-and-drop repositioning).
+// Widgets that have already been rendered once skip the defer on subsequent mounts
+// so rearranging cards doesn't cause a visible blank-shell flash.
+const hydratedWidgets = new Set<string>();
+
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
   const { widgetId, isFirstRow = false, pageTheme } = props;
@@ -61,15 +66,21 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const [isDragging, setIsDragging] = React.useState(false);
 
   // Defer heavy widget content to after the first browser paint so the card
-  // shells are visible immediately. All widgets load together in one batched
-  // transition after the first rAF, which is more efficient than staggering.
-  const [showContent, setShowContent] = React.useState(false);
+  // shells are visible immediately on initial load. Widgets that have already
+  // been rendered (tracked in hydratedWidgets) skip the defer so that
+  // drag-and-drop repositioning doesn't cause a blank-shell flash.
+  const [showContent, setShowContent] = React.useState(() => hydratedWidgets.has(widgetId));
   const [, startContentTransition] = React.useTransition();
   React.useEffect(() => {
+    hydratedWidgets.add(widgetId);
+    if (showContent) {
+      return undefined;
+    }
     const raf = requestAnimationFrame(() => {
       startContentTransition(() => setShowContent(true));
     });
     return () => cancelAnimationFrame(raf);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   React.useEffect(() => {

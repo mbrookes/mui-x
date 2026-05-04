@@ -21,6 +21,8 @@ import { StudioDataDrawer } from '../StudioDataDrawer';
 import { StudioComposeDrawer } from '../StudioComposeDrawer';
 import { StudioFiltersDrawer } from '../StudioFiltersDrawer';
 
+const MIN_CANVAS_WIDTH = 480;
+
 // ── Public imperative handle ──────────────────────────────────────────────────
 
 /**
@@ -192,11 +194,13 @@ const StudioContent = React.memo(function StudioContent(props: StudioSlots) {
             sx={{
               flexGrow: 1,
               minWidth: 0,
-              overflowY: 'auto',
+              overflow: 'auto',
               bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
             }}
           >
-            {canvas ?? <StudioCanvas />}
+            <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
+              {canvas ?? <StudioCanvas />}
+            </Box>
           </Box>
         </CanvasScrollContext.Provider>
       </Box>

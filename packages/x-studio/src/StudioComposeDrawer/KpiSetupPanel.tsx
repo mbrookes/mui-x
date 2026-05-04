@@ -292,7 +292,18 @@ export function KpiSetupPanel(props: { widgetId: string }) {
       <DataSourceFieldSelect
         value={config.kpiValueField ?? ''}
         onChange={(fieldId, fSourceId) => {
-          controller.updateWidgetConfig(widgetId, { kpiValueField: fieldId });
+          const newField = allFields.find((f) => f.id === fieldId && f.sourceId === fSourceId);
+          const newFieldType = newField?.type ?? null;
+          const newAggOptions = newFieldType
+            ? AGGREGATIONS[newFieldType] ?? [{ value: 'count' as StudioKpiAggregation, label: 'Count' }]
+            : AGGREGATIONS.number;
+          const currentAggValid = newAggOptions.some((a) => a.value === config.kpiAggregation);
+          const configUpdate: Partial<import('../models').StudioWidgetConfig> = {
+            kpiValueField: fieldId,
+            // Reset aggregation when the current one isn't valid for the new field type
+            ...(!currentAggValid && { kpiAggregation: newAggOptions[0].value }),
+          };
+          controller.updateWidgetConfig(widgetId, configUpdate);
           if (fSourceId && fSourceId !== widget?.sourceId) {
             controller.updateWidget(widgetId, { sourceId: fSourceId });
           }

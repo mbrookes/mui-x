@@ -418,6 +418,37 @@ describe('StudioController.removeWidget', () => {
 });
 
 describe('StudioController.updateWidgetConfig', () => {
+  it('keeps inferred chart titles in auto mode after field selection', () => {
+    const controller = new StudioController({
+      dataSources: {
+        orders: {
+          id: 'orders',
+          label: 'Orders',
+          fields: [
+            { id: 'month', label: 'Month', type: 'date' },
+            { id: 'revenue', label: 'Revenue', type: 'number' },
+          ],
+        },
+      },
+      widgets: {
+        chart1: {
+          id: 'chart1',
+          kind: 'chart',
+          sourceId: 'orders',
+          title: '',
+          config: {
+            chartType: 'bar',
+          },
+        },
+      },
+    });
+
+    controller.updateWidgetConfig('chart1', { xField: 'month', yField: 'revenue' });
+
+    expect(controller.getState().widgets.chart1.title).toBe('Revenue by Month');
+    expect(controller.getState().widgets.chart1.titleMode).toBe('auto');
+  });
+
   it('preserves an existing chart title when titleMode is undefined and chart type changes', () => {
     const controller = new StudioController({
       dataSources: {

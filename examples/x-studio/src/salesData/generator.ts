@@ -453,7 +453,6 @@ function generateShipments(
       itemCount: items.length,
     };
     rows.push(shipment);
-    byShipmentId.set(id, shipment);
     shipIdx++;
   }
 
@@ -476,7 +475,6 @@ function generateShipments(
       rows,
     },
     rows,
-    byShipmentId,
   };
 }
 

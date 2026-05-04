@@ -10,7 +10,21 @@ import { TextWidgetIcon } from '../icons/TextWidgetIcon';
 import { KpiWidgetIcon } from '../icons/KpiWidgetIcon';
 import { TableWidgetIcon } from '../icons/TableWidgetIcon';
 import { BarGroupedIcon } from '../icons/charts/BarGroupedIcon';
+import { BarStackedIcon } from '../icons/charts/BarStackedIcon';
+import { Bar100Icon } from '../icons/charts/Bar100Icon';
+import { BarHorizontalIcon } from '../icons/charts/BarHorizontalIcon';
+import { BarStackedHorizontalIcon } from '../icons/charts/BarStackedHorizontalIcon';
+import { Bar100HorizontalIcon } from '../icons/charts/Bar100HorizontalIcon';
+import { LineIcon } from '../icons/charts/LineIcon';
+import { AreaIcon } from '../icons/charts/AreaIcon';
+import { AreaStackedIcon } from '../icons/charts/AreaStackedIcon';
+import { Area100Icon } from '../icons/charts/Area100Icon';
+import { ScatterIcon } from '../icons/charts/ScatterIcon';
+import { PieIcon } from '../icons/charts/PieIcon';
+import { DonutIcon } from '../icons/charts/DonutIcon';
 import { ListFilterWidgetIcon } from '../icons/ListFilterWidgetIcon';
+import { ButtonFilterWidgetIcon } from '../icons/ButtonFilterWidgetIcon';
+import { DateFilterWidgetIcon } from '../icons/DateFilterWidgetIcon';
 
 export const WIDGET_TYPES: {
   kind: StudioWidgetKind;
@@ -52,6 +66,40 @@ export const WIDGET_TYPES: {
 
 export function widgetKindRequiresDataSource(kind: StudioWidgetKind) {
   return kind !== 'text';
+}
+
+/** Returns a small (16px) icon representing the specific sub-type of a widget. */
+export function getWidgetSubtypeIcon(widget: StudioWidget, size = 16): React.ReactNode {
+  if (widget.kind === 'chart') {
+    const chartType = widget.config.chartType ?? 'bar';
+    const horizontal = widget.config.barLayout === 'horizontal';
+    switch (chartType) {
+      case 'bar': return horizontal ? <BarHorizontalIcon size={size} /> : <BarGroupedIcon size={size} />;
+      case 'bar-stacked': return horizontal ? <BarStackedHorizontalIcon size={size} /> : <BarStackedIcon size={size} />;
+      case 'bar-100': return horizontal ? <Bar100HorizontalIcon size={size} /> : <Bar100Icon size={size} />;
+      case 'line': return <LineIcon size={size} />;
+      case 'area': return <AreaIcon size={size} />;
+      case 'area-stacked': return <AreaStackedIcon size={size} />;
+      case 'area-100': return <Area100Icon size={size} />;
+      case 'scatter': return <ScatterIcon size={size} />;
+      case 'pie': return <PieIcon size={size} />;
+      case 'donut': return <DonutIcon size={size} />;
+      default: return <BarGroupedIcon size={size} />;
+    }
+  }
+  if (widget.kind === 'filter') {
+    const filterType = widget.config.filterWidgetType ?? 'multi-select';
+    switch (filterType) {
+      case 'toggle': return <ButtonFilterWidgetIcon size={size} />;
+      case 'date-range':
+      case 'slider': return <DateFilterWidgetIcon size={size} />;
+      default: return <ListFilterWidgetIcon size={size} />;
+    }
+  }
+  if (widget.kind === 'kpi') return <KpiWidgetIcon size={size} />;
+  if (widget.kind === 'grid') return <TableWidgetIcon size={size} />;
+  if (widget.kind === 'text') return <TextWidgetIcon size={size} />;
+  return null;
 }
 
 export function createDefaultWidget(

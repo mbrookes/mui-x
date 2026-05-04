@@ -20,6 +20,8 @@ BL-09: ~~Tooltip for the data panel fields with preview of first n records.~~ **
 
 BL-10: ~~Make the auto titles smarter, based on the defined fields (changing it as they're defined), for example "Monthly Total by Category" for a chart grouped by month on the x axis, Total as the y axis, and split by category~~ **Fixed** (auto titles/subtitles now infer from configured fields across non-text widgets, including grouped chart titles like "Monthly Revenue by Category")
 
-BL-11: Drag and drop performance. Really slow after dropping a card before the line dissapears and the card appears.
+BL-11: ~~Drag and drop performance. Really slow after dropping a card before the line dissapears and the card appears.~~ **Fixed** (module-level `hydratedWidgets` Set tracks already-rendered widget IDs; remounts from DnD skip the rAF+transition defer and render content immediately)
 
 BL-12: ~~smooth scroll to widget added to chart by click.~~ **Fixed** (ease-out-cubic animation, target re-evaluated each frame to track widget content loading)
+
+BL-13: The Filter by Country filter widget doesn't show any chips. Chaning the field and changi it back populates it.

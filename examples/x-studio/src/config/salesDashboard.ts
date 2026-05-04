@@ -208,12 +208,12 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'widget-chart-revenue-by-category': {
       id: 'widget-chart-revenue-by-category',
       kind: 'chart',
-      title: 'Monthly Revenue by Category',
+      title: 'Quarterly Revenue by Category',
       sourceId: ORDER_ITEMS_SOURCE_ID,
       config: {
         chartType: 'bar-stacked',
         xField: 'date',
-        xGroupBy: 'month',
+        xGroupBy: 'quarter',
         yField: 'total',
         seriesField: 'category',
       },

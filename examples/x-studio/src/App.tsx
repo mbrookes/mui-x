@@ -116,7 +116,7 @@ export default function App() {
         ...base.dashboard,
         activePageId: urlPageId,
       },
-    };
+    } as Partial<StudioState>;
   }, []);
   const [mode, setMode] = React.useState<StudioMode>('edit');
   const [title, setTitle] = React.useState('');

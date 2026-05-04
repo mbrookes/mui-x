@@ -222,6 +222,13 @@ export function useChartWidgetData(
     return blueberryTwilightPalette(muiTheme.palette.mode);
   }, [chartColors, muiTheme.palette.mode]);
 
+  // Whether this widget has incoming cross-filters (from another widget on the same page)
+  const hasCrossFilters = React.useMemo(() => {
+    return filters.some(
+      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+    );
+  }, [filters, widget.id, activePageId]);
+
   const chartData = React.useMemo(() => {
     const xField = config.xField;
     if (!xField || activeYFields.length === 0 || enrichedRows.length === 0) {
@@ -243,6 +250,48 @@ export function useChartWidgetData(
     const raw = aggregateMultipleSeries(enrichedRows, xField, activeYFields, xGroupBy);
     return applyRankToMultiSeries(raw, widgetRankFilter);
   }, [enrichedRows, config.xField, activeYFields, widgetRankFilter, xGroupBy]);
+
+  // Full (baseline) aggregations — used for ghost rendering when cross-filters are active.
+  // Only computed when hasCrossFilters to avoid wasteful work.
+  const allChartData = React.useMemo(() => {
+    if (!hasCrossFilters) {
+      return null;
+    }
+    const xField = config.xField;
+    if (!xField || activeYFields.length === 0 || isMultiSeries || allEnrichedRows.length === 0) {
+      return null;
+    }
+    const raw = aggregateByField(allEnrichedRows, xField, activeYFields[0], xGroupBy);
+    return applyRankToAggregated(raw, widgetRankFilter);
+  }, [hasCrossFilters, allEnrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter, xGroupBy]);
+
+  const allSeriesFieldData = React.useMemo(() => {
+    if (!hasCrossFilters) {
+      return null;
+    }
+    const xField = config.xField;
+    const seriesField = config.seriesField;
+    const yField = activeYFields[0];
+    if (!xField || !seriesField || !yField || allEnrichedRows.length === 0) {
+      return null;
+    }
+    return applyRankToSeriesFieldData(
+      aggregateByTwoFields(allEnrichedRows, xField, seriesField, yField, xGroupBy),
+      widgetRankFilter,
+    );
+  }, [hasCrossFilters, allEnrichedRows, config.xField, config.seriesField, activeYFields, xGroupBy, widgetRankFilter]);
+
+  const allMultiYData = React.useMemo(() => {
+    if (!hasCrossFilters) {
+      return null;
+    }
+    const xField = config.xField;
+    if (!xField || activeYFields.length < 2 || allEnrichedRows.length === 0) {
+      return null;
+    }
+    const raw = aggregateMultipleSeries(allEnrichedRows, xField, activeYFields, xGroupBy);
+    return applyRankToMultiSeries(raw, widgetRankFilter);
+  }, [hasCrossFilters, allEnrichedRows, config.xField, activeYFields, widgetRankFilter, xGroupBy]);
 
   // Data for scatter charts
   const scatterData = React.useMemo(() => {
@@ -269,5 +318,9 @@ export function useChartWidgetData(
     chartData,
     multiYData,
     scatterData,
+    hasCrossFilters,
+    allChartData,
+    allSeriesFieldData,
+    allMultiYData,
   };
 }

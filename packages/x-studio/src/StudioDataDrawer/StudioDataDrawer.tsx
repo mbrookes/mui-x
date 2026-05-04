@@ -150,9 +150,10 @@ function DataSourceSection(props: {
   source: StudioDataSource;
   expressionFields: StudioExpressionField[];
   dataSources: Record<string, StudioDataSource>;
+  relationships: ReturnType<typeof useStudioSelector>['relationships'];
   isEditMode: boolean;
 }) {
-  const { source, expressionFields, dataSources, isEditMode } = props;
+  const { source, expressionFields, dataSources, relationships, isEditMode } = props;
   const [open, setOpen] = React.useState(true);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingField, setEditingField] = React.useState<StudioExpressionField | undefined>(undefined);
@@ -167,8 +168,14 @@ function DataSourceSection(props: {
     if (!source.rows || source.rows.length === 0) {
       return source.rows;
     }
-    return enrichRowsWithExpressions(source.rows, expressionFields, source.id, dataSources);
-  }, [source.rows, source.id, expressionFields, dataSources]);
+    return enrichRowsWithExpressions(
+      source.rows,
+      expressionFields,
+      source.id,
+      dataSources,
+      relationships,
+    );
+  }, [source.rows, source.id, expressionFields, dataSources, relationships]);
 
   const handleAddExpressionField = () => {
     setEditingField(undefined);
@@ -285,6 +292,7 @@ function DataSourceSection(props: {
 export function StudioDataDrawer() {
   const dataSources = useStudioSelector((state) => state.dataSources);
   const expressionFields = useStudioSelector((state) => state.expressionFields);
+  const relationships = useStudioSelector((state) => state.relationships);
   const mode = useStudioSelector((state) => state.mode);
   const sourceList = Object.values(dataSources).filter((s) => !s.hidden);
 
@@ -304,6 +312,7 @@ export function StudioDataDrawer() {
           source={source}
           expressionFields={expressionFields}
           dataSources={dataSources}
+          relationships={relationships}
           isEditMode={mode === 'edit'}
         />
       ))}

@@ -40,4 +40,4 @@ BL-19: Add a "full-screen" icon to charts controls that displays them in a near 
 
 ~~BL-20: Dragging the slider filter thumb tries to drag the panel as if repositioning~~ **Fixed** (stop pointer events from bubbling out of the slider box so the widget card's native drag handler isn't triggered)
 
-BL-21: customer aquisition over time chart is blank
+~~BL-21: customer aquisition over time chart is blank~~ **Fixed** (added `yAggregation` config option; set to `'count'` for the acquisition chart so string fields are counted per x-bucket rather than summed as NaN)

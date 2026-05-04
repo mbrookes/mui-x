@@ -85,6 +85,8 @@ export interface StudioWidgetConfig {
   barLayout?: StudioBarLayout;
   xField?: string;
   yField?: string;
+  /** How to aggregate the y-axis values. Defaults to 'sum'. Use 'count' when yField is a string field. */
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
   /** Multiple Y-axis series (preferred over yField when present) */
   ySeries?: StudioChartSeries[];
   /** Secondary Y field for grouped/stacked charts or scatter Y axis */

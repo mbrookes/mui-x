@@ -32,6 +32,8 @@ export interface DataSourceFieldSelectProps {
   filterCapability?: FieldCapability;
   /** Disable individual options (e.g. cross-source incompatibility checks). */
   getOptionDisabled?: (option: DataSourceFieldEntry) => boolean;
+  /** Disable the entire control. */
+  disabled?: boolean;
   label?: string;
   helperText?: string;
   size?: 'small' | 'medium';
@@ -50,6 +52,7 @@ export function DataSourceFieldSelect({
   dataSources,
   filterCapability,
   getOptionDisabled,
+  disabled,
   label = 'Field',
   helperText,
   size = 'small',
@@ -101,6 +104,7 @@ export function DataSourceFieldSelect({
       getOptionLabel={getOptionLabel}
       renderOption={renderFieldOption}
       getOptionDisabled={getOptionDisabled}
+      disabled={disabled}
       value={selectedOption}
       onChange={(_e, newValue) => {
         onChange(newValue?.id ?? '', newValue?.sourceId ?? '');

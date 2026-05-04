@@ -120,6 +120,22 @@ const KPI_AGG_PREFIXES: Record<StudioKpiAggregation, string> = {
   max: 'Max',
 };
 
+const CHART_GROUP_BY_TITLE_PREFIXES = {
+  day: 'Daily',
+  week: 'Weekly',
+  month: 'Monthly',
+  quarter: 'Quarterly',
+  year: 'Yearly',
+} as const;
+
+function summarizeFieldLabels(labels: string[], maxVisible = 3) {
+  if (labels.length <= maxVisible) {
+    return labels.join(', ');
+  }
+
+  return `${labels.slice(0, maxVisible).join(', ')} +${labels.length - maxVisible} more`;
+}
+
 /**
  * Infer a human-readable title and subtitle for a widget based on its current config.
  * Used when titleMode/subtitleMode is 'auto' (the default).
@@ -149,19 +165,27 @@ export function inferWidgetTitles(
       const seriesLabel = findFieldLabel(config.seriesField);
       const chartType = config.chartType ?? 'bar';
       const isScatter = chartType === 'scatter';
+      const groupByTitlePrefix = config.xGroupBy
+        ? CHART_GROUP_BY_TITLE_PREFIXES[config.xGroupBy]
+        : undefined;
 
       let title = source ? `${source.label} chart` : 'Chart';
       if (isScatter && xLabel && yLabels.length > 0) {
         title = `${yLabels[0]} vs ${xLabel}`;
+      } else if (groupByTitlePrefix) {
+        const metricLabel = yLabels.length > 0 ? yLabels.join(', ') : title;
+        title = `${groupByTitlePrefix} ${metricLabel}`;
+        if (seriesLabel) {
+          title = `${title} by ${seriesLabel}`;
+        }
       } else if (yLabels.length > 0 && xLabel) {
         title = `${yLabels.join(', ')} by ${xLabel}`;
       } else if (yLabels.length > 0) {
         title = yLabels.join(', ');
       }
 
-      const groupByLabel = config.xGroupBy ? `by ${config.xGroupBy}` : '';
-      const splitLabel = seriesLabel ? `split by ${seriesLabel}` : '';
-      const subtitleParts = [groupByLabel, splitLabel].filter(Boolean);
+      const splitLabel = seriesLabel && !groupByTitlePrefix ? `split by ${seriesLabel}` : '';
+      const subtitleParts = [source?.label, splitLabel].filter(Boolean);
       const subtitle = subtitleParts.join(' · ');
 
       return { title, subtitle };
@@ -181,20 +205,30 @@ export function inferWidgetTitles(
 
     case 'grid': {
       const title = source?.label ?? 'Table';
-      return { title, subtitle: '' };
+      const visibleColumnLabels = (config.columns?.length
+        ? config.columns
+        : source?.fields.map((f) => f.id) ?? [])
+        .map((fieldId) => findFieldLabel(fieldId))
+        .filter((label): label is string => Boolean(label));
+
+      const subtitle = visibleColumnLabels.length > 0
+        ? summarizeFieldLabels(visibleColumnLabels)
+        : '';
+
+      return { title, subtitle };
     }
 
     case 'filter': {
       const fieldLabel = findFieldLabel(config.filterWidgetField, config.filterWidgetSourceId);
       const title = fieldLabel ? `Filter: ${fieldLabel}` : 'Filter';
-      return { title, subtitle: '' };
+      return { title, subtitle: source?.label ?? '' };
     }
 
     case 'text':
-      return { title: widget.title, subtitle: widget.subtitle ?? '' };
+      return { title: widget.title || 'Text', subtitle: widget.subtitle ?? '' };
 
     default:
-      return { title: widget.title, subtitle: widget.subtitle ?? '' };
+      return { title: widget.title || widget.kind || 'Widget', subtitle: widget.subtitle ?? '' };
   }
 }
 

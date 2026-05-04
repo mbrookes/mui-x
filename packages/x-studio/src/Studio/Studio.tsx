@@ -167,26 +167,26 @@ const StudioContent = React.memo(function StudioContent(props: StudioSlots) {
       }}
     >
       <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
-        {mode === 'edit' && (
-          <DrawerPanel drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
-            {dataDrawer ?? <StudioDataDrawer />}
-          </DrawerPanel>
-        )}
-        {mode === 'edit' && (
-          <DrawerPanel
-            drawer="compose"
-            title={composeTitle}
-            icon={<TuneIcon fontSize="small" />}
-            onBack={composeOnBack}
-          >
-            {composeDrawer ?? <StudioComposeDrawer />}
-          </DrawerPanel>
-        )}
-        <DrawerPanel drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
-          {filtersDrawer ?? <StudioFiltersDrawer />}
-        </DrawerPanel>
-
         <CanvasScrollContext.Provider value={canvasScrollRef}>
+          {mode === 'edit' && (
+            <DrawerPanel drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
+              {dataDrawer ?? <StudioDataDrawer />}
+            </DrawerPanel>
+          )}
+          {mode === 'edit' && (
+            <DrawerPanel
+              drawer="compose"
+              title={composeTitle}
+              icon={<TuneIcon fontSize="small" />}
+              onBack={composeOnBack}
+            >
+              {composeDrawer ?? <StudioComposeDrawer />}
+            </DrawerPanel>
+          )}
+          <DrawerPanel drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
+            {filtersDrawer ?? <StudioFiltersDrawer />}
+          </DrawerPanel>
+
           <Box
             ref={canvasScrollRef}
             sx={{

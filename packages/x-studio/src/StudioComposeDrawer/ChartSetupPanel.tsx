@@ -85,6 +85,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   );
 
   const chartType: StudioChartType = config.chartType ?? 'bar';
+  const isHorizontalBarChart =
+    (chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100') &&
+    config.barLayout === 'horizontal';
 
   // Y series: prefer ySeries, else seed from yField
   const ySeries = config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : []);
@@ -226,8 +229,20 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           if (option.id === config.xField) return false;
           return !analyzeCombination({ xField: option.id }).supported;
         }}
-        label={isScatter ? 'X field (numeric)' : 'X / Category field'}
-        helperText={isScatter ? 'Plotted on the horizontal axis' : 'Groups data along the horizontal axis'}
+        label={
+          isScatter
+            ? 'X field (numeric)'
+            : isHorizontalBarChart
+              ? 'Y / Category field'
+              : 'X / Category field'
+        }
+        helperText={
+          isScatter
+            ? 'Plotted on the horizontal axis'
+            : isHorizontalBarChart
+              ? 'Groups data along the vertical axis'
+              : 'Groups data along the horizontal axis'
+        }
       />
 
       {/* Group by — shown only when x field is a date/datetime type */}
@@ -258,7 +273,13 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       <div>
         <Stack direction="row" sx={{ alignItems: 'center', mb: 0.5 }}>
           <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
-            {supportsMultipleSeries ? 'Y / Measure fields' : 'Y / Measure field'}
+            {supportsMultipleSeries
+              ? isHorizontalBarChart
+                ? 'X / Measure fields'
+                : 'Y / Measure fields'
+              : isHorizontalBarChart
+                ? 'X / Measure field'
+                : 'Y / Measure field'}
           </Typography>
           {supportsMultipleSeries && (
             <Tooltip
@@ -298,8 +319,18 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                         .filter(Boolean),
                     }).supported)
                 }
-                label={ySeries.length > 1 ? `Series ${index + 1}` : 'Y / Measure field'}
-                helperText="Numeric field summed or averaged per category"
+                label={
+                  ySeries.length > 1
+                    ? `Series ${index + 1}`
+                    : isHorizontalBarChart
+                      ? 'X / Measure field'
+                      : 'Y / Measure field'
+                }
+                helperText={
+                  isHorizontalBarChart
+                    ? 'Numeric field plotted along the horizontal axis'
+                    : 'Numeric field summed or averaged per category'
+                }
               />
               {ySeries.length > 1 && (
                 <Tooltip title="Remove series">
@@ -323,8 +354,12 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               getOptionDisabled={(option) =>
                 !analyzeCombination({ yFields: [option.id] }).supported
               }
-              label="Y / Measure field"
-              helperText="Numeric field summed or averaged per category"
+              label={isHorizontalBarChart ? 'X / Measure field' : 'Y / Measure field'}
+              helperText={
+                isHorizontalBarChart
+                  ? 'Numeric field plotted along the horizontal axis'
+                  : 'Numeric field summed or averaged per category'
+              }
             />
           )}
         </Stack>

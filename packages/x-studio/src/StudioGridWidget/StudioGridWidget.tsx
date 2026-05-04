@@ -188,7 +188,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         pinnedRows={pinnedRows}
         hideFooter
         disableRowSelectionOnClick
-        getRowId={(row) => (row as Record<string, unknown>).__rowId ?? (row as Record<string, unknown>).id}
+        getRowId={(row) => ((row as Record<string, unknown>).__rowId ?? (row as Record<string, unknown>).id) as string}
         sx={{
           height: 400,
           '& .MuiDataGrid-cell': { cursor: 'pointer' },

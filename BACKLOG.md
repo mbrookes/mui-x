@@ -12,7 +12,7 @@ BL-05: ~~The widget card content shrinks when a widget is selected and has a blu
 
 BL-06: The filed select should show both data source name and field name for the selected field, eith a separator (. or : or |, whatever is best practice or data analytics tools).
 
-BL-07: Horizontal bar charts are displayed as veritcal (identical to non-horizonatal).
+BL-07: ~~Horizontal bar charts are displayed as veritcal (identical to non-horizonatal).~~ **Fixed** (horizontal layout now applies to single-series, split-series, and multi-measure bar charts; config panel axis labels also flip to match)
 
 BL-08: Move the undo-redo before upload-download, and add separators between them and the view-edit control.
 

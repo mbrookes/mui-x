@@ -1,5 +1,4 @@
-import * as React from 'react';
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import { ChartSetupPanel } from './ChartSetupPanel';
 
@@ -93,19 +92,15 @@ const { render } = createRenderer();
 
 describe('ChartSetupPanel', () => {
   it('disables unsupported cross-source X field options', async () => {
-    render(<ChartSetupPanel widgetId="widget-1" />);
+    const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
 
     const comboboxes = screen.getAllByRole('combobox');
     const splitByInput = comboboxes[2] as HTMLInputElement;
 
-    await React.act(async () => {
-      splitByInput.focus();
-      fireEvent.mouseDown(splitByInput);
-      fireEvent.keyDown(document.activeElement ?? splitByInput, { key: 'ArrowDown' });
-    });
+    await user.click(splitByInput);
 
-    const countryOption = screen.getByRole('option', { name: /Country$/ });
-    const statusOption = screen.getByRole('option', { name: /Status$/ });
+    const countryOption = await screen.findByRole('option', { name: /Country$/ });
+    const statusOption = await screen.findByRole('option', { name: /Status$/ });
 
     expect(countryOption.getAttribute('aria-disabled')).toBe('false');
     expect(statusOption.getAttribute('aria-disabled')).toBe('true');

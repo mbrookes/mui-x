@@ -251,7 +251,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const showSparkline = config.kpiSparkline ?? false;
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 232, minHeight: 93 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 93, overflow: 'hidden' }}>
       <Box
         sx={{
           display: 'flex',
@@ -259,6 +259,8 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           gap: 1,
           flexGrow: 1,
           justifyContent: 'flex-start',
+          minWidth: 0,
+          overflow: 'hidden',
         }}
       >
         <Tooltip title={filterSubtitle || ''} disableHoverListener={!filterSubtitle} placement="top">

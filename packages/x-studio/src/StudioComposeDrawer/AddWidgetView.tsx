@@ -4,7 +4,7 @@ import { Alert, Box, Button, Divider, IconButton, Paper, Stack, Typography } fro
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
 import { CanvasScrollContext, useStudioController, useStudioSelector } from '../context';
-import { createDefaultWidget, WIDGET_TYPES, widgetKindRequiresDataSource } from '../internals/widgetUtils';
+import { createDefaultWidget, WIDGET_TYPES, widgetKindRequiresDataSource, getWidgetSubtypeIcon } from '../internals/widgetUtils';
 import type { StudioWidget, StudioWidgetKind } from '../models';
 import { KIND_LABEL } from './StudioComposeDrawer';
 
@@ -137,6 +137,9 @@ function WidgetInstanceItem({ widget, isSelected, onSelect }: WidgetInstanceItem
         '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
       }}
     >
+      <Box sx={{ color: 'primary.main', display: 'flex', flexShrink: 0 }}>
+        {getWidgetSubtypeIcon(widget)}
+      </Box>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
         <Typography variant="body2" noWrap>
           {widget.title || KIND_LABEL[widget.kind]}

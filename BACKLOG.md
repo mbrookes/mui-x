@@ -48,6 +48,6 @@ BL-19: Add a "full-screen" icon to charts controls that displays them in a near 
 
 ~~BL-23: Remove the table icon from the data sources panel list.~~ **Fixed** (removed `TableChartIcon` from the data source list item in `StudioDataDrawer`)
 
-BL-24: In the widgets "On this page" section, give each page widget an icon acording to its sub-type (where applicable), for example chart tyle.
+~~BL-24: In the widgets "On this page" section, give each page widget an icon acording to its sub-type (where applicable), for example chart tyle.~~ **Fixed** (added `getWidgetSubtypeIcon` helper to `widgetUtils`; renders a 16px chart-type/filter-type icon next to each widget in the instance list)
 
-BL-25: Don't allow selection/highlight of widgets in 
+BL-25: Widget filters make no sense for the filter widget.

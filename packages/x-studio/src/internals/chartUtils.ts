@@ -1367,15 +1367,39 @@ export function aggregateByField(
   xField: string,
   yField: string,
   xGroupBy?: XGroupBy,
+  yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
 ): AggregatedData {
   const grouped = new Map<string | number, number>();
+  const counts = new Map<string | number, number>();
 
   for (const row of rows) {
     const raw = toXValue(row[xField]);
     const xVal = applyXGroupBy(raw, xGroupBy);
-    const yVal = Number(row[yField] ?? 0);
+    const count = (counts.get(xVal) ?? 0) + 1;
+    counts.set(xVal, count);
 
-    grouped.set(xVal, (grouped.get(xVal) ?? 0) + yVal);
+    if (yAggregation === 'count') {
+      grouped.set(xVal, count);
+    } else {
+      const yVal = Number(row[yField] ?? 0);
+      const prev = grouped.get(xVal) ?? 0;
+      if (yAggregation === 'sum') {
+        grouped.set(xVal, prev + yVal);
+      } else if (yAggregation === 'avg') {
+        // Store running sum; divide by count at the end
+        grouped.set(xVal, prev + yVal);
+      } else if (yAggregation === 'min') {
+        grouped.set(xVal, count === 1 ? yVal : Math.min(prev, yVal));
+      } else if (yAggregation === 'max') {
+        grouped.set(xVal, count === 1 ? yVal : Math.max(prev, yVal));
+      }
+    }
+  }
+
+  if (yAggregation === 'avg') {
+    for (const [key, sum] of grouped) {
+      grouped.set(key, sum / (counts.get(key) ?? 1));
+    }
   }
 
   const labels = sortLabels(Array.from(grouped.keys()));

@@ -237,9 +237,9 @@ export function useChartWidgetData(
     if (isMultiSeries) {
       return null; // handled by multiYData
     }
-    const raw = aggregateByField(enrichedRows, xField, activeYFields[0], xGroupBy);
+    const raw = aggregateByField(enrichedRows, xField, activeYFields[0], xGroupBy, config.yAggregation);
     return applyRankToAggregated(raw, widgetRankFilter);
-  }, [enrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter, xGroupBy]);
+  }, [enrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter, xGroupBy, config.yAggregation]);
 
   // Multi-Y-field data (multiple explicit series)
   const multiYData = React.useMemo(() => {
@@ -261,9 +261,9 @@ export function useChartWidgetData(
     if (!xField || activeYFields.length === 0 || isMultiSeries || allEnrichedRows.length === 0) {
       return null;
     }
-    const raw = aggregateByField(allEnrichedRows, xField, activeYFields[0], xGroupBy);
+    const raw = aggregateByField(allEnrichedRows, xField, activeYFields[0], xGroupBy, config.yAggregation);
     return applyRankToAggregated(raw, widgetRankFilter);
-  }, [hasCrossFilters, allEnrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter, xGroupBy]);
+  }, [hasCrossFilters, allEnrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter, xGroupBy, config.yAggregation]);
 
   const allSeriesFieldData = React.useMemo(() => {
     if (!hasCrossFilters) {

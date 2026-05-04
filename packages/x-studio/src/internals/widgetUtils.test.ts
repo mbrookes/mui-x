@@ -176,9 +176,9 @@ describe('inferWidgetTitles — KPI', () => {
     expect(title).toBe('Orders KPI');
   });
 
-  it('uses source label as subtitle', () => {
+  it('does not auto-generate a subtitle', () => {
     const { subtitle } = inferWidgetTitles(kpi({ kpiValueField: 'revenue', kpiAggregation: 'sum' }), SOURCES);
-    expect(subtitle).toBe('Orders');
+    expect(subtitle).toBe('');
   });
 });
 

@@ -13,8 +13,6 @@ Refer to local docs for MUI X libraries under docs/public/x/:
  - x/react-scheduler/llms.txt + 516 API files
  - x/react-chat/llms.txt + 730 API files
 
-If locals docs are missing, run pnpm docs:llms:build
-
 ## Linting and formatting
 
 ### Linting

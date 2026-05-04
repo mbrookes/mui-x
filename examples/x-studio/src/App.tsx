@@ -8,6 +8,7 @@ import { INITIAL_STATE } from './config/salesDashboard';
 import { AppToolbar } from './components/AppToolbar';
 import { downloadJson, uploadJson } from './utils/fileUtils';
 import { theme } from './theme';
+import { generateSalesData } from './salesData/generator';
 
 function slugifyPageTitle(title: string) {
   return title
@@ -45,6 +46,17 @@ function getUrlPageParam() {
   return new URL(window.location.href).searchParams.get('page') ?? undefined;
 }
 
+/** Read ?rows=N to enable the data generator (e.g. ?rows=10000 for 10k orders). */
+function getUrlRowsParam(): number | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  const raw = new URL(window.location.href).searchParams.get('rows');
+  if (!raw) return undefined;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 function setUrlPageId(
   pageId: string,
   pages: Record<string, StudioPage> | undefined,
@@ -63,14 +75,45 @@ export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);
   const initialState = React.useMemo<Partial<StudioState>>(() => {
     const urlPageId = resolvePageIdFromQuery(getUrlPageParam(), INITIAL_STATE.pages);
+    const rowCount = getUrlRowsParam();
+
+    let base = INITIAL_STATE;
+
+    if (rowCount !== undefined) {
+      const {
+        customersSource,
+        productsSource,
+        ordersSource,
+        orderItemsSource,
+        shipmentsSource,
+        shipmentItemsSource,
+      } = generateSalesData({ seed: 42, orderCount: rowCount });
+      // eslint-disable-next-line no-console
+      console.info(
+        `[x-studio] Generated data: ${rowCount} orders, ${ordersSource.rows?.length} order rows`,
+      );
+      base = {
+        ...INITIAL_STATE,
+        dataSources: {
+          ...INITIAL_STATE.dataSources,
+          [customersSource.id]: customersSource,
+          [productsSource.id]: productsSource,
+          [ordersSource.id]: ordersSource,
+          [orderItemsSource.id]: orderItemsSource,
+          [shipmentsSource.id]: shipmentsSource,
+          [shipmentItemsSource.id]: shipmentItemsSource,
+        },
+      };
+    }
+
     if (!urlPageId) {
-      return INITIAL_STATE;
+      return base;
     }
 
     return {
-      ...INITIAL_STATE,
+      ...base,
       dashboard: {
-        ...INITIAL_STATE.dashboard,
+        ...base.dashboard,
         activePageId: urlPageId,
       },
     };

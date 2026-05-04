@@ -26,7 +26,7 @@ export function KpiSparkline(props: KpiSparklineProps) {
 
   if (hasEnoughData) {
     return (
-      <Box sx={{ flexGrow: 1, minWidth: 80, alignSelf: 'stretch', minHeight: 48 }}>
+      <Box sx={{ flexGrow: 1, minWidth: 0, alignSelf: 'stretch', minHeight: 48, overflow: 'hidden' }}>
         <SparkLineChart
           data={data}
           plotType={plotType}

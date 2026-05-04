@@ -1,6 +1,32 @@
 import type { StudioDataSource } from '@mui/x-studio';
+import { roundCurrency } from './categoryRevenueMultipliers';
+import { orderItemsSource } from './orderItems';
 
 export const ORDERS_SOURCE_ID = 'source-orders';
+
+function deriveOrderTotals(rows: StudioDataSource['rows']): StudioDataSource['rows'] {
+  const totalsByOrderId = new Map<string, number>();
+
+  for (const item of orderItemsSource.rows) {
+    const orderId = String(item.orderId);
+    totalsByOrderId.set(
+      orderId,
+      roundCurrency((totalsByOrderId.get(orderId) ?? 0) + Number(item.total ?? 0)),
+    );
+  }
+
+  return rows.map((row) => {
+    const total = totalsByOrderId.get(String(row.id));
+    if (total == null) {
+      return row;
+    }
+
+    return {
+      ...row,
+      total,
+    };
+  });
+}
 
 const ordersSourceRaw: StudioDataSource = {
   id: ORDERS_SOURCE_ID,
@@ -1781,5 +1807,8 @@ const ordersSourceRaw: StudioDataSource = {
   ],
 };
 
-export const ordersSource: StudioDataSource = ordersSourceRaw;
+export const ordersSource: StudioDataSource = {
+  ...ordersSourceRaw,
+  rows: deriveOrderTotals(ordersSourceRaw.rows),
+};
 

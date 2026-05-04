@@ -115,14 +115,43 @@ describe('ChartSetupPanel', () => {
 
     render(<ChartSetupPanel widgetId="widget-1" />);
 
-  expect(screen.getAllByText('Y / Category field').length).toBeGreaterThan(0);
-  expect(screen.getAllByText('X / Measure field').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Y / Category field').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('X / Measure field').length).toBeGreaterThan(0);
     expect(screen.getByText('Groups data along the vertical axis')).toBeVisible();
     expect(screen.getByText('Numeric field plotted along the horizontal axis')).toBeVisible();
 
     mockState.widgets['widget-1'].config = {
       ...mockState.widgets['widget-1'].config,
       barLayout: undefined,
+    };
+  });
+
+  it('removes stale source filtering when xField is cleared', async () => {
+    mockState.widgets['widget-1'].config = {
+      ...mockState.widgets['widget-1'].config,
+      xField: undefined,
+      yField: 'total',
+      ySeries: [{ fieldId: 'total' }],
+      seriesField: undefined,
+    };
+
+    const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+    const comboboxes = screen.getAllByRole('combobox');
+    const splitByInput = comboboxes[2] as HTMLInputElement;
+
+    await user.click(splitByInput);
+
+    const countryOption = await screen.findByRole('option', { name: /Country$/ });
+    const statusOption = await screen.findByRole('option', { name: /Status$/ });
+
+    expect(countryOption.getAttribute('aria-disabled')).toBe('false');
+    expect(statusOption.getAttribute('aria-disabled')).toBe('false');
+
+    mockState.widgets['widget-1'].config = {
+      ...mockState.widgets['widget-1'].config,
+      xField: 'id',
+      ySeries: undefined,
     };
   });
 });

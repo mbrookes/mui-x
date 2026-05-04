@@ -75,12 +75,9 @@ function DateRangeControl({
   const isActive = !!(currentValue?.from || currentValue?.to);
 
   return (
-    <Stack spacing={1}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
-          {label}
-        </Typography>
-        {isActive && (
+    <Stack spacing={1} role="group" aria-label={label}>
+      {isActive && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Tooltip title="Clear filter">
             <Box
               component="span"
@@ -94,8 +91,8 @@ function DateRangeControl({
               <CloseIcon sx={{ fontSize: 14 }} />
             </Box>
           </Tooltip>
-        )}
-      </Box>
+        </Box>
+      )}
       <Stack direction="row" spacing={1}>
         <DatePicker
           label="From"
@@ -146,12 +143,9 @@ function MultiSelectControl({
   };
 
   return (
-    <Stack spacing={0.5}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
-          {label}
-        </Typography>
-        {isActive && (
+    <Stack spacing={0.5} role="group" aria-label={label}>
+      {isActive && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Tooltip title="Clear filter">
             <Box
               component="span"
@@ -165,8 +159,8 @@ function MultiSelectControl({
               <CloseIcon sx={{ fontSize: 14 }} />
             </Box>
           </Tooltip>
-        )}
-      </Box>
+        </Box>
+      )}
       <Select
         multiple
         size="small"
@@ -257,12 +251,9 @@ function ToggleControl({
   };
 
   return (
-    <Stack spacing={1}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
-          {label}
-        </Typography>
-        {isActive && (
+    <Stack spacing={1} role="group" aria-label={label}>
+      {isActive && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Tooltip title="Clear filter">
             <Box
               component="span"
@@ -276,8 +267,8 @@ function ToggleControl({
               <CloseIcon sx={{ fontSize: 14 }} />
             </Box>
           </Tooltip>
-        )}
-      </Box>
+        </Box>
+      )}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
         {values.map((v) => (
           <Chip
@@ -343,12 +334,9 @@ function SliderControl({
     isDate ? dayjs(v).format('D MMM YYYY') : v.toLocaleString();
 
   return (
-    <Stack spacing={0.5}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
-          {label}
-        </Typography>
-        {isActive && (
+    <Stack spacing={0.5} role="group" aria-label={label}>
+      {isActive && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Tooltip title="Clear filter">
             <Box
               component="span"
@@ -362,8 +350,8 @@ function SliderControl({
               <CloseIcon sx={{ fontSize: 14 }} />
             </Box>
           </Tooltip>
-        )}
-      </Box>
+        </Box>
+      )}
       {/* Stop pointer events from bubbling to the widget card's drag handler */}
       <Box sx={{ px: 1 }} onPointerDown={(e) => e.stopPropagation()}>
         <Slider

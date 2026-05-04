@@ -42,9 +42,9 @@ BL-19: Add a "full-screen" icon to charts controls that displays them in a near 
 
 ~~BL-21: customer aquisition over time chart is blank~~ **Fixed** (added `yAggregation` config option; set to `'count'` for the acquisition chart so string fields are counted per x-bucket rather than summed as NaN)
 
-BL-21: Products page still isn't using the theme default, but mango fusion instead.
+~~BL-21: Products page still isn't using the theme default, but mango fusion instead.~~ **Fixed** (removed hardcoded `mangoFusion` palette from the Products page config so it inherits the dashboard default)
 
-BL-22: Remove chart colors selection from page settings, and every related. The App theme sets the colors.
+BL-22: Remove chart colors selection controls from page settings, and all related logic and data. The App theme sets the colors.
 
 BL-23: Remove the table icon from the data sources panel list.
 

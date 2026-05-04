@@ -1,6 +1,28 @@
 import type { StudioDataSource } from '@mui/x-studio';
+import { CATEGORY_REVENUE_MULTIPLIERS, roundCurrency } from './categoryRevenueMultipliers';
 
 export const ORDER_ITEMS_SOURCE_ID = 'source-order-items';
+
+function boostCategoryRevenue(
+  rows: StudioDataSource['rows'],
+): StudioDataSource['rows'] {
+  return rows.map((row) => {
+    const multiplier = CATEGORY_REVENUE_MULTIPLIERS[String(row.category)] ?? 1;
+    if (multiplier === 1) {
+      return row;
+    }
+
+    const unitPrice = roundCurrency(Number(row.unitPrice ?? 0) * multiplier);
+    const quantity = Number(row.quantity ?? 0);
+    const discount = Number(row.discount ?? 0);
+
+    return {
+      ...row,
+      unitPrice,
+      total: roundCurrency(quantity * unitPrice * (1 - discount / 100)),
+    };
+  });
+}
 
 export const orderItemsSource: StudioDataSource = {
   id: ORDER_ITEMS_SOURCE_ID,
@@ -16,7 +38,7 @@ export const orderItemsSource: StudioDataSource = {
     { id: 'discount', label: 'Discount %', type: 'number', format: 'percent' },
     { id: 'total', label: 'Total', type: 'number', format: 'currency' },
   ],
-  rows: [
+  rows: boostCategoryRevenue([
     {
       id: 'ORD-0001-1',
       orderId: 'ORD-0001',
@@ -6781,6 +6803,6 @@ export const orderItemsSource: StudioDataSource = {
       discount: 12,
       total: 2114.64,
     },
-  ],
+  ]),
 };
 

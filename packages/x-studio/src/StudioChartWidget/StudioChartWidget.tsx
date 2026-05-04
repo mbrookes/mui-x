@@ -169,6 +169,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   // Normalise legacy type alias
   const normalizedChartType = chartType === 'bar-grouped' ? 'bar' : chartType;
   const barLayout = config.barLayout ?? 'grouped';
+  const isHorizontalBarLayout = barLayout === 'horizontal';
   const selectedFilterValue =
     activeCrossFilter && activeCrossFilter.field === config.xField
       ? normalizeCrossFilterValue(activeCrossFilter.value as string | number | Date)
@@ -345,7 +346,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       const is100 = normalizedChartType === 'bar-100';
       // For grouped multi-Y, give each series its own independent Y axis so
       // fields with very different magnitudes are all visible. Stacked charts share one axis.
-      const useIndependentAxes = !isStacked && barMultiYData.series.length > 1;
+      const useIndependentAxes = !isHorizontalBarLayout && !isStacked && barMultiYData.series.length > 1;
       // Pre-compute per-label totals for 100% normalization.
       const totals100 = is100
         ? barMultiYData.labels.map((_, li) =>
@@ -392,8 +393,26 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       return (
         <div style={{ height: chartHeight }}>
           <BarChart
-            xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto' }]}
-            yAxis={yAxes}
+            layout={isHorizontalBarLayout ? 'horizontal' : undefined}
+            xAxis={
+              isHorizontalBarLayout
+                ? [
+                    {
+                      width: 'auto',
+                      ...(is100 && {
+                        min: 0,
+                        max: 100,
+                        valueFormatter: (v: number) => `${Math.round(v)}%`,
+                      }),
+                    },
+                  ]
+                : [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto' }]
+            }
+            yAxis={
+              isHorizontalBarLayout
+                ? [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', width: 'auto' }]
+                : yAxes
+            }
             series={series}
             colors={chartColors}
             margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
@@ -542,17 +561,35 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     return (
       <div style={{ height: chartHeight }}>
         <BarChart
-          xAxis={[{ data: xAxisData, scaleType: 'band', height: 'auto' }]}
-          yAxis={[
-            {
-              width: 'auto',
-              ...(is100 && {
-                min: 0,
-                max: 100,
-                valueFormatter: (v: number) => `${Math.round(v)}%`,
-              }),
-            },
-          ]}
+          layout={isHorizontalBarLayout ? 'horizontal' : undefined}
+          xAxis={
+            isHorizontalBarLayout
+              ? [
+                  {
+                    width: 'auto',
+                    ...(is100 && {
+                      min: 0,
+                      max: 100,
+                      valueFormatter: (v: number) => `${Math.round(v)}%`,
+                    }),
+                  },
+                ]
+              : [{ data: xAxisData, scaleType: 'band', height: 'auto' }]
+          }
+          yAxis={
+            isHorizontalBarLayout
+              ? [{ data: xAxisData, scaleType: 'band', width: 'auto' }]
+              : [
+                  {
+                    width: 'auto',
+                    ...(is100 && {
+                      min: 0,
+                      max: 100,
+                      valueFormatter: (v: number) => `${Math.round(v)}%`,
+                    }),
+                  },
+                ]
+          }
           series={series}
           colors={chartColors}
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
@@ -826,7 +863,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   }
 
   // Default: bar chart (vertical or horizontal)
-  const isHorizontal = barLayout === 'horizontal';
+  const isHorizontal = isHorizontalBarLayout;
 
   if (isHorizontal) {
     return (

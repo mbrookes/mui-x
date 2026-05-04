@@ -232,6 +232,54 @@ describe('<StudioChartWidget />', () => {
     ]);
   });
 
+  it('renders multi-y horizontal bars with horizontal layout and a banded y-axis', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'bucket', label: 'Bucket', type: 'number' },
+        { id: 'revenue', label: 'Revenue', type: 'number' },
+        { id: 'profit', label: 'Profit', type: 'number' },
+      ],
+      rows: [
+        { id: '1', bucket: 1, revenue: 30, profit: 10 },
+        { id: '2', bucket: 2, revenue: 20, profit: 5 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-horizontal-multi-y',
+      kind: 'chart',
+      title: 'Revenue Mix',
+      sourceId: 'orders',
+      config: {
+        chartType: 'bar',
+        barLayout: 'horizontal',
+        xField: 'bucket',
+        yField: 'revenue',
+        ySeries: [{ fieldId: 'revenue' }, { fieldId: 'profit' }],
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+      layout?: 'horizontal' | 'vertical';
+      xAxis: Array<{ scaleType?: string }>;
+      yAxis: Array<{ scaleType?: string; data?: Array<string | number> }>;
+    };
+
+    expect(props.layout).toBe('horizontal');
+    expect(props.xAxis[0].scaleType).toBeUndefined();
+    expect(props.yAxis[0].scaleType).toBe('band');
+    expect(props.yAxis[0].data).toEqual(['1', '2']);
+  });
+
   it('normalizes split-by bar-100 series and configures a percent axis', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',
@@ -287,6 +335,56 @@ describe('<StudioChartWidget />', () => {
       { label: 'A', stack: 'stack', data: [75, 80], formatted: '75.0%' },
       { label: 'B', stack: 'stack', data: [25, 20], formatted: '25.0%' },
     ]);
+  });
+
+  it('renders split horizontal bars with horizontal layout and a banded y-axis', () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'bucket', label: 'Bucket', type: 'number' },
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: '1', bucket: 1, category: 'A', total: 30 },
+        { id: '2', bucket: 1, category: 'B', total: 10 },
+        { id: '3', bucket: 2, category: 'A', total: 20 },
+        { id: '4', bucket: 2, category: 'B', total: 5 },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-horizontal-split',
+      kind: 'chart',
+      title: 'Revenue by Category',
+      sourceId: 'orders',
+      config: {
+        chartType: 'bar-stacked',
+        barLayout: 'horizontal',
+        xField: 'bucket',
+        yField: 'total',
+        seriesField: 'category',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+      layout?: 'horizontal' | 'vertical';
+      xAxis: Array<{ scaleType?: string }>;
+      yAxis: Array<{ scaleType?: string; data?: Array<string | number> }>;
+    };
+
+    expect(props.layout).toBe('horizontal');
+    expect(props.xAxis[0].scaleType).toBeUndefined();
+    expect(props.yAxis[0].scaleType).toBe('band');
+    expect(props.yAxis[0].data).toEqual(['1', '2']);
   });
 
   it('highlights the selected x-value when a multi-y bar chart has an active cross-filter', () => {

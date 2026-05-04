@@ -18,25 +18,21 @@ const PALETTE_MAP = {
 } as const;
 
 /**
- * Returns the resolved chart colour palette for the active page.
+ * Returns the resolved chart colour palette for the dashboard.
  * Returns `undefined` when no custom palette is configured (charts use their default).
  */
 export function usePageChartColors(): string[] | undefined {
-  const pageTheme = useStudioSelector(
-    (state) => state.pages[state.dashboard.activePageId]?.theme,
-  );
-  const defaultTheme = useStudioSelector((state) => state.dashboard.defaultTheme);
+  const chartPalette = useStudioSelector((state) => state.dashboard.chartPalette);
+  const chartCustomColors = useStudioSelector((state) => state.dashboard.chartCustomColors);
   const muiTheme = useTheme();
 
   return React.useMemo((): string[] | undefined => {
-    // Page-level palette takes precedence; fall back to dashboard-level default.
-    const palette = pageTheme?.chartPalette ?? defaultTheme?.chartPalette;
-    if (!palette) {
+    if (!chartPalette) {
       return undefined;
     }
-    if (palette === 'custom') {
-      return pageTheme?.chartCustomColors?.length ? pageTheme.chartCustomColors : undefined;
+    if (chartPalette === 'custom') {
+      return chartCustomColors?.length ? chartCustomColors : undefined;
     }
-    return PALETTE_MAP[palette]?.(muiTheme.palette.mode);
-  }, [pageTheme, defaultTheme, muiTheme.palette.mode]);
+    return PALETTE_MAP[chartPalette]?.(muiTheme.palette.mode);
+  }, [chartPalette, chartCustomColors, muiTheme.palette.mode]);
 }

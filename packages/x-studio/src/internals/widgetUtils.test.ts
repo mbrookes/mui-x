@@ -227,14 +227,14 @@ describe('inferWidgetTitles — filter', () => {
     });
     const { title, subtitle } = inferWidgetTitles(widget, SOURCES);
     expect(title).toBe('Filter: Category');
-    expect(subtitle).toBe('Orders');
+    expect(subtitle).toBe('');
   });
 
   it('uses "Filter" as title when no field is configured', () => {
     const widget = makeWidget({ kind: 'filter', config: {} });
     const { title, subtitle } = inferWidgetTitles(widget, SOURCES);
     expect(title).toBe('Filter');
-    expect(subtitle).toBe('Orders');
+    expect(subtitle).toBe('');
   });
 });
 

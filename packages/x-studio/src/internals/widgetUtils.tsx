@@ -220,7 +220,7 @@ export function inferWidgetTitles(
     case 'filter': {
       const fieldLabel = findFieldLabel(config.filterWidgetField, config.filterWidgetSourceId);
       const title = fieldLabel ? `Filter: ${fieldLabel}` : 'Filter';
-      return { title, subtitle: source?.label ?? '' };
+      return { title, subtitle: '' };
     }
 
     case 'text':

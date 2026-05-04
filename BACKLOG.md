@@ -38,3 +38,6 @@ BL-16: the delete button for fields doesn't line up vertically with the textfiel
 
 BL-19: Add a "full-screen" icon to charts controls that displays them in a near page-width overlay.
 
+BL-20: Dragging the slider filter thumb tries to drag the panel as if repositioning
+
+BL-21: customer aquisition over time chart is blank

@@ -22,6 +22,10 @@ import { useStudioController, useStudioSelector } from '../context';
 import type { StudioDataSource, StudioExpressionField } from '../models';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
+import {
+  enrichRowsWithExpressions,
+  evaluateMeasure,
+} from '../utils/expressionEvaluator';
 
 // ─── Field preview tooltip ────────────────────────────────────────────────────
 
@@ -81,41 +85,62 @@ interface ExpressionFieldRowProps {
   isEditMode: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  /** Enriched rows (with calculated columns) for the field preview tooltip. */
+  enrichedRows?: Record<string, unknown>[];
+  /** Single aggregate value for measure fields. */
+  measureValue?: unknown;
 }
 
-function ExpressionFieldRow({ field, isEditMode, onEdit, onDelete }: ExpressionFieldRowProps) {
+function ExpressionFieldRow({
+  field,
+  isEditMode,
+  onEdit,
+  onDelete,
+  enrichedRows,
+  measureValue,
+}: ExpressionFieldRowProps) {
   const type = field.type ?? (field.isMeasure ? 'number' : 'string');
+
+  // For measure fields show the aggregate value; for columns use the enriched rows
+  const previewRows: Record<string, unknown>[] | undefined = field.isMeasure
+    ? measureValue !== undefined
+      ? [{ [field.id]: measureValue }]
+      : undefined
+    : enrichedRows;
+
   return (
-    <ListItemButton
-      sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
-      disableRipple={!isEditMode}
-      onClick={isEditMode ? onEdit : undefined}
-    >
-      <ListItemText
-        primary={
-          <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-            <FieldTypeIcon type={type} generated size={15} />
-            <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
-              {field.label}
-            </Typography>
+    <FieldPreviewTooltip field={field} rows={previewRows}>
+      <ListItemButton
+        sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
+        disableRipple={!isEditMode}
+        onClick={isEditMode ? onEdit : undefined}
+      >
+        <ListItemText
+          primary={
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+              <FieldTypeIcon type={type} generated size={15} />
+              <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
+                {field.label}
+              </Typography>
+            </Stack>
+          }
+        />
+        {isEditMode && (
+          <Stack direction="row" spacing={0}>
+            <Tooltip title="Edit">
+              <IconButton size="small" onClick={(event) => { event.stopPropagation(); onEdit(); }}>
+                <EditIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Delete">
+              <IconButton size="small" onClick={(event) => { event.stopPropagation(); onDelete(); }}>
+                <DeleteIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
           </Stack>
-        }
-      />
-      {isEditMode && (
-        <Stack direction="row" spacing={0}>
-          <Tooltip title="Edit">
-            <IconButton size="small" onClick={(event) => { event.stopPropagation(); onEdit(); }}>
-              <EditIcon sx={{ fontSize: 14 }} />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete">
-            <IconButton size="small" onClick={(event) => { event.stopPropagation(); onDelete(); }}>
-              <DeleteIcon sx={{ fontSize: 14 }} />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-      )}
-    </ListItemButton>
+        )}
+      </ListItemButton>
+    </FieldPreviewTooltip>
   );
 }
 
@@ -135,6 +160,14 @@ function DataSourceSection(props: {
   const selectedSourceId = useStudioSelector((state) => state.shell.selectedSourceId);
 
   const sourceExprFields = expressionFields.filter((ef) => ef.sourceId === source.id && !ef.hidden);
+
+  // Enrich source rows with calculated column values for preview tooltips
+  const enrichedRows = React.useMemo(() => {
+    if (!source.rows || source.rows.length === 0) {
+      return source.rows;
+    }
+    return enrichRowsWithExpressions(source.rows, expressionFields, source.id);
+  }, [source.rows, source.id, expressionFields]);
 
   const handleAddExpressionField = () => {
     setEditingField(undefined);
@@ -209,6 +242,12 @@ function DataSourceSection(props: {
               isEditMode={isEditMode}
               onEdit={() => handleEditExpressionField(ef)}
               onDelete={() => handleDeleteExpressionField(ef.id)}
+              enrichedRows={enrichedRows}
+              measureValue={
+                ef.isMeasure && source.rows && source.rows.length > 0
+                  ? evaluateMeasure(ef, source.rows, expressionFields)
+                  : undefined
+              }
             />
           ))}
 

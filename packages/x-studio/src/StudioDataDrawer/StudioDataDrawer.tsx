@@ -23,6 +23,57 @@ import type { StudioDataSource, StudioExpressionField } from '../models';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
+// ─── Field preview tooltip ────────────────────────────────────────────────────
+
+const PREVIEW_ROWS = 5;
+
+function FieldPreviewTooltip({
+  field,
+  rows,
+  children,
+}: {
+  field: { id: string; label: string };
+  rows?: Record<string, unknown>[];
+  children: React.ReactElement;
+}) {
+  if (!rows || rows.length === 0) {
+    return children;
+  }
+
+  const values = rows
+    .slice(0, PREVIEW_ROWS)
+    .map((row) => {
+      const v = row[field.id];
+      if (v === null || v === undefined) return '—';
+      return String(v);
+    });
+
+  const title = (
+    <Stack spacing={0.25}>
+      <Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.8 }}>
+        {field.label}
+      </Typography>
+      {values.map((v, i) => (
+        // eslint-disable-next-line react/no-array-index-key
+        <Typography key={i} variant="caption" sx={{ fontFamily: 'monospace', opacity: 0.9 }}>
+          {v}
+        </Typography>
+      ))}
+      {rows.length > PREVIEW_ROWS && (
+        <Typography variant="caption" sx={{ opacity: 0.5 }}>
+          +{rows.length - PREVIEW_ROWS} more
+        </Typography>
+      )}
+    </Stack>
+  );
+
+  return (
+    <Tooltip title={title} placement="right" arrow>
+      {children}
+    </Tooltip>
+  );
+}
+
 // ─── Expression field row ─────────────────────────────────────────────────────
 
 interface ExpressionFieldRowProps {
@@ -129,23 +180,24 @@ function DataSourceSection(props: {
             .map((field) => {
               const isSelected = selectedSourceId === source.id && selectedFieldId === field.id;
               return (
-                <ListItemButton
-                  key={field.id}
-                  selected={isSelected}
-                  onClick={() => controller.selectField(source.id, field.id)}
-                  sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
-                >
-                  <ListItemText
-                    primary={
-                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                        <FieldTypeIcon type={field.type} generated={field.generated} size={15} />
-                        <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
-                          {field.label}
-                        </Typography>
-                      </Stack>
-                    }
-                  />
-                </ListItemButton>
+                <FieldPreviewTooltip key={field.id} field={field} rows={source.rows}>
+                  <ListItemButton
+                    selected={isSelected}
+                    onClick={() => controller.selectField(source.id, field.id)}
+                    sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
+                  >
+                    <ListItemText
+                      primary={
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                          <FieldTypeIcon type={field.type} generated={field.generated} size={15} />
+                          <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
+                            {field.label}
+                          </Typography>
+                        </Stack>
+                      }
+                    />
+                  </ListItemButton>
+                </FieldPreviewTooltip>
               );
             })}
 

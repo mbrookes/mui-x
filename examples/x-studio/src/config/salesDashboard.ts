@@ -60,7 +60,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'page-4': {
       id: 'page-4',
       title: 'Customers',
-      theme: { chartPalette: 'mangoFusion' },
       widgetRows: [
         ['widget-kpi4-ltv', 'widget-kpi4-customers', 'widget-kpi4-avg-order', 'widget-kpi4-enterprise'],
         ['widget-filter4-segment', 'widget-filter4-signup-date'],

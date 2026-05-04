@@ -6,7 +6,7 @@ export type StudioDrawer = 'data' | 'compose' | 'filters';
 
 export type StudioWidgetKind = 'grid' | 'chart' | 'kpi' | 'text' | 'filter';
 
-export type StudioFilterWidgetType = 'date-range' | 'multi-select' | 'toggle' | 'slider' | 'search';
+export type StudioFilterWidgetType = 'date-range' | 'multi-select' | 'toggle' | 'slider';
 
 export type StudioChartType =
   | 'bar'

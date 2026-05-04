@@ -103,6 +103,12 @@ function toComparable(
   }
   // Explicit type hint takes precedence
   if (fieldType === 'date' || fieldType === 'datetime') {
+    // Normalize Date objects, ms timestamps, and any string format to YYYY-MM-DD
+    // so comparisons are correct regardless of how the data source stores dates.
+    const d = normalizeToDate(val);
+    if (d) {
+      return fieldType === 'datetime' ? d.toISOString() : d.toISOString().slice(0, 10);
+    }
     return String(val ?? '');
   }
   if (fieldType === 'number') {

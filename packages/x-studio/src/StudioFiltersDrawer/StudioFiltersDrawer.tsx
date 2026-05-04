@@ -138,7 +138,7 @@ export function StudioFiltersDrawer() {
 
       <Divider />
 
-      {selectedWidgetId ? (
+      {selectedWidgetId && selectedWidget?.kind !== 'filter' ? (
         <React.Fragment>
           <WidgetFilterSection
             title={`Widget: ${selectedWidget?.title ?? selectedWidgetId}`}

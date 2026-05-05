@@ -6,7 +6,7 @@ import type { StudioDataSource, StudioWidget, StudioFilterState, StudioExpressio
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { resolveRows, resolveMetricRefs } from '../internals/chartUtils';
 import { usePageChartColors } from '../internals/usePageChartColors';
-import { useStudioSelector } from '../context';
+import { useStudioSelector, selectFilters, selectDataSources, selectRelationships, selectExpressionFields } from '../context';
 import { formatNumber } from '../internals/numberFormat';
 import { evaluateMeasure } from '../utils/expressionEvaluator';
 import {
@@ -44,10 +44,10 @@ function getFieldLabel(
 export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: StudioKpiWidgetProps) {
   const { dataSource, widget } = props;
   const { config } = widget;
-  const filters = useStudioSelector((state) => state.filters);
-  const dataSources = useStudioSelector((state) => state.dataSources);
-  const relationships = useStudioSelector((state) => state.relationships);
-  const expressionFields = useStudioSelector((state) => state.expressionFields);
+  const filters = useStudioSelector(selectFilters);
+  const dataSources = useStudioSelector(selectDataSources);
+  const relationships = useStudioSelector(selectRelationships);
+  const expressionFields = useStudioSelector(selectExpressionFields);
   const chartColors = usePageChartColors();
 
   const { displayValue, hasData, sparklineData, sparklineTimeField, trendResult, trendNeedsDateFilter } =

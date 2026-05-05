@@ -19,7 +19,7 @@ import {
   applyRankToMultiSeries,
   applyRankToSeriesFieldData,
 } from '../internals/chartUtils';
-import { useStudioSelector } from '../context';
+import { useStudioSelector, selectFilters, selectDataSources, selectRelationships, selectExpressionFields, selectActivePageId } from '../context';
 import { usePageChartColors } from '../internals/usePageChartColors';
 
 export function useChartWidgetData(
@@ -29,11 +29,11 @@ export function useChartWidgetData(
   const { config } = widget;
   const xGroupBy = config.xGroupBy;
 
-  const filters = useStudioSelector((state) => state.filters);
-  const dataSources = useStudioSelector((state) => state.dataSources);
-  const relationships = useStudioSelector((state) => state.relationships);
-  const expressionFields = useStudioSelector((state) => state.expressionFields);
-  const activePageId = useStudioSelector((state) => state.dashboard.activePageId);
+  const filters = useStudioSelector(selectFilters);
+  const dataSources = useStudioSelector(selectDataSources);
+  const relationships = useStudioSelector(selectRelationships);
+  const expressionFields = useStudioSelector(selectExpressionFields);
+  const activePageId = useStudioSelector(selectActivePageId);
   const muiTheme = useTheme();
 
   // Separate rank widget filters (applied post-aggregation) from row-level filters
@@ -77,9 +77,27 @@ export function useChartWidgetData(
     );
   }, [dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId, activePageId]);
 
+  // Whether this widget has incoming cross-filters (from another widget on the same page).
+  // Computed early so the filteredRowsNoCross memo can short-circuit when not needed.
+  const hasCrossFilters = React.useMemo(() => {
+    return (
+      filters.some(
+        (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+      ) ||
+      filters.some(
+        (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+      )
+    );
+  }, [filters, widget.id, activePageId]);
+
   // Rows filtered by page+widget filters only (no cross-filters).
   // Used to compute the stable full set of series names for consistent color assignment.
+  // When no cross-filters are active, this is identical to filteredRows — return the same
+  // reference so downstream memos (allEnrichedRows, allSeriesNames) short-circuit automatically.
   const filteredRowsNoCross = React.useMemo(() => {
+    if (!hasCrossFilters) {
+      return filteredRows;
+    }
     if (!dataSource?.rows) {
       return [];
     }
@@ -96,7 +114,7 @@ export function useChartWidgetData(
       relationships,
       expressionFields,
     );
-  }, [dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId]);
+  }, [hasCrossFilters, filteredRows, dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId]);
 
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {
@@ -223,11 +241,8 @@ export function useChartWidgetData(
   }, [chartColors, muiTheme.palette.mode]);
 
   // Whether this widget has incoming cross-filters (from another widget on the same page)
-  const hasCrossFilters = React.useMemo(() => {
-    return filters.some(
-      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-    );
-  }, [filters, widget.id, activePageId]);
+  // NOTE: hasCrossFilters is declared earlier in the file (before filteredRowsNoCross) so that
+  // memo can use it to short-circuit. The declaration there also includes interactive filters.
 
   const chartData = React.useMemo(() => {
     const xField = config.xField;

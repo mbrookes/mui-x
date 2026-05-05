@@ -14,7 +14,7 @@ import {
 } from '@mui/material';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectFilters, selectRelationships, selectExpressionFields } from '../context';
 import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioKpiAggregation, StudioWidgetConfig } from '../models';
@@ -112,14 +112,14 @@ function CollapsibleFeatureSection({
 function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConfig }) {
   const { widgetId, config } = props;
   const controller = useStudioController();
-  const dataSources = useStudioSelector((state) => state.dataSources);
-  const filters = useStudioSelector((state) => state.filters);
-  const widget = useStudioSelector((state) => state.widgets[widgetId]);
+  const dataSources = useStudioSelector(selectDataSources);
+  const filters = useStudioSelector(selectFilters);
+  const widget = useStudioSelector(selectWidgets)[widgetId];
 
   // Auto-detected date filter field
   const sourceId = widget?.sourceId;
   const source = sourceId ? dataSources[sourceId] : undefined;
-  const relationships = useStudioSelector((state) => state.relationships);
+  const relationships = useStudioSelector(selectRelationships);
 
   // Collect date fields from primary source + all directly related sources
   const allDateFieldsWithJoined = React.useMemo<DataSourceFieldEntry[]>(() => {
@@ -290,11 +290,11 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
 }
 
 export function KpiSetupPanel(props: { widgetId: string }) {
-  const widget = useStudioSelector((state) => state.widgets[props.widgetId]);
+  const widget = useStudioSelector(selectWidgets)[props.widgetId];
   const controller = useStudioController();
-  const dataSources = useStudioSelector((state) => state.dataSources);
-  const expressionFields = useStudioSelector((state) => state.expressionFields);
-  const relationships = useStudioSelector((state) => state.relationships);
+  const dataSources = useStudioSelector(selectDataSources);
+  const expressionFields = useStudioSelector(selectExpressionFields);
+  const relationships = useStudioSelector(selectRelationships);
   const config = widget?.config ?? {};
 
   // Gather fields from all data sources (used for the value field anchor picker)

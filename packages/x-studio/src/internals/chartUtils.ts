@@ -45,14 +45,49 @@ export function resolveMetricRefs(
   filters: StudioFilterState[],
   dataSources: Record<string, StudioDataSource>,
 ): StudioFilterState[] {
+  // Short-circuit when no filter has a reference (the common case).
+  if (!filters.some((f) => f.valueRef || f.value2Ref)) {
+    return filters;
+  }
+
+  // Pre-build a row-by-id index for each referenced source so resolveMetricRef
+  // uses an O(1) Map lookup rather than an O(N) .find() scan per filter.
+  const rowIndexCache = new Map<string, Map<string, Record<string, unknown>>>();
+  const getRowIndex = (sourceId: string) => {
+    if (!rowIndexCache.has(sourceId)) {
+      const index = new Map<string, Record<string, unknown>>();
+      for (const row of dataSources[sourceId]?.rows ?? []) {
+        const key = String(row.id ?? '');
+        if (!index.has(key)) {
+          index.set(key, row as Record<string, unknown>);
+        }
+      }
+      rowIndexCache.set(sourceId, index);
+    }
+    return rowIndexCache.get(sourceId)!;
+  };
+
+  const resolveRef = (ref: StudioMetricRef) => {
+    const index = getRowIndex(ref.sourceId);
+    const row = index.get(ref.rowId);
+    const val = row?.[ref.field];
+    if (val === null || val === undefined) {
+      return val as null | undefined;
+    }
+    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+      return val;
+    }
+    return undefined;
+  };
+
   return filters.map((f) => {
     if (!f.valueRef && !f.value2Ref) {
       return f;
     }
     return {
       ...f,
-      value: resolveReferencedFilterValue(f.value, f.valueRef, dataSources),
-      value2: resolveReferencedFilterValue(f.value2, f.value2Ref, dataSources),
+      value: resolveReferencedFilterValueFast(f.value, f.valueRef, resolveRef),
+      value2: resolveReferencedFilterValueFast(f.value2, f.value2Ref, resolveRef),
     };
   });
 }
@@ -84,6 +119,28 @@ function resolveReferencedFilterValue(
     };
   }
 
+  return resolvedValue;
+}
+
+/** Fast variant of resolveReferencedFilterValue that uses a pre-built row index. */
+function resolveReferencedFilterValueFast(
+  originalValue: unknown,
+  ref: StudioMetricRef | undefined,
+  resolveRef: (ref: StudioMetricRef) => string | number | boolean | null | undefined,
+) {
+  if (!ref) {
+    return originalValue;
+  }
+  const resolvedValue = resolveRef(ref);
+  if (resolvedValue === undefined) {
+    return originalValue;
+  }
+  if (isRelativeDateValue(originalValue) && typeof resolvedValue === 'number') {
+    return {
+      ...originalValue,
+      amount: Math.max(1, Math.trunc(resolvedValue) || 1),
+    };
+  }
   return resolvedValue;
 }
 
@@ -364,11 +421,14 @@ export function resolveRows(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[] = [],
   expressionFields: StudioExpressionField[] = [],
+  options?: { skipEnrichment?: boolean },
 ): Row[] {
   // Enrich rows with computed (non-measure) expression field values first so they
   // can be referenced in filters and downstream aggregations.
+  // Pass skipEnrichment: true when the caller has already enriched the rows (e.g.
+  // KPI widget pre-enriches once and calls resolveRows twice for current/prev period).
   const enrichedRows =
-    widgetSourceId && expressionFields.length > 0
+    !options?.skipEnrichment && widgetSourceId && expressionFields.length > 0
       ? enrichRowsWithExpressions(widgetRows, expressionFields, widgetSourceId, dataSources, relationships)
       : widgetRows;
 
@@ -1262,11 +1322,23 @@ export function resolveChartRowsForAggregation(
     return [];
   }
 
+  // Build a field-owner cache to avoid calling findDirectFieldOwner multiple times for
+  // the same fieldId. The function traverses the relationship graph on every call — O(R)
+  // per field — so caching avoids duplicate traversals across the two call sites below.
+  const fieldOwnerCache = new Map<string, string | null>();
+  const cachedFindOwner = (fieldId: string) => {
+    if (!fieldOwnerCache.has(fieldId)) {
+      fieldOwnerCache.set(
+        fieldId,
+        findDirectFieldOwner(widgetSourceId, fieldId, dataSources, relationships, expressionFields),
+      );
+    }
+    return fieldOwnerCache.get(fieldId)!;
+  };
+
   const ySourceIds = [...new Set(
     yFields
-      .map((fieldId) =>
-        findDirectFieldOwner(widgetSourceId, fieldId, dataSources, relationships, expressionFields),
-      )
+      .map((fieldId) => cachedFindOwner(fieldId))
       .filter((sourceId): sourceId is string => Boolean(sourceId)),
   )];
 
@@ -1309,13 +1381,7 @@ export function resolveChartRowsForAggregation(
 
   const fieldOwners = new Map<string, string>();
   for (const fieldId of requestedFields) {
-    const owner = findDirectFieldOwner(
-      widgetSourceId,
-      fieldId,
-      dataSources,
-      relationships,
-      expressionFields,
-    );
+    const owner = cachedFindOwner(fieldId);
     if (!owner) {
       return [];
     }

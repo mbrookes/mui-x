@@ -15,7 +15,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectExpressionFields, selectRelationships } from '../context';
 import { fieldsForCapability } from '../utils/fieldCapabilities';
 import { analyzeChartSupport, getChartSupportMessage, getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioChartType, StudioBarLayout } from '../models';
@@ -25,11 +25,11 @@ import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 export function ChartSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
-  const widget = useStudioSelector((state) => state.widgets[widgetId]);
-  const dataSources = useStudioSelector((state) => state.dataSources);
-  const expressionFields = useStudioSelector((state) => state.expressionFields);
+  const widget = useStudioSelector(selectWidgets)[widgetId];
+  const dataSources = useStudioSelector(selectDataSources);
+  const expressionFields = useStudioSelector(selectExpressionFields);
 
-  const relationships = useStudioSelector((state) => state.relationships);
+  const relationships = useStudioSelector(selectRelationships);
 
   const allFields = React.useMemo(() => {
     const physicalFields = Object.values(dataSources)

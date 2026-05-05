@@ -15,7 +15,7 @@ import {
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CheckIcon from '@mui/icons-material/Check';
 import type { StudioGridSummaryAggregation } from '../models';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectDataSources } from '../context';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 
@@ -33,8 +33,8 @@ const AGG_LABELS: Record<StudioGridSummaryAggregation, string> = {
 export function GridSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
-  const widget = useStudioSelector((state) => state.widgets[widgetId]);
-  const dataSources = useStudioSelector((state) => state.dataSources);
+  const widget = useStudioSelector(selectWidgets)[widgetId];
+  const dataSources = useStudioSelector(selectDataSources);
 
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
   const allFields = (source?.fields ?? []).filter((f) => !f.hidden);

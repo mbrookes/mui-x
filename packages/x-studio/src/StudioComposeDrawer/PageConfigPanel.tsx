@@ -11,7 +11,7 @@ import {
   Switch,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectActivePage } from '../context';
 import { NumberField } from '../internals/NumberField';
 import type { StudioPageTheme } from '../models';
 import { ColorInput } from './ColorInput';
@@ -21,9 +21,7 @@ const EMPTY_PAGE_THEME: StudioPageTheme = {};
 
 export function PageConfigPanel() {
   const controller = useStudioController();
-  const pageTheme =
-    useStudioSelector((state) => state.pages[state.dashboard.activePageId]?.theme) ??
-    EMPTY_PAGE_THEME;
+  const pageTheme = useStudioSelector(selectActivePage)?.theme ?? EMPTY_PAGE_THEME;
 
   const update = React.useCallback(
     (changes: Partial<StudioPageTheme>) => {

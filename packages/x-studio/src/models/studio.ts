@@ -251,6 +251,13 @@ export interface StudioDataSource {
   rows?: Record<string, unknown>[];
   /** When true, the source is hidden from the data drawer panel and widget config selects */
   hidden?: boolean;
+  /**
+   * Pre-computed sorted distinct string values per native string/boolean field.
+   * Built automatically by `normalizeDataSourceRows` at ingestion time.
+   * Used by filter widgets to avoid an O(N) scan on every render.
+   * Not persisted — derived from `rows` and rebuilt when rows change.
+   */
+  fieldDistinctValues?: Record<string, string[]>;
 }
 
 // ─── Expression field types ───────────────────────────────────────────────────

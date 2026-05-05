@@ -11,7 +11,6 @@ import { FilterSetupPanel } from './FilterSetupPanel';
 import { FormatPanel } from './FormatPanel';
 import { GridSetupPanel } from './GridSetupPanel';
 import { KpiSetupPanel } from './KpiSetupPanel';
-import { PageConfigPanel } from './PageConfigPanel';
 import { TextFormatPanel } from './TextFormatPanel';
 import { TextSetupPanel } from './TextSetupPanel';
 
@@ -105,52 +104,18 @@ function WidgetConfigView(props: { widgetId: string }) {
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export function StudioComposeDrawer() {
-  const [mainTab, setMainTab] = React.useState(0);
   const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
   const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
 
-  const handleMainTabChange = React.useCallback(
-    (_event: React.SyntheticEvent, v: number) => setMainTab(v),
-    [],
-  );
-
-  const subheaderNode = React.useMemo(
-    () =>
-      selectedWidgetId ? null : (
-        <Tabs
-          value={mainTab}
-          onChange={handleMainTabChange}
-          variant="fullWidth"
-          sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
-        >
-          <Tab label="Widgets" />
-          <Tab label="Page" />
-        </Tabs>
-      ),
-    [selectedWidgetId, mainTab, handleMainTabChange],
-  );
-
-  useDrawerSubheader(subheaderNode);
+  useDrawerSubheader(null);
 
   if (selectedWidgetId) {
     return <WidgetConfigView widgetId={selectedWidgetId} />;
   }
 
-  const widgetsContent = (() => {
-    if (selectedFieldId) {
-      return <FieldDetailView />;
-    }
-    return <AddWidgetView />;
-  })();
+  if (selectedFieldId) {
+    return <FieldDetailView />;
+  }
 
-  return (
-    <div>
-      <TabPanel value={mainTab} index={0}>
-        {widgetsContent}
-      </TabPanel>
-      <TabPanel value={mainTab} index={1}>
-        <PageConfigPanel />
-      </TabPanel>
-    </div>
-  );
+  return <AddWidgetView />;
 }

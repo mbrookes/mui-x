@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, Divider, FormControl, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectShell, selectDataSources } from '../context';
 import type { StudioNumberFormat } from '../models';
 import { TYPE_FORMAT_LABEL } from './StudioComposeDrawer';
 
@@ -14,10 +14,10 @@ const NUMBER_FORMAT_OPTIONS: { value: StudioNumberFormat; label: string }[] = [
 
 export function FieldDetailView() {
   const controller = useStudioController();
-  const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
-  const source = useStudioSelector((state) =>
-    state.shell.selectedSourceId ? state.dataSources[state.shell.selectedSourceId] : null,
-  );
+  const shell = useStudioSelector(selectShell);
+  const dataSources = useStudioSelector(selectDataSources);
+  const selectedFieldId = shell.selectedFieldId;
+  const source = shell.selectedSourceId ? dataSources[shell.selectedSourceId] : null;
   const field = source?.fields.find((f) => f.id === selectedFieldId) ?? null;
 
   if (!field || !source) {

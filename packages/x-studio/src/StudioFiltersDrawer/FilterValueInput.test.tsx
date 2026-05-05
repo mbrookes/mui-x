@@ -18,10 +18,14 @@ const mockDataSources = {
   },
 };
 
-vi.mock('../context', () => ({
-  useStudioSelector: (selector: (state: { dataSources: typeof mockDataSources }) => unknown) =>
-    selector({ dataSources: mockDataSources }),
-}));
+vi.mock('../context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../context')>();
+  return {
+    ...actual,
+    useStudioSelector: (selector: (state: { dataSources: typeof mockDataSources }) => unknown) =>
+      selector({ dataSources: mockDataSources }),
+  };
+});
 
 const { render } = createRenderer();
 

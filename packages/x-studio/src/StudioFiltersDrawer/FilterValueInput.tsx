@@ -28,7 +28,7 @@ import type { StudioFilterOperator, StudioMetricRef } from '../models';
 import type { RelativeDateUnit, RelativeDateValue } from '../internals/filterTypes';
 import type { FieldType } from './filterDrawerTypes';
 import { isRelativeDateValue, absoluteToRelative, relativeToAbsolute } from './filterDrawerUtils';
-import { useStudioSelector } from '../context';
+import { useStudioSelector, selectDataSources } from '../context';
 import { fieldHasCapability } from '../utils/fieldCapabilities';
 
 const RELATIVE_UNITS: { value: RelativeDateUnit; label: string }[] = [
@@ -65,7 +65,7 @@ function MetricPickerButton({
   fieldType: 'number' | 'date' | 'datetime';
 }) {
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
-  const dataSources = useStudioSelector((state) => state.dataSources);
+  const dataSources = useStudioSelector(selectDataSources);
 
   const options = React.useMemo(() => {
     const result: MetricOption[] = [];
@@ -394,7 +394,7 @@ function DateValueInput({
 
 /** Resolves the display name for a metric ref from the data sources. */
 function useMetricLabel(ref: StudioMetricRef | undefined): string | undefined {
-  const dataSources = useStudioSelector((state) => state.dataSources);
+  const dataSources = useStudioSelector(selectDataSources);
   return React.useMemo(() => {
     if (!ref?.sourceId || !ref.rowId) {
       return undefined;

@@ -25,7 +25,12 @@ import {
   analyzeChartSupport,
   resolveChartRowsForAggregation,
 } from './chartUtils';
-import type { StudioDataSource, StudioFilterState, StudioRelationship } from '../models';
+import type {
+  StudioDataField,
+  StudioDataSource,
+  StudioFilterState,
+  StudioRelationship,
+} from '../models';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -2138,5 +2143,109 @@ describe('resolveRows — perf: foreign enrichment cache', () => {
     // After first pass: CUS-1, CUS-2 (Germany). After second pass: CUS-3 (France).
     // Intersection of join keys is empty.
     expect(result).toHaveLength(0);
+  });
+});
+
+// ─── Performance: Batch 2 — resolveRows skipEnrichment option ─────────────────
+
+describe('resolveRows — perf: skipEnrichment option', () => {
+  const sourceField: StudioDataField = {
+    id: 'revenue',
+    label: 'Revenue',
+    type: 'number',
+  };
+  const source: StudioDataSource = {
+    id: 'sales',
+    label: 'Sales',
+    fields: [sourceField],
+    rows: [
+      { id: 'r1', region: 'EU', revenue: 100 },
+      { id: 'r2', region: 'US', revenue: 200 },
+    ],
+  };
+  const dataSources: Record<string, StudioDataSource> = { sales: source };
+
+  it('produces the same rows with skipEnrichment: true when no expressionFields', () => {
+    const filters = [makeFilter({ field: 'region', operator: 'equals', value: 'EU' })];
+    const normal = resolveRows(source.rows, 'sales', filters, dataSources);
+    const skipped = resolveRows(source.rows, 'sales', filters, dataSources, [], [], { skipEnrichment: true });
+    expect(skipped).toEqual(normal);
+  });
+
+  it('skipEnrichment: true returns pre-enriched rows unchanged when no filters', () => {
+    // Caller simulates pre-enrichment by adding a computed field manually
+    const preEnriched = source.rows.map((r) => ({ ...r, doubled: (r.revenue as number) * 2 }));
+    const result = resolveRows(preEnriched, 'sales', [], dataSources, [], [], { skipEnrichment: true });
+    expect(result).toBe(preEnriched); // same reference — no copy made
+  });
+});
+
+// ─── Performance: Batch 2 — resolveMetricRefs row index ──────────────────────
+
+describe('resolveMetricRefs — perf: row index', () => {
+  const dataSources: Record<string, StudioDataSource> = {
+    kpis: {
+      id: 'kpis',
+      label: 'KPIs',
+      fields: [],
+      rows: [
+        { id: 'metric-1', value: 42 },
+        { id: 'metric-2', value: 99 },
+      ],
+    },
+  };
+
+  it('returns the input array unchanged when no filter has a ref (short-circuit)', () => {
+    const filters = [makeFilter({ field: 'x', value: '10' })];
+    const result = resolveMetricRefs(filters, dataSources);
+    expect(result).toBe(filters); // exact same reference — no work done
+  });
+
+  it('resolves valueRef via row index to the correct scalar value', () => {
+    const filters = [
+      makeFilter({
+        field: 'threshold',
+        valueRef: { sourceId: 'kpis', rowId: 'metric-1', field: 'value' },
+      }),
+    ];
+    const result = resolveMetricRefs(filters, dataSources);
+    expect(result[0].value).toBe(42);
+  });
+
+  it('resolves value2Ref via row index', () => {
+    const filters = [
+      makeFilter({
+        field: 'threshold',
+        value: '0',
+        value2Ref: { sourceId: 'kpis', rowId: 'metric-2', field: 'value' },
+      }),
+    ];
+    const result = resolveMetricRefs(filters, dataSources);
+    expect(result[0].value2).toBe(99);
+  });
+
+  it('falls back to original value for a ref pointing to a missing row', () => {
+    const filters = [
+      makeFilter({
+        field: 'threshold',
+        value: 'fallback',
+        valueRef: { sourceId: 'kpis', rowId: 'does-not-exist', field: 'value' },
+      }),
+    ];
+    const result = resolveMetricRefs(filters, dataSources);
+    // Row not found → resolveRef returns undefined → original value is preserved
+    expect(result[0].value).toBe('fallback');
+  });
+
+  it('does not mutate filters without refs when mixed with ref filters', () => {
+    const plain = makeFilter({ id: 'plain', field: 'x', value: '5' });
+    const withRef = makeFilter({
+      id: 'with-ref',
+      field: 'threshold',
+      valueRef: { sourceId: 'kpis', rowId: 'metric-1', field: 'value' },
+    });
+    const result = resolveMetricRefs([plain, withRef], dataSources);
+    expect(result[0]).toBe(plain); // plain filter returned by reference
+    expect(result[1].value).toBe(42);
   });
 });

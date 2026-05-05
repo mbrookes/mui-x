@@ -1,12 +1,12 @@
 'use client';
 import * as React from 'react';
 import { Stack, TextField } from '@mui/material';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectWidgets } from '../context';
 
 export function TextSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
-  const widget = useStudioSelector((state) => state.widgets[widgetId]);
+  const widget = useStudioSelector(selectWidgets)[widgetId];
   const [title, setTitle] = React.useState(widget?.title ?? '');
   const [subtitle, setSubtitle] = React.useState(widget?.config.textSubtitle ?? '');
   const [body, setBody] = React.useState(widget?.config.textBody ?? '');

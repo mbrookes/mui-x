@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Box, Paper, Typography } from '@mui/material';
 
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectMode, selectActivePage } from '../context';
 import { StudioWidgetCard } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../internals/widgetUtils';
 
@@ -120,10 +120,8 @@ function InsertionPoint({
 }
 
 export const StudioCanvas = React.memo(function StudioCanvas() {
-  const mode = useStudioSelector((state) => state.mode);
-  const activePage = useStudioSelector(
-    (state) => state.pages[state.dashboard.activePageId],
-  );
+  const mode = useStudioSelector(selectMode);
+  const activePage = useStudioSelector(selectActivePage);
   const widgetRows = activePage?.widgetRows;
   const pageTheme = activePage?.theme;
   const controller = useStudioController();

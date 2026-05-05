@@ -11,6 +11,10 @@ import {
   CanvasScrollContext,
   useStudioController,
   useStudioSelector,
+  selectMode,
+  selectShell,
+  selectWidgets,
+  selectDataSources,
 } from '../context';
 import type { StudioMode, StudioState } from '../models';
 import { StudioController } from '../store';
@@ -88,23 +92,23 @@ export interface StudioProps extends StudioSlots {
 // Memoized so it doesn't re-render when Studio re-renders for unrelated reasons.
 const StudioContent = React.memo(function StudioContent(props: StudioSlots) {
   const { canvas, composeDrawer, dataDrawer, filtersDrawer } = props;
-  const mode = useStudioSelector((state) => state.mode);
+  const mode = useStudioSelector(selectMode);
   const controller = useStudioController();
   const canvasScrollRef = React.useRef<HTMLDivElement>(null);
 
-  const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
-  const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
-  const selectedSourceId = useStudioSelector((state) => state.shell.selectedSourceId);
-  const selectedWidget = useStudioSelector((state) =>
-    state.shell.selectedWidgetId ? state.widgets[state.shell.selectedWidgetId] : null,
-  );
-  const selectedField = useStudioSelector((state) => {
-    const { selectedSourceId: srcId, selectedFieldId: fldId } = state.shell;
-    if (!srcId || !fldId) {
+  const shell = useStudioSelector(selectShell);
+  const widgets = useStudioSelector(selectWidgets);
+  const dataSources = useStudioSelector(selectDataSources);
+  const selectedWidgetId = shell.selectedWidgetId;
+  const selectedFieldId = shell.selectedFieldId;
+  const selectedSourceId = shell.selectedSourceId;
+  const selectedWidget = selectedWidgetId ? widgets[selectedWidgetId] ?? null : null;
+  const selectedField = React.useMemo(() => {
+    if (!selectedSourceId || !selectedFieldId) {
       return null;
     }
-    return state.dataSources[srcId]?.fields.find((f) => f.id === fldId) ?? null;
-  });
+    return dataSources[selectedSourceId]?.fields.find((f) => f.id === selectedFieldId) ?? null;
+  }, [dataSources, selectedSourceId, selectedFieldId]);
 
   const composeTitle = selectedWidget?.title ?? selectedField?.label ?? 'Compose';
   const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);

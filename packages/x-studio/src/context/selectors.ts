@@ -18,3 +18,4 @@ export const selectShell = (state: StudioState) => state.shell;
 export const selectActivePageId = (state: StudioState) => state.dashboard.activePageId;
 export const selectPages = (state: StudioState) => state.dashboard.pages;
 export const selectDashboard = (state: StudioState) => state.dashboard;
+export const selectActivePage = (state: StudioState) => state.pages[state.dashboard.activePageId];

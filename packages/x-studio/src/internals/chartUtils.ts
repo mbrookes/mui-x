@@ -742,60 +742,93 @@ export function normalizeDataSourceRows(dataSource: StudioDataSource): StudioDat
   if (!dataSource.rows || dataSource.rows.length === 0) {
     return dataSource;
   }
+
   const dateFieldIds = dataSource.fields.filter((f) => f.type === 'date').map((f) => f.id);
   const datetimeFieldIds = dataSource.fields.filter((f) => f.type === 'datetime').map((f) => f.id);
-  if (dateFieldIds.length === 0 && datetimeFieldIds.length === 0) {
+
+  // ── Date normalization ────────────────────────────────────────────────────
+
+  let rows = dataSource.rows;
+
+  if (dateFieldIds.length > 0 || datetimeFieldIds.length > 0) {
+    const { rows: originalRows } = dataSource;
+
+    // Infer once per field: find the first non-null value and decide whether
+    // normalization is needed at all. Fields already in canonical form are excluded.
+    const dateIdsToNormalize = dateFieldIds.filter((id) => {
+      const sample = originalRows.find((r) => r[id] != null)?.[id];
+      return sample !== undefined && !(typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(sample));
+    });
+    const datetimeIdsToNormalize = datetimeFieldIds.filter((id) => {
+      const sample = originalRows.find((r) => r[id] != null)?.[id];
+      return sample !== undefined && !(typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(sample));
+    });
+
+    if (dateIdsToNormalize.length > 0 || datetimeIdsToNormalize.length > 0) {
+      rows = originalRows.map((row) => {
+        let changed = false;
+        const next: Record<string, unknown> = { ...row };
+
+        for (const id of dateIdsToNormalize) {
+          const raw = row[id];
+          if (raw == null) {
+            continue;
+          }
+          const d = normalizeToDate(raw);
+          if (d) {
+            next[id] = d.toISOString().slice(0, 10);
+            changed = true;
+          }
+        }
+
+        for (const id of datetimeIdsToNormalize) {
+          const raw = row[id];
+          if (raw == null) {
+            continue;
+          }
+          const d = normalizeToDate(raw);
+          if (d) {
+            next[id] = d.toISOString();
+            changed = true;
+          }
+        }
+
+        return changed ? next : row;
+      });
+    }
+  }
+
+  // ── Pre-compute distinct values for string/boolean fields ─────────────────
+  // Used by filter widgets to avoid an O(N) per-render scan for distinct values.
+  // Only covers native fields (expression fields are computed from other sources
+  // and cannot be pre-indexed at ingestion time).
+  const categoricalFields = dataSource.fields.filter(
+    (f) => f.type === 'string' || f.type === 'boolean',
+  );
+
+  let fieldDistinctValues: Record<string, string[]> | undefined;
+
+  if (categoricalFields.length > 0) {
+    fieldDistinctValues = {};
+    for (const f of categoricalFields) {
+      const seen = new Set<string>();
+      for (const row of rows) {
+        const v = row[f.id];
+        if (v != null && String(v) !== '') {
+          seen.add(String(v));
+        }
+      }
+      if (seen.size > 0) {
+        fieldDistinctValues[f.id] = Array.from(seen).sort();
+      }
+    }
+  }
+
+  if (rows === dataSource.rows && !fieldDistinctValues) {
     return dataSource;
   }
 
-  const { rows } = dataSource;
-
-  // Infer once per field: find the first non-null value and decide whether
-  // normalization is needed at all. Fields already in canonical form are excluded.
-  const dateIdsToNormalize = dateFieldIds.filter((id) => {
-    const sample = rows.find((r) => r[id] != null)?.[id];
-    return sample !== undefined && !(typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(sample));
-  });
-  const datetimeIdsToNormalize = datetimeFieldIds.filter((id) => {
-    const sample = rows.find((r) => r[id] != null)?.[id];
-    return sample !== undefined && !(typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(sample));
-  });
-
-  if (dateIdsToNormalize.length === 0 && datetimeIdsToNormalize.length === 0) {
-    return dataSource;
-  }
-
-  const normalizedRows = rows.map((row) => {
-    let changed = false;
-    const next: Record<string, unknown> = { ...row };
-
-    for (const id of dateIdsToNormalize) {
-      const raw = row[id];
-      if (raw == null) {
-        continue;
-      }
-      const d = normalizeToDate(raw);
-      if (d) {
-        next[id] = d.toISOString().slice(0, 10);
-        changed = true;
-      }
-    }
-
-    for (const id of datetimeIdsToNormalize) {
-      const raw = row[id];
-      if (raw == null) {
-        continue;
-      }
-      const d = normalizeToDate(raw);
-      if (d) {
-        next[id] = d.toISOString();
-        changed = true;
-      }
-    }
-
-    return changed ? next : row;
-  });
-  return { ...dataSource, rows: normalizedRows };
+  return { ...dataSource, rows, ...(fieldDistinctValues ? { fieldDistinctValues } : {}) };
 }
 
 /** ISO week number (1–53) for a given date. */
@@ -952,26 +985,27 @@ function parseTemporalLabelValue(label: string, kind: TemporalLabelKind): Date |
   }
 }
 
-function stepTemporalDate(date: Date, kind: TemporalLabelKind): Date {
-  const next = new Date(date);
+// Mutates `date` in place rather than allocating a new Date per step.
+// Callers must not reuse `date` after calling this.
+function stepTemporalDateInPlace(date: Date, kind: TemporalLabelKind): void {
   switch (kind) {
     case 'day':
-      next.setUTCDate(next.getUTCDate() + 1);
-      return next;
+      date.setUTCDate(date.getUTCDate() + 1);
+      break;
     case 'week':
-      next.setUTCDate(next.getUTCDate() + 7);
-      return next;
+      date.setUTCDate(date.getUTCDate() + 7);
+      break;
     case 'month':
-      next.setUTCMonth(next.getUTCMonth() + 1, 1);
-      return next;
+      date.setUTCMonth(date.getUTCMonth() + 1, 1);
+      break;
     case 'quarter':
-      next.setUTCMonth(next.getUTCMonth() + 3, 1);
-      return next;
+      date.setUTCMonth(date.getUTCMonth() + 3, 1);
+      break;
     case 'year':
-      next.setUTCFullYear(next.getUTCFullYear() + 1, 0, 1);
-      return next;
+      date.setUTCFullYear(date.getUTCFullYear() + 1, 0, 1);
+      break;
     default:
-      return next;
+      break;
   }
 }
 
@@ -989,7 +1023,10 @@ export function fillTemporalLabelGaps(labels: (string | number)[]): (string | nu
 
   const stringLabels = sortLabels(labels) as string[];
   const kind = parseTemporalLabelKind(stringLabels[0]);
-  if (!kind || !stringLabels.every((label) => parseTemporalLabelKind(label) === kind)) {
+  // Check only the last label for kind consistency — all labels in the same aggregation
+  // bucket share the same format, so validating first + last is sufficient and avoids
+  // running N regex executions across the full label set.
+  if (!kind || parseTemporalLabelKind(stringLabels[stringLabels.length - 1]) !== kind) {
     return labels;
   }
 
@@ -1000,8 +1037,11 @@ export function fillTemporalLabelGaps(labels: (string | number)[]): (string | nu
   }
 
   const filled: string[] = [];
-  for (let cursor = new Date(start); cursor <= end; cursor = stepTemporalDate(cursor, kind)) {
+  // Use a single Date object mutated in place to avoid one allocation per step.
+  const cursor = new Date(start);
+  while (cursor <= end) {
     filled.push(serializeTemporalLabel(cursor, kind, stringLabels[0]));
+    stepTemporalDateInPlace(cursor, kind);
   }
 
   return filled.length > stringLabels.length ? filled : labels;
@@ -1015,7 +1055,8 @@ export function getTemporalAxisData(labels: (string | number)[]): Date[] | null 
   const stringLabels = sortLabels(labels) as string[];
   const kind = parseTemporalLabelKind(stringLabels[0]);
 
-  if (kind && stringLabels.every((label) => parseTemporalLabelKind(label) === kind)) {
+  // Check only first + last label for kind consistency — avoids N regex matches.
+  if (kind && parseTemporalLabelKind(stringLabels[stringLabels.length - 1]) === kind) {
     const axisData = stringLabels.map((label) => parseTemporalLabelValue(label, kind));
     return axisData.every((value) => value != null) ? (axisData as Date[]) : null;
   }

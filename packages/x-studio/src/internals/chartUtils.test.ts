@@ -2064,19 +2064,20 @@ describe('normalizeDataSourceRows', () => {
     expect(result.rows![0].id).toBe('abc');
   });
 
-  it('returns original data source when there are no rows', () => {
+  it('returns original data source reference when there are no rows', () => {
     const source: StudioDataSource = { id: 's1', label: 'S', fields, rows: [] };
     expect(normalizeDataSourceRows(source)).toBe(source);
   });
 
-  it('returns original data source when there are no date fields', () => {
+  it('builds fieldDistinctValues for string fields even when no date fields require normalization', () => {
     const source: StudioDataSource = {
       id: 's1',
       label: 'S',
       fields: [{ id: 'name', label: 'Name', type: 'string' }],
-      rows: [{ name: 'Alice' }],
+      rows: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Alice' }],
     };
-    expect(normalizeDataSourceRows(source)).toBe(source);
+    const result = normalizeDataSourceRows(source);
+    expect(result.fieldDistinctValues?.name).toEqual(['Alice', 'Bob']);
   });
 });
 
@@ -2247,5 +2248,135 @@ describe('resolveMetricRefs — perf: row index', () => {
     const result = resolveMetricRefs([plain, withRef], dataSources);
     expect(result[0]).toBe(plain); // plain filter returned by reference
     expect(result[1].value).toBe(42);
+  });
+});
+
+// ─── Performance: Batch 3 — fillTemporalLabelGaps in-place Date mutation ──────
+
+describe('fillTemporalLabelGaps — perf: in-place Date mutation', () => {
+  it('fills daily gaps the same as the original allocation-per-step approach', () => {
+    const result = fillTemporalLabelGaps(['2024-01-01', '2024-01-05']);
+    expect(result).toEqual([
+      '2024-01-01',
+      '2024-01-02',
+      '2024-01-03',
+      '2024-01-04',
+      '2024-01-05',
+    ]);
+  });
+
+  it('fills monthly gaps correctly with in-place mutation', () => {
+    const result = fillTemporalLabelGaps(['2024-01', '2024-04']);
+    expect(result).toEqual(['2024-01', '2024-02', '2024-03', '2024-04']);
+  });
+
+  it('fills yearly gaps correctly', () => {
+    const result = fillTemporalLabelGaps(['2021', '2024']);
+    expect(result).toEqual(['2021', '2022', '2023', '2024']);
+  });
+
+  it('returns original labels when last label has a different kind than first', () => {
+    // First label is year (2024), last is month (2024-03) — mixed kind, return original
+    const labels = ['2024', '2024-03'];
+    const result = fillTemporalLabelGaps(labels);
+    expect(result).toBe(labels);
+  });
+
+  it('returns original labels when no gaps to fill', () => {
+    const labels = ['2024-01', '2024-02', '2024-03'];
+    const result = fillTemporalLabelGaps(labels);
+    // No gaps — filled array would not be longer, so original is returned
+    expect(result).toBe(labels);
+  });
+
+  it('fills weekly gaps correctly', () => {
+    const result = fillTemporalLabelGaps(['2024-W01', '2024-W03']);
+    expect(result).toEqual(['2024-W01', '2024-W02', '2024-W03']);
+  });
+
+  it('fills quarterly gaps correctly', () => {
+    const result = fillTemporalLabelGaps(['2024-Q1', '2024-Q3']);
+    expect(result).toEqual(['2024-Q1', '2024-Q2', '2024-Q3']);
+  });
+});
+
+// ─── Performance: Batch 3 — normalizeDataSourceRows fieldDistinctValues ───────
+
+describe('normalizeDataSourceRows — fieldDistinctValues', () => {
+  it('builds sorted distinct values for string fields', () => {
+    const source: StudioDataSource = {
+      id: 'src',
+      label: 'S',
+      fields: [{ id: 'country', label: 'Country', type: 'string' }],
+      rows: [
+        { country: 'Germany' },
+        { country: 'France' },
+        { country: 'Germany' },
+        { country: 'US' },
+      ],
+    };
+    const result = normalizeDataSourceRows(source);
+    expect(result.fieldDistinctValues?.country).toEqual(['France', 'Germany', 'US']);
+  });
+
+  it('builds distinct values for boolean fields', () => {
+    const source: StudioDataSource = {
+      id: 'src',
+      label: 'S',
+      fields: [{ id: 'active', label: 'Active', type: 'boolean' }],
+      rows: [{ active: true }, { active: false }, { active: true }],
+    };
+    const result = normalizeDataSourceRows(source);
+    expect(result.fieldDistinctValues?.active).toEqual(['false', 'true']);
+  });
+
+  it('excludes null and empty-string values from distinct index', () => {
+    const source: StudioDataSource = {
+      id: 'src',
+      label: 'S',
+      fields: [{ id: 'tier', label: 'Tier', type: 'string' }],
+      rows: [{ tier: 'gold' }, { tier: null }, { tier: '' }, { tier: 'silver' }],
+    };
+    const result = normalizeDataSourceRows(source);
+    expect(result.fieldDistinctValues?.tier).toEqual(['gold', 'silver']);
+  });
+
+  it('does not build index for number fields', () => {
+    const source: StudioDataSource = {
+      id: 'src',
+      label: 'S',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [{ amount: 10 }, { amount: 20 }],
+    };
+    const result = normalizeDataSourceRows(source);
+    expect(result.fieldDistinctValues?.amount).toBeUndefined();
+  });
+
+  it('returns source by reference when no rows', () => {
+    const source: StudioDataSource = {
+      id: 'src',
+      label: 'S',
+      fields: [{ id: 'x', label: 'X', type: 'string' }],
+      rows: [],
+    };
+    expect(normalizeDataSourceRows(source)).toBe(source);
+  });
+
+  it('combines date normalization and fieldDistinctValues in a single pass', () => {
+    const source: StudioDataSource = {
+      id: 'src',
+      label: 'S',
+      fields: [
+        { id: 'region', label: 'Region', type: 'string' },
+        { id: 'date', label: 'Date', type: 'date' },
+      ],
+      rows: [
+        { region: 'EU', date: new Date('2024-01-15') },
+        { region: 'US', date: new Date('2024-02-20') },
+      ],
+    };
+    const result = normalizeDataSourceRows(source);
+    expect(result.rows![0].date).toBe('2024-01-15');
+    expect(result.fieldDistinctValues?.region).toEqual(['EU', 'US']);
   });
 });

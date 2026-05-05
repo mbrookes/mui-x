@@ -47,6 +47,13 @@ export interface EvaluationContext {
   dataSources?: Record<string, StudioDataSource>;
   /** Declared source relationships (needed to resolve join field expressions). */
   relationships?: StudioRelationship[];
+  /**
+   * Pre-built lookup indexes for JoinFieldExpression columns.
+   * Keyed by joinSourceId → { sourceField: FK field on the current row, index: fkValue → related row }.
+   * When present, avoids O(M) linear scans over the related source's rows per evaluated row.
+   * Built by enrichRowsWithExpressions before the row loop.
+   */
+  joinIndexes?: Map<string, { sourceField: string; index: Map<unknown, Record<string, unknown>> }>;
 }
 
 // ─── Core evaluator ──────────────────────────────────────────────────────────
@@ -89,8 +96,23 @@ export function evaluateExpression(
 
   if (isJoinFieldExpression(expr)) {
     const { joinSourceId, fieldId } = expr;
-    const { row, sourceId, dataSources, relationships } = context;
-    if (!dataSources || !relationships || !sourceId) {
+    const { row, sourceId, dataSources, relationships, joinIndexes } = context;
+    if (!sourceId) {
+      return null;
+    }
+
+    // Fast path: use pre-built index from enrichRowsWithExpressions (O(1) lookup).
+    const precomputed = joinIndexes?.get(joinSourceId);
+    if (precomputed) {
+      const fkValue = row[precomputed.sourceField];
+      if (fkValue == null) {
+        return null;
+      }
+      return (precomputed.index.get(fkValue)?.[fieldId] ?? null) as ScalarValue;
+    }
+
+    // Slow path fallback: used when called without a pre-built index (e.g. single-row eval).
+    if (!dataSources || !relationships) {
       return null;
     }
     const rel = relationships.find(
@@ -257,6 +279,33 @@ export function enrichRowsWithExpressions(
   // expression fields are computed after their dependencies.
   const sorted = topoSortExpressionFields(columnFields);
 
+  // Pre-build join indexes for all JoinFieldExpression columns.
+  // This converts the O(N×M) unindexed .find() per row into an O(M) one-time build
+  // plus O(1) Map.get() per row — a dramatic speedup for large datasets.
+  const joinIndexes = new Map<string, { sourceField: string; index: Map<unknown, Record<string, unknown>> }>();
+  if (dataSources && relationships) {
+    for (const ef of sorted) {
+      if (isJoinFieldExpression(ef.expression)) {
+        const { joinSourceId } = ef.expression;
+        if (!joinIndexes.has(joinSourceId)) {
+          const rel = relationships.find(
+            (r) => r.sourceId === sourceId && r.targetId === joinSourceId,
+          );
+          if (rel) {
+            const index = new Map<unknown, Record<string, unknown>>();
+            for (const r of dataSources[joinSourceId]?.rows ?? []) {
+              // First-write-wins: preserves uniqueness for PK fields.
+              if (!index.has(r[rel.targetField])) {
+                index.set(r[rel.targetField], r as Record<string, unknown>);
+              }
+            }
+            joinIndexes.set(joinSourceId, { sourceField: rel.sourceField, index });
+          }
+        }
+      }
+    }
+  }
+
   return rows.map((originalRow) => {
     let row = originalRow;
     for (const ef of sorted) {
@@ -267,6 +316,7 @@ export function enrichRowsWithExpressions(
         sourceId,
         dataSources,
         relationships,
+        joinIndexes: joinIndexes.size > 0 ? joinIndexes : undefined,
       };
       const value = evaluateExpression(ef.expression, ctx);
       if (!(ef.id in row)) {

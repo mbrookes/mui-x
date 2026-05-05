@@ -47,10 +47,14 @@ const controller = {
   applyCrossFilter: vi.fn(),
 };
 
-vi.mock('../context', () => ({
-  useStudioController: () => controller,
-  useStudioSelector: (selector: (state: StudioState) => unknown) => selector(mockState),
-}));
+vi.mock('../context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../context')>();
+  return {
+    ...actual,
+    useStudioController: () => controller,
+    useStudioSelector: (selector: (state: StudioState) => unknown) => selector(mockState),
+  };
+});
 
 const { render } = createRenderer();
 

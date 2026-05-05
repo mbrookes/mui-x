@@ -454,6 +454,74 @@ describe('StudioJoinFieldExpression', () => {
     expect(result[1]['expr-order-country']).toBe('UK');
     expect(result[2]['expr-order-country']).toBeNull();
   });
+
+  it('join index: enrichRowsWithExpressions produces the same result as unindexed evaluation', () => {
+    // Verify that the pre-built join index path yields identical output to the
+    // original .find() path (regression guard for the O(N×M) → O(M+N) optimisation).
+    const joinField: StudioExpressionField = {
+      id: 'expr-order-country',
+      label: 'Country',
+      sourceId: 'source-orders',
+      isMeasure: false,
+      expression: joinExpr,
+    };
+    const orderRows = [
+      { id: 'ORD-001', customerId: 'CUS-001', total: 100 },
+      { id: 'ORD-002', customerId: 'CUS-002', total: 200 },
+      { id: 'ORD-003', customerId: 'CUS-999', total: 50 }, // FK miss
+    ];
+    const result = enrichRowsWithExpressions(
+      orderRows,
+      [joinField],
+      'source-orders',
+      dataSources,
+      relationships,
+    );
+    // Values must match the unindexed expectations
+    expect(result[0]['expr-order-country']).toBe('Germany');
+    expect(result[1]['expr-order-country']).toBe('UK');
+    expect(result[2]['expr-order-country']).toBeNull();
+    // Original row fields must be preserved
+    expect(result[0]['total']).toBe(100);
+    expect(result[1]['total']).toBe(200);
+  });
+
+  it('join index fast path: evaluateExpression uses precomputed index when provided', () => {
+    const prebuiltIndex = new Map<unknown, Record<string, unknown>>([
+      ['CUS-001', { id: 'CUS-001', country: 'Germany' }],
+      ['CUS-002', { id: 'CUS-002', country: 'UK' }],
+    ]);
+    const joinIndexes = new Map([
+      ['source-customers', { sourceField: 'customerId', index: prebuiltIndex }],
+    ]);
+    const contextWithIndex: EvaluationContext = {
+      expressionFields: [],
+      row: { id: 'ORD-001', customerId: 'CUS-001', total: 100 },
+      allRows: [],
+      sourceId: 'source-orders',
+      // dataSources intentionally omitted — index must be used instead
+      joinIndexes,
+    };
+    // Should resolve via index, not via dataSources.find()
+    expect(evaluateExpression(joinExpr, contextWithIndex)).toBe('Germany');
+  });
+
+  it('join index fast path: returns null for FK miss even with pre-built index', () => {
+    const prebuiltIndex = new Map<unknown, Record<string, unknown>>([
+      ['CUS-001', { id: 'CUS-001', country: 'Germany' }],
+    ]);
+    const joinIndexes = new Map([
+      ['source-customers', { sourceField: 'customerId', index: prebuiltIndex }],
+    ]);
+    const contextWithIndex: EvaluationContext = {
+      expressionFields: [],
+      row: { id: 'ORD-999', customerId: 'CUS-UNKNOWN', total: 0 },
+      allRows: [],
+      sourceId: 'source-orders',
+      joinIndexes,
+    };
+    expect(evaluateExpression(joinExpr, contextWithIndex)).toBeNull();
+  });
 });
 
 // ─── Topological sort ────────────────────────────────────────────────────────

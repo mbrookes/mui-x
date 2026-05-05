@@ -17,7 +17,7 @@ import {
   getTemporalAxisData,
   getChartSupportMessage,
 } from '../internals/chartUtils';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectFilters, selectActivePageId } from '../context';
 import { formatNumber } from '../internals/numberFormat';
 import type { StudioNumberFormat } from '../models/studio';
 import { useChartWidgetData } from './useChartWidgetData';
@@ -127,8 +127,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   const { config } = widget;
   const xGroupBy = config.xGroupBy;
   const controller = useStudioController();
-  const filters = useStudioSelector((state) => state.filters);
-  const activePageId = useStudioSelector((state) => state.dashboard.activePageId);
+  const filters = useStudioSelector(selectFilters);
+  const activePageId = useStudioSelector(selectActivePageId);
   const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<
     'bar' | 'line' | 'pie'
   > | null>(null);

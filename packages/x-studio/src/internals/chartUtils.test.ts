@@ -2074,3 +2074,69 @@ describe('normalizeDataSourceRows', () => {
     expect(normalizeDataSourceRows(source)).toBe(source);
   });
 });
+
+// ─── Performance: Fix 1 — resolveRows cross-filter short-circuit ──────────────
+
+describe('resolveRows — perf: foreign enrichment cache', () => {
+  // Arrange a scenario with TWO cross-filters targeting the SAME foreign source.
+  // Both filters should share the enriched foreign rows, not re-compute them.
+  const orders = [
+    { id: 'ORD-1', customerId: 'CUS-1', total: 100 },
+    { id: 'ORD-2', customerId: 'CUS-2', total: 200 },
+    { id: 'ORD-3', customerId: 'CUS-3', total: 300 },
+  ];
+
+  const customers = [
+    { id: 'CUS-1', country: 'Germany', tier: 'gold' },
+    { id: 'CUS-2', country: 'Germany', tier: 'silver' },
+    { id: 'CUS-3', country: 'France',  tier: 'gold' },
+  ];
+
+  const relationships: StudioRelationship[] = [
+    {
+      id: 'rel-1',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+  ];
+
+  const dataSources: Record<string, StudioDataSource> = {
+    orders: { id: 'orders', label: 'Orders', fields: [], rows: orders },
+    customers: { id: 'customers', label: 'Customers', fields: [], rows: customers },
+  };
+
+  it('two cross-filters on same foreign source both apply correctly', () => {
+    // country = Germany AND tier = gold → only CUS-1 → only ORD-1
+    const result = resolveRows(
+      orders,
+      'orders',
+      [
+        makeFilter({ id: 'cf1', field: 'country', operator: 'equals', value: 'Germany', filterSourceId: 'customers' }),
+        makeFilter({ id: 'cf2', field: 'tier',    operator: 'equals', value: 'gold',    filterSourceId: 'customers' }),
+      ],
+      dataSources,
+      relationships,
+    );
+    expect(result.map((r) => r.id)).toEqual(['ORD-1']);
+  });
+
+  it('two cross-filters on same foreign source with no overlap returns empty', () => {
+    // country = Germany AND country = France → no customer matches both → no orders
+    const result = resolveRows(
+      orders,
+      'orders',
+      [
+        makeFilter({ id: 'cf1', field: 'country', operator: 'equals', value: 'Germany', filterSourceId: 'customers' }),
+        makeFilter({ id: 'cf2', field: 'country', operator: 'equals', value: 'France',  filterSourceId: 'customers' }),
+      ],
+      dataSources,
+      relationships,
+    );
+    // After first pass: CUS-1, CUS-2 (Germany). After second pass: CUS-3 (France).
+    // Intersection of join keys is empty.
+    expect(result).toHaveLength(0);
+  });
+});

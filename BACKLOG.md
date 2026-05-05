@@ -54,4 +54,6 @@ BL-19: Add a "full-screen" icon to charts controls that displays them in a near 
 
 ~~BL-26: Remove the page tab from compose, and all associated state and logic. Page appearance comes from the theme. No need for the widget tab.~~ **Fixed** (removed "Widgets"/"Page" tab bar from compose drawer; widgets content now renders directly; removed `PageConfigPanel` import and `mainTab` state)
 
-BL-27: When hovering a datasource name in the data panel, show a tooltip with a simple grid of the first five rows.
+~~BL-27: When hovering a datasource name in the data panel, show a tooltip with a simple grid of the first five rows.~~ **Fixed** (added `DataSourcePreviewTooltip` showing a mini table of first 5 rows × 4 columns with column headers and overflow counts)
+
+BL-28: When dragging a widget past the top or bottom of the page, make sure the page scrolls.

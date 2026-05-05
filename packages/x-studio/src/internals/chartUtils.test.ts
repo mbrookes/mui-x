@@ -1574,7 +1574,7 @@ describe('analyzeChartSupport', () => {
         relationships,
         [],
       ),
-    ).toEqual({ supported: true });
+    ).toMatchObject({ supported: true });
   });
 
   it('flags scatter cross-source combinations as unsupported', () => {
@@ -1651,7 +1651,25 @@ describe('analyzeChartSupport', () => {
         ],
         [],
       ),
-    ).toEqual({ supported: true });
+    ).toMatchObject({ supported: true });
+  });
+
+  it('returns precomputed fieldOwners and anchorSourceId when supported', () => {
+    const result = analyzeChartSupport(
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      'pie',
+      dataSources,
+      relationships,
+      [],
+    );
+    expect(result.supported).toBe(true);
+    expect(result.fieldOwners).toBeInstanceOf(Map);
+    expect(result.fieldOwners?.get('country')).toBe('customers');
+    expect(result.fieldOwners?.get('total')).toBe('orders');
+    expect(result.anchorSourceId).toBe('orders');
   });
 
   it('rejects bridging through another many-side source as unsupported', () => {

@@ -2,6 +2,7 @@
 import * as React from 'react';
 import {
   Alert,
+  Box,
   Collapse,
   IconButton,
   List,
@@ -102,17 +103,16 @@ function DataSourcePreviewTooltip({
       <Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.8 }}>
         {source.label}
       </Typography>
-      <Stack
+      <Box
         component="table"
-        sx={{ borderCollapse: 'collapse', fontSize: 11, fontFamily: 'monospace' }}
+        sx={{ borderCollapse: 'collapse', fontSize: 11, fontFamily: 'monospace', display: 'table' }}
       >
         <thead>
           <tr>
             {visibleFields.map((f) => (
-              <Typography
+              <Box
                 key={f.id}
                 component="th"
-                variant="caption"
                 sx={{
                   px: 0.75,
                   py: 0.25,
@@ -123,10 +123,11 @@ function DataSourcePreviewTooltip({
                   maxWidth: 80,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
+                  fontSize: 11,
                 }}
               >
                 {f.label}
-              </Typography>
+              </Box>
             ))}
           </tr>
         </thead>
@@ -138,10 +139,9 @@ function DataSourcePreviewTooltip({
                 const v = row[f.id];
                 const display = v === null || v === undefined ? '—' : String(v);
                 return (
-                  <Typography
+                  <Box
                     key={f.id}
                     component="td"
-                    variant="caption"
                     sx={{
                       px: 0.75,
                       py: 0.125,
@@ -150,16 +150,17 @@ function DataSourcePreviewTooltip({
                       maxWidth: 80,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
+                      fontSize: 11,
                     }}
                   >
                     {display}
-                  </Typography>
+                  </Box>
                 );
               })}
             </tr>
           ))}
         </tbody>
-      </Stack>
+      </Box>
       {rows.length > DS_PREVIEW_ROWS && (
         <Typography variant="caption" sx={{ opacity: 0.5 }}>
           +{rows.length - DS_PREVIEW_ROWS} more rows

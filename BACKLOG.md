@@ -51,3 +51,7 @@ BL-19: Add a "full-screen" icon to charts controls that displays them in a near 
 ~~BL-24: In the widgets "On this page" section, give each page widget an icon acording to its sub-type (where applicable), for example chart tyle.~~ **Fixed** (added `getWidgetSubtypeIcon` helper to `widgetUtils`; renders a 16px chart-type/filter-type icon next to each widget in the instance list)
 
 ~~BL-25: Widget filters make no sense for the filter widget.~~ **Fixed** (hide `WidgetFilterSection` in the filters drawer when the selected widget is a filter widget)
+
+~~BL-26: Remove the page tab from compose, and all associated state and logic. Page appearance comes from the theme. No need for the widget tab.~~ **Fixed** (removed "Widgets"/"Page" tab bar from compose drawer; widgets content now renders directly; removed `PageConfigPanel` import and `mainTab` state)
+
+BL-27: When hovering a datasource name in the data panel, show a tooltip with a simple grid of the first five rows.

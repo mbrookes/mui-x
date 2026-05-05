@@ -409,7 +409,16 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       return [];
     }
 
-    if (expressionFields.length === 0) {
+    // Only enrich if the field being filtered on is a computed expression field.
+    // Native fields (country, region, etc.) don't require enrichment — enriching
+    // 100k rows just to scan a native field allocates N spread objects unnecessarily.
+    const fieldIsExpression =
+      fieldId !== '' &&
+      expressionFields.some(
+        (ef) => ef.id === fieldId && ef.sourceId === widget.sourceId && !ef.isMeasure,
+      );
+
+    if (!fieldIsExpression) {
       return dataSource.rows;
     }
 
@@ -420,7 +429,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       dataSources,
       relationships,
     );
-  }, [dataSource?.rows, expressionFields, widget.sourceId, dataSources, relationships]);
+  }, [dataSource?.rows, expressionFields, fieldId, widget.sourceId, dataSources, relationships]);
 
   const label = config.filterWidgetLabel ?? field?.label ?? fieldId ?? 'Filter';
 
@@ -438,6 +447,13 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     ) {
       return [];
     }
+    // Fast path: use the pre-computed index built at ingestion time when the field
+    // is a native (non-expression) string/boolean field. O(1) rather than O(N).
+    const precomputed = dataSource?.fieldDistinctValues?.[fieldId];
+    if (precomputed) {
+      return precomputed;
+    }
+    // Slow path: scan enriched rows (required for expression fields).
     const seen = new Set<string>();
     for (const row of rows) {
       const v = row[fieldId];
@@ -446,7 +462,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       }
     }
     return Array.from(seen).sort();
-  }, [filterWidgetType, fieldId, rows]);
+  }, [filterWidgetType, fieldId, rows, dataSource?.fieldDistinctValues]);
 
   // Compute min/max for slider from data when not configured explicitly
   const isDateField =

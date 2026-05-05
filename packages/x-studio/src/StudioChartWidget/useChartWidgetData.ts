@@ -7,7 +7,6 @@ import {
 import { useTheme } from '@mui/material';
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
-  resolveRows,
   resolveMetricRefs,
   aggregateByField,
   aggregateByTwoFields,
@@ -19,6 +18,7 @@ import {
   applyRankToMultiSeries,
   applyRankToSeriesFieldData,
 } from '../internals/chartUtils';
+import { resolveRowsCached } from '../internals/resolvedRowsCache';
 import { useStudioSelector, selectFilters, selectDataSources, selectRelationships, selectExpressionFields, selectActivePageId } from '../context';
 import { usePageChartColors } from '../internals/usePageChartColors';
 
@@ -67,13 +67,14 @@ export function useChartWidgetData(
       dataSources,
     );
 
-    return resolveRows(
+    return resolveRowsCached(
       dataSource.rows,
       widget.sourceId,
       allFilters,
       dataSources,
       relationships,
       expressionFields,
+      filters,
     );
   }, [dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId, activePageId]);
 
@@ -106,13 +107,14 @@ export function useChartWidgetData(
       (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode !== 'rank',
     );
     const allFilters = resolveMetricRefs([...pageFilters, ...widgetFilters], dataSources);
-    return resolveRows(
+    return resolveRowsCached(
       dataSource.rows,
       widget.sourceId,
       allFilters,
       dataSources,
       relationships,
       expressionFields,
+      filters,
     );
   }, [hasCrossFilters, filteredRows, dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId]);
 

@@ -5,7 +5,8 @@ import { Chip, Stack } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import { useStudioController, useStudioSelector, selectFilters, selectDataSources, selectExpressionFields, selectRelationships, selectActivePageId } from '../context';
-import { resolveMetricRefs, resolveRows } from '../internals/chartUtils';
+import { resolveMetricRefs } from '../internals/chartUtils';
+import { resolveRowsCached } from '../internals/resolvedRowsCache';
 import { formatFieldValue } from '../internals/numberFormat';
 
 import { buildGroupedGridRows } from '../utils/gridGrouping';
@@ -78,13 +79,14 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       dataSources,
     );
 
-    const filteredRows = resolveRows(
+    const filteredRows = resolveRowsCached(
       dataSource.rows,
       widget.sourceId,
       allFilters,
       dataSources,
       relationships,
       expressionFields,
+      filters,
     );
 
     if (widget.config.gridGroupByField) {

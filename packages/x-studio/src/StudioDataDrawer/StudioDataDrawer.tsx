@@ -17,7 +17,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectShell, selectDataSources, selectExpressionFields, selectRelationships, selectMode } from '../context';
 import type { StudioDataSource, StudioExpressionField } from '../models';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
@@ -65,6 +65,109 @@ function FieldPreviewTooltip({
       {rows.length > PREVIEW_ROWS && (
         <Typography variant="caption" sx={{ opacity: 0.5 }}>
           +{rows.length - PREVIEW_ROWS} more
+        </Typography>
+      )}
+    </Stack>
+  );
+
+  return (
+    <Tooltip title={title} placement="right" arrow>
+      {children}
+    </Tooltip>
+  );
+}
+
+// ─── Data source preview tooltip ─────────────────────────────────────────────
+
+const DS_PREVIEW_ROWS = 5;
+const DS_PREVIEW_COLS = 4;
+
+function DataSourcePreviewTooltip({
+  source,
+  children,
+}: {
+  source: StudioDataSource;
+  children: React.ReactElement;
+}) {
+  const rows = source.rows;
+  if (!rows || rows.length === 0) {
+    return children;
+  }
+
+  const visibleFields = source.fields.filter((f) => !f.hidden).slice(0, DS_PREVIEW_COLS);
+  const previewRows = rows.slice(0, DS_PREVIEW_ROWS);
+
+  const title = (
+    <Stack spacing={0.5}>
+      <Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.8 }}>
+        {source.label}
+      </Typography>
+      <Stack
+        component="table"
+        sx={{ borderCollapse: 'collapse', fontSize: 11, fontFamily: 'monospace' }}
+      >
+        <thead>
+          <tr>
+            {visibleFields.map((f) => (
+              <Typography
+                key={f.id}
+                component="th"
+                variant="caption"
+                sx={{
+                  px: 0.75,
+                  py: 0.25,
+                  opacity: 0.6,
+                  textAlign: 'left',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  maxWidth: 80,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {f.label}
+              </Typography>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {previewRows.map((row, ri) => (
+            // eslint-disable-next-line react/no-array-index-key
+            <tr key={ri}>
+              {visibleFields.map((f) => {
+                const v = row[f.id];
+                const display = v === null || v === undefined ? '—' : String(v);
+                return (
+                  <Typography
+                    key={f.id}
+                    component="td"
+                    variant="caption"
+                    sx={{
+                      px: 0.75,
+                      py: 0.125,
+                      opacity: 0.85,
+                      whiteSpace: 'nowrap',
+                      maxWidth: 80,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {display}
+                  </Typography>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </Stack>
+      {rows.length > DS_PREVIEW_ROWS && (
+        <Typography variant="caption" sx={{ opacity: 0.5 }}>
+          +{rows.length - DS_PREVIEW_ROWS} more rows
+        </Typography>
+      )}
+      {source.fields.filter((f) => !f.hidden).length > DS_PREVIEW_COLS && (
+        <Typography variant="caption" sx={{ opacity: 0.5 }}>
+          +{source.fields.filter((f) => !f.hidden).length - DS_PREVIEW_COLS} more columns
         </Typography>
       )}
     </Stack>
@@ -157,8 +260,9 @@ function DataSourceSection(props: {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingField, setEditingField] = React.useState<StudioExpressionField | undefined>(undefined);
   const controller = useStudioController();
-  const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
-  const selectedSourceId = useStudioSelector((state) => state.shell.selectedSourceId);
+  const shell = useStudioSelector(selectShell);
+  const selectedFieldId = shell.selectedFieldId;
+  const selectedSourceId = shell.selectedSourceId;
 
   const sourceExprFields = expressionFields.filter((ef) => ef.sourceId === source.id && !ef.hidden);
 
@@ -194,22 +298,24 @@ function DataSourceSection(props: {
 
   return (
     <div>
-      <ListItemButton onClick={() => setOpen((prev) => !prev)} sx={{ px: 0, py: 0.5 }}>
-        <ListItemText
-          primary={
-            <Typography variant="subtitle2" noWrap>
-              {source.label}
-            </Typography>
-          }
-          secondary={
-            <Typography variant="caption" color="text.secondary">
-              {visibleFieldCount} field{visibleFieldCount !== 1 ? 's' : ''} ·{' '}
-              {source.rows?.length ?? 0} rows
-            </Typography>
-          }
-        />
-        {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-      </ListItemButton>
+      <DataSourcePreviewTooltip source={source}>
+        <ListItemButton onClick={() => setOpen((prev) => !prev)} sx={{ px: 0, py: 0.5 }}>
+          <ListItemText
+            primary={
+              <Typography variant="subtitle2" noWrap>
+                {source.label}
+              </Typography>
+            }
+            secondary={
+              <Typography variant="caption" color="text.secondary">
+                {visibleFieldCount} field{visibleFieldCount !== 1 ? 's' : ''} ·{' '}
+                {source.rows?.length ?? 0} rows
+              </Typography>
+            }
+          />
+          {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+        </ListItemButton>
+      </DataSourcePreviewTooltip>
 
       <Collapse in={open}>
         <List dense disablePadding sx={{ pl: 1 }}>
@@ -288,10 +394,10 @@ function DataSourceSection(props: {
 // ─── Drawer ───────────────────────────────────────────────────────────────────
 
 export function StudioDataDrawer() {
-  const dataSources = useStudioSelector((state) => state.dataSources);
-  const expressionFields = useStudioSelector((state) => state.expressionFields);
-  const relationships = useStudioSelector((state) => state.relationships);
-  const mode = useStudioSelector((state) => state.mode);
+  const dataSources = useStudioSelector(selectDataSources);
+  const expressionFields = useStudioSelector(selectExpressionFields);
+  const relationships = useStudioSelector(selectRelationships);
+  const mode = useStudioSelector(selectMode);
   const sourceList = Object.values(dataSources).filter((s) => !s.hidden);
 
   if (sourceList.length === 0) {

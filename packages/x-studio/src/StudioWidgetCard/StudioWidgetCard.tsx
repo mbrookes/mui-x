@@ -1,9 +1,22 @@
 'use client';
 import * as React from 'react';
-import { Box, Chip, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
+import {
+  Box,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Paper,
+  Stack,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
+import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 
 import { useStudioController, useStudioSelector } from '../context';
 import type { StudioPageTheme } from '../models';
@@ -64,7 +77,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
 
   const ref = React.useRef<HTMLDivElement>(null);
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
+  const chartExpandContainerRef = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
+  const [expanded, setExpanded] = React.useState(false);
 
   // Defer heavy widget content to after the first browser paint so the card
   // shells are visible immediately on initial load. Widgets that have already
@@ -158,9 +173,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   }
 
   const canExport = widget.kind === 'grid' || widget.kind === 'chart';
+  const isChart = widget.kind === 'chart';
   const showEditActions =
     mode === 'edit' && (isSelected || (!dimmed && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
+  const showViewExpand = mode === 'view' && hovered && isChart;
   const actionButtonSx = { width: 24, height: 24, padding: 0, '& svg': { fontSize: 16 } } as const;
 
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
@@ -242,6 +259,22 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
               </IconButton>
             </Tooltip>
           )}
+          {isChart && (
+            <Tooltip title="Expand chart">
+              <IconButton
+                size="small"
+                sx={actionButtonSx}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setExpanded(true);
+                }}
+                aria-label="Expand chart"
+                tabIndex={showEditActions ? 0 : -1}
+              >
+                <OpenInFullIcon />
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip title="Duplicate widget">
             <IconButton
               size="small"
@@ -272,8 +305,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           </Tooltip>
         </Stack>
       )}
-      {mode === 'view' && canExport && (
-        <Box
+      {mode === 'view' && (canExport || isChart) && (
+        <Stack
+          direction="row"
           sx={{
             position: 'absolute',
             ...overlayTopSx,
@@ -284,22 +318,40 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             borderColor: 'divider',
             borderRadius: 1,
             boxShadow: '0 2px 6px rgba(0,0,0,0.10)',
-            visibility: showViewExport ? 'visible' : 'hidden',
-            pointerEvents: showViewExport ? 'auto' : 'none',
+            visibility: showViewExport || showViewExpand ? 'visible' : 'hidden',
+            pointerEvents: showViewExport || showViewExpand ? 'auto' : 'none',
           }}
         >
-          <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
-            <IconButton
-              size="small"
-              sx={actionButtonSx}
-              onClick={handleExport}
-              aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
-              tabIndex={showViewExport ? 0 : -1}
-            >
-              <DownloadIcon />
-            </IconButton>
-          </Tooltip>
-        </Box>
+          {canExport && (
+            <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
+              <IconButton
+                size="small"
+                sx={actionButtonSx}
+                onClick={handleExport}
+                aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
+                tabIndex={showViewExport ? 0 : -1}
+              >
+                <DownloadIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+          {isChart && (
+            <Tooltip title="Expand chart">
+              <IconButton
+                size="small"
+                sx={actionButtonSx}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setExpanded(true);
+                }}
+                aria-label="Expand chart"
+                tabIndex={showViewExpand ? 0 : -1}
+              >
+                <OpenInFullIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Stack>
       )}
       <Stack spacing={widget.kind === 'grid' ? 2 : 0.5}>
         {/* Widget header */}
@@ -350,6 +402,60 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         {showContent && widget.kind === 'text' && <StudioTextWidget widget={widget} />}
         {showContent && widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
       </Stack>
+      {/* Chart full-screen overlay dialog */}
+      {isChart && expanded && (
+        <Dialog
+          open={expanded}
+          onClose={() => setExpanded(false)}
+          maxWidth={false}
+          slotProps={{
+            paper: {
+              sx: {
+                width: 'min(1400px, 90vw)',
+                maxWidth: 'none',
+              },
+            },
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 1 }}>
+            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+              <Typography variant="h6" noWrap>
+                {widget.title || 'Chart'}
+              </Typography>
+              {widget.subtitle && (
+                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                  {widget.subtitle}
+                </Typography>
+              )}
+            </Box>
+            <IconButton
+              size="small"
+              onClick={() => setExpanded(false)}
+              aria-label="Close expanded chart"
+              sx={{ flexShrink: 0 }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent sx={{ p: 2, pt: 0 }}>
+            <Box ref={chartExpandContainerRef}>
+              <StudioChartWidget widget={widget} dataSource={source} height={500} />
+            </Box>
+          </DialogContent>
+          <DialogActions sx={{ px: 2, pb: 1.5 }}>
+            <Tooltip title="Export as PNG">
+              <IconButton
+                size="small"
+                onClick={() => exportChartToPng(widget, chartExpandContainerRef.current)}
+                aria-label="Export expanded chart as PNG"
+              >
+                <DownloadIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </DialogActions>
+        </Dialog>
+      )}
     </Paper>
   );
 });

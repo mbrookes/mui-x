@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Alert, Divider, Stack } from '@mui/material';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectFilters, selectDataSources, selectRelationships, selectWidgets } from '../context';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioDataSource, StudioFilterState } from '../models';
 import type { SimpleField } from './filterDrawerTypes';
@@ -10,11 +10,11 @@ import { FilterSection, WidgetFilterSection, CrossFilterSection, InteractiveFilt
 
 export function StudioFiltersDrawer() {
   const controller = useStudioController();
-  const filters = useStudioSelector((state) => state.filters);
+  const filters = useStudioSelector(selectFilters);
   const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
-  const dataSources = useStudioSelector((state) => state.dataSources);
-  const widgets = useStudioSelector((state) => state.widgets);
-  const relationships = useStudioSelector((state) => state.relationships);
+  const dataSources = useStudioSelector(selectDataSources);
+  const widgets = useStudioSelector(selectWidgets);
+  const relationships = useStudioSelector(selectRelationships);
 
   const allFields = React.useMemo(() => {
     const fieldMap = new Map<string, SimpleField>();

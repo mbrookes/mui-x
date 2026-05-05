@@ -4,7 +4,7 @@ import { DataGridPro, type GridColDef, type GridCellParams } from '@mui/x-data-g
 import { Chip, Stack } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectFilters, selectDataSources, selectExpressionFields, selectRelationships, selectActivePageId } from '../context';
 import { resolveMetricRefs, resolveRows } from '../internals/chartUtils';
 import { formatFieldValue } from '../internals/numberFormat';
 
@@ -19,11 +19,11 @@ export interface StudioGridWidgetProps {
 export const StudioGridWidget = React.memo(function StudioGridWidget(props: StudioGridWidgetProps) {
   const { dataSource, widget } = props;
   const controller = useStudioController();
-  const filters = useStudioSelector((state) => state.filters);
-  const dataSources = useStudioSelector((state) => state.dataSources);
-  const expressionFields = useStudioSelector((state) => state.expressionFields);
-  const relationships = useStudioSelector((state) => state.relationships);
-  const activePageId = useStudioSelector((state) => state.dashboard.activePageId);
+  const filters = useStudioSelector(selectFilters);
+  const dataSources = useStudioSelector(selectDataSources);
+  const expressionFields = useStudioSelector(selectExpressionFields);
+  const relationships = useStudioSelector(selectRelationships);
+  const activePageId = useStudioSelector(selectActivePageId);
   const visibleFields = widget.config.columns?.length
     ? widget.config.columns
     : (dataSource?.fields.map((f) => f.id) ?? []);

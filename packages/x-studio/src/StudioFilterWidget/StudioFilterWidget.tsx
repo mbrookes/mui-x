@@ -20,7 +20,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import type { StudioWidget, StudioDataSource } from '../models';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectDataSources, selectRelationships, selectExpressionFields } from '../context';
 import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 
 export interface StudioFilterWidgetProps {
@@ -386,9 +386,9 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   const { widget, dataSource } = props;
   const { config } = widget;
   const controller = useStudioController();
-  const dataSources = useStudioSelector((state) => state.dataSources);
-  const relationships = useStudioSelector((state) => state.relationships);
-  const expressionFields = useStudioSelector((state) => state.expressionFields);
+  const dataSources = useStudioSelector(selectDataSources);
+  const relationships = useStudioSelector(selectRelationships);
+  const expressionFields = useStudioSelector(selectExpressionFields);
 
   const filterWidgetType = config.filterWidgetType ?? 'multi-select';
   const fieldId = config.filterWidgetField ?? '';

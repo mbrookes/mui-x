@@ -125,6 +125,97 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
   const widgetRows = activePage?.widgetRows;
   const pageTheme = activePage?.theme;
   const controller = useStudioController();
+  const canvasRef = React.useRef<HTMLDivElement>(null);
+
+  // ── Auto-scroll while dragging near the top/bottom viewport edge ────────────
+  React.useEffect(() => {
+    if (mode !== 'edit') {
+      return undefined;
+    }
+
+    const EDGE_ZONE = 80; // px from viewport top/bottom that triggers scroll
+    const MAX_SPEED = 16; // px per frame at the very edge
+
+    let rafId: number | null = null;
+    let scrollEl: Element | null = null;
+    let scrollDir = 0; // -1 up, 0 none, +1 down
+
+    function findScrollParent(el: Element | null): Element | null {
+      while (el && el !== document.documentElement) {
+        const { overflowY } = getComputedStyle(el);
+        if (overflowY === 'auto' || overflowY === 'scroll') {
+          return el;
+        }
+        el = el.parentElement;
+      }
+      return document.scrollingElement ?? document.documentElement;
+    }
+
+    function step() {
+      if (scrollDir !== 0 && scrollEl) {
+        scrollEl.scrollTop += scrollDir * MAX_SPEED;
+        rafId = requestAnimationFrame(step);
+      }
+    }
+
+    function onDragOver(event: DragEvent) {
+      if (!scrollEl) {
+        scrollEl = findScrollParent(canvasRef.current);
+      }
+      const { clientY } = event;
+      const viewH = window.innerHeight;
+      if (clientY < EDGE_ZONE) {
+        const newDir = -1;
+        if (scrollDir !== newDir) {
+          scrollDir = newDir;
+          if (rafId === null) {
+            rafId = requestAnimationFrame(step);
+          }
+        }
+      } else if (clientY > viewH - EDGE_ZONE) {
+        const newDir = 1;
+        if (scrollDir !== newDir) {
+          scrollDir = newDir;
+          if (rafId === null) {
+            rafId = requestAnimationFrame(step);
+          }
+        }
+      } else {
+        scrollDir = 0;
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+      }
+    }
+
+    function stopScroll() {
+      scrollDir = 0;
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+    }
+
+    const node = canvasRef.current;
+    if (!node) {
+      return undefined;
+    }
+    node.addEventListener('dragover', onDragOver);
+    node.addEventListener('drop', stopScroll);
+    node.addEventListener('dragleave', (e: DragEvent) => {
+      // Only stop if leaving the canvas entirely (not moving between children)
+      if (!node.contains(e.relatedTarget as Node)) {
+        stopScroll();
+      }
+    });
+
+    return () => {
+      node.removeEventListener('dragover', onDragOver);
+      node.removeEventListener('drop', stopScroll);
+      stopScroll();
+    };
+  }, [mode]);
 
   // Drop handler for insertion points.
   // orientation='horizontal' → insert a brand-new row at rowIndex.
@@ -189,7 +280,7 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
 
   if (!widgetRows || widgetRows.length === 0) {
     return (
-      <Box sx={{ p: mode === 'edit' ? 0 : '8px' }}>
+      <Box ref={canvasRef} sx={{ p: mode === 'edit' ? 0 : '8px' }}>
         <Paper
           variant="outlined"
           sx={{
@@ -218,6 +309,7 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
 
   return (
     <Box
+      ref={canvasRef}
       sx={{
         width: '100%',
         p: mode === 'edit' ? 0 : '8px',

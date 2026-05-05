@@ -115,7 +115,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     }
     function handleDragStart(event: DragEvent) {
       setIsDragging(true);
-      controller.setSelectedWidget(widgetId);
+      // Do NOT call setSelectedWidget here — it causes all N-1 other widget cards
+      // to re-render (dimmed selector) right at the performance-critical drag-start
+      // moment. Selection is set on click (see Paper onClick) or after a drop.
       event.dataTransfer?.setData(
         'application/json',
         JSON.stringify({ type: 'canvas-widget', widgetId }),

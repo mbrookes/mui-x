@@ -21,6 +21,7 @@ import {
 import { resolveRowsCached } from '../internals/resolvedRowsCache';
 import { useStudioSelector, selectFilters, selectDataSources, selectRelationships, selectExpressionFields, selectActivePageId } from '../context';
 import { usePageChartColors } from '../internals/usePageChartColors';
+import { cachedCompute } from '../internals/computedCache';
 
 export function useChartWidgetData(
   widget: StudioWidget,
@@ -213,9 +214,15 @@ export function useChartWidgetData(
     if (!xField || !seriesField || !yField || enrichedRows.length === 0) {
       return null;
     }
-    return applyRankToSeriesFieldData(
-      aggregateByTwoFields(enrichedRows, xField, seriesField, yField, xGroupBy),
-      widgetRankFilter,
+    const rkKey = JSON.stringify(widgetRankFilter);
+    return cachedCompute(
+      enrichedRows,
+      `sfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${rkKey}`,
+      () =>
+        applyRankToSeriesFieldData(
+          aggregateByTwoFields(enrichedRows, xField, seriesField, yField, xGroupBy),
+          widgetRankFilter,
+        ),
     );
   }, [enrichedRows, config.xField, config.seriesField, activeYFields, xGroupBy, widgetRankFilter]);
 
@@ -228,10 +235,16 @@ export function useChartWidgetData(
     if (!xField || !seriesField || !yField || allEnrichedRows.length === 0) {
       return [];
     }
-    return applyRankToSeriesFieldData(
-      aggregateByTwoFields(allEnrichedRows, xField, seriesField, yField, xGroupBy),
-      widgetRankFilter,
-    ).seriesNames;
+    const rkKey = JSON.stringify(widgetRankFilter);
+    return cachedCompute(
+      allEnrichedRows,
+      `asn:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${rkKey}`,
+      () =>
+        applyRankToSeriesFieldData(
+          aggregateByTwoFields(allEnrichedRows, xField, seriesField, yField, xGroupBy),
+          widgetRankFilter,
+        ).seriesNames,
+    );
   }, [allEnrichedRows, config.xField, config.seriesField, activeYFields, xGroupBy, widgetRankFilter]);
 
   // Always-resolved palette: used for stable per-series color assignment.
@@ -254,8 +267,15 @@ export function useChartWidgetData(
     if (isMultiSeries) {
       return null; // handled by multiYData
     }
-    const raw = aggregateByField(enrichedRows, xField, activeYFields[0], xGroupBy, config.yAggregation);
-    return applyRankToAggregated(raw, widgetRankFilter);
+    const rkKey = JSON.stringify(widgetRankFilter);
+    return cachedCompute(
+      enrichedRows,
+      `cd:${xField}:${activeYFields[0]}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}`,
+      () => {
+        const raw = aggregateByField(enrichedRows, xField, activeYFields[0], xGroupBy, config.yAggregation);
+        return applyRankToAggregated(raw, widgetRankFilter);
+      },
+    );
   }, [enrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter, xGroupBy, config.yAggregation]);
 
   // Multi-Y-field data (multiple explicit series)
@@ -264,8 +284,15 @@ export function useChartWidgetData(
     if (!xField || activeYFields.length < 2 || enrichedRows.length === 0) {
       return null;
     }
-    const raw = aggregateMultipleSeries(enrichedRows, xField, activeYFields, xGroupBy);
-    return applyRankToMultiSeries(raw, widgetRankFilter);
+    const rkKey = JSON.stringify(widgetRankFilter);
+    return cachedCompute(
+      enrichedRows,
+      `myd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${rkKey}`,
+      () => {
+        const raw = aggregateMultipleSeries(enrichedRows, xField, activeYFields, xGroupBy);
+        return applyRankToMultiSeries(raw, widgetRankFilter);
+      },
+    );
   }, [enrichedRows, config.xField, activeYFields, widgetRankFilter, xGroupBy]);
 
   // Full (baseline) aggregations — used for ghost rendering when cross-filters are active.
@@ -278,8 +305,15 @@ export function useChartWidgetData(
     if (!xField || activeYFields.length === 0 || isMultiSeries || allEnrichedRows.length === 0) {
       return null;
     }
-    const raw = aggregateByField(allEnrichedRows, xField, activeYFields[0], xGroupBy, config.yAggregation);
-    return applyRankToAggregated(raw, widgetRankFilter);
+    const rkKey = JSON.stringify(widgetRankFilter);
+    return cachedCompute(
+      allEnrichedRows,
+      `acd:${xField}:${activeYFields[0]}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}`,
+      () => {
+        const raw = aggregateByField(allEnrichedRows, xField, activeYFields[0], xGroupBy, config.yAggregation);
+        return applyRankToAggregated(raw, widgetRankFilter);
+      },
+    );
   }, [hasCrossFilters, allEnrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter, xGroupBy, config.yAggregation]);
 
   const allSeriesFieldData = React.useMemo(() => {
@@ -292,9 +326,15 @@ export function useChartWidgetData(
     if (!xField || !seriesField || !yField || allEnrichedRows.length === 0) {
       return null;
     }
-    return applyRankToSeriesFieldData(
-      aggregateByTwoFields(allEnrichedRows, xField, seriesField, yField, xGroupBy),
-      widgetRankFilter,
+    const rkKey = JSON.stringify(widgetRankFilter);
+    return cachedCompute(
+      allEnrichedRows,
+      `asfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${rkKey}`,
+      () =>
+        applyRankToSeriesFieldData(
+          aggregateByTwoFields(allEnrichedRows, xField, seriesField, yField, xGroupBy),
+          widgetRankFilter,
+        ),
     );
   }, [hasCrossFilters, allEnrichedRows, config.xField, config.seriesField, activeYFields, xGroupBy, widgetRankFilter]);
 
@@ -306,8 +346,15 @@ export function useChartWidgetData(
     if (!xField || activeYFields.length < 2 || allEnrichedRows.length === 0) {
       return null;
     }
-    const raw = aggregateMultipleSeries(allEnrichedRows, xField, activeYFields, xGroupBy);
-    return applyRankToMultiSeries(raw, widgetRankFilter);
+    const rkKey = JSON.stringify(widgetRankFilter);
+    return cachedCompute(
+      allEnrichedRows,
+      `amyd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${rkKey}`,
+      () => {
+        const raw = aggregateMultipleSeries(allEnrichedRows, xField, activeYFields, xGroupBy);
+        return applyRankToMultiSeries(raw, widgetRankFilter);
+      },
+    );
   }, [hasCrossFilters, allEnrichedRows, config.xField, activeYFields, widgetRankFilter, xGroupBy]);
 
   // Data for scatter charts
@@ -319,7 +366,9 @@ export function useChartWidgetData(
       return null;
     }
 
-    return prepareScatterData(enrichedRows, xField, yField);
+    return cachedCompute(enrichedRows, `scat:${xField}:${yField}`, () =>
+      prepareScatterData(enrichedRows, xField, yField),
+    );
   }, [enrichedRows, config.xField, config.yField]);
 
   return {

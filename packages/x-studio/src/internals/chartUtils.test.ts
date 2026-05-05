@@ -1516,6 +1516,56 @@ describe('resolveChartRowsForAggregation', () => {
       },
     });
   });
+
+  it('returns the same Row[] reference on a second call with the same inputs (cache hit)', () => {
+    const result1 = resolveChartRowsForAggregation(
+      customers,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      dataSources,
+      relationships,
+      [],
+    );
+    const result2 = resolveChartRowsForAggregation(
+      customers,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      dataSources,
+      relationships,
+      [],
+    );
+    expect(result1).toBe(result2);
+  });
+
+  it('returns a different Row[] reference when the rows input changes', () => {
+    const rows1 = [{ id: 'CUS-1', country: 'Germany' }];
+    const rows2 = [{ id: 'CUS-1', country: 'Germany' }]; // same values, different reference
+    const result1 = resolveChartRowsForAggregation(
+      rows1,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      dataSources,
+      relationships,
+      [],
+    );
+    const result2 = resolveChartRowsForAggregation(
+      rows2,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      dataSources,
+      relationships,
+      [],
+    );
+    expect(result1).not.toBe(result2);
+  });
 });
 
 describe('analyzeChartSupport', () => {

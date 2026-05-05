@@ -1,7 +1,15 @@
 'use client';
 import * as React from 'react';
 import { Alert, Divider, Stack } from '@mui/material';
-import { useStudioController, useStudioSelector, selectFilters, selectDataSources, selectRelationships, selectWidgets } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectShell,
+  selectFilters,
+  selectDataSources,
+  selectRelationships,
+  selectWidgets,
+} from '../context';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioDataSource, StudioFilterState } from '../models';
 import type { SimpleField } from './filterDrawerTypes';

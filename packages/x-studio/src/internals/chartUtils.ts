@@ -385,6 +385,11 @@ export function resolveRows(
 
   let rows = enrichedRows;
 
+  // Pre-enrich each distinct foreign source once, regardless of how many cross-filters
+  // target it. Without this cache, each cross-filter re-runs enrichRowsWithExpressions
+  // over the same foreign rows — O(crossFilters × foreignRows) instead of O(foreignRows).
+  const foreignEnrichedCache = new Map<string, Row[]>();
+
   for (const f of crossFilters) {
     const foreignSource = dataSources[f.filterSourceId];
     if (!foreignSource?.rows) {
@@ -401,10 +406,16 @@ export function resolveRows(
     void removedField;
     // Enrich the foreign source rows with expression fields before filtering so
     // that cross-filters targeting computed fields (e.g. expr-order-country) work.
-    const enrichedForeignRows =
-      expressionFields.length > 0
-        ? enrichRowsWithExpressions(foreignSource.rows, expressionFields, f.filterSourceId, dataSources, relationships)
-        : foreignSource.rows;
+    // Use cache to avoid re-enriching the same foreign source for multiple cross-filters.
+    if (!foreignEnrichedCache.has(f.filterSourceId)) {
+      foreignEnrichedCache.set(
+        f.filterSourceId,
+        expressionFields.length > 0
+          ? enrichRowsWithExpressions(foreignSource.rows, expressionFields, f.filterSourceId, dataSources, relationships)
+          : foreignSource.rows,
+      );
+    }
+    const enrichedForeignRows = foreignEnrichedCache.get(f.filterSourceId)!;
     const matchingForeignRows = applyFilters(enrichedForeignRows, [baseFilter]);
 
     // Build the allowed set from the join field in the foreign source

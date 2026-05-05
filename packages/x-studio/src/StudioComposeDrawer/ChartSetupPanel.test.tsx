@@ -83,10 +83,14 @@ const mockState = {
   expressionFields: [],
 };
 
-vi.mock('../context', () => ({
-  useStudioController: () => controller,
-  useStudioSelector: (selector: (state: typeof mockState) => unknown) => selector(mockState),
-}));
+vi.mock('../context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../context')>();
+  return {
+    ...actual,
+    useStudioController: () => controller,
+    useStudioSelector: (selector: (state: typeof mockState) => unknown) => selector(mockState),
+  };
+});
 
 const { render } = createRenderer();
 

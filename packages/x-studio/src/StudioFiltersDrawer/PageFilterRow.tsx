@@ -21,7 +21,7 @@ import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
 import { FilterCard } from './FilterCard';
 import { FilterBody } from './FilterBody';
-import { useStudioSelector } from '../context';
+import { useStudioSelector, selectFilters } from '../context';
 
 export interface PageFilterRowProps {
   filter: StudioFilterState;
@@ -47,13 +47,12 @@ export function PageFilterRow(props: PageFilterRowProps) {
       : operators[0].value;
   const fieldValues = useFieldValues(filter.field, fieldType);
   const fieldLabel = currentField?.label ?? filter.field;
-  const hasAnotherRankFilter = useStudioSelector((state) =>
-    state.filters.some(
-      (candidate) =>
-        candidate.id !== filter.id &&
-        candidate.scope !== 'cross-filter' &&
-        candidate.filterMode === 'rank',
-    ),
+  const filters = useStudioSelector(selectFilters);
+  const hasAnotherRankFilter = filters.some(
+    (candidate) =>
+      candidate.id !== filter.id &&
+      candidate.scope !== 'cross-filter' &&
+      candidate.filterMode === 'rank',
   );
   const disableRankMode = hasAnotherRankFilter && filter.filterMode !== 'rank';
 

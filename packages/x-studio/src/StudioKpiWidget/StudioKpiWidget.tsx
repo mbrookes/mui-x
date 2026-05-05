@@ -5,6 +5,7 @@ import { Box, Tooltip } from '@mui/material';
 import type { StudioDataSource, StudioWidget, StudioFilterState, StudioExpressionField } from '../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { resolveRows, resolveMetricRefs } from '../internals/chartUtils';
+import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 import { usePageChartColors } from '../internals/usePageChartColors';
 import { useStudioSelector, selectFilters, selectDataSources, selectRelationships, selectExpressionFields } from '../context';
 import { formatNumber } from '../internals/numberFormat';
@@ -70,13 +71,22 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       );
       const allFilters = resolveMetricRefs([...pageFilters, ...widgetFilters, ...interactiveFilters], dataSources);
 
+      // Pre-enrich the source rows once so both the current-period and (when trend is
+      // enabled) previous-period resolveRows calls share the same enriched rows array.
+      // This halves the enrichRowsWithExpressions cost when kpiTrend is active.
+      const preEnrichedRows =
+        widget.sourceId && expressionFields.length > 0
+          ? enrichRowsWithExpressions(dataSource.rows, expressionFields, widget.sourceId, dataSources, relationships)
+          : dataSource.rows;
+
       const rows = resolveRows(
-        dataSource.rows,
+        preEnrichedRows,
         widget.sourceId,
         allFilters,
         dataSources,
         relationships,
         expressionFields,
+        { skipEnrichment: true },
       );
       const aggregation = config.kpiAggregation ?? 'sum';
 
@@ -188,12 +198,13 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
               f.id === dateFilter.id ? prevDateFilter : f,
             );
             const prevRows = resolveRows(
-              dataSource.rows,
+              preEnrichedRows,
               widget.sourceId,
               prevFilters,
               dataSources,
               relationships,
               expressionFields,
+              { skipEnrichment: true },
             );
             const previousValue = measureExprField
               ? evaluateMeasure(measureExprField, prevRows, expressionFields)

@@ -3,7 +3,7 @@ import * as React from 'react';
 import { Box, Tab, Tabs } from '@mui/material';
 import { useDrawerSubheader } from '../internals/DrawerPanel';
 import type { StudioWidgetKind } from '../models';
-import { useStudioSelector } from '../context';
+import { useStudioSelector, selectWidgets, selectShell } from '../context';
 import { AddWidgetView } from './AddWidgetView';
 import { ChartSetupPanel } from './ChartSetupPanel';
 import { FieldDetailView } from './FieldDetailView';
@@ -53,7 +53,7 @@ export const TYPE_FORMAT_LABEL: Record<string, string> = {
 function WidgetConfigView(props: { widgetId: string }) {
   const { widgetId } = props;
   const [tab, setTab] = React.useState(0);
-  const widget = useStudioSelector((state) => state.widgets[widgetId]);
+  const widget = useStudioSelector(selectWidgets)[widgetId];
 
   const handleTabChange = React.useCallback(
     (_event: React.SyntheticEvent, v: number) => setTab(v),
@@ -104,8 +104,9 @@ function WidgetConfigView(props: { widgetId: string }) {
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export function StudioComposeDrawer() {
-  const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
-  const selectedFieldId = useStudioSelector((state) => state.shell.selectedFieldId);
+  const shell = useStudioSelector(selectShell);
+  const selectedWidgetId = shell.selectedWidgetId;
+  const selectedFieldId = shell.selectedFieldId;
 
   useDrawerSubheader(null);
 

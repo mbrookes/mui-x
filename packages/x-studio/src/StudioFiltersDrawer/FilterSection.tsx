@@ -8,7 +8,7 @@ import {
   Typography,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectExpressionFields, selectDataSources } from '../context';
 import type { StudioDataSource, StudioFilterState } from '../models';
 import type { FieldOption, SimpleField } from './filterDrawerTypes';
 import type { AvailableSeries } from './RankFilterInput';
@@ -119,7 +119,7 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
 
 export function InteractiveFilterSection({ filters }: { filters: StudioFilterState[] }) {
   const controller = useStudioController();
-  const widgets = useStudioSelector((state) => state.widgets);
+  const widgets = useStudioSelector(selectWidgets);
 
   return (
     <CollapsibleSection title="Interactive filters">
@@ -183,9 +183,9 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
 
 export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }) {
   const controller = useStudioController();
-  const widgets = useStudioSelector((state) => state.widgets);
-  const expressionFields = useStudioSelector((state) => state.expressionFields);
-  const dataSources = useStudioSelector((state) => state.dataSources);
+  const widgets = useStudioSelector(selectWidgets);
+  const expressionFields = useStudioSelector(selectExpressionFields);
+  const dataSources = useStudioSelector(selectDataSources);
 
   /** Resolve a human-readable label for a filter field ID. */
   function resolveFieldLabel(fieldId: string, filterSourceId?: string): string {

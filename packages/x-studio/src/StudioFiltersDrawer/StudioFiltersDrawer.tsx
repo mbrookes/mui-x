@@ -10,8 +10,9 @@ import { FilterSection, WidgetFilterSection, CrossFilterSection, InteractiveFilt
 
 export function StudioFiltersDrawer() {
   const controller = useStudioController();
+  const shell = useStudioSelector(selectShell);
+  const selectedWidgetId = shell.selectedWidgetId;
   const filters = useStudioSelector(selectFilters);
-  const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
   const dataSources = useStudioSelector(selectDataSources);
   const widgets = useStudioSelector(selectWidgets);
   const relationships = useStudioSelector(selectRelationships);

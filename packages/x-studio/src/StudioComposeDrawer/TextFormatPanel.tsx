@@ -14,7 +14,7 @@ import {
   ToggleButtonGroup,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectWidgets } from '../context';
 import { CollapsibleSection } from '../internals/CollapsibleSection';
 import type { StudioWidgetConfig } from '../models';
 import { ColorInput } from './ColorInput';
@@ -116,7 +116,7 @@ function TextSectionFormat(props: TextSectionFormatProps) {
 export function TextFormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
-  const config = useStudioSelector((state) => state.widgets[widgetId]?.config);
+  const config = useStudioSelector(selectWidgets)[widgetId]?.config;
 
   if (!config) {
     return null;

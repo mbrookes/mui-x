@@ -3,7 +3,7 @@ import * as React from 'react';
 import { Alert, Box, Button, Divider, IconButton, Paper, Stack, Typography } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
-import { CanvasScrollContext, useStudioController, useStudioSelector } from '../context';
+import { CanvasScrollContext, useStudioController, useStudioSelector, selectShell, selectActivePageId, selectActivePage, selectWidgets, selectDataSources } from '../context';
 import { createDefaultWidget, WIDGET_TYPES, widgetKindRequiresDataSource, getWidgetSubtypeIcon } from '../internals/widgetUtils';
 import type { StudioWidget, StudioWidgetKind } from '../models';
 import { KIND_LABEL } from './StudioComposeDrawer';
@@ -162,10 +162,12 @@ interface WidgetInstanceListProps {
 
 function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
   const controller = useStudioController();
-  const selectedWidgetId = useStudioSelector((state) => state.shell.selectedWidgetId);
-  const activePageId = useStudioSelector((state) => state.dashboard.activePageId);
-  const widgetRows = useStudioSelector((state) => state.pages[activePageId]?.widgetRows ?? []);
-  const widgets = useStudioSelector((state) => state.widgets);
+  const shell = useStudioSelector(selectShell);
+  const selectedWidgetId = shell.selectedWidgetId;
+  const activePageId = useStudioSelector(selectActivePageId);
+  const activePage = useStudioSelector(selectActivePage);
+  const widgetRows = activePage?.widgetRows ?? [];
+  const widgets = useStudioSelector(selectWidgets);
 
   const pageWidgetIds = React.useMemo(
     () => new Set(widgetRows.flat()),
@@ -251,7 +253,7 @@ function smoothScrollToBottom(container: HTMLElement, duration = 420) {
 
 export function AddWidgetView() {
   const controller = useStudioController();
-  const dataSources = useStudioSelector((state) => state.dataSources);
+  const dataSources = useStudioSelector(selectDataSources);
   const canvasScrollRef = React.useContext(CanvasScrollContext);
   const [selectedKind, setSelectedKind] = React.useState<StudioWidgetKind | null>(null);
 

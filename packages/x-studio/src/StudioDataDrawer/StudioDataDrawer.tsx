@@ -175,7 +175,12 @@ function DataSourcePreviewTooltip({
   );
 
   return (
-    <Tooltip title={title} placement="right" arrow>
+    <Tooltip
+      title={title}
+      placement="right"
+      arrow
+      slotProps={{ tooltip: { sx: { maxWidth: 340 } } }}
+    >
       {children}
     </Tooltip>
   );

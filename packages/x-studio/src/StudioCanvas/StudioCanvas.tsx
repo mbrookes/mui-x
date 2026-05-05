@@ -8,20 +8,25 @@ import { createDefaultWidget, widgetKindRequiresDataSource } from '../internals/
 
 // Plain JS DnD insertion point component — must live at module level
 function InsertionPoint({
-  rowIndex: _rowIndex,
-  colIndex: _colIndex,
+  rowIndex,
+  colIndex,
   onDrop,
   orientation,
   mode,
 }: {
   rowIndex: number;
   colIndex: number;
-  onDrop: (data: any) => void;
+  onDrop: (data: any, rowIndex: number, colIndex: number, orientation: 'horizontal' | 'vertical') => void;
   orientation: 'vertical' | 'horizontal';
   mode: string;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
   const [isOver, setIsOver] = React.useState(false);
+  // Keep a ref to the latest position values so the effect can capture them
+  // without listing them as deps (position never causes listener re-registration).
+  const posRef = React.useRef({ rowIndex, colIndex, orientation });
+  posRef.current = { rowIndex, colIndex, orientation };
+
   React.useEffect(() => {
     // No-op in view mode
     if (mode !== 'edit') {
@@ -46,7 +51,8 @@ function InsertionPoint({
       setIsOver(false);
       try {
         const data = JSON.parse(event.dataTransfer?.getData('application/json') || '{}');
-        onDrop(data);
+        const { rowIndex: r, colIndex: c, orientation: o } = posRef.current;
+        onDrop(data, r, c, o);
       } catch {
         /* ignore invalid JSON */
       }
@@ -59,6 +65,9 @@ function InsertionPoint({
       node.removeEventListener('dragleave', handleDragLeave);
       node.removeEventListener('drop', handleDropEvent);
     };
+  // onDrop is now a stable useCallback; mode changes require listener re-registration.
+  // rowIndex/colIndex/orientation are read from posRef so excluded from deps.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onDrop, mode]);
   // Only show the line when hovered, otherwise invisible and non-interfering
   return (
@@ -217,23 +226,18 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
     };
   }, [mode]);
 
-  // Drop handler for insertion points.
-  // orientation='horizontal' → insert a brand-new row at rowIndex.
-  // orientation='vertical'   → insert into the existing row at colIndex.
-  const handleDrop =
-    (rowIndex: number, colIndex: number, orientation: 'horizontal' | 'vertical') => (data: any) => {
+  // Keep the latest widgetRows in a ref so the stable handleDrop closure can
+  // read current data without being recreated on every drop.
+  const widgetRowsRef = React.useRef(widgetRows);
+  widgetRowsRef.current = widgetRows;
+
+  // Stable drop handler — useCallback with only [controller] as dep.
+  // rowIndex / colIndex / orientation are passed in by InsertionPoint at call time
+  // via posRef, so they never cause useEffect listener re-registration.
+  const handleDrop = React.useCallback(
+    (data: any, rowIndex: number, colIndex: number, orientation: 'horizontal' | 'vertical') => {
+      const currentRows = widgetRowsRef.current;
       const activePageId = controller.getState().dashboard.activePageId;
-      const updateRows = (rows: string[][]) => {
-        controller.updateState({
-          pages: {
-            ...controller.getState().pages,
-            [activePageId]: {
-              ...controller.getState().pages[activePageId],
-              widgetRows: rows,
-            },
-          },
-        });
-      };
 
       if (data?.type === 'compose-widget' && data.kind) {
         const sources = Object.values(controller.getState().dataSources);
@@ -241,9 +245,7 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
           return;
         }
         const newWidget = createDefaultWidget(data.kind, sources[0]);
-        // Build the target row layout first, then commit once (widget + layout + selection
-        // in a single store update so there's only one React render).
-        const rows = widgetRows.map((r) => [...r]);
+        const rows = currentRows.map((r) => [...r]);
         if (orientation === 'horizontal') {
           rows.splice(rowIndex, 0, [newWidget.id]);
         } else {
@@ -262,21 +264,31 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
           shell: { ...state.shell, selectedWidgetId: newWidget.id },
         });
       } else if (data?.type === 'canvas-widget' && data.widgetId) {
-        // Remove the widget from wherever it currently lives
-        const rows = widgetRows.map((r) => r.filter((id) => id !== data.widgetId));
+        const rows = currentRows.map((r) => r.filter((id) => id !== data.widgetId));
         if (orientation === 'horizontal') {
-          // Insert a new row at rowIndex containing only this widget
           rows.splice(rowIndex, 0, [data.widgetId]);
         } else {
           const row = rows[rowIndex] ?? [];
           row.splice(colIndex, 0, data.widgetId);
           rows[rowIndex] = row;
         }
-        // Remove any rows that became empty after the move
         const cleaned = rows.filter((r) => r.length > 0);
-        updateRows(cleaned);
+        // Select the dropped widget after repositioning so the compose panel opens
+        const activePageId = controller.getState().dashboard.activePageId;
+        controller.updateState({
+          pages: {
+            ...controller.getState().pages,
+            [activePageId]: {
+              ...controller.getState().pages[activePageId],
+              widgetRows: cleaned,
+            },
+          },
+          shell: { ...controller.getState().shell, selectedWidgetId: data.widgetId },
+        });
       }
-    };
+    },
+    [controller],
+  );
 
   if (!widgetRows || widgetRows.length === 0) {
     return (
@@ -329,7 +341,7 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
         <InsertionPoint
           rowIndex={0}
           colIndex={0}
-          onDrop={handleDrop(0, 0, 'horizontal')}
+          onDrop={handleDrop}
           orientation="horizontal"
           mode={mode}
         />
@@ -350,7 +362,7 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
               <InsertionPoint
                 rowIndex={rowIndex}
                 colIndex={0}
-                onDrop={handleDrop(rowIndex, 0, 'vertical')}
+                onDrop={handleDrop}
                 orientation="vertical"
                 mode={mode}
               />
@@ -369,7 +381,7 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
                   <InsertionPoint
                     rowIndex={rowIndex}
                     colIndex={colIndex + 1}
-                    onDrop={handleDrop(rowIndex, colIndex + 1, 'vertical')}
+                    onDrop={handleDrop}
                     orientation="vertical"
                     mode={mode}
                   />
@@ -382,7 +394,7 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
             <InsertionPoint
               rowIndex={rowIndex + 1}
               colIndex={0}
-              onDrop={handleDrop(rowIndex + 1, 0, 'horizontal')}
+              onDrop={handleDrop}
               orientation="horizontal"
               mode={mode}
             />

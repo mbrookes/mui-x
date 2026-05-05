@@ -22,7 +22,8 @@
     "typescript": "tsc -p tsconfig.json",
     "build": "code-infra build",
     "prebuild": "rimraf build tsconfig.build.tsbuildinfo",
-    "bench": "vitest bench --config vitest.config.bench.mts"
+    "bench": "tsx src/benchmarks/run.ts",
+    "bench:vitest": "vitest bench --config vitest.config.bench.mts --run"
   },
   "repository": {
     "type": "git",

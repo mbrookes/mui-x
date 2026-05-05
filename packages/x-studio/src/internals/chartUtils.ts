@@ -1236,6 +1236,10 @@ export type ChartSupportReason =
 export interface ChartSupportResult {
   supported: boolean;
   reason?: ChartSupportReason;
+  /** Precomputed field → owning sourceId mapping (only present when supported=true). */
+  fieldOwners?: Map<string, string>;
+  /** Precomputed anchor source for aggregation (only present when supported=true). */
+  anchorSourceId?: string;
 }
 
 export function getChartSupportMessage(reason: ChartSupportReason): string {
@@ -1327,7 +1331,7 @@ export function analyzeChartSupport(
     }
   }
 
-  return { supported: true };
+  return { supported: true, fieldOwners, anchorSourceId };
 }
 
 export function resolveChartRowsForAggregation(
@@ -1363,37 +1367,10 @@ export function resolveChartRowsForAggregation(
     return [];
   }
 
-  // Build a field-owner cache to avoid calling findDirectFieldOwner multiple times for
-  // the same fieldId. The function traverses the relationship graph on every call — O(R)
-  // per field — so caching avoids duplicate traversals across the two call sites below.
-  const fieldOwnerCache = new Map<string, string | null>();
-  const cachedFindOwner = (fieldId: string) => {
-    if (!fieldOwnerCache.has(fieldId)) {
-      fieldOwnerCache.set(
-        fieldId,
-        findDirectFieldOwner(widgetSourceId, fieldId, dataSources, relationships, expressionFields),
-      );
-    }
-    return fieldOwnerCache.get(fieldId)!;
-  };
-
-  const ySourceIds = [...new Set(
-    yFields
-      .map((fieldId) => cachedFindOwner(fieldId))
-      .filter((sourceId): sourceId is string => Boolean(sourceId)),
-  )];
-
-  let anchorSourceId = widgetSourceId;
-  if (ySourceIds.length === 1 && ySourceIds[0] !== widgetSourceId) {
-    const anchorRelationship = findDirectRelationship(widgetSourceId, ySourceIds[0], relationships);
-    if (
-      anchorRelationship &&
-      anchorRelationship.sourceId === ySourceIds[0] &&
-      anchorRelationship.targetId === widgetSourceId
-    ) {
-      anchorSourceId = ySourceIds[0];
-    }
-  }
+  // Reuse fieldOwners and anchorSourceId precomputed by analyzeChartSupport — no need
+  // to traverse the relationship graph again (O(fields × relationships) saved per call).
+  const fieldOwners = support.fieldOwners ?? new Map<string, string>();
+  const anchorSourceId = support.anchorSourceId ?? widgetSourceId;
 
   if (anchorSourceId === widgetSourceId) {
     return enrichRowsWithRelatedFields(
@@ -1418,24 +1395,6 @@ export function resolveChartRowsForAggregation(
       dataSources,
       relationships,
     );
-  }
-
-  const fieldOwners = new Map<string, string>();
-  for (const fieldId of requestedFields) {
-    const owner = cachedFindOwner(fieldId);
-    if (!owner) {
-      return [];
-    }
-
-    if (yFields.includes(fieldId)) {
-      if (owner !== anchorSourceId) {
-        return [];
-      }
-    } else if (owner !== anchorSourceId && !isSafeWidgetBridgeOwner(widgetSourceId, owner, relationships)) {
-      return [];
-    }
-
-    fieldOwners.set(fieldId, owner);
   }
 
   const widgetJoinField = anchorRelationship.targetField;

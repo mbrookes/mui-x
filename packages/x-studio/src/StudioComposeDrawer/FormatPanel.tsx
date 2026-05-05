@@ -12,14 +12,14 @@ import {
   TextField,
   Tooltip,
 } from '@mui/material';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectDataSources } from '../context';
 import { inferWidgetTitles } from '../internals/widgetUtils';
 
 export function FormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
-  const widget = useStudioSelector((state) => state.widgets[widgetId]);
-  const dataSources = useStudioSelector((state) => state.dataSources);
+  const widget = useStudioSelector(selectWidgets)[widgetId];
+  const dataSources = useStudioSelector(selectDataSources);
   const [title, setTitle] = React.useState(widget?.title ?? '');
   const [subtitle, setSubtitle] = React.useState(widget?.subtitle ?? '');
   const [titleDirty, setTitleDirty] = React.useState(false);

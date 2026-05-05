@@ -1,11 +1,11 @@
 import * as React from 'react';
-import { useStudioSelector } from '../context';
+import { useStudioSelector, selectDataSources } from '../context';
 import type { StudioDataSource } from '../models';
 import type { FieldType } from './filterDrawerTypes';
 
 /** Build sorted unique string values for a field across all data sources. */
 export function useFieldValues(fieldId: string, fieldType: FieldType | undefined): string[] {
-  const dataSources = useStudioSelector((state) => state.dataSources);
+  const dataSources = useStudioSelector(selectDataSources);
   return React.useMemo(() => {
     if (fieldType !== 'string' && fieldType !== undefined) {
       return [];

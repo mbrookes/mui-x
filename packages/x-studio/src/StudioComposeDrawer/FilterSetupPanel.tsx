@@ -10,7 +10,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectDataSources } from '../context';
 import type { StudioFilterWidgetType } from '../models';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
@@ -24,8 +24,8 @@ const FILTER_WIDGET_TYPES: { value: StudioFilterWidgetType; label: string; descr
 export function FilterSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
-  const widget = useStudioSelector((state) => state.widgets[widgetId]);
-  const dataSources = useStudioSelector((state) => state.dataSources);
+  const widget = useStudioSelector(selectWidgets)[widgetId];
+  const dataSources = useStudioSelector(selectDataSources);
 
   const config = widget?.config ?? {};
 

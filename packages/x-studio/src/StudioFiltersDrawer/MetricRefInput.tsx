@@ -11,7 +11,7 @@ import {
   Typography,
 } from '@mui/material';
 import type { StudioMetricRef } from '../models';
-import { useStudioSelector } from '../context';
+import { useStudioSelector, selectDataSources } from '../context';
 import { fieldsForCapability, fieldHasCapability } from '../utils/fieldCapabilities';
 
 interface MetricRefInputProps {
@@ -24,7 +24,7 @@ interface MetricRefInputProps {
  * Shows a preview of the resolved live value beneath the pickers.
  */
 export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
-  const dataSources = useStudioSelector((state) => state.dataSources);
+  const dataSources = useStudioSelector(selectDataSources);
   const sourceList = Object.values(dataSources);
 
   const selectedSource = value?.sourceId ? dataSources[value.sourceId] : undefined;

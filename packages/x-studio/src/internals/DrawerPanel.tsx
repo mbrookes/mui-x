@@ -6,7 +6,7 @@ import ChevronDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseIcon from '@mui/icons-material/Close';
 
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectShell } from '../context';
 import type { StudioDrawer } from '../models';
 
 export const DRAWER_WIDTH = 215;
@@ -47,7 +47,8 @@ export interface DrawerPanelProps {
 export function DrawerPanel(props: DrawerPanelProps) {
   const { badge, children, drawer, icon, onBack, subheader: subheaderProp, title } = props;
   const controller = useStudioController();
-  const open = useStudioSelector((state) => state.shell.openDrawers[drawer]);
+  const shell = useStudioSelector(selectShell);
+  const open = shell.openDrawers[drawer];
   const [injectedSubheader, setInjectedSubheader] = React.useState<React.ReactNode>(null);
   const ctxValue = React.useMemo<DrawerSubheaderContextValue>(
     () => ({ setSubheader: setInjectedSubheader }),

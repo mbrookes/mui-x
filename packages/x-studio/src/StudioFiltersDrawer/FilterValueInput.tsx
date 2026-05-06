@@ -434,6 +434,29 @@ export function FilterValueInput(props: {
   const canUseMetric = onValueRefChange !== undefined;
   const metricLabel = useMetricLabel(canUseMetric ? valueRef : undefined);
 
+  // Local text state for the plain TextField and Autocomplete inputs.
+  // The local state updates immediately (fast UI feedback); the store dispatch
+  // (onChange prop) is debounced by 150ms so rapid keystrokes don't trigger
+  // full pipeline recalculations on every character.
+  const [localText, setLocalText] = React.useState(strVal);
+  const debounceTimer = React.useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Sync local state when the external value changes (e.g., filter cleared programmatically).
+  React.useEffect(() => {
+    setLocalText(String(value ?? ''));
+  }, [value]);
+
+  const handleTextChange = React.useCallback(
+    (newVal: string) => {
+      setLocalText(newVal);
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = setTimeout(() => {
+        onChange(newVal);
+      }, 150);
+    },
+    [onChange],
+  );
+
   if (OPERATORS_NO_VALUE.has(operator)) {
     return null;
   }
@@ -475,8 +498,8 @@ export function FilterValueInput(props: {
         freeSolo
         size="small"
         options={fieldValues}
-        value={strVal}
-        onInputChange={(_, newVal) => onChange(newVal)}
+        value={localText}
+        onInputChange={(_, newVal) => handleTextChange(newVal)}
         renderInput={(params) => <TextField {...params} label="Value" helperText="Value to compare against" />}
         sx={{ minWidth: 80, flexGrow: 1 }}
       />
@@ -490,10 +513,10 @@ export function FilterValueInput(props: {
       size="small"
       label="Value"
       helperText="Value to compare against"
-      value={strVal}
+      value={localText}
       disabled={isLinked}
       onChange={(event) => {
-        onChange(event.target.value);
+        handleTextChange(event.target.value);
         if (valueRef && onValueRefChange) {
           onValueRefChange(undefined);
         }

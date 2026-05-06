@@ -5,7 +5,7 @@ import { Box, Tooltip } from '@mui/material';
 import type { StudioDataSource, StudioWidget, StudioFilterState, StudioExpressionField } from '../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { resolveRows, resolveMetricRefs } from '../internals/chartUtils';
-import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
+import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { usePageChartColors } from '../internals/usePageChartColors';
 import { useStudioSelector, selectFilters, selectDataSources, selectRelationships, selectExpressionFields } from '../context';
 import { formatNumber } from '../internals/numberFormat';
@@ -73,11 +73,14 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
 
       // Pre-enrich the source rows once so both the current-period and (when trend is
       // enabled) previous-period resolveRows calls share the same enriched rows array.
-      // This halves the enrichRowsWithExpressions cost when kpiTrend is active.
-      const preEnrichedRows =
-        widget.sourceId && expressionFields.length > 0
-          ? enrichRowsWithExpressions(dataSource.rows, expressionFields, widget.sourceId, dataSources, relationships)
-          : dataSource.rows;
+      // Uses enrichedRowsCache so filter changes don't force re-enrichment.
+      const preEnrichedRows = getCachedEnrichedRows(
+        dataSource.rows,
+        widget.sourceId,
+        expressionFields,
+        dataSources,
+        relationships,
+      );
 
       const rows = resolveRows(
         preEnrichedRows,

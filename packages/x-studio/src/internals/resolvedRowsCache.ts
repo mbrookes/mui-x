@@ -8,57 +8,65 @@ import type {
 
 type Row = Record<string, unknown>;
 
-// ─── Module-level cache ───────────────────────────────────────────────────────
-
-// The cache maps a filter fingerprint → resolved rows, and is valid only for
-// the current combination of store-level inputs.  When ANY of these four refs
-// change (on every store dispatch that modifies filters/data) the cache is
-// cleared so stale entries can never be observed.
+// ─── Per-widgetRows cache ─────────────────────────────────────────────────────
 //
-// This makes resolveRows effectively O(1) for the N-1 widgets that share a
-// source and the same effective filter set after the first widget computes.
+// Outer key: widgetRows (= dataSources[widgetSourceId].rows)
+//   WeakMap — entries are GC'd automatically when widgetRows is no longer
+//   referenced (i.e., after dataSources[widgetSourceId].rows changes).
+//   An unrelated source's rows changing does NOT affect this entry.
+//
+// Inner key: content-based fingerprint of the effective filter set
+//   (sourceId + sorted "filterId:value" pairs). Changing a filter value
+//   produces a different key → cache miss. Changing an unrelated widget's
+//   filter while this widget's effective filters stay the same → same key
+//   → cache hit (previously the globalFilters sentinel caused a full clear).
+//
+// Per-entry deps:
+//   crossFilterSourceRows  rows refs of cross-filter foreign sources
+//   relationships          full array ref (rarely changes; OK to be broad here)
+//
+// Expression fields are intentionally NOT tracked here — enrichedRowsCache
+// handles per-source enrichment invalidation with fine-grained dep tracking.
 
-let cacheFilters: StudioFilterState[] | undefined;
-let cacheDataSources: Record<string, StudioDataSource> | undefined;
-let cacheRelationships: StudioRelationship[] | undefined;
-let cacheExpressionFields: StudioExpressionField[] | undefined;
+interface ResolvedCacheEntry {
+  crossFilterSourceRows: Map<string, Row[]>;
+  relationships: StudioRelationship[];
+  result: Row[];
+}
 
-const rowCache = new Map<string, Row[]>();
+const rowCache = new WeakMap<Row[], Map<string, ResolvedCacheEntry>>();
 
-function validateCache(
-  filters: StudioFilterState[],
+function isEntryValid(
+  entry: ResolvedCacheEntry,
+  resolvedFilters: StudioFilterState[],
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
-  expressionFields: StudioExpressionField[],
-): void {
-  if (
-    filters !== cacheFilters ||
-    dataSources !== cacheDataSources ||
-    relationships !== cacheRelationships ||
-    expressionFields !== cacheExpressionFields
-  ) {
-    rowCache.clear();
-    cacheFilters = filters;
-    cacheDataSources = dataSources;
-    cacheRelationships = relationships;
-    cacheExpressionFields = expressionFields;
+): boolean {
+  if (entry.relationships !== relationships) return false;
+  for (const f of resolvedFilters) {
+    if (f.filterSourceId) {
+      if (entry.crossFilterSourceRows.get(f.filterSourceId) !== dataSources[f.filterSourceId]?.rows) {
+        return false;
+      }
+    }
   }
+  return true;
 }
 
 /**
- * Wraps `resolveRows` with a module-level cache keyed on
+ * Wraps `resolveRows` with a per-widgetRows WeakMap cache keyed on
  * `(sourceId, resolvedFiltersFingerprint)`.
  *
  * Widgets sharing the same data source **and** the same effective filter set
- * (page filters + cross-filters + interactive filters, identical across peers
- * that have no widget-specific filters) receive the **same Row[] reference**
- * after the first widget computes it — saving N-1 full pipeline passes per
- * shared source per render cycle.
+ * receive the **same Row[] reference** after the first widget computes it —
+ * saving N-1 full pipeline passes per shared source per render cycle.
  *
- * The cache is automatically invalidated whenever any of the four store-level
- * inputs change reference (`filters`, `dataSources`, `relationships`,
- * `expressionFields`).  Pass the raw store arrays as `globalFilters` etc., not
- * the filtered/sliced subsets.
+ * Unlike the old sentinel-based approach:
+ * - An unrelated source's data changing does NOT invalidate this widget's entry.
+ * - Changing another widget's filter (that doesn't affect this widget's effective
+ *   filters) does NOT invalidate this entry.
+ * - Only own-rows changes (outer WeakMap key), cross-filter foreign source changes,
+ *   filter value changes (inner key), or relationships changes trigger re-computation.
  *
  * KPI widgets that use `skipEnrichment: true` should continue to call
  * `resolveRows` directly — they pre-enrich once and call twice with different
@@ -71,10 +79,7 @@ export function resolveRowsCached(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[],
-  globalFilters: StudioFilterState[],
 ): Row[] {
-  validateCache(globalFilters, dataSources, relationships, expressionFields);
-
   if (!widgetSourceId) {
     return resolveRows(
       widgetRows,
@@ -86,10 +91,6 @@ export function resolveRowsCached(
     );
   }
 
-  // Cache key: sourceId + fingerprint of the effective filter set.
-  // Filter IDs are stable UUIDs; values change only when the store dispatches
-  // a filter change, at which point globalFilters gets a new reference and the
-  // cache is cleared before we reach this point.
   const filterKey =
     resolvedFilters.length === 0
       ? ''
@@ -99,8 +100,15 @@ export function resolveRowsCached(
           .join('|');
   const cacheKey = `${widgetSourceId}::${filterKey}`;
 
-  if (rowCache.has(cacheKey)) {
-    return rowCache.get(cacheKey)!;
+  let byKey = rowCache.get(widgetRows);
+  if (!byKey) {
+    byKey = new Map();
+    rowCache.set(widgetRows, byKey);
+  }
+
+  const existing = byKey.get(cacheKey);
+  if (existing && isEntryValid(existing, resolvedFilters, dataSources, relationships)) {
+    return existing.result;
   }
 
   const result = resolveRows(
@@ -111,6 +119,18 @@ export function resolveRowsCached(
     relationships,
     expressionFields,
   );
-  rowCache.set(cacheKey, result);
+
+  const crossFilterSourceRows = new Map<string, Row[]>();
+  for (const f of resolvedFilters) {
+    if (f.filterSourceId) {
+      const foreignRows = dataSources[f.filterSourceId]?.rows;
+      if (foreignRows) {
+        crossFilterSourceRows.set(f.filterSourceId, foreignRows);
+      }
+    }
+  }
+
+  byKey.set(cacheKey, { crossFilterSourceRows, relationships, result });
   return result;
 }
+

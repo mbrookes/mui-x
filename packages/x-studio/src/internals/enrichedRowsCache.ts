@@ -1,56 +1,83 @@
-import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
+import { enrichRowsWithExpressions, isJoinFieldExpression } from '../utils/expressionEvaluator';
 import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
 
 type Row = Record<string, unknown>;
 
-// ─── Module-level cache ───────────────────────────────────────────────────────
+// ─── Per-source cache entries ─────────────────────────────────────────────────
 //
-// The enrichment result depends only on dataSources, expressionFields, and
-// relationships — NOT on filters.  This means we can cache enriched rows
-// independently of filter state, so a filter change (which clears resolvedRowsCache)
-// no longer forces a full L2 re-run on every widget.
+// Each source gets its own cache entry tracking only ITS OWN dependencies:
 //
-// Sentinel invalidation: when ANY of the three refs change, the cache is cleared.
-// Filter changes do NOT change these refs, so the enrich cache stays warm across
-// filter changes.  Only actual data/schema changes cause re-enrichment.
+//   rows            dataSources[X].rows at cache time
+//   fieldRefs       the specific StudioExpressionField objects for source X
+//   joinedSourceRows  for each JoinFieldExpression: the joined source's rows ref
+//   relRefs         the specific StudioRelationship objects where sourceId === X
 //
-// Cache key: sourceId (safe because dataSources[sourceId].rows is covered by the
-// dataSources sentinel — if the rows change, dataSources gets a new ref, clearing
-// the cache before we reach the key lookup).
+// This means changing customers data (or a customers expression field, or an
+// unrelated relationship) has zero effect on the orders cache entry.
+//
+// Contrast with the old sentinel approach which wiped ALL entries on any
+// dataSources / expressionFields / relationships ref change.
 
-let cacheDataSources: Record<string, StudioDataSource> | undefined;
-let cacheRelationships: StudioRelationship[] | undefined;
-let cacheExpressionFields: StudioExpressionField[] | undefined;
+interface EnrichCacheEntry {
+  rows: Row[];
+  fieldRefs: StudioExpressionField[];
+  joinedSourceRows: Map<string, Row[]>;
+  relRefs: StudioRelationship[];
+  result: Row[];
+}
 
-const enrichCache = new Map<string, Row[]>();
+const entriesBySource = new Map<string, EnrichCacheEntry>();
 
-function validateCache(
+function isEntryValid(
+  entry: EnrichCacheEntry,
+  rows: Row[],
+  relevantFields: StudioExpressionField[],
+  joinedSourceIds: string[],
   dataSources: Record<string, StudioDataSource>,
-  relationships: StudioRelationship[],
-  expressionFields: StudioExpressionField[],
-): void {
-  if (
-    dataSources !== cacheDataSources ||
-    relationships !== cacheRelationships ||
-    expressionFields !== cacheExpressionFields
-  ) {
-    enrichCache.clear();
-    cacheDataSources = dataSources;
-    cacheRelationships = relationships;
-    cacheExpressionFields = expressionFields;
+  relevantRelationships: StudioRelationship[],
+): boolean {
+  // 1. Own rows unchanged
+  if (entry.rows !== rows) return false;
+
+  // 2. Relevant expression fields: same objects, same count, same order
+  if (entry.fieldRefs.length !== relevantFields.length) return false;
+  for (let i = 0; i < relevantFields.length; i++) {
+    if (entry.fieldRefs[i] !== relevantFields[i]) return false;
   }
+
+  // 3. Joined source rows unchanged (only the sources this entry actually joins to)
+  for (const jId of joinedSourceIds) {
+    if (entry.joinedSourceRows.get(jId) !== dataSources[jId]?.rows) return false;
+  }
+
+  // 4. Relevant relationships unchanged (same objects)
+  if (entry.relRefs.length !== relevantRelationships.length) return false;
+  for (let i = 0; i < relevantRelationships.length; i++) {
+    if (entry.relRefs[i] !== relevantRelationships[i]) return false;
+  }
+
+  return true;
 }
 
 /**
- * Returns enriched rows for the given source, using a module-level cache.
+ * Returns enriched rows for the given source, using a per-source cache.
  *
- * Unlike `resolvedRowsCache`, this cache is NOT invalidated on filter changes —
- * only on `dataSources`, `expressionFields`, or `relationships` ref changes.
- * This means a filter change no longer forces re-enrichment (the expensive L2
- * step, ~242ms at 100k rows), cutting the L3 cold cost from ~316ms to ~74ms.
+ * Each source independently tracks only the dependencies that actually affect
+ * its enrichment result:
+ * - Own rows ref
+ * - Expression field objects targeting this source
+ * - Joined source rows refs (for JoinFieldExpression fields)
+ * - Relationship objects involving this source
  *
- * If there are no expression fields for this source, returns `rows` unchanged
- * (same reference — no copy, no cache entry).
+ * Changing an unrelated source's data, expression fields, or relationships
+ * does NOT invalidate this source's cache entry.
+ *
+ * The cache is also filter-independent — filter changes do not affect any
+ * of the tracked dependencies, so enriched rows stay cached across filter
+ * changes (cutting L3 cold cost from ~316ms to ~74ms at 100k rows).
+ *
+ * If there are no non-measure expression fields for this source, returns
+ * `rows` unchanged (same reference — no cache entry created).
  */
 export function getCachedEnrichedRows(
   rows: Row[],
@@ -59,25 +86,60 @@ export function getCachedEnrichedRows(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
 ): Row[] {
-  if (!sourceId || expressionFields.length === 0) {
+  if (!sourceId) {
     return rows;
   }
 
-  // Check whether any expression fields target this source before touching the cache.
-  const hasFieldsForSource = expressionFields.some(
+  // Collect only the expression fields that affect this source's enrichment.
+  const relevantFields = expressionFields.filter(
     (ef) => ef.sourceId === sourceId && !ef.isMeasure,
   );
-  if (!hasFieldsForSource) {
+  if (relevantFields.length === 0) {
     return rows;
   }
 
-  validateCache(dataSources, relationships, expressionFields);
-
-  if (enrichCache.has(sourceId)) {
-    return enrichCache.get(sourceId)!;
+  // Collect the joined source IDs used by JoinFieldExpression fields.
+  const joinedSourceIds: string[] = [];
+  for (const ef of relevantFields) {
+    if (isJoinFieldExpression(ef.expression)) {
+      const { joinSourceId } = ef.expression;
+      if (!joinedSourceIds.includes(joinSourceId)) {
+        joinedSourceIds.push(joinSourceId);
+      }
+    }
   }
 
+  // Collect only the relationships that affect this source's enrichment
+  // (those where this source is the "from" end of a join).
+  const relevantRelationships = relationships.filter(
+    (r) => r.sourceId === sourceId && joinedSourceIds.includes(r.targetId),
+  );
+
+  // Check the per-source cache entry.
+  const existing = entriesBySource.get(sourceId);
+  if (existing && isEntryValid(existing, rows, relevantFields, joinedSourceIds, dataSources, relevantRelationships)) {
+    return existing.result;
+  }
+
+  // Cache miss — compute and store a new entry.
   const result = enrichRowsWithExpressions(rows, expressionFields, sourceId, dataSources, relationships);
-  enrichCache.set(sourceId, result);
+
+  const joinedSourceRows = new Map<string, Row[]>();
+  for (const jId of joinedSourceIds) {
+    const jRows = dataSources[jId]?.rows;
+    if (jRows) {
+      joinedSourceRows.set(jId, jRows);
+    }
+  }
+
+  entriesBySource.set(sourceId, {
+    rows,
+    fieldRefs: relevantFields,
+    joinedSourceRows,
+    relRefs: relevantRelationships,
+    result,
+  });
+
   return result;
 }
+

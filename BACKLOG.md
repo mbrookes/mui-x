@@ -57,3 +57,5 @@ BL-16: ~~the delete button for fields doesn't line up vertically with the textfi
 ~~BL-27: When hovering a datasource name in the data panel, show a tooltip with a simple grid of the first five rows.~~ **Fixed** (added `DataSourcePreviewTooltip` showing a mini table of first 5 rows × 4 columns with column headers and overflow counts)
 
 ~~BL-28: When dragging a widget past the top or bottom of the page, make sure the page scrolls.~~ **Fixed** (added `dragover` edge-scroll in `StudioCanvas`: finds nearest scrollable ancestor, starts a rAF loop when pointer is within 80px of viewport top/bottom, stops on drop/dragleave)
+
+~~BL-29: Adding a cross-filter: (Company = Tech Systems From: Top Customers by Revenue) revenue charts still show multiple segments even thoug company.segment can only be one~~ **Fixed** (chart click cross-filters now use the owning source of `xField` from `chartSupport.fieldOwners`, so related-source dimensions like customer company filter through the correct join path)

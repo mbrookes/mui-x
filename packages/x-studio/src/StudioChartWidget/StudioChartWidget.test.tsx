@@ -641,19 +641,26 @@ describe('<StudioChartWidget />', () => {
 
     const props = barChartSpy.mock.calls.at(-1)?.[0] as {
       yAxis: Array<{ min?: number; max?: number; valueFormatter?: (value: number) => string }>;
-      series: Array<{ label: string; stack?: string; data: number[]; valueFormatter?: (value: number | null) => string }>;
+      series: Array<{
+        label: string;
+        stack?: string;
+        data: number[];
+        valueFormatter?: (value: number | null) => string;
+      }>;
     };
 
     expect(props.yAxis).toHaveLength(1);
     expect(props.yAxis[0].min).toBe(0);
     expect(props.yAxis[0].max).toBe(100);
     expect(props.yAxis[0].valueFormatter?.(42)).toBe('42%');
-    expect(props.series.map((series) => ({
-      label: series.label,
-      stack: series.stack,
-      data: series.data,
-      formatted: series.valueFormatter?.(series.data[0] ?? null),
-    }))).toEqual([
+    expect(
+      props.series.map((series) => ({
+        label: series.label,
+        stack: series.stack,
+        data: series.data,
+        formatted: series.valueFormatter?.(series.data[0] ?? null),
+      })),
+    ).toEqual([
       { label: 'Revenue', stack: 'total', data: [75, 80], formatted: '75.0%' },
       { label: 'Profit', stack: 'total', data: [25, 20], formatted: '25.0%' },
     ]);
@@ -746,19 +753,26 @@ describe('<StudioChartWidget />', () => {
 
     const props = barChartSpy.mock.calls.at(-1)?.[0] as {
       yAxis: Array<{ min?: number; max?: number; valueFormatter?: (value: number) => string }>;
-      series: Array<{ label: string; stack?: string; data: Array<number | null>; valueFormatter?: (value: number | null) => string }>;
+      series: Array<{
+        label: string;
+        stack?: string;
+        data: Array<number | null>;
+        valueFormatter?: (value: number | null) => string;
+      }>;
     };
 
     expect(props.yAxis).toHaveLength(1);
     expect(props.yAxis[0].min).toBe(0);
     expect(props.yAxis[0].max).toBe(100);
     expect(props.yAxis[0].valueFormatter?.(42)).toBe('42%');
-    expect(props.series.map((series) => ({
-      label: series.label,
-      stack: series.stack,
-      data: series.data,
-      formatted: series.valueFormatter?.(series.data[0]),
-    }))).toEqual([
+    expect(
+      props.series.map((series) => ({
+        label: series.label,
+        stack: series.stack,
+        data: series.data,
+        formatted: series.valueFormatter?.(series.data[0]),
+      })),
+    ).toEqual([
       { label: 'A', stack: 'stack', data: [75, 80], formatted: '75.0%' },
       { label: 'B', stack: 'stack', data: [25, 20], formatted: '25.0%' },
     ]);
@@ -1113,14 +1127,16 @@ describe('<StudioChartWidget />', () => {
     expect(props.yAxis[0].min).toBe(0);
     expect(props.yAxis[0].max).toBe(100);
     expect(props.yAxis[0].valueFormatter?.(42)).toBe('42%');
-    expect(props.series.map((series) => ({
-      label: series.label,
-      area: series.area,
-      stack: series.stack,
-      connectNulls: series.connectNulls,
-      data: series.data,
-      formatted: series.valueFormatter?.(series.data[0]),
-    }))).toEqual([
+    expect(
+      props.series.map((series) => ({
+        label: series.label,
+        area: series.area,
+        stack: series.stack,
+        connectNulls: series.connectNulls,
+        data: series.data,
+        formatted: series.valueFormatter?.(series.data[0]),
+      })),
+    ).toEqual([
       {
         label: 'A',
         area: true,

@@ -27,7 +27,10 @@ function makeDataSources(
       id: 'customers',
       label: 'Customers',
       rows: customersRows,
-      fields: [{ id: 'id', label: 'ID', type: 'number' }, { id: 'country', label: 'Country', type: 'string' }],
+      fields: [
+        { id: 'id', label: 'ID', type: 'number' },
+        { id: 'country', label: 'Country', type: 'string' },
+      ],
     } as unknown as StudioDataSource;
   }
   return sources;
@@ -40,7 +43,12 @@ function makeOrdersExprField(): StudioExpressionField {
     label: 'Double',
     sourceId: 'orders',
     isMeasure: false,
-    expression: { type: 'arithmetic', left: { type: 'field', fieldId: 'value' }, op: '*', right: { type: 'literal', value: 2 } },
+    expression: {
+      type: 'arithmetic',
+      left: { type: 'field', fieldId: 'value' },
+      op: '*',
+      right: { type: 'literal', value: 2 },
+    },
   } as unknown as StudioExpressionField;
 }
 
@@ -51,7 +59,12 @@ function makeCustomersExprField(): StudioExpressionField {
     label: 'Triple',
     sourceId: 'customers',
     isMeasure: false,
-    expression: { type: 'arithmetic', left: { type: 'field', fieldId: 'value' }, op: '*', right: { type: 'literal', value: 3 } },
+    expression: {
+      type: 'arithmetic',
+      left: { type: 'field', fieldId: 'value' },
+      op: '*',
+      right: { type: 'literal', value: 3 },
+    },
   } as unknown as StudioExpressionField;
 }
 
@@ -71,7 +84,13 @@ describe('getCachedEnrichedRows', () => {
     const rows = makeRows(5);
     const dataSources = makeDataSources(rows);
     const exprFields = [makeOrdersExprField()];
-    const result = getCachedEnrichedRows(rows, undefined, exprFields, dataSources, NO_RELATIONSHIPS);
+    const result = getCachedEnrichedRows(
+      rows,
+      undefined,
+      exprFields,
+      dataSources,
+      NO_RELATIONSHIPS,
+    );
     expect(result).toBe(rows);
   });
 
@@ -132,8 +151,20 @@ describe('getCachedEnrichedRows', () => {
     const dataSources1 = makeDataSources(rows1);
     const dataSources2 = makeDataSources(rows2);
 
-    const result1 = getCachedEnrichedRows(rows1, 'orders', exprFields, dataSources1, NO_RELATIONSHIPS);
-    const result2 = getCachedEnrichedRows(rows2, 'orders', exprFields, dataSources2, NO_RELATIONSHIPS);
+    const result1 = getCachedEnrichedRows(
+      rows1,
+      'orders',
+      exprFields,
+      dataSources1,
+      NO_RELATIONSHIPS,
+    );
+    const result2 = getCachedEnrichedRows(
+      rows2,
+      'orders',
+      exprFields,
+      dataSources2,
+      NO_RELATIONSHIPS,
+    );
 
     expect(result2).not.toBe(result1);
   });
@@ -166,8 +197,18 @@ describe('getCachedEnrichedRows', () => {
     } as unknown as StudioExpressionField;
     const exprFields = [joinField];
 
-    const rel1: StudioRelationship = { sourceId: 'orders', targetId: 'customers', sourceField: 'customerId', targetField: 'id' } as StudioRelationship;
-    const rel2: StudioRelationship = { sourceId: 'orders', targetId: 'customers', sourceField: 'customerId', targetField: 'id' } as StudioRelationship;
+    const rel1: StudioRelationship = {
+      sourceId: 'orders',
+      targetId: 'customers',
+      sourceField: 'customerId',
+      targetField: 'id',
+    } as StudioRelationship;
+    const rel2: StudioRelationship = {
+      sourceId: 'orders',
+      targetId: 'customers',
+      sourceField: 'customerId',
+      targetField: 'id',
+    } as StudioRelationship;
 
     const result1 = getCachedEnrichedRows(rows, 'orders', exprFields, dataSources, [rel1]);
     const result2 = getCachedEnrichedRows(rows, 'orders', exprFields, dataSources, [rel2]);
@@ -189,9 +230,21 @@ describe('getCachedEnrichedRows', () => {
     const dataSources1 = makeDataSources(ordersRows, customersRows1);
     const dataSources2 = makeDataSources(ordersRows, customersRows2); // orders rows SAME, customers CHANGED
 
-    const result1 = getCachedEnrichedRows(ordersRows, 'orders', exprFields, dataSources1, NO_RELATIONSHIPS);
+    const result1 = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      exprFields,
+      dataSources1,
+      NO_RELATIONSHIPS,
+    );
     // customers rows changed (dataSources2) — orders cache should still be warm
-    const result2 = getCachedEnrichedRows(ordersRows, 'orders', exprFields, dataSources2, NO_RELATIONSHIPS);
+    const result2 = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      exprFields,
+      dataSources2,
+      NO_RELATIONSHIPS,
+    );
 
     expect(result2).toBe(result1); // cache hit — customers change is irrelevant to orders
   });
@@ -204,11 +257,23 @@ describe('getCachedEnrichedRows', () => {
 
     // First call: ordersField + a customers field
     const customersField1 = makeCustomersExprField();
-    const result1 = getCachedEnrichedRows(ordersRows, 'orders', [ordersField, customersField1], dataSources, NO_RELATIONSHIPS);
+    const result1 = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      [ordersField, customersField1],
+      dataSources,
+      NO_RELATIONSHIPS,
+    );
 
     // Second call: ordersField unchanged, but customers field is a new object (simulates modification)
     const customersField2 = makeCustomersExprField(); // new object ref
-    const result2 = getCachedEnrichedRows(ordersRows, 'orders', [ordersField, customersField2], dataSources, NO_RELATIONSHIPS);
+    const result2 = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      [ordersField, customersField2],
+      dataSources,
+      NO_RELATIONSHIPS,
+    );
 
     // Only ordersField matters for orders enrichment — cache hit
     expect(result2).toBe(result1);
@@ -224,8 +289,15 @@ describe('getCachedEnrichedRows', () => {
     const result1 = getCachedEnrichedRows(ordersRows, 'orders', exprFields, dataSources, []);
 
     // Add a completely unrelated relationship (products → suppliers)
-    const unrelatedRel: StudioRelationship = { sourceId: 'products', targetId: 'suppliers', sourceField: 'supplierId', targetField: 'id' } as StudioRelationship;
-    const result2 = getCachedEnrichedRows(ordersRows, 'orders', exprFields, dataSources, [unrelatedRel]);
+    const unrelatedRel: StudioRelationship = {
+      sourceId: 'products',
+      targetId: 'suppliers',
+      sourceField: 'supplierId',
+      targetField: 'id',
+    } as StudioRelationship;
+    const result2 = getCachedEnrichedRows(ordersRows, 'orders', exprFields, dataSources, [
+      unrelatedRel,
+    ]);
 
     // The unrelated relationship doesn't affect orders enrichment → cache hit
     expect(result2).toBe(result1);
@@ -241,15 +313,31 @@ describe('getCachedEnrichedRows', () => {
     const customersField = makeCustomersExprField();
     const exprFields = [ordersField, customersField];
 
-    const enrichedOrders = getCachedEnrichedRows(ordersRows, 'orders', exprFields, dataSources, NO_RELATIONSHIPS);
-    const enrichedCustomers = getCachedEnrichedRows(customersRows, 'customers', exprFields, dataSources, NO_RELATIONSHIPS);
+    const enrichedOrders = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      exprFields,
+      dataSources,
+      NO_RELATIONSHIPS,
+    );
+    const enrichedCustomers = getCachedEnrichedRows(
+      customersRows,
+      'customers',
+      exprFields,
+      dataSources,
+      NO_RELATIONSHIPS,
+    );
 
     expect(enrichedOrders).not.toBe(enrichedCustomers);
     expect(enrichedOrders).toHaveLength(ordersRows.length);
     expect(enrichedCustomers).toHaveLength(customersRows.length);
 
     // Repeat calls return same references (cache hits)
-    expect(getCachedEnrichedRows(ordersRows, 'orders', exprFields, dataSources, NO_RELATIONSHIPS)).toBe(enrichedOrders);
-    expect(getCachedEnrichedRows(customersRows, 'customers', exprFields, dataSources, NO_RELATIONSHIPS)).toBe(enrichedCustomers);
+    expect(
+      getCachedEnrichedRows(ordersRows, 'orders', exprFields, dataSources, NO_RELATIONSHIPS),
+    ).toBe(enrichedOrders);
+    expect(
+      getCachedEnrichedRows(customersRows, 'customers', exprFields, dataSources, NO_RELATIONSHIPS),
+    ).toBe(enrichedCustomers);
   });
 });

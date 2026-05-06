@@ -53,8 +53,14 @@ describe('cachedCompute', () => {
   it('handles null-compatible values (e.g. 0, false) without re-computing', () => {
     const rows: Row[] = [{ id: 1 }];
     let calls = 0;
-    const result1 = cachedCompute(rows, 'zero', () => { calls += 1; return 0; });
-    const result2 = cachedCompute(rows, 'zero', () => { calls += 1; return 99; });
+    const result1 = cachedCompute(rows, 'zero', () => {
+      calls += 1;
+      return 0;
+    });
+    const result2 = cachedCompute(rows, 'zero', () => {
+      calls += 1;
+      return 99;
+    });
     expect(result1).toBe(0);
     expect(result2).toBe(0);
     expect(calls).toBe(1);

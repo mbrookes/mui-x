@@ -102,7 +102,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       setShowContent(true);
     });
     return () => cancelAnimationFrame(raf);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   React.useEffect(() => {
@@ -151,9 +151,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         const pipeline = createStudioPipeline(state);
         const activePageId = state.dashboard.activePageId;
         const sourceRows = source?.rows ?? [];
-        const rows = sourceRows.length > 0
-          ? pipeline.resolveWidgetRows(widget.id, widget.sourceId, sourceRows, activePageId)
-          : [];
+        const rows =
+          sourceRows.length > 0
+            ? pipeline.resolveWidgetRows(widget.id, widget.sourceId, sourceRows, activePageId)
+            : [];
         exportGridToCsv(widget, source, rows);
       } else if (widget.kind === 'chart') {
         exportChartToPng(widget, chartContainerRef.current);
@@ -168,17 +169,14 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
 
   const canExport = widget.kind === 'grid' || widget.kind === 'chart';
   const isChart = widget.kind === 'chart';
-  const showEditActions =
-    mode === 'edit' && (isSelected || (!dimmed && hovered));
+  const showEditActions = mode === 'edit' && (isSelected || (!dimmed && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
   const showViewExpand = mode === 'view' && hovered && isChart;
   const actionButtonSx = { width: 24, height: 24, padding: 0, '& svg': { fontSize: 16 } } as const;
 
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
   // inside the card for top-row widgets (where there's no room above to overhang).
-  const overlayTopSx = isFirstRow
-    ? { top: 6 }
-    : { top: 0, transform: 'translateY(-50%)' };
+  const overlayTopSx = isFirstRow ? { top: 6 } : { top: 0, transform: 'translateY(-50%)' };
 
   return (
     <Paper
@@ -207,9 +205,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         boxSizing: 'border-box',
         position: 'relative',
         minHeight:
-          widget.kind === 'kpi' || widget.kind === 'filter'
-            ? COMPACT_WIDGET_MIN_HEIGHT
-            : undefined,
+          widget.kind === 'kpi' || widget.kind === 'filter' ? COMPACT_WIDGET_MIN_HEIGHT : undefined,
         outline: isSelected ? '2px solid' : undefined,
         outlineColor: isSelected ? 'primary.main' : undefined,
         outlineOffset: -1,
@@ -355,21 +351,40 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
               <Typography
                 variant="h6"
                 noWrap
-                sx={widget.kind === 'text' ? {
-                  ...(widget.config.textTitleColor && { color: widget.config.textTitleColor }),
-                  ...(widget.config.textTitleFontFamily && {
-                    fontFamily: widget.config.textTitleFontFamily === 'serif'
-                      ? "Georgia, 'Times New Roman', Times, serif"
-                      : "'Courier New', Courier, monospace",
-                  }),
-                  ...(widget.config.textTitleFontSize && { fontSize: widget.config.textTitleFontSize }),
-                  ...(widget.config.textTitleAlign && { textAlign: widget.config.textTitleAlign }),
-                } : undefined}
+                sx={
+                  widget.kind === 'text'
+                    ? {
+                        ...(widget.config.textTitleColor && {
+                          color: widget.config.textTitleColor,
+                        }),
+                        ...(widget.config.textTitleFontFamily && {
+                          fontFamily:
+                            widget.config.textTitleFontFamily === 'serif'
+                              ? "Georgia, 'Times New Roman', Times, serif"
+                              : "'Courier New', Courier, monospace",
+                        }),
+                        ...(widget.config.textTitleFontSize && {
+                          fontSize: widget.config.textTitleFontSize,
+                        }),
+                        ...(widget.config.textTitleAlign && {
+                          textAlign: widget.config.textTitleAlign,
+                        }),
+                      }
+                    : undefined
+                }
               >
-                {widget.title || (widget.kind === 'kpi' ? 'KPI' : widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1))}
+                {widget.title ||
+                  (widget.kind === 'kpi'
+                    ? 'KPI'
+                    : widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1))}
               </Typography>
               {widget.subtitle && (
-                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  noWrap
+                  sx={{ display: 'block' }}
+                >
                   {widget.subtitle}
                 </Typography>
               )}
@@ -386,15 +401,21 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           </Stack>
         </div>
         {/* Widget content — deferred to after first paint to avoid blocking initial render */}
-        {showContent && widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
+        {showContent && widget.kind === 'grid' && (
+          <StudioGridWidget widget={widget} dataSource={source} />
+        )}
         {showContent && widget.kind === 'chart' && (
           <Box ref={chartContainerRef} sx={{ minHeight: CHART_MIN_HEIGHT }}>
             <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} />
           </Box>
         )}
-        {showContent && widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
+        {showContent && widget.kind === 'kpi' && (
+          <StudioKpiWidget widget={widget} dataSource={source} />
+        )}
         {showContent && widget.kind === 'text' && <StudioTextWidget widget={widget} />}
-        {showContent && widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
+        {showContent && widget.kind === 'filter' && (
+          <StudioFilterWidget widget={widget} dataSource={source} />
+        )}
       </Stack>
       {/* Chart full-screen overlay dialog */}
       {isChart && expanded && (
@@ -418,7 +439,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                 {widget.title || 'Chart'}
               </Typography>
               {widget.subtitle && (
-                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  noWrap
+                  sx={{ display: 'block' }}
+                >
                   {widget.subtitle}
                 </Typography>
               )}

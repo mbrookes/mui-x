@@ -15,7 +15,12 @@ import {
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CheckIcon from '@mui/icons-material/Check';
 import type { StudioGridSummaryAggregation } from '../models';
-import { useStudioController, useStudioSelector, selectWidgets, selectDataSources } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectDataSources,
+} from '../context';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 
@@ -57,7 +62,9 @@ export function GridSetupPanel(props: { widgetId: string }) {
   }, [allFields, source, widget?.sourceId]);
 
   // Menu anchor state: fieldId → anchor element
-  const [menuAnchor, setMenuAnchor] = React.useState<{ fieldId: string; el: HTMLElement } | null>(null);
+  const [menuAnchor, setMenuAnchor] = React.useState<{ fieldId: string; el: HTMLElement } | null>(
+    null,
+  );
 
   const handleColumnToggle = (fieldId: string) => {
     const next = visibleColumns.includes(fieldId)
@@ -170,7 +177,9 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     selected={currentAgg == null}
                   >
                     {currentAgg == null ? (
-                      <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
+                      <ListItemIcon>
+                        <CheckIcon fontSize="small" />
+                      </ListItemIcon>
                     ) : (
                       <ListItemIcon />
                     )}
@@ -183,7 +192,9 @@ export function GridSetupPanel(props: { widgetId: string }) {
                       selected={currentAgg === agg}
                     >
                       {currentAgg === agg ? (
-                        <ListItemIcon><CheckIcon fontSize="small" /></ListItemIcon>
+                        <ListItemIcon>
+                          <CheckIcon fontSize="small" />
+                        </ListItemIcon>
                       ) : (
                         <ListItemIcon />
                       )}

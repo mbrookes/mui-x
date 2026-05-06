@@ -10,16 +10,30 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectWidgets, selectDataSources } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectDataSources,
+} from '../context';
 import type { StudioFilterWidgetType } from '../models';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
-const FILTER_WIDGET_TYPES: { value: StudioFilterWidgetType; label: string; description: string }[] = [
-  { value: 'multi-select', label: 'Multi-select', description: 'Dropdown with checkboxes for categorical values' },
-  { value: 'toggle', label: 'Toggle chips', description: 'Chip buttons for low-cardinality categories' },
-  { value: 'date-range', label: 'Date range', description: 'From / to date pickers' },
-  { value: 'slider', label: 'Slider', description: 'Range slider for numeric or date fields' },
-];
+const FILTER_WIDGET_TYPES: { value: StudioFilterWidgetType; label: string; description: string }[] =
+  [
+    {
+      value: 'multi-select',
+      label: 'Multi-select',
+      description: 'Dropdown with checkboxes for categorical values',
+    },
+    {
+      value: 'toggle',
+      label: 'Toggle chips',
+      description: 'Chip buttons for low-cardinality categories',
+    },
+    { value: 'date-range', label: 'Date range', description: 'From / to date pickers' },
+    { value: 'slider', label: 'Slider', description: 'Range slider for numeric or date fields' },
+  ];
 
 export function FilterSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
@@ -65,8 +79,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
           clearField = fieldType !== 'date' && fieldType !== 'datetime';
         } else if (newType === 'slider') {
           // slider requires numeric or temporal
-          clearField =
-            fieldType !== 'number' && fieldType !== 'date' && fieldType !== 'datetime';
+          clearField = fieldType !== 'number' && fieldType !== 'date' && fieldType !== 'datetime';
         }
         // multi-select and toggle accept any field type — never clear
       }
@@ -184,9 +197,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
         </Stack>
       )}
 
-      {!fieldId && (
-        <Alert severity="info">Select a field to configure the filter control.</Alert>
-      )}
+      {!fieldId && <Alert severity="info">Select a field to configure the filter control.</Alert>}
     </Stack>
   );
 }

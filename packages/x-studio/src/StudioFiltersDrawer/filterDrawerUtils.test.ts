@@ -76,29 +76,39 @@ describe('summarizeFilter — condition mode', () => {
   });
 
   it('is_not_empty — no value shown', () => {
-    expect(summarizeFilter(makeFilter({ operator: 'is_not_empty', value: '' }))).toBe('is not empty');
+    expect(summarizeFilter(makeFilter({ operator: 'is_not_empty', value: '' }))).toBe(
+      'is not empty',
+    );
   });
 
   it('contains operator', () => {
-    expect(summarizeFilter(makeFilter({ operator: 'contains', value: 'bar' }))).toBe('Contains: bar');
+    expect(summarizeFilter(makeFilter({ operator: 'contains', value: 'bar' }))).toBe(
+      'Contains: bar',
+    );
   });
 
   it('between with from and to', () => {
     expect(
-      summarizeFilter(makeFilter({ operator: 'between', value: { from: '10', to: '20' }, fieldType: 'string' })),
+      summarizeFilter(
+        makeFilter({ operator: 'between', value: { from: '10', to: '20' }, fieldType: 'string' }),
+      ),
     ).toBe('between: 10 — 20');
   });
 
   it('between with from only', () => {
-    expect(summarizeFilter(makeFilter({ operator: 'between', value: { from: '10' }, fieldType: 'string' }))).toBe(
-      'from 10',
-    );
+    expect(
+      summarizeFilter(
+        makeFilter({ operator: 'between', value: { from: '10' }, fieldType: 'string' }),
+      ),
+    ).toBe('from 10');
   });
 
   it('between with to only', () => {
-    expect(summarizeFilter(makeFilter({ operator: 'between', value: { to: '20' }, fieldType: 'string' }))).toBe(
-      'until 20',
-    );
+    expect(
+      summarizeFilter(
+        makeFilter({ operator: 'between', value: { to: '20' }, fieldType: 'string' }),
+      ),
+    ).toBe('until 20');
   });
 
   it('between with no range shows operator label only', () => {
@@ -261,7 +271,9 @@ describe('summarizeFilter — rank mode', () => {
 
 describe('isRelativeDateValue', () => {
   it('returns true for a valid relative date object', () => {
-    expect(isRelativeDateValue({ relative: true, amount: 3, unit: 'day', direction: 'past' })).toBe(true);
+    expect(isRelativeDateValue({ relative: true, amount: 3, unit: 'day', direction: 'past' })).toBe(
+      true,
+    );
   });
 
   it('returns false for absolute date string', () => {
@@ -334,7 +346,12 @@ describe('absoluteToRelative', () => {
 
 describe('relativeToAbsolute', () => {
   it('returns approximate past date string', () => {
-    const result = relativeToAbsolute({ relative: true, amount: 30, unit: 'day', direction: 'past' });
+    const result = relativeToAbsolute({
+      relative: true,
+      amount: 30,
+      unit: 'day',
+      direction: 'past',
+    });
     const expected = new Date();
     expected.setDate(expected.getDate() - 30);
     // Allow ±1 day tolerance
@@ -343,7 +360,12 @@ describe('relativeToAbsolute', () => {
   });
 
   it('returns approximate future date string in YYYY-MM-DD format', () => {
-    const result = relativeToAbsolute({ relative: true, amount: 7, unit: 'day', direction: 'next' });
+    const result = relativeToAbsolute({
+      relative: true,
+      amount: 7,
+      unit: 'day',
+      direction: 'next',
+    });
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     const diff = new Date(result).getTime() - Date.now();
     expect(diff).toBeGreaterThan(0);

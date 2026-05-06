@@ -347,4 +347,3 @@ export const productsSource: StudioDataSource = {
     },
   ]),
 };
-

@@ -152,7 +152,8 @@ describe('generateSalesData', () => {
         if (shipment.actualDeliveryDate == null) {
           expect(shipment.onTime).toBe(false);
         } else {
-          const onTime = String(shipment.actualDeliveryDate) <= String(shipment.estimatedDeliveryDate);
+          const onTime =
+            String(shipment.actualDeliveryDate) <= String(shipment.estimatedDeliveryDate);
           expect(shipment.onTime).toBe(onTime);
         }
       }
@@ -168,9 +169,16 @@ describe('generateSalesData', () => {
 
     it('order currency matches customer country', () => {
       const COUNTRY_CURRENCY: Record<string, string> = {
-        Germany: 'EUR', France: 'EUR', Spain: 'EUR',
-        Netherlands: 'EUR', Sweden: 'EUR', Poland: 'EUR',
-        UK: 'GBP', USA: 'USD', Canada: 'CAD', Australia: 'AUD',
+        Germany: 'EUR',
+        France: 'EUR',
+        Spain: 'EUR',
+        Netherlands: 'EUR',
+        Sweden: 'EUR',
+        Poland: 'EUR',
+        UK: 'GBP',
+        USA: 'USD',
+        Canada: 'CAD',
+        Australia: 'AUD',
       };
       const data = generateSalesData({ seed: 42, orderCount: 50 });
       const customerById = new Map(data.customersSource.rows!.map((c) => [c.id, c]));
@@ -185,7 +193,12 @@ describe('generateSalesData', () => {
   describe('value vocabularies', () => {
     it('order statuses are from the allowed set', () => {
       const VALID_STATUSES = new Set([
-        'Delivered', 'Shipped', 'Processing', 'Pending', 'Partially Delivered', 'Cancelled',
+        'Delivered',
+        'Shipped',
+        'Processing',
+        'Pending',
+        'Partially Delivered',
+        'Cancelled',
       ]);
       const data = generateSalesData({ seed: 42, orderCount: 100 });
       for (const order of data.ordersSource.rows!) {
@@ -195,7 +208,12 @@ describe('generateSalesData', () => {
 
     it('product categories are from the allowed set', () => {
       const VALID_CATEGORIES = new Set([
-        'Electronics', 'Furniture', 'Supplies', 'Software', 'Services', 'Networking',
+        'Electronics',
+        'Furniture',
+        'Supplies',
+        'Software',
+        'Services',
+        'Networking',
       ]);
       const data = generateSalesData({ seed: 42, orderCount: 10 });
       for (const product of data.productsSource.rows!) {

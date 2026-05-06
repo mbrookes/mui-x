@@ -31,16 +31,10 @@ export function FilterModeToggle({
       }}
       sx={{ alignSelf: 'stretch', width: '100%' }}
     >
-      <ToggleButton
-        value="condition"
-        sx={{ px, py, fontSize, textTransform: 'none', flexGrow: 1 }}
-      >
+      <ToggleButton value="condition" sx={{ px, py, fontSize, textTransform: 'none', flexGrow: 1 }}>
         Filter
       </ToggleButton>
-      <ToggleButton
-        value="selection"
-        sx={{ px, py, fontSize, textTransform: 'none', flexGrow: 1 }}
-      >
+      <ToggleButton value="selection" sx={{ px, py, fontSize, textTransform: 'none', flexGrow: 1 }}>
         Select
       </ToggleButton>
       <ToggleButton

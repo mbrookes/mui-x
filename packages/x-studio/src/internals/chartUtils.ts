@@ -431,7 +431,13 @@ export function resolveRows(
   // KPI widget pre-enriches once and calls resolveRows twice for current/prev period).
   const enrichedRows = options?.skipEnrichment
     ? widgetRows
-    : getCachedEnrichedRows(widgetRows, widgetSourceId, expressionFields, dataSources, relationships);
+    : getCachedEnrichedRows(
+        widgetRows,
+        widgetSourceId,
+        expressionFields,
+        dataSources,
+        relationships,
+      );
 
   const nativeFilters: StudioFilterState[] = [];
   const crossFilters: (StudioFilterState & { filterSourceId: string })[] = [];
@@ -472,7 +478,13 @@ export function resolveRows(
     if (!foreignEnrichedCache.has(f.filterSourceId)) {
       foreignEnrichedCache.set(
         f.filterSourceId,
-        getCachedEnrichedRows(foreignSource.rows, f.filterSourceId, expressionFields, dataSources, relationships),
+        getCachedEnrichedRows(
+          foreignSource.rows,
+          f.filterSourceId,
+          expressionFields,
+          dataSources,
+          relationships,
+        ),
       );
     }
     const enrichedForeignRows = foreignEnrichedCache.get(f.filterSourceId)!;
@@ -571,7 +583,11 @@ export function enrichRowsWithRelatedFields(
     for (const row of relatedRows) {
       map.set(row[relatedJoinField], row[fieldId]);
     }
-    return { fieldId, widgetJoinField: foreignFieldNeeds.find((n) => n.fieldId === fieldId)!.widgetJoinField, map };
+    return {
+      fieldId,
+      widgetJoinField: foreignFieldNeeds.find((n) => n.fieldId === fieldId)!.widgetJoinField,
+      map,
+    };
   });
 
   // Enrich rows (non-mutating — spread each row)
@@ -706,8 +722,6 @@ export function applyRankToSeriesFieldData(
   };
 }
 
-
-
 export type XGroupBy = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 /** Normalise any date-like value (Date, ms number, or string) to a Date. */
@@ -757,11 +771,15 @@ export function normalizeDataSourceRows(dataSource: StudioDataSource): StudioDat
     // normalization is needed at all. Fields already in canonical form are excluded.
     const dateIdsToNormalize = dateFieldIds.filter((id) => {
       const sample = originalRows.find((r) => r[id] != null)?.[id];
-      return sample !== undefined && !(typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(sample));
+      return (
+        sample !== undefined && !(typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(sample))
+      );
     });
     const datetimeIdsToNormalize = datetimeFieldIds.filter((id) => {
       const sample = originalRows.find((r) => r[id] != null)?.[id];
-      return sample !== undefined && !(typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(sample));
+      return (
+        sample !== undefined && !(typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(sample))
+      );
     });
 
     if (dateIdsToNormalize.length > 0 || datetimeIdsToNormalize.length > 0) {
@@ -884,8 +902,20 @@ export function truncateToGranularity(value: unknown, granularity: XGroupBy): st
   }
 }
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_NAMES = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
 
 /**
  * Convert a sort-stable period key into a human-readable axis label.
@@ -1083,16 +1113,12 @@ export function formatTemporalAxisLabel(value: Date, xGroupBy?: XGroupBy): strin
  * Apply xGroupBy truncation to an x-axis value.
  * Returns the original value when xGroupBy is not set or the value is not date-like.
  */
-function applyXGroupBy(
-  value: string | number,
-  xGroupBy: XGroupBy | undefined,
-): string | number {
+function applyXGroupBy(value: string | number, xGroupBy: XGroupBy | undefined): string | number {
   if (!xGroupBy) {
     return value;
   }
   return truncateToGranularity(value, xGroupBy) ?? value;
 }
-
 
 /**
  * Sort x-axis labels: numeric labels sort numerically, date-like strings sort
@@ -1263,8 +1289,8 @@ export function analyzeChartSupport(
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[] = [],
 ): ChartSupportResult {
-  const requestedFields = [xField, ...yFields, seriesField].filter(
-    (field): field is string => Boolean(field),
+  const requestedFields = [xField, ...yFields, seriesField].filter((field): field is string =>
+    Boolean(field),
   );
 
   if (!widgetSourceId || requestedFields.length === 0) {
@@ -1286,15 +1312,20 @@ export function analyzeChartSupport(
     fieldOwners.set(fieldId, owner);
   }
 
-  if (chartType === 'scatter' && Array.from(fieldOwners.values()).some((owner) => owner !== widgetSourceId)) {
+  if (
+    chartType === 'scatter' &&
+    Array.from(fieldOwners.values()).some((owner) => owner !== widgetSourceId)
+  ) {
     return { supported: false, reason: 'scatter_cross_source_not_supported' };
   }
 
-  const ySourceIds = [...new Set(
-    yFields
-      .map((fieldId) => fieldOwners.get(fieldId))
-      .filter((sourceId): sourceId is string => Boolean(sourceId)),
-  )];
+  const ySourceIds = [
+    ...new Set(
+      yFields
+        .map((fieldId) => fieldOwners.get(fieldId))
+        .filter((sourceId): sourceId is string => Boolean(sourceId)),
+    ),
+  ];
 
   let anchorSourceId = widgetSourceId;
   if (ySourceIds.length === 1 && ySourceIds[0] !== widgetSourceId) {
@@ -1308,7 +1339,10 @@ export function analyzeChartSupport(
     }
   }
 
-  if (anchorSourceId === widgetSourceId && ySourceIds.filter((sourceId) => sourceId !== widgetSourceId).length > 1) {
+  if (
+    anchorSourceId === widgetSourceId &&
+    ySourceIds.filter((sourceId) => sourceId !== widgetSourceId).length > 1
+  ) {
     return { supported: false, reason: 'mixed_cross_source_fields' };
   }
 
@@ -1366,8 +1400,8 @@ export function resolveChartRowsForAggregation(
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[] = [],
 ): Row[] {
-  const requestedFields = [xField, ...yFields, seriesField].filter(
-    (field): field is string => Boolean(field),
+  const requestedFields = [xField, ...yFields, seriesField].filter((field): field is string =>
+    Boolean(field),
   );
 
   if (!widgetSourceId || widgetRows.length === 0 || requestedFields.length === 0) {
@@ -1431,7 +1465,11 @@ export function resolveChartRowsForAggregation(
       relationships,
     );
   } else {
-    const anchorRelationship = findDirectRelationship(widgetSourceId, anchorSourceId, relationships);
+    const anchorRelationship = findDirectRelationship(
+      widgetSourceId,
+      anchorSourceId,
+      relationships,
+    );
     if (
       !anchorRelationship ||
       anchorRelationship.sourceId !== anchorSourceId ||

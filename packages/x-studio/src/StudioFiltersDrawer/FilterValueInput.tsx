@@ -74,9 +74,7 @@ function MetricPickerButton({
       if (!source.rows) {
         continue;
       }
-      const suitableFields = source.fields.filter(
-        (f) => !f.hidden && fieldHasCapability(f, cap),
-      );
+      const suitableFields = source.fields.filter((f) => !f.hidden && fieldHasCapability(f, cap));
       if (suitableFields.length === 0) {
         continue;
       }
@@ -297,8 +295,7 @@ function DateValueInput({
     }
   };
 
-  const dayjsVal: Dayjs | null =
-    !isRel && value && typeof value === 'string' ? dayjs(value) : null;
+  const dayjsVal: Dayjs | null = !isRel && value && typeof value === 'string' ? dayjs(value) : null;
 
   const isLinked = Boolean(valueRef);
 
@@ -329,9 +326,7 @@ function DateValueInput({
           valueRef={valueRef}
           onValueRefChange={onValueRefChange}
           onMetricSelect={
-            onMetricSelect as
-              | ((value: RelativeDateValue, ref: StudioMetricRef) => void)
-              | undefined
+            onMetricSelect as ((value: RelativeDateValue, ref: StudioMetricRef) => void) | undefined
           }
           metricLabel={metricLabel}
         />
@@ -500,7 +495,9 @@ export function FilterValueInput(props: {
         options={fieldValues}
         value={localText}
         onInputChange={(_, newVal) => handleTextChange(newVal)}
-        renderInput={(params) => <TextField {...params} label="Value" helperText="Value to compare against" />}
+        renderInput={(params) => (
+          <TextField {...params} label="Value" helperText="Value to compare against" />
+        )}
         sx={{ minWidth: 80, flexGrow: 1 }}
       />
     );

@@ -136,49 +136,51 @@ export function DrawerPanel(props: DrawerPanelProps) {
 
   return (
     <DrawerSubheaderContext.Provider value={ctxValue}>
-    <Box
-      sx={{
-        width: DRAWER_WIDTH,
-        flexShrink: 0,
-        borderRight: 1,
-        borderColor: 'divider',
-        bgcolor: 'background.paper',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}
-    >
-      <Box sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 0.5, minHeight: 48 }}>
-        {onBack ? (
+      <Box
+        sx={{
+          width: DRAWER_WIDTH,
+          flexShrink: 0,
+          borderRight: 1,
+          borderColor: 'divider',
+          bgcolor: 'background.paper',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        <Box
+          sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 0.5, minHeight: 48 }}
+        >
+          {onBack ? (
+            <IconButton
+              size="small"
+              onClick={onBack}
+              aria-label="Close widget configuration"
+              sx={{ mr: 0.5 }}
+            >
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          ) : (
+            icon && <Box sx={{ display: 'flex', color: 'action.active', mr: 0.5 }}>{icon}</Box>
+          )}
+          <Typography variant="subtitle2" sx={{ color: 'text.primary', flexGrow: 1 }} noWrap>
+            {title}
+          </Typography>
+          {badge != null && badge > 0 && (
+            <Badge badgeContent={badge} color="primary" sx={{ mr: 1 }} />
+          )}
           <IconButton
             size="small"
-            onClick={onBack}
-            aria-label="Close widget configuration"
-            sx={{ mr: 0.5 }}
+            onClick={() => controller.setDrawerOpen(drawer, false)}
+            aria-label={`Close ${title} panel`}
           >
-            <CloseIcon fontSize="small" />
+            <ChevronRightIcon fontSize="small" />
           </IconButton>
-        ) : (
-          icon && <Box sx={{ display: 'flex', color: 'action.active', mr: 0.5 }}>{icon}</Box>
-        )}
-        <Typography variant="subtitle2" sx={{ color: 'text.primary', flexGrow: 1 }} noWrap>
-          {title}
-        </Typography>
-        {badge != null && badge > 0 && (
-          <Badge badgeContent={badge} color="primary" sx={{ mr: 1 }} />
-        )}
-        <IconButton
-          size="small"
-          onClick={() => controller.setDrawerOpen(drawer, false)}
-          aria-label={`Close ${title} panel`}
-        >
-          <ChevronRightIcon fontSize="small" />
-        </IconButton>
+        </Box>
+        <Divider />
+        {subheader}
+        <Box sx={{ p: 1.5, overflow: 'auto', flexGrow: 1 }}>{children}</Box>
       </Box>
-      <Divider />
-      {subheader}
-      <Box sx={{ p: 1.5, overflow: 'auto', flexGrow: 1 }}>{children}</Box>
-    </Box>
     </DrawerSubheaderContext.Provider>
   );
 }

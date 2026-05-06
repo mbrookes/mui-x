@@ -14,7 +14,12 @@ import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioDataSource, StudioFilterState } from '../models';
 import type { SimpleField } from './filterDrawerTypes';
 import { buildFieldOptions, generateId } from './filterDrawerUtils';
-import { FilterSection, WidgetFilterSection, CrossFilterSection, InteractiveFilterSection } from './FilterSection';
+import {
+  FilterSection,
+  WidgetFilterSection,
+  CrossFilterSection,
+  InteractiveFilterSection,
+} from './FilterSection';
 
 export function StudioFiltersDrawer() {
   const controller = useStudioController();
@@ -54,9 +59,7 @@ export function StudioFiltersDrawer() {
     selectedWidget?.kind === 'chart' ? (selectedWidget.config.xField ?? undefined) : undefined;
   const chartYFieldId =
     selectedWidget?.kind === 'chart'
-      ? (selectedWidget.config.ySeries?.[0]?.fieldId ??
-        selectedWidget.config.yField ??
-        undefined)
+      ? (selectedWidget.config.ySeries?.[0]?.fieldId ?? selectedWidget.config.yField ?? undefined)
       : undefined;
   const chartYFieldLabel = React.useMemo(() => {
     if (!chartYFieldId || !selectedWidget?.sourceId) {

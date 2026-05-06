@@ -244,6 +244,63 @@ export interface StudioDataField {
   capabilities?: FieldCapability[];
 }
 
+// Filter tree node for QueryDescriptor
+export type StudioFilterNode =
+  | {
+      type: 'leaf';
+      field: string;
+      op: StudioFilterOperator;
+      value: unknown;
+      value2?: unknown;
+      conjunction?: 'and' | 'or';
+      op2?: StudioFilterOperator;
+      fieldType?: StudioDataField['type'];
+      filterSourceId?: string;
+    }
+  | { type: 'group'; logic: 'and' | 'or'; children: StudioFilterNode[] };
+
+// Result returned by a data source adapter
+export interface StudioQueryResult {
+  rows: Record<string, unknown>[];
+  totalCount?: number;
+  isTruncated?: boolean;
+}
+
+// The query descriptor emitted by Studio for a widget
+export interface StudioQueryDescriptor {
+  sourceId: string;
+  widgetId: string;
+  /** Field IDs needed for this widget */
+  select: string[];
+  /** Recursive filter tree built from all active filters for this widget */
+  filter?: StudioFilterNode;
+  /** For chart/KPI: the x-axis grouping field */
+  groupBy?: string;
+  /** For chart/KPI: aggregation functions to apply server-side */
+  aggregations?: {
+    field: string;
+    fn: 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
+    alias: string;
+  }[];
+  /** Time-series bucketing granularity */
+  xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
+  /**
+   * Stable hash of all other fields. Use as a cache key.
+   * The package computes this; the developer need not hash the descriptor.
+   */
+  cacheKey: string;
+}
+
+// Async data source adapter — developer implements this
+export interface StudioDataSourceAdapter {
+  /**
+   * Called when the query descriptor for this source changes.
+   * Return pre-aggregated rows when descriptor.aggregations is set,
+   * or raw filtered rows otherwise.
+   */
+  getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult>;
+}
+
 export interface StudioDataSource {
   id: string;
   label: string;
@@ -258,6 +315,12 @@ export interface StudioDataSource {
    * Not persisted — derived from `rows` and rebuilt when rows change.
    */
   fieldDistinctValues?: Record<string, string[]>;
+  /**
+   * Optional async adapter. When set, Studio will call adapter.getRows()
+   * whenever the query descriptor changes, instead of using rows directly.
+   * rows can be omitted when adapter is provided.
+   */
+  adapter?: StudioDataSourceAdapter;
 }
 
 // ─── Expression field types ───────────────────────────────────────────────────

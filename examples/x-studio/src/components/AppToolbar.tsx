@@ -24,7 +24,20 @@ export interface AppToolbarProps {
 }
 
 export function AppToolbar(props: AppToolbarProps) {
-  const { title, mode, onModeChange, onSave, onLoad, pages, activePageId, onPageChange, canUndo, canRedo, onUndo, onRedo } = props;
+  const {
+    title,
+    mode,
+    onModeChange,
+    onSave,
+    onLoad,
+    pages,
+    activePageId,
+    onPageChange,
+    canUndo,
+    canRedo,
+    onUndo,
+    onRedo,
+  } = props;
 
   return (
     <Box
@@ -43,13 +56,17 @@ export function AppToolbar(props: AppToolbarProps) {
         <StudioWordmark height={30} />
         {title && (
           <React.Fragment>
-            <Box
-              sx={{ width: '1px', height: 20, bgcolor: 'divider', flexShrink: 0 }}
-              aria-hidden
-            />
+            <Box sx={{ width: '1px', height: 20, bgcolor: 'divider', flexShrink: 0 }} aria-hidden />
             <Typography
               variant="body1"
-              sx={{ fontSize: 18, color: 'text.secondary', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              sx={{
+                fontSize: 18,
+                color: 'text.secondary',
+                maxWidth: 240,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
             >
               {title}
             </Typography>

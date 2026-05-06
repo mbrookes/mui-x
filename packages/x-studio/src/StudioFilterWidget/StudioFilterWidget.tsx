@@ -20,7 +20,13 @@ import CloseIcon from '@mui/icons-material/Close';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import type { StudioWidget, StudioDataSource } from '../models';
-import { useStudioController, useStudioSelector, selectDataSources, selectRelationships, selectExpressionFields } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectDataSources,
+  selectRelationships,
+  selectExpressionFields,
+} from '../context';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 
 export interface StudioFilterWidgetProps {
@@ -85,8 +91,15 @@ function DateRangeControl({
               tabIndex={0}
               aria-label="Clear date range filter"
               onClick={onClear}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClear(); }}
-              sx={{ cursor: 'pointer', color: 'text.secondary', display: 'flex', alignItems: 'center' }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') onClear();
+              }}
+              sx={{
+                cursor: 'pointer',
+                color: 'text.secondary',
+                display: 'flex',
+                alignItems: 'center',
+              }}
             >
               <CloseIcon sx={{ fontSize: 14 }} />
             </Box>
@@ -153,8 +166,15 @@ function MultiSelectControl({
               tabIndex={0}
               aria-label="Clear selection filter"
               onClick={onClear}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClear(); }}
-              sx={{ cursor: 'pointer', color: 'text.secondary', display: 'flex', alignItems: 'center' }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') onClear();
+              }}
+              sx={{
+                cursor: 'pointer',
+                color: 'text.secondary',
+                display: 'flex',
+                alignItems: 'center',
+              }}
             >
               <CloseIcon sx={{ fontSize: 14 }} />
             </Box>
@@ -261,8 +281,15 @@ function ToggleControl({
               tabIndex={0}
               aria-label="Clear toggle filter"
               onClick={onClear}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClear(); }}
-              sx={{ cursor: 'pointer', color: 'text.secondary', display: 'flex', alignItems: 'center' }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') onClear();
+              }}
+              sx={{
+                cursor: 'pointer',
+                color: 'text.secondary',
+                display: 'flex',
+                alignItems: 'center',
+              }}
             >
               <CloseIcon sx={{ fontSize: 14 }} />
             </Box>
@@ -321,7 +348,10 @@ function SliderControl({
     setLocalValue(newValue as [number, number]);
   };
 
-  const handleChangeCommitted = (_event: React.SyntheticEvent | Event, newValue: number | number[]) => {
+  const handleChangeCommitted = (
+    _event: React.SyntheticEvent | Event,
+    newValue: number | number[],
+  ) => {
     const [lo, hi] = newValue as [number, number];
     if (lo === min && hi === max) {
       onClear();
@@ -330,8 +360,7 @@ function SliderControl({
     }
   };
 
-  const formatLabel = (v: number) =>
-    isDate ? dayjs(v).format('D MMM YYYY') : v.toLocaleString();
+  const formatLabel = (v: number) => (isDate ? dayjs(v).format('D MMM YYYY') : v.toLocaleString());
 
   return (
     <Stack spacing={0.5} role="group" aria-label={label}>
@@ -344,8 +373,15 @@ function SliderControl({
               tabIndex={0}
               aria-label="Clear slider filter"
               onClick={onClear}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClear(); }}
-              sx={{ cursor: 'pointer', color: 'text.secondary', display: 'flex', alignItems: 'center' }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') onClear();
+              }}
+              sx={{
+                cursor: 'pointer',
+                color: 'text.secondary',
+                display: 'flex',
+                alignItems: 'center',
+              }}
             >
               <CloseIcon sx={{ fontSize: 14 }} />
             </Box>
@@ -422,7 +458,13 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       return dataSource.rows;
     }
 
-    return getCachedEnrichedRows(dataSource.rows, widget.sourceId, expressionFields, dataSources, relationships);
+    return getCachedEnrichedRows(
+      dataSource.rows,
+      widget.sourceId,
+      expressionFields,
+      dataSources,
+      relationships,
+    );
   }, [dataSource?.rows, expressionFields, fieldId, widget.sourceId, dataSources, relationships]);
 
   const label = config.filterWidgetLabel ?? field?.label ?? fieldId ?? 'Filter';
@@ -603,10 +645,16 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
           // For date sliders, convert timestamps back to ISO strings for filter matching
           const from = isDateField ? dayjs(lo).format('YYYY-MM-DD') : lo;
           const to = isDateField ? dayjs(hi).format('YYYY-MM-DD') : hi;
-          controller.applyInteractiveFilter(widget.id, fieldId, 'between', { from, to }, {
-            fieldType,
-            filterSourceId,
-          });
+          controller.applyInteractiveFilter(
+            widget.id,
+            fieldId,
+            'between',
+            { from, to },
+            {
+              fieldType,
+              filterSourceId,
+            },
+          );
         }}
         onClear={handleClear}
       />

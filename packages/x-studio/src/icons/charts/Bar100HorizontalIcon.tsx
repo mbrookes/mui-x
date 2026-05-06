@@ -20,7 +20,15 @@ export function Bar100HorizontalIcon({
       {rows.map((r, i) => (
         <React.Fragment key={i}>
           <rect x={2} y={r.y} width={r.a} height={h} fill={c1} rx={0.5} />
-          <rect x={2 + r.a} y={r.y} width={total - r.a} height={h} fill={c2} opacity={0.45} rx={0.5} />
+          <rect
+            x={2 + r.a}
+            y={r.y}
+            width={total - r.a}
+            height={h}
+            fill={c2}
+            opacity={0.45}
+            rx={0.5}
+          />
         </React.Fragment>
       ))}
     </ChartSvg>

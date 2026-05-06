@@ -467,4 +467,3 @@ export const customersSource: StudioDataSource = {
     },
   ],
 };
-

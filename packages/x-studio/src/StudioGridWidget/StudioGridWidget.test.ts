@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { StudioDataSource, StudioFilterState, StudioRelationship, StudioWidget } from '../models';
+import type {
+  StudioDataSource,
+  StudioFilterState,
+  StudioRelationship,
+  StudioWidget,
+} from '../models';
 import { resolveRows } from '../internals/chartUtils';
 
 function makeWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
@@ -164,13 +169,7 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
   });
 
   it('clearing the filter (empty selection) returns all orders', () => {
-    const result = resolveRows(
-      ordersSource.rows,
-      'source-orders',
-      [],
-      dataSources,
-      relationships,
-    );
+    const result = resolveRows(ordersSource.rows, 'source-orders', [], dataSources, relationships);
 
     expect(result).toHaveLength(3);
   });

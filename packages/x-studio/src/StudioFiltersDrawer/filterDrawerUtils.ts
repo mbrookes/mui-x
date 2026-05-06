@@ -5,49 +5,51 @@ import type { FieldOption, FieldType, FilterMode } from './filterDrawerTypes';
 
 // ─── Operators ────────────────────────────────────────────────────────────────
 
-export const OPERATORS_BY_TYPE: Record<FieldType, { value: StudioFilterOperator; label: string }[]> =
-  {
-    string: [
-      { value: 'equals', label: 'Equals' },
-      { value: 'not_equals', label: 'Not equals' },
-      { value: 'contains', label: 'Contains' },
-      { value: 'does_not_contain', label: 'Does not contain' },
-      { value: 'starts_with', label: 'Starts with' },
-      { value: 'not_starts_with', label: 'Does not start with' },
-      { value: 'ends_with', label: 'Ends with' },
-      { value: 'not_ends_with', label: 'Does not end with' },
-      { value: 'is_empty', label: 'Is empty' },
-      { value: 'is_not_empty', label: 'Is not empty' },
-    ],
-    number: [
-      { value: 'equals', label: '=' },
-      { value: 'not_equals', label: '≠' },
-      { value: 'greater_than', label: '>' },
-      { value: 'less_than', label: '<' },
-      { value: 'greater_than_or_equal', label: '≥' },
-      { value: 'less_than_or_equal', label: '≤' },
-    ],
-    date: [
-      { value: 'equals', label: 'On' },
-      { value: 'not_equals', label: 'Not on' },
-      { value: 'less_than', label: 'Before' },
-      { value: 'greater_than', label: 'After' },
-      { value: 'less_than_or_equal', label: 'On or before' },
-      { value: 'greater_than_or_equal', label: 'On or after' },
-    ],
-    datetime: [
-      { value: 'equals', label: 'At' },
-      { value: 'not_equals', label: 'Not at' },
-      { value: 'greater_than', label: 'After' },
-      { value: 'less_than', label: 'Before' },
-      { value: 'greater_than_or_equal', label: 'At or after' },
-      { value: 'less_than_or_equal', label: 'At or before' },
-    ],
-    boolean: [
-      { value: 'equals', label: 'Is' },
-      { value: 'not_equals', label: 'Is not' },
-    ],
-  };
+export const OPERATORS_BY_TYPE: Record<
+  FieldType,
+  { value: StudioFilterOperator; label: string }[]
+> = {
+  string: [
+    { value: 'equals', label: 'Equals' },
+    { value: 'not_equals', label: 'Not equals' },
+    { value: 'contains', label: 'Contains' },
+    { value: 'does_not_contain', label: 'Does not contain' },
+    { value: 'starts_with', label: 'Starts with' },
+    { value: 'not_starts_with', label: 'Does not start with' },
+    { value: 'ends_with', label: 'Ends with' },
+    { value: 'not_ends_with', label: 'Does not end with' },
+    { value: 'is_empty', label: 'Is empty' },
+    { value: 'is_not_empty', label: 'Is not empty' },
+  ],
+  number: [
+    { value: 'equals', label: '=' },
+    { value: 'not_equals', label: '≠' },
+    { value: 'greater_than', label: '>' },
+    { value: 'less_than', label: '<' },
+    { value: 'greater_than_or_equal', label: '≥' },
+    { value: 'less_than_or_equal', label: '≤' },
+  ],
+  date: [
+    { value: 'equals', label: 'On' },
+    { value: 'not_equals', label: 'Not on' },
+    { value: 'less_than', label: 'Before' },
+    { value: 'greater_than', label: 'After' },
+    { value: 'less_than_or_equal', label: 'On or before' },
+    { value: 'greater_than_or_equal', label: 'On or after' },
+  ],
+  datetime: [
+    { value: 'equals', label: 'At' },
+    { value: 'not_equals', label: 'Not at' },
+    { value: 'greater_than', label: 'After' },
+    { value: 'less_than', label: 'Before' },
+    { value: 'greater_than_or_equal', label: 'At or after' },
+    { value: 'less_than_or_equal', label: 'At or before' },
+  ],
+  boolean: [
+    { value: 'equals', label: 'Is' },
+    { value: 'not_equals', label: 'Is not' },
+  ],
+};
 
 export function getOperators(fieldType: FieldType | undefined) {
   return OPERATORS_BY_TYPE[fieldType ?? 'string'] ?? OPERATORS_BY_TYPE.string;
@@ -94,13 +96,28 @@ export function absoluteToRelative(dateStr: string): RelativeDateValue {
   const absDays = Math.abs(date.diff(now, 'day'));
 
   if (absDays >= 365) {
-    return { relative: true, amount: Math.max(1, Math.round(absDays / 365)), unit: 'year', direction };
+    return {
+      relative: true,
+      amount: Math.max(1, Math.round(absDays / 365)),
+      unit: 'year',
+      direction,
+    };
   }
   if (absDays >= 28) {
-    return { relative: true, amount: Math.max(1, Math.round(absDays / 30)), unit: 'month', direction };
+    return {
+      relative: true,
+      amount: Math.max(1, Math.round(absDays / 30)),
+      unit: 'month',
+      direction,
+    };
   }
   if (absDays >= 7) {
-    return { relative: true, amount: Math.max(1, Math.round(absDays / 7)), unit: 'week', direction };
+    return {
+      relative: true,
+      amount: Math.max(1, Math.round(absDays / 7)),
+      unit: 'week',
+      direction,
+    };
   }
   return { relative: true, amount: Math.max(1, absDays), unit: 'day', direction };
 }

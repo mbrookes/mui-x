@@ -16,7 +16,7 @@ import {
   selectWidgets,
   selectDataSources,
 } from '../context';
-import type { StudioMode, StudioState } from '../models';
+import type { StudioDataSourceAdapter, StudioMode, StudioState } from '../models';
 import { StudioController } from '../store';
 import type { SerializedStudioState, MigrationResult } from '../store/statePersistence';
 import { DrawerPanel } from '../internals/DrawerPanel';
@@ -55,6 +55,15 @@ export interface StudioHandle {
    * @returns A `MigrationResult` describing success or validation errors.
    */
   loadSerializedState(data: unknown): MigrationResult;
+  /**
+   * Attach (or remove) an async data source adapter for the given source.
+   * When an adapter is provided, Studio calls `adapter.getRows(descriptor)` on every
+   * descriptor change instead of using the in-memory rows pipeline.
+   *
+   * @param sourceId - The ID of the data source to configure.
+   * @param adapter - The adapter implementation, or `undefined` to remove it.
+   */
+  setDataSourceAdapter(sourceId: string, adapter: StudioDataSourceAdapter | undefined): void;
 }
 
 // ── Slots / Props ─────────────────────────────────────────────────────────────
@@ -102,7 +111,7 @@ const StudioContent = React.memo(function StudioContent(props: StudioSlots) {
   const selectedWidgetId = shell.selectedWidgetId;
   const selectedFieldId = shell.selectedFieldId;
   const selectedSourceId = shell.selectedSourceId;
-  const selectedWidget = selectedWidgetId ? widgets[selectedWidgetId] ?? null : null;
+  const selectedWidget = selectedWidgetId ? (widgets[selectedWidgetId] ?? null) : null;
   const selectedField = React.useMemo(() => {
     if (!selectedSourceId || !selectedFieldId) {
       return null;
@@ -233,48 +242,49 @@ const StudioContent = React.memo(function StudioContent(props: StudioSlots) {
  */
 export const Studio = React.memo(
   React.forwardRef<StudioHandle, StudioProps>(function Studio(props, ref) {
-  const { initialState, onStateChange, ...slots } = props;
+    const { initialState, onStateChange, ...slots } = props;
 
-  // Controller is created once at mount and never replaced.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const controller = React.useMemo(() => new StudioController(initialState), []);
+    // Controller is created once at mount and never replaced.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const controller = React.useMemo(() => new StudioController(initialState), []);
 
-  // Wire onStateChange — re-subscribe whenever the callback identity changes.
-  const onStateChangeRef = React.useRef(onStateChange);
-  React.useLayoutEffect(() => {
-    onStateChangeRef.current = onStateChange;
-  });
-
-  React.useEffect(() => {
-    // Fire once on mount so consumers can seed their local state from the initial value.
-    onStateChangeRef.current?.(controller.getState());
-    return controller.subscribe((state) => {
-      onStateChangeRef.current?.(state);
+    // Wire onStateChange — re-subscribe whenever the callback identity changes.
+    const onStateChangeRef = React.useRef(onStateChange);
+    React.useLayoutEffect(() => {
+      onStateChangeRef.current = onStateChange;
     });
-  }, [controller]);
 
-  // Expose imperative handle to the parent via ref.
-  React.useImperativeHandle(
-    ref,
-    () => ({
-      undo: () => controller.undo(),
-      redo: () => controller.redo(),
-      canUndo: () => controller.canUndo(),
-      canRedo: () => controller.canRedo(),
-      setMode: (mode) => controller.setMode(mode),
-      setActivePage: (pageId) => controller.setActivePage(pageId),
-      getState: () => controller.getState(),
-      serializeState: () => controller.serializeState(),
-      loadSerializedState: (data) => controller.loadSerializedState(data),
-    }),
-    [controller],
-  );
+    React.useEffect(() => {
+      // Fire once on mount so consumers can seed their local state from the initial value.
+      onStateChangeRef.current?.(controller.getState());
+      return controller.subscribe((state) => {
+        onStateChangeRef.current?.(state);
+      });
+    }, [controller]);
 
-  return (
-    <StudioProvider controller={controller}>
-      <StudioContent {...slots} />
-    </StudioProvider>
-  );
-}),
+    // Expose imperative handle to the parent via ref.
+    React.useImperativeHandle(
+      ref,
+      () => ({
+        undo: () => controller.undo(),
+        redo: () => controller.redo(),
+        canUndo: () => controller.canUndo(),
+        canRedo: () => controller.canRedo(),
+        setMode: (mode) => controller.setMode(mode),
+        setActivePage: (pageId) => controller.setActivePage(pageId),
+        getState: () => controller.getState(),
+        serializeState: () => controller.serializeState(),
+        loadSerializedState: (data) => controller.loadSerializedState(data),
+        setDataSourceAdapter: (sourceId, adapter) =>
+          controller.setDataSourceAdapter(sourceId, adapter),
+      }),
+      [controller],
+    );
+
+    return (
+      <StudioProvider controller={controller}>
+        <StudioContent {...slots} />
+      </StudioProvider>
+    );
+  }),
 );
-

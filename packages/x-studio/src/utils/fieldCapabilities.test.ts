@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StudioDataField } from '../models';
-import {
-  getFieldCapabilities,
-  fieldHasCapability,
-  fieldsForCapability,
-} from './fieldCapabilities';
+import { getFieldCapabilities, fieldHasCapability, fieldsForCapability } from './fieldCapabilities';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

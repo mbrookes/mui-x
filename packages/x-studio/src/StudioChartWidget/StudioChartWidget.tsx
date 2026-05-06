@@ -17,7 +17,13 @@ import {
   getTemporalAxisData,
   getChartSupportMessage,
 } from '../internals/chartUtils';
-import { useStudioController, useStudioSelector, selectFilters, selectActivePageId } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectFilters,
+  selectActivePageId,
+  selectExpressionFields,
+} from '../context';
 import { formatNumber } from '../internals/numberFormat';
 import type { StudioNumberFormat } from '../models/studio';
 import { useChartWidgetData } from './useChartWidgetData';
@@ -129,6 +135,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   const controller = useStudioController();
   const filters = useStudioSelector(selectFilters);
   const activePageId = useStudioSelector(selectActivePageId);
+  const expressionFields = useStudioSelector(selectExpressionFields);
   const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<
     'bar' | 'line' | 'pie'
   > | null>(null);
@@ -193,25 +200,78 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     [filters, widget.id, activePageId],
   );
 
+  const getFieldDependencySource = React.useCallback(
+    (fieldId: string | undefined, fallbackSourceId?: string | undefined): string | null => {
+      if (!fieldId) {
+        return null;
+      }
+
+      const exprField = expressionFields.find((field) => field.id === fieldId && !field.isMeasure);
+      if (exprField && 'joinSourceId' in exprField.expression) {
+        return exprField.expression.joinSourceId;
+      }
+
+      return chartSupport.fieldOwners?.get(fieldId) ?? fallbackSourceId ?? widget.sourceId ?? null;
+    },
+    [expressionFields, chartSupport.fieldOwners, widget.sourceId],
+  );
+
+  const isFieldForeignDerived = React.useCallback(
+    (fieldId: string | undefined): boolean => {
+      if (!fieldId) {
+        return false;
+      }
+
+      const exprField = expressionFields.find((field) => field.id === fieldId && !field.isMeasure);
+      if (exprField && 'joinSourceId' in exprField.expression) {
+        return exprField.expression.joinSourceId !== widget.sourceId;
+      }
+
+      const owner = chartSupport.fieldOwners?.get(fieldId);
+      return owner != null && owner !== widget.sourceId;
+    },
+    [expressionFields, chartSupport.fieldOwners, widget.sourceId],
+  );
+
+  const hasIncomingCrossFilterOnDependency = React.useCallback(
+    (dependencySource: string | null) => {
+      if (!dependencySource) {
+        return false;
+      }
+
+      return incomingCrossFilters.some((filter) => {
+        const filterDependencySource = getFieldDependencySource(filter.field, filter.filterSourceId);
+        return filterDependencySource === dependencySource;
+      });
+    },
+    [incomingCrossFilters, getFieldDependencySource],
+  );
+
+  const preserveXFieldBaseline = React.useMemo(() => {
+    if (!isFieldForeignDerived(config.xField)) {
+      return true;
+    }
+
+    const xFieldDependencySource = getFieldDependencySource(config.xField, widget.sourceId);
+    if (!xFieldDependencySource) {
+      return true;
+    }
+    return !hasIncomingCrossFilterOnDependency(xFieldDependencySource);
+  }, [config.xField, widget.sourceId, isFieldForeignDerived, getFieldDependencySource, hasIncomingCrossFilterOnDependency]);
+
   const preserveSplitByBaseline = React.useMemo(() => {
-    const seriesOwner = config.seriesField
-      ? (chartSupport.fieldOwners?.get(config.seriesField) ?? widget.sourceId)
-      : null;
-
-    if (!seriesOwner) {
+    if (!isFieldForeignDerived(config.seriesField)) {
       return true;
     }
 
-    if (seriesOwner === widget.sourceId) {
+    const seriesDependencySource = getFieldDependencySource(config.seriesField, widget.sourceId);
+
+    if (!seriesDependencySource) {
       return true;
     }
 
-    // If an incoming cross-filter constrains the same foreign source that owns the
-    // split-by field, showing baseline ghost series becomes misleading. Example:
-    // company=Tech Systems (customers source) should not keep rendering SMB/Enterprise
-    // ghost segment series from all customers when segment also comes from customers.
-    return !incomingCrossFilters.some((filter) => filter.filterSourceId === seriesOwner);
-  }, [incomingCrossFilters, config.seriesField, chartSupport.fieldOwners, widget.sourceId]);
+    return !hasIncomingCrossFilterOnDependency(seriesDependencySource);
+  }, [config.seriesField, widget.sourceId, isFieldForeignDerived, getFieldDependencySource, hasIncomingCrossFilterOnDependency]);
 
   /**
    * Returns the stable color for a series name, based on its position in the full
@@ -669,7 +729,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     const selectedDataIndex = getSelectedDataIndex(chartData.labels);
 
     // When cross-filters are active, use allChartData as basis and dim filtered-out slices
-    const pieBaseData = (hasCrossFilters && allChartData) ? allChartData : chartData;
+    const pieBaseData = hasCrossFilters && allChartData && preserveXFieldBaseline ? allChartData : chartData;
     const filteredLabelSet = hasCrossFilters && chartData
       ? new Set(chartData.labels.map(String))
       : null;
@@ -1013,7 +1073,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
   // For single-series charts, when cross-filtering is active use all-data as basis
   const singleSeriesChartData = isBar ? barChartData : chartData;
   const effectiveSingleSeriesData =
-    isBar && hasCrossFilters && allBarChartData ? allBarChartData : singleSeriesChartData;
+    isBar && hasCrossFilters && allBarChartData && preserveXFieldBaseline
+      ? allBarChartData
+      : singleSeriesChartData;
   const xAxisData = effectiveSingleSeriesData!.labels.map(formatLabel);
   const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
   const seriesLabel = yFieldDef?.label ?? activeYFields[0] ?? 'Value';
@@ -1022,7 +1084,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
 
   // Filtered values aligned to all-data labels for ghost bar context
   const singleSeriesFilteredValues =
-    isBar && hasCrossFilters && allBarChartData && chartData
+    isBar && hasCrossFilters && allBarChartData && chartData && preserveXFieldBaseline
       ? alignFilteredToAllLabels(allBarChartData.labels, chartData.labels, chartData.values)
       : null;
   const singleBarContext =
@@ -1042,7 +1104,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       : seriesValueFormatter;
 
   // Ghost line series data (allChartData values) for line/area charts when cross-filtering
-  const ghostLineValues = !isBar && hasCrossFilters && allChartData ? allChartData.values : null;
+  const ghostLineValues =
+    !isBar && hasCrossFilters && allChartData && preserveXFieldBaseline ? allChartData.values : null;
 
   if (normalizedChartType === 'line') {
     const xAxis = createLineXAxis(effectiveSingleSeriesData!.labels, CROSS_FILTER_AXIS_ID);

@@ -207,6 +207,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
         return;
       }
 
+      const filterSourceId = chartSupport.fieldOwners?.get(config.xField) ?? widget.sourceId;
+
       // Convert Date to string for filtering
       const filterValue = label instanceof Date ? label.toISOString() : label;
 
@@ -214,10 +216,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       if (activeCrossFilter && activeCrossFilter.value === filterValue) {
         controller.clearCrossFilter(widget.id);
       } else {
-        controller.applyCrossFilter(widget.id, config.xField, filterValue, widget.sourceId);
+        controller.applyCrossFilter(widget.id, config.xField, filterValue, filterSourceId);
       }
     },
-    [controller, widget.id, config.xField, activeCrossFilter],
+    [controller, widget.id, widget.sourceId, config.xField, activeCrossFilter, chartSupport.fieldOwners],
   );
 
   const chartType = config.chartType ?? 'bar';

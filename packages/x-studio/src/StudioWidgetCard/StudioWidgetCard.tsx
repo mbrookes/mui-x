@@ -26,7 +26,7 @@ import { StudioKpiWidget } from '../StudioKpiWidget';
 import { StudioTextWidget } from '../StudioTextWidget';
 import { StudioFilterWidget } from '../StudioFilterWidget';
 import { exportGridToCsv, exportChartToPng } from '../internals/widgetUtils';
-import { resolveRows } from '../internals/chartUtils';
+import { createStudioPipeline } from '../internals/StudioPipeline';
 
 export interface StudioWidgetCardProps {
   widgetId: string;
@@ -145,22 +145,14 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       if (!widget) {
         return;
       }
-      if (widget.kind === 'grid') {
+      if (widget.kind === 'grid' && widget.sourceId) {
         // Compute filtered rows lazily at export time — no need for a reactive subscription
-        const { filters, dataSources, relationships, expressionFields } = controller.getState();
-        const pageFilters = filters.filter((f) => f.scope === 'page');
-        const widgetFilters = filters.filter(
-          (f) => f.scope === 'widget' && f.widgetId === widget.id,
-        );
-        const crossFilters = filters.filter(
-          (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id,
-        );
-        const interactiveFilters = filters.filter(
-          (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id,
-        );
-        const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters];
-        const rows = source?.rows
-          ? resolveRows(source.rows, widget.sourceId, allFilters, dataSources, relationships, expressionFields)
+        const state = controller.getState();
+        const pipeline = createStudioPipeline(state);
+        const activePageId = state.dashboard.activePageId;
+        const sourceRows = source?.rows ?? [];
+        const rows = sourceRows.length > 0
+          ? pipeline.resolveWidgetRows(widget.id, widget.sourceId, sourceRows, activePageId)
           : [];
         exportGridToCsv(widget, source, rows);
       } else if (widget.kind === 'chart') {

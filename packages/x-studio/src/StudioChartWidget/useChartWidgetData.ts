@@ -7,21 +7,20 @@ import {
 import { useTheme } from '@mui/material';
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
-  resolveMetricRefs,
   aggregateByField,
   aggregateByTwoFields,
   aggregateMultipleSeries,
   analyzeChartSupport,
-  resolveChartRowsForAggregation,
   prepareScatterData,
   applyRankToAggregated,
   applyRankToMultiSeries,
   applyRankToSeriesFieldData,
 } from '../internals/chartUtils';
-import { resolveRowsCached } from '../internals/resolvedRowsCache';
-import { useStudioSelector, selectFilters, selectDataSources, selectRelationships, selectExpressionFields, selectActivePageId } from '../context';
+import { useStudioSelector, selectFilters, selectDataSources, selectRelationships, selectExpressionFields } from '../context';
 import { usePageChartColors } from '../internals/usePageChartColors';
 import { cachedCompute } from '../internals/computedCache';
+import { useWidgetRows } from '../internals/useWidgetRows';
+import { useChartRows } from '../internals/useChartRows';
 
 export function useChartWidgetData(
   widget: StudioWidget,
@@ -34,7 +33,6 @@ export function useChartWidgetData(
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const expressionFields = useStudioSelector(selectExpressionFields);
-  const activePageId = useStudioSelector(selectActivePageId);
   const muiTheme = useTheme();
 
   // Separate rank widget filters (applied post-aggregation) from row-level filters
@@ -46,76 +44,7 @@ export function useChartWidgetData(
   // Page-level chart colour palette (undefined → charts use their default).
   const chartColors = usePageChartColors();
 
-  // Get filtered rows (rank filters are excluded — applied after aggregation)
-  const filteredRows = React.useMemo(() => {
-    if (!dataSource?.rows) {
-      return [];
-    }
-
-    const pageFilters = filters.filter((f) => f.scope === 'page');
-    // Exclude rank filters from row-level filtering
-    const widgetFilters = filters.filter(
-      (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode !== 'rank',
-    );
-    const crossFilters = filters.filter(
-      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-    );
-    const interactiveFilters = filters.filter(
-      (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-    );
-    const allFilters = resolveMetricRefs(
-      [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters],
-      dataSources,
-    );
-
-    return resolveRowsCached(
-      dataSource.rows,
-      widget.sourceId,
-      allFilters,
-      dataSources,
-      relationships,
-      expressionFields,
-    );
-  }, [dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId, activePageId]);
-
-  // Whether this widget has incoming cross-filters (from another widget on the same page).
-  // Computed early so the filteredRowsNoCross memo can short-circuit when not needed.
-  const hasCrossFilters = React.useMemo(() => {
-    return (
-      filters.some(
-        (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-      ) ||
-      filters.some(
-        (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-      )
-    );
-  }, [filters, widget.id, activePageId]);
-
-  // Rows filtered by page+widget filters only (no cross-filters).
-  // Used to compute the stable full set of series names for consistent color assignment.
-  // When no cross-filters are active, this is identical to filteredRows — return the same
-  // reference so downstream memos (allEnrichedRows, allSeriesNames) short-circuit automatically.
-  const filteredRowsNoCross = React.useMemo(() => {
-    if (!hasCrossFilters) {
-      return filteredRows;
-    }
-    if (!dataSource?.rows) {
-      return [];
-    }
-    const pageFilters = filters.filter((f) => f.scope === 'page');
-    const widgetFilters = filters.filter(
-      (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode !== 'rank',
-    );
-    const allFilters = resolveMetricRefs([...pageFilters, ...widgetFilters], dataSources);
-    return resolveRowsCached(
-      dataSource.rows,
-      widget.sourceId,
-      allFilters,
-      dataSources,
-      relationships,
-      expressionFields,
-    );
-  }, [hasCrossFilters, filteredRows, dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId]);
+  const { filteredRows, filteredRowsNoCross, hasCrossFilters } = useWidgetRows(widget, dataSource);
 
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {
@@ -151,56 +80,10 @@ export function useChartWidgetData(
   );
 
   // Resolve chart rows at the right grain for direct related fields used by x/series/y.
-  const enrichedRows = React.useMemo(() => {
-    if (!chartSupport.supported) {
-      return [];
-    }
-    return resolveChartRowsForAggregation(
-      filteredRows,
-      widget.sourceId,
-      config.xField,
-      activeYFields,
-      config.seriesField,
-      dataSources,
-      relationships,
-      expressionFields,
-    );
-  }, [
-    chartSupport.supported,
-    filteredRows,
-    widget.sourceId,
-    config.xField,
-    activeYFields,
-    config.seriesField,
-    dataSources,
-    relationships,
-  ]);
+  const enrichedRows = useChartRows(filteredRows, widget, activeYFields, chartSupport);
 
   // Enriched rows from non-cross-filtered data — used to compute stable series names.
-  const allEnrichedRows = React.useMemo(() => {
-    if (!chartSupport.supported) {
-      return [];
-    }
-    return resolveChartRowsForAggregation(
-      filteredRowsNoCross,
-      widget.sourceId,
-      config.xField,
-      activeYFields,
-      config.seriesField,
-      dataSources,
-      relationships,
-      expressionFields,
-    );
-  }, [
-    chartSupport.supported,
-    filteredRowsNoCross,
-    widget.sourceId,
-    config.xField,
-    activeYFields,
-    config.seriesField,
-    dataSources,
-    relationships,
-  ]);
+  const allEnrichedRows = useChartRows(filteredRowsNoCross, widget, activeYFields, chartSupport);
 
   const isMultiSeries = activeYFields.length > 1;
 

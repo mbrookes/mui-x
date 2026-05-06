@@ -75,7 +75,6 @@ export function useChartWidgetData(
       dataSources,
       relationships,
       expressionFields,
-      filters,
     );
   }, [dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId, activePageId]);
 
@@ -115,7 +114,6 @@ export function useChartWidgetData(
       dataSources,
       relationships,
       expressionFields,
-      filters,
     );
   }, [hasCrossFilters, filteredRows, dataSource, filters, dataSources, relationships, expressionFields, widget.id, widget.sourceId]);
 

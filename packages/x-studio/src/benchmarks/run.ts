@@ -128,7 +128,6 @@ for (const n of SCALES) {
       value: 'completed',
     };
     const resolvedFilters: StudioFilterState[] = [stableFilter];
-    const globalFilters: StudioFilterState[] = [stableFilter];
     // Prime the cache
     resolveRowsCached(
       dataSources.orders.rows!,
@@ -137,7 +136,6 @@ for (const n of SCALES) {
       dataSources,
       relationships,
       expressionFields,
-      globalFilters,
     );
     results.push(
       runBench(`L3 resolveRowsCached (warm) @ ${scale}`, () => {
@@ -148,7 +146,6 @@ for (const n of SCALES) {
           dataSources,
           relationships,
           expressionFields,
-          globalFilters,
         );
       }),
     );

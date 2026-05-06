@@ -509,6 +509,101 @@ describe('<StudioChartWidget />', () => {
     expect(props.series.map((series) => series.label)).toEqual(['Enterprise']);
   });
 
+  it('does not keep extra expression-backed donut slices when company cross-filter determines a single segment', () => {
+    const ordersSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'customerId', label: 'Customer ID', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: 'o1', customerId: 'c1', total: 100 },
+        { id: 'o2', customerId: 'c1', total: 80 },
+        { id: 'o3', customerId: 'c2', total: 60 },
+      ],
+    };
+
+    const customersSource: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'company', label: 'Company', type: 'string' },
+        { id: 'segment', label: 'Segment', type: 'string' },
+      ],
+      rows: [
+        { id: 'c1', company: 'Tech Systems', segment: 'Enterprise' },
+        { id: 'c2', company: 'Retail Co', segment: 'Midmarket' },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-expr-donut-segment',
+      kind: 'chart',
+      title: 'Revenue by Segment',
+      sourceId: 'orders',
+      config: {
+        chartType: 'donut',
+        xField: 'expr-order-segment',
+        yField: 'total',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, customers: customersSource },
+      relationships: [
+        {
+          id: 'rel-orders-customers',
+          sourceId: 'orders',
+          sourceField: 'customerId',
+          targetId: 'customers',
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+      ],
+      expressionFields: [
+        {
+          id: 'expr-order-company',
+          label: 'Company',
+          sourceId: 'orders',
+          isMeasure: false,
+          type: 'string',
+          expression: { joinSourceId: 'customers', fieldId: 'company' },
+        },
+        {
+          id: 'expr-order-segment',
+          label: 'Segment',
+          sourceId: 'orders',
+          isMeasure: false,
+          type: 'string',
+          expression: { joinSourceId: 'customers', fieldId: 'segment' },
+        },
+      ],
+      filters: [
+        {
+          id: 'cf-expr-company-donut',
+          scope: 'cross-filter',
+          sourceWidgetId: 'top-customers-chart',
+          pageId: 'page-1',
+          field: 'expr-order-company',
+          operator: 'equals',
+          value: 'Tech Systems',
+          filterSourceId: 'orders',
+        },
+      ],
+    });
+
+    renderChart(widget, ordersSource);
+
+    const props = pieChartSpy.mock.calls.at(-1)?.[0] as {
+      series: Array<{ data: Array<{ label: string }> }>;
+    };
+
+    expect(props.series[0].data.map((slice) => slice.label)).toEqual(['Enterprise']);
+  });
+
   it('normalizes multi-y bar-100 series and configures a percent axis', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',

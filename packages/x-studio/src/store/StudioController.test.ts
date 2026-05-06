@@ -45,7 +45,9 @@ describe('StudioController.updateFilter', () => {
 
     controller.updateFilter('rank-filter', { value: 7 });
 
-    expect(controller.getState().filters.find((filter) => filter.id === 'rank-filter')).toMatchObject({
+    expect(
+      controller.getState().filters.find((filter) => filter.id === 'rank-filter'),
+    ).toMatchObject({
       filterMode: 'rank',
       value: 7,
       rankDirection: 'top',
@@ -59,7 +61,12 @@ describe('StudioController.applyCrossFilter', () => {
   it('adds a cross-filter with filterSourceId when provided', () => {
     const controller = new StudioController();
 
-    controller.applyCrossFilter('widget-chart-category', 'category', 'Electronics', 'order-items-source');
+    controller.applyCrossFilter(
+      'widget-chart-category',
+      'category',
+      'Electronics',
+      'order-items-source',
+    );
 
     const filters = controller.getState().filters;
     expect(filters).toHaveLength(1);
@@ -177,9 +184,15 @@ describe('StudioController.applyInteractiveFilter', () => {
   it('adds an interactive filter with scope interactive', () => {
     const controller = new StudioController();
 
-    controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Electronics', 'Books'], {
-      filterMode: 'selection',
-    });
+    controller.applyInteractiveFilter(
+      'filter-widget-1',
+      'category',
+      'in',
+      ['Electronics', 'Books'],
+      {
+        filterMode: 'selection',
+      },
+    );
 
     const filters = controller.getState().filters;
     expect(filters).toHaveLength(1);
@@ -262,9 +275,7 @@ describe('StudioController.clearInteractiveFilter', () => {
 
     controller.clearInteractiveFilter('filter-widget-1');
 
-    expect(
-      controller.getState().filters.filter((f) => f.scope === 'interactive'),
-    ).toHaveLength(0);
+    expect(controller.getState().filters.filter((f) => f.scope === 'interactive')).toHaveLength(0);
   });
 
   it('leaves interactive filters from other widgets untouched', () => {
@@ -281,9 +292,7 @@ describe('StudioController.clearInteractiveFilter', () => {
 
   it('leaves page/widget/cross-filters untouched', () => {
     const controller = new StudioController({
-      filters: [
-        makeFilter({ id: 'page-f', scope: 'page' }),
-      ],
+      filters: [makeFilter({ id: 'page-f', scope: 'page' })],
     });
     controller.applyInteractiveFilter('filter-widget-1', 'category', 'in', ['Books']);
 
@@ -799,7 +808,11 @@ describe('StudioController.setActivePage', () => {
     controller.applyCrossFilter('widget-a', 'country', 'Germany');
     controller.setActivePage('page-2');
     // Cross-filter remains in state (page-scoped by pageId, not removed)
-    expect(controller.getState().filters.some((f) => f.scope === 'cross-filter' && f.pageId === 'page-1')).toBe(true);
+    expect(
+      controller
+        .getState()
+        .filters.some((f) => f.scope === 'cross-filter' && f.pageId === 'page-1'),
+    ).toBe(true);
   });
 });
 

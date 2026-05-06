@@ -1811,4 +1811,3 @@ export const ordersSource: StudioDataSource = {
   ...ordersSourceRaw,
   rows: deriveOrderTotals(ordersSourceRaw.rows),
 };
-

@@ -33,7 +33,7 @@ BL-15: ~~When more than one measure field is added, the split-by select dissapea
 BL-16: ~~the delete button for fields doesn't line up vertically with the textfield, it's centered on the entire including the helper-text~~ **Fixed** (multi-series rows now top-align the field and remove button, and the delete button is offset to sit against the input instead of the helper text)
 
 ~~BL-17: KPI sparkline controls are grouped with a vertical bar. USe a background color with border radius, make it collapsable and collapsed by default. Put the label (e.g. Sparkline) on the left, and the control (switch) on the right. When switch toggled to on, open the panel, when toggled to off close it. Chevron on the far left of the title should also open and close it.~~ ✅ Fixed
- 
+
 ~~BL-18: Changing the filter widget type looses the field config, at least for date filters.~~ **Fixed** (type change now preserves the selected field unless it's incompatible with the new type; only clears when switching to date-range/slider with an incompatible field type)
 
 ~~BL-19: Add a "full-screen" icon to charts controls that displays them in a near page-width overlay.~~ **Fixed** (added `OpenInFullIcon` expand button to chart widget action overlay in both edit/view modes; opens a `min(1400px, 90vw)` Dialog with chart at 500px height, title, close button, and PNG export)

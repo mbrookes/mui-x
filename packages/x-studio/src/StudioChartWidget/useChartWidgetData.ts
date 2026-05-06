@@ -1,9 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import {
-  blueberryTwilightPalette,
-} from '@mui/x-charts';
+import { blueberryTwilightPalette } from '@mui/x-charts';
 import { useTheme } from '@mui/material';
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
@@ -16,16 +14,19 @@ import {
   applyRankToMultiSeries,
   applyRankToSeriesFieldData,
 } from '../internals/chartUtils';
-import { useStudioSelector, selectFilters, selectDataSources, selectRelationships, selectExpressionFields } from '../context';
+import {
+  useStudioSelector,
+  selectFilters,
+  selectDataSources,
+  selectRelationships,
+  selectExpressionFields,
+} from '../context';
 import { usePageChartColors } from '../internals/usePageChartColors';
 import { cachedCompute } from '../internals/computedCache';
 import { useWidgetRows } from '../internals/useWidgetRows';
 import { useChartRows } from '../internals/useChartRows';
 
-export function useChartWidgetData(
-  widget: StudioWidget,
-  dataSource: StudioDataSource | undefined,
-) {
+export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataSource | undefined) {
   const { config } = widget;
   const xGroupBy = config.xGroupBy;
 
@@ -126,7 +127,14 @@ export function useChartWidgetData(
           widgetRankFilter,
         ).seriesNames,
     );
-  }, [allEnrichedRows, config.xField, config.seriesField, activeYFields, xGroupBy, widgetRankFilter]);
+  }, [
+    allEnrichedRows,
+    config.xField,
+    config.seriesField,
+    activeYFields,
+    xGroupBy,
+    widgetRankFilter,
+  ]);
 
   // Always-resolved palette: used for stable per-series color assignment.
   const resolvedChartColors = React.useMemo((): string[] => {
@@ -153,11 +161,25 @@ export function useChartWidgetData(
       enrichedRows,
       `cd:${xField}:${activeYFields[0]}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}`,
       () => {
-        const raw = aggregateByField(enrichedRows, xField, activeYFields[0], xGroupBy, config.yAggregation);
+        const raw = aggregateByField(
+          enrichedRows,
+          xField,
+          activeYFields[0],
+          xGroupBy,
+          config.yAggregation,
+        );
         return applyRankToAggregated(raw, widgetRankFilter);
       },
     );
-  }, [enrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter, xGroupBy, config.yAggregation]);
+  }, [
+    enrichedRows,
+    config.xField,
+    activeYFields,
+    isMultiSeries,
+    widgetRankFilter,
+    xGroupBy,
+    config.yAggregation,
+  ]);
 
   // Multi-Y-field data (multiple explicit series)
   const multiYData = React.useMemo(() => {
@@ -191,11 +213,26 @@ export function useChartWidgetData(
       allEnrichedRows,
       `acd:${xField}:${activeYFields[0]}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}`,
       () => {
-        const raw = aggregateByField(allEnrichedRows, xField, activeYFields[0], xGroupBy, config.yAggregation);
+        const raw = aggregateByField(
+          allEnrichedRows,
+          xField,
+          activeYFields[0],
+          xGroupBy,
+          config.yAggregation,
+        );
         return applyRankToAggregated(raw, widgetRankFilter);
       },
     );
-  }, [hasCrossFilters, allEnrichedRows, config.xField, activeYFields, isMultiSeries, widgetRankFilter, xGroupBy, config.yAggregation]);
+  }, [
+    hasCrossFilters,
+    allEnrichedRows,
+    config.xField,
+    activeYFields,
+    isMultiSeries,
+    widgetRankFilter,
+    xGroupBy,
+    config.yAggregation,
+  ]);
 
   const allSeriesFieldData = React.useMemo(() => {
     if (!hasCrossFilters) {
@@ -217,7 +254,15 @@ export function useChartWidgetData(
           widgetRankFilter,
         ),
     );
-  }, [hasCrossFilters, allEnrichedRows, config.xField, config.seriesField, activeYFields, xGroupBy, widgetRankFilter]);
+  }, [
+    hasCrossFilters,
+    allEnrichedRows,
+    config.xField,
+    config.seriesField,
+    activeYFields,
+    xGroupBy,
+    widgetRankFilter,
+  ]);
 
   const allMultiYData = React.useMemo(() => {
     if (!hasCrossFilters) {

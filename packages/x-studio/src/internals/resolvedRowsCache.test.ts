@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { resolveRowsCached } from './resolvedRowsCache';
-import type { StudioDataSource, StudioFilterState, StudioRelationship, StudioExpressionField } from '../models';
+import type {
+  StudioDataSource,
+  StudioFilterState,
+  StudioRelationship,
+  StudioExpressionField,
+} from '../models';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -48,7 +53,14 @@ describe('resolveRowsCached', () => {
     const ownRows = [...rows];
     const dataSources = makeDataSources(ownRows);
     const filters = [makeFilter({ id: 'f1', field: 'region', operator: 'equals', value: 'EU' })];
-    const result = resolveRowsCached(ownRows, 'orders', filters, dataSources, relationships, expressionFields);
+    const result = resolveRowsCached(
+      ownRows,
+      'orders',
+      filters,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
     expect(result.map((r) => r.id)).toEqual(['1', '3']);
   });
 
@@ -57,8 +69,22 @@ describe('resolveRowsCached', () => {
     const dataSources = makeDataSources(ownRows);
     const filters = [makeFilter({ id: 'f-shared', value: 'EU' })];
 
-    const result1 = resolveRowsCached(ownRows, 'orders', filters, dataSources, relationships, expressionFields);
-    const result2 = resolveRowsCached(ownRows, 'orders', filters, dataSources, relationships, expressionFields);
+    const result1 = resolveRowsCached(
+      ownRows,
+      'orders',
+      filters,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    const result2 = resolveRowsCached(
+      ownRows,
+      'orders',
+      filters,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
 
     expect(result2).toBe(result1);
   });
@@ -69,8 +95,22 @@ describe('resolveRowsCached', () => {
     const filtersEU = [makeFilter({ id: 'f1', value: 'EU' })];
     const filtersUS = [makeFilter({ id: 'f1', value: 'US' })];
 
-    const result1 = resolveRowsCached(ownRows, 'orders', filtersEU, dataSources, relationships, expressionFields);
-    const result2 = resolveRowsCached(ownRows, 'orders', filtersUS, dataSources, relationships, expressionFields);
+    const result1 = resolveRowsCached(
+      ownRows,
+      'orders',
+      filtersEU,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    const result2 = resolveRowsCached(
+      ownRows,
+      'orders',
+      filtersUS,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
 
     expect(result1).not.toBe(result2);
     expect(result1.map((r) => r.id)).toEqual(['1', '3']);
@@ -83,11 +123,25 @@ describe('resolveRowsCached', () => {
     const ownRows = [...rows];
     const dataSources = makeDataSources(ownRows);
     const filters1 = [makeFilter({ id: 'f1', value: 'EU' })];
-    const result1 = resolveRowsCached(ownRows, 'orders', filters1, dataSources, relationships, expressionFields);
+    const result1 = resolveRowsCached(
+      ownRows,
+      'orders',
+      filters1,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
 
     // New array ref, same content — simulates another widget passing the same page filter
     const filters2 = [makeFilter({ id: 'f1', value: 'EU' })];
-    const result2 = resolveRowsCached(ownRows, 'orders', filters2, dataSources, relationships, expressionFields);
+    const result2 = resolveRowsCached(
+      ownRows,
+      'orders',
+      filters2,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
 
     // Same content → same cache key → same Row[] reference returned
     expect(result2).toBe(result1);
@@ -97,12 +151,26 @@ describe('resolveRowsCached', () => {
     const ownRows1 = [...rows];
     const dataSources1 = makeDataSources(ownRows1);
     const filters = [makeFilter({ id: 'f1', value: 'EU' })];
-    const result1 = resolveRowsCached(ownRows1, 'orders', filters, dataSources1, relationships, expressionFields);
+    const result1 = resolveRowsCached(
+      ownRows1,
+      'orders',
+      filters,
+      dataSources1,
+      relationships,
+      expressionFields,
+    );
 
     // New rows array (simulates data source refresh)
     const ownRows2 = [...rows];
     const dataSources2 = makeDataSources(ownRows2);
-    const result2 = resolveRowsCached(ownRows2, 'orders', filters, dataSources2, relationships, expressionFields);
+    const result2 = resolveRowsCached(
+      ownRows2,
+      'orders',
+      filters,
+      dataSources2,
+      relationships,
+      expressionFields,
+    );
 
     // Different WeakMap key → cache miss → new result
     expect(result2).not.toBe(result1);
@@ -116,12 +184,29 @@ describe('resolveRowsCached', () => {
     const customersV1 = [{ id: 'c1', name: 'Alice' }];
     const dataSources1 = makeDataSources(ownRows, { customers: customersV1 });
     const filters = [makeFilter({ id: 'f1', value: 'EU' })];
-    const result1 = resolveRowsCached(ownRows, 'orders', filters, dataSources1, relationships, expressionFields);
+    const result1 = resolveRowsCached(
+      ownRows,
+      'orders',
+      filters,
+      dataSources1,
+      relationships,
+      expressionFields,
+    );
 
     // customers gets a new rows ref; orders rows unchanged
-    const customersV2 = [{ id: 'c1', name: 'Alice' }, { id: 'c2', name: 'Bob' }];
+    const customersV2 = [
+      { id: 'c1', name: 'Alice' },
+      { id: 'c2', name: 'Bob' },
+    ];
     const dataSources2 = makeDataSources(ownRows, { customers: customersV2 });
-    const result2 = resolveRowsCached(ownRows, 'orders', filters, dataSources2, relationships, expressionFields);
+    const result2 = resolveRowsCached(
+      ownRows,
+      'orders',
+      filters,
+      dataSources2,
+      relationships,
+      expressionFields,
+    );
 
     // orders WeakMap key (ownRows) is unchanged → same inner Map → same entry
     expect(result2).toBe(result1);
@@ -168,7 +253,14 @@ describe('resolveRowsCached', () => {
       customers: { id: 'customers', label: 'Customers', fields: [], rows: customersV1 },
     };
 
-    const result1 = resolveRowsCached(ordersRows, 'orders', [crossFilter], dataSources1, rels, expressionFields);
+    const result1 = resolveRowsCached(
+      ordersRows,
+      'orders',
+      [crossFilter],
+      dataSources1,
+      rels,
+      expressionFields,
+    );
     // Cross-filter: customers in EU = c1, c2 → orders with customerId in {c1, c2} → o1, o2
     expect(result1.map((r) => r.id)).toEqual(['o1', 'o2']);
 
@@ -178,7 +270,14 @@ describe('resolveRowsCached', () => {
       customers: { id: 'customers', label: 'Customers', fields: [], rows: customersV2 },
     };
 
-    const result2 = resolveRowsCached(ordersRows, 'orders', [crossFilter], dataSources2, rels, expressionFields);
+    const result2 = resolveRowsCached(
+      ordersRows,
+      'orders',
+      [crossFilter],
+      dataSources2,
+      rels,
+      expressionFields,
+    );
     // Now only c1 matches → only o1 survives
     expect(result2.map((r) => r.id)).toEqual(['o1']);
     expect(result2).not.toBe(result1);
@@ -187,7 +286,14 @@ describe('resolveRowsCached', () => {
   it('returns unfiltered rows when resolvedFilters is empty', () => {
     const ownRows = [...rows];
     const dataSources = makeDataSources(ownRows);
-    const result = resolveRowsCached(ownRows, 'orders', [], dataSources, relationships, expressionFields);
+    const result = resolveRowsCached(
+      ownRows,
+      'orders',
+      [],
+      dataSources,
+      relationships,
+      expressionFields,
+    );
     expect(result).toHaveLength(3);
   });
 
@@ -195,7 +301,14 @@ describe('resolveRowsCached', () => {
     const ownRows = [...rows];
     const dataSources = makeDataSources(ownRows);
     const filters = [makeFilter({ id: 'f1', value: 'EU' })];
-    const result = resolveRowsCached(ownRows, undefined, filters, dataSources, relationships, expressionFields);
+    const result = resolveRowsCached(
+      ownRows,
+      undefined,
+      filters,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
     expect(Array.isArray(result)).toBe(true);
   });
 
@@ -209,11 +322,24 @@ describe('resolveRowsCached', () => {
     // Widget B: different array instance, same content
     const widget2Filters = [{ ...pageFilter }];
 
-    const result1 = resolveRowsCached(ownRows, 'orders', widget1Filters, dataSources, relationships, expressionFields);
-    const result2 = resolveRowsCached(ownRows, 'orders', widget2Filters, dataSources, relationships, expressionFields);
+    const result1 = resolveRowsCached(
+      ownRows,
+      'orders',
+      widget1Filters,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    const result2 = resolveRowsCached(
+      ownRows,
+      'orders',
+      widget2Filters,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
 
     // Same content → same filterKey → same WeakMap entry → same Row[] reference
     expect(result2).toBe(result1);
   });
 });
-

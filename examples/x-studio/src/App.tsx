@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Alert, Box, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
+import { Alert, Box, Chip, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { Studio } from '@mui/x-studio';
@@ -9,6 +9,7 @@ import { AppToolbar } from './components/AppToolbar';
 import { downloadJson, uploadJson } from './utils/fileUtils';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
+import { createAdapter } from './simulatedServer';
 
 function slugifyPageTitle(title: string) {
   return title
@@ -57,10 +58,15 @@ function getUrlRowsParam(): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-function setUrlPageId(
-  pageId: string,
-  pages: Record<string, StudioPage> | undefined,
-) {
+/** Read ?adapter=true to enable simulated-server adapter mode. */
+function getUrlAdapterParam(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return new URL(window.location.href).searchParams.has('adapter');
+}
+
+function setUrlPageId(pageId: string, pages: Record<string, StudioPage> | undefined) {
   if (typeof window === 'undefined') {
     return;
   }
@@ -130,6 +136,28 @@ export default function App() {
     severity: 'success' | 'error' | 'info';
   }>({ open: false, message: '', severity: 'info' });
 
+  // Adapter mode: wire a simulated-server adapter for every data source
+  const adapterMode = React.useMemo(() => getUrlAdapterParam(), []);
+
+  React.useEffect(() => {
+    if (!adapterMode) return;
+
+    // Read the current data sources from the controller so we get the normalised
+    // rows (which may have been generated via ?rows=N) rather than the raw imports.
+    const state = studioRef.current?.getState();
+    if (!state) return;
+
+    for (const source of Object.values(state.dataSources)) {
+      if (source.rows && source.rows.length > 0) {
+        studioRef.current?.setDataSourceAdapter(source.id, createAdapter(source.rows));
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.info('[x-studio] Adapter mode enabled — all sources routed through simulatedServer');
+    // Only run once on mount (studioRef.current is stable after mount)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adapterMode]);
+
   const handleStateChange = React.useCallback((state: StudioState) => {
     // Use functional updates so React can skip if the value is unchanged,
     // and so the 6 calls are batched into a single App re-render (React 18+).
@@ -150,8 +178,12 @@ export default function App() {
     [],
   );
 
-  const handleUndo = React.useCallback(() => { studioRef.current?.undo(); }, []);
-  const handleRedo = React.useCallback(() => { studioRef.current?.redo(); }, []);
+  const handleUndo = React.useCallback(() => {
+    studioRef.current?.undo();
+  }, []);
+  const handleRedo = React.useCallback(() => {
+    studioRef.current?.redo();
+  }, []);
 
   const handleSave = React.useCallback(() => {
     const serialized = studioRef.current?.serializeState();
@@ -239,12 +271,23 @@ export default function App() {
             onUndo={handleUndo}
             onRedo={handleRedo}
           />
-          <Box sx={{ flexGrow: 1, minHeight: 0 }}>
-            <Studio
-              ref={studioRef}
-              initialState={initialState}
-              onStateChange={handleStateChange}
-            />
+          <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
+            {adapterMode && (
+              <Chip
+                label="Adapter Mode"
+                size="small"
+                color="info"
+                sx={{
+                  position: 'absolute',
+                  bottom: 12,
+                  right: 12,
+                  zIndex: 10,
+                  fontWeight: 600,
+                  letterSpacing: 0.3,
+                }}
+              />
+            )}
+            <Studio ref={studioRef} initialState={initialState} onStateChange={handleStateChange} />
           </Box>
         </Box>
         <Snackbar
@@ -261,4 +304,3 @@ export default function App() {
     </ThemeProvider>
   );
 }
-

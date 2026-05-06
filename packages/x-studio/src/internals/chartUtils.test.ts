@@ -61,52 +61,72 @@ describe('applyFilters — string operators', () => {
   ];
 
   it('equals', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'equals', value: 'Banana' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'equals', value: 'Banana' }),
+    ]);
     expect(result.map((r) => r.id)).toEqual([2]);
   });
 
   it('not_equals', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'not_equals', value: 'Apple' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'not_equals', value: 'Apple' }),
+    ]);
     expect(result.map((r) => r.id)).toEqual([2, 3, 4, 5]);
   });
 
   it('contains — case insensitive', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'contains', value: 'an' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'contains', value: 'an' }),
+    ]);
     expect(result.map((r) => r.id)).toEqual([2]); // Banana
   });
 
   it('does_not_contain', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'does_not_contain', value: 'a' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'does_not_contain', value: 'a' }),
+    ]);
     expect(result.map((r) => r.id)).toEqual([3, 4, 5]); // Cherry, '', null
   });
 
   it('starts_with', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'starts_with', value: 'ba' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'starts_with', value: 'ba' }),
+    ]);
     expect(result.map((r) => r.id)).toEqual([2]);
   });
 
   it('not_starts_with', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'not_starts_with', value: 'A' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'not_starts_with', value: 'A' }),
+    ]);
     expect(result.map((r) => r.id)).toEqual([2, 3, 4, 5]);
   });
 
   it('ends_with', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'ends_with', value: 'ry' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'ends_with', value: 'ry' }),
+    ]);
     expect(result.map((r) => r.id)).toEqual([3]);
   });
 
   it('not_ends_with', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'not_ends_with', value: 'e' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'not_ends_with', value: 'e' }),
+    ]);
     expect(result.map((r) => r.id)).toEqual([2, 3, 4, 5]);
   });
 
   it('is_empty — matches empty string and null', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'is_empty', value: '' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'is_empty', value: '' }),
+    ]);
     expect(result.map((r) => r.id)).toEqual([4, 5]);
   });
 
   it('is_not_empty', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'is_not_empty', value: '' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'is_not_empty', value: '' }),
+    ]);
     expect(result.map((r) => r.id)).toEqual([1, 2, 3]);
   });
 
@@ -158,21 +178,36 @@ describe('applyFilters — numeric operators', () => {
 
   it('greater_than_or_equal', () => {
     const result = applyFilters(rows, [
-      makeFilter({ field: 'score', operator: 'greater_than_or_equal', value: 20, fieldType: 'number' }),
+      makeFilter({
+        field: 'score',
+        operator: 'greater_than_or_equal',
+        value: 20,
+        fieldType: 'number',
+      }),
     ]);
     expect(result.map((r) => r.id)).toEqual([2, 3, 4]);
   });
 
   it('less_than_or_equal', () => {
     const result = applyFilters(rows, [
-      makeFilter({ field: 'score', operator: 'less_than_or_equal', value: 20, fieldType: 'number' }),
+      makeFilter({
+        field: 'score',
+        operator: 'less_than_or_equal',
+        value: 20,
+        fieldType: 'number',
+      }),
     ]);
     expect(result.map((r) => r.id)).toEqual([1, 2, 4]);
   });
 
   it('between — inclusive', () => {
     const result = applyFilters(rows, [
-      makeFilter({ field: 'score', operator: 'between', value: { from: 15, to: 25 }, fieldType: 'number' }),
+      makeFilter({
+        field: 'score',
+        operator: 'between',
+        value: { from: 15, to: 25 },
+        fieldType: 'number',
+      }),
     ]);
     expect(result.map((r) => r.id)).toEqual([2, 4]);
   });
@@ -255,7 +290,12 @@ describe('applyFilters — date operators', () => {
 
   it('greater_than', () => {
     const result = applyFilters(rows, [
-      makeFilter({ field: 'date', operator: 'greater_than', value: '2024-06-15', fieldType: 'date' }),
+      makeFilter({
+        field: 'date',
+        operator: 'greater_than',
+        value: '2024-06-15',
+        fieldType: 'date',
+      }),
     ]);
     expect(result.map((r) => r.id)).toEqual([3]);
   });
@@ -269,14 +309,24 @@ describe('applyFilters — date operators', () => {
 
   it('greater_than_or_equal', () => {
     const result = applyFilters(rows, [
-      makeFilter({ field: 'date', operator: 'greater_than_or_equal', value: '2024-06-15', fieldType: 'date' }),
+      makeFilter({
+        field: 'date',
+        operator: 'greater_than_or_equal',
+        value: '2024-06-15',
+        fieldType: 'date',
+      }),
     ]);
     expect(result.map((r) => r.id)).toEqual([2, 3]);
   });
 
   it('less_than_or_equal', () => {
     const result = applyFilters(rows, [
-      makeFilter({ field: 'date', operator: 'less_than_or_equal', value: '2024-06-15', fieldType: 'date' }),
+      makeFilter({
+        field: 'date',
+        operator: 'less_than_or_equal',
+        value: '2024-06-15',
+        fieldType: 'date',
+      }),
     ]);
     expect(result.map((r) => r.id)).toEqual([1, 2]);
   });
@@ -374,14 +424,26 @@ describe('applyFilters — rank mode', () => {
 
   it('top N by numeric field (direct)', () => {
     const result = applyFilters(rows, [
-      makeFilter({ field: 'revenue', filterMode: 'rank', operator: 'equals', value: 3, rankDirection: 'top' }),
+      makeFilter({
+        field: 'revenue',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 3,
+        rankDirection: 'top',
+      }),
     ]);
     expect(result.map((r) => r.id)).toEqual(['e', 'b', 'c']);
   });
 
   it('bottom N by numeric field (direct)', () => {
     const result = applyFilters(rows, [
-      makeFilter({ field: 'revenue', filterMode: 'rank', operator: 'equals', value: 2, rankDirection: 'bottom' }),
+      makeFilter({
+        field: 'revenue',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 2,
+        rankDirection: 'bottom',
+      }),
     ]);
     expect(result.map((r) => r.id)).toEqual(['d', 'a']);
   });
@@ -418,7 +480,13 @@ describe('applyFilters — rank mode', () => {
 
   it('rank N=0 is treated as incomplete and skipped', () => {
     const result = applyFilters(rows, [
-      makeFilter({ field: 'revenue', filterMode: 'rank', operator: 'equals', value: 0, rankDirection: 'top' }),
+      makeFilter({
+        field: 'revenue',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 0,
+        rankDirection: 'top',
+      }),
     ]);
     expect(result).toHaveLength(5);
   });
@@ -472,7 +540,7 @@ describe('applyFilters — compound conditions', () => {
         value: 40,
         fieldType: 'number',
         operator2: 'less_than',
-        value2: '',        // incomplete
+        value2: '', // incomplete
         conjunction: 'and',
       }),
     ]);
@@ -501,25 +569,36 @@ describe('applyFilters — multiple simultaneous filters', () => {
 // ─── Incomplete filter handling ───────────────────────────────────────────────
 
 describe('applyFilters — incomplete filters are skipped', () => {
-  const rows = [{ id: 1, name: 'test' }, { id: 2, name: 'other' }];
+  const rows = [
+    { id: 1, name: 'test' },
+    { id: 2, name: 'other' },
+  ];
 
   it('filter with empty value is skipped', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'equals', value: '' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'equals', value: '' }),
+    ]);
     expect(result).toHaveLength(2);
   });
 
   it('filter with null value is skipped', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'equals', value: null })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'equals', value: null }),
+    ]);
     expect(result).toHaveLength(2);
   });
 
   it('filter with no field is skipped', () => {
-    const result = applyFilters(rows, [makeFilter({ field: '', operator: 'equals', value: 'test' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: '', operator: 'equals', value: 'test' }),
+    ]);
     expect(result).toHaveLength(2);
   });
 
   it('is_empty and is_not_empty are always complete (no value needed)', () => {
-    const result = applyFilters(rows, [makeFilter({ field: 'name', operator: 'is_empty', value: '' })]);
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'is_empty', value: '' }),
+    ]);
     expect(result).toHaveLength(0);
   });
 
@@ -640,7 +719,13 @@ describe('resolveRows', () => {
           value: 'Germany',
           filterSourceId: 'customers',
         }),
-        makeFilter({ id: 'f2', field: 'total', operator: 'greater_than', value: 150, fieldType: 'number' }),
+        makeFilter({
+          id: 'f2',
+          field: 'total',
+          operator: 'greater_than',
+          value: 150,
+          fieldType: 'number',
+        }),
       ],
       dataSources,
       relationships,
@@ -800,24 +885,37 @@ describe('resolveMetricRef', () => {
   };
 
   it('resolves to the field value of the matching row', () => {
-    expect(resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-001', field: 'value' }, dataSources)).toBe(6);
+    expect(
+      resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-001', field: 'value' }, dataSources),
+    ).toBe(6);
   });
 
   it('returns undefined for unknown source', () => {
-    expect(resolveMetricRef({ sourceId: 'unknown', rowId: 'BM-001', field: 'value' }, dataSources)).toBeUndefined();
+    expect(
+      resolveMetricRef({ sourceId: 'unknown', rowId: 'BM-001', field: 'value' }, dataSources),
+    ).toBeUndefined();
   });
 
   it('returns undefined for unknown row ID', () => {
-    expect(resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-999', field: 'value' }, dataSources)).toBeUndefined();
+    expect(
+      resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-999', field: 'value' }, dataSources),
+    ).toBeUndefined();
   });
 
   it('returns undefined for unknown field', () => {
-    expect(resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-001', field: 'nonexistent' }, dataSources)).toBeUndefined();
+    expect(
+      resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-001', field: 'nonexistent' }, dataSources),
+    ).toBeUndefined();
   });
 
   it('returns undefined when source has no rows', () => {
     const emptySources = { metrics: { ...dataSources.metrics, rows: undefined } };
-    expect(resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-001', field: 'value' }, emptySources as any)).toBeUndefined();
+    expect(
+      resolveMetricRef(
+        { sourceId: 'metrics', rowId: 'BM-001', field: 'value' },
+        emptySources as any,
+      ),
+    ).toBeUndefined();
   });
 });
 
@@ -876,7 +974,11 @@ describe('resolveMetricRefs', () => {
   });
 
   it('resolved value is used in applyFilters', () => {
-    const rows = [{ id: 1, months: 3 }, { id: 2, months: 7 }, { id: 3, months: 6 }];
+    const rows = [
+      { id: 1, months: 3 },
+      { id: 2, months: 7 },
+      { id: 3, months: 6 },
+    ];
     const filters = resolveMetricRefs(
       [
         makeFilter({
@@ -925,19 +1027,28 @@ describe('applyRankToAggregated', () => {
   };
 
   it('top 3 returns highest 3 values', () => {
-    const result = applyRankToAggregated(data, makeFilter({ filterMode: 'rank', value: 3, rankDirection: 'top' }));
+    const result = applyRankToAggregated(
+      data,
+      makeFilter({ filterMode: 'rank', value: 3, rankDirection: 'top' }),
+    );
     expect(result.labels).toEqual(['D', 'B', 'C']);
     expect(result.values).toEqual([80, 50, 30]);
   });
 
   it('bottom 2 returns lowest 2 values', () => {
-    const result = applyRankToAggregated(data, makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'bottom' }));
+    const result = applyRankToAggregated(
+      data,
+      makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'bottom' }),
+    );
     expect(result.labels).toEqual(['A', 'E']);
     expect(result.values).toEqual([10, 20]);
   });
 
   it('N >= length returns all data', () => {
-    const result = applyRankToAggregated(data, makeFilter({ filterMode: 'rank', value: 10, rankDirection: 'top' }));
+    const result = applyRankToAggregated(
+      data,
+      makeFilter({ filterMode: 'rank', value: 10, rankDirection: 'top' }),
+    );
     expect(result.labels).toHaveLength(5);
   });
 
@@ -947,12 +1058,18 @@ describe('applyRankToAggregated', () => {
   });
 
   it('invalid N (zero) returns original data', () => {
-    const result = applyRankToAggregated(data, makeFilter({ filterMode: 'rank', value: 0, rankDirection: 'top' }));
+    const result = applyRankToAggregated(
+      data,
+      makeFilter({ filterMode: 'rank', value: 0, rankDirection: 'top' }),
+    );
     expect(result).toBe(data);
   });
 
   it('labels and values stay in sync after ranking', () => {
-    const result = applyRankToAggregated(data, makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top' }));
+    const result = applyRankToAggregated(
+      data,
+      makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top' }),
+    );
     expect(result.labels.length).toBe(result.values.length);
     result.labels.forEach((label, i) => {
       const originalIndex = data.labels.indexOf(label as string);
@@ -974,14 +1091,20 @@ describe('applyRankToMultiSeries', () => {
   // Totals: A=30, B=40, C=50, D=50
 
   it('top 2 keeps labels with highest combined values', () => {
-    const result = applyRankToMultiSeries(data, makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top' }));
+    const result = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top' }),
+    );
     // C and D are tied at 50 — both should be in top 2
     expect(result.labels).toHaveLength(2);
     expect(result.labels.every((l) => ['C', 'D'].includes(l as string))).toBe(true);
   });
 
   it('bottom 1 returns label with lowest combined total', () => {
-    const result = applyRankToMultiSeries(data, makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom' }));
+    const result = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom' }),
+    );
     expect(result.labels).toEqual(['A']); // A has total 30
   });
 
@@ -991,13 +1114,19 @@ describe('applyRankToMultiSeries', () => {
   });
 
   it('all series values are filtered consistently with labels', () => {
-    const result = applyRankToMultiSeries(data, makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }));
+    const result = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }),
+    );
     expect(result.series[0].values).toHaveLength(result.labels.length);
     expect(result.series[1].values).toHaveLength(result.labels.length);
   });
 
   it('N >= labels.length returns all data', () => {
-    const result = applyRankToMultiSeries(data, makeFilter({ filterMode: 'rank', value: 10, rankDirection: 'top' }));
+    const result = applyRankToMultiSeries(
+      data,
+      makeFilter({ filterMode: 'rank', value: 10, rankDirection: 'top' }),
+    );
     expect(result.labels).toHaveLength(4);
   });
 
@@ -1007,7 +1136,12 @@ describe('applyRankToMultiSeries', () => {
     // Totals: A=30, B=40, C=50, D=50
     const explicit = applyRankToMultiSeries(
       data,
-      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom', rankMultiSeriesBy: '__sum' }),
+      makeFilter({
+        filterMode: 'rank',
+        value: 1,
+        rankDirection: 'bottom',
+        rankMultiSeriesBy: '__sum',
+      }),
     );
     const implicit = applyRankToMultiSeries(
       data,
@@ -1021,13 +1155,23 @@ describe('applyRankToMultiSeries', () => {
     // Top 1 by avg: C or D (tied), bottom 1 by avg: A
     const bottom = applyRankToMultiSeries(
       data,
-      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom', rankMultiSeriesBy: '__avg' }),
+      makeFilter({
+        filterMode: 'rank',
+        value: 1,
+        rankDirection: 'bottom',
+        rankMultiSeriesBy: '__avg',
+      }),
     );
     expect(bottom.labels).toEqual(['A']);
 
     const top = applyRankToMultiSeries(
       data,
-      makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top', rankMultiSeriesBy: '__avg' }),
+      makeFilter({
+        filterMode: 'rank',
+        value: 2,
+        rankDirection: 'top',
+        rankMultiSeriesBy: '__avg',
+      }),
     );
     expect(top.labels).toHaveLength(2);
     expect(top.labels.every((l) => ['C', 'D'].includes(l as string))).toBe(true);
@@ -1038,7 +1182,12 @@ describe('applyRankToMultiSeries', () => {
     // Top 1 by max: D
     const top = applyRankToMultiSeries(
       data,
-      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top', rankMultiSeriesBy: '__max' }),
+      makeFilter({
+        filterMode: 'rank',
+        value: 1,
+        rankDirection: 'top',
+        rankMultiSeriesBy: '__max',
+      }),
     );
     expect(top.labels).toEqual(['D']);
   });
@@ -1048,7 +1197,12 @@ describe('applyRankToMultiSeries', () => {
     // Bottom 1 by min: D (min=5)
     const bottom = applyRankToMultiSeries(
       data,
-      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom', rankMultiSeriesBy: '__min' }),
+      makeFilter({
+        filterMode: 'rank',
+        value: 1,
+        rankDirection: 'bottom',
+        rankMultiSeriesBy: '__min',
+      }),
     );
     expect(bottom.labels).toEqual(['D']);
   });
@@ -1087,7 +1241,12 @@ describe('applyRankToMultiSeries', () => {
     // All scores = 0, so top 1 returns whichever has index 0 after stable sort
     const result = applyRankToMultiSeries(
       data,
-      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top', rankMultiSeriesBy: 'nonexistent' }),
+      makeFilter({
+        filterMode: 'rank',
+        value: 1,
+        rankDirection: 'top',
+        rankMultiSeriesBy: 'nonexistent',
+      }),
     );
     expect(result.labels).toHaveLength(1);
   });
@@ -1280,8 +1439,22 @@ describe('aggregateByField with xGroupBy', () => {
 
 describe('getReachableSourceIds', () => {
   const relationships: StudioRelationship[] = [
-    { id: 'r1', sourceId: 'orderItems', sourceField: 'orderId', targetId: 'orders', targetField: 'id', type: 'many-to-one' },
-    { id: 'r2', sourceId: 'orders', sourceField: 'customerId', targetId: 'customers', targetField: 'id', type: 'many-to-one' },
+    {
+      id: 'r1',
+      sourceId: 'orderItems',
+      sourceField: 'orderId',
+      targetId: 'orders',
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+    {
+      id: 'r2',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+      type: 'many-to-one',
+    },
   ];
 
   it('always includes the sourceId itself', () => {
@@ -1348,30 +1521,61 @@ describe('enrichRowsWithRelatedFields', () => {
   };
 
   const relationships: StudioRelationship[] = [
-    { id: 'r1', sourceId: 'orders', sourceField: 'customerId', targetId: 'customers', targetField: 'id', type: 'many-to-one' },
+    {
+      id: 'r1',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+      type: 'many-to-one',
+    },
   ];
 
   it('enriches rows with a field from a related source via a one-hop join', () => {
-    const result = enrichRowsWithRelatedFields(orders, 'orders', ['country'], dataSources, relationships);
+    const result = enrichRowsWithRelatedFields(
+      orders,
+      'orders',
+      ['country'],
+      dataSources,
+      relationships,
+    );
     expect(result[0].country).toBe('Germany'); // ORD-1 → CUS-1
-    expect(result[1].country).toBe('France');  // ORD-2 → CUS-2
+    expect(result[1].country).toBe('France'); // ORD-2 → CUS-2
     expect(result[2].country).toBe('Germany'); // ORD-3 → CUS-1
   });
 
   it('enriches multiple fields in a single call', () => {
-    const result = enrichRowsWithRelatedFields(orders, 'orders', ['country', 'tier'], dataSources, relationships);
+    const result = enrichRowsWithRelatedFields(
+      orders,
+      'orders',
+      ['country', 'tier'],
+      dataSources,
+      relationships,
+    );
     expect(result[0].country).toBe('Germany');
     expect(result[0].tier).toBe('gold');
   });
 
   it('leaves rows unchanged when the field already exists on the native source', () => {
-    const result = enrichRowsWithRelatedFields(orders, 'orders', ['id'], dataSources, relationships);
+    const result = enrichRowsWithRelatedFields(
+      orders,
+      'orders',
+      ['id'],
+      dataSources,
+      relationships,
+    );
     // 'id' is already in the orders schema; rows should be the same references
     expect(result).toBe(orders);
   });
 
   it('skips unknown fields with no matching relationship and returns rows unchanged', () => {
-    const result = enrichRowsWithRelatedFields(orders, 'orders', ['nonExistentField'], dataSources, relationships);
+    const result = enrichRowsWithRelatedFields(
+      orders,
+      'orders',
+      ['nonExistentField'],
+      dataSources,
+      relationships,
+    );
     expect(result).toBe(orders);
   });
 
@@ -1381,7 +1585,13 @@ describe('enrichRowsWithRelatedFields', () => {
   });
 
   it('returns rows unchanged for an empty rows array', () => {
-    const result = enrichRowsWithRelatedFields([], 'orders', ['country'], dataSources, relationships);
+    const result = enrichRowsWithRelatedFields(
+      [],
+      'orders',
+      ['country'],
+      dataSources,
+      relationships,
+    );
     expect(result).toEqual([]);
   });
 
@@ -1753,7 +1963,9 @@ describe('analyzeChartSupport', () => {
   });
 
   it('returns stable message copy for reason codes', () => {
-    expect(getChartSupportMessage('mixed_cross_source_fields')).toMatch('single safe aggregation grain');
+    expect(getChartSupportMessage('mixed_cross_source_fields')).toMatch(
+      'single safe aggregation grain',
+    );
   });
 
   it('supports bridging many-side Y through the widget source to a safe one-side dimension source', () => {
@@ -1992,15 +2204,19 @@ describe('applyRankToSeriesFieldData', () => {
     labels: ['Q1', 'Q2', 'Q3'],
     seriesNames: ['Alpha', 'Beta', 'Gamma'],
     seriesData: {
-      Alpha: [10, 20, 30],  // total 60
-      Beta:  [50, 10, 10],  // total 70
-      Gamma: [5,  5,  5],   // total 15
+      Alpha: [10, 20, 30], // total 60
+      Beta: [50, 10, 10], // total 70
+      Gamma: [5, 5, 5], // total 15
     },
   };
 
   function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     return {
-      id: 'f1', field: '', operator: 'equals', value: 3, scope: 'widget',
+      id: 'f1',
+      field: '',
+      operator: 'equals',
+      value: 3,
+      scope: 'widget',
       ...overrides,
     };
   }
@@ -2010,37 +2226,55 @@ describe('applyRankToSeriesFieldData', () => {
   });
 
   it('top 2 keeps the 2 series with highest total', () => {
-    const result = applyRankToSeriesFieldData(data, makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top' }));
+    const result = applyRankToSeriesFieldData(
+      data,
+      makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top' }),
+    );
     expect(result.seriesNames).toHaveLength(2);
-    expect(result.seriesNames).toContain('Beta');  // 70
+    expect(result.seriesNames).toContain('Beta'); // 70
     expect(result.seriesNames).toContain('Alpha'); // 60
     expect(result.seriesNames).not.toContain('Gamma');
   });
 
   it('bottom 1 keeps the series with lowest total', () => {
-    const result = applyRankToSeriesFieldData(data, makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom' }));
+    const result = applyRankToSeriesFieldData(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom' }),
+    );
     expect(result.seriesNames).toEqual(['Gamma']);
   });
 
   it('removes excluded series from seriesData as well', () => {
-    const result = applyRankToSeriesFieldData(data, makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }));
+    const result = applyRankToSeriesFieldData(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }),
+    );
     expect(Object.keys(result.seriesData)).not.toContain('Alpha');
     expect(Object.keys(result.seriesData)).not.toContain('Gamma');
     expect(Object.keys(result.seriesData)).toContain('Beta');
   });
 
   it('preserves labels unchanged', () => {
-    const result = applyRankToSeriesFieldData(data, makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }));
+    const result = applyRankToSeriesFieldData(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }),
+    );
     expect(result.labels).toEqual(data.labels);
   });
 
   it('N=0 is a no-op', () => {
-    const result = applyRankToSeriesFieldData(data, makeFilter({ filterMode: 'rank', value: 0, rankDirection: 'top' }));
+    const result = applyRankToSeriesFieldData(
+      data,
+      makeFilter({ filterMode: 'rank', value: 0, rankDirection: 'top' }),
+    );
     expect(result).toBe(data);
   });
 
   it('N >= length returns all series', () => {
-    const result = applyRankToSeriesFieldData(data, makeFilter({ filterMode: 'rank', value: 99, rankDirection: 'top' }));
+    const result = applyRankToSeriesFieldData(
+      data,
+      makeFilter({ filterMode: 'rank', value: 99, rankDirection: 'top' }),
+    );
     expect(result.seriesNames).toHaveLength(3);
   });
 });
@@ -2052,7 +2286,7 @@ describe('aggregateByTwoFields', () => {
     { region: 'North', product: 'A', revenue: 100 },
     { region: 'South', product: 'A', revenue: 50 },
     { region: 'North', product: 'B', revenue: 200 },
-    { region: 'North', product: 'A', revenue: 75 },  // second North/A row → sum 175
+    { region: 'North', product: 'A', revenue: 75 }, // second North/A row → sum 175
     { region: 'South', product: 'B', revenue: 30 },
   ];
 
@@ -2094,7 +2328,7 @@ describe('aggregateMultipleSeries', () => {
   const rows = [
     { month: '2024-01', revenue: 100, cost: 60 },
     { month: '2024-02', revenue: 200, cost: 90 },
-    { month: '2024-01', revenue: 50,  cost: 30 },  // second Jan row
+    { month: '2024-01', revenue: 50, cost: 30 }, // second Jan row
   ];
 
   it('returns one series entry per yField', () => {
@@ -2117,7 +2351,7 @@ describe('aggregateMultipleSeries', () => {
 
   it('fills 0 for a missing y value', () => {
     const sparse = [
-      { month: '2024-01', revenue: 100 },  // no 'cost' field
+      { month: '2024-01', revenue: 100 }, // no 'cost' field
     ];
     const result = aggregateMultipleSeries(sparse, 'month', ['revenue', 'cost']);
     const costSeries = result.series.find((s) => s.fieldId === 'cost')!;
@@ -2171,7 +2405,11 @@ describe('prepareScatterData', () => {
   });
 
   it('uses the row index as id', () => {
-    const rows = [{ x: 1, y: 2 }, { x: 3, y: 4 }, { x: 5, y: 6 }];
+    const rows = [
+      { x: 1, y: 2 },
+      { x: 3, y: 4 },
+      { x: 5, y: 6 },
+    ];
     const result = prepareScatterData(rows, 'x', 'y');
     expect(result.map((p) => p.id)).toEqual([0, 1, 2]);
   });
@@ -2258,7 +2496,7 @@ describe('resolveRows — perf: foreign enrichment cache', () => {
   const customers = [
     { id: 'CUS-1', country: 'Germany', tier: 'gold' },
     { id: 'CUS-2', country: 'Germany', tier: 'silver' },
-    { id: 'CUS-3', country: 'France',  tier: 'gold' },
+    { id: 'CUS-3', country: 'France', tier: 'gold' },
   ];
 
   const relationships: StudioRelationship[] = [
@@ -2283,8 +2521,20 @@ describe('resolveRows — perf: foreign enrichment cache', () => {
       orders,
       'orders',
       [
-        makeFilter({ id: 'cf1', field: 'country', operator: 'equals', value: 'Germany', filterSourceId: 'customers' }),
-        makeFilter({ id: 'cf2', field: 'tier',    operator: 'equals', value: 'gold',    filterSourceId: 'customers' }),
+        makeFilter({
+          id: 'cf1',
+          field: 'country',
+          operator: 'equals',
+          value: 'Germany',
+          filterSourceId: 'customers',
+        }),
+        makeFilter({
+          id: 'cf2',
+          field: 'tier',
+          operator: 'equals',
+          value: 'gold',
+          filterSourceId: 'customers',
+        }),
       ],
       dataSources,
       relationships,
@@ -2298,8 +2548,20 @@ describe('resolveRows — perf: foreign enrichment cache', () => {
       orders,
       'orders',
       [
-        makeFilter({ id: 'cf1', field: 'country', operator: 'equals', value: 'Germany', filterSourceId: 'customers' }),
-        makeFilter({ id: 'cf2', field: 'country', operator: 'equals', value: 'France',  filterSourceId: 'customers' }),
+        makeFilter({
+          id: 'cf1',
+          field: 'country',
+          operator: 'equals',
+          value: 'Germany',
+          filterSourceId: 'customers',
+        }),
+        makeFilter({
+          id: 'cf2',
+          field: 'country',
+          operator: 'equals',
+          value: 'France',
+          filterSourceId: 'customers',
+        }),
       ],
       dataSources,
       relationships,
@@ -2332,14 +2594,18 @@ describe('resolveRows — perf: skipEnrichment option', () => {
   it('produces the same rows with skipEnrichment: true when no expressionFields', () => {
     const filters = [makeFilter({ field: 'region', operator: 'equals', value: 'EU' })];
     const normal = resolveRows(source.rows, 'sales', filters, dataSources);
-    const skipped = resolveRows(source.rows, 'sales', filters, dataSources, [], [], { skipEnrichment: true });
+    const skipped = resolveRows(source.rows, 'sales', filters, dataSources, [], [], {
+      skipEnrichment: true,
+    });
     expect(skipped).toEqual(normal);
   });
 
   it('skipEnrichment: true returns pre-enriched rows unchanged when no filters', () => {
     // Caller simulates pre-enrichment by adding a computed field manually
     const preEnriched = source.rows.map((r) => ({ ...r, doubled: (r.revenue as number) * 2 }));
-    const result = resolveRows(preEnriched, 'sales', [], dataSources, [], [], { skipEnrichment: true });
+    const result = resolveRows(preEnriched, 'sales', [], dataSources, [], [], {
+      skipEnrichment: true,
+    });
     expect(result).toBe(preEnriched); // same reference — no copy made
   });
 });
@@ -2419,13 +2685,7 @@ describe('resolveMetricRefs — perf: row index', () => {
 describe('fillTemporalLabelGaps — perf: in-place Date mutation', () => {
   it('fills daily gaps the same as the original allocation-per-step approach', () => {
     const result = fillTemporalLabelGaps(['2024-01-01', '2024-01-05']);
-    expect(result).toEqual([
-      '2024-01-01',
-      '2024-01-02',
-      '2024-01-03',
-      '2024-01-04',
-      '2024-01-05',
-    ]);
+    expect(result).toEqual(['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05']);
   });
 
   it('fills monthly gaps correctly with in-place mutation', () => {

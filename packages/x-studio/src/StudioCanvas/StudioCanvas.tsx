@@ -16,7 +16,12 @@ function InsertionPoint({
 }: {
   rowIndex: number;
   colIndex: number;
-  onDrop: (data: any, rowIndex: number, colIndex: number, orientation: 'horizontal' | 'vertical') => void;
+  onDrop: (
+    data: any,
+    rowIndex: number,
+    colIndex: number,
+    orientation: 'horizontal' | 'vertical',
+  ) => void;
   orientation: 'vertical' | 'horizontal';
   mode: string;
 }) {
@@ -65,9 +70,9 @@ function InsertionPoint({
       node.removeEventListener('dragleave', handleDragLeave);
       node.removeEventListener('drop', handleDropEvent);
     };
-  // onDrop is now a stable useCallback; mode changes require listener re-registration.
-  // rowIndex/colIndex/orientation are read from posRef so excluded from deps.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // onDrop is now a stable useCallback; mode changes require listener re-registration.
+    // rowIndex/colIndex/orientation are read from posRef so excluded from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onDrop, mode]);
   // Only show the line when hovered, otherwise invisible and non-interfering
   return (
@@ -369,7 +374,14 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
             )}
             {row.map((widgetId, colIndex) => (
               <React.Fragment key={widgetId}>
-                <Box sx={{ flex: 1, minWidth: mode === 'edit' ? 0 : 280, display: 'flex', flexDirection: 'column' }}>
+                <Box
+                  sx={{
+                    flex: 1,
+                    minWidth: mode === 'edit' ? 0 : 280,
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
                   <StudioWidgetCard
                     widgetId={widgetId}
                     isFirstRow={rowIndex === 0}

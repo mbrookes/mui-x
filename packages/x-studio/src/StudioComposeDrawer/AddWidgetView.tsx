@@ -3,8 +3,22 @@ import * as React from 'react';
 import { Alert, Box, Button, Divider, IconButton, Paper, Stack, Typography } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
-import { CanvasScrollContext, useStudioController, useStudioSelector, selectShell, selectActivePageId, selectActivePage, selectWidgets, selectDataSources } from '../context';
-import { createDefaultWidget, WIDGET_TYPES, widgetKindRequiresDataSource, getWidgetSubtypeIcon } from '../internals/widgetUtils';
+import {
+  CanvasScrollContext,
+  useStudioController,
+  useStudioSelector,
+  selectShell,
+  selectActivePageId,
+  selectActivePage,
+  selectWidgets,
+  selectDataSources,
+} from '../context';
+import {
+  createDefaultWidget,
+  WIDGET_TYPES,
+  widgetKindRequiresDataSource,
+  getWidgetSubtypeIcon,
+} from '../internals/widgetUtils';
 import type { StudioWidget, StudioWidgetKind } from '../models';
 import { KIND_LABEL } from './StudioComposeDrawer';
 
@@ -169,10 +183,7 @@ function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
   const widgetRows = activePage?.widgetRows ?? [];
   const widgets = useStudioSelector(selectWidgets);
 
-  const pageWidgetIds = React.useMemo(
-    () => new Set(widgetRows.flat()),
-    [widgetRows],
-  );
+  const pageWidgetIds = React.useMemo(() => new Set(widgetRows.flat()), [widgetRows]);
 
   const widgetsOfKind = React.useMemo(
     () => Object.values(widgets).filter((w) => w.kind === kind && pageWidgetIds.has(w.id)),
@@ -257,23 +268,26 @@ export function AddWidgetView() {
   const canvasScrollRef = React.useContext(CanvasScrollContext);
   const [selectedKind, setSelectedKind] = React.useState<StudioWidgetKind | null>(null);
 
-  const handleAdd = React.useCallback((kind: StudioWidgetKind) => {
-    const sources = Object.values(dataSources).filter((s) => !s.hidden);
-    if (widgetKindRequiresDataSource(kind) && sources.length === 0) {
-      return;
-    }
-    controller.addWidget(createDefaultWidget(kind));
-    // Double-rAF: first waits for React to commit the new card, second for the
-    // browser to complete layout — so scrollHeight reflects the new widget height.
-    requestAnimationFrame(() => {
+  const handleAdd = React.useCallback(
+    (kind: StudioWidgetKind) => {
+      const sources = Object.values(dataSources).filter((s) => !s.hidden);
+      if (widgetKindRequiresDataSource(kind) && sources.length === 0) {
+        return;
+      }
+      controller.addWidget(createDefaultWidget(kind));
+      // Double-rAF: first waits for React to commit the new card, second for the
+      // browser to complete layout — so scrollHeight reflects the new widget height.
       requestAnimationFrame(() => {
-        const container = canvasScrollRef?.current;
-        if (container) {
-          smoothScrollToBottom(container);
-        }
+        requestAnimationFrame(() => {
+          const container = canvasScrollRef?.current;
+          if (container) {
+            smoothScrollToBottom(container);
+          }
+        });
       });
-    });
-  }, [controller, dataSources, canvasScrollRef]);
+    },
+    [controller, dataSources, canvasScrollRef],
+  );
 
   const handleSelectKind = React.useCallback((kind: StudioWidgetKind) => {
     setSelectedKind(kind);

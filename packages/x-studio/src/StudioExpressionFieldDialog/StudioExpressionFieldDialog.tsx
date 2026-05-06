@@ -78,18 +78,47 @@ const OPERATOR_OPTIONS: Array<{ value: StudioExpressionOperator; label: string; 
 ];
 
 const MIN_INPUTS: Partial<Record<StudioExpressionOperator, number>> = {
-  add: 2, subtract: 2, multiply: 2, divide: 2, modulo: 2,
-  equals: 2, notEqual: 2, lessThan: 2, greaterThan: 2,
-  lessThanOrEqual: 2, greaterThanOrEqual: 2,
-  and: 2, or: 2, not: 1, negate: 1, isTrue: 1, isFalse: 1, isNull: 1, isNotNull: 1,
-  if: 3, in: 2, datediff: 3,
+  add: 2,
+  subtract: 2,
+  multiply: 2,
+  divide: 2,
+  modulo: 2,
+  equals: 2,
+  notEqual: 2,
+  lessThan: 2,
+  greaterThan: 2,
+  lessThanOrEqual: 2,
+  greaterThanOrEqual: 2,
+  and: 2,
+  or: 2,
+  not: 1,
+  negate: 1,
+  isTrue: 1,
+  isFalse: 1,
+  isNull: 1,
+  isNotNull: 1,
+  if: 3,
+  in: 2,
+  datediff: 3,
 };
 
 const MAX_INPUTS: Partial<Record<StudioExpressionOperator, number>> = {
-  not: 1, negate: 1, isTrue: 1, isFalse: 1, isNull: 1, isNotNull: 1,
-  divide: 2, modulo: 2, equals: 2, notEqual: 2,
-  lessThan: 2, greaterThan: 2, lessThanOrEqual: 2, greaterThanOrEqual: 2,
-  if: 3, datediff: 3,
+  not: 1,
+  negate: 1,
+  isTrue: 1,
+  isFalse: 1,
+  isNull: 1,
+  isNotNull: 1,
+  divide: 2,
+  modulo: 2,
+  equals: 2,
+  notEqual: 2,
+  lessThan: 2,
+  greaterThan: 2,
+  lessThanOrEqual: 2,
+  greaterThanOrEqual: 2,
+  if: 3,
+  datediff: 3,
 };
 
 const AGGREGATION_OPTIONS: Array<{ value: StudioKpiAggregation; label: string }> = [
@@ -115,7 +144,14 @@ function makeDefaultExpr(): StudioExpression {
   return { type: 'number', value: 0 } satisfies StudioValueExpression;
 }
 
-function InputNode({ expr, label, sourceFields, expressionFields, isMeasure, onChange }: InputNodeProps) {
+function InputNode({
+  expr,
+  label,
+  sourceFields,
+  expressionFields,
+  isMeasure,
+  onChange,
+}: InputNodeProps) {
   const isField = 'id' in expr && !('operator' in expr) && !('type' in expr && 'value' in expr);
   const isValue = 'type' in expr && 'value' in expr;
 
@@ -165,7 +201,11 @@ function InputNode({ expr, label, sourceFields, expressionFields, isMeasure, onC
                 <MenuItem key={opt.id} value={opt.id}>
                   {opt.label}
                   {opt.isExpr && (
-                    <Chip label="fx" size="small" sx={{ ml: 0.5, height: 16, fontSize: '0.6rem' }} />
+                    <Chip
+                      label="fx"
+                      size="small"
+                      sx={{ ml: 0.5, height: 16, fontSize: '0.6rem' }}
+                    />
                   )}
                 </MenuItem>
               ))}
@@ -218,7 +258,10 @@ function InputNode({ expr, label, sourceFields, expressionFields, isMeasure, onC
                 size="small"
                 value={String((expr as StudioValueExpression).value)}
                 onChange={(event) => {
-                  onChange({ ...(expr as StudioValueExpression), value: event.target.value === 'true' });
+                  onChange({
+                    ...(expr as StudioValueExpression),
+                    value: event.target.value === 'true',
+                  });
                 }}
                 sx={{ flexGrow: 1, fontSize: '0.75rem' }}
               >
@@ -325,7 +368,7 @@ function ExpressionBuilder({
         if (operator === 'datediff' && i === 0) {
           inputLabel = 'Unit (e.g. "day", "month", "year")';
         } else if (operator === 'if') {
-          inputLabel = (['Condition', 'Then', 'Else'][i] ?? `Input ${i + 1}`);
+          inputLabel = ['Condition', 'Then', 'Else'][i] ?? `Input ${i + 1}`;
         } else {
           inputLabel = `Input ${i + 1}`;
         }
@@ -354,12 +397,7 @@ function ExpressionBuilder({
       })}
 
       {canAddInput && (
-        <Button
-          size="small"
-          startIcon={<AddIcon />}
-          onClick={handleAddInput}
-          sx={{ mt: 0.5 }}
-        >
+        <Button size="small" startIcon={<AddIcon />} onClick={handleAddInput} sx={{ mt: 0.5 }}>
           Add input
         </Button>
       )}

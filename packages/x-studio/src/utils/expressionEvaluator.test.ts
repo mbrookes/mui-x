@@ -34,14 +34,19 @@ const val = (
   value: StudioValueExpression['value'],
 ): StudioValueExpression => ({ type, value });
 
-const field = (id: string, aggregation?: StudioFieldExpression['aggregation']): StudioFieldExpression =>
-  aggregation ? { id, aggregation } : { id };
+const field = (
+  id: string,
+  aggregation?: StudioFieldExpression['aggregation'],
+): StudioFieldExpression => (aggregation ? { id, aggregation } : { id });
 
 const numVal = (n: number): StudioValueExpression => val('number', n);
 const strVal = (s: string): StudioValueExpression => val('string', s);
 const boolVal = (b: boolean): StudioValueExpression => val('boolean', b);
 
-function ctx(row: Record<string, unknown>, expressionFields: StudioExpressionField[] = []): EvaluationContext {
+function ctx(
+  row: Record<string, unknown>,
+  expressionFields: StudioExpressionField[] = [],
+): EvaluationContext {
   return { row, expressionFields, allRows: [row] };
 }
 
@@ -70,7 +75,10 @@ describe('type guards', () => {
   });
 
   it('isJoinFieldExpression', () => {
-    const joinExpr: StudioJoinFieldExpression = { joinSourceId: 'source-customers', fieldId: 'country' };
+    const joinExpr: StudioJoinFieldExpression = {
+      joinSourceId: 'source-customers',
+      fieldId: 'country',
+    };
     expect(isJoinFieldExpression(joinExpr)).toBe(true);
     expect(isJoinFieldExpression(field('x'))).toBe(false);
     expect(isJoinFieldExpression(numVal(1))).toBe(false);
@@ -192,15 +200,15 @@ describe('logical operators', () => {
 
 describe('if operator', () => {
   it('returns then-value when condition is true', () => {
-    expect(
-      evaluateExpression(fn('if', boolVal(true), strVal('yes'), strVal('no')), ctx({})),
-    ).toBe('yes');
+    expect(evaluateExpression(fn('if', boolVal(true), strVal('yes'), strVal('no')), ctx({}))).toBe(
+      'yes',
+    );
   });
 
   it('returns else-value when condition is false', () => {
-    expect(
-      evaluateExpression(fn('if', boolVal(false), strVal('yes'), strVal('no')), ctx({})),
-    ).toBe('no');
+    expect(evaluateExpression(fn('if', boolVal(false), strVal('yes'), strVal('no')), ctx({}))).toBe(
+      'no',
+    );
   });
 });
 
@@ -212,9 +220,9 @@ describe('in operator', () => {
   });
 
   it('returns false when value is not in list', () => {
-    expect(
-      evaluateExpression(fn('in', strVal('z'), strVal('a'), strVal('b')), ctx({})),
-    ).toBe(false);
+    expect(evaluateExpression(fn('in', strVal('z'), strVal('a'), strVal('b')), ctx({}))).toBe(
+      false,
+    );
   });
 });
 
@@ -634,15 +642,31 @@ describe('inferExpressionType', () => {
   ];
 
   it('infers number from arithmetic', () => {
-    expect(inferExpressionType(fn('add', numVal(1), numVal(2)), sourceFields, noFields)).toBe('number');
-    expect(inferExpressionType(fn('multiply', numVal(1), numVal(2)), sourceFields, noFields)).toBe('number');
-    expect(inferExpressionType(fn('datediff', strVal('day'), strVal('2024-01-01'), strVal('2024-01-10')), sourceFields, noFields)).toBe('number');
+    expect(inferExpressionType(fn('add', numVal(1), numVal(2)), sourceFields, noFields)).toBe(
+      'number',
+    );
+    expect(inferExpressionType(fn('multiply', numVal(1), numVal(2)), sourceFields, noFields)).toBe(
+      'number',
+    );
+    expect(
+      inferExpressionType(
+        fn('datediff', strVal('day'), strVal('2024-01-01'), strVal('2024-01-10')),
+        sourceFields,
+        noFields,
+      ),
+    ).toBe('number');
   });
 
   it('infers boolean from comparison', () => {
-    expect(inferExpressionType(fn('equals', numVal(1), numVal(1)), sourceFields, noFields)).toBe('boolean');
-    expect(inferExpressionType(fn('lessThan', numVal(1), numVal(2)), sourceFields, noFields)).toBe('boolean');
-    expect(inferExpressionType(fn('isNull', field('name')), sourceFields, noFields)).toBe('boolean');
+    expect(inferExpressionType(fn('equals', numVal(1), numVal(1)), sourceFields, noFields)).toBe(
+      'boolean',
+    );
+    expect(inferExpressionType(fn('lessThan', numVal(1), numVal(2)), sourceFields, noFields)).toBe(
+      'boolean',
+    );
+    expect(inferExpressionType(fn('isNull', field('name')), sourceFields, noFields)).toBe(
+      'boolean',
+    );
   });
 
   it('infers type from source field reference', () => {

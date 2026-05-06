@@ -49,9 +49,7 @@ export function fieldsForCapability<T extends StudioDataField>(
  * Return the capabilities for an expression field, derived from its resolved type.
  * Measures only get numeric capabilities (they cannot be filtered/grouped like columns).
  */
-export function getExpressionFieldCapabilities(
-  field: StudioExpressionField,
-): FieldCapability[] {
+export function getExpressionFieldCapabilities(field: StudioExpressionField): FieldCapability[] {
   const resolvedType = field.type ?? 'number';
   return TYPE_CAPABILITIES[resolvedType] ?? [];
 }
@@ -63,4 +61,3 @@ export function expressionFieldHasCapability(
 ): boolean {
   return getExpressionFieldCapabilities(field).includes(cap);
 }
-

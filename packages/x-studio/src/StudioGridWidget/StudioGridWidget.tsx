@@ -4,7 +4,13 @@ import { DataGridPro, type GridColDef, type GridCellParams } from '@mui/x-data-g
 import { Chip, Stack } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
-import { useStudioController, useStudioSelector, selectFilters, selectExpressionFields, selectActivePageId } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectFilters,
+  selectExpressionFields,
+  selectActivePageId,
+} from '../context';
 import { formatFieldValue } from '../internals/numberFormat';
 
 import { buildGroupedGridRows } from '../utils/gridGrouping';
@@ -28,7 +34,8 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   // Check if this widget has an active cross-filter (on the current page)
   const activeCrossFilter = filters.find(
-    (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === activePageId,
+    (f) =>
+      f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === activePageId,
   );
 
   const columns = React.useMemo<GridColDef[]>(() => {
@@ -161,7 +168,10 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         pinnedRows={pinnedRows}
         hideFooter
         disableRowSelectionOnClick
-        getRowId={(row) => ((row as Record<string, unknown>).__rowId ?? (row as Record<string, unknown>).id) as string}
+        getRowId={(row) =>
+          ((row as Record<string, unknown>).__rowId ??
+            (row as Record<string, unknown>).id) as string
+        }
         sx={{
           height: 400,
           '& .MuiDataGrid-cell': { cursor: 'pointer' },

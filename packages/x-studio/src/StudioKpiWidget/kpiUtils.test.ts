@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import dayjs from 'dayjs';
-import { extractDateRange, findDateFilter, computePreviousPeriodRange, computeAggregate } from './kpiUtils';
+import {
+  extractDateRange,
+  findDateFilter,
+  computePreviousPeriodRange,
+  computeAggregate,
+} from './kpiUtils';
 import type { StudioDataSource, StudioFilterState } from '../models';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -173,7 +178,11 @@ describe('computePreviousPeriodRange', () => {
     // ~6-month range → 'month' granularity (91–730 days)
     const start = new Date('2026-01-01');
     const end = new Date('2026-06-30');
-    const { start: ps, end: pe } = computePreviousPeriodRange(start, end, 'previous-calendar-period');
+    const { start: ps, end: pe } = computePreviousPeriodRange(
+      start,
+      end,
+      'previous-calendar-period',
+    );
     expect(ps.getFullYear()).toBe(2025);
     expect(ps.getMonth()).toBe(11); // December (wraps to prev year)
     expect(pe.getMonth()).toBe(11);

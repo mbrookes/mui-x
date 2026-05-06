@@ -18,14 +18,19 @@ import EditIcon from '@mui/icons-material/Edit';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
-import { useStudioController, useStudioSelector, selectShell, selectDataSources, selectExpressionFields, selectRelationships, selectMode } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectShell,
+  selectDataSources,
+  selectExpressionFields,
+  selectRelationships,
+  selectMode,
+} from '../context';
 import type { StudioDataSource, StudioExpressionField } from '../models';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
-import {
-  enrichRowsWithExpressions,
-  evaluateMeasure,
-} from '../utils/expressionEvaluator';
+import { enrichRowsWithExpressions, evaluateMeasure } from '../utils/expressionEvaluator';
 
 // ─── Field preview tooltip ────────────────────────────────────────────────────
 
@@ -44,13 +49,11 @@ function FieldPreviewTooltip({
     return children;
   }
 
-  const values = rows
-    .slice(0, PREVIEW_ROWS)
-    .map((row) => {
-      const v = row[field.id];
-      if (v === null || v === undefined) return '—';
-      return String(v);
-    });
+  const values = rows.slice(0, PREVIEW_ROWS).map((row) => {
+    const v = row[field.id];
+    if (v === null || v === undefined) return '—';
+    return String(v);
+  });
 
   const title = (
     <Stack spacing={0.25}>
@@ -236,12 +239,24 @@ function ExpressionFieldRow({
         {isEditMode && (
           <Stack direction="row" spacing={0}>
             <Tooltip title="Edit">
-              <IconButton size="small" onClick={(event) => { event.stopPropagation(); onEdit(); }}>
+              <IconButton
+                size="small"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onEdit();
+                }}
+              >
                 <EditIcon sx={{ fontSize: 14 }} />
               </IconButton>
             </Tooltip>
             <Tooltip title="Delete">
-              <IconButton size="small" onClick={(event) => { event.stopPropagation(); onDelete(); }}>
+              <IconButton
+                size="small"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDelete();
+                }}
+              >
                 <DeleteIcon sx={{ fontSize: 14 }} />
               </IconButton>
             </Tooltip>
@@ -264,7 +279,9 @@ function DataSourceSection(props: {
   const { source, expressionFields, dataSources, relationships, isEditMode } = props;
   const [open, setOpen] = React.useState(false);
   const [dialogOpen, setDialogOpen] = React.useState(false);
-  const [editingField, setEditingField] = React.useState<StudioExpressionField | undefined>(undefined);
+  const [editingField, setEditingField] = React.useState<StudioExpressionField | undefined>(
+    undefined,
+  );
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);
   const selectedFieldId = shell.selectedFieldId;
@@ -429,4 +446,3 @@ export function StudioDataDrawer() {
     </Stack>
   );
 }
-

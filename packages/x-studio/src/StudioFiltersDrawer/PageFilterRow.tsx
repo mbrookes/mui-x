@@ -16,7 +16,12 @@ import CloseIcon from '@mui/icons-material/Close';
 import { useStudioController } from '../context';
 import type { StudioFilterState } from '../models';
 import type { FieldOption, FilterMode, SimpleField } from './filterDrawerTypes';
-import { getOperators, summarizeFilter, buildModeReset, defaultValueForMode } from './filterDrawerUtils';
+import {
+  getOperators,
+  summarizeFilter,
+  buildModeReset,
+  defaultValueForMode,
+} from './filterDrawerUtils';
 import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
 import { FilterCard } from './FilterCard';
@@ -79,7 +84,11 @@ export function PageFilterRow(props: PageFilterRowProps) {
 
     return (
       <Stack spacing={1}>
-        <FilterModeToggle mode={currentMode} onChange={handleModeChange} disableRank={disableRankMode} />
+        <FilterModeToggle
+          mode={currentMode}
+          onChange={handleModeChange}
+          disableRank={disableRankMode}
+        />
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
           <FormControl size="small" sx={{ flexGrow: 1 }}>
             <InputLabel>Select a field…</InputLabel>
@@ -139,4 +148,3 @@ export function PageFilterRow(props: PageFilterRowProps) {
     </FilterCard>
   );
 }
-

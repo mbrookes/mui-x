@@ -23,10 +23,7 @@ function makeState(overrides: Partial<StudioPipelineState> = {}): StudioPipeline
   };
 }
 
-function makeSource(
-  id: string,
-  rows: Record<string, unknown>[],
-): StudioDataSource {
+function makeSource(id: string, rows: Record<string, unknown>[]): StudioDataSource {
   return { id, label: id, fields: [], rows };
 }
 
@@ -65,7 +62,9 @@ describe('createStudioPipeline', () => {
       const rows = [...ROWS];
       const state = makeState({
         dataSources: { orders: makeSource('orders', rows) },
-        filters: [makeFilter({ id: 'f1', scope: 'page', field: 'region', operator: 'equals', value: 'EU' })],
+        filters: [
+          makeFilter({ id: 'f1', scope: 'page', field: 'region', operator: 'equals', value: 'EU' }),
+        ],
       });
       const pipeline = createStudioPipeline(state);
       const result = pipeline.resolveWidgetRows('w1', 'orders', rows);
@@ -76,7 +75,16 @@ describe('createStudioPipeline', () => {
       const rows = [...ROWS];
       const state = makeState({
         dataSources: { orders: makeSource('orders', rows) },
-        filters: [makeFilter({ id: 'f1', scope: 'widget', widgetId: 'w1', field: 'region', operator: 'equals', value: 'US' })],
+        filters: [
+          makeFilter({
+            id: 'f1',
+            scope: 'widget',
+            widgetId: 'w1',
+            field: 'region',
+            operator: 'equals',
+            value: 'US',
+          }),
+        ],
       });
       const pipeline = createStudioPipeline(state);
 
@@ -93,15 +101,17 @@ describe('createStudioPipeline', () => {
       const rows = [...ROWS];
       const state = makeState({
         dataSources: { orders: makeSource('orders', rows) },
-        filters: [makeFilter({
-          id: 'cf1',
-          scope: 'cross-filter',
-          sourceWidgetId: 'w-chart',
-          pageId: 'page-1',
-          field: 'region',
-          operator: 'equals',
-          value: 'EU',
-        })],
+        filters: [
+          makeFilter({
+            id: 'cf1',
+            scope: 'cross-filter',
+            sourceWidgetId: 'w-chart',
+            pageId: 'page-1',
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
+        ],
       });
       const pipeline = createStudioPipeline(state);
 
@@ -114,15 +124,17 @@ describe('createStudioPipeline', () => {
       const rows = [...ROWS];
       const state = makeState({
         dataSources: { orders: makeSource('orders', rows) },
-        filters: [makeFilter({
-          id: 'cf1',
-          scope: 'cross-filter',
-          sourceWidgetId: 'w-chart',
-          pageId: 'page-2',
-          field: 'region',
-          operator: 'equals',
-          value: 'EU',
-        })],
+        filters: [
+          makeFilter({
+            id: 'cf1',
+            scope: 'cross-filter',
+            sourceWidgetId: 'w-chart',
+            pageId: 'page-2',
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
+        ],
       });
       const pipeline = createStudioPipeline(state);
 
@@ -135,15 +147,17 @@ describe('createStudioPipeline', () => {
       const rows = [...ROWS];
       const state = makeState({
         dataSources: { orders: makeSource('orders', rows) },
-        filters: [makeFilter({
-          id: 'f-rank',
-          scope: 'widget',
-          widgetId: 'w1',
-          filterMode: 'rank',
-          field: 'amount',
-          operator: 'top-n',
-          value: 1,
-        })],
+        filters: [
+          makeFilter({
+            id: 'f-rank',
+            scope: 'widget',
+            widgetId: 'w1',
+            filterMode: 'rank',
+            field: 'amount',
+            operator: 'top-n',
+            value: 1,
+          }),
+        ],
       });
       const pipeline = createStudioPipeline(state);
       // Rank filter should not reduce rows at this layer
@@ -164,7 +178,9 @@ describe('createStudioPipeline', () => {
       const rows = [...ROWS];
       const state = makeState({
         dataSources: { orders: makeSource('orders', rows) },
-        filters: [makeFilter({ id: 'f1', scope: 'page', field: 'region', operator: 'equals', value: 'EU' })],
+        filters: [
+          makeFilter({ id: 'f1', scope: 'page', field: 'region', operator: 'equals', value: 'EU' }),
+        ],
       });
       const pipeline = createStudioPipeline(state);
       const r1 = pipeline.resolveWidgetRows('w1', 'orders', rows);
@@ -186,7 +202,10 @@ describe('createStudioPipeline', () => {
     });
 
     it('adds computed expression fields to each row', () => {
-      const rows = [{ id: '1', amount: 100 }, { id: '2', amount: 200 }];
+      const rows = [
+        { id: '1', amount: 100 },
+        { id: '2', amount: 200 },
+      ];
       const exprField: StudioExpressionField = {
         id: 'doubled',
         label: 'Doubled',
@@ -195,10 +214,7 @@ describe('createStudioPipeline', () => {
         sourceId: 'orders',
         expression: {
           operator: 'multiply',
-          inputs: [
-            { id: 'amount' },
-            { type: 'number', value: 2 },
-          ],
+          inputs: [{ id: 'amount' }, { type: 'number', value: 2 }],
         },
       };
       const state = makeState({
@@ -272,7 +288,13 @@ describe('createStudioPipeline', () => {
       });
       const pipeline = createStudioPipeline(state);
       // Chart on customers source, y-field is total from related orders → re-anchor to orders grain
-      const result = pipeline.resolveChartRows(customers, 'customers', 'country', ['total'], undefined);
+      const result = pipeline.resolveChartRows(
+        customers,
+        'customers',
+        'country',
+        ['total'],
+        undefined,
+      );
       // Should produce 3 rows (orders grain), one per order
       expect(result).toHaveLength(3);
     });
@@ -291,7 +313,9 @@ describe('createStudioPipeline', () => {
         dataSources: { orders: makeSource('orders', rows) },
         relationships: [] as StudioRelationship[],
         expressionFields: [] as StudioExpressionField[],
-        filters: [makeFilter({ id: 'f1', scope: 'page', field: 'region', operator: 'equals', value: 'EU' })] as StudioFilterState[],
+        filters: [
+          makeFilter({ id: 'f1', scope: 'page', field: 'region', operator: 'equals', value: 'EU' }),
+        ] as StudioFilterState[],
         shell: { openDrawer: null },
       };
       const pipeline = createStudioPipeline(fullState);

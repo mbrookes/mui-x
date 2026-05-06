@@ -247,8 +247,20 @@ export function computeSparklineData(
 
 // ─── Period formatting ────────────────────────────────────────────────────────
 
-const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_ABBR = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
 
 /** Format a date as a short human-readable label, e.g. "Mar 2026" or "Mar–Apr 2026". */
 export function formatPeriodShort(start: Date, end: Date): string {

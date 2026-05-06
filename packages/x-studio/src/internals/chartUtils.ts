@@ -7,7 +7,6 @@ import type {
   StudioMetricRef,
   StudioRelationship,
 } from '../models';
-import { cachedCompute } from './computedCache';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 
 type Row = Record<string, unknown>;
@@ -1333,6 +1332,30 @@ export function analyzeChartSupport(
   return { supported: true, fieldOwners, anchorSourceId };
 }
 
+// ─── resolveChartRowsForAggregation cache ──────────────────────────────────────
+//
+// Two-level WeakMap: widgetRows × anchorRows → configKey → Row[]
+//
+// Why two levels are needed (context):
+//   The old single-level cachedCompute(widgetRows, configKey) relied on
+//   resolvedRowsCache always producing a NEW widgetRows ref whenever ANY
+//   dataSources changed (via module-wide sentinels).  After we fixed
+//   resolvedRowsCache to be per-source, unrelated source changes no longer
+//   affect widgetRows — which is correct for the filter layer but breaks the
+//   assumption here for cross-source charts.
+//
+// Example failure with single-level cache:
+//   - Chart on order_items, Y = orders.amount  (orders is the grain-anchor)
+//   - orders.rows is refreshed → order_items.filteredRows unchanged
+//   - cachedCompute(filteredRows, configKey) → hit → stale orders data shown 🐛
+//
+// Fix: add anchorRows as a second WeakMap level.
+//   - widgetRows changes   → outer miss → recompute ✓
+//   - anchorRows changes   → inner miss → recompute ✓
+//   - same config, same data → both hit  → O(1) ✓
+//   - unrelated source changes → neither key changes → still hits ✓
+const rcfaCache = new WeakMap<Row[], WeakMap<Row[], Map<string, Row[]>>>();
+
 export function resolveChartRowsForAggregation(
   widgetRows: Row[],
   widgetSourceId: string | undefined,
@@ -1351,98 +1374,122 @@ export function resolveChartRowsForAggregation(
     return widgetRows;
   }
 
-  // Cache key captures all config that affects the result.  widgetRows serves as the
-  // outer (WeakMap) key, so changes to dataSources / relationships / expressionFields
-  // that invalidate resolvedRowsCache will produce a new widgetRows reference here,
-  // automatically bypassing this cache.
-  const cacheKey = `rcfa:${widgetSourceId}|${xField ?? ''}|${yFields.join(',')}|${seriesField ?? ''}`;
-  return cachedCompute(widgetRows, cacheKey, () => {
-    const support = analyzeChartSupport(
+  // Determine anchor source first (cheap — O(fields × relationships)).
+  // This must happen before the cache lookup so we know the second WeakMap key.
+  const support = analyzeChartSupport(
+    widgetSourceId,
+    xField,
+    yFields,
+    seriesField,
+    undefined,
+    dataSources,
+    relationships,
+    expressionFields,
+  );
+
+  if (!support.supported) {
+    return [];
+  }
+
+  const anchorSourceId = support.anchorSourceId ?? widgetSourceId;
+  // For cross-source grain anchor: outer key = widgetRows, inner key = anchorRows.
+  // For same-source: inner key = widgetRows itself (collapses to single-level semantics).
+  const anchorRows =
+    anchorSourceId !== widgetSourceId
+      ? (dataSources[anchorSourceId]?.rows ?? widgetRows)
+      : widgetRows;
+
+  // Two-level WeakMap lookup
+  let byAnchor = rcfaCache.get(widgetRows);
+  if (!byAnchor) {
+    byAnchor = new WeakMap();
+    rcfaCache.set(widgetRows, byAnchor);
+  }
+  let byKey = byAnchor.get(anchorRows);
+  if (!byKey) {
+    byKey = new Map();
+    byAnchor.set(anchorRows, byKey);
+  }
+
+  const configKey = `rcfa:${widgetSourceId}|${xField ?? ''}|${yFields.join(',')}|${seriesField ?? ''}`;
+  if (byKey.has(configKey)) {
+    return byKey.get(configKey)!;
+  }
+
+  // Reuse fieldOwners precomputed by analyzeChartSupport — no need to traverse
+  // the relationship graph again (O(fields × relationships) saved per call).
+  const fieldOwners = support.fieldOwners ?? new Map<string, string>();
+
+  let result: Row[];
+
+  if (anchorSourceId === widgetSourceId) {
+    result = enrichRowsWithRelatedFields(
+      widgetRows,
       widgetSourceId,
-      xField,
-      yFields,
-      seriesField,
-      undefined,
+      requestedFields,
       dataSources,
       relationships,
-      expressionFields,
     );
-
-    if (!support.supported) {
-      return [];
-    }
-
-    // Reuse fieldOwners and anchorSourceId precomputed by analyzeChartSupport — no need
-    // to traverse the relationship graph again (O(fields × relationships) saved per call).
-    const fieldOwners = support.fieldOwners ?? new Map<string, string>();
-    const anchorSourceId = support.anchorSourceId ?? widgetSourceId;
-
-    if (anchorSourceId === widgetSourceId) {
-      return enrichRowsWithRelatedFields(
-        widgetRows,
-        widgetSourceId,
-        requestedFields,
-        dataSources,
-        relationships,
-      );
-    }
-
+  } else {
     const anchorRelationship = findDirectRelationship(widgetSourceId, anchorSourceId, relationships);
     if (
       !anchorRelationship ||
       anchorRelationship.sourceId !== anchorSourceId ||
       anchorRelationship.targetId !== widgetSourceId
     ) {
-      return enrichRowsWithRelatedFields(
+      result = enrichRowsWithRelatedFields(
         widgetRows,
         widgetSourceId,
         requestedFields,
         dataSources,
         relationships,
       );
-    }
+    } else {
+      const widgetJoinField = anchorRelationship.targetField;
+      const anchorJoinField = anchorRelationship.sourceField;
+      const allowedWidgetKeys = new Set(widgetRows.map((row) => row[widgetJoinField]));
+      const enrichedAnchorRows = enrichSourceRowsWithExpressions(
+        dataSources[anchorSourceId]?.rows ?? [],
+        anchorSourceId,
+        dataSources,
+        relationships,
+        expressionFields,
+      ).filter((row) => allowedWidgetKeys.has(row[anchorJoinField]));
 
-    const widgetJoinField = anchorRelationship.targetField;
-    const anchorJoinField = anchorRelationship.sourceField;
-    const allowedWidgetKeys = new Set(widgetRows.map((row) => row[widgetJoinField]));
-    const anchorRows = enrichSourceRowsWithExpressions(
-      dataSources[anchorSourceId]?.rows ?? [],
-      anchorSourceId,
-      dataSources,
-      relationships,
-      expressionFields,
-    ).filter((row) => allowedWidgetKeys.has(row[anchorJoinField]));
+      const widgetRowsForLookup = enrichRowsWithRelatedFields(
+        widgetRows,
+        widgetSourceId,
+        requestedFields.filter((fieldId) => fieldOwners.get(fieldId) !== anchorSourceId),
+        dataSources,
+        relationships,
+      );
 
-    const widgetRowsForLookup = enrichRowsWithRelatedFields(
-      widgetRows,
-      widgetSourceId,
-      requestedFields.filter((fieldId) => fieldOwners.get(fieldId) !== anchorSourceId),
-      dataSources,
-      relationships,
-    );
-
-    const widgetRowLookup = new Map<unknown, Row>();
-    for (const row of widgetRowsForLookup) {
-      widgetRowLookup.set(row[widgetJoinField], row);
-    }
-
-    return anchorRows.map((anchorRow) => {
-      const widgetRow = widgetRowLookup.get(anchorRow[anchorJoinField]);
-      if (!widgetRow) {
-        return anchorRow;
+      const widgetRowLookup = new Map<unknown, Row>();
+      for (const row of widgetRowsForLookup) {
+        widgetRowLookup.set(row[widgetJoinField], row);
       }
 
-      const extras: Row = {};
-      for (const fieldId of requestedFields) {
-        if (fieldOwners.get(fieldId) === anchorSourceId || fieldId in anchorRow) {
-          continue;
+      result = enrichedAnchorRows.map((anchorRow) => {
+        const widgetRow = widgetRowLookup.get(anchorRow[anchorJoinField]);
+        if (!widgetRow) {
+          return anchorRow;
         }
-        extras[fieldId] = widgetRow[fieldId];
-      }
 
-      return Object.keys(extras).length > 0 ? { ...anchorRow, ...extras } : anchorRow;
-    });
-  });
+        const extras: Row = {};
+        for (const fieldId of requestedFields) {
+          if (fieldOwners.get(fieldId) === anchorSourceId || fieldId in anchorRow) {
+            continue;
+          }
+          extras[fieldId] = widgetRow[fieldId];
+        }
+
+        return Object.keys(extras).length > 0 ? { ...anchorRow, ...extras } : anchorRow;
+      });
+    }
+  }
+
+  byKey.set(configKey, result);
+  return result;
 }
 
 export function aggregateByField(

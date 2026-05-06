@@ -21,7 +21,7 @@ import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import type { StudioWidget, StudioDataSource } from '../models';
 import { useStudioController, useStudioSelector, selectDataSources, selectRelationships, selectExpressionFields } from '../context';
-import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
+import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 
 export interface StudioFilterWidgetProps {
   widget: StudioWidget;
@@ -422,13 +422,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       return dataSource.rows;
     }
 
-    return enrichRowsWithExpressions(
-      dataSource.rows,
-      expressionFields,
-      widget.sourceId,
-      dataSources,
-      relationships,
-    );
+    return getCachedEnrichedRows(dataSource.rows, widget.sourceId, expressionFields, dataSources, relationships);
   }, [dataSource?.rows, expressionFields, fieldId, widget.sourceId, dataSources, relationships]);
 
   const label = config.filterWidgetLabel ?? field?.label ?? fieldId ?? 'Filter';

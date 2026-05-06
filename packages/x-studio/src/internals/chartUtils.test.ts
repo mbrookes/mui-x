@@ -1566,6 +1566,101 @@ describe('resolveChartRowsForAggregation', () => {
     );
     expect(result1).not.toBe(result2);
   });
+
+  it('recomputes when the cross-source anchor rows change independently of widgetRows', () => {
+    // Chart on customers (widget source), Y = orders.total (cross-source — orders is anchor).
+    // Simulate: orders data is refreshed but customer rows are unchanged.
+    // With the two-level WeakMap, orders.rows changing should invalidate the cache.
+    const widgetRows = [...customers]; // stable customer rows ref
+
+    const ordersV1 = [
+      { id: 'ORD-1', customerId: 'CUS-1', total: 100 },
+      { id: 'ORD-2', customerId: 'CUS-1', total: 50 },
+      { id: 'ORD-3', customerId: 'CUS-2', total: 70 },
+    ];
+    const ds1: Record<string, StudioDataSource> = {
+      ...dataSources,
+      orders: { ...dataSources.orders, rows: ordersV1 },
+    };
+
+    const result1 = resolveChartRowsForAggregation(
+      widgetRows,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      ds1,
+      relationships,
+      [],
+    );
+    expect(result1.map((r) => r.total)).toEqual([100, 50, 70]);
+
+    // orders gets a new rows ref with updated totals
+    const ordersV2 = [
+      { id: 'ORD-1', customerId: 'CUS-1', total: 999 }, // changed
+      { id: 'ORD-2', customerId: 'CUS-1', total: 50 },
+      { id: 'ORD-3', customerId: 'CUS-2', total: 70 },
+    ];
+    const ds2: Record<string, StudioDataSource> = {
+      ...dataSources,
+      orders: { ...dataSources.orders, rows: ordersV2 },
+    };
+
+    const result2 = resolveChartRowsForAggregation(
+      widgetRows, // same customer rows ref
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      ds2,
+      relationships,
+      [],
+    );
+    // anchorRows (orders.rows) changed → inner WeakMap miss → recomputed ✓
+    expect(result2).not.toBe(result1);
+    expect(result2.map((r) => r.total)).toEqual([999, 50, 70]);
+  });
+
+  it('returns a cache hit when an unrelated source changes (neither widgetRows nor anchorRows)', () => {
+    // Unrelated source 'products' is added — should not invalidate orders/customers chart cache.
+    const widgetRows = [...customers];
+    const ordersRows = [...orders];
+
+    const ds1: Record<string, StudioDataSource> = {
+      customers: { ...dataSources.customers, rows: widgetRows },
+      orders: { ...dataSources.orders, rows: ordersRows },
+    };
+
+    const result1 = resolveChartRowsForAggregation(
+      widgetRows,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      ds1,
+      relationships,
+      [],
+    );
+
+    // 'products' source added — neither widgetRows nor anchorRows changed
+    const ds2: Record<string, StudioDataSource> = {
+      ...ds1,
+      products: { id: 'products', label: 'Products', fields: [], rows: [{ id: 'P1' }] },
+    };
+
+    const result2 = resolveChartRowsForAggregation(
+      widgetRows,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      ds2,
+      relationships,
+      [],
+    );
+    // Neither WeakMap key changed → cache hit → same reference ✓
+    expect(result2).toBe(result1);
+  });
 });
 
 describe('analyzeChartSupport', () => {

@@ -181,6 +181,79 @@ describe('<StudioChartWidget />', () => {
     expect(props.series.map((series) => series.label)).toEqual(['A', 'B', 'C']);
   });
 
+  it('applies cross-filter with the owning source when xField comes from a related source', () => {
+    const ordersSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'customerId', label: 'Customer ID', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: 'o1', customerId: 'c1', total: 100 },
+        { id: 'o2', customerId: 'c2', total: 80 },
+      ],
+    };
+
+    const customersSource: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'company', label: 'Company', type: 'string' },
+        { id: 'segment', label: 'Segment', type: 'string' },
+      ],
+      rows: [
+        { id: 'c1', company: 'Tech Systems', segment: 'Enterprise' },
+        { id: 'c2', company: 'Retail Co', segment: 'SMB' },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-related-xfield',
+      kind: 'chart',
+      title: 'Top Customers by Revenue',
+      sourceId: 'orders',
+      config: {
+        chartType: 'bar',
+        xField: 'company',
+        yField: 'total',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, customers: customersSource },
+      relationships: [
+        {
+          id: 'rel-orders-customers',
+          sourceId: 'orders',
+          sourceField: 'customerId',
+          targetId: 'customers',
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+      ],
+    });
+
+    renderChart(widget, ordersSource);
+
+    const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+      onAxisClick?: (event: unknown, params: { axisValue?: string | number | Date }) => void;
+    };
+
+    act(() => {
+      props.onAxisClick?.(null, { axisValue: 'Tech Systems' });
+    });
+
+    expect(controller.applyCrossFilter).toHaveBeenCalledWith(
+      'chart-related-xfield',
+      'company',
+      'Tech Systems',
+      'customers',
+    );
+  });
+
   it('normalizes multi-y bar-100 series and configures a percent axis', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',

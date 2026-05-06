@@ -127,12 +127,11 @@ describe('L3-cache resolveRowsCached (warm hit)', () => {
         value: 'completed',
       };
       const resolvedFilters: StudioFilterState[] = [filter];
-      const globalFilters: StudioFilterState[] = [filter]; // stable sentinel
 
       beforeAll(() => {
         scenario = buildScenario(orderCount);
         const { dataSources, relationships, expressionFields } = scenario;
-        // Prime the cache: first call sets the sentinel refs and computes rows
+        // Prime the cache: first call computes and stores the entry
         resolveRowsCached(
           dataSources.orders.rows!,
           'orders',
@@ -140,13 +139,12 @@ describe('L3-cache resolveRowsCached (warm hit)', () => {
           dataSources,
           relationships,
           expressionFields,
-          globalFilters,
         );
       });
 
       bench('L3-cache resolveRowsCached (warm hit)', () => {
         const { dataSources, relationships, expressionFields } = scenario;
-        // globalFilters is the same reference → cache stays valid → O(1) Map lookup
+        // Same widgetRows WeakMap key + same filterKey → O(1) cache hit
         resolveRowsCached(
           dataSources.orders.rows!,
           'orders',
@@ -154,7 +152,6 @@ describe('L3-cache resolveRowsCached (warm hit)', () => {
           dataSources,
           relationships,
           expressionFields,
-          globalFilters,
         );
       });
     });

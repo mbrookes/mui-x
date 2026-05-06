@@ -86,7 +86,6 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       dataSources,
       relationships,
       expressionFields,
-      filters,
     );
 
     if (widget.config.gridGroupByField) {

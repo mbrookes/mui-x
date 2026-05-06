@@ -4,13 +4,12 @@ import { DataGridPro, type GridColDef, type GridCellParams } from '@mui/x-data-g
 import { Chip, Stack } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
-import { useStudioController, useStudioSelector, selectFilters, selectDataSources, selectExpressionFields, selectRelationships, selectActivePageId } from '../context';
-import { resolveMetricRefs } from '../internals/chartUtils';
-import { resolveRowsCached } from '../internals/resolvedRowsCache';
+import { useStudioController, useStudioSelector, selectFilters, selectExpressionFields, selectActivePageId } from '../context';
 import { formatFieldValue } from '../internals/numberFormat';
 
 import { buildGroupedGridRows } from '../utils/gridGrouping';
 import { computeGridSummary } from '../utils/gridSummary';
+import { useWidgetRows } from '../internals/useWidgetRows';
 
 export interface StudioGridWidgetProps {
   widget: StudioWidget;
@@ -21,9 +20,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const { dataSource, widget } = props;
   const controller = useStudioController();
   const filters = useStudioSelector(selectFilters);
-  const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
-  const relationships = useStudioSelector(selectRelationships);
   const activePageId = useStudioSelector(selectActivePageId);
   const visibleFields = widget.config.columns?.length
     ? widget.config.columns
@@ -60,34 +57,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     });
   }, [dataSource, expressionFields, visibleFields]);
 
+  const { filteredRows } = useWidgetRows(widget, dataSource);
+
   const rows = React.useMemo(() => {
-    if (!dataSource?.rows) {
-      return [];
-    }
-
-    const pageFilters = filters.filter((f) => f.scope === 'page');
-    const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
-    // Cross-filters from OTHER widgets on the same page affect this widget
-    const crossFilters = filters.filter(
-      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-    );
-    const interactiveFilters = filters.filter(
-      (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-    );
-    const allFilters = resolveMetricRefs(
-      [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters],
-      dataSources,
-    );
-
-    const filteredRows = resolveRowsCached(
-      dataSource.rows,
-      widget.sourceId,
-      allFilters,
-      dataSources,
-      relationships,
-      expressionFields,
-    );
-
     if (widget.config.gridGroupByField) {
       return buildGroupedGridRows(
         filteredRows,
@@ -104,16 +76,10 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       ...row,
     }));
   }, [
-    dataSource,
+    filteredRows,
     widget.config.gridAggregations,
     widget.config.gridGroupByField,
     widget.id,
-    widget.sourceId,
-    filters,
-    dataSources,
-    expressionFields,
-    relationships,
-    activePageId,
     visibleFields,
   ]);
 

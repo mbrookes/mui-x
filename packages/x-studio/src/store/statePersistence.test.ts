@@ -62,7 +62,9 @@ describe('migrateState', () => {
     expect(result.success).toBe(true);
     expect(result.fromVersion).toBe(0);
     expect(result.toVersion).toBe(CURRENT_SCHEMA_VERSION);
-    expect((result.state as unknown as Record<string, unknown>).schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect((result.state as unknown as Record<string, unknown>).schemaVersion).toBe(
+      CURRENT_SCHEMA_VERSION,
+    );
   });
 });
 
@@ -73,7 +75,14 @@ describe('serializeState', () => {
     const state = createDefaultStudioState({
       filters: [
         { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: 'page' },
-        { id: 'cross-f', field: 'category', operator: 'equals', value: 'A', scope: 'cross-filter', sourceWidgetId: 'w1' },
+        {
+          id: 'cross-f',
+          field: 'category',
+          operator: 'equals',
+          value: 'A',
+          scope: 'cross-filter',
+          sourceWidgetId: 'w1',
+        },
       ],
     });
     const serialized = serializeState(state);
@@ -100,7 +109,19 @@ describe('serializeState', () => {
 
   it('includes expressionFields when non-empty', () => {
     const state = createDefaultStudioState({
-      expressionFields: [{ id: 'ef1', label: 'Margin', expression: { operator: 'subtract' as const, inputs: [{ id: 'revenue' }, { id: 'cost' }] }, sourceId: 'orders', type: 'number' as const, isMeasure: false }],
+      expressionFields: [
+        {
+          id: 'ef1',
+          label: 'Margin',
+          expression: {
+            operator: 'subtract' as const,
+            inputs: [{ id: 'revenue' }, { id: 'cost' }],
+          },
+          sourceId: 'orders',
+          type: 'number' as const,
+          isMeasure: false,
+        },
+      ],
     });
     expect(serializeState(state).expressionFields).toHaveLength(1);
   });
@@ -144,7 +165,11 @@ describe('deserializeState', () => {
   });
 
   it('applies shellOverrides on top of default shell state', () => {
-    const state = deserializeState(minimalSerialized, {}, { openDrawers: { data: false, compose: false, filters: true } });
+    const state = deserializeState(
+      minimalSerialized,
+      {},
+      { openDrawers: { data: false, compose: false, filters: true } },
+    );
     expect(state.shell.openDrawers.filters).toBe(true);
     expect(state.shell.openDrawers.data).toBe(false);
   });
@@ -164,7 +189,9 @@ describe('stateToJson / jsonToState roundtrip', () => {
   });
 
   it('roundtrip restores dashboard title', () => {
-    const state = createDefaultStudioState({ dashboard: { id: 'd1', title: 'My Dashboard', activePageId: 'p1' } });
+    const state = createDefaultStudioState({
+      dashboard: { id: 'd1', title: 'My Dashboard', activePageId: 'p1' },
+    });
     const { state: restored } = jsonToState(stateToJson(state));
     expect(restored?.dashboard.title).toBe('My Dashboard');
   });
@@ -172,7 +199,14 @@ describe('stateToJson / jsonToState roundtrip', () => {
   it('roundtrip strips cross-filter entries', () => {
     const state = createDefaultStudioState({
       filters: [
-        { id: 'cf1', field: 'cat', operator: 'equals', value: 'A', scope: 'cross-filter', sourceWidgetId: 'w1' },
+        {
+          id: 'cf1',
+          field: 'cat',
+          operator: 'equals',
+          value: 'A',
+          scope: 'cross-filter',
+          sourceWidgetId: 'w1',
+        },
       ],
     });
     const { state: restored } = jsonToState(stateToJson(state));
@@ -194,7 +228,12 @@ describe('stateToJson / jsonToState roundtrip', () => {
   });
 
   it('returns a valid state for an object with no schemaVersion (v0 → current)', () => {
-    const json = JSON.stringify({ widgets: {}, pages: {}, filters: [], dashboard: { id: 'd', title: 'T', activePageId: 'p' } });
+    const json = JSON.stringify({
+      widgets: {},
+      pages: {},
+      filters: [],
+      dashboard: { id: 'd', title: 'T', activePageId: 'p' },
+    });
     const { state, migrationResult } = jsonToState(json);
     expect(migrationResult.success).toBe(true);
     expect(state).not.toBeNull();

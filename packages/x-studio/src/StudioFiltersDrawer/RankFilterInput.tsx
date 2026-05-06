@@ -56,7 +56,10 @@ export function RankFilterInput({
         <ToggleButton value="top" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: 'none' }}>
           Top
         </ToggleButton>
-        <ToggleButton value="bottom" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: 'none' }}>
+        <ToggleButton
+          value="bottom"
+          sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: 'none' }}
+        >
           Bottom
         </ToggleButton>
       </ToggleButtonGroup>

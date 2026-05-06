@@ -32,83 +32,92 @@ interface TextSectionFormatProps {
 }
 
 function TextSectionFormat(props: TextSectionFormatProps) {
-  const { label, fontFamily, fontSize, color, align,
-    onFontFamilyChange, onFontSizeChange, onColorChange, onAlignChange } = props;
+  const {
+    label,
+    fontFamily,
+    fontSize,
+    color,
+    align,
+    onFontFamilyChange,
+    onFontSizeChange,
+    onColorChange,
+    onAlignChange,
+  } = props;
 
   return (
     <CollapsibleSection title={label}>
       <Stack spacing={1.5} sx={{ pb: 1.5 }}>
-          <FormControl size="small" fullWidth>
-            <InputLabel>Font family</InputLabel>
-            <Select
-              label="Font family"
-              value={fontFamily ?? ''}
-              onChange={(event) => {
-                const v = event.target.value as string;
-                onFontFamilyChange(v === '' ? undefined : (v as 'serif' | 'monospace'));
-              }}
-            >
-              <MenuItem value="">Default (theme)</MenuItem>
-              <MenuItem value="serif">Serif</MenuItem>
-              <MenuItem value="monospace">Monospace</MenuItem>
-            </Select>
-          </FormControl>
+        <FormControl size="small" fullWidth>
+          <InputLabel>Font family</InputLabel>
+          <Select
+            label="Font family"
+            value={fontFamily ?? ''}
+            onChange={(event) => {
+              const v = event.target.value as string;
+              onFontFamilyChange(v === '' ? undefined : (v as 'serif' | 'monospace'));
+            }}
+          >
+            <MenuItem value="">Default (theme)</MenuItem>
+            <MenuItem value="serif">Serif</MenuItem>
+            <MenuItem value="monospace">Monospace</MenuItem>
+          </Select>
+        </FormControl>
 
-          <FormControl size="small" fullWidth>
-            <InputLabel>Font size</InputLabel>
-            <Select
-              label="Font size"
-              value={fontSize ?? 0}
-              onChange={(event) => {
-                const v = Number(event.target.value);
-                onFontSizeChange(v === 0 ? undefined : v);
-              }}
-            >
-              <MenuItem value={0}>Default</MenuItem>
-              <MenuItem value={12}>12 px</MenuItem>
-              <MenuItem value={14}>14 px</MenuItem>
-              <MenuItem value={16}>16 px</MenuItem>
-              <MenuItem value={18}>18 px</MenuItem>
-              <MenuItem value={20}>20 px</MenuItem>
-              <MenuItem value={24}>24 px</MenuItem>
-              <MenuItem value={32}>32 px</MenuItem>
-              <MenuItem value={40}>40 px</MenuItem>
-            </Select>
-          </FormControl>
+        <FormControl size="small" fullWidth>
+          <InputLabel>Font size</InputLabel>
+          <Select
+            label="Font size"
+            value={fontSize ?? 0}
+            onChange={(event) => {
+              const v = Number(event.target.value);
+              onFontSizeChange(v === 0 ? undefined : v);
+            }}
+          >
+            <MenuItem value={0}>Default</MenuItem>
+            <MenuItem value={12}>12 px</MenuItem>
+            <MenuItem value={14}>14 px</MenuItem>
+            <MenuItem value={16}>16 px</MenuItem>
+            <MenuItem value={18}>18 px</MenuItem>
+            <MenuItem value={20}>20 px</MenuItem>
+            <MenuItem value={24}>24 px</MenuItem>
+            <MenuItem value={32}>32 px</MenuItem>
+            <MenuItem value={40}>40 px</MenuItem>
+          </Select>
+        </FormControl>
 
-          <ColorInput
-            label="Color"
-            value={color ?? ''}
-            onChange={(v) => onColorChange(v || undefined)}
-            placeholder="Default"
-          />
+        <ColorInput
+          label="Color"
+          value={color ?? ''}
+          onChange={(v) => onColorChange(v || undefined)}
+          placeholder="Default"
+        />
 
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-              Alignment
-            </Typography>
-            <ToggleButtonGroup
-              exclusive
-              size="small"
-              value={align ?? 'left'}
-              onChange={(_event, val) => {
-                if (val) {
-                  onAlignChange(val === 'left' ? undefined : (val as 'center' | 'right'));
-                }
-              }}
-            >
-              <ToggleButton value="left" aria-label="Align left">
-                <FormatAlignLeftIcon fontSize="small" />
-              </ToggleButton>
-              <ToggleButton value="center" aria-label="Align center">
-                <FormatAlignCenterIcon fontSize="small" />
-              </ToggleButton>
-              <ToggleButton value="right" aria-label="Align right">
-                <FormatAlignRightIcon fontSize="small" />
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-        </Stack>
+        <Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+            Alignment
+          </Typography>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={align ?? 'left'}
+            onChange={(_event, val) => {
+              if (val) {
+                onAlignChange(val === 'left' ? undefined : (val as 'center' | 'right'));
+              }
+            }}
+          >
+            <ToggleButton value="left" aria-label="Align left">
+              <FormatAlignLeftIcon fontSize="small" />
+            </ToggleButton>
+            <ToggleButton value="center" aria-label="Align center">
+              <FormatAlignCenterIcon fontSize="small" />
+            </ToggleButton>
+            <ToggleButton value="right" aria-label="Align right">
+              <FormatAlignRightIcon fontSize="small" />
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+      </Stack>
     </CollapsibleSection>
   );
 }

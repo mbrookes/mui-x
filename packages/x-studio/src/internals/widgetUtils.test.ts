@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { buildCsvContent, createDefaultWidget, exportGridToCsv, inferWidgetTitles, widgetKindRequiresDataSource } from './widgetUtils';
+import {
+  buildCsvContent,
+  createDefaultWidget,
+  exportGridToCsv,
+  inferWidgetTitles,
+  widgetKindRequiresDataSource,
+} from './widgetUtils';
 import type { StudioDataSource, StudioWidget } from '../models';
 
 const SOURCES: Record<string, StudioDataSource> = {
@@ -42,7 +48,9 @@ describe('inferWidgetTitles — chart', () => {
 
   it('builds "Y by X" title from configured fields', () => {
     const { title, subtitle } = inferWidgetTitles(
-      makeWidget({ config: { xField: 'category', yField: 'revenue', ySeries: [{ fieldId: 'revenue' }] } }),
+      makeWidget({
+        config: { xField: 'category', yField: 'revenue', ySeries: [{ fieldId: 'revenue' }] },
+      }),
       SOURCES,
     );
     expect(title).toBe('Revenue by Category');
@@ -57,14 +65,27 @@ describe('inferWidgetTitles — chart', () => {
           ySeries: [{ fieldId: 'revenue' }, { fieldId: 'ltv' }],
         },
       }),
-      { ...SOURCES, orders: { ...SOURCES.orders, fields: [...SOURCES.orders.fields, { id: 'ltv', label: 'LTV', type: 'number' }] } },
+      {
+        ...SOURCES,
+        orders: {
+          ...SOURCES.orders,
+          fields: [...SOURCES.orders.fields, { id: 'ltv', label: 'LTV', type: 'number' }],
+        },
+      },
     );
     expect(title).toBe('Revenue, LTV by Month');
   });
 
   it('uses xGroupBy granularity in the title', () => {
     const { title, subtitle } = inferWidgetTitles(
-      makeWidget({ config: { xField: 'month', yField: 'revenue', ySeries: [{ fieldId: 'revenue' }], xGroupBy: 'month' } }),
+      makeWidget({
+        config: {
+          xField: 'month',
+          yField: 'revenue',
+          ySeries: [{ fieldId: 'revenue' }],
+          xGroupBy: 'month',
+        },
+      }),
       SOURCES,
     );
     expect(title).toBe('Monthly Revenue');
@@ -126,7 +147,9 @@ describe('inferWidgetTitles — chart', () => {
 
   it('uses chartType label in subtitle', () => {
     const { subtitle } = inferWidgetTitles(
-      makeWidget({ config: { chartType: 'line', xField: 'month', ySeries: [{ fieldId: 'revenue' }] } }),
+      makeWidget({
+        config: { chartType: 'line', xField: 'month', ySeries: [{ fieldId: 'revenue' }] },
+      }),
       SOURCES,
     );
     expect(subtitle).toBe('Orders');
@@ -134,7 +157,9 @@ describe('inferWidgetTitles — chart', () => {
 
   it('uses "Y vs X" for scatter charts', () => {
     const { title, subtitle } = inferWidgetTitles(
-      makeWidget({ config: { chartType: 'scatter', xField: 'category', ySeries: [{ fieldId: 'revenue' }] } }),
+      makeWidget({
+        config: { chartType: 'scatter', xField: 'category', ySeries: [{ fieldId: 'revenue' }] },
+      }),
       SOURCES,
     );
     expect(title).toBe('Revenue vs Category');
@@ -143,31 +168,45 @@ describe('inferWidgetTitles — chart', () => {
 });
 
 describe('inferWidgetTitles — KPI', () => {
-  const kpi = (config: Partial<StudioWidget['config']> = {}) =>
-    makeWidget({ kind: 'kpi', config });
+  const kpi = (config: Partial<StudioWidget['config']> = {}) => makeWidget({ kind: 'kpi', config });
 
   it('uses "Total <field>" for sum aggregation', () => {
-    const { title } = inferWidgetTitles(kpi({ kpiValueField: 'revenue', kpiAggregation: 'sum' }), SOURCES);
+    const { title } = inferWidgetTitles(
+      kpi({ kpiValueField: 'revenue', kpiAggregation: 'sum' }),
+      SOURCES,
+    );
     expect(title).toBe('Total Revenue');
   });
 
   it('uses "Average <field>" for avg aggregation', () => {
-    const { title } = inferWidgetTitles(kpi({ kpiValueField: 'revenue', kpiAggregation: 'avg' }), SOURCES);
+    const { title } = inferWidgetTitles(
+      kpi({ kpiValueField: 'revenue', kpiAggregation: 'avg' }),
+      SOURCES,
+    );
     expect(title).toBe('Average Revenue');
   });
 
   it('uses "Count of <field>" for count aggregation', () => {
-    const { title } = inferWidgetTitles(kpi({ kpiValueField: 'revenue', kpiAggregation: 'count' }), SOURCES);
+    const { title } = inferWidgetTitles(
+      kpi({ kpiValueField: 'revenue', kpiAggregation: 'count' }),
+      SOURCES,
+    );
     expect(title).toBe('Count of Revenue');
   });
 
   it('uses "Min <field>" for min aggregation', () => {
-    const { title } = inferWidgetTitles(kpi({ kpiValueField: 'revenue', kpiAggregation: 'min' }), SOURCES);
+    const { title } = inferWidgetTitles(
+      kpi({ kpiValueField: 'revenue', kpiAggregation: 'min' }),
+      SOURCES,
+    );
     expect(title).toBe('Min Revenue');
   });
 
   it('uses "Max <field>" for max aggregation', () => {
-    const { title } = inferWidgetTitles(kpi({ kpiValueField: 'revenue', kpiAggregation: 'max' }), SOURCES);
+    const { title } = inferWidgetTitles(
+      kpi({ kpiValueField: 'revenue', kpiAggregation: 'max' }),
+      SOURCES,
+    );
     expect(title).toBe('Max Revenue');
   });
 
@@ -177,7 +216,10 @@ describe('inferWidgetTitles — KPI', () => {
   });
 
   it('does not auto-generate a subtitle', () => {
-    const { subtitle } = inferWidgetTitles(kpi({ kpiValueField: 'revenue', kpiAggregation: 'sum' }), SOURCES);
+    const { subtitle } = inferWidgetTitles(
+      kpi({ kpiValueField: 'revenue', kpiAggregation: 'sum' }),
+      SOURCES,
+    );
     expect(subtitle).toBe('');
   });
 });
@@ -337,7 +379,7 @@ describe('buildCsvContent', () => {
   const rows = [
     { id: 'ORD-1', product: 'Widget', revenue: 100 },
     { id: 'ORD-2', product: 'Gadget, Pro', revenue: 200 }, // comma in value
-    { id: 'ORD-3', product: 'Item "X"', revenue: 50 },    // quote in value
+    { id: 'ORD-3', product: 'Item "X"', revenue: 50 }, // quote in value
   ];
 
   it('uses field labels as CSV headers', () => {
@@ -348,7 +390,9 @@ describe('buildCsvContent', () => {
 
   it('restricts columns to config.columns when set', () => {
     const widget: StudioWidget = {
-      id: 'w1', kind: 'grid', title: 'Orders',
+      id: 'w1',
+      kind: 'grid',
+      title: 'Orders',
       config: { columns: ['id', 'revenue'] },
     };
     const csv = buildCsvContent(widget, source, rows);
@@ -370,7 +414,12 @@ describe('buildCsvContent', () => {
   });
 
   it('falls back to all source fields when config.columns is empty', () => {
-    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'Orders', config: { columns: [] } };
+    const widget: StudioWidget = {
+      id: 'w1',
+      kind: 'grid',
+      title: 'Orders',
+      config: { columns: [] },
+    };
     const csv = buildCsvContent(widget, source, rows);
     expect(csv.split('\n')[0]).toBe('Order ID,Product,Revenue');
   });

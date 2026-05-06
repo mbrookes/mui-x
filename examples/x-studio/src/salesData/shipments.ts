@@ -3368,4 +3368,3 @@ export const shipmentsSource: StudioDataSource = {
     },
   ],
 };
-

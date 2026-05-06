@@ -90,24 +90,27 @@ layerBench('L2 enrichRowsWithExpressions', ({ dataSources, relationships, expres
 // Full filter + semi-join pipeline without caching.
 // Filter: orders.status === 'completed'
 
-layerBench('L3 resolveRows (cold, 1 filter)', ({ dataSources, relationships, expressionFields }) => {
-  const filter: StudioFilterState = {
-    id: 'f1',
-    scope: 'page',
-    field: 'status',
-    fieldType: 'string',
-    operator: 'equals',
-    value: 'completed',
-  };
-  resolveRows(
-    dataSources.orders.rows!,
-    'orders',
-    [filter],
-    dataSources,
-    relationships,
-    expressionFields,
-  );
-});
+layerBench(
+  'L3 resolveRows (cold, 1 filter)',
+  ({ dataSources, relationships, expressionFields }) => {
+    const filter: StudioFilterState = {
+      id: 'f1',
+      scope: 'page',
+      field: 'status',
+      fieldType: 'string',
+      operator: 'equals',
+      value: 'completed',
+    };
+    resolveRows(
+      dataSources.orders.rows!,
+      'orders',
+      [filter],
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+  },
+);
 
 // ─── L3-cache: resolveRowsCached (cache hit) ──────────────────────────────────
 // The same call after the cache is warm — should be an O(1) Map lookup.
@@ -162,18 +165,21 @@ describe('L3-cache resolveRowsCached (warm hit)', () => {
 // Grain re-anchor: chart on customers source, Y = orders.total, X = country.
 // This exercises the O(N_orders + N_customers) join path.
 
-layerBench('L4 resolveChartRowsForAggregation (cold)', ({ dataSources, relationships, expressionFields }) => {
-  resolveChartRowsForAggregation(
-    dataSources.customers.rows!,
-    'customers',
-    'country',
-    ['total'],
-    undefined,
-    dataSources,
-    relationships,
-    expressionFields,
-  );
-});
+layerBench(
+  'L4 resolveChartRowsForAggregation (cold)',
+  ({ dataSources, relationships, expressionFields }) => {
+    resolveChartRowsForAggregation(
+      dataSources.customers.rows!,
+      'customers',
+      'country',
+      ['total'],
+      undefined,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+  },
+);
 
 // ─── L4-cache: resolveChartRowsForAggregation (warm hit) ─────────────────────
 // Same call after the WeakMap cache is warm — O(1) WeakMap + Map lookup.

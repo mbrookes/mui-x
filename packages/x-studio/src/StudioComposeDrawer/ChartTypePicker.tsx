@@ -28,8 +28,18 @@ const CHART_TYPE_OPTIONS: ChartTypeOption[] = [
   { chartType: 'bar-stacked', label: 'Bar (stacked)', Icon: BarStackedIcon },
   { chartType: 'bar-100', label: 'Bar (100%)', Icon: Bar100Icon },
   { chartType: 'bar', barLayout: 'horizontal', label: 'Bar (horizontal)', Icon: BarHorizontalIcon },
-  { chartType: 'bar-stacked', barLayout: 'horizontal', label: 'Bar (stacked, horizontal)', Icon: BarStackedHorizontalIcon },
-  { chartType: 'bar-100', barLayout: 'horizontal', label: 'Bar (100%, horizontal)', Icon: Bar100HorizontalIcon },
+  {
+    chartType: 'bar-stacked',
+    barLayout: 'horizontal',
+    label: 'Bar (stacked, horizontal)',
+    Icon: BarStackedHorizontalIcon,
+  },
+  {
+    chartType: 'bar-100',
+    barLayout: 'horizontal',
+    label: 'Bar (100%, horizontal)',
+    Icon: Bar100HorizontalIcon,
+  },
   { chartType: 'line', label: 'Line', Icon: LineIcon },
   { chartType: 'area', label: 'Area', Icon: AreaIcon },
   { chartType: 'area-stacked', label: 'Area (stacked)', Icon: AreaStackedIcon },
@@ -65,9 +75,15 @@ export function ChartTypePicker({
         }}
       >
         {CHART_TYPE_OPTIONS.map((opt) => {
-          const selected = opt.chartType === chartType && (opt.barLayout ?? 'grouped') === (barLayout ?? 'grouped');
+          const selected =
+            opt.chartType === chartType &&
+            (opt.barLayout ?? 'grouped') === (barLayout ?? 'grouped');
           return (
-            <Tooltip key={`${opt.chartType}-${opt.barLayout ?? ''}`} title={opt.label} placement="top">
+            <Tooltip
+              key={`${opt.chartType}-${opt.barLayout ?? ''}`}
+              title={opt.label}
+              placement="top"
+            >
               <Box
                 role="button"
                 tabIndex={0}

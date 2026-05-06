@@ -3,9 +3,7 @@ import { CATEGORY_REVENUE_MULTIPLIERS, roundCurrency } from './categoryRevenueMu
 
 export const ORDER_ITEMS_SOURCE_ID = 'source-order-items';
 
-function boostCategoryRevenue(
-  rows: StudioDataSource['rows'],
-): StudioDataSource['rows'] {
+function boostCategoryRevenue(rows: StudioDataSource['rows']): StudioDataSource['rows'] {
   return rows.map((row) => {
     const multiplier = CATEGORY_REVENUE_MULTIPLIERS[String(row.category)] ?? 1;
     if (multiplier === 1) {
@@ -6805,4 +6803,3 @@ export const orderItemsSource: StudioDataSource = {
     },
   ]),
 };
-

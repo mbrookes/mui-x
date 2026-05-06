@@ -1,17 +1,16 @@
 'use client';
 import * as React from 'react';
-import {
-  Autocomplete,
-  Box,
-  IconButton,
-  Stack,
-  TextField,
-} from '@mui/material';
+import { Autocomplete, Box, IconButton, Stack, TextField } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { useStudioController } from '../context';
 import type { StudioFilterState } from '../models';
 import type { FieldOption, FilterMode } from './filterDrawerTypes';
-import { getOperators, summarizeFilter, buildModeReset, defaultValueForMode } from './filterDrawerUtils';
+import {
+  getOperators,
+  summarizeFilter,
+  buildModeReset,
+  defaultValueForMode,
+} from './filterDrawerUtils';
 import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
 import { FilterCard } from './FilterCard';
@@ -110,7 +109,11 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
 
     return (
       <Stack spacing={1}>
-        <FilterModeToggle mode={currentMode} onChange={handleModeChange} disableRank={disableRankMode} />
+        <FilterModeToggle
+          mode={currentMode}
+          onChange={handleModeChange}
+          disableRank={disableRankMode}
+        />
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
           <Autocomplete
             size="small"
@@ -123,7 +126,13 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
             isOptionEqualToValue={(option, value) =>
               option.id === value.id && option.sourceId === value.sourceId
             }
-            renderInput={(params) => <TextField {...params} label="Select a field…" helperText="Field this filter applies to" />}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Select a field…"
+                helperText="Field this filter applies to"
+              />
+            )}
           />
           <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label="Remove filter">
             <CloseIcon fontSize="small" />
@@ -159,4 +168,3 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
     </FilterCard>
   );
 }
-

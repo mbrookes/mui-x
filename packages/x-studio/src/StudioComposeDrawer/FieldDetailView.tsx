@@ -1,6 +1,15 @@
 'use client';
 import * as React from 'react';
-import { Box, Divider, FormControl, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
+import {
+  Box,
+  Divider,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
+  Typography,
+} from '@mui/material';
 import { useStudioController, useStudioSelector, selectShell, selectDataSources } from '../context';
 import type { StudioNumberFormat } from '../models';
 import { TYPE_FORMAT_LABEL } from './StudioComposeDrawer';

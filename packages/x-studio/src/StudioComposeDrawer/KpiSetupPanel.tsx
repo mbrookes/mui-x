@@ -14,7 +14,15 @@ import {
 } from '@mui/material';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectFilters, selectRelationships, selectExpressionFields } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectDataSources,
+  selectFilters,
+  selectRelationships,
+  selectExpressionFields,
+} from '../context';
 import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioKpiAggregation, StudioWidgetConfig } from '../models';
@@ -83,16 +91,15 @@ function CollapsibleFeatureSection({
             flexShrink: 0,
           }}
         />
-        <Typography variant="body2" sx={{ flexGrow: 1, color: enabled ? 'text.primary' : 'text.disabled' }}>
+        <Typography
+          variant="body2"
+          sx={{ flexGrow: 1, color: enabled ? 'text.primary' : 'text.disabled' }}
+        >
           {label}
         </Typography>
         {/* Stop click from toggling expand when clicking the switch */}
         <Box onClick={(e) => e.stopPropagation()}>
-          <Switch
-            size="small"
-            checked={enabled}
-            onChange={(e) => handleSwitch(e.target.checked)}
-          />
+          <Switch size="small" checked={enabled} onChange={(e) => handleSwitch(e.target.checked)} />
         </Box>
       </Box>
 
@@ -100,7 +107,12 @@ function CollapsibleFeatureSection({
       <Collapse in={isOpen}>
         <Stack
           spacing={1.5}
-          sx={{ px: 1.5, pb: 1.5, opacity: enabled ? 1 : 0.45, pointerEvents: enabled ? 'auto' : 'none' }}
+          sx={{
+            px: 1.5,
+            pb: 1.5,
+            opacity: enabled ? 1 : 0.45,
+            pointerEvents: enabled ? 'auto' : 'none',
+          }}
         >
           {children}
         </Stack>
@@ -130,7 +142,13 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
     source.fields
       .filter((f) => fieldHasCapability(f, 'temporal'))
       .forEach((f) =>
-        result.push({ id: f.id, label: f.label, type: f.type, sourceId, sourceLabel: source.label }),
+        result.push({
+          id: f.id,
+          label: f.label,
+          type: f.type,
+          sourceId,
+          sourceLabel: source.label,
+        }),
       );
     for (const rel of relationships) {
       let relatedId: string | null = null;
@@ -336,8 +354,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
     return allFields.filter((f) => reachableIds.has(f.sourceId));
   }, [allFields, widget?.sourceId, relationships]);
 
-  const selectedField = reachableFields.find((f) => f.id === config.kpiValueField)
-    ?? allFields.find((f) => f.id === config.kpiValueField);
+  const selectedField =
+    reachableFields.find((f) => f.id === config.kpiValueField) ??
+    allFields.find((f) => f.id === config.kpiValueField);
   const selectedFieldType = selectedField?.type ?? null;
 
   // Aggregation options by type
@@ -380,7 +399,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           const newField = allFields.find((f) => f.id === fieldId && f.sourceId === fSourceId);
           const newFieldType = newField?.type ?? null;
           const newAggOptions = newFieldType
-            ? AGGREGATIONS[newFieldType] ?? [{ value: 'count' as StudioKpiAggregation, label: 'Count' }]
+            ? (AGGREGATIONS[newFieldType] ?? [
+                { value: 'count' as StudioKpiAggregation, label: 'Count' },
+              ])
             : AGGREGATIONS.number;
           const currentAggValid = newAggOptions.some((a) => a.value === config.kpiAggregation);
           const configUpdate: Partial<import('../models').StudioWidgetConfig> = {

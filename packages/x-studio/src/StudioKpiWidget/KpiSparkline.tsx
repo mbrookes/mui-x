@@ -20,13 +20,24 @@ export interface KpiSparklineProps {
 }
 
 export function KpiSparkline(props: KpiSparklineProps) {
-  const { data, timeFieldResolved, plotType = 'line', area = false, compact = true, fieldFormat, fieldCurrencyCode, colors } = props;
+  const {
+    data,
+    timeFieldResolved,
+    plotType = 'line',
+    area = false,
+    compact = true,
+    fieldFormat,
+    fieldCurrencyCode,
+    colors,
+  } = props;
 
   const hasEnoughData = data !== null && data.length > 1;
 
   if (hasEnoughData) {
     return (
-      <Box sx={{ flexGrow: 1, minWidth: 0, alignSelf: 'stretch', minHeight: 48, overflow: 'hidden' }}>
+      <Box
+        sx={{ flexGrow: 1, minWidth: 0, alignSelf: 'stretch', minHeight: 48, overflow: 'hidden' }}
+      >
         <SparkLineChart
           data={data}
           plotType={plotType}
@@ -34,9 +45,7 @@ export function KpiSparkline(props: KpiSparklineProps) {
           showHighlight
           showTooltip
           valueFormatter={(v) =>
-            v === null
-              ? ''
-              : formatNumber(v, fieldFormat, fieldCurrencyCode, compact)
+            v === null ? '' : formatNumber(v, fieldFormat, fieldCurrencyCode, compact)
           }
           color={colors?.[0]}
           sx={{ height: '100%' }}

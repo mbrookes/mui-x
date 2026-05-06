@@ -45,7 +45,9 @@ function isEntryValid(
   if (entry.relationships !== relationships) return false;
   for (const f of resolvedFilters) {
     if (f.filterSourceId) {
-      if (entry.crossFilterSourceRows.get(f.filterSourceId) !== dataSources[f.filterSourceId]?.rows) {
+      if (
+        entry.crossFilterSourceRows.get(f.filterSourceId) !== dataSources[f.filterSourceId]?.rows
+      ) {
         return false;
       }
     }
@@ -133,4 +135,3 @@ export function resolveRowsCached(
   byKey.set(cacheKey, { crossFilterSourceRows, relationships, result });
   return result;
 }
-

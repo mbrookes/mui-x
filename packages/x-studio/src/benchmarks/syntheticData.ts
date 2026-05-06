@@ -19,11 +19,7 @@
  *  expr-country       join customers.country  (join column)
  */
 
-import type {
-  StudioDataSource,
-  StudioExpressionField,
-  StudioRelationship,
-} from '../models';
+import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -32,8 +28,16 @@ const CATEGORIES = ['Electronics', 'Clothing', 'Food', 'Books', 'Furniture'];
 const COUNTRIES = ['Germany', 'France', 'UK', 'Spain', 'Italy'];
 const SEGMENTS = ['Consumer', 'Corporate', 'SMB'];
 const PRODUCTS = [
-  'Laptop', 'T-Shirt', 'Coffee', 'Novel', 'Chair',
-  'Phone', 'Jacket', 'Tea', 'Textbook', 'Desk',
+  'Laptop',
+  'T-Shirt',
+  'Coffee',
+  'Novel',
+  'Chair',
+  'Phone',
+  'Jacket',
+  'Tea',
+  'Textbook',
+  'Desk',
 ];
 
 /** ISO date string for day offset from 2023-01-01 */

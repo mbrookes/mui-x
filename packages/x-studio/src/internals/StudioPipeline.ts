@@ -36,12 +36,7 @@ export interface StudioPipeline {
    * @param rows       Raw (pre-normalized) rows from `dataSources[sourceId].rows`.
    * @param pageId     Active page ID, used to scope cross-filters and interactive filters.
    */
-  resolveWidgetRows(
-    widgetId: string,
-    sourceId: string,
-    rows: Row[],
-    pageId?: string,
-  ): Row[];
+  resolveWidgetRows(widgetId: string, sourceId: string, rows: Row[], pageId?: string): Row[];
 
   /**
    * Layer L4: re-anchor rows to the correct aggregation grain for a chart widget.
@@ -119,7 +114,14 @@ export function createStudioPipeline(state: StudioPipelineState | StudioState): 
         [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters],
         dataSources,
       );
-      return resolveRowsCached(rows, sourceId, allFilters, dataSources, relationships, expressionFields);
+      return resolveRowsCached(
+        rows,
+        sourceId,
+        allFilters,
+        dataSources,
+        relationships,
+        expressionFields,
+      );
     },
 
     resolveChartRows(filteredRows, sourceId, xField, yFields, seriesField) {

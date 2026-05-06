@@ -80,7 +80,8 @@ export function StudioWordmark({ height = 28 }: StudioWordmarkProps) {
           MUI X
         </tspan>
         <tspan fontWeight={400} fill={studioColor}>
-          {' '}Studio
+          {' '}
+          Studio
         </tspan>
       </text>
     </svg>

@@ -1,14 +1,14 @@
 'use client';
 import * as React from 'react';
-import {
-  Box,
-  IconButton,
-  Stack,
-  Tooltip,
-  Typography,
-} from '@mui/material';
+import { Box, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioController, useStudioSelector, selectWidgets, selectExpressionFields, selectDataSources } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectExpressionFields,
+  selectDataSources,
+} from '../context';
 import type { StudioDataSource, StudioFilterState } from '../models';
 import type { FieldOption, SimpleField } from './filterDrawerTypes';
 import type { AvailableSeries } from './RankFilterInput';
@@ -31,7 +31,12 @@ export function FilterSection(props: FilterSectionProps) {
   const { fields, fieldOptions, filters, onAddFilter, onRemoveFilter, title } = props;
 
   return (
-    <CollapsibleSection title={title} onAdd={onAddFilter} addDisabled={fields.length === 0} addTooltip="Add filter">
+    <CollapsibleSection
+      title={title}
+      onAdd={onAddFilter}
+      addDisabled={fields.length === 0}
+      addTooltip="Add filter"
+    >
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 0.5 }}>
           No filters applied.
@@ -136,11 +141,11 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
             const displayValue = Array.isArray(filter.value)
               ? `${(filter.value as unknown[]).length} selected`
               : typeof filter.value === 'object' && filter.value !== null
-              ? Object.entries(filter.value as Record<string, unknown>)
-                  .filter(([, v]) => v != null)
-                  .map(([k, v]) => `${k}: ${String(v)}`)
-                  .join(' – ')
-              : String(filter.value ?? '');
+                ? Object.entries(filter.value as Record<string, unknown>)
+                    .filter(([, v]) => v != null)
+                    .map(([k, v]) => `${k}: ${String(v)}`)
+                    .join(' – ')
+                : String(filter.value ?? '');
             return (
               <Box
                 key={filter.id}
@@ -180,7 +185,6 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
   );
 }
 
-
 export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }) {
   const controller = useStudioController();
   const widgets = useStudioSelector(selectWidgets);
@@ -203,21 +207,22 @@ export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }
     return fieldId;
   }
 
-  const clearAction = filters.length > 0 ? (
-    <Tooltip title="Clear all cross-filters">
-      <IconButton
-        size="small"
-        color="inherit"
-        onClick={(event) => {
-          event.stopPropagation();
-          controller.clearAllCrossFilters();
-        }}
-        aria-label="Clear all cross-filters"
-      >
-        <CloseIcon fontSize="small" />
-      </IconButton>
-    </Tooltip>
-  ) : undefined;
+  const clearAction =
+    filters.length > 0 ? (
+      <Tooltip title="Clear all cross-filters">
+        <IconButton
+          size="small"
+          color="inherit"
+          onClick={(event) => {
+            event.stopPropagation();
+            controller.clearAllCrossFilters();
+          }}
+          aria-label="Clear all cross-filters"
+        >
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+    ) : undefined;
 
   return (
     <CollapsibleSection title="Cross-filters" secondaryAction={clearAction}>

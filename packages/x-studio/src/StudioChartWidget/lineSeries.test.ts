@@ -22,11 +22,13 @@ describe('buildMultiYLineSeries', () => {
       fields,
     );
 
-    expect(result.map((series) => ({
-      label: series.label,
-      connectNulls: series.connectNulls,
-      yAxisKey: series.yAxisKey,
-    }))).toEqual([
+    expect(
+      result.map((series) => ({
+        label: series.label,
+        connectNulls: series.connectNulls,
+        yAxisKey: series.yAxisKey,
+      })),
+    ).toEqual([
       { label: 'Revenue', connectNulls: true, yAxisKey: 'y-0' },
       { label: 'Profit', connectNulls: true, yAxisKey: 'y-1' },
     ]);

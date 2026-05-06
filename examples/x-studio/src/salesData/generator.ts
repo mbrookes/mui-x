@@ -148,25 +148,102 @@ const PRODUCT_SPECS: ProductSpec[] = [
 
 // Company name fragments for generating realistic B2B names
 const CO_PREFIXES = [
-  'Tech', 'Digital', 'Global', 'Prime', 'Alpha', 'Nexus', 'Apex', 'Vertex',
-  'Swift', 'Core', 'Smart', 'Peak', 'Metro', 'Euro', 'Pacific', 'Nordic',
-  'Capital', 'Premier', 'Dynamic', 'Fusion',
+  'Tech',
+  'Digital',
+  'Global',
+  'Prime',
+  'Alpha',
+  'Nexus',
+  'Apex',
+  'Vertex',
+  'Swift',
+  'Core',
+  'Smart',
+  'Peak',
+  'Metro',
+  'Euro',
+  'Pacific',
+  'Nordic',
+  'Capital',
+  'Premier',
+  'Dynamic',
+  'Fusion',
 ];
 const CO_SUFFIXES = [
-  'Corp', 'AG', 'Ltd', 'Inc', 'GmbH', 'BV', 'AB', 'SAS', 'SpA', 'Pty',
-  'Solutions', 'Systems', 'Technologies', 'Services', 'Group',
+  'Corp',
+  'AG',
+  'Ltd',
+  'Inc',
+  'GmbH',
+  'BV',
+  'AB',
+  'SAS',
+  'SpA',
+  'Pty',
+  'Solutions',
+  'Systems',
+  'Technologies',
+  'Services',
+  'Group',
 ];
 const FIRST_NAMES = [
-  'James', 'Emma', 'Liam', 'Olivia', 'Noah', 'Ava', 'William', 'Sophia',
-  'Benjamin', 'Isabella', 'Lucas', 'Mia', 'Henry', 'Charlotte', 'Alexander',
-  'Amelia', 'Mason', 'Harper', 'Ethan', 'Evelyn', 'Hans', 'Petra', 'Marie',
-  'Pierre', 'Sarah', 'Michael', 'Anna', 'Lars', 'Ingrid', 'Piotr',
+  'James',
+  'Emma',
+  'Liam',
+  'Olivia',
+  'Noah',
+  'Ava',
+  'William',
+  'Sophia',
+  'Benjamin',
+  'Isabella',
+  'Lucas',
+  'Mia',
+  'Henry',
+  'Charlotte',
+  'Alexander',
+  'Amelia',
+  'Mason',
+  'Harper',
+  'Ethan',
+  'Evelyn',
+  'Hans',
+  'Petra',
+  'Marie',
+  'Pierre',
+  'Sarah',
+  'Michael',
+  'Anna',
+  'Lars',
+  'Ingrid',
+  'Piotr',
 ];
 const LAST_NAMES = [
-  'Mueller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Smith', 'Johnson',
-  'Williams', 'Brown', 'Jones', 'Martin', 'Bernard', 'Dubois', 'Thomas',
-  'Laurent', 'Anderson', 'Taylor', 'Wilson', 'Harris', 'Jackson',
-  'Kowalski', 'Nowak', 'Jensen', 'Nielsen', 'Larsson',
+  'Mueller',
+  'Schmidt',
+  'Schneider',
+  'Fischer',
+  'Weber',
+  'Smith',
+  'Johnson',
+  'Williams',
+  'Brown',
+  'Jones',
+  'Martin',
+  'Bernard',
+  'Dubois',
+  'Thomas',
+  'Laurent',
+  'Anderson',
+  'Taylor',
+  'Wilson',
+  'Harris',
+  'Jackson',
+  'Kowalski',
+  'Nowak',
+  'Jensen',
+  'Nielsen',
+  'Larsson',
 ];
 
 // ─── Source IDs (match static files) ─────────────────────────────────────────
@@ -323,7 +400,11 @@ function generateOrderItems(
   rng: Rng,
   orders: GeneratedOrder[],
   productRows: Record<string, unknown>[],
-): { source: StudioDataSource; rows: GeneratedOrderItem[]; byOrderId: Map<string, GeneratedOrderItem[]> } {
+): {
+  source: StudioDataSource;
+  rows: GeneratedOrderItem[];
+  byOrderId: Map<string, GeneratedOrderItem[]>;
+} {
   const rows: GeneratedOrderItem[] = [];
   const byOrderId = new Map<string, GeneratedOrderItem[]>();
 
@@ -550,8 +631,11 @@ export function generateSalesData(opts?: GeneratorOptions): GeneratedSalesData {
   );
 
   // 3. Order items — FKs: orderId → orders.id, productId → products.id
-  const { source: orderItemsSource, byOrderId: itemsByOrderId } =
-    generateOrderItems(rng, orderRows, productsSource.rows!);
+  const { source: orderItemsSource, byOrderId: itemsByOrderId } = generateOrderItems(
+    rng,
+    orderRows,
+    productsSource.rows!,
+  );
 
   // 4. Derive order totals from order items
   deriveOrderTotals(orderRows, itemsByOrderId);

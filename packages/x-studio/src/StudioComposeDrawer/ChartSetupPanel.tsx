@@ -15,9 +15,20 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectExpressionFields, selectRelationships } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectDataSources,
+  selectExpressionFields,
+  selectRelationships,
+} from '../context';
 import { fieldsForCapability } from '../utils/fieldCapabilities';
-import { analyzeChartSupport, getChartSupportMessage, getReachableSourceIds } from '../internals/chartUtils';
+import {
+  analyzeChartSupport,
+  getChartSupportMessage,
+  getReachableSourceIds,
+} from '../internals/chartUtils';
 import type { StudioChartType, StudioBarLayout } from '../models';
 import { ChartTypePicker } from './ChartTypePicker';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
@@ -218,7 +229,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       ) : null}
 
       {/* Chart type icon picker */}
-      <ChartTypePicker chartType={chartType} barLayout={config.barLayout} onChange={handleChartTypeChange} />
+      <ChartTypePicker
+        chartType={chartType}
+        barLayout={config.barLayout}
+        onChange={handleChartTypeChange}
+      />
 
       <Divider />
 
@@ -341,11 +356,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               />
               {ySeries.length > 1 && (
                 <Tooltip title="Remove series">
-                  <IconButton
-                    size="small"
-                    onClick={() => handleRemoveSeries(index)}
-                    sx={{ mt: 1 }}
-                  >
+                  <IconButton size="small" onClick={() => handleRemoveSeries(index)} sx={{ mt: 1 }}>
                     <CloseIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>

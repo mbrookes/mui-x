@@ -146,7 +146,10 @@ describe('computeGridSummary', () => {
     const fields: StudioDataField[] = [
       { id: 'revenue', label: 'Revenue', type: 'number', format: 'currency', currencyCode: 'USD' },
     ];
-    const rows = [{ id: '1', revenue: 1000 }, { id: '2', revenue: 2000 }];
+    const rows = [
+      { id: '1', revenue: 1000 },
+      { id: '2', revenue: 2000 },
+    ];
     const result = computeGridSummary(rows, fields, { fields: { revenue: 'sum' } });
     // Should include a currency symbol
     expect(result.revenue).toMatch(/Total:.*\$.*3/);

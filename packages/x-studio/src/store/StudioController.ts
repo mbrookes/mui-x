@@ -3,6 +3,7 @@ import { Store } from '@mui/x-internals/store';
 import {
   createDefaultStudioState,
   type StudioDataSource,
+  type StudioDataSourceAdapter,
   type StudioDrawer,
   type StudioExpressionField,
   type StudioMode,
@@ -21,6 +22,7 @@ import {
 
 import { inferWidgetTitles } from '../internals/widgetUtils';
 import { normalizeDataSourceRows } from '../internals/chartUtils';
+import { studioRequestCache } from '../internals/StudioRequestCache';
 
 const MAX_UNDO_HISTORY = 100;
 
@@ -199,11 +201,38 @@ export class StudioController {
   upsertDataSource = (dataSource: StudioDataSource) => {
     const state = this.store.state;
     const normalized = normalizeDataSourceRows(dataSource);
+    if (normalized.adapter) {
+      studioRequestCache.invalidateSource(normalized.id);
+    }
     this.commitState({
       ...state,
       dataSources: {
         ...state.dataSources,
         [normalized.id]: normalized,
+      },
+    });
+  };
+
+  /**
+   * Attaches (or removes) an async data source adapter for the given source.
+   * When an adapter is set, Studio will call `adapter.getRows(descriptor)` instead
+   * of using the in-memory rows pipeline for this source.
+   *
+   * @param sourceId - The ID of the data source to configure.
+   * @param adapter - The adapter implementation, or `undefined` to remove it.
+   */
+  setDataSourceAdapter = (sourceId: string, adapter: StudioDataSourceAdapter | undefined) => {
+    const state = this.store.state;
+    const source = state.dataSources[sourceId];
+    if (!source) {
+      return;
+    }
+    studioRequestCache.invalidateSource(sourceId);
+    this.commitState({
+      ...state,
+      dataSources: {
+        ...state.dataSources,
+        [sourceId]: { ...source, adapter },
       },
     });
   };
@@ -443,7 +472,11 @@ export class StudioController {
         }
 
         const nextFilter = { ...filter, ...changes };
-        if (changes.filterMode === 'rank' && filter.filterMode !== 'rank' && hasExistingRankFilter) {
+        if (
+          changes.filterMode === 'rank' &&
+          filter.filterMode !== 'rank' &&
+          hasExistingRankFilter
+        ) {
           return filter;
         }
 
@@ -494,7 +527,10 @@ export class StudioController {
       ...(options?.fieldType && { fieldType: options.fieldType }),
     };
 
-    this.commitState({ ...state, filters: [...existingFilters, interactiveFilter] }, { undoable: false });
+    this.commitState(
+      { ...state, filters: [...existingFilters, interactiveFilter] },
+      { undoable: false },
+    );
   };
 
   /**
@@ -517,7 +553,12 @@ export class StudioController {
    * Applies a cross-filter from a source widget. This creates a filter that affects
    * all other widgets on the page except the source widget.
    */
-  applyCrossFilter = (sourceWidgetId: string, field: string, value: unknown, filterSourceId?: string) => {
+  applyCrossFilter = (
+    sourceWidgetId: string,
+    field: string,
+    value: unknown,
+    filterSourceId?: string,
+  ) => {
     const state = this.store.state;
     // Remove any existing cross-filter from the same source widget
     const existingFilters = state.filters.filter(

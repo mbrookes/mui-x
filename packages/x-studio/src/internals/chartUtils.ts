@@ -7,8 +7,8 @@ import type {
   StudioMetricRef,
   StudioRelationship,
 } from '../models';
-import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 import { cachedCompute } from './computedCache';
+import { getCachedEnrichedRows } from './enrichedRowsCache';
 
 type Row = Record<string, unknown>;
 
@@ -426,12 +426,13 @@ export function resolveRows(
 ): Row[] {
   // Enrich rows with computed (non-measure) expression field values first so they
   // can be referenced in filters and downstream aggregations.
+  // Uses enrichedRowsCache so filter changes don't force re-enrichment (L2 is
+  // independent of filters — only dataSources/expressionFields/relationships matter).
   // Pass skipEnrichment: true when the caller has already enriched the rows (e.g.
   // KPI widget pre-enriches once and calls resolveRows twice for current/prev period).
-  const enrichedRows =
-    !options?.skipEnrichment && widgetSourceId && expressionFields.length > 0
-      ? enrichRowsWithExpressions(widgetRows, expressionFields, widgetSourceId, dataSources, relationships)
-      : widgetRows;
+  const enrichedRows = options?.skipEnrichment
+    ? widgetRows
+    : getCachedEnrichedRows(widgetRows, widgetSourceId, expressionFields, dataSources, relationships);
 
   const nativeFilters: StudioFilterState[] = [];
   const crossFilters: (StudioFilterState & { filterSourceId: string })[] = [];
@@ -465,15 +466,14 @@ export function resolveRows(
     // Destructure filterSourceId out so baseFilter is a plain StudioFilterState for applyFilters
     const { filterSourceId: removedField, ...baseFilter } = f;
     void removedField;
-    // Enrich the foreign source rows with expression fields before filtering so
-    // that cross-filters targeting computed fields (e.g. expr-order-country) work.
-    // Use cache to avoid re-enriching the same foreign source for multiple cross-filters.
+    // Enrich the foreign source rows via enrichedRowsCache so filter changes don't
+    // force re-enrichment of foreign sources (the enrich result is filter-independent).
+    // The local foreignEnrichedCache is kept as a guard against duplicate lookups
+    // within a single resolveRows call (multiple cross-filters on the same source).
     if (!foreignEnrichedCache.has(f.filterSourceId)) {
       foreignEnrichedCache.set(
         f.filterSourceId,
-        expressionFields.length > 0
-          ? enrichRowsWithExpressions(foreignSource.rows, expressionFields, f.filterSourceId, dataSources, relationships)
-          : foreignSource.rows,
+        getCachedEnrichedRows(foreignSource.rows, f.filterSourceId, expressionFields, dataSources, relationships),
       );
     }
     const enrichedForeignRows = foreignEnrichedCache.get(f.filterSourceId)!;
@@ -1224,9 +1224,7 @@ function enrichSourceRowsWithExpressions(
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[],
 ): Row[] {
-  return expressionFields.length > 0
-    ? enrichRowsWithExpressions(rows, expressionFields, sourceId, dataSources, relationships)
-    : rows;
+  return getCachedEnrichedRows(rows, sourceId, expressionFields, dataSources, relationships);
 }
 
 export type ChartSupportReason =

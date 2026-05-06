@@ -254,6 +254,261 @@ describe('<StudioChartWidget />', () => {
     );
   });
 
+  it('does not keep unrelated split-by ghost series when the incoming cross-filter constrains the series owner source', () => {
+    const ordersSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'customerId', label: 'Customer ID', type: 'string' },
+        { id: 'month', label: 'Month', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: 'o1', customerId: 'c1', month: 'Jan', total: 100 },
+        { id: 'o2', customerId: 'c1', month: 'Feb', total: 80 },
+        { id: 'o3', customerId: 'c2', month: 'Jan', total: 60 },
+      ],
+    };
+
+    const customersSource: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'company', label: 'Company', type: 'string' },
+        { id: 'segment', label: 'Segment', type: 'string' },
+      ],
+      rows: [
+        { id: 'c1', company: 'Tech Systems', segment: 'Enterprise' },
+        { id: 'c2', company: 'Retail Co', segment: 'SMB' },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-segment-split',
+      kind: 'chart',
+      title: 'Revenue by Segment',
+      sourceId: 'orders',
+      config: {
+        chartType: 'bar-stacked',
+        xField: 'month',
+        yField: 'total',
+        seriesField: 'segment',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, customers: customersSource },
+      relationships: [
+        {
+          id: 'rel-orders-customers',
+          sourceId: 'orders',
+          sourceField: 'customerId',
+          targetId: 'customers',
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+      ],
+      filters: [
+        {
+          id: 'cf-company',
+          scope: 'cross-filter',
+          sourceWidgetId: 'top-customers-chart',
+          pageId: 'page-1',
+          field: 'company',
+          operator: 'equals',
+          value: 'Tech Systems',
+          filterSourceId: 'customers',
+        },
+      ],
+    });
+
+    renderChart(widget, ordersSource);
+
+    const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+      series: Array<{ label: string }>;
+    };
+
+    expect(props.series.map((series) => series.label)).toEqual(['Enterprise']);
+  });
+
+  it('filters split-by line series down to the related-source segment selected by a company cross-filter', () => {
+    const ordersSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'customerId', label: 'Customer ID', type: 'string' },
+        { id: 'month', label: 'Month', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: 'o1', customerId: 'c1', month: 'Jan', total: 100 },
+        { id: 'o2', customerId: 'c1', month: 'Feb', total: 80 },
+        { id: 'o3', customerId: 'c2', month: 'Jan', total: 60 },
+      ],
+    };
+
+    const customersSource: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'company', label: 'Company', type: 'string' },
+        { id: 'segment', label: 'Segment', type: 'string' },
+      ],
+      rows: [
+        { id: 'c1', company: 'Tech Systems', segment: 'Enterprise' },
+        { id: 'c2', company: 'Retail Co', segment: 'Midmarket' },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-line-segment-split',
+      kind: 'chart',
+      title: 'Revenue by Segment',
+      sourceId: 'orders',
+      config: {
+        chartType: 'line',
+        xField: 'month',
+        yField: 'total',
+        seriesField: 'segment',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, customers: customersSource },
+      relationships: [
+        {
+          id: 'rel-orders-customers',
+          sourceId: 'orders',
+          sourceField: 'customerId',
+          targetId: 'customers',
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+      ],
+      filters: [
+        {
+          id: 'cf-company-line',
+          scope: 'cross-filter',
+          sourceWidgetId: 'top-customers-chart',
+          pageId: 'page-1',
+          field: 'company',
+          operator: 'equals',
+          value: 'Tech Systems',
+          filterSourceId: 'customers',
+        },
+      ],
+    });
+
+    renderChart(widget, ordersSource);
+
+    const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+      series: Array<{ label: string }>;
+    };
+
+    expect(props.series.map((series) => series.label)).toEqual(['Enterprise']);
+  });
+
+  it('filters expression-backed segment series down to one series when cross-filtered by expression-backed company', () => {
+    const ordersSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'customerId', label: 'Customer ID', type: 'string' },
+        { id: 'month', label: 'Month', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: 'o1', customerId: 'c1', month: 'Jan', total: 100 },
+        { id: 'o2', customerId: 'c1', month: 'Feb', total: 80 },
+        { id: 'o3', customerId: 'c2', month: 'Jan', total: 60 },
+      ],
+    };
+
+    const customersSource: StudioDataSource = {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'company', label: 'Company', type: 'string' },
+        { id: 'segment', label: 'Segment', type: 'string' },
+      ],
+      rows: [
+        { id: 'c1', company: 'Tech Systems', segment: 'Enterprise' },
+        { id: 'c2', company: 'Retail Co', segment: 'Midmarket' },
+      ],
+    };
+
+    const widget: StudioWidget = {
+      id: 'chart-expr-line-segment-split',
+      kind: 'chart',
+      title: 'Quarterly Revenue by Segment',
+      sourceId: 'orders',
+      config: {
+        chartType: 'area-stacked',
+        xField: 'month',
+        yField: 'total',
+        seriesField: 'expr-order-segment',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: ordersSource, customers: customersSource },
+      relationships: [
+        {
+          id: 'rel-orders-customers',
+          sourceId: 'orders',
+          sourceField: 'customerId',
+          targetId: 'customers',
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+      ],
+      expressionFields: [
+        {
+          id: 'expr-order-company',
+          label: 'Company',
+          sourceId: 'orders',
+          isMeasure: false,
+          type: 'string',
+          expression: { joinSourceId: 'customers', fieldId: 'company' },
+        },
+        {
+          id: 'expr-order-segment',
+          label: 'Segment',
+          sourceId: 'orders',
+          isMeasure: false,
+          type: 'string',
+          expression: { joinSourceId: 'customers', fieldId: 'segment' },
+        },
+      ],
+      filters: [
+        {
+          id: 'cf-expr-company-line',
+          scope: 'cross-filter',
+          sourceWidgetId: 'top-customers-chart',
+          pageId: 'page-1',
+          field: 'expr-order-company',
+          operator: 'equals',
+          value: 'Tech Systems',
+          filterSourceId: 'orders',
+        },
+      ],
+    });
+
+    renderChart(widget, ordersSource);
+
+    const props = lineChartSpy.mock.calls.at(-1)?.[0] as {
+      series: Array<{ label: string }>;
+    };
+
+    expect(props.series.map((series) => series.label)).toEqual(['Enterprise']);
+  });
+
   it('normalizes multi-y bar-100 series and configures a percent axis', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',

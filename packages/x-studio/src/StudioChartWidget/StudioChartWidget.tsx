@@ -185,6 +185,34 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === activePageId,
   );
 
+  const incomingCrossFilters = React.useMemo(
+    () =>
+      filters.filter(
+        (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+      ),
+    [filters, widget.id, activePageId],
+  );
+
+  const preserveSplitByBaseline = React.useMemo(() => {
+    const seriesOwner = config.seriesField
+      ? (chartSupport.fieldOwners?.get(config.seriesField) ?? widget.sourceId)
+      : null;
+
+    if (!seriesOwner) {
+      return true;
+    }
+
+    if (seriesOwner === widget.sourceId) {
+      return true;
+    }
+
+    // If an incoming cross-filter constrains the same foreign source that owns the
+    // split-by field, showing baseline ghost series becomes misleading. Example:
+    // company=Tech Systems (customers source) should not keep rendering SMB/Enterprise
+    // ghost segment series from all customers when segment also comes from customers.
+    return !incomingCrossFilters.some((filter) => filter.filterSourceId === seriesOwner);
+  }, [incomingCrossFilters, config.seriesField, chartSupport.fieldOwners, widget.sourceId]);
+
   /**
    * Returns the stable color for a series name, based on its position in the full
    * (unfiltered) set of series names. This prevents colors shifting when cross-filters
@@ -712,8 +740,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       normalizedChartType === 'bar-stacked' ||
       normalizedChartType === 'bar-100')
   ) {
-    // When cross-filtering, use all-data as basis so ghost bars show full extent
-    const effectiveSFData = (hasCrossFilters && allBarSeriesFieldData) ? allBarSeriesFieldData : barSeriesFieldData;
+    // When cross-filtering, use all-data as basis so ghost bars show full extent.
+    // Exception: if the incoming cross-filter constrains the same foreign source that
+    // owns the split-by field, the baseline series set is misleading and should collapse
+    // to the filtered series only.
+    const effectiveSFData =
+      hasCrossFilters && allBarSeriesFieldData && preserveSplitByBaseline
+        ? allBarSeriesFieldData
+        : barSeriesFieldData;
     const xAxisData = effectiveSFData.labels.map(formatLabel);
     const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
     const isStacked =
@@ -734,7 +768,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
     // Build per-series filtered values for ghost context
     const sfFilteredBySeriesId: Record<string, (number | null)[]> = {};
     const sfAllBySeriesId: Record<string, number[]> = {};
-    if (hasCrossFilters && allBarSeriesFieldData) {
+    if (hasCrossFilters && allBarSeriesFieldData && preserveSplitByBaseline) {
       allBarSeriesFieldData.seriesNames.forEach((name) => {
         const seriesId = String(name);
         const allVals = allBarSeriesFieldData.seriesData[name] ?? [];
@@ -747,7 +781,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(props: St
       });
     }
     const sfBarContext =
-      hasCrossFilters && allBarSeriesFieldData
+      hasCrossFilters && allBarSeriesFieldData && preserveSplitByBaseline
         ? { filteredValuesBySeriesId: sfFilteredBySeriesId, allValuesBySeriesId: sfAllBySeriesId }
         : null;
 

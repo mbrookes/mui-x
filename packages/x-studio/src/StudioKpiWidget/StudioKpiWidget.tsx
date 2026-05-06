@@ -7,6 +7,7 @@ import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { resolveRows, resolveMetricRefs } from '../internals/chartUtils';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { usePageChartColors } from '../internals/usePageChartColors';
+import { useWidgetRows } from '../internals/useWidgetRows';
 import { useStudioSelector, selectFilters, selectDataSources, selectRelationships, selectExpressionFields } from '../context';
 import { formatNumber } from '../internals/numberFormat';
 import { evaluateMeasure } from '../utils/expressionEvaluator';
@@ -51,6 +52,11 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const expressionFields = useStudioSelector(selectExpressionFields);
   const chartColors = usePageChartColors();
 
+  // Current-period rows via the shared pipeline hook.
+  // KPI widgets intentionally ignore cross-filters (they show absolute totals), so we
+  // use filteredRowsNoCross, which excludes cross-filter and interactive-filter constraints.
+  const { filteredRowsNoCross: currentRows } = useWidgetRows(widget, dataSource);
+
   const { displayValue, hasData, sparklineData, sparklineTimeField, trendResult, trendNeedsDateFilter } =
     React.useMemo(() => {
       if (!dataSource?.rows || !config.kpiValueField) {
@@ -64,33 +70,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         };
       }
 
-      const pageFilters = filters.filter((f) => f.scope === 'page');
-      const widgetFilters = filters.filter((f) => f.scope === 'widget' && f.widgetId === widget.id);
-      const interactiveFilters = filters.filter(
-        (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id,
-      );
-      const allFilters = resolveMetricRefs([...pageFilters, ...widgetFilters, ...interactiveFilters], dataSources);
-
-      // Pre-enrich the source rows once so both the current-period and (when trend is
-      // enabled) previous-period resolveRows calls share the same enriched rows array.
-      // Uses enrichedRowsCache so filter changes don't force re-enrichment.
-      const preEnrichedRows = getCachedEnrichedRows(
-        dataSource.rows,
-        widget.sourceId,
-        expressionFields,
-        dataSources,
-        relationships,
-      );
-
-      const rows = resolveRows(
-        preEnrichedRows,
-        widget.sourceId,
-        allFilters,
-        dataSources,
-        relationships,
-        expressionFields,
-        { skipEnrichment: true },
-      );
+      const rows = currentRows;
       const aggregation = config.kpiAggregation ?? 'sum';
 
       const measureExprField = expressionFields.find(
@@ -189,6 +169,31 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
               comparisonMode,
             );
 
+            // Pre-enrich once here so the previous-period resolveRows call can skip
+            // enrichment. getCachedEnrichedRows is a WeakMap cache hit at this point
+            // since useWidgetRows already populated it for the current-period rows.
+            const preEnrichedRows = getCachedEnrichedRows(
+              dataSource.rows,
+              widget.sourceId,
+              expressionFields,
+              dataSources,
+              relationships,
+            );
+
+            // Build allFilters for the previous period (page + widget + interactive only;
+            // cross-filters are intentionally excluded for KPI trend comparisons).
+            const pageFilters = filters.filter((f) => f.scope === 'page');
+            const widgetFilters = filters.filter(
+              (f) => f.scope === 'widget' && f.widgetId === widget.id,
+            );
+            const interactiveFilters = filters.filter(
+              (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id,
+            );
+            const allFilters = resolveMetricRefs(
+              [...pageFilters, ...widgetFilters, ...interactiveFilters],
+              dataSources,
+            );
+
             const prevDateFilter: StudioFilterState = {
               ...dateFilter,
               operator: 'greater_than_or_equal',
@@ -240,7 +245,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         trendResult: kpiTrend,
         trendNeedsDateFilter: needsDateFilter,
       };
-    }, [dataSource, filters, dataSources, relationships, expressionFields, config, widget.id, widget.sourceId]);
+    }, [currentRows, dataSource, filters, dataSources, relationships, expressionFields, config, widget.id, widget.sourceId]);
 
   const fieldDef = dataSource?.fields.find((f) => f.id === config.kpiValueField);
 

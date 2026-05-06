@@ -36,9 +36,7 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
     }
     return selectedSource.rows.map((row) => ({
       id: String(row.id ?? ''),
-      label: String(
-        row.name ?? row.label ?? row.metric ?? row.title ?? row.id ?? '',
-      ),
+      label: String(row.name ?? row.label ?? row.metric ?? row.title ?? row.id ?? ''),
     }));
   }, [selectedSource]);
 
@@ -77,8 +75,7 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
     onChange({ ...value, field });
   };
 
-  const selectedRowOption =
-    rowOptions.find((o) => o.id === value?.rowId) ?? null;
+  const selectedRowOption = rowOptions.find((o) => o.id === value?.rowId) ?? null;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -105,7 +102,13 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
           onChange={handleRowChange}
           getOptionLabel={(opt) => (opt.label ? `${opt.id} · ${opt.label}` : opt.id)}
           isOptionEqualToValue={(opt, val) => opt.id === val.id}
-          renderInput={(params) => <TextField {...params} label="Metric row" helperText="Identifies the row in the business metrics table" />}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Metric row"
+              helperText="Identifies the row in the business metrics table"
+            />
+          )}
         />
       )}
 

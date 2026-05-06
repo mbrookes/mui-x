@@ -24,7 +24,10 @@ export function buildMultiYLineSeries(
   const is100 = chartType === 'area-100';
   const totals100 = is100
     ? multiYData.labels.map((_, index) =>
-        multiYData.series.reduce<number>((sum, series) => sum + ((series.values[index] ?? 0) as number), 0),
+        multiYData.series.reduce<number>(
+          (sum, series) => sum + ((series.values[index] ?? 0) as number),
+          0,
+        ),
       )
     : null;
   const useIndependentAxes = !isStacked && multiYData.series.length > 1;

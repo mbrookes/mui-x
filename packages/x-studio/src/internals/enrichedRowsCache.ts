@@ -91,9 +91,7 @@ export function getCachedEnrichedRows(
   }
 
   // Collect only the expression fields that affect this source's enrichment.
-  const relevantFields = expressionFields.filter(
-    (ef) => ef.sourceId === sourceId && !ef.isMeasure,
-  );
+  const relevantFields = expressionFields.filter((ef) => ef.sourceId === sourceId && !ef.isMeasure);
   if (relevantFields.length === 0) {
     return rows;
   }
@@ -117,12 +115,28 @@ export function getCachedEnrichedRows(
 
   // Check the per-source cache entry.
   const existing = entriesBySource.get(sourceId);
-  if (existing && isEntryValid(existing, rows, relevantFields, joinedSourceIds, dataSources, relevantRelationships)) {
+  if (
+    existing &&
+    isEntryValid(
+      existing,
+      rows,
+      relevantFields,
+      joinedSourceIds,
+      dataSources,
+      relevantRelationships,
+    )
+  ) {
     return existing.result;
   }
 
   // Cache miss — compute and store a new entry.
-  const result = enrichRowsWithExpressions(rows, expressionFields, sourceId, dataSources, relationships);
+  const result = enrichRowsWithExpressions(
+    rows,
+    expressionFields,
+    sourceId,
+    dataSources,
+    relationships,
+  );
 
   const joinedSourceRows = new Map<string, Row[]>();
   for (const jId of joinedSourceIds) {
@@ -142,4 +156,3 @@ export function getCachedEnrichedRows(
 
   return result;
 }
-

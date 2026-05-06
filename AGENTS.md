@@ -2,16 +2,16 @@
 
 Check `AGENTS.local.md` for personal preferences.
 
-## IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning 
+## IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning
 
 Refer to local docs for MUI X libraries under docs/public/x/:
 
- - x/react-date-pickers/llms.txt + 110 API files
- - x/react-charts/llms.txt + 304 API files
- - x/react-tree-view/llms.txt + 338 API files
- - x/react-data-grid/llms.txt + 476 API files
- - x/react-scheduler/llms.txt + 516 API files
- - x/react-chat/llms.txt + 730 API files
+- x/react-date-pickers/llms.txt + 110 API files
+- x/react-charts/llms.txt + 304 API files
+- x/react-tree-view/llms.txt + 338 API files
+- x/react-data-grid/llms.txt + 476 API files
+- x/react-scheduler/llms.txt + 516 API files
+- x/react-chat/llms.txt + 730 API files
 
 ## Linting and formatting
 

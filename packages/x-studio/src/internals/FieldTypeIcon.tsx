@@ -66,4 +66,3 @@ export function FieldTypeIcon({ type, generated = false, size = 16 }: FieldTypeI
     </Tooltip>
   );
 }
-

@@ -77,8 +77,24 @@ export function GeneratedFieldSvg({
       aria-hidden
     >
       {/* Equals indicator */}
-      <line x1="0.5" y1="7" x2="3.5" y2="7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <line x1="0.5" y1="9.5" x2="3.5" y2="9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line
+        x1="0.5"
+        y1="7"
+        x2="3.5"
+        y2="7"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <line
+        x1="0.5"
+        y1="9.5"
+        x2="3.5"
+        y2="9.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
       {/* Icon content starts at x=4 */}
       {children}
     </svg>
@@ -112,12 +128,7 @@ export function PaddedFieldSvg({
 
 // ─── Polar geometry helpers (used by Pie / Donut) ─────────────────────────────
 
-export function polarToXY(
-  cx: number,
-  cy: number,
-  r: number,
-  angleDeg: number,
-): [number, number] {
+export function polarToXY(cx: number, cy: number, r: number, angleDeg: number): [number, number] {
   const rad = ((angleDeg - 90) * Math.PI) / 180;
   return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
 }

@@ -24,33 +24,25 @@ const mockState = {
     orders: {
       id: 'orders',
       label: 'Orders',
-      fields: [
-        { id: 'id', label: 'Order ID', type: 'string' },
-      ],
+      fields: [{ id: 'id', label: 'Order ID', type: 'string' }],
       rows: [],
     },
     customers: {
       id: 'customers',
       label: 'Customers',
-      fields: [
-        { id: 'country', label: 'Country', type: 'string' },
-      ],
+      fields: [{ id: 'country', label: 'Country', type: 'string' }],
       rows: [],
     },
     orderItems: {
       id: 'orderItems',
       label: 'Order Items',
-      fields: [
-        { id: 'total', label: 'Total', type: 'number' },
-      ],
+      fields: [{ id: 'total', label: 'Total', type: 'number' }],
       rows: [],
     },
     shipments: {
       id: 'shipments',
       label: 'Shipments',
-      fields: [
-        { id: 'status', label: 'Status', type: 'string' },
-      ],
+      fields: [{ id: 'status', label: 'Status', type: 'string' }],
       rows: [],
     },
   },

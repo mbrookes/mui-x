@@ -7,6 +7,7 @@ MUI X demo app (`examples/x-studio`) showcasing a Sales Dashboard built on `@mui
 ## ✅ Completed
 
 ### Data Model
+
 - Realistic multi-source data: orders, order items (1–5 per order, 595 total), customers, products, shipments, shipment items, business metrics
 - Deterministic PRNG-generated data (seeded, fully reproducible)
 - Partially Delivered order status for split shipments
@@ -15,6 +16,7 @@ MUI X demo app (`examples/x-studio`) showcasing a Sales Dashboard built on `@mui
 - Cross-source join projection for chart aggregations
 
 ### Dashboard
+
 - Four pages: Overview, Products, Logistics, Customers
 - Page-level and widget-level filters
 - Interactive filter widgets (toggle, multi-select, date-range, slider, search) as canvas components
@@ -25,6 +27,7 @@ MUI X demo app (`examples/x-studio`) showcasing a Sales Dashboard built on `@mui
 - Bookmarkable tabs (URL hash navigation between pages)
 
 ### Widget Types
+
 - **Grid**: sortable, exportable to CSV, cross-filter source, compact density
 - **Chart**: bar, bar-stacked, bar-100, line, area, area-stacked, area-100, pie, donut, scatter
   - Single-series, multi-Y-series, and seriesField (split-by) data shapes
@@ -36,6 +39,7 @@ MUI X demo app (`examples/x-studio`) showcasing a Sales Dashboard built on `@mui
 - **Text**: title, subtitle, body sections with per-section font family / size / colour / alignment
 
 ### Compose Drawer (Edit UI)
+
 - Widget type switcher
 - Per-widget Setup and Format tabs
 - Chart type picker with icons (including horizontal variants)
@@ -51,6 +55,7 @@ MUI X demo app (`examples/x-studio`) showcasing a Sales Dashboard built on `@mui
 - Undo/redo
 
 ### Filters Drawer
+
 - Condition, Selection, and Rank filter modes
 - Relative date values
 - Compound filters (AND/OR second condition)
@@ -58,6 +63,7 @@ MUI X demo app (`examples/x-studio`) showcasing a Sales Dashboard built on `@mui
 - Rank filter with direction, count, rank-by field
 
 ### Architecture
+
 - `StudioController` class with undo/redo, state serialization/migration
 - `useSyncExternalStore`-based reactive selectors
 - Deferred widget content render (single rAF batched)
@@ -81,11 +87,13 @@ _Nothing actively in flight right now._
 Higher priority items the app needs for a credible demo:
 
 ### Dashboard Content
+
 - **Scheduled data refresh simulation** — show that widget data updates when the underlying source changes (e.g. a "refresh" button or polling interval in the demo)
 - **Dashboard-level date range filter** — single date picker that drives all KPIs and charts at once
 - **Drill-down / detail panel** — click a chart bar or grid row to open a slide-in detail panel (e.g. order → line items)
 
 ### Widget Features
+
 - **Scatter chart configuration** — expose X/Y/size/colour fields in compose drawer (currently hardcoded)
 - **Pie/donut label formatting** — show value or percent inside/outside slices
 - **Table totals row** in grid widget (sum/avg footer)
@@ -94,6 +102,7 @@ Higher priority items the app needs for a credible demo:
 - **KPI target line** — show a target value from businessMetrics alongside the KPI value and sparkline
 
 ### Compose / Config UX
+
 - **Widget resize** — drag to change column width within a row
 - **Add/remove rows** from the canvas
 - **Row layout picker** — choose from preset column splits (1-col, 2-equal, 3-equal, 2:1, etc.)
@@ -101,6 +110,7 @@ Higher priority items the app needs for a credible demo:
 - **Saved views / filter presets** — name and recall a set of filters
 
 ### Filters
+
 - **Global search** across all filter fields
 - **Filter dependency** — child filter options narrow based on parent filter (e.g. state → city)
 - **Quick filter bar** above the canvas — surfaced shortcuts for the most common filters
@@ -112,6 +122,7 @@ Higher priority items the app needs for a credible demo:
 Lower priority or larger scope ideas:
 
 ### Platform
+
 - **Real data connector** — replace static TypeScript arrays with a pluggable async data loader (REST/GraphQL/SQL)
 - **State persistence** — save/restore dashboard config to localStorage or a backend
 - **Shareable links** — encode filter state in the URL
@@ -119,12 +130,14 @@ Lower priority or larger scope ideas:
 - **Embeddable SDK** — `<StudioDashboard config={...} />` with zero-config defaults for external consumers
 
 ### Authoring
+
 - **Natural language widget creation** — describe a chart in plain text; Studio infers fields and config
 - **Duplicate / move widgets across pages**
 - **Widget template library** — pre-built chart/KPI configs the user can drop onto the canvas
 - **Custom expression builder UI** — visual node editor for expression fields (replaces JSON editing)
 
 ### Visualisation
+
 - **Map / choropleth chart type** — country/region data on a world map
 - **Gantt / timeline chart** — useful for shipment delivery windows
 - **Heatmap chart type** — correlation matrix
@@ -133,6 +146,7 @@ Lower priority or larger scope ideas:
 - **Annotations** — add a text callout or reference line to a chart
 
 ### Data
+
 - **Calculated fields on the fly** — ad-hoc formula bar in chart setup (without the full expression dialog)
 - **Pivot table widget**
 - **Data lineage view** — visualise join paths between sources in the data drawer

@@ -44,7 +44,10 @@ export function computeGridSummary(
         raw = numericValues.reduce((acc, v) => acc + v, 0);
         break;
       case 'avg':
-        raw = numericValues.length > 0 ? numericValues.reduce((a, v) => a + v, 0) / numericValues.length : 0;
+        raw =
+          numericValues.length > 0
+            ? numericValues.reduce((a, v) => a + v, 0) / numericValues.length
+            : 0;
         break;
       case 'min':
         raw = numericValues.length > 0 ? Math.min(...numericValues) : 0;

@@ -74,26 +74,44 @@ export function getWidgetSubtypeIcon(widget: StudioWidget, size = 16): React.Rea
     const chartType = widget.config.chartType ?? 'bar';
     const horizontal = widget.config.barLayout === 'horizontal';
     switch (chartType) {
-      case 'bar': return horizontal ? <BarHorizontalIcon size={size} /> : <BarGroupedIcon size={size} />;
-      case 'bar-stacked': return horizontal ? <BarStackedHorizontalIcon size={size} /> : <BarStackedIcon size={size} />;
-      case 'bar-100': return horizontal ? <Bar100HorizontalIcon size={size} /> : <Bar100Icon size={size} />;
-      case 'line': return <LineIcon size={size} />;
-      case 'area': return <AreaIcon size={size} />;
-      case 'area-stacked': return <AreaStackedIcon size={size} />;
-      case 'area-100': return <Area100Icon size={size} />;
-      case 'scatter': return <ScatterIcon size={size} />;
-      case 'pie': return <PieIcon size={size} />;
-      case 'donut': return <DonutIcon size={size} />;
-      default: return <BarGroupedIcon size={size} />;
+      case 'bar':
+        return horizontal ? <BarHorizontalIcon size={size} /> : <BarGroupedIcon size={size} />;
+      case 'bar-stacked':
+        return horizontal ? (
+          <BarStackedHorizontalIcon size={size} />
+        ) : (
+          <BarStackedIcon size={size} />
+        );
+      case 'bar-100':
+        return horizontal ? <Bar100HorizontalIcon size={size} /> : <Bar100Icon size={size} />;
+      case 'line':
+        return <LineIcon size={size} />;
+      case 'area':
+        return <AreaIcon size={size} />;
+      case 'area-stacked':
+        return <AreaStackedIcon size={size} />;
+      case 'area-100':
+        return <Area100Icon size={size} />;
+      case 'scatter':
+        return <ScatterIcon size={size} />;
+      case 'pie':
+        return <PieIcon size={size} />;
+      case 'donut':
+        return <DonutIcon size={size} />;
+      default:
+        return <BarGroupedIcon size={size} />;
     }
   }
   if (widget.kind === 'filter') {
     const filterType = widget.config.filterWidgetType ?? 'multi-select';
     switch (filterType) {
-      case 'toggle': return <ButtonFilterWidgetIcon size={size} />;
+      case 'toggle':
+        return <ButtonFilterWidgetIcon size={size} />;
       case 'date-range':
-      case 'slider': return <DateFilterWidgetIcon size={size} />;
-      default: return <ListFilterWidgetIcon size={size} />;
+      case 'slider':
+        return <DateFilterWidgetIcon size={size} />;
+      default:
+        return <ListFilterWidgetIcon size={size} />;
     }
   }
   if (widget.kind === 'kpi') return <KpiWidgetIcon size={size} />;
@@ -245,22 +263,21 @@ export function inferWidgetTitles(
       const title = fieldLabel
         ? `${aggPrefix} ${fieldLabel}`.trim()
         : source
-        ? `${source.label} KPI`
-        : 'KPI';
+          ? `${source.label} KPI`
+          : 'KPI';
       return { title, subtitle: '' };
     }
 
     case 'grid': {
       const title = source?.label ?? 'Table';
-      const visibleColumnLabels = (config.columns?.length
-        ? config.columns
-        : source?.fields.map((f) => f.id) ?? [])
+      const visibleColumnLabels = (
+        config.columns?.length ? config.columns : (source?.fields.map((f) => f.id) ?? [])
+      )
         .map((fieldId) => findFieldLabel(fieldId))
         .filter((label): label is string => Boolean(label));
 
-      const subtitle = visibleColumnLabels.length > 0
-        ? summarizeFieldLabels(visibleColumnLabels)
-        : '';
+      const subtitle =
+        visibleColumnLabels.length > 0 ? summarizeFieldLabels(visibleColumnLabels) : '';
 
       return { title, subtitle };
     }

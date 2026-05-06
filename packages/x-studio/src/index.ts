@@ -43,7 +43,13 @@ export { StudioExpressionFieldDialog } from './StudioExpressionFieldDialog/Studi
 export type { StudioExpressionFieldDialogProps } from './StudioExpressionFieldDialog/StudioExpressionFieldDialog';
 
 // ─── Context / Provider ───────────────────────────────────────────────────────
-export { StudioProvider, useStudioController, useStudioSelector, useStudioState, CanvasScrollContext } from './context/StudioContext';
+export {
+  StudioProvider,
+  useStudioController,
+  useStudioSelector,
+  useStudioState,
+  CanvasScrollContext,
+} from './context/StudioContext';
 export type { StudioProviderProps } from './context/StudioContext';
 
 // ─── Controller ───────────────────────────────────────────────────────────────
@@ -93,6 +99,11 @@ export type {
   StudioJoinFieldExpression,
   StudioExpressionOperator,
   StudioFilterWidgetType,
+  // Async adapter types
+  StudioFilterNode,
+  StudioQueryDescriptor,
+  StudioQueryResult,
+  StudioDataSourceAdapter,
 } from './models/studio';
 
 // ─── Utility types ────────────────────────────────────────────────────────────

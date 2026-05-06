@@ -12,7 +12,12 @@ import {
   TextField,
   Tooltip,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectWidgets, selectDataSources } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectDataSources,
+} from '../context';
 import { inferWidgetTitles } from '../internals/widgetUtils';
 
 export function FormatPanel(props: { widgetId: string }) {
@@ -26,7 +31,8 @@ export function FormatPanel(props: { widgetId: string }) {
   const [subtitleDirty, setSubtitleDirty] = React.useState(false);
 
   const isAutoTitle = widget?.titleMode === 'auto' || (!widget?.titleMode && !widget?.title);
-  const isAutoSubtitle = widget?.subtitleMode === 'auto' || (!widget?.subtitleMode && !widget?.subtitle);
+  const isAutoSubtitle =
+    widget?.subtitleMode === 'auto' || (!widget?.subtitleMode && !widget?.subtitle);
 
   React.useEffect(() => {
     setTitle(widget?.title ?? '');
@@ -82,7 +88,7 @@ export function FormatPanel(props: { widgetId: string }) {
     <Stack spacing={2}>
       {widget?.kind === 'kpi' && (
         <FormControlLabel
-        slotProps={{ typography: { variant: 'body2' } }}
+          slotProps={{ typography: { variant: 'body2' } }}
           control={
             <Switch
               size="small"

@@ -115,9 +115,7 @@ export function evaluateExpression(
     if (!dataSources || !relationships) {
       return null;
     }
-    const rel = relationships.find(
-      (r) => r.sourceId === sourceId && r.targetId === joinSourceId,
-    );
+    const rel = relationships.find((r) => r.sourceId === sourceId && r.targetId === joinSourceId);
     if (!rel) {
       return null;
     }
@@ -136,9 +134,7 @@ export function evaluateExpression(
       return val as ScalarValue;
     }
     // Try evaluating a referenced expression field (calculated column only)
-    const exprField = context.expressionFields.find(
-      (ef) => ef.id === expr.id && !ef.isMeasure,
-    );
+    const exprField = context.expressionFields.find((ef) => ef.id === expr.id && !ef.isMeasure);
     if (exprField) {
       return evaluateExpression(exprField.expression, context);
     }
@@ -222,15 +218,17 @@ function evaluateFunctionExpression(
     // ── Conditional ─────────────────────────────────────────────────────────
     case 'if':
       // inputs[0] = condition, inputs[1] = then, inputs[2] = else
-      return toBoolean(evalInput(0)) ? evalInput(1) : evalInput(2) ?? null;
+      return toBoolean(evalInput(0)) ? evalInput(1) : (evalInput(2) ?? null);
 
     case 'in': {
       // inputs[0] = value, inputs[1..n] = candidates
       const target = evalInput(0);
-      return inputs
-        .slice(1)
-        // eslint-disable-next-line eqeqeq
-        .some((inp) => target == evaluateExpression(inp, context));
+      return (
+        inputs
+          .slice(1)
+          // eslint-disable-next-line eqeqeq
+          .some((inp) => target == evaluateExpression(inp, context))
+      );
     }
 
     // ── Date ────────────────────────────────────────────────────────────────
@@ -267,9 +265,7 @@ export function enrichRowsWithExpressions(
   dataSources?: Record<string, StudioDataSource>,
   relationships?: StudioRelationship[],
 ): Record<string, unknown>[] {
-  const columnFields = expressionFields.filter(
-    (ef) => ef.sourceId === sourceId && !ef.isMeasure,
-  );
+  const columnFields = expressionFields.filter((ef) => ef.sourceId === sourceId && !ef.isMeasure);
 
   if (columnFields.length === 0) {
     return rows;
@@ -282,7 +278,10 @@ export function enrichRowsWithExpressions(
   // Pre-build join indexes for all JoinFieldExpression columns.
   // This converts the O(N×M) unindexed .find() per row into an O(M) one-time build
   // plus O(1) Map.get() per row — a dramatic speedup for large datasets.
-  const joinIndexes = new Map<string, { sourceField: string; index: Map<unknown, Record<string, unknown>> }>();
+  const joinIndexes = new Map<
+    string,
+    { sourceField: string; index: Map<unknown, Record<string, unknown>> }
+  >();
   if (dataSources && relationships) {
     for (const ef of sorted) {
       if (isJoinFieldExpression(ef.expression)) {
@@ -372,7 +371,10 @@ function evalMeasureExpression(
 
   switch (operator as StudioExpressionOperator) {
     case 'add':
-      return inputs.reduce((acc, inp) => acc + evalMeasureExpression(inp, rows, expressionFields), 0);
+      return inputs.reduce(
+        (acc, inp) => acc + evalMeasureExpression(inp, rows, expressionFields),
+        0,
+      );
     case 'subtract': {
       if (inputs.length === 0) {
         return 0;
@@ -479,7 +481,9 @@ export function inferExpressionType(
     }
     const exprField = expressionFields.find((ef) => ef.id === expr.id);
     if (exprField) {
-      return exprField.type ?? inferExpressionType(exprField.expression, sourceFields, expressionFields);
+      return (
+        exprField.type ?? inferExpressionType(exprField.expression, sourceFields, expressionFields)
+      );
     }
     return 'string';
   }
@@ -537,7 +541,12 @@ export function validateExpressionField(
   const cycleErrors = detectCycles(exprField, allExpressionFields);
   errors.push(...cycleErrors);
 
-  const exprErrors = validateExpression(exprField.expression, allExpressionFields, sourceFields, []);
+  const exprErrors = validateExpression(
+    exprField.expression,
+    allExpressionFields,
+    sourceFields,
+    [],
+  );
   errors.push(...exprErrors);
 
   return errors;
@@ -699,9 +708,7 @@ function collectFieldRefs(expr: StudioExpression): Set<string> {
  * If cycles exist, they are broken arbitrarily (cycle detection should be done
  * separately via validateExpressionField before calling this).
  */
-export function topoSortExpressionFields(
-  fields: StudioExpressionField[],
-): StudioExpressionField[] {
+export function topoSortExpressionFields(fields: StudioExpressionField[]): StudioExpressionField[] {
   const fieldIds = new Set(fields.map((f) => f.id));
   const visited = new Set<string>();
   const result: StudioExpressionField[] = [];

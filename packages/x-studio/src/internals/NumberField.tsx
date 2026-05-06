@@ -20,8 +20,10 @@ function SSRInitialFilled(_: BaseNumberField.Root.Props) {
 }
 SSRInitialFilled.muiName = 'Input';
 
-export interface NumberFieldProps
-  extends Omit<BaseNumberField.Root.Props, 'onChange' | 'children'> {
+export interface NumberFieldProps extends Omit<
+  BaseNumberField.Root.Props,
+  'onChange' | 'children'
+> {
   label?: React.ReactNode;
   helperText?: React.ReactNode;
   size?: 'small' | 'medium';
@@ -99,18 +101,12 @@ export function NumberField({
                 <BaseNumberField.Increment
                   render={<IconButton size={size} aria-label="Increase" />}
                 >
-                  <KeyboardArrowUpIcon
-                    fontSize={size}
-                    sx={{ transform: 'translateY(2px)' }}
-                  />
+                  <KeyboardArrowUpIcon fontSize={size} sx={{ transform: 'translateY(2px)' }} />
                 </BaseNumberField.Increment>
                 <BaseNumberField.Decrement
                   render={<IconButton size={size} aria-label="Decrease" />}
                 >
-                  <KeyboardArrowDownIcon
-                    fontSize={size}
-                    sx={{ transform: 'translateY(-2px)' }}
-                  />
+                  <KeyboardArrowDownIcon fontSize={size} sx={{ transform: 'translateY(-2px)' }} />
                 </BaseNumberField.Decrement>
               </InputAdornment>
             }

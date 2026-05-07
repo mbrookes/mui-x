@@ -18,8 +18,10 @@ import {
 } from '../internals/chartUtils';
 import { resolveRowsCached } from '../internals/resolvedRowsCache';
 import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
+import { buildQueryDescriptor } from '../internals/queryDescriptor';
+import { StudioRequestCache } from '../internals/StudioRequestCache';
 import { buildScenario } from './syntheticData';
-import type { StudioDataSource, StudioFilterState } from '../models/index';
+import type { StudioDataSource, StudioFilterState, StudioWidget } from '../models/index';
 
 // ─── Timing utility ───────────────────────────────────────────────────────────
 
@@ -214,6 +216,95 @@ for (const n of SCALES) {
   results.push(
     runBench(`L5c aggregateMultipleSeries @ ${scale}`, () => {
       aggregateMultipleSeries(dataSources.orders.rows!, 'category', ['total', 'quantity']);
+    }),
+  );
+}
+
+// ─── Async adapter path benchmarks ───────────────────────────────────────────
+//
+// These measure the synchronous CPU work on the async path:
+//   A1  buildQueryDescriptor — filter tree + stable cacheKey construction
+//   A2  StudioRequestCache.get — warm Map lookup (hot path on every render)
+//   A3  StudioRequestCache set+get — round-trip (simulates fetch completing)
+//   A4  StudioRequestCache.invalidateSource — prefix scan over N entries
+
+function makeKpiWidget(): StudioWidget {
+  return {
+    id: 'w-bench',
+    type: 'kpi',
+    sourceId: 'orders',
+    title: 'Bench Widget',
+    pageId: 'page-1',
+  } as unknown as StudioWidget;
+}
+
+function makePageFilter(id: string, value = 'completed'): StudioFilterState {
+  return {
+    id,
+    scope: 'page',
+    field: 'status',
+    fieldType: 'string',
+    operator: 'equals',
+    value,
+  };
+}
+
+const asyncWidget = makeKpiWidget();
+
+// A1 — buildQueryDescriptor at 1 / 10 / 50 filters
+for (const filterCount of [1, 10, 50]) {
+  const filters = Array.from({ length: filterCount }, (_, i) => makePageFilter(`f${i}`));
+  results.push(
+    runBench(`A1 buildQueryDescriptor @ ${filterCount} filters`, () => {
+      buildQueryDescriptor(asyncWidget, filters, 'page-1');
+    }),
+  );
+}
+
+// A2 — cache.get (warm hit / miss)
+{
+  const cache = new StudioRequestCache();
+  const warmKey = buildQueryDescriptor(asyncWidget, [makePageFilter('f1')], 'page-1').cacheKey;
+  cache.set(warmKey, { rows: [{ id: 1 }] });
+  results.push(
+    runBench('A2 cache.get (warm hit) @ N/A', () => {
+      cache.get(warmKey);
+    }),
+  );
+  results.push(
+    runBench('A2 cache.get (miss) @ N/A', () => {
+      cache.get('no-such-key');
+    }),
+  );
+}
+
+// A3 — set+get round-trip with 100 rotating keys
+{
+  const cache = new StudioRequestCache();
+  const keys = Array.from({ length: 100 }, (_, i) => {
+    return buildQueryDescriptor(asyncWidget, [makePageFilter('f1', `v${i}`)], 'page-1').cacheKey;
+  });
+  let idx = 0;
+  results.push(
+    runBench('A3 cache set+get (100 rotating keys) @ N/A', () => {
+      const key = keys[idx % keys.length];
+      cache.set(key, { rows: [{ id: idx }] });
+      cache.get(key);
+      idx += 1;
+    }),
+  );
+}
+
+// A4 — invalidateSource with 10 / 100 / 1 000 entries
+for (const entryCount of [10, 100, 1_000]) {
+  results.push(
+    runBench(`A4 invalidateSource @ ${entryCount} entries`, () => {
+      const cache = new StudioRequestCache();
+      for (let i = 0; i < entryCount; i++) {
+        const key = buildQueryDescriptor(asyncWidget, [makePageFilter('f1', `v${i}`)], 'page-1').cacheKey;
+        cache.set(key, { rows: [] });
+      }
+      cache.invalidateSource('orders');
     }),
   );
 }

@@ -421,7 +421,7 @@ export function resolveRows(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[] = [],
   expressionFields: StudioExpressionField[] = [],
-  options?: { skipEnrichment?: boolean },
+  options?: { skipEnrichment?: boolean; usedFieldIds?: ReadonlySet<string> },
 ): Row[] {
   // Enrich rows with computed (non-measure) expression field values first so they
   // can be referenced in filters and downstream aggregations.
@@ -429,6 +429,8 @@ export function resolveRows(
   // independent of filters — only dataSources/expressionFields/relationships matter).
   // Pass skipEnrichment: true when the caller has already enriched the rows (e.g.
   // KPI widget pre-enriches once and calls resolveRows twice for current/prev period).
+  // Pass usedFieldIds to restrict enrichment to only the fields this widget uses
+  // (lazy-by-widget mode — avoids recomputing on unused-expression additions).
   const enrichedRows = options?.skipEnrichment
     ? widgetRows
     : getCachedEnrichedRows(
@@ -437,6 +439,7 @@ export function resolveRows(
         expressionFields,
         dataSources,
         relationships,
+        options?.usedFieldIds,
       );
 
   const nativeFilters: StudioFilterState[] = [];

@@ -30,6 +30,7 @@ import {
 } from '../internals/chartUtils';
 import { resolveRowsCached } from '../internals/resolvedRowsCache';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
+import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
 import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 import { buildQueryDescriptor } from '../internals/queryDescriptor';
 import { StudioRequestCache } from '../internals/StudioRequestCache';
@@ -72,6 +73,28 @@ layerBench('L1 normalizeDataSourceRows', ({ dataSources }) => {
   // so the full normalisation path is exercised every time.
   const raw: StudioDataSource = { ...dataSources.orders, fieldDistinctValues: undefined };
   normalizeDataSourceRows(raw);
+});
+
+// ─── L1-cache: getCachedNormalizedDataSource (cache hit) ──────────────────────
+// Same normalisation after the cache is warm — O(1) WeakMap + ref check.
+
+describe('L1-cache getCachedNormalizedDataSource (warm hit)', () => {
+  for (const orderCount of [10_000, 100_000]) {
+    describe(`${orderCount.toLocaleString()} rows`, () => {
+      let scenario: ReturnType<typeof buildScenario>;
+
+      beforeAll(() => {
+        scenario = buildScenario(orderCount);
+        // Prime the cache with one cold call.
+        getCachedNormalizedDataSource(scenario.dataSources.orders);
+      });
+
+      bench('L1-cache getCachedNormalizedDataSource (warm hit)', () => {
+        // Same rows + fields refs → O(1) WeakMap lookup, no recomputation.
+        getCachedNormalizedDataSource(scenario.dataSources.orders);
+      });
+    });
+  }
 });
 
 // ─── L2: enrichRowsWithExpressions ───────────────────────────────────────────

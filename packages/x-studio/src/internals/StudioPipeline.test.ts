@@ -154,7 +154,7 @@ describe('createStudioPipeline', () => {
             widgetId: 'w1',
             filterMode: 'rank',
             field: 'amount',
-            operator: 'top-n',
+            operator: 'equals',
             value: 1,
           }),
         ],

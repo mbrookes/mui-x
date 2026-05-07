@@ -68,6 +68,8 @@ function collectSelectFields(widget: StudioWidget): string[] {
   const { config } = widget;
   const fields = new Set<string>();
 
+  if (!config) return [];
+
   // Grid columns
   if (config.columns) {
     config.columns.forEach((f) => fields.add(f));
@@ -101,6 +103,8 @@ function buildAggregations(
 ): { field: string; fn: AggFn; alias: string }[] | undefined {
   const { config } = widget;
   const aggs: { field: string; fn: AggFn; alias: string }[] = [];
+
+  if (!config) return undefined;
 
   // Single Y field
   if (config.yField) {
@@ -157,8 +161,8 @@ export function buildQueryDescriptor(
   const filter = filtersToFilterNode(allFilters);
 
   const select = collectSelectFields(widget);
-  const groupBy = widget.config.xField ?? widget.config.gridGroupByField;
-  const xGroupBy = widget.config.xGroupBy;
+  const groupBy = widget.config?.xField ?? widget.config?.gridGroupByField;
+  const xGroupBy = widget.config?.xGroupBy;
   const aggregations = buildAggregations(widget);
 
   // Compute a stable cache key from all descriptor fields (excluding cacheKey itself)

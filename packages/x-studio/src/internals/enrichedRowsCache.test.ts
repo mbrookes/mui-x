@@ -340,4 +340,89 @@ describe('getCachedEnrichedRows', () => {
       getCachedEnrichedRows(customersRows, 'customers', exprFields, dataSources, NO_RELATIONSHIPS),
     ).toBe(enrichedCustomers);
   });
+
+  it('expression on the same source but not referenced by any widget still triggers a recompute', () => {
+    // This test documents the cost model: enrichment is source-scoped, not
+    // widget-scoped.  Adding a second expression for 'orders' (even if nothing
+    // uses it) causes a cache miss and a full re-enrich on the next call.
+    const ordersRows = makeRows(5);
+    const dataSources = makeDataSources(ordersRows);
+
+    const exprA = makeOrdersExprField(); // id: 'expr-double'
+
+    // Prime cache with exprA only.
+    const firstResult = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      [exprA],
+      dataSources,
+      NO_RELATIONSHIPS,
+    );
+
+    // Add a second expression for the same source (unused by any widget).
+    const exprB: StudioExpressionField = {
+      id: 'expr-triple',
+      label: 'Triple (unused)',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: {
+        type: 'arithmetic',
+        left: { type: 'field', fieldId: 'value' },
+        op: '*',
+        right: { type: 'literal', value: 3 },
+      },
+    } as unknown as StudioExpressionField;
+
+    // Cache miss: relevantFields now has 2 entries → different from cached 1.
+    const secondResult = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      [exprA, exprB],
+      dataSources,
+      NO_RELATIONSHIPS,
+    );
+
+    // Different object → recomputed (one-time cost).
+    expect(secondResult).not.toBe(firstResult);
+    // Both expressions were computed even though exprB is not used by any widget.
+    expect(secondResult[0]['expr-double']).toBeDefined();
+    expect(secondResult[0]['expr-triple']).toBeDefined();
+
+    // Subsequent call with the same two-expression set is cached again (O(1)).
+    expect(
+      getCachedEnrichedRows(ordersRows, 'orders', [exprA, exprB], dataSources, NO_RELATIONSHIPS),
+    ).toBe(secondResult);
+  });
+
+  it('expression on an unrelated source has zero effect on this source\'s cache', () => {
+    const ordersRows = makeRows(5);
+    const customersRows = makeRows(3);
+    const dataSources = makeDataSources(ordersRows, customersRows);
+
+    const exprOrders = makeOrdersExprField();
+
+    // Prime cache for orders.
+    const firstResult = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      [exprOrders],
+      dataSources,
+      NO_RELATIONSHIPS,
+    );
+
+    // Add a new expression for 'customers' (unrelated to 'orders').
+    const exprCustomers = makeCustomersExprField();
+
+    // Orders cache entry is unaffected — relevantFields for 'orders' is unchanged.
+    const secondResult = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      [exprOrders, exprCustomers],
+      dataSources,
+      NO_RELATIONSHIPS,
+    );
+
+    // Same object reference — no recompute.
+    expect(secondResult).toBe(firstResult);
+  });
 });

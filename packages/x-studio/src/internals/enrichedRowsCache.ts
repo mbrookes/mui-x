@@ -79,6 +79,28 @@ function isEntryValid(
  * If there are no non-measure expression fields for this source, returns
  * `rows` unchanged (same reference — no cache entry created).
  */
+/**
+ * Returns enriched rows for the given source, using a per-source cache keyed
+ * on the actual dependency refs (rows, relevant expression fields, joined source
+ * rows, relationships).
+ *
+ * **Evaluation model — important for understanding performance:**
+ *
+ * Enrichment is *source-scoped*, not *widget-scoped*.  All row-level expression
+ * fields (`isMeasure === false`) for a given `sourceId` are computed together in
+ * one O(N) pass, regardless of which widgets currently reference them.
+ *
+ * Consequences:
+ * - Expressions for **unrelated sources** → zero cost (filtered out immediately).
+ * - Expressions for the **same source** (even if no widget uses them yet) →
+ *   invalidate the source's cache entry on first call, triggering a full re-enrich.
+ *   After that one recompute the result is cached and subsequent calls are O(1).
+ * - **Measure expressions** (`isMeasure: true`) are excluded from row-level
+ *   enrichment entirely and never affect this cache.
+ *
+ * If you add many unused expressions for an active source, expect a one-time
+ * O(N × expressions) recompute, not a per-render cost.
+ */
 export function getCachedEnrichedRows(
   rows: Row[],
   sourceId: string | undefined,

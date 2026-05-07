@@ -16,6 +16,6 @@ export const selectWidgets = (state: StudioState) => state.widgets;
 export const selectMode = (state: StudioState) => state.mode;
 export const selectShell = (state: StudioState) => state.shell;
 export const selectActivePageId = (state: StudioState) => state.dashboard.activePageId;
-export const selectPages = (state: StudioState) => state.dashboard.pages;
+export const selectPages = (state: StudioState) => state.pages;
 export const selectDashboard = (state: StudioState) => state.dashboard;
 export const selectActivePage = (state: StudioState) => state.pages[state.dashboard.activePageId];

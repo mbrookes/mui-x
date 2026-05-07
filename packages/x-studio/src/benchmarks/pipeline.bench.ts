@@ -29,6 +29,7 @@ import {
   aggregateMultipleSeries,
 } from '../internals/chartUtils';
 import { resolveRowsCached } from '../internals/resolvedRowsCache';
+import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 import { buildQueryDescriptor } from '../internals/queryDescriptor';
 import { StudioRequestCache } from '../internals/StudioRequestCache';
@@ -86,6 +87,43 @@ layerBench('L2 enrichRowsWithExpressions', ({ dataSources, relationships, expres
     dataSources,
     relationships,
   );
+});
+
+// ─── L2-cache: getCachedEnrichedRows (cache hit) ──────────────────────────────
+// Same enrichment after the enrichedRowsCache is warm.
+// Primed with one cold call in beforeAll; warm calls are O(1) ref-equality checks.
+
+describe('L2-cache getCachedEnrichedRows (warm hit)', () => {
+  for (const orderCount of [10_000, 100_000]) {
+    describe(`${orderCount.toLocaleString()} rows`, () => {
+      let scenario: ReturnType<typeof buildScenario>;
+
+      beforeAll(() => {
+        scenario = buildScenario(orderCount);
+        const { dataSources, relationships, expressionFields } = scenario;
+        // Prime the enrichedRowsCache with one cold call.
+        getCachedEnrichedRows(
+          dataSources.orders.rows!,
+          'orders',
+          expressionFields,
+          dataSources,
+          relationships,
+        );
+      });
+
+      bench('L2-cache getCachedEnrichedRows (warm hit)', () => {
+        const { dataSources, relationships, expressionFields } = scenario;
+        // Same rows/expressionFields/dataSources refs → cache hit, no recompute.
+        getCachedEnrichedRows(
+          dataSources.orders.rows!,
+          'orders',
+          expressionFields,
+          dataSources,
+          relationships,
+        );
+      });
+    });
+  }
 });
 
 // ─── L3: resolveRows (cold) ───────────────────────────────────────────────────

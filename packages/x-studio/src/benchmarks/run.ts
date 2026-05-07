@@ -17,6 +17,7 @@ import {
   aggregateMultipleSeries,
 } from '../internals/chartUtils';
 import { resolveRowsCached } from '../internals/resolvedRowsCache';
+import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 import { buildQueryDescriptor } from '../internals/queryDescriptor';
 import { StudioRequestCache } from '../internals/StudioRequestCache';
@@ -96,6 +97,30 @@ for (const n of SCALES) {
       );
     }),
   );
+
+  // L2 cache hit — getCachedEnrichedRows (same stable refs every call)
+  {
+    // Prime the enrichedRowsCache with one cold call.
+    getCachedEnrichedRows(
+      dataSources.orders.rows!,
+      'orders',
+      expressionFields,
+      dataSources,
+      relationships,
+    );
+    results.push(
+      runBench(`L2 getCachedEnrichedRows (warm) @ ${scale}`, () => {
+        // Same rows/expressionFields/dataSources refs → O(1) ref-equality hit.
+        getCachedEnrichedRows(
+          dataSources.orders.rows!,
+          'orders',
+          expressionFields,
+          dataSources,
+          relationships,
+        );
+      }),
+    );
+  }
 
   // L3 cold — resolveRows with 1 filter
   results.push(

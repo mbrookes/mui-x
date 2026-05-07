@@ -21,7 +21,7 @@ import {
 } from './statePersistence';
 
 import { inferWidgetTitles } from '../internals/widgetUtils';
-import { normalizeDataSourceRows } from '../internals/chartUtils';
+import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
 import { studioRequestCache } from '../internals/StudioRequestCache';
 
 const MAX_UNDO_HISTORY = 100;
@@ -36,7 +36,7 @@ export class StudioController {
     // Normalize date field values in any data sources provided at construction time.
     if (Object.keys(state.dataSources).length > 0) {
       const normalizedSources = Object.fromEntries(
-        Object.entries(state.dataSources).map(([id, ds]) => [id, normalizeDataSourceRows(ds)]),
+        Object.entries(state.dataSources).map(([id, ds]) => [id, getCachedNormalizedDataSource(ds)]),
       );
       this.store = Store.create({ ...state, dataSources: normalizedSources });
     } else {
@@ -200,7 +200,7 @@ export class StudioController {
 
   upsertDataSource = (dataSource: StudioDataSource) => {
     const state = this.store.state;
-    const normalized = normalizeDataSourceRows(dataSource);
+    const normalized = getCachedNormalizedDataSource(dataSource);
     if (normalized.adapter) {
       studioRequestCache.invalidateSource(normalized.id);
     }

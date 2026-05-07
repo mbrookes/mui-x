@@ -18,6 +18,7 @@ import {
 } from '../internals/chartUtils';
 import { resolveRowsCached } from '../internals/resolvedRowsCache';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
+import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
 import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
 import { buildQueryDescriptor } from '../internals/queryDescriptor';
 import { StudioRequestCache } from '../internals/StudioRequestCache';
@@ -84,6 +85,18 @@ for (const n of SCALES) {
       normalizeDataSourceRows(raw);
     }),
   );
+
+  // L1 cache hit — getCachedNormalizedDataSource (same stable refs every call)
+  {
+    // Prime the cache with one cold call.
+    getCachedNormalizedDataSource(dataSources.orders);
+    results.push(
+      runBench(`L1 getCachedNormalizedDataSource (warm) @ ${scale}`, () => {
+        // Same rows + fields refs → O(1) WeakMap lookup, no recomputation.
+        getCachedNormalizedDataSource(dataSources.orders);
+      }),
+    );
+  }
 
   // L2 — enrichRowsWithExpressions
   results.push(

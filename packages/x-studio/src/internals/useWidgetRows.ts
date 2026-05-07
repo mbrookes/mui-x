@@ -12,7 +12,7 @@ import {
 } from '../context';
 import { resolveMetricRefs } from './chartUtils';
 import { resolveRowsCached } from './resolvedRowsCache';
-import { buildQueryDescriptor } from './queryDescriptor';
+import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
 import { studioRequestCache } from './StudioRequestCache';
 
 type Row = Record<string, unknown>;
@@ -121,6 +121,22 @@ export function useWidgetRows(
 
   // ── Sync (in-memory) path ───────────────────────────────────────────────
 
+  // Compute the set of field IDs this widget actually uses in its config.
+  // Passed to resolveRowsCached so enrichment is lazy-by-widget — adding an
+  // unused expression field for the same source won't invalidate this widget's
+  // enriched-rows cache slot.
+  const usedFieldIds = React.useMemo((): ReadonlySet<string> => {
+    const ids = new Set(collectSelectFields(widget));
+    // Also include any fields referenced in active filters (they need to be
+    // enriched so the filter can evaluate against them).
+    for (const f of filters) {
+      if (f.field) {
+        ids.add(f.field);
+      }
+    }
+    return ids;
+  }, [widget, filters]);
+
   const hasCrossFilters = React.useMemo(
     () =>
       !hasAdapter &&
@@ -167,6 +183,7 @@ export function useWidgetRows(
       dataSources,
       relationships,
       expressionFields,
+      usedFieldIds,
     );
   }, [
     hasAdapter,
@@ -178,7 +195,9 @@ export function useWidgetRows(
     expressionFields,
     widget.id,
     widget.sourceId,
+    widget.config,
     activePageId,
+    usedFieldIds,
   ]);
 
   const filteredRowsNoCross = React.useMemo((): Row[] => {
@@ -206,6 +225,7 @@ export function useWidgetRows(
       dataSources,
       relationships,
       expressionFields,
+      usedFieldIds,
     );
   }, [
     hasAdapter,
@@ -218,6 +238,8 @@ export function useWidgetRows(
     expressionFields,
     widget.id,
     widget.sourceId,
+    widget.config,
+    usedFieldIds,
   ]);
 
   return { filteredRows, filteredRowsNoCross, hasCrossFilters, isLoading };

@@ -81,6 +81,7 @@ export function resolveRowsCached(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[],
+  usedFieldIds?: ReadonlySet<string>,
 ): Row[] {
   if (!widgetSourceId) {
     return resolveRows(
@@ -90,6 +91,7 @@ export function resolveRowsCached(
       dataSources,
       relationships,
       expressionFields,
+      { usedFieldIds },
     );
   }
 
@@ -100,7 +102,8 @@ export function resolveRowsCached(
           .map((f) => `${f.id}:${JSON.stringify(f.value ?? '')}`)
           .sort()
           .join('|');
-  const cacheKey = `${widgetSourceId}::${filterKey}`;
+  const fieldSetSegment = usedFieldIds ? [...usedFieldIds].sort().join(',') : '';
+  const cacheKey = `${widgetSourceId}::${filterKey}::${fieldSetSegment}`;
 
   let byKey = rowCache.get(widgetRows);
   if (!byKey) {
@@ -120,6 +123,7 @@ export function resolveRowsCached(
     dataSources,
     relationships,
     expressionFields,
+    { usedFieldIds },
   );
 
   const crossFilterSourceRows = new Map<string, Row[]>();

@@ -1,5 +1,10 @@
-import { enrichRowsWithExpressions, isJoinFieldExpression } from '../utils/expressionEvaluator';
-import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
+import {
+  enrichRowsWithExpressions,
+  isFieldExpression,
+  isFunctionExpression,
+  isJoinFieldExpression,
+} from '../utils/expressionEvaluator';
+import type { StudioDataSource, StudioExpression, StudioExpressionField, StudioRelationship } from '../models';
 
 type Row = Record<string, unknown>;
 
@@ -26,7 +31,10 @@ interface EnrichCacheEntry {
   result: Row[];
 }
 
-const entriesBySource = new Map<string, EnrichCacheEntry>();
+// 2-level cache: sourceId → fieldSetKey → entry
+// fieldSetKey is the sorted, joined IDs of the expression fields being enriched.
+// Using '*' when usedFieldIds is undefined (all fields for the source).
+const entriesBySource = new Map<string, Map<string, EnrichCacheEntry>>();
 
 function isEntryValid(
   entry: EnrichCacheEntry,
@@ -59,47 +67,86 @@ function isEntryValid(
   return true;
 }
 
+// ─── Expression dependency expansion ─────────────────────────────────────────
+
 /**
- * Returns enriched rows for the given source, using a per-source cache.
- *
- * Each source independently tracks only the dependencies that actually affect
- * its enrichment result:
- * - Own rows ref
- * - Expression field objects targeting this source
- * - Joined source rows refs (for JoinFieldExpression fields)
- * - Relationship objects involving this source
- *
- * Changing an unrelated source's data, expression fields, or relationships
- * does NOT invalidate this source's cache entry.
- *
- * The cache is also filter-independent — filter changes do not affect any
- * of the tracked dependencies, so enriched rows stay cached across filter
- * changes (cutting L3 cold cost from ~316ms to ~74ms at 100k rows).
- *
- * If there are no non-measure expression fields for this source, returns
- * `rows` unchanged (same reference — no cache entry created).
+ * Walks a StudioExpression tree and collects all field IDs referenced
+ * (excluding join-field references which are native, not expression, fields).
  */
+function collectExpressionFieldRefs(expr: StudioExpression): string[] {
+  const refs: string[] = [];
+  function walk(node: StudioExpression): void {
+    if (isFieldExpression(node)) {
+      refs.push(node.id);
+    } else if (isFunctionExpression(node)) {
+      for (const input of node.inputs) {
+        walk(input);
+      }
+    }
+    // JoinFieldExpression, ValueExpression → no expression-field refs
+  }
+  walk(expr);
+  return refs;
+}
+
 /**
- * Returns enriched rows for the given source, using a per-source cache keyed
+ * Given a set of requested field IDs and the full list of expression fields for a source,
+ * returns the subset of expression fields that are needed — including transitive
+ * dependencies (expression A references expression B → B is included too).
+ */
+function expandWithDependencies(
+  requestedIds: ReadonlySet<string>,
+  allSourceFields: StudioExpressionField[],
+): StudioExpressionField[] {
+  const fieldById = new Map(allSourceFields.map((f) => [f.id, f]));
+  const included = new Set<string>();
+
+  function includeTransitively(id: string): void {
+    if (included.has(id)) {
+      return;
+    }
+    const field = fieldById.get(id);
+    if (!field) {
+      // Not an expression field for this source (native field or different source).
+      return;
+    }
+    included.add(id);
+    for (const refId of collectExpressionFieldRefs(field.expression)) {
+      includeTransitively(refId);
+    }
+  }
+
+  for (const id of requestedIds) {
+    includeTransitively(id);
+  }
+
+  return allSourceFields.filter((f) => included.has(f.id));
+}
+
+/**
  * on the actual dependency refs (rows, relevant expression fields, joined source
  * rows, relationships).
  *
  * **Evaluation model — important for understanding performance:**
  *
- * Enrichment is *source-scoped*, not *widget-scoped*.  All row-level expression
- * fields (`isMeasure === false`) for a given `sourceId` are computed together in
- * one O(N) pass, regardless of which widgets currently reference them.
+ * Enrichment is *widget-scoped* when `usedFieldIds` is provided, or *source-scoped*
+ * when `usedFieldIds` is omitted (enriches all non-measure expression fields for the source).
  *
- * Consequences:
+ * Widget-scoped enrichment only computes the expression fields the widget actually
+ * references in its config (xField, yField, columns, kpiValueField, filter fields, etc.),
+ * plus any transitive expression-field dependencies. This means:
+ *
+ * - Adding an unused expression for the same source → zero cost (different cache slot).
+ * - Each widget gets an independent cache entry → no cross-widget cache invalidation.
  * - Expressions for **unrelated sources** → zero cost (filtered out immediately).
- * - Expressions for the **same source** (even if no widget uses them yet) →
- *   invalidate the source's cache entry on first call, triggering a full re-enrich.
- *   After that one recompute the result is cached and subsequent calls are O(1).
  * - **Measure expressions** (`isMeasure: true`) are excluded from row-level
  *   enrichment entirely and never affect this cache.
  *
- * If you add many unused expressions for an active source, expect a one-time
- * O(N × expressions) recompute, not a per-render cost.
+ * If you add many unused expressions for an active source, there is no performance
+ * penalty for any existing widget (only new widgets that actually use them will compute).
+ *
+ * @param usedFieldIds  The set of expression field IDs this widget references.
+ *   Pass `undefined` to enrich all relevant fields (backward-compatible, source-scoped).
  */
 export function getCachedEnrichedRows(
   rows: Row[],
@@ -107,16 +154,29 @@ export function getCachedEnrichedRows(
   expressionFields: StudioExpressionField[],
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
+  usedFieldIds?: ReadonlySet<string>,
 ): Row[] {
   if (!sourceId) {
     return rows;
   }
 
-  // Collect only the expression fields that affect this source's enrichment.
-  const relevantFields = expressionFields.filter((ef) => ef.sourceId === sourceId && !ef.isMeasure);
+  // Collect all non-measure expression fields for this source.
+  const allSourceFields = expressionFields.filter((ef) => ef.sourceId === sourceId && !ef.isMeasure);
+
+  // If usedFieldIds is provided, filter to only those fields (plus transitive deps).
+  const relevantFields = usedFieldIds
+    ? expandWithDependencies(usedFieldIds, allSourceFields)
+    : allSourceFields;
+
   if (relevantFields.length === 0) {
     return rows;
   }
+
+  // Compute the cache key for this specific field set.
+  const fieldSetKey = relevantFields
+    .map((f) => f.id)
+    .sort()
+    .join(',');
 
   // Collect the joined source IDs used by JoinFieldExpression fields.
   const joinedSourceIds: string[] = [];
@@ -135,8 +195,14 @@ export function getCachedEnrichedRows(
     (r) => r.sourceId === sourceId && joinedSourceIds.includes(r.targetId),
   );
 
-  // Check the per-source cache entry.
-  const existing = entriesBySource.get(sourceId);
+  // Look up the 2-level cache: sourceId → fieldSetKey → entry.
+  let byFieldSet = entriesBySource.get(sourceId);
+  if (!byFieldSet) {
+    byFieldSet = new Map();
+    entriesBySource.set(sourceId, byFieldSet);
+  }
+
+  const existing = byFieldSet.get(fieldSetKey);
   if (
     existing &&
     isEntryValid(
@@ -152,9 +218,10 @@ export function getCachedEnrichedRows(
   }
 
   // Cache miss — compute and store a new entry.
+  // Pass only the relevantFields to enrichRowsWithExpressions for efficiency.
   const result = enrichRowsWithExpressions(
     rows,
-    expressionFields,
+    relevantFields,
     sourceId,
     dataSources,
     relationships,
@@ -168,7 +235,7 @@ export function getCachedEnrichedRows(
     }
   }
 
-  entriesBySource.set(sourceId, {
+  byFieldSet.set(fieldSetKey, {
     rows,
     fieldRefs: relevantFields,
     joinedSourceRows,

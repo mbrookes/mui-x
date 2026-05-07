@@ -21,7 +21,6 @@ import {
 } from './statePersistence';
 
 import { inferWidgetTitles } from '../internals/widgetUtils';
-import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
 import { studioRequestCache } from '../internals/StudioRequestCache';
 
 const MAX_UNDO_HISTORY = 100;
@@ -33,15 +32,7 @@ export class StudioController {
 
   constructor(initialState?: Partial<StudioState>) {
     const state = createDefaultStudioState(initialState);
-    // Normalize date field values in any data sources provided at construction time.
-    if (Object.keys(state.dataSources).length > 0) {
-      const normalizedSources = Object.fromEntries(
-        Object.entries(state.dataSources).map(([id, ds]) => [id, getCachedNormalizedDataSource(ds)]),
-      );
-      this.store = Store.create({ ...state, dataSources: normalizedSources });
-    } else {
-      this.store = Store.create(state);
-    }
+    this.store = Store.create(state);
   }
 
   private applyInferredTitles(
@@ -200,15 +191,14 @@ export class StudioController {
 
   upsertDataSource = (dataSource: StudioDataSource) => {
     const state = this.store.state;
-    const normalized = getCachedNormalizedDataSource(dataSource);
-    if (normalized.adapter) {
-      studioRequestCache.invalidateSource(normalized.id);
+    if (dataSource.adapter) {
+      studioRequestCache.invalidateSource(dataSource.id);
     }
     this.commitState({
       ...state,
       dataSources: {
         ...state.dataSources,
-        [normalized.id]: normalized,
+        [dataSource.id]: dataSource,
       },
     });
   };

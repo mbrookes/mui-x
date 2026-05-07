@@ -16,6 +16,7 @@ function makeSource(rows: Row[], fields: StudioDataField[] = []): StudioDataSour
 }
 
 const stringField: StudioDataField = { id: 'region', label: 'Region', type: 'string' };
+const stringField2: StudioDataField = { id: 'category', label: 'Category', type: 'string' };
 const dateField: StudioDataField = { id: 'date', label: 'Date', type: 'date' };
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -118,5 +119,74 @@ describe('getCachedNormalizedDataSource', () => {
 
     // Second call for A still hits cache
     expect(getCachedNormalizedDataSource(makeSource(rowsA, fields))).toBe(a);
+  });
+
+  // ─── Lazy-by-widget (usedFieldIds) ──────────────────────────────────────────
+
+  it('with usedFieldIds: builds fieldDistinctValues only for requested fields', () => {
+    const rows: Row[] = [
+      { id: 1, region: 'EU', category: 'A' },
+      { id: 2, region: 'US', category: 'B' },
+    ];
+    const source = makeSource(rows, [stringField, stringField2]);
+
+    // Widget only uses 'region'
+    const result = getCachedNormalizedDataSource(source, new Set(['region']));
+
+    expect(result.fieldDistinctValues?.region).toEqual(['EU', 'US']);
+    // 'category' was not requested — should not be computed
+    expect(result.fieldDistinctValues?.category).toBeUndefined();
+  });
+
+  it('with usedFieldIds: different field sets get independent cache slots', () => {
+    const rows: Row[] = [
+      { id: 1, region: 'EU', category: 'A' },
+      { id: 2, region: 'US', category: 'B' },
+    ];
+    const fields = [stringField, stringField2];
+    const source = makeSource(rows, fields);
+
+    const resultA = getCachedNormalizedDataSource(source, new Set(['region']));
+    const resultB = getCachedNormalizedDataSource(source, new Set(['category']));
+    const resultAll = getCachedNormalizedDataSource(source); // no usedFieldIds → '*' slot
+
+    // Each slot is independent
+    expect(resultA).not.toBe(resultB);
+    expect(resultA).not.toBe(resultAll);
+
+    // Each slot is warm on second call
+    expect(getCachedNormalizedDataSource(source, new Set(['region']))).toBe(resultA);
+    expect(getCachedNormalizedDataSource(source, new Set(['category']))).toBe(resultB);
+    expect(getCachedNormalizedDataSource(source)).toBe(resultAll);
+  });
+
+  it('with usedFieldIds: adding unused field does NOT invalidate existing widget slot', () => {
+    const rows: Row[] = [{ id: 1, region: 'EU', category: 'A' }];
+    const fields1 = [stringField]; // only region defined
+    const source1 = makeSource(rows, fields1);
+
+    // Widget's slot: only 'region'
+    const first = getCachedNormalizedDataSource(source1, new Set(['region']));
+
+    // Schema updated — category field added (new fields ref)
+    const fields2 = [stringField, stringField2];
+    const source2 = makeSource(rows, fields2);
+    // Note: same rows ref but different fields ref → cache miss for the 'region' slot
+    const second = getCachedNormalizedDataSource(source2, new Set(['region']));
+
+    // Different fields ref → recomputed (fields check invalidated)
+    expect(second).not.toBe(first);
+    // But only 'region' distinct values are computed
+    expect(second.fieldDistinctValues?.region).toEqual(['EU']);
+    expect(second.fieldDistinctValues?.category).toBeUndefined();
+  });
+
+  it('with usedFieldIds: date normalization scoped to requested date fields', () => {
+    const rows: Row[] = [{ id: 1, date: new Date('2024-03-15'), region: 'EU' }];
+    const source = makeSource(rows, [dateField, stringField]);
+
+    // Widget requests only 'date' — date should be normalized, region unchanged
+    const result = getCachedNormalizedDataSource(source, new Set(['date']));
+    expect(result.rows![0].date).toBe('2024-03-15');
   });
 });

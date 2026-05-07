@@ -755,13 +755,35 @@ export function normalizeToDate(value: unknown): Date | null {
  * non-null value of each field; if it's already canonical every row is skipped
  * without per-cell regex checks.
  */
-export function normalizeDataSourceRows(dataSource: StudioDataSource): StudioDataSource {
+/**
+ * Returns a normalized copy of `dataSource`.
+ *
+ * When `usedFieldIds` is provided, only the fields in that set are processed:
+ * - Date/datetime normalization: only for date-type fields in the set
+ * - `fieldDistinctValues`: only for categorical (string/boolean) fields in the set
+ *
+ * Omitting `usedFieldIds` processes all fields (backward-compatible, source-scoped).
+ */
+export function normalizeDataSourceRows(
+  dataSource: StudioDataSource,
+  usedFieldIds?: ReadonlySet<string>,
+): StudioDataSource {
   if (!dataSource.rows || dataSource.rows.length === 0) {
     return dataSource;
   }
 
-  const dateFieldIds = dataSource.fields.filter((f) => f.type === 'date').map((f) => f.id);
-  const datetimeFieldIds = dataSource.fields.filter((f) => f.type === 'datetime').map((f) => f.id);
+  const allDateFieldIds = dataSource.fields.filter((f) => f.type === 'date').map((f) => f.id);
+  const allDatetimeFieldIds = dataSource.fields
+    .filter((f) => f.type === 'datetime')
+    .map((f) => f.id);
+
+  // When usedFieldIds is provided, scope to only the requested date fields.
+  const dateFieldIds = usedFieldIds
+    ? allDateFieldIds.filter((id) => usedFieldIds.has(id))
+    : allDateFieldIds;
+  const datetimeFieldIds = usedFieldIds
+    ? allDatetimeFieldIds.filter((id) => usedFieldIds.has(id))
+    : allDatetimeFieldIds;
 
   // ── Date normalization ────────────────────────────────────────────────────
 
@@ -823,8 +845,10 @@ export function normalizeDataSourceRows(dataSource: StudioDataSource): StudioDat
   // Used by filter widgets to avoid an O(N) per-render scan for distinct values.
   // Only covers native fields (expression fields are computed from other sources
   // and cannot be pre-indexed at ingestion time).
+  // When usedFieldIds is provided, only compute distinct values for those fields.
   const categoricalFields = dataSource.fields.filter(
-    (f) => f.type === 'string' || f.type === 'boolean',
+    (f) =>
+      (f.type === 'string' || f.type === 'boolean') && (!usedFieldIds || usedFieldIds.has(f.id)),
   );
 
   let fieldDistinctValues: Record<string, string[]> | undefined;
@@ -844,6 +868,7 @@ export function normalizeDataSourceRows(dataSource: StudioDataSource): StudioDat
       }
     }
   }
+
 
   if (rows === dataSource.rows && !fieldDistinctValues) {
     return dataSource;

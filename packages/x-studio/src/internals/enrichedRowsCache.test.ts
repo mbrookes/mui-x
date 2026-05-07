@@ -341,10 +341,9 @@ describe('getCachedEnrichedRows', () => {
     ).toBe(enrichedCustomers);
   });
 
-  it('expression on the same source but not referenced by any widget still triggers a recompute', () => {
-    // This test documents the cost model: enrichment is source-scoped, not
-    // widget-scoped.  Adding a second expression for 'orders' (even if nothing
-    // uses it) causes a cache miss and a full re-enrich on the next call.
+  it('without usedFieldIds (source-scoped): unused same-source expression causes recompute', () => {
+    // Backward-compat: when usedFieldIds is not passed, ALL non-measure expressions
+    // for the source are enriched together.  Adding a second expression causes a miss.
     const ordersRows = makeRows(5);
     const dataSources = makeDataSources(ordersRows);
 
@@ -384,7 +383,7 @@ describe('getCachedEnrichedRows', () => {
 
     // Different object → recomputed (one-time cost).
     expect(secondResult).not.toBe(firstResult);
-    // Both expressions were computed even though exprB is not used by any widget.
+    // Both expressions were computed.
     expect(secondResult[0]['expr-double']).toBeDefined();
     expect(secondResult[0]['expr-triple']).toBeDefined();
 
@@ -392,6 +391,114 @@ describe('getCachedEnrichedRows', () => {
     expect(
       getCachedEnrichedRows(ordersRows, 'orders', [exprA, exprB], dataSources, NO_RELATIONSHIPS),
     ).toBe(secondResult);
+  });
+
+  it('with usedFieldIds (widget-scoped): unused same-source expression does NOT cause recompute', () => {
+    // With lazy-by-widget enrichment, each widget passes the field IDs it actually
+    // uses.  Adding an expression the widget doesn't use doesn't invalidate its slot.
+    const ordersRows = makeRows(5);
+    const dataSources = makeDataSources(ordersRows);
+
+    const exprA = makeOrdersExprField(); // id: 'expr-double'
+    const widgetUsedIds = new Set(['expr-double']); // widget only uses exprA
+
+    // Prime cache: widget uses only exprA.
+    const firstResult = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      [exprA],
+      dataSources,
+      NO_RELATIONSHIPS,
+      widgetUsedIds,
+    );
+
+    // Add exprB for the same source — but the widget still only uses exprA.
+    const exprB: StudioExpressionField = {
+      id: 'expr-triple',
+      label: 'Triple (unused)',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: {
+        type: 'arithmetic',
+        left: { type: 'field', fieldId: 'value' },
+        op: '*',
+        right: { type: 'literal', value: 3 },
+      },
+    } as unknown as StudioExpressionField;
+
+    const secondResult = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      [exprA, exprB],
+      dataSources,
+      NO_RELATIONSHIPS,
+      widgetUsedIds, // same usedFieldIds — exprB is not in the set
+    );
+
+    // Cache hit: the widget's field set hasn't changed → same object reference.
+    expect(secondResult).toBe(firstResult);
+    // Only exprA was enriched.
+    expect(secondResult[0]['expr-double']).toBeDefined();
+    expect((secondResult[0] as Record<string, unknown>)['expr-triple']).toBeUndefined();
+  });
+
+  it('with usedFieldIds: different widgets get independent cache slots for the same source', () => {
+    // Widget A uses expr-double; Widget B uses expr-double AND expr-triple.
+    // Each widget gets its own cache slot keyed on its specific field set.
+    const ordersRows = makeRows(5);
+    const dataSources = makeDataSources(ordersRows);
+
+    const exprA = makeOrdersExprField(); // id: 'expr-double'
+    const exprB: StudioExpressionField = {
+      id: 'expr-triple',
+      label: 'Triple',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: {
+        type: 'arithmetic',
+        left: { type: 'field', fieldId: 'value' },
+        op: '*',
+        right: { type: 'literal', value: 3 },
+      },
+    } as unknown as StudioExpressionField;
+    const allExprs = [exprA, exprB];
+
+    const widgetAIds = new Set(['expr-double']);
+    const widgetBIds = new Set(['expr-double', 'expr-triple']);
+
+    const resultA = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      allExprs,
+      dataSources,
+      NO_RELATIONSHIPS,
+      widgetAIds,
+    );
+    const resultB = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      allExprs,
+      dataSources,
+      NO_RELATIONSHIPS,
+      widgetBIds,
+    );
+
+    // Different cache slots → different result objects.
+    expect(resultA).not.toBe(resultB);
+    // Widget A's result has only expr-double.
+    expect(resultA[0]['expr-double']).toBeDefined();
+    expect((resultA[0] as Record<string, unknown>)['expr-triple']).toBeUndefined();
+    // Widget B's result has both.
+    expect(resultB[0]['expr-double']).toBeDefined();
+    expect(resultB[0]['expr-triple']).toBeDefined();
+
+    // Each widget's slot stays warm independently.
+    expect(
+      getCachedEnrichedRows(ordersRows, 'orders', allExprs, dataSources, NO_RELATIONSHIPS, widgetAIds),
+    ).toBe(resultA);
+    expect(
+      getCachedEnrichedRows(ordersRows, 'orders', allExprs, dataSources, NO_RELATIONSHIPS, widgetBIds),
+    ).toBe(resultB);
   });
 
   it('expression on an unrelated source has zero effect on this source\'s cache', () => {

@@ -64,7 +64,7 @@ export function filtersToFilterNode(filters: StudioFilterState[]): StudioFilterN
 
 // ── Select field collector ──────────────────────────────────────────────────
 
-function collectSelectFields(widget: StudioWidget): string[] {
+export function collectSelectFields(widget: StudioWidget): string[] {
   const { config } = widget;
   const fields = new Set<string>();
 

@@ -13,6 +13,7 @@ import {
 import { resolveMetricRefs } from './chartUtils';
 import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
+import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 import { studioRequestCache } from './StudioRequestCache';
 
 type Row = Record<string, unknown>;
@@ -137,6 +138,17 @@ export function useWidgetRows(
     return ids;
   }, [widget, filters]);
 
+  // ── Lazy per-widget normalization (L1) ─────────────────────────────────
+  // The store holds raw data sources. Each widget normalizes only the fields it
+  // uses — date conversion and fieldDistinctValues building are scoped to
+  // usedFieldIds so adding an unused field to a different widget is zero cost.
+  const normalizedDataSource = React.useMemo((): StudioDataSource | undefined => {
+    if (!dataSource) {
+      return undefined;
+    }
+    return getCachedNormalizedDataSource(dataSource, usedFieldIds);
+  }, [dataSource, usedFieldIds]);
+
   const hasCrossFilters = React.useMemo(
     () =>
       !hasAdapter &&
@@ -157,7 +169,7 @@ export function useWidgetRows(
     if (hasAdapter) {
       return adapterRows;
     }
-    if (!dataSource?.rows) {
+    if (!normalizedDataSource?.rows) {
       return [];
     }
     const pageFilters = filters.filter((f) => f.scope === 'page');
@@ -177,7 +189,7 @@ export function useWidgetRows(
       dataSources,
     );
     return resolveRowsCached(
-      dataSource.rows,
+      normalizedDataSource.rows,
       widget.sourceId,
       allFilters,
       dataSources,
@@ -188,7 +200,7 @@ export function useWidgetRows(
   }, [
     hasAdapter,
     adapterRows,
-    dataSource,
+    normalizedDataSource,
     filters,
     dataSources,
     relationships,
@@ -210,7 +222,7 @@ export function useWidgetRows(
       // Same reference — downstream memos short-circuit automatically.
       return filteredRows;
     }
-    if (!dataSource?.rows) {
+    if (!normalizedDataSource?.rows) {
       return [];
     }
     const pageFilters = filters.filter((f) => f.scope === 'page');
@@ -219,7 +231,7 @@ export function useWidgetRows(
     );
     const allFilters = resolveMetricRefs([...pageFilters, ...widgetFilters], dataSources);
     return resolveRowsCached(
-      dataSource.rows,
+      normalizedDataSource.rows,
       widget.sourceId,
       allFilters,
       dataSources,
@@ -231,7 +243,7 @@ export function useWidgetRows(
     hasAdapter,
     hasCrossFilters,
     filteredRows,
-    dataSource,
+    normalizedDataSource,
     filters,
     dataSources,
     relationships,

@@ -28,6 +28,7 @@ import {
   selectExpressionFields,
 } from '../context';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
+import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
 
 export interface StudioFilterWidgetProps {
   widget: StudioWidget;
@@ -429,19 +430,29 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   const filterWidgetType = config.filterWidgetType ?? 'multi-select';
   const fieldId = config.filterWidgetField ?? '';
 
+  // Normalize the data source lazily for just this filter field.
+  // Provides pre-computed fieldDistinctValues[fieldId] for the fast path in
+  // distinctValues below, without normalizing the entire source.
+  const normalizedDataSource = React.useMemo(() => {
+    if (!dataSource || !fieldId) {
+      return dataSource;
+    }
+    return getCachedNormalizedDataSource(dataSource, new Set([fieldId]));
+  }, [dataSource, fieldId]);
+
   // Resolve the field definition
   const field = React.useMemo(() => {
-    if (!fieldId || !dataSource) {
+    if (!fieldId || !normalizedDataSource) {
       return undefined;
     }
     return (
-      dataSource.fields.find((f) => f.id === fieldId) ??
+      normalizedDataSource.fields.find((f) => f.id === fieldId) ??
       expressionFields.find((ef) => ef.id === fieldId && ef.sourceId === widget.sourceId)
     );
-  }, [fieldId, dataSource, expressionFields, widget.sourceId]);
+  }, [fieldId, normalizedDataSource, expressionFields, widget.sourceId]);
 
   const rows = React.useMemo(() => {
-    if (!dataSource?.rows) {
+    if (!normalizedDataSource?.rows) {
       return [];
     }
 
@@ -455,17 +466,17 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       );
 
     if (!fieldIsExpression) {
-      return dataSource.rows;
+      return normalizedDataSource.rows;
     }
 
     return getCachedEnrichedRows(
-      dataSource.rows,
+      normalizedDataSource.rows,
       widget.sourceId,
       expressionFields,
       dataSources,
       relationships,
     );
-  }, [dataSource?.rows, expressionFields, fieldId, widget.sourceId, dataSources, relationships]);
+  }, [normalizedDataSource, expressionFields, fieldId, widget.sourceId, dataSources, relationships]);
 
   const label = config.filterWidgetLabel ?? field?.label ?? fieldId ?? 'Filter';
 
@@ -483,9 +494,9 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     ) {
       return [];
     }
-    // Fast path: use the pre-computed index built at ingestion time when the field
-    // is a native (non-expression) string/boolean field. O(1) rather than O(N).
-    const precomputed = dataSource?.fieldDistinctValues?.[fieldId];
+    // Fast path: use the pre-computed index built lazily for this filter field.
+    // O(1) rather than O(N).
+    const precomputed = normalizedDataSource?.fieldDistinctValues?.[fieldId];
     if (precomputed) {
       return precomputed;
     }
@@ -498,7 +509,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       }
     }
     return Array.from(seen).sort();
-  }, [filterWidgetType, fieldId, rows, dataSource?.fieldDistinctValues]);
+  }, [filterWidgetType, fieldId, rows, normalizedDataSource?.fieldDistinctValues]);
 
   // Compute min/max for slider from data when not configured explicitly
   const isDateField =

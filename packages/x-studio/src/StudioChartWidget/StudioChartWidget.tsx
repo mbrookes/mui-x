@@ -834,29 +834,35 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       hasCrossFilters && allChartData != null && preserveXFieldBaseline;
 
     if (showConcentricCrossFilter) {
-      // Size the ghost to fill the available space, active inner to 65% of that.
+      // Ghost fills the available space. Active inner shares the same radial range so a
+      // fully-retained slice reaches the ghost edge; a fully-filtered slice collapses to
+      // the inner hole edge (invisible for pie, hole-edge for donut).
       const ghostOuterRadius = Math.round(chartHeight * 0.38);
-      const activeOuterRadius = Math.round(ghostOuterRadius * 0.65);
-      // Preserve the donut hole proportionally for the active inner series.
-      const activeInnerRadius = innerRadius > 0 ? Math.round(activeOuterRadius * 0.4) : 0;
 
       // Build a lookup of filtered values keyed by label string for O(1) access.
       const filteredValueByLabel = new Map(
         chartData.labels.map((l, i) => [String(l), chartData.values[i]]),
       );
 
-      // Both series use allChartData labels so every slice occupies the same angular
-      // position. Active slices use their filtered value; absent ones get value=0 so
-      // they take no angle but keep the index alignment intact.
-      const alignedActiveData = allChartData!.labels.map((label, i) => {
-        const key = String(label);
-        const filteredValue = filteredValueByLabel.get(key);
-        const isPresent = filteredValue != null;
+      // Both series use allChartData values for the `value` prop so angles are identical.
+      // The active series uses per-item outerRadius to show the filtered proportion:
+      //   outerRadius = innerRadius + (ghostOuterRadius - innerRadius) * (filtered / all)
+      // A slice at 100% retention reaches the ghost edge; one fully filtered collapses to
+      // the inner hole (or center for a plain pie).
+      const activeData = allChartData!.labels.map((label, i) => {
+        const allValue = allChartData!.values[i] ?? 0;
+        const filteredValue = filteredValueByLabel.get(String(label));
+        const ratio =
+          allValue > 0 && filteredValue != null
+            ? Math.min(1, Math.max(0, filteredValue / allValue))
+            : 0;
+        const sliceOuterRadius = Math.round(innerRadius + (ghostOuterRadius - innerRadius) * ratio);
         return {
           id: i,
-          label: isPresent ? formatLabel(label) : undefined,
-          value: filteredValue ?? 0,
+          label: formatLabel(label),
+          value: allValue,
           color: resolvedChartColors[i % resolvedChartColors.length],
+          outerRadius: sliceOuterRadius,
         };
       });
 
@@ -870,18 +876,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 outerRadius: ghostOuterRadius,
                 data: allChartData!.labels.map((label, i) => ({
                   id: i,
-                  // No label: keeps ghost items out of the legend
                   value: allChartData!.values[i] ?? 0,
                   color: resolvedChartColors[i % resolvedChartColors.length] + '30',
                 })),
-                // Don't highlight or fade ghost items — they're purely decorative
                 highlightScope: { highlight: 'none' as const, fade: 'none' as const },
               },
               {
                 id: CROSS_FILTER_SERIES_ID,
-                innerRadius: activeInnerRadius,
-                outerRadius: activeOuterRadius,
-                data: alignedActiveData,
+                innerRadius,
+                data: activeData,
                 highlightScope: { highlight: 'item' as const, fade: 'global' as const },
               },
             ]}
@@ -897,7 +900,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
             }
             onItemClick={(_event, params) => {
-              // Ignore clicks on the ghost outer ring
               if (params.seriesId === `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`) {
                 return;
               }

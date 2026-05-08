@@ -7,7 +7,7 @@ import {
   selectFilters,
   selectDataSources,
   selectRelationships,
-  makeSelectExpressionFieldsForSource,
+  selectExpressionFields,
   selectActivePageId,
   selectPartitionedFilters,
 } from '../context';
@@ -55,10 +55,12 @@ export function useWidgetRows(
   const partitioned = useStudioSelector(selectPartitionedFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
-  const selectExpressionFields = React.useMemo(
-    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
-    [widget.sourceId],
-  );
+  // expressionFields: use the full set (all sources) so that cross-filter foreign
+  // source enrichment in resolveRows can evaluate expression fields like
+  // expr-order-country (ORDERS source) when this widget is on ORDER_ITEMS.
+  // Source-scoped optimization is correct for useChartWidgetData/KPI/Grid/Filter
+  // (own-source aggregations only) but NOT here where resolveRows may enrich
+  // any foreign source referenced by an incoming cross-filter.
   const expressionFields = useStudioSelector(selectExpressionFields);
   const activePageId = useStudioSelector(selectActivePageId);
 

@@ -113,7 +113,20 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     if (!node) {
       return undefined;
     }
+    // Track which element the pointer went down on so we can cancel drags that
+    // originate inside interactive controls (e.g. sliders) marked data-no-drag.
+    let dragOriginTarget: Element | null = null;
+    function handleMouseDown(event: MouseEvent) {
+      dragOriginTarget = event.target as Element;
+    }
     function handleDragStart(event: DragEvent) {
+      // If the drag started inside a [data-no-drag] element (e.g. a slider
+      // thumb), cancel it so the control handles the interaction instead.
+      if (dragOriginTarget?.closest('[data-no-drag]')) {
+        event.preventDefault();
+        dragOriginTarget = null;
+        return;
+      }
       setIsDragging(true);
       // Do NOT call setSelectedWidget here — it causes all N-1 other widget cards
       // to re-render (dimmed selector) right at the performance-critical drag-start
@@ -130,10 +143,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       setIsDragging(false);
     }
     node.setAttribute('draggable', 'true');
+    node.addEventListener('mousedown', handleMouseDown, { capture: true });
     node.addEventListener('dragstart', handleDragStart);
     node.addEventListener('dragend', handleDragEnd);
     return () => {
       node.removeAttribute('draggable');
+      node.removeEventListener('mousedown', handleMouseDown, { capture: true });
       node.removeEventListener('dragstart', handleDragStart);
       node.removeEventListener('dragend', handleDragEnd);
     };

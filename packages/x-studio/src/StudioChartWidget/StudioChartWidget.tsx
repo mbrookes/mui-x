@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
-import { PieChart } from '@mui/x-charts/PieChart';
+import { PieChart, PieArc, type PieArcProps } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box } from '@mui/material';
@@ -40,6 +40,27 @@ export const CHART_MIN_HEIGHT = 260;
 const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
 const GHOST_SERIES_SUFFIX = '-ghost';
+
+// Context used to pass per-item outerRadius overrides to the custom pieArc slot.
+// The standard PieValueType does not support per-item outerRadius, so we use a
+// slot + context to achieve variable radii per slice.
+const PieRadiusContext = React.createContext<{
+  activeSeriesId: string;
+  radiusByDataIndex: ReadonlyMap<number, number>;
+}>({ activeSeriesId: '', radiusByDataIndex: new Map() });
+
+/**
+ * Custom pieArc slot that overrides outerRadius per item for the active (non-ghost) series,
+ * enabling proportional-radius cross-filter highlighting on pie/donut charts.
+ */
+function CrossFilterPieArc(props: PieArcProps) {
+  const { activeSeriesId, radiusByDataIndex } = React.useContext(PieRadiusContext);
+  const outerRadius =
+    props.seriesId === activeSeriesId
+      ? (radiusByDataIndex.get(props.dataIndex) ?? props.outerRadius)
+      : props.outerRadius;
+  return <PieArc {...props} outerRadius={outerRadius} />;
+}
 
 /**
  * Aligns filteredValues to the positions in allLabels.
@@ -844,11 +865,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         chartData.labels.map((l, i) => [String(l), chartData.values[i]]),
       );
 
-      // Both series use allChartData values for the `value` prop so angles are identical.
-      // The active series uses per-item outerRadius to show the filtered proportion:
+      // Compute per-item outerRadius:
       //   outerRadius = innerRadius + (ghostOuterRadius - innerRadius) * (filtered / all)
       // A slice at 100% retention reaches the ghost edge; one fully filtered collapses to
       // the inner hole (or center for a plain pie).
+      // NOTE: PieValueType does not support per-item outerRadius, so we pass the radii
+      // through PieRadiusContext and override them in the CrossFilterPieArc slot.
+      const radiusByDataIndex = new Map<number, number>();
       const activeData = allChartData!.labels.map((label, i) => {
         const allValue = allChartData!.values[i] ?? 0;
         const filteredValue = filteredValueByLabel.get(String(label));
@@ -856,60 +879,65 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           allValue > 0 && filteredValue != null
             ? Math.min(1, Math.max(0, filteredValue / allValue))
             : 0;
-        const sliceOuterRadius = Math.round(innerRadius + (ghostOuterRadius - innerRadius) * ratio);
+        radiusByDataIndex.set(i, Math.round(innerRadius + (ghostOuterRadius - innerRadius) * ratio));
         return {
           id: i,
           label: formatLabel(label),
           value: allValue,
           color: resolvedChartColors[i % resolvedChartColors.length],
-          outerRadius: sliceOuterRadius,
         };
       });
 
       return (
         <div style={{ height: chartHeight }}>
-          <PieChart
-            series={[
-              {
-                id: `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`,
-                innerRadius,
-                outerRadius: ghostOuterRadius,
-                data: allChartData!.labels.map((label, i) => ({
-                  id: i,
-                  value: allChartData!.values[i] ?? 0,
-                  color: resolvedChartColors[i % resolvedChartColors.length] + '30',
-                })),
-                highlightScope: { highlight: 'none' as const, fade: 'none' as const },
-              },
-              {
-                id: CROSS_FILTER_SERIES_ID,
-                innerRadius,
-                data: activeData,
-                highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-              },
-            ]}
-            colors={chartColors}
-            slotProps={{
-              legend: {
-                sx: { overflowY: 'auto', flexWrap: 'nowrap', maxHeight: '100%' },
-              },
-            }}
-            margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
-            highlightedItem={controlledHighlightedItem}
-            onHighlightChange={(item) =>
-              setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-            }
-            onItemClick={(_event, params) => {
-              if (params.seriesId === `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`) {
-                return;
+          <PieRadiusContext.Provider
+            value={{ activeSeriesId: CROSS_FILTER_SERIES_ID, radiusByDataIndex }}
+          >
+            <PieChart
+              slots={{ pieArc: CrossFilterPieArc }}
+              series={[
+                {
+                  id: `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`,
+                  innerRadius,
+                  outerRadius: ghostOuterRadius,
+                  data: allChartData!.labels.map((label, i) => ({
+                    id: i,
+                    value: allChartData!.values[i] ?? 0,
+                    color: resolvedChartColors[i % resolvedChartColors.length] + '30',
+                  })),
+                  highlightScope: { highlight: 'none' as const, fade: 'none' as const },
+                },
+                {
+                  id: CROSS_FILTER_SERIES_ID,
+                  innerRadius,
+                  outerRadius: ghostOuterRadius,
+                  data: activeData,
+                  highlightScope: { highlight: 'item' as const, fade: 'global' as const },
+                },
+              ]}
+              colors={chartColors}
+              slotProps={{
+                legend: {
+                  sx: { overflowY: 'auto', flexWrap: 'nowrap', maxHeight: '100%' },
+                },
+              }}
+              margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
+              highlightedItem={controlledHighlightedItem}
+              onHighlightChange={(item) =>
+                setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
               }
-              const label = allChartData!.labels[params.dataIndex];
-              if (label !== undefined) {
-                handleItemClick(label);
-              }
-            }}
-            sx={{ cursor: 'pointer' }}
-          />
+              onItemClick={(_event, params) => {
+                if (params.seriesId === `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`) {
+                  return;
+                }
+                const label = allChartData!.labels[params.dataIndex];
+                if (label !== undefined) {
+                  handleItemClick(label);
+                }
+              }}
+              sx={{ cursor: 'pointer' }}
+            />
+          </PieRadiusContext.Provider>
         </div>
       );
     }

@@ -7,8 +7,9 @@ import {
   selectFilters,
   selectDataSources,
   selectRelationships,
-  selectExpressionFields,
+  makeSelectExpressionFieldsForSource,
   selectActivePageId,
+  selectPartitionedFilters,
 } from '../context';
 import { resolveMetricRefs } from './chartUtils';
 import { resolveRowsCached } from './resolvedRowsCache';
@@ -51,8 +52,13 @@ export function useWidgetRows(
   dataSource: StudioDataSource | undefined,
 ): UseWidgetRowsResult {
   const filters = useStudioSelector(selectFilters);
+  const partitioned = useStudioSelector(selectPartitionedFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
+  const selectExpressionFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
+    [widget.sourceId],
+  );
   const expressionFields = useStudioSelector(selectExpressionFields);
   const activePageId = useStudioSelector(selectActivePageId);
 
@@ -152,17 +158,13 @@ export function useWidgetRows(
   const hasCrossFilters = React.useMemo(
     () =>
       !hasAdapter &&
-      (filters.some(
-        (f) =>
-          f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+      (partitioned.cross.some(
+        (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
       ) ||
-        filters.some(
-          (f) =>
-            f.scope === 'interactive' &&
-            f.sourceWidgetId !== widget.id &&
-            f.pageId === activePageId,
+        partitioned.interactive.some(
+          (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
         )),
-    [hasAdapter, filters, widget.id, activePageId],
+    [hasAdapter, partitioned, widget.id, activePageId],
   );
 
   const filteredRows = React.useMemo((): Row[] => {
@@ -172,17 +174,15 @@ export function useWidgetRows(
     if (!normalizedDataSource?.rows) {
       return [];
     }
-    const pageFilters = filters.filter((f) => f.scope === 'page');
-    const widgetFilters = filters.filter(
-      (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode !== 'rank',
+    const pageFilters = partitioned.page;
+    const widgetFilters = (partitioned.byWidgetId.get(widget.id) ?? []).filter(
+      (f) => f.filterMode !== 'rank',
     );
-    const crossFilters = filters.filter(
-      (f) =>
-        f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+    const crossFilters = partitioned.cross.filter(
+      (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
     );
-    const interactiveFilters = filters.filter(
-      (f) =>
-        f.scope === 'interactive' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+    const interactiveFilters = partitioned.interactive.filter(
+      (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
     );
     const allFilters = resolveMetricRefs(
       [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters],
@@ -201,7 +201,7 @@ export function useWidgetRows(
     hasAdapter,
     adapterRows,
     normalizedDataSource,
-    filters,
+    partitioned,
     dataSources,
     relationships,
     expressionFields,
@@ -225,9 +225,9 @@ export function useWidgetRows(
     if (!normalizedDataSource?.rows) {
       return [];
     }
-    const pageFilters = filters.filter((f) => f.scope === 'page');
-    const widgetFilters = filters.filter(
-      (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode !== 'rank',
+    const pageFilters = partitioned.page;
+    const widgetFilters = (partitioned.byWidgetId.get(widget.id) ?? []).filter(
+      (f) => f.filterMode !== 'rank',
     );
     const allFilters = resolveMetricRefs([...pageFilters, ...widgetFilters], dataSources);
     return resolveRowsCached(
@@ -244,7 +244,7 @@ export function useWidgetRows(
     hasCrossFilters,
     filteredRows,
     normalizedDataSource,
-    filters,
+    partitioned,
     dataSources,
     relationships,
     expressionFields,

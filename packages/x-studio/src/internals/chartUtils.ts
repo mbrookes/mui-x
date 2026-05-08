@@ -1276,8 +1276,9 @@ function enrichSourceRowsWithExpressions(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[],
+  usedFieldIds?: ReadonlySet<string>,
 ): Row[] {
-  return getCachedEnrichedRows(rows, sourceId, expressionFields, dataSources, relationships);
+  return getCachedEnrichedRows(rows, sourceId, expressionFields, dataSources, relationships, usedFieldIds);
 }
 
 export type ChartSupportReason =
@@ -1520,6 +1521,7 @@ export function resolveChartRowsForAggregation(
         dataSources,
         relationships,
         expressionFields,
+        new Set(requestedFields),
       ).filter((row) => allowedWidgetKeys.has(row[anchorJoinField]));
 
       const widgetRowsForLookup = enrichRowsWithRelatedFields(

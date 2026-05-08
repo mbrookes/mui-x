@@ -59,8 +59,13 @@ export interface StudioPipeline {
   /**
    * Layer L2: enrich rows with expression-column values for a given source.
    * Useful when you need enriched rows before applying custom filter logic.
+   *
+   * @param usedFieldIds  Optional set of field IDs to scope enrichment to.
+   *   When provided, only expression fields whose IDs (or transitive dependencies)
+   *   are in the set are evaluated — matching the lazy-by-widget behaviour used
+   *   internally by `useWidgetRows`.
    */
-  getEnrichedRows(rows: Row[], sourceId: string): Row[];
+  getEnrichedRows(rows: Row[], sourceId: string, usedFieldIds?: ReadonlySet<string>): Row[];
 }
 
 /**
@@ -137,8 +142,8 @@ export function createStudioPipeline(state: StudioPipelineState | StudioState): 
       );
     },
 
-    getEnrichedRows(rows, sourceId) {
-      return getCachedEnrichedRows(rows, sourceId, expressionFields, dataSources, relationships);
+    getEnrichedRows(rows, sourceId, usedFieldIds) {
+      return getCachedEnrichedRows(rows, sourceId, expressionFields, dataSources, relationships, usedFieldIds);
     },
   };
 }

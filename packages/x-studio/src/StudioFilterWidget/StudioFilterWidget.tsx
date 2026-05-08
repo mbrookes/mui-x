@@ -25,7 +25,8 @@ import {
   useStudioSelector,
   selectDataSources,
   selectRelationships,
-  selectExpressionFields,
+  makeSelectExpressionFieldsForSource,
+  makeSelectActiveInteractiveFilter,
 } from '../context';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
@@ -425,6 +426,10 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   const controller = useStudioController();
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
+  const selectExpressionFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
+    [widget.sourceId],
+  );
   const expressionFields = useStudioSelector(selectExpressionFields);
 
   const filterWidgetType = config.filterWidgetType ?? 'multi-select';
@@ -475,15 +480,18 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       expressionFields,
       dataSources,
       relationships,
+      new Set([fieldId]),
     );
   }, [normalizedDataSource, expressionFields, fieldId, widget.sourceId, dataSources, relationships]);
 
   const label = config.filterWidgetLabel ?? field?.label ?? fieldId ?? 'Filter';
 
-  // Current interactive filter value for this widget
-  const activeFilter = useStudioSelector((state) =>
-    state.filters.find((f) => f.scope === 'interactive' && f.sourceWidgetId === widget.id),
+  // Current interactive filter value for this widget (stable selector, not inline arrow)
+  const selectActiveFilter = React.useMemo(
+    () => makeSelectActiveInteractiveFilter(widget.id),
+    [widget.id],
   );
+  const activeFilter = useStudioSelector(selectActiveFilter);
 
   // Compute distinct values for select/toggle controls
   const distinctValues = React.useMemo(() => {

@@ -19,7 +19,7 @@ import {
   selectFilters,
   selectDataSources,
   selectRelationships,
-  selectExpressionFields,
+  makeSelectExpressionFieldsForSource,
 } from '../context';
 import { usePageChartColors } from '../internals/usePageChartColors';
 import { cachedCompute } from '../internals/computedCache';
@@ -33,14 +33,21 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
+  const selectExpressionFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
+    [widget.sourceId],
+  );
   const expressionFields = useStudioSelector(selectExpressionFields);
   const muiTheme = useTheme();
 
   // Separate rank widget filters (applied post-aggregation) from row-level filters
-  const widgetRankFilter =
-    filters.find(
-      (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode === 'rank',
-    ) ?? null;
+  const widgetRankFilter = React.useMemo(
+    () =>
+      filters.find(
+        (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode === 'rank',
+      ) ?? null,
+    [filters, widget.id],
+  );
 
   // Page-level chart colour palette (undefined → charts use their default).
   const chartColors = usePageChartColors();

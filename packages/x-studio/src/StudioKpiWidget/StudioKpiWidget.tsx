@@ -11,6 +11,7 @@ import type {
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { resolveRows, resolveMetricRefs } from '../internals/chartUtils';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
+import { collectSelectFields } from '../internals/queryDescriptor';
 import { usePageChartColors } from '../internals/usePageChartColors';
 import { useWidgetRows } from '../internals/useWidgetRows';
 import {
@@ -18,9 +19,10 @@ import {
   selectFilters,
   selectDataSources,
   selectRelationships,
-  selectExpressionFields,
+  makeSelectExpressionFieldsForSource,
 } from '../context';
 import { formatNumber } from '../internals/numberFormat';
+import { cachedCompute } from '../internals/computedCache';
 import { evaluateMeasure } from '../utils/expressionEvaluator';
 import {
   type Granularity,
@@ -60,6 +62,10 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
+  const selectExpressionFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
+    [widget.sourceId],
+  );
   const expressionFields = useStudioSelector(selectExpressionFields);
   const chartColors = usePageChartColors();
 
@@ -93,9 +99,15 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     const measureExprField = expressionFields.find(
       (ef) => ef.id === config.kpiValueField && ef.isMeasure,
     );
-    const value = measureExprField
-      ? evaluateMeasure(measureExprField, rows, expressionFields)
-      : computeAggregate(rows, config.kpiValueField!, aggregation);
+    const measureKey = measureExprField ? `measure:${measureExprField.id}` : `agg:${aggregation}`;
+    const value = cachedCompute(
+      rows,
+      `kpi-value:${config.kpiValueField}:${measureKey}`,
+      () =>
+        measureExprField
+          ? evaluateMeasure(measureExprField, rows, expressionFields)
+          : computeAggregate(rows, config.kpiValueField!, aggregation),
+    );
 
     const fieldDef =
       dataSource.fields.find((f) => f.id === config.kpiValueField) ??
@@ -156,13 +168,18 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           }
         }
 
-        kpiSparklineData = computeSparklineData(
+        kpiSparklineData = cachedCompute(
           sparklineRows,
-          timeField,
-          config.kpiValueField!,
-          aggregation,
-          granularity,
-          config.kpiSparklineCumulative ?? false,
+          `kpi-sparkline:${config.kpiValueField}:${aggregation}:${granularity}:${config.kpiSparklineCumulative ?? false}:${timeField}`,
+          () =>
+            computeSparklineData(
+              sparklineRows,
+              timeField,
+              config.kpiValueField!,
+              aggregation,
+              granularity,
+              config.kpiSparklineCumulative ?? false,
+            ),
         );
       }
     }
@@ -175,6 +192,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       !findDateFilter(filters, widget.id, dataSource);
 
     if (config.kpiTrend && config.kpiValueField) {
+      const kpiValueField = config.kpiValueField;
       const dateFilter = findDateFilter(filters, widget.id, dataSource);
       if (dateFilter) {
         const currentRange = extractDateRange(dateFilter);
@@ -187,14 +205,22 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           );
 
           // Pre-enrich once here so the previous-period resolveRows call can skip
-          // enrichment. getCachedEnrichedRows is a WeakMap cache hit at this point
-          // since useWidgetRows already populated it for the current-period rows.
+          // enrichment. Pass usedFieldIds matching what useWidgetRows computed so this
+          // hits the already-populated cache slot rather than the all-fields slot.
+          const kpiUsedFieldIds = new Set(collectSelectFields(widget));
+          kpiUsedFieldIds.add(dateFilter.field);
+          for (const f of filters) {
+            if (f.field) {
+              kpiUsedFieldIds.add(f.field);
+            }
+          }
           const preEnrichedRows = getCachedEnrichedRows(
             dataSource.rows,
             widget.sourceId,
             expressionFields,
             dataSources,
             relationships,
+            kpiUsedFieldIds,
           );
 
           // Build allFilters for the previous period (page + widget + interactive only;
@@ -229,9 +255,14 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             expressionFields,
             { skipEnrichment: true },
           );
-          const previousValue = measureExprField
-            ? evaluateMeasure(measureExprField, prevRows, expressionFields)
-            : computeAggregate(prevRows, config.kpiValueField, aggregation);
+          const previousValue = cachedCompute(
+            prevRows,
+            `kpi-value:${kpiValueField}:${measureKey}`,
+            () =>
+              measureExprField
+                ? evaluateMeasure(measureExprField, prevRows, expressionFields)
+                : computeAggregate(prevRows, kpiValueField, aggregation),
+          );
 
           if (previousValue !== 0) {
             kpiTrend = {

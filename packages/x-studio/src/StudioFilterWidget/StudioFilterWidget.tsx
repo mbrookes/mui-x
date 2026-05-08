@@ -390,8 +390,8 @@ function SliderControl({
           </Tooltip>
         </Box>
       )}
-      {/* Stop pointer events from bubbling to the widget card's drag handler */}
-      <Box sx={{ px: 1 }} onPointerDown={(e) => e.stopPropagation()}>
+      {/* Prevent drag-and-drop of the widget card when interacting with the slider */}
+      <Box sx={{ px: 1 }} data-no-drag>
         <Slider
           value={localValue}
           onChange={handleChange}

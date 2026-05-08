@@ -840,8 +840,25 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       // Preserve the donut hole proportionally for the active inner series.
       const activeInnerRadius = innerRadius > 0 ? Math.round(activeOuterRadius * 0.4) : 0;
 
-      // Map each filtered label back to its position in allChartData for stable color assignment.
-      const allLabelIndex = new Map(allChartData!.labels.map((l, i) => [String(l), i]));
+      // Build a lookup of filtered values keyed by label string for O(1) access.
+      const filteredValueByLabel = new Map(
+        chartData.labels.map((l, i) => [String(l), chartData.values[i]]),
+      );
+
+      // Both series use allChartData labels so every slice occupies the same angular
+      // position. Active slices use their filtered value; absent ones get value=0 so
+      // they take no angle but keep the index alignment intact.
+      const alignedActiveData = allChartData!.labels.map((label, i) => {
+        const key = String(label);
+        const filteredValue = filteredValueByLabel.get(key);
+        const isPresent = filteredValue != null;
+        return {
+          id: i,
+          label: isPresent ? formatLabel(label) : undefined,
+          value: filteredValue ?? 0,
+          color: resolvedChartColors[i % resolvedChartColors.length],
+        };
+      });
 
       return (
         <div style={{ height: chartHeight }}>
@@ -864,15 +881,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 id: CROSS_FILTER_SERIES_ID,
                 innerRadius: activeInnerRadius,
                 outerRadius: activeOuterRadius,
-                data: chartData.labels.map((label, i) => {
-                  const colorIdx = allLabelIndex.get(String(label)) ?? i;
-                  return {
-                    id: i,
-                    label: formatLabel(label),
-                    value: chartData.values[i] ?? 0,
-                    color: resolvedChartColors[colorIdx % resolvedChartColors.length],
-                  };
-                }),
+                data: alignedActiveData,
                 highlightScope: { highlight: 'item' as const, fade: 'global' as const },
               },
             ]}
@@ -892,7 +901,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               if (params.seriesId === `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`) {
                 return;
               }
-              const label = chartData.labels[params.dataIndex];
+              const label = allChartData!.labels[params.dataIndex];
               if (label !== undefined) {
                 handleItemClick(label);
               }

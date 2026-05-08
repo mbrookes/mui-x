@@ -2593,8 +2593,8 @@ describe('resolveRows — perf: skipEnrichment option', () => {
 
   it('produces the same rows with skipEnrichment: true when no expressionFields', () => {
     const filters = [makeFilter({ field: 'region', operator: 'equals', value: 'EU' })];
-    const normal = resolveRows(source.rows, 'sales', filters, dataSources);
-    const skipped = resolveRows(source.rows, 'sales', filters, dataSources, [], [], {
+    const normal = resolveRows(source.rows!, 'sales', filters, dataSources);
+    const skipped = resolveRows(source.rows!, 'sales', filters, dataSources, [], [], {
       skipEnrichment: true,
     });
     expect(skipped).toEqual(normal);
@@ -2602,7 +2602,7 @@ describe('resolveRows — perf: skipEnrichment option', () => {
 
   it('skipEnrichment: true returns pre-enriched rows unchanged when no filters', () => {
     // Caller simulates pre-enrichment by adding a computed field manually
-    const preEnriched = source.rows.map((r) => ({ ...r, doubled: (r.revenue as number) * 2 }));
+    const preEnriched = source.rows!.map((r) => ({ ...r, doubled: (r.revenue as number) * 2 }));
     const result = resolveRows(preEnriched, 'sales', [], dataSources, [], [], {
       skipEnrichment: true,
     });

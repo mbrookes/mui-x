@@ -27,7 +27,7 @@ import {
   selectRelationships,
   selectMode,
 } from '../context';
-import type { StudioDataSource, StudioExpressionField } from '../models';
+import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 import { enrichRowsWithExpressions, evaluateMeasure } from '../utils/expressionEvaluator';
@@ -273,7 +273,7 @@ function DataSourceSection(props: {
   source: StudioDataSource;
   expressionFields: StudioExpressionField[];
   dataSources: Record<string, StudioDataSource>;
-  relationships: ReturnType<typeof useStudioSelector>['relationships'];
+  relationships: StudioRelationship[];
   isEditMode: boolean;
 }) {
   const { source, expressionFields, dataSources, relationships, isEditMode } = props;

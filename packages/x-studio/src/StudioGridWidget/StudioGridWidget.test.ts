@@ -90,6 +90,7 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
       sourceField: 'orderId',
       targetId: 'source-orders',
       targetField: 'id',
+      type: 'many-to-one' as const,
     },
   ];
 
@@ -107,7 +108,7 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
     };
 
     const result = resolveRows(
-      ordersSource.rows,
+      ordersSource.rows!,
       'source-orders',
       [interactiveFilter],
       dataSources,
@@ -134,7 +135,7 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
     };
 
     const result = resolveRows(
-      ordersSource.rows,
+      ordersSource.rows!,
       'source-orders',
       [badFilter],
       dataSources,
@@ -158,7 +159,7 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
     };
 
     const result = resolveRows(
-      ordersSource.rows,
+      ordersSource.rows!,
       'source-orders',
       [interactiveFilter],
       dataSources,
@@ -169,7 +170,7 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
   });
 
   it('clearing the filter (empty selection) returns all orders', () => {
-    const result = resolveRows(ordersSource.rows, 'source-orders', [], dataSources, relationships);
+    const result = resolveRows(ordersSource.rows!, 'source-orders', [], dataSources, relationships);
 
     expect(result).toHaveLength(3);
   });

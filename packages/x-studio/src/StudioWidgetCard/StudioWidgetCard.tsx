@@ -14,11 +14,10 @@ import {
   Typography,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
-import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 
 import { useStudioController, useStudioSelector } from '../context';
+import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
 import type { StudioPageTheme } from '../models';
 import { StudioGridWidget } from '../StudioGridWidget';
 import { StudioChartWidget, CHART_MIN_HEIGHT } from '../StudioChartWidget';
@@ -189,7 +188,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const showEditActions = mode === 'edit' && (isSelected || (!dimmed && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
   const showViewExpand = mode === 'view' && hovered && isChart;
-  const actionButtonSx = { width: 24, height: 24, padding: 0, '& svg': { fontSize: 16 } } as const;
+  const exportLabel = widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG';
 
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
   // inside the card for top-row widgets (where there's no room above to overhang).
@@ -232,134 +231,20 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       }}
     >
       {/* Action button overlay — floats over content so title is never truncated */}
-      {mode === 'edit' && (
-        <Stack
-          direction="row"
-          spacing={0.5}
-          sx={{
-            position: 'absolute',
-            ...overlayTopSx,
-            right: 6,
-            zIndex: 1,
-            alignItems: 'center',
-            bgcolor: 'background.paper',
-            border: 1,
-            borderColor: 'divider',
-            borderRadius: 1,
-            boxShadow: '0 2px 4px rgba(0,0,0,0.10)',
-            px: 0.5,
-            py: 0.25,
-            visibility: showEditActions ? 'visible' : 'hidden',
-            pointerEvents: showEditActions ? 'auto' : 'none',
-          }}
-        >
-          {canExport && (
-            <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
-              <IconButton
-                size="small"
-                sx={actionButtonSx}
-                onClick={handleExport}
-                aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
-                tabIndex={showEditActions ? 0 : -1}
-              >
-                <DownloadIcon />
-              </IconButton>
-            </Tooltip>
-          )}
-          {isChart && (
-            <Tooltip title="Expand chart">
-              <IconButton
-                size="small"
-                sx={actionButtonSx}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setExpanded(true);
-                }}
-                aria-label="Expand chart"
-                tabIndex={showEditActions ? 0 : -1}
-              >
-                <OpenInFullIcon />
-              </IconButton>
-            </Tooltip>
-          )}
-          <Tooltip title="Duplicate widget">
-            <IconButton
-              size="small"
-              sx={actionButtonSx}
-              onClick={(event) => {
-                event.stopPropagation();
-                controller.duplicateWidget(widgetId);
-              }}
-              aria-label="Duplicate widget"
-              tabIndex={showEditActions ? 0 : -1}
-            >
-              <ContentCopyIcon />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete widget">
-            <IconButton
-              size="small"
-              sx={actionButtonSx}
-              onClick={(event) => {
-                event.stopPropagation();
-                controller.removeWidget(widgetId);
-              }}
-              aria-label="Delete widget"
-              tabIndex={showEditActions ? 0 : -1}
-            >
-              <CloseIcon />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-      )}
-      {mode === 'view' && (canExport || isChart) && (
-        <Stack
-          direction="row"
-          sx={{
-            position: 'absolute',
-            ...overlayTopSx,
-            right: 6,
-            zIndex: 1,
-            bgcolor: 'background.paper',
-            border: 1,
-            borderColor: 'divider',
-            borderRadius: 1,
-            boxShadow: '0 2px 6px rgba(0,0,0,0.10)',
-            visibility: showViewExport || showViewExpand ? 'visible' : 'hidden',
-            pointerEvents: showViewExport || showViewExpand ? 'auto' : 'none',
-          }}
-        >
-          {canExport && (
-            <Tooltip title={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}>
-              <IconButton
-                size="small"
-                sx={actionButtonSx}
-                onClick={handleExport}
-                aria-label={widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG'}
-                tabIndex={showViewExport ? 0 : -1}
-              >
-                <DownloadIcon />
-              </IconButton>
-            </Tooltip>
-          )}
-          {isChart && (
-            <Tooltip title="Expand chart">
-              <IconButton
-                size="small"
-                sx={actionButtonSx}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setExpanded(true);
-                }}
-                aria-label="Expand chart"
-                tabIndex={showViewExpand ? 0 : -1}
-              >
-                <OpenInFullIcon />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Stack>
-      )}
+      <StudioWidgetCardActionsOverlay
+        mode={mode}
+        canExport={canExport}
+        isChart={isChart}
+        exportLabel={exportLabel}
+        showEditActions={showEditActions}
+        showViewExport={showViewExport}
+        showViewExpand={showViewExpand}
+        overlayTopSx={overlayTopSx}
+        onExport={handleExport}
+        onExpand={() => setExpanded(true)}
+        onDuplicate={() => controller.duplicateWidget(widgetId)}
+        onDelete={() => controller.removeWidget(widgetId)}
+      />
       <Stack spacing={widget.kind === 'grid' ? 2 : 0.5}>
         {/* Widget header */}
         <div>

@@ -213,12 +213,19 @@ export function inferWidgetTitles(
   const source = widget.sourceId ? dataSources[widget.sourceId] : undefined;
   const config = widget.config;
 
+  // Pre-build a Map for O(1) field lookups on the primary source (avoids O(F) per field)
+  const primaryFieldMap = new Map(source?.fields?.map((f) => [f.id, f.label]) ?? []);
+
   const findFieldLabel = (fieldId: string | undefined, sourceId?: string): string | undefined => {
     if (!fieldId) {
       return undefined;
     }
-    const ds = sourceId ? dataSources[sourceId] : source;
-    return ds?.fields.find((f) => f.id === fieldId)?.label;
+    if (sourceId) {
+      // Cross-source lookup (rare — e.g. KPI sparkline from related source)
+      const ds = dataSources[sourceId];
+      return ds?.fields.find((f) => f.id === fieldId)?.label;
+    }
+    return primaryFieldMap.get(fieldId);
   };
 
   switch (widget.kind) {
@@ -312,10 +319,8 @@ export function buildCsvContent(
     ? widget.config.columns
     : dataSource.fields.map((f) => f.id);
 
-  const headers = visibleColumns.map((col) => {
-    const field = dataSource.fields.find((f) => f.id === col);
-    return field?.label ?? col;
-  });
+  const fieldMap = new Map(dataSource.fields.map((f) => [f.id, f]));
+  const headers = visibleColumns.map((col) => fieldMap.get(col)?.label ?? col);
 
   const csvRows = rows.map((row) =>
     visibleColumns

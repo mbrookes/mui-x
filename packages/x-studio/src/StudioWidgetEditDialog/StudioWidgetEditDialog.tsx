@@ -88,7 +88,7 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
       {/* ── Left: widget preview ────────────────────────────────────────── */}
       <Box
         sx={{
-          width: '45%',
+          width: '60%',
           flexShrink: 0,
           bgcolor: 'action.hover',
           display: 'flex',

@@ -366,30 +366,29 @@ function SliderControl({
 
   return (
     <Stack spacing={0.5} role="group" aria-label={label}>
-      {isActive && (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Tooltip title="Clear filter">
-            <Box
-              component="span"
-              role="button"
-              tabIndex={0}
-              aria-label="Clear slider filter"
-              onClick={onClear}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') onClear();
-              }}
-              sx={{
-                cursor: 'pointer',
-                color: 'text.secondary',
-                display: 'flex',
-                alignItems: 'center',
-              }}
-            >
-              <CloseIcon sx={{ fontSize: 14 }} />
-            </Box>
-          </Tooltip>
-        </Box>
-      )}
+      {/* Always render to avoid layout shift when the filter becomes active */}
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', visibility: isActive ? 'visible' : 'hidden' }}>
+        <Tooltip title="Clear filter">
+          <Box
+            component="span"
+            role="button"
+            tabIndex={isActive ? 0 : -1}
+            aria-label="Clear slider filter"
+            onClick={onClear}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') onClear();
+            }}
+            sx={{
+              cursor: 'pointer',
+              color: 'text.secondary',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <CloseIcon sx={{ fontSize: 14 }} />
+          </Box>
+        </Tooltip>
+      </Box>
       {/* Prevent drag-and-drop of the widget card when interacting with the slider */}
       <Box sx={{ px: 1 }} data-no-drag>
         <Slider

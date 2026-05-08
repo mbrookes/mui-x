@@ -113,20 +113,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     if (!node) {
       return undefined;
     }
-    // Track which element the pointer went down on so we can cancel drags that
-    // originate inside interactive controls (e.g. sliders) marked data-no-drag.
-    let dragOriginTarget: Element | null = null;
-    function handleMouseDown(event: MouseEvent) {
-      dragOriginTarget = event.target as Element;
-    }
     function handleDragStart(event: DragEvent) {
-      // If the drag started inside a [data-no-drag] element (e.g. a slider
-      // thumb), cancel it so the control handles the interaction instead.
-      if (dragOriginTarget?.closest('[data-no-drag]')) {
-        event.preventDefault();
-        dragOriginTarget = null;
-        return;
-      }
       setIsDragging(true);
       // Do NOT call setSelectedWidget here — it causes all N-1 other widget cards
       // to re-render (dimmed selector) right at the performance-critical drag-start
@@ -141,6 +128,21 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     }
     function handleDragEnd() {
       setIsDragging(false);
+    }
+    // Temporarily remove draggable when the pointer goes down inside a
+    // [data-no-drag] element (e.g. a slider). This must happen in mousedown
+    // capture — before the browser begins its drag-detection gesture — because
+    // calling preventDefault() on dragstart is too late: the browser has
+    // already captured the pointer away from child interactive controls.
+    function handleMouseDown(event: MouseEvent) {
+      if ((event.target as Element).closest('[data-no-drag]')) {
+        node!.removeAttribute('draggable');
+        const restoreDraggable = () => {
+          node!.setAttribute('draggable', 'true');
+          document.removeEventListener('mouseup', restoreDraggable, { capture: true });
+        };
+        document.addEventListener('mouseup', restoreDraggable, { capture: true });
+      }
     }
     node.setAttribute('draggable', 'true');
     node.addEventListener('mousedown', handleMouseDown, { capture: true });

@@ -826,7 +826,84 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const innerRadius = normalizedChartType === 'donut' ? 50 : 0;
     const selectedDataIndex = getSelectedDataIndex(chartData.labels);
 
-    // When cross-filters are active, use allChartData as basis and dim filtered-out slices
+    // When cross-filters are active and the x-field baseline is meaningful, render two
+    // concentric series: a faded ghost outer pie (full baseline) and a solid active inner
+    // pie (cross-filtered subset). This preserves the full context while clearly showing
+    // the filtered proportion.
+    const showConcentricCrossFilter =
+      hasCrossFilters && allChartData != null && preserveXFieldBaseline;
+
+    if (showConcentricCrossFilter) {
+      // Size the ghost to fill the available space, active inner to 65% of that.
+      const ghostOuterRadius = Math.round(chartHeight * 0.38);
+      const activeOuterRadius = Math.round(ghostOuterRadius * 0.65);
+      // Preserve the donut hole proportionally for the active inner series.
+      const activeInnerRadius = innerRadius > 0 ? Math.round(activeOuterRadius * 0.4) : 0;
+
+      // Map each filtered label back to its position in allChartData for stable color assignment.
+      const allLabelIndex = new Map(allChartData!.labels.map((l, i) => [String(l), i]));
+
+      return (
+        <div style={{ height: chartHeight }}>
+          <PieChart
+            series={[
+              {
+                id: `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`,
+                innerRadius,
+                outerRadius: ghostOuterRadius,
+                data: allChartData!.labels.map((label, i) => ({
+                  id: i,
+                  // No label: keeps ghost items out of the legend
+                  value: allChartData!.values[i] ?? 0,
+                  color: resolvedChartColors[i % resolvedChartColors.length] + '30',
+                })),
+                // Don't highlight or fade ghost items — they're purely decorative
+                highlightScope: { highlight: 'none' as const, fade: 'none' as const },
+              },
+              {
+                id: CROSS_FILTER_SERIES_ID,
+                innerRadius: activeInnerRadius,
+                outerRadius: activeOuterRadius,
+                data: chartData.labels.map((label, i) => {
+                  const colorIdx = allLabelIndex.get(String(label)) ?? i;
+                  return {
+                    id: i,
+                    label: formatLabel(label),
+                    value: chartData.values[i] ?? 0,
+                    color: resolvedChartColors[colorIdx % resolvedChartColors.length],
+                  };
+                }),
+                highlightScope: { highlight: 'item' as const, fade: 'global' as const },
+              },
+            ]}
+            colors={chartColors}
+            slotProps={{
+              legend: {
+                sx: { overflowY: 'auto', flexWrap: 'nowrap', maxHeight: '100%' },
+              },
+            }}
+            margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
+            highlightedItem={controlledHighlightedItem}
+            onHighlightChange={(item) =>
+              setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+            }
+            onItemClick={(_event, params) => {
+              // Ignore clicks on the ghost outer ring
+              if (params.seriesId === `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`) {
+                return;
+              }
+              const label = chartData.labels[params.dataIndex];
+              if (label !== undefined) {
+                handleItemClick(label);
+              }
+            }}
+            sx={{ cursor: 'pointer' }}
+          />
+        </div>
+      );
+    }
+
+    // No cross-filter (or baseline not meaningful): single series, original behaviour
     const pieBaseData =
       hasCrossFilters && allChartData && preserveXFieldBaseline ? allChartData : chartData;
     const filteredLabelSet =

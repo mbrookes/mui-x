@@ -747,7 +747,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 isHorizontalBarLayout
                   ? [
                       {
-                        width: 'auto',
+                        height: 'auto',
                         ...(is100 && {
                           min: 0,
                           max: 100,
@@ -984,7 +984,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               isHorizontalBarLayout
                 ? [
                     {
-                      width: 'auto',
+                      height: 'auto',
                       ...(is100 && {
                         min: 0,
                         max: 100,
@@ -999,7 +999,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 ? [{ data: xAxisData, scaleType: 'band', width: 'auto' }]
                 : [
                     {
-                      width: 'auto',
+                      width: 'auto' as const,
                       ...(is100 && {
                         min: 0,
                         max: 100,

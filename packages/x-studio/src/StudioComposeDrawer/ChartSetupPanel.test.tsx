@@ -1,5 +1,6 @@
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
+import type { StudioWidgetConfig } from '../models';
 import { ChartSetupPanel } from './ChartSetupPanel';
 
 const controller = {
@@ -17,7 +18,7 @@ const mockState = {
         chartType: 'bar',
         xField: 'id',
         yField: 'total',
-      },
+      } as StudioWidgetConfig,
     },
   },
   dataSources: {

@@ -63,6 +63,8 @@
       "@mui/x-telemetry/*": ["./packages/x-telemetry/src/*"],
       "@mui/x-virtualizer": ["./packages/x-virtualizer/src"],
       "@mui/x-virtualizer/*": ["./packages/x-virtualizer/src/*"],
+      "@mui/x-studio": ["./packages/x-studio/src"],
+      "@mui/x-studio/*": ["./packages/x-studio/src/*"],
       "test/*": ["./test/*"],
       "docs/*": ["./docs/*"]
     },

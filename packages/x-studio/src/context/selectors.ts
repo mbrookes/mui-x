@@ -86,6 +86,40 @@ export function makeSelectExpressionFieldsForSource(sourceId: string) {
   };
 }
 
+/**
+ * Returns a stable memoized selector that filters expressionFields to only
+ * those belonging to any of the given source IDs.
+ *
+ * Semantics are identical to makeSelectExpressionFieldsForSource but for
+ * multiple sources at once. Use this in useWidgetRows so that cross-filter
+ * enrichment (which may need expression fields from related sources) works
+ * correctly while still avoiding re-renders from completely unrelated sources.
+ */
+export function makeSelectExpressionFieldsForSources(sourceIds: ReadonlySet<string>) {
+  let lastInput: StudioExpressionField[] | undefined;
+  let lastResult: StudioExpressionField[] | undefined;
+
+  return (state: StudioState): StudioExpressionField[] => {
+    const exprFields = state.expressionFields;
+    if (exprFields === lastInput && lastResult !== undefined) {
+      return lastResult;
+    }
+    const filtered = exprFields.filter((ef) => sourceIds.has(ef.sourceId));
+    if (
+      lastResult !== undefined &&
+      filtered.length === lastResult.length &&
+      filtered.every((ef, i) => ef === lastResult![i])
+    ) {
+      lastInput = exprFields;
+      return lastResult;
+    }
+    lastInput = exprFields;
+    lastResult = filtered;
+    return filtered;
+  };
+}
+
+
 export interface PartitionedFilters {
   /** Filters with scope === 'page' */
   page: StudioFilterState[];

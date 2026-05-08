@@ -975,6 +975,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         valueFormatter,
       };
     });
+    const selectedDataIndex = getSelectedDataIndex(effectiveSFData.labels);
     return (
       <CrossFilterBarContext.Provider value={sfBarContext}>
         <div style={{ height: chartHeight }}>
@@ -992,11 +993,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       }),
                     },
                   ]
-                : [{ data: xAxisData, scaleType: 'band', height: 'auto' }]
+                : [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto' }]
             }
             yAxis={
               isHorizontalBarLayout
-                ? [{ data: xAxisData, scaleType: 'band', width: 'auto' }]
+                ? [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', width: 'auto' }]
                 : [
                     {
                       width: 'auto' as const,
@@ -1012,9 +1013,21 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             colors={chartColors}
             margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
             highlightedItem={controlledHighlightedItem}
+            highlightedAxis={
+              selectedDataIndex >= 0
+                ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
+                : controlledHighlightedAxis
+            }
             onHighlightChange={(item) =>
               setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
             }
+            onHighlightedAxisChange={setHoveredAxis}
+            onAxisClick={(_event, params) => {
+              if (params?.axisValue !== undefined) {
+                handleItemClick(params.axisValue);
+              }
+            }}
+            sx={{ cursor: 'pointer' }}
             slots={sfBarContext ? { bar: CrossFilterGhostBar } : undefined}
             slotProps={{
               legend: {
@@ -1040,11 +1053,20 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       normalizedChartType === 'area-stacked' ||
       normalizedChartType === 'area-100')
   ) {
-    const xAxis = createLineXAxis(seriesFieldData.labels);
     const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
     const isArea = normalizedChartType !== 'line';
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
     const is100 = normalizedChartType === 'area-100';
+
+    // When cross-filtering (non-stacked only), use allSeriesFieldData as the x-axis basis so
+    // ghost lines appear for all series/x-positions, including ones filtered away.
+    const sfLineAllData =
+      !isStacked && hasCrossFilters && allSeriesFieldData && preserveSplitByBaseline
+        ? allSeriesFieldData
+        : null;
+    const effectiveSFLineData = sfLineAllData ?? seriesFieldData;
+    const xAxis = createLineXAxis(effectiveSFLineData.labels, CROSS_FILTER_AXIS_ID);
+    const selectedDataIndex = getSelectedDataIndex(effectiveSFLineData.labels);
 
     // Pre-normalize to 0-100% per x-position (avoids floating-point issues with stackOffset:'expand')
     const totals100 = is100
@@ -1056,8 +1078,29 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         )
       : null;
 
-    const series = seriesFieldData.seriesNames.map((name) => {
-      const rawData = seriesFieldData.seriesData[name];
+    // Ghost series: each series at 25% opacity with full baseline values, no marks, no legend entry.
+    // Placed before active series so they render behind.
+    const ghostSeries = sfLineAllData
+      ? sfLineAllData.seriesNames.map((name) => ({
+          id: `${String(name)}-ghost`,
+          data: sfLineAllData.seriesData[name],
+          color: (getSeriesColor(name) ?? resolvedChartColors[0]) + '40',
+          area: isArea,
+          connectNulls: true as const,
+          showMark: false,
+          disableHighlight: true as const,
+        }))
+      : [];
+
+    const series = effectiveSFLineData.seriesNames.map((name) => {
+      // Align filtered data to the all-data x-positions when ghost series are present.
+      const rawData = sfLineAllData
+        ? alignFilteredToAllLabels(
+            sfLineAllData.labels,
+            seriesFieldData.labels,
+            seriesFieldData.seriesData[name] ?? sfLineAllData.labels.map(() => null),
+          )
+        : seriesFieldData.seriesData[name];
       const data: (number | null)[] = totals100
         ? rawData.map((v, i) => {
             const total = totals100[i];
@@ -1095,13 +1138,25 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               }),
             },
           ]}
-          series={series}
+          series={[...ghostSeries, ...series]}
           colors={chartColors}
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={controlledHighlightedItem}
+          highlightedAxis={
+            selectedDataIndex >= 0
+              ? [{ axisId: CROSS_FILTER_AXIS_ID, dataIndex: selectedDataIndex }]
+              : controlledHighlightedAxis
+          }
           onHighlightChange={(item) =>
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
+          onHighlightedAxisChange={setHoveredAxis}
+          onAxisClick={(_event, params) => {
+            if (params?.axisValue !== undefined) {
+              handleItemClick(params.axisValue);
+            }
+          }}
+          sx={{ cursor: 'pointer' }}
           slotProps={{
             legend: {
               sx: {
@@ -1117,11 +1172,19 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }
 
   if (multiYData && multiYData.labels.length > 0 && isLineOrArea) {
-    const xAxis = createLineXAxis(multiYData.labels, CROSS_FILTER_AXIS_ID);
-    const selectedDataIndex = getSelectedDataIndex(multiYData.labels);
     const isArea = normalizedChartType !== 'line';
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
     const is100 = normalizedChartType === 'area-100';
+
+    // When cross-filtering (non-stacked only), use allMultiYData as the x-axis basis so ghost
+    // series cover all x-positions including those filtered away.
+    const multiYAllData =
+      !isStacked && hasCrossFilters && allMultiYData && preserveXFieldBaseline
+        ? allMultiYData
+        : null;
+    const effectiveLabels = (multiYAllData ?? multiYData).labels;
+    const xAxis = createLineXAxis(effectiveLabels, CROSS_FILTER_AXIS_ID);
+    const selectedDataIndex = getSelectedDataIndex(effectiveLabels);
 
     const useIndependentAxes = !isStacked && multiYData.series.length > 1;
     const yAxes = useIndependentAxes
@@ -1136,13 +1199,49 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             ...(is100 && { min: 0, max: 100, valueFormatter: (v: number) => `${Math.round(v)}%` }),
           },
         ];
-    const series = buildMultiYLineSeries(multiYData, normalizedChartType, dataSource?.fields);
+
+    // Ghost series: each y-field at 25% opacity with full baseline values, no marks, no legend entry.
+    const ghostSeries = multiYAllData
+      ? multiYAllData.series.map((s, i) => ({
+          id: `${s.fieldId}-${i}-ghost`,
+          data: s.values,
+          color: resolvedChartColors[i % resolvedChartColors.length] + '40',
+          area: isArea,
+          connectNulls: true as const,
+          showMark: false,
+          disableHighlight: true as const,
+          yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
+        }))
+      : [];
+
+    // Active series: aligned to allMultiYData labels when ghost series are present.
+    const activeSeries = multiYAllData
+      ? multiYAllData.series.map((s, i) => {
+          const filteredSeries = multiYData.series[i];
+          const alignedValues: (number | null)[] = filteredSeries
+            ? alignFilteredToAllLabels(multiYAllData.labels, multiYData.labels, filteredSeries.values)
+            : multiYAllData.labels.map(() => null);
+          const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
+          return {
+            id: `${s.fieldId}-${i}`,
+            data: alignedValues,
+            label: fieldDef?.label ?? s.fieldId,
+            area: isArea,
+            connectNulls: true as const,
+            color: resolvedChartColors[i % resolvedChartColors.length],
+            yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
+            highlightScope: { highlight: 'item' as const, fade: 'global' as const },
+            valueFormatter: makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode),
+          };
+        })
+      : buildMultiYLineSeries(multiYData, normalizedChartType, dataSource?.fields);
+
     return (
       <div style={{ height: chartHeight }}>
         <LineChart
           xAxis={xAxis}
           yAxis={yAxes}
-          series={series}
+          series={[...ghostSeries, ...activeSeries]}
           colors={chartColors}
           margin={{ top: 16, right: 40, bottom: 8, left: 8 }}
           highlightedItem={

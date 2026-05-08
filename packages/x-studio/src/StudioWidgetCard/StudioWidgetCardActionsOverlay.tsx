@@ -5,6 +5,7 @@ import type { SxProps } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
+import EditIcon from '@mui/icons-material/Edit';
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 
 export interface StudioWidgetCardActionsOverlayProps {
@@ -18,6 +19,7 @@ export interface StudioWidgetCardActionsOverlayProps {
   overlayTopSx: SxProps;
   onExport: (event: React.MouseEvent) => void;
   onExpand: () => void;
+  onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
 }
@@ -36,6 +38,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
     overlayTopSx,
     onExport,
     onExpand,
+    onEdit,
     onDuplicate,
     onDelete,
   } = props;
@@ -91,6 +94,20 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
             </IconButton>
           </Tooltip>
         )}
+        <Tooltip title="Edit widget">
+          <IconButton
+            size="small"
+            sx={actionButtonSx}
+            onClick={(event) => {
+              event.stopPropagation();
+              onEdit();
+            }}
+            aria-label="Edit widget"
+            tabIndex={showEditActions ? 0 : -1}
+          >
+            <EditIcon />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Duplicate widget">
           <IconButton
             size="small"

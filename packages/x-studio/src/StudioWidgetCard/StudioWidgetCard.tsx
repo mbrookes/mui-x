@@ -18,6 +18,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 
 import { useStudioController, useStudioSelector } from '../context';
 import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
+import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import type { StudioPageTheme } from '../models';
 import { StudioGridWidget } from '../StudioGridWidget';
 import { StudioChartWidget, CHART_MIN_HEIGHT } from '../StudioChartWidget';
@@ -79,6 +80,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const chartExpandContainerRef = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
+  const [editDialogOpen, setEditDialogOpen] = React.useState(false);
 
   // Defer heavy widget content to after the first browser paint so the card
   // shells are visible immediately on initial load. Widgets that have already
@@ -242,6 +244,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         overlayTopSx={overlayTopSx}
         onExport={handleExport}
         onExpand={() => setExpanded(true)}
+        onEdit={() => setEditDialogOpen(true)}
         onDuplicate={() => controller.duplicateWidget(widgetId)}
         onDelete={() => controller.removeWidget(widgetId)}
       />
@@ -377,6 +380,24 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             </Tooltip>
           </DialogActions>
         </Dialog>
+      )}
+      {/* Widget edit dialog */}
+      {editDialogOpen && (
+        <StudioWidgetEditDialog
+          open={editDialogOpen}
+          onClose={() => setEditDialogOpen(false)}
+          widgetId={widgetId}
+        >
+          {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
+          {widget.kind === 'chart' && (
+            <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} />
+          )}
+          {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
+          {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
+          {widget.kind === 'filter' && (
+            <StudioFilterWidget widget={widget} dataSource={source} />
+          )}
+        </StudioWidgetEditDialog>
       )}
     </Paper>
   );

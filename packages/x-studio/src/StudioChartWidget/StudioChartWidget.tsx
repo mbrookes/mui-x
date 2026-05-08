@@ -22,7 +22,7 @@ import {
   useStudioSelector,
   selectFilters,
   selectActivePageId,
-  selectExpressionFields,
+  makeSelectExpressionFieldsForSource,
 } from '../context';
 import { formatNumber } from '../internals/numberFormat';
 import type { StudioNumberFormat } from '../models/studio';
@@ -141,6 +141,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const controller = useStudioController();
   const filters = useStudioSelector(selectFilters);
   const activePageId = useStudioSelector(selectActivePageId);
+  const selectExpressionFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
+    [widget.sourceId],
+  );
   const expressionFields = useStudioSelector(selectExpressionFields);
   const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<
     'bar' | 'line' | 'pie'
@@ -209,9 +213,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   );
 
   // Check if this widget has an active cross-filter on the current page
-  const activeCrossFilter = filters.find(
-    (f) =>
-      f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === activePageId,
+  const activeCrossFilter = React.useMemo(
+    () =>
+      filters.find(
+        (f) =>
+          f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === activePageId,
+      ) ?? null,
+    [filters, widget.id, activePageId],
   );
 
   const incomingCrossFilters = React.useMemo(

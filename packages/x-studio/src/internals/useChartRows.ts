@@ -62,5 +62,6 @@ export function useChartRows(
     config.seriesField,
     dataSources,
     relationships,
+    expressionFields,
   ]);
 }

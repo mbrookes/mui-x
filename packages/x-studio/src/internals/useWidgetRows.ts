@@ -7,7 +7,7 @@ import {
   selectFilters,
   selectDataSources,
   selectRelationships,
-  selectExpressionFields,
+  makeSelectExpressionFieldsForSources,
   selectActivePageId,
   selectPartitionedFilters,
 } from '../context';
@@ -55,13 +55,32 @@ export function useWidgetRows(
   const partitioned = useStudioSelector(selectPartitionedFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
-  // expressionFields: use the full set (all sources) so that cross-filter foreign
-  // source enrichment in resolveRows can evaluate expression fields like
-  // expr-order-country (ORDERS source) when this widget is on ORDER_ITEMS.
-  // Source-scoped optimization is correct for useChartWidgetData/KPI/Grid/Filter
-  // (own-source aggregations only) but NOT here where resolveRows may enrich
-  // any foreign source referenced by an incoming cross-filter.
-  const expressionFields = useStudioSelector(selectExpressionFields);
+  // expressionFields: subscribe to own source + all directly related sources.
+  // Own source is needed for self-enrichment; related sources are needed so that
+  // resolveRows can enrich foreign source rows when evaluating cross-filters
+  // (e.g. expr-order-country on ORDERS when this widget is on ORDER_ITEMS).
+  // Completely unrelated sources (e.g. PRODUCTS for an ORDER_ITEMS widget) are
+  // excluded so that adding expressions there doesn't trigger a re-render here.
+  const relevantSourceIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    if (widget.sourceId) {
+      ids.add(widget.sourceId);
+      for (const rel of relationships) {
+        if (rel.sourceId === widget.sourceId) {
+          ids.add(rel.targetId);
+        } else if (rel.targetId === widget.sourceId) {
+          ids.add(rel.sourceId);
+        }
+      }
+    }
+    return ids;
+  }, [widget.sourceId, relationships]);
+
+  const selectExprFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSources(relevantSourceIds),
+    [relevantSourceIds],
+  );
+  const expressionFields = useStudioSelector(selectExprFields);
   const activePageId = useStudioSelector(selectActivePageId);
 
   // ── Async adapter path ──────────────────────────────────────────────────

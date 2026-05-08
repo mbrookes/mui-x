@@ -334,9 +334,15 @@ export class StudioController {
           widgetRows: newWidgetRows,
         },
       },
-      filters: state.filters.filter(
-        (f) => !(f.sourceWidgetId === widgetId && f.scope === 'interactive'),
-      ),
+      filters: (() => {
+        const nextFilters = state.filters.filter(
+          (f) =>
+            !(f.sourceWidgetId === widgetId && f.scope === 'interactive') &&
+            !(f.widgetId === widgetId && f.scope === 'widget'),
+        );
+        // Preserve reference stability when no filters were removed (avoids re-renders)
+        return nextFilters.length !== state.filters.length ? nextFilters : state.filters;
+      })(),
       shell: {
         ...state.shell,
         selectedWidgetId:

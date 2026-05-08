@@ -8,7 +8,7 @@ import {
   useStudioController,
   useStudioSelector,
   selectFilters,
-  selectExpressionFields,
+  makeSelectExpressionFieldsForSource,
   selectActivePageId,
 } from '../context';
 import { formatFieldValue } from '../internals/numberFormat';
@@ -26,6 +26,10 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const { dataSource, widget } = props;
   const controller = useStudioController();
   const filters = useStudioSelector(selectFilters);
+  const selectExpressionFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
+    [widget.sourceId],
+  );
   const expressionFields = useStudioSelector(selectExpressionFields);
   const activePageId = useStudioSelector(selectActivePageId);
   const visibleFields = widget.config.columns?.length
@@ -33,9 +37,13 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     : (dataSource?.fields.map((f) => f.id) ?? []);
 
   // Check if this widget has an active cross-filter (on the current page)
-  const activeCrossFilter = filters.find(
-    (f) =>
-      f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === activePageId,
+  const activeCrossFilter = React.useMemo(
+    () =>
+      filters.find(
+        (f) =>
+          f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === activePageId,
+      ) ?? null,
+    [filters, widget.id, activePageId],
   );
 
   const columns = React.useMemo<GridColDef[]>(() => {

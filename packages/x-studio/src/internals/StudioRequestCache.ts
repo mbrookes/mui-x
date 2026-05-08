@@ -22,6 +22,9 @@ export class StudioRequestCache {
 
   private readonly inflight = new Map<string, Promise<StudioQueryResult>>();
 
+  /** Reverse index: sourceId → set of cacheKeys with that sourceId prefix. */
+  private readonly sourceIndex = new Map<string, Set<string>>();
+
   private readonly ttlMs: number;
 
   constructor(ttlMs: number = TTL_MS) {
@@ -36,6 +39,8 @@ export class StudioRequestCache {
     }
     if (Date.now() - entry.fetchedAt > this.ttlMs) {
       this.cache.delete(cacheKey);
+      const sourceId = cacheKey.split(':')[0];
+      this.sourceIndex.get(sourceId)?.delete(cacheKey);
       return undefined;
     }
     return entry.result;
@@ -44,6 +49,13 @@ export class StudioRequestCache {
   /** Stores a result in the cache. */
   set(cacheKey: string, result: StudioQueryResult): void {
     this.cache.set(cacheKey, { result, fetchedAt: Date.now() });
+    const sourceId = cacheKey.split(':')[0];
+    let keys = this.sourceIndex.get(sourceId);
+    if (!keys) {
+      keys = new Set();
+      this.sourceIndex.set(sourceId, keys);
+    }
+    keys.add(cacheKey);
   }
 
   /** Returns true if there is an in-flight request for this cacheKey. */
@@ -76,14 +88,16 @@ export class StudioRequestCache {
 
   /**
    * Invalidates all cached entries for a given sourceId.
+   * Uses a secondary source index for O(M) lookup instead of O(K) linear scan.
    * Called when `upsertDataSource` updates a source that has an adapter.
    */
   invalidateSource(sourceId: string): void {
-    const prefix = `${sourceId}:`;
-    for (const key of this.cache.keys()) {
-      if (key.startsWith(prefix)) {
+    const keys = this.sourceIndex.get(sourceId);
+    if (keys) {
+      for (const key of keys) {
         this.cache.delete(key);
       }
+      this.sourceIndex.delete(sourceId);
     }
     // In-flight requests for this source will still resolve but their results
     // will be re-fetched on the next descriptor change.
@@ -93,6 +107,7 @@ export class StudioRequestCache {
   clear(): void {
     this.cache.clear();
     this.inflight.clear();
+    this.sourceIndex.clear();
   }
 }
 

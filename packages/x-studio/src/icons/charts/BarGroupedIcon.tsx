@@ -22,6 +22,7 @@ export function BarGroupedIcon({
     <ChartSvg size={size}>
       {bars.map((b, i) => (
         <rect
+          // react-doctor-disable-next-line no-array-index-as-key -- static SVG paths never reorder
           key={`shape-${i}`}
           x={b.x}
           y={bottom - b.h}

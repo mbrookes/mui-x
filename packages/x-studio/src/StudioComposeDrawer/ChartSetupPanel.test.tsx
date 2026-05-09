@@ -143,6 +143,7 @@ describe('ChartSetupPanel', () => {
 
     await user.click(splitByInput);
 
+    // react-doctor-disable-next-line server-sequential-independent-await -- sequential for test determinism: each findByRole waits for DOM to settle
     const countryOption = await screen.findByRole('option', { name: /Country$/ });
     const statusOption = await screen.findByRole('option', { name: /Status$/ });
 
@@ -186,6 +187,7 @@ describe('ChartSetupPanel', () => {
 
     await user.click(splitByInput);
 
+    // react-doctor-disable-next-line server-sequential-independent-await -- sequential for test determinism: each findByRole waits for DOM to settle
     const countryOption = await screen.findByRole('option', { name: /Country$/ });
     const statusOption = await screen.findByRole('option', { name: /Status$/ });
 

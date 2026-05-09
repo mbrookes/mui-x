@@ -14,6 +14,7 @@ export function CandlestickIcon({
   return (
     <ChartSvg size={size}>
       {candles.map((c, i) => (
+        // react-doctor-disable-next-line no-array-index-as-key -- static SVG paths never reorder
         <React.Fragment key={`shape-${i}`}>
           <line
             x1={c.x}

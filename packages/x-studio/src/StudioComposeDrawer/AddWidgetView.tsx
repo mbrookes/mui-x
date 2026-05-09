@@ -265,7 +265,7 @@ function smoothScrollToBottom(container: HTMLElement, duration = 420) {
 export function AddWidgetView() {
   const controller = useStudioController();
   const dataSources = useStudioSelector(selectDataSources);
-  const canvasScrollRef = React.useContext(CanvasScrollContext);
+  const canvasScrollRef = React.use(CanvasScrollContext);
   const [selectedKind, setSelectedKind] = React.useState<StudioWidgetKind | null>(null);
 
   const handleAdd = React.useCallback(

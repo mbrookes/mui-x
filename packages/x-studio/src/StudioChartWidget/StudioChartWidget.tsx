@@ -54,7 +54,7 @@ const PieRadiusContext = React.createContext<{
  * enabling proportional-radius cross-filter highlighting on pie/donut charts.
  */
 function CrossFilterPieArc(props: PieArcProps) {
-  const { activeSeriesId, radiusByDataIndex } = React.useContext(PieRadiusContext);
+  const { activeSeriesId, radiusByDataIndex } = React.use(PieRadiusContext);
   const outerRadius =
     props.seriesId === activeSeriesId
       ? (radiusByDataIndex.get(props.dataIndex) ?? props.outerRadius)

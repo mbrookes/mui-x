@@ -219,7 +219,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
         </Stack>
       ) : (
         <Typography variant="body2" color="text.disabled" sx={{ fontStyle: 'italic' }}>
-          No filters — all data is shown.
+          No filters, all data is shown.
         </Typography>
       )}
 

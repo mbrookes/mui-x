@@ -17,7 +17,7 @@ export function ScatterIcon({ size, color = 'currentColor' }: BasicIconProps) {
   return (
     <ChartSvg size={size}>
       {dots.map(([cx, cy], i) => (
-        <circle key={i} cx={cx} cy={cy} r={1.8} fill={color} opacity={0.8} />
+        <circle key={`shape-${i}`} cx={cx} cy={cy} r={1.8} fill={color} opacity={0.8} />
       ))}
     </ChartSvg>
   );

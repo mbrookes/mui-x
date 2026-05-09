@@ -68,17 +68,20 @@ export function DataSourceFieldSelect({
     return Object.values(dataSources)
       .filter((s) => !s.hidden)
       .flatMap((src) =>
-        src.fields
-          .filter((f) => !f.hidden)
-          .filter((f) => !filterCapability || fieldHasCapability(f, filterCapability))
-          .map((f) => ({
-            id: f.id,
-            label: f.label,
-            type: f.type,
-            generated: f.generated,
-            sourceId: src.id,
-            sourceLabel: src.label,
-          })),
+        src.fields.flatMap((f) => {
+          if (f.hidden) return [];
+          if (filterCapability && !fieldHasCapability(f, filterCapability)) return [];
+          return [
+            {
+              id: f.id,
+              label: f.label,
+              type: f.type,
+              generated: f.generated,
+              sourceId: src.id,
+              sourceLabel: src.label,
+            },
+          ];
+        }),
       );
   }, [fieldsProp, dataSources, filterCapability]);
 

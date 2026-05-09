@@ -58,10 +58,10 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
     [],
   );
 
-  // Reset to Setup tab each time dialog opens
-  React.useEffect(() => {
-    if (open) setTab(0);
-  }, [open]);
+  const handleClose = React.useCallback(() => {
+    setTab(0);
+    onClose();
+  }, [onClose]);
 
   if (!widget) return null;
 
@@ -70,7 +70,7 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       maxWidth="xl"
       fullWidth
       onClick={(event) => event.stopPropagation()}

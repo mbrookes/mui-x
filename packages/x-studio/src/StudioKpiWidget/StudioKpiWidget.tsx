@@ -315,9 +315,22 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     if (relevant.length === 0) {
       return '';
     }
+    const fieldLabelMap = new Map<string, string>();
+    for (const ds of Object.values(dataSources)) {
+      for (const f of ds.fields) {
+        if (!fieldLabelMap.has(f.id)) {
+          fieldLabelMap.set(f.id, f.label);
+        }
+      }
+    }
+    for (const ef of expressionFields) {
+      if (!fieldLabelMap.has(ef.id)) {
+        fieldLabelMap.set(ef.id, ef.label);
+      }
+    }
     return relevant
       .map((f) => {
-        const label = getFieldLabel(f.field, dataSources, expressionFields);
+        const label = fieldLabelMap.get(f.field) ?? f.field;
         return `${label}: ${summarizeFilter(f)}`;
       })
       .join(' · ');

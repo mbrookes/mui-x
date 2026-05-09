@@ -54,7 +54,7 @@ function RadarSeriesPlot(props: RadarSeriesPlotProps) {
               {!hideMark &&
                 points.map((point, index) => (
                   <circle
-                    key={index}
+                    key={`point-${index}`}
                     {...getCircleProps({
                       seriesId,
                       point,

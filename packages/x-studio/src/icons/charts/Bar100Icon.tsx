@@ -20,7 +20,7 @@ export function Bar100Icon({
         const h1 = Math.round(h * splits[i]);
         const h2 = h - h1;
         return (
-          <React.Fragment key={i}>
+          <React.Fragment key={`shape-${i}`}>
             <rect x={x} y={top} width={w} height={h1} fill={c1} rx={0.5} />
             <rect x={x} y={top + h1} width={w} height={h2} fill={c2} opacity={0.45} rx={0.5} />
           </React.Fragment>

@@ -20,7 +20,7 @@ export function DonutIcon({
     <ChartSvg size={size}>
       {slices.map((s, i) => (
         <path
-          key={i}
+          key={`shape-${i}`}
           d={donutSlicePath(cx, cy, r, inner, s.start, s.end)}
           fill={s.color}
           opacity={s.opacity}

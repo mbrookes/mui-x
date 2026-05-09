@@ -33,7 +33,7 @@ import type { StudioChartType, StudioBarLayout } from '../models';
 import { ChartTypePicker } from './ChartTypePicker';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
-// react-doctor-disable-next-line no-giant-component -- ChartSetupPanel is intentionally cohesive; all sections share widget/dataSources context making extraction add more complexity than it removes
+// react-doctor-disable-next-line react-doctor/no-giant-component -- ChartSetupPanel is intentionally cohesive; all sections share widget/dataSources context making extraction add more complexity than it removes
 export function ChartSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
@@ -45,12 +45,14 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
   const allFields = React.useMemo(() => {
     const physicalFields = Object.values(dataSources)
-      .filter((ds) => !ds.hidden)
-      .flatMap((ds) =>
-        ds.fields.flatMap((f) =>
+      .flatMap((ds) => {
+        if (ds.hidden) {
+          return [];
+        }
+        return ds.fields.flatMap((f) =>
           f.hidden ? [] : [{ ...f, sourceId: ds.id, sourceLabel: ds.label }],
-        ),
-      );
+        );
+      });
     const exprFields = expressionFields.flatMap((ef) => {
       if (ef.hidden) {
         return [];

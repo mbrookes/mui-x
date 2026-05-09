@@ -36,7 +36,7 @@ export function RadarIcon({
       />
       {outerPts.map(([x, y], i) => (
         <line
-          // react-doctor-disable-next-line no-array-index-as-key -- static SVG paths never reorder
+          // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- static SVG paths never reorder
           key={`shape-${i}`}
           x1={cx}
           y1={cy}

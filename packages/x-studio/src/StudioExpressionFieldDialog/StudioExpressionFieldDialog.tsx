@@ -377,7 +377,7 @@ function ExpressionBuilder({
         }
 
         return (
-          // react-doctor-disable-next-line no-array-index-as-key -- inputs schema list is stable and ordered by position
+          // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- inputs schema list is stable and ordered by position
           <Stack key={`input-${i}`} direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
             <Box sx={{ flexGrow: 1 }}>
               <InputNode
@@ -476,7 +476,7 @@ function ExpressionPreview({
       </Typography>
       <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
         {previewResult.values.map((v, i) => (
-          // react-doctor-disable-next-line no-array-index-as-key -- preview values are positional display only
+          // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- preview values are positional display only
           <Chip
             key={`preview-${i}`}
             label={v == null ? 'null' : String(v)}
@@ -528,6 +528,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
   const { label, description, isMeasure, expression } = form;
 
   // Reset form when dialog opens
+  // react-doctor-disable-next-line react-doctor/no-effect-event-handler -- standard dialog reset pattern: key-prop alternative would force full remount on every open
   React.useEffect(() => {
     if (open) {
       setForm({
@@ -690,7 +691,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
             <Alert severity="error">
               <Stack spacing={0.5}>
                 {validationErrors.map((err, i) => (
-                  // react-doctor-disable-next-line no-array-index-as-key -- error list is ephemeral display, no reorder
+                  // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- error list is ephemeral display, no reorder
                   <Typography key={`error-${i}`} variant="caption" component="div">
                     {err.message}
                   </Typography>

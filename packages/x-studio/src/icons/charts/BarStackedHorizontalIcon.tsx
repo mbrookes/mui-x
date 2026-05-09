@@ -17,7 +17,7 @@ export function BarStackedHorizontalIcon({
   return (
     <ChartSvg size={size}>
       {rows.map((r, i) => (
-        // react-doctor-disable-next-line no-array-index-as-key -- static SVG paths never reorder
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- static SVG paths never reorder
         <React.Fragment key={`shape-${i}`}>
           <rect x={2} y={r.y} width={r.a} height={h} fill={c1} rx={0.5} />
           <rect x={2 + r.a} y={r.y} width={r.b} height={h} fill={c2} opacity={0.45} rx={0.5} />

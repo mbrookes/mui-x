@@ -52,6 +52,39 @@ export {
 } from './context/StudioContext';
 export type { StudioProviderProps } from './context/StudioContext';
 
+// ─── Selectors ────────────────────────────────────────────────────────────────
+export {
+  selectFilters,
+  selectDataSources,
+  selectRelationships,
+  selectExpressionFields,
+  selectWidgets,
+  selectMode,
+  selectShell,
+  selectActivePageId,
+  selectPages,
+  selectDashboard,
+  selectActivePage,
+  selectPartitionedFilters,
+  makeSelectActiveInteractiveFilter,
+  makeSelectExpressionFieldsForSource,
+  makeSelectExpressionFieldsForSources,
+} from './context/selectors';
+export type { PartitionedFilters } from './context/selectors';
+
+// ─── DrawerPanel (composable sidebar panel) ───────────────────────────────────
+export {
+  DrawerPanel,
+  useDrawerSubheader,
+  DrawerSubheaderContext,
+  DRAWER_WIDTH,
+  COLLAPSED_WIDTH,
+} from './internals/DrawerPanel';
+export type { DrawerPanelProps } from './internals/DrawerPanel';
+
+// ─── Keyboard shortcuts hook ──────────────────────────────────────────────────
+export { useStudioKeyboardShortcuts } from './internals/useStudioKeyboardShortcuts';
+
 // ─── Controller ───────────────────────────────────────────────────────────────
 export { StudioController, createStudioController } from './store/StudioController';
 export { createDefaultStudioState } from './models/studio';

@@ -20,6 +20,7 @@ import type { StudioDataSourceAdapter, StudioMode, StudioState } from '../models
 import { StudioController } from '../store';
 import type { SerializedStudioState, MigrationResult } from '../store/statePersistence';
 import { DrawerPanel } from '../internals/DrawerPanel';
+import { useStudioKeyboardShortcuts } from '../internals/useStudioKeyboardShortcuts';
 import { StudioCanvas } from '../StudioCanvas';
 import { StudioDataDrawer } from '../StudioDataDrawer';
 import { StudioComposeDrawer } from '../StudioComposeDrawer';
@@ -123,54 +124,7 @@ const StudioContent = React.memo(function StudioContent(props: StudioSlots) {
   const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
   const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
 
-  React.useEffect(() => {
-    const isEditableTarget = (target: EventTarget | null) => {
-      if (!(target instanceof HTMLElement)) {
-        return false;
-      }
-
-      if (target.isContentEditable) {
-        return true;
-      }
-
-      return Boolean(
-        target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]'),
-      );
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.defaultPrevented ||
-        !(event.metaKey || event.ctrlKey) ||
-        event.altKey ||
-        isEditableTarget(event.target)
-      ) {
-        return;
-      }
-
-      const key = event.key.toLowerCase();
-
-      // Redo: Cmd+Shift+Z or Ctrl+Y
-      if ((key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey)) {
-        if (controller.canRedo()) {
-          event.preventDefault();
-          controller.redo();
-        }
-        return;
-      }
-
-      // Undo: Cmd+Z / Ctrl+Z (no shift)
-      if (key === 'z' && !event.shiftKey) {
-        if (controller.canUndo()) {
-          event.preventDefault();
-          controller.undo();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [controller]);
+  useStudioKeyboardShortcuts();
 
   return (
     <Box

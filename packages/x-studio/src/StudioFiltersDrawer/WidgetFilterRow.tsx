@@ -70,7 +70,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
   );
   const disableRankMode = hasAnotherRankFilter && filter.filterMode !== 'rank';
 
-  const handleChange = (changes: Partial<StudioFilterState>) => {
+  const handleFilterChange = (changes: Partial<StudioFilterState>) => {
     const merged = { ...filter, ...changes };
     // Auto-wire field for chart rank filters so isFilterComplete passes
     if (merged.filterMode === 'rank' && chartXField && !merged.field) {
@@ -83,7 +83,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
     if (newMode === 'rank' && disableRankMode) {
       return;
     }
-    handleChange(buildModeReset(newMode));
+    handleFilterChange(buildModeReset(newMode));
   };
 
   const currentMode = filter.filterMode ?? 'condition';
@@ -98,7 +98,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
         return;
       }
       const isNowCrossSource = option.sourceId !== widgetSourceId;
-      handleChange({
+      handleFilterChange({
         field: option.id,
         fieldType: option.fieldType,
         filterSourceId: isNowCrossSource ? option.sourceId : undefined,
@@ -162,7 +162,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
         fieldValues={fieldValues}
         availableSeries={availableSeries}
         onModeChange={handleModeChange}
-        onChange={handleChange}
+        onChange={handleFilterChange}
         disableRankMode={disableRankMode}
       />
     </FilterCard>

@@ -149,7 +149,7 @@ function MultiSelectControl({
     ? values.filter((v) => v.toLowerCase().includes(search.toLowerCase()))
     : values;
 
-  const handleChange = (newValue: string[]) => {
+  const handleSelectionChange = (newValue: string[]) => {
     if (newValue.length === 0) {
       onClear();
     } else {
@@ -188,7 +188,7 @@ function MultiSelectControl({
         size="small"
         fullWidth
         value={selected}
-        onChange={(e) => handleChange(e.target.value as string[])}
+        onChange={(e) => handleSelectionChange(e.target.value as string[])}
         displayEmpty
         renderValue={(sel) => {
           if ((sel as string[]).length === 0) return <em style={{ opacity: 0.5 }}>All</em>;
@@ -346,7 +346,7 @@ function SliderControl({
 
   const isActive = localValue[0] !== min || localValue[1] !== max;
 
-  const handleChange = (_event: Event, newValue: number | number[]) => {
+  const handleSliderChange = (_event: Event, newValue: number | number[]) => {
     setLocalValue(newValue as [number, number]);
   };
 
@@ -393,7 +393,7 @@ function SliderControl({
       <Box sx={{ px: 1 }} data-no-drag>
         <Slider
           value={localValue}
-          onChange={handleChange}
+          onChange={handleSliderChange}
           onChangeCommitted={handleChangeCommitted}
           min={min}
           max={max}

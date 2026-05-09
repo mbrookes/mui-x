@@ -437,11 +437,15 @@ export function FilterValueInput(props: {
   const [localText, setLocalText] = React.useState(strVal);
   const debounceTimer = React.useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Sync local state when the external value changes (e.g., filter cleared programmatically).
-  // react-doctor-disable-next-line react-doctor/no-derived-state-effect -- intentional debounce sync: local text mirrors external value with delay
-  React.useEffect(() => {
+  // Sync local text when external value changes programmatically (e.g., filter cleared).
+  // Render-phase update is preferred over useEffect for derived state (React docs pattern).
+  // Also cancels any pending debounce so the synced value is not overwritten.
+  const [prevValue, setPrevValue] = React.useState(value);
+  if (prevValue !== value) {
+    setPrevValue(value);
     setLocalText(String(value ?? ''));
-  }, [value]);
+    clearTimeout(debounceTimer.current);
+  }
 
   const handleTextChange = React.useCallback(
     (newVal: string) => {

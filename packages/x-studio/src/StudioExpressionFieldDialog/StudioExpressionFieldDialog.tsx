@@ -527,19 +527,6 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
   });
   const { label, description, isMeasure, expression } = form;
 
-  // Reset form when dialog opens
-  // react-doctor-disable-next-line react-doctor/no-effect-event-handler -- standard dialog reset pattern: key-prop alternative would force full remount on every open
-  React.useEffect(() => {
-    if (open) {
-      setForm({
-        label: existingField?.label ?? '',
-        description: existingField?.description ?? '',
-        isMeasure: existingField?.isMeasure ?? false,
-        expression: existingField?.expression ?? makeDefaultExpression(),
-      });
-    }
-  }, [open, existingField]);
-
   const fieldId = existingField?.id ?? `expr-${Date.now()}`;
 
   const inferredType = React.useMemo(

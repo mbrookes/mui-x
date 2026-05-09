@@ -17,7 +17,7 @@ export function ScatterIcon({ size, color = 'currentColor' }: BasicIconProps) {
   return (
     <ChartSvg size={size}>
       {dots.map(([cx, cy], i) => (
-        // react-doctor-disable-next-line no-array-index-as-key -- static SVG paths never reorder
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- static SVG paths never reorder
         <circle key={`shape-${i}`} cx={cx} cy={cy} r={1.8} fill={color} opacity={0.8} />
       ))}
     </ChartSvg>

@@ -60,7 +60,7 @@ function WidgetConfigView(props: { widgetId: string }) {
     [],
   );
 
-  // react-doctor-disable-next-line rerender-memo-before-early-return -- useDrawerSubheader is a hook and must be called unconditionally before the early return
+  // react-doctor-disable-next-line react-doctor/rerender-memo-before-early-return -- useDrawerSubheader is a hook and must be called unconditionally before the early return
   const subheaderNode = React.useMemo(
     () => (
       <Tabs

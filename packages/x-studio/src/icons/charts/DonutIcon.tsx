@@ -20,7 +20,7 @@ export function DonutIcon({
     <ChartSvg size={size}>
       {slices.map((s, i) => (
         <path
-          // react-doctor-disable-next-line no-array-index-as-key -- static SVG paths never reorder
+          // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- static SVG paths never reorder
           key={`shape-${i}`}
           d={donutSlicePath(cx, cy, r, inner, s.start, s.end)}
           fill={s.color}

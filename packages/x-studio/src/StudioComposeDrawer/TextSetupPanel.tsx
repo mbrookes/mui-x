@@ -27,7 +27,7 @@ export function TextSetupPanel(props: { widgetId: string }) {
     }
   };
 
-  const handleBlur = () => {
+  const handleTextFieldBlur = () => {
     controller.updateWidgetConfig(widgetId, {
       textSubtitle: form.subtitle,
       textBody: form.body,
@@ -57,7 +57,7 @@ export function TextSetupPanel(props: { widgetId: string }) {
         helperText="Smaller text below the heading"
         value={form.subtitle}
         onChange={(event) => setForm((prev) => ({ ...prev, subtitle: event.target.value }))}
-        onBlur={handleBlur}
+        onBlur={handleTextFieldBlur}
       />
       <TextField
         label="Body"
@@ -67,7 +67,7 @@ export function TextSetupPanel(props: { widgetId: string }) {
         helperText="Main content of the widget; supports plain text"
         value={form.body}
         onChange={(event) => setForm((prev) => ({ ...prev, body: event.target.value }))}
-        onBlur={handleBlur}
+        onBlur={handleTextFieldBlur}
       />
     </Stack>
   );

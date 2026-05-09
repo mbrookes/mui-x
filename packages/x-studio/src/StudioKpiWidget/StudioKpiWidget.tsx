@@ -42,7 +42,7 @@ export interface StudioKpiWidgetProps {
   dataSource?: StudioDataSource;
 }
 
-// react-doctor-disable-next-line js-index-maps -- find() calls are inside a top-level utility, not inside a .map() loop; O(n) is acceptable for small field sets
+// react-doctor-disable-next-line react-doctor/js-index-maps -- find() calls are inside a top-level utility, not inside a .map() loop; O(n) is acceptable for small field sets
 function getFieldLabel(
   fieldId: string,
   dataSources: Record<string, StudioDataSource>,

@@ -42,13 +42,13 @@ export interface StudioKpiWidgetProps {
   dataSource?: StudioDataSource;
 }
 
-// react-doctor-disable-next-line react-doctor/js-index-maps -- find() calls are inside a top-level utility, not inside a .map() loop; O(n) is acceptable for small field sets
 function getFieldLabel(
   fieldId: string,
   dataSources: Record<string, StudioDataSource>,
   expressionFields: StudioExpressionField[],
 ): string {
   for (const ds of Object.values(dataSources)) {
+    // react-doctor-disable-next-line react-doctor/js-index-maps -- find() is inside a top-level utility, not a .map() loop; O(n) is acceptable for small field sets
     const field = ds.fields.find((f) => f.id === fieldId);
     if (field) {
       return field.label;

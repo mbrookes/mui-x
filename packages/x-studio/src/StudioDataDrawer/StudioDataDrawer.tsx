@@ -403,6 +403,7 @@ function DataSourceSection(props: {
       </Collapse>
 
       <StudioExpressionFieldDialog
+        key={dialogOpen ? (editingField?.id ?? 'new') : 'closed'}
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         dataSource={source}

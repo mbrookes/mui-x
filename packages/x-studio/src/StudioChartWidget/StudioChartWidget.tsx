@@ -209,13 +209,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     ],
   );
 
-  // Clear stale hover state when the chart's field/layout signature changes to avoid
-  // keeping series identifiers or axis highlights from a previous chart shape.
-  // react-doctor-disable-next-line react-doctor/no-derived-state-effect -- intentional reset: clears hover on chart layout change, not derivable during render
-  React.useEffect(() => {
+  // Clear stale hover state when the chart's field/layout signature changes.
+  // Using render-phase state update (recommended over useEffect for derived state resets).
+  const [prevChartKey, setPrevChartKey] = React.useState(chartHighlightStateKey);
+  if (prevChartKey !== chartHighlightStateKey) {
+    setPrevChartKey(chartHighlightStateKey);
     setHoveredItem(null);
     setHoveredAxis(null);
-  }, [chartHighlightStateKey]);
+  }
 
   /** Format x-axis label: apply human-readable period labels when xGroupBy is set. */
   const formatLabel = React.useCallback(

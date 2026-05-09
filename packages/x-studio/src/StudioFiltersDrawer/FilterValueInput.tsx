@@ -78,7 +78,7 @@ function MetricPickerButton({
       if (suitableFields.length === 0) {
         continue;
       }
-      // react-doctor-disable-next-line js-index-maps -- find() runs once per capability type (small fixed enum), not per row
+      // react-doctor-disable-next-line react-doctor/js-index-maps -- find() runs once per capability type (small fixed enum), not per row
       const primaryField =
         (cap === 'numeric' && suitableFields.find((f) => f.id === 'value')) || suitableFields[0];
       for (const row of source.rows) {
@@ -438,7 +438,7 @@ export function FilterValueInput(props: {
   const debounceTimer = React.useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Sync local state when the external value changes (e.g., filter cleared programmatically).
-  // react-doctor-disable-next-line no-derived-state-effect -- intentional debounce sync: local text mirrors external value with delay
+  // react-doctor-disable-next-line react-doctor/no-derived-state-effect -- intentional debounce sync: local text mirrors external value with delay
   React.useEffect(() => {
     setLocalText(String(value ?? ''));
   }, [value]);

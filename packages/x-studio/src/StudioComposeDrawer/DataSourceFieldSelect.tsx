@@ -66,9 +66,11 @@ export function DataSourceFieldSelect({
       return [];
     }
     return Object.values(dataSources)
-      .filter((s) => !s.hidden)
-      .flatMap((src) =>
-        src.fields.flatMap((f) => {
+      .flatMap((src) => {
+        if (src.hidden) {
+          return [];
+        }
+        return src.fields.flatMap((f) => {
           if (f.hidden) return [];
           if (filterCapability && !fieldHasCapability(f, filterCapability)) return [];
           return [
@@ -81,8 +83,8 @@ export function DataSourceFieldSelect({
               sourceLabel: src.label,
             },
           ];
-        }),
-      );
+        });
+      });
   }, [fieldsProp, dataSources, filterCapability]);
 
   const selectedOption = computedFields.find((f) => f.id === value) ?? null;

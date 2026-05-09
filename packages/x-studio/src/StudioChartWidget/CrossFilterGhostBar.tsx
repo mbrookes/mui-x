@@ -20,7 +20,7 @@ export const CrossFilterBarContext = React.createContext<CrossFilterBarData | nu
  * visible in both cases.
  */
 export function CrossFilterGhostBar(props: BarProps) {
-  const ctx = React.useContext(CrossFilterBarContext);
+  const ctx = React.use(CrossFilterBarContext);
   const {
     x,
     y,

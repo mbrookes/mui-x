@@ -22,7 +22,7 @@ export function StudioProvider(props: StudioProviderProps) {
 }
 
 export function useStudioController() {
-  const controller = React.useContext(StudioContext);
+  const controller = React.use(StudioContext);
 
   if (controller == null) {
     throw new Error('useStudioController must be used within a StudioProvider.');

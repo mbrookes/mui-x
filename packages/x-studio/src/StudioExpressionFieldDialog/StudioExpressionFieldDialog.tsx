@@ -517,20 +517,23 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
 
   const isEdit = !!existingField;
 
-  const [label, setLabel] = React.useState(existingField?.label ?? '');
-  const [description, setDescription] = React.useState(existingField?.description ?? '');
-  const [isMeasure, setIsMeasure] = React.useState(existingField?.isMeasure ?? false);
-  const [expression, setExpression] = React.useState<StudioExpression>(
-    existingField?.expression ?? makeDefaultExpression(),
-  );
+  const [form, setForm] = React.useState({
+    label: existingField?.label ?? '',
+    description: existingField?.description ?? '',
+    isMeasure: existingField?.isMeasure ?? false,
+    expression: (existingField?.expression ?? makeDefaultExpression()) as StudioExpression,
+  });
+  const { label, description, isMeasure, expression } = form;
 
   // Reset form when dialog opens
   React.useEffect(() => {
     if (open) {
-      setLabel(existingField?.label ?? '');
-      setDescription(existingField?.description ?? '');
-      setIsMeasure(existingField?.isMeasure ?? false);
-      setExpression(existingField?.expression ?? makeDefaultExpression());
+      setForm({
+        label: existingField?.label ?? '',
+        description: existingField?.description ?? '',
+        isMeasure: existingField?.isMeasure ?? false,
+        expression: existingField?.expression ?? makeDefaultExpression(),
+      });
     }
   }, [open, existingField]);
 
@@ -607,7 +610,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
             required
             helperText="Used as the field label in pickers and grid columns"
             value={label}
-            onChange={(event) => setLabel(event.target.value)}
+            onChange={(event) => setForm((prev) => ({ ...prev, label: event.target.value }))}
             placeholder="e.g. Profit, Revenue per Unit"
           />
 
@@ -620,7 +623,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
             rows={2}
             helperText="Optional. Shown as a tooltip in field pickers"
             value={description}
-            onChange={(event) => setDescription(event.target.value)}
+            onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
             placeholder="Optional: describe what this field computes"
           />
 
@@ -631,7 +634,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
                 <Switch
                   size="small"
                   checked={isMeasure}
-                  onChange={(event) => setIsMeasure(event.target.checked)}
+                  onChange={(event) => setForm((prev) => ({ ...prev, isMeasure: event.target.checked }))}
                 />
               }
               label={
@@ -667,7 +670,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
               sourceFields={dataSource.fields}
               expressionFields={expressionFields.filter((ef) => ef.id !== fieldId)}
               isMeasure={isMeasure}
-              onChange={setExpression}
+              onChange={(expr) => setForm((prev) => ({ ...prev, expression: expr }))}
             />
           </div>
 

@@ -100,7 +100,6 @@ describe('FilterValueInput', () => {
   });
 
   it('clears the metric selection when the relative date amount is manually edited', () => {
-    // react-doctor-disable-next-line react-doctor/no-generic-handler-names -- test spy named generically intentionally
     const handleChange = vi.fn();
     const handleValueRefChange = vi.fn();
 
@@ -110,6 +109,7 @@ describe('FilterValueInput', () => {
         operator="greater_than"
         value={{ relative: true, amount: 3, unit: 'day', direction: 'past' }}
         valueRef={{ sourceId: 'metrics', rowId: 'BM-001', field: 'value' }}
+        // react-doctor-disable-next-line react-doctor/no-generic-handler-names -- test spy named generically intentionally
         onChange={handleChange}
         onValueRefChange={handleValueRefChange}
       />,
@@ -127,7 +127,6 @@ describe('FilterValueInput', () => {
   });
 
   it('applies a selected field to the relative date amount and sets valueRef', () => {
-    // react-doctor-disable-next-line react-doctor/no-generic-handler-names -- test spy named generically intentionally
     const handleChange = vi.fn();
     const handleValueRefChange = vi.fn();
 
@@ -136,6 +135,7 @@ describe('FilterValueInput', () => {
         fieldType="date"
         operator="greater_than"
         value={{ relative: true, amount: 3, unit: 'day', direction: 'past' }}
+        // react-doctor-disable-next-line react-doctor/no-generic-handler-names -- test spy named generically intentionally
         onChange={handleChange}
         onValueRefChange={handleValueRefChange}
       />,
@@ -175,7 +175,6 @@ describe('FilterValueInput', () => {
   });
 
   it('supports an atomic field link callback', () => {
-    // react-doctor-disable-next-line react-doctor/no-generic-handler-names -- test spy named generically intentionally
     const handleChange = vi.fn();
     const handleMetricSelect = vi.fn();
 
@@ -184,6 +183,7 @@ describe('FilterValueInput', () => {
         fieldType="date"
         operator="greater_than"
         value={{ relative: true, amount: 3, unit: 'day', direction: 'past' }}
+        // react-doctor-disable-next-line react-doctor/no-generic-handler-names -- test spy named generically intentionally
         onChange={handleChange}
         onValueRefChange={() => {}}
         onMetricSelect={handleMetricSelect}

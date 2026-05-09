@@ -78,8 +78,8 @@ function MetricPickerButton({
       if (suitableFields.length === 0) {
         continue;
       }
-      // react-doctor-disable-next-line react-doctor/js-index-maps -- find() runs once per capability type (small fixed enum), not per row
       const primaryField =
+        // react-doctor-disable-next-line react-doctor/js-index-maps -- find() runs once per capability type (small fixed enum), not per row
         (cap === 'numeric' && suitableFields.find((f) => f.id === 'value')) || suitableFields[0];
       for (const row of source.rows) {
         const nameVal = row.name ?? row.label ?? row.metric ?? row.title;

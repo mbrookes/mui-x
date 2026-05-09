@@ -322,15 +322,17 @@ export function KpiSetupPanel(props: { widgetId: string }) {
     const physicalFields = Object.values(dataSources)
       .filter((ds) => !ds.hidden)
       .flatMap((ds) =>
-        ds.fields
-          .filter((f) => !f.hidden)
-          .map((f) => ({ ...f, sourceId: ds.id, sourceLabel: ds.label })),
+        ds.fields.flatMap((f) =>
+          f.hidden ? [] : [{ ...f, sourceId: ds.id, sourceLabel: ds.label }],
+        ),
       );
-    const exprFields = expressionFields
-      .filter((ef) => !ef.hidden)
-      .map((ef) => {
-        const ds = dataSources[ef.sourceId];
-        return {
+    const exprFields = expressionFields.flatMap((ef) => {
+      if (ef.hidden) {
+        return [];
+      }
+      const ds = dataSources[ef.sourceId];
+      return [
+        {
           id: ef.id,
           label: ef.label,
           description: ef.description,
@@ -340,8 +342,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           generated: true,
           sourceId: ef.sourceId,
           sourceLabel: ds?.label ?? ef.sourceId,
-        };
-      });
+        },
+      ];
+    });
     return [...physicalFields, ...exprFields].sort((a, b) =>
       a.sourceLabel.localeCompare(b.sourceLabel),
     );

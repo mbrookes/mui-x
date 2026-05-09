@@ -26,7 +26,7 @@ export const DrawerSubheaderContext = React.createContext<DrawerSubheaderContext
  * Uses useLayoutEffect so the node appears on the first paint with no flash.
  */
 export function useDrawerSubheader(node: React.ReactNode) {
-  const ctx = React.useContext(DrawerSubheaderContext);
+  const ctx = React.use(DrawerSubheaderContext);
   React.useLayoutEffect(() => {
     ctx?.setSubheader(node);
     return () => ctx?.setSubheader(null);

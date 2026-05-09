@@ -320,12 +320,14 @@ export function KpiSetupPanel(props: { widgetId: string }) {
   // Gather fields from all data sources (used for the value field anchor picker)
   const allFields = React.useMemo(() => {
     const physicalFields = Object.values(dataSources)
-      .filter((ds) => !ds.hidden)
-      .flatMap((ds) =>
-        ds.fields.flatMap((f) =>
+      .flatMap((ds) => {
+        if (ds.hidden) {
+          return [];
+        }
+        return ds.fields.flatMap((f) =>
           f.hidden ? [] : [{ ...f, sourceId: ds.id, sourceLabel: ds.label }],
-        ),
-      );
+        );
+      });
     const exprFields = expressionFields.flatMap((ef) => {
       if (ef.hidden) {
         return [];

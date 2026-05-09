@@ -12,7 +12,7 @@ export function FunnelIcon({ size, color = 'currentColor' }: BasicIconProps) {
     <ChartSvg size={size}>
       {layers.map((l, i) => (
         <polygon
-          // react-doctor-disable-next-line no-array-index-as-key -- static SVG paths never reorder
+          // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- static SVG paths never reorder
           key={`shape-${i}`}
           points={`${l.lT},${l.t} ${l.rT},${l.t} ${l.rB},${l.b} ${l.lB},${l.b}`}
           fill={color}

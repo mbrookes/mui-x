@@ -61,7 +61,7 @@ function FieldPreviewTooltip({
         {field.label}
       </Typography>
       {values.map((v, i) => (
-        // react-doctor-disable-next-line no-array-index-as-key -- display-only list of enum values, ordering is stable
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- display-only list of enum values, ordering is stable
         <Typography key={`val-${i}`} variant="caption" sx={{ fontFamily: 'monospace', opacity: 0.9 }}>
           {v}
         </Typography>

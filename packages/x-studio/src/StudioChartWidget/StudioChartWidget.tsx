@@ -211,7 +211,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   // Clear stale hover state when the chart's field/layout signature changes to avoid
   // keeping series identifiers or axis highlights from a previous chart shape.
-  // react-doctor-disable-next-line no-derived-state-effect -- intentional reset: clears hover on chart layout change, not derivable during render
+  // react-doctor-disable-next-line react-doctor/no-derived-state-effect -- intentional reset: clears hover on chart layout change, not derivable during render
   React.useEffect(() => {
     setHoveredItem(null);
     setHoveredAxis(null);

@@ -32,7 +32,7 @@ function InsertionPoint({
   const posRef = React.useRef({ rowIndex, colIndex, orientation });
   posRef.current = { rowIndex, colIndex, orientation };
 
-  // react-doctor-disable-next-line no-cascading-set-state, prefer-use-effect-event -- setIsOver calls are in separate DOM event handlers, not cascading; posRef pattern is the correct alternative to useEffectEvent for stable closure capture
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state, prefer-use-effect-event -- setIsOver calls are in separate DOM event handlers, not cascading; posRef pattern is the correct alternative to useEffectEvent for stable closure capture
   React.useEffect(() => {
     // No-op in view mode
     if (mode !== 'edit') {

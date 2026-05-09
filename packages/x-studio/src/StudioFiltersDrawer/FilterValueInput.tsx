@@ -78,9 +78,9 @@ function MetricPickerButton({
       if (suitableFields.length === 0) {
         continue;
       }
+      const suitableFieldMap = new Map(suitableFields.map((f) => [f.id, f]));
       const primaryField =
-        // react-doctor-disable-next-line react-doctor/js-index-maps -- find() runs once per capability type (small fixed enum), not per row
-        (cap === 'numeric' && suitableFields.find((f) => f.id === 'value')) || suitableFields[0];
+        (cap === 'numeric' ? suitableFieldMap.get('value') : undefined) ?? suitableFields[0];
       for (const row of source.rows) {
         const nameVal = row.name ?? row.label ?? row.metric ?? row.title;
         if (!nameVal) {
@@ -438,11 +438,11 @@ export function FilterValueInput(props: {
   const debounceTimer = React.useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Sync local text when external value changes programmatically (e.g., filter cleared).
-  // Render-phase update is preferred over useEffect for derived state (React docs pattern).
-  // Also cancels any pending debounce so the synced value is not overwritten.
-  const [prevValue, setPrevValue] = React.useState(value);
-  if (prevValue !== value) {
-    setPrevValue(value);
+  // useRef tracks the previous value without triggering extra re-renders; the setLocalText
+  // call below causes React to restart the render with the synced value.
+  const prevValueRef = React.useRef(value);
+  if (prevValueRef.current !== value) {
+    prevValueRef.current = value;
     setLocalText(String(value ?? ''));
     clearTimeout(debounceTimer.current);
   }

@@ -47,14 +47,11 @@ function getFieldLabel(
   dataSources: Record<string, StudioDataSource>,
   expressionFields: StudioExpressionField[],
 ): string {
-  for (const ds of Object.values(dataSources)) {
-    // react-doctor-disable-next-line react-doctor/js-index-maps -- find() is inside a top-level utility, not a .map() loop; O(n) is acceptable for small field sets
-    const field = ds.fields.find((f) => f.id === fieldId);
-    if (field) {
-      return field.label;
-    }
-  }
-  return expressionFields.find((ef) => ef.id === fieldId)?.label ?? fieldId;
+  const field =
+    Object.values(dataSources)
+      .flatMap((ds) => ds.fields)
+      .find((f) => f.id === fieldId) ?? expressionFields.find((ef) => ef.id === fieldId);
+  return field?.label ?? fieldId;
 }
 
 export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: StudioKpiWidgetProps) {

@@ -85,12 +85,15 @@ export function StudioFiltersDrawer() {
     if (!yFields) {
       return undefined;
     }
-    return yFields
-      .filter((s) => !!s.fieldId)
-      .map((s) => ({
-        fieldId: s.fieldId as string,
-        label: source.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId ?? s.fieldId,
-      }));
+    return yFields.flatMap((s) => {
+      if (!s.fieldId) return [];
+      return [
+        {
+          fieldId: s.fieldId as string,
+          label: source.fields.find((f) => f.id === s.fieldId)?.label ?? s.fieldId,
+        },
+      ];
+    });
   }, [selectedWidget, dataSources]);
 
   const pageFilters = (filters as StudioFilterState[]).filter(

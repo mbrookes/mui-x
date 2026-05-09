@@ -18,7 +18,7 @@ export function PieIcon({
   return (
     <ChartSvg size={size}>
       {slices.map((s, i) => (
-        <path key={i} d={slicePath(cx, cy, r, s.start, s.end)} fill={s.color} opacity={s.opacity} />
+        <path key={`shape-${i}`} d={slicePath(cx, cy, r, s.start, s.end)} fill={s.color} opacity={s.opacity} />
       ))}
     </ChartSvg>
   );

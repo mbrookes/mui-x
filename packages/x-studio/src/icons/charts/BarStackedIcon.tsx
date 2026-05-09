@@ -18,7 +18,7 @@ export function BarStackedIcon({
   return (
     <ChartSvg size={size}>
       {groups.map((g, i) => (
-        <React.Fragment key={i}>
+        <React.Fragment key={`shape-${i}`}>
           <rect x={g.x} y={bottom - g.a} width={w} height={g.a} fill={c1} rx={0.5} />
           <rect
             x={g.x}

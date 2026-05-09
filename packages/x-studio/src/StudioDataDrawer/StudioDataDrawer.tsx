@@ -61,8 +61,7 @@ function FieldPreviewTooltip({
         {field.label}
       </Typography>
       {values.map((v, i) => (
-        // eslint-disable-next-line react/no-array-index-key
-        <Typography key={i} variant="caption" sx={{ fontFamily: 'monospace', opacity: 0.9 }}>
+        <Typography key={`val-${i}`} variant="caption" sx={{ fontFamily: 'monospace', opacity: 0.9 }}>
           {v}
         </Typography>
       ))}
@@ -343,31 +342,30 @@ function DataSourceSection(props: {
       <Collapse in={open}>
         <List dense disablePadding sx={{ pl: 1 }}>
           {/* Physical fields */}
-          {source.fields
-            .filter((f) => !f.hidden)
-            .map((field) => {
-              const isSelected = selectedSourceId === source.id && selectedFieldId === field.id;
-              return (
-                <FieldPreviewTooltip key={field.id} field={field} rows={source.rows}>
-                  <ListItemButton
-                    selected={isSelected}
-                    onClick={() => controller.selectField(source.id, field.id)}
-                    sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
-                  >
-                    <ListItemText
-                      primary={
-                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                          <FieldTypeIcon type={field.type} generated={field.generated} size={15} />
-                          <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
-                            {field.label}
-                          </Typography>
-                        </Stack>
-                      }
-                    />
-                  </ListItemButton>
-                </FieldPreviewTooltip>
-              );
-            })}
+          {source.fields.flatMap((field) => {
+            if (field.hidden) return [];
+            const isSelected = selectedSourceId === source.id && selectedFieldId === field.id;
+            return [
+              <FieldPreviewTooltip key={field.id} field={field} rows={source.rows}>
+                <ListItemButton
+                  selected={isSelected}
+                  onClick={() => controller.selectField(source.id, field.id)}
+                  sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
+                >
+                  <ListItemText
+                    primary={
+                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                        <FieldTypeIcon type={field.type} generated={field.generated} size={15} />
+                        <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
+                          {field.label}
+                        </Typography>
+                      </Stack>
+                    }
+                  />
+                </ListItemButton>
+              </FieldPreviewTooltip>,
+            ];
+          })}
 
           {/* Expression fields */}
           {sourceExprFields.map((ef) => (

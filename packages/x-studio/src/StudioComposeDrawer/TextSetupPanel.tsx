@@ -7,26 +7,30 @@ export function TextSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const widget = useStudioSelector(selectWidgets)[widgetId];
-  const [title, setTitle] = React.useState(widget?.title ?? '');
-  const [subtitle, setSubtitle] = React.useState(widget?.config.textSubtitle ?? '');
-  const [body, setBody] = React.useState(widget?.config.textBody ?? '');
+  const [form, setForm] = React.useState({
+    title: widget?.title ?? '',
+    subtitle: widget?.config.textSubtitle ?? '',
+    body: widget?.config.textBody ?? '',
+  });
 
   React.useEffect(() => {
-    setTitle(widget?.title ?? '');
-    setSubtitle(widget?.config.textSubtitle ?? '');
-    setBody(widget?.config.textBody ?? '');
+    setForm({
+      title: widget?.title ?? '',
+      subtitle: widget?.config.textSubtitle ?? '',
+      body: widget?.config.textBody ?? '',
+    });
   }, [widget?.title, widget?.config.textSubtitle, widget?.config.textBody, widgetId]);
 
   const handleTitleBlur = () => {
-    if (title !== widget?.title) {
-      controller.updateWidget(widgetId, { title });
+    if (form.title !== widget?.title) {
+      controller.updateWidget(widgetId, { title: form.title });
     }
   };
 
   const handleBlur = () => {
     controller.updateWidgetConfig(widgetId, {
-      textSubtitle: subtitle,
-      textBody: body,
+      textSubtitle: form.subtitle,
+      textBody: form.body,
     });
   };
 
@@ -37,8 +41,8 @@ export function TextSetupPanel(props: { widgetId: string }) {
         size="small"
         fullWidth
         helperText="Heading displayed at the top of the widget"
-        value={title}
-        onChange={(event) => setTitle(event.target.value)}
+        value={form.title}
+        onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
         onBlur={handleTitleBlur}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
@@ -51,8 +55,8 @@ export function TextSetupPanel(props: { widgetId: string }) {
         size="small"
         fullWidth
         helperText="Smaller text below the heading"
-        value={subtitle}
-        onChange={(event) => setSubtitle(event.target.value)}
+        value={form.subtitle}
+        onChange={(event) => setForm((prev) => ({ ...prev, subtitle: event.target.value }))}
         onBlur={handleBlur}
       />
       <TextField
@@ -61,8 +65,8 @@ export function TextSetupPanel(props: { widgetId: string }) {
         multiline
         minRows={5}
         helperText="Main content of the widget; supports plain text"
-        value={body}
-        onChange={(event) => setBody(event.target.value)}
+        value={form.body}
+        onChange={(event) => setForm((prev) => ({ ...prev, body: event.target.value }))}
         onBlur={handleBlur}
       />
     </Stack>

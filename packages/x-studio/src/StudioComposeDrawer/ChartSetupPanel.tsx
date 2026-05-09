@@ -136,7 +136,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       analyzeChartSupport(
         widgetSourceId ?? supportSourceId,
         config.xField,
-        ySeries.map((series) => series.fieldId).filter(Boolean),
+        ySeries.flatMap((series) => (series.fieldId ? [series.fieldId] : [])),
         config.seriesField,
         chartType,
         dataSources,
@@ -165,7 +165,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       analyzeChartSupport(
         widgetSourceId ?? supportSourceId,
         overrides.xField ?? config.xField,
-        overrides.yFields ?? ySeries.map((series) => series.fieldId).filter(Boolean),
+        overrides.yFields ?? ySeries.flatMap((series) => (series.fieldId ? [series.fieldId] : [])),
         overrides.seriesField ?? config.seriesField,
         chartType,
         dataSources,
@@ -192,7 +192,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     });
   };
 
-  const usedYFieldIds = ySeries.map((s) => s.fieldId).filter(Boolean);
+  const usedYFieldIds = ySeries.flatMap((s) => (s.fieldId ? [s.fieldId] : []));
 
   const handleAddSeries = () => {
     controller.updateWidgetConfig(widgetId, { ySeries: [...ySeries, { fieldId: '' }] });
@@ -325,7 +325,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         </Stack>
         <Stack spacing={1}>
           {ySeries.map((s, index) => (
-            <Stack key={index} direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+            <Stack key={s.fieldId || `series-${index}`} direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
               <DataSourceFieldSelect
                 value={s.fieldId ?? ''}
                 onChange={(fieldId) => handleSeriesFieldChange(index, fieldId)}
@@ -334,11 +334,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   (option.id !== s.fieldId && usedYFieldIds.includes(option.id)) ||
                   (option.id !== s.fieldId &&
                     !analyzeCombination({
-                      yFields: ySeries
-                        .map((series, seriesIndex) =>
-                          seriesIndex === index ? option.id : series.fieldId,
-                        )
-                        .filter(Boolean),
+                      yFields: ySeries.flatMap((series, seriesIndex) => {
+                        const fieldId = seriesIndex === index ? option.id : series.fieldId;
+                        return fieldId ? [fieldId] : [];
+                      }),
                     }).supported)
                 }
                 label={

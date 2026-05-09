@@ -139,17 +139,19 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
       return [];
     }
     const result: DataSourceFieldEntry[] = [];
-    source.fields
-      .filter((f) => fieldHasCapability(f, 'temporal'))
-      .forEach((f) =>
+    const seen = new Set<string>();
+    for (const f of source.fields) {
+      if (fieldHasCapability(f, 'temporal')) {
         result.push({
           id: f.id,
           label: f.label,
           type: f.type,
           sourceId,
           sourceLabel: source.label,
-        }),
-      );
+        });
+        seen.add(`${f.id}:${sourceId}`);
+      }
+    }
     for (const rel of relationships) {
       let relatedId: string | null = null;
       if (rel.sourceId === sourceId) {
@@ -164,19 +166,19 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
       if (!relSource) {
         continue;
       }
-      relSource.fields
-        .filter((f) => fieldHasCapability(f, 'temporal'))
-        .forEach((f) => {
-          if (!result.find((r) => r.id === f.id && r.sourceId === relatedId)) {
-            result.push({
-              id: f.id,
-              label: f.label,
-              type: f.type,
-              sourceId: relatedId!,
-              sourceLabel: relSource.label,
-            });
-          }
-        });
+      for (const f of relSource.fields) {
+        const key = `${f.id}:${relatedId}`;
+        if (fieldHasCapability(f, 'temporal') && !seen.has(key)) {
+          seen.add(key);
+          result.push({
+            id: f.id,
+            label: f.label,
+            type: f.type,
+            sourceId: relatedId!,
+            sourceLabel: relSource.label,
+          });
+        }
+      }
     }
     return result;
   }, [source, sourceId, relationships, dataSources]);

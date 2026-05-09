@@ -12,7 +12,7 @@ export function FunnelIcon({ size, color = 'currentColor' }: BasicIconProps) {
     <ChartSvg size={size}>
       {layers.map((l, i) => (
         <polygon
-          key={i}
+          key={`shape-${i}`}
           points={`${l.lT},${l.t} ${l.rT},${l.t} ${l.rB},${l.b} ${l.lB},${l.b}`}
           fill={color}
           opacity={l.op}

@@ -232,8 +232,10 @@ export function inferWidgetTitles(
     case 'chart': {
       const xLabel = findFieldLabel(config.xField);
       const yLabels = (config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : []))
-        .map((s) => findFieldLabel(s.fieldId))
-        .filter((l): l is string => Boolean(l));
+        .flatMap((s) => {
+          const label = findFieldLabel(s.fieldId);
+          return label ? [label] : [];
+        });
 
       const seriesLabel = findFieldLabel(config.seriesField);
       const chartType = config.chartType ?? 'bar';
@@ -279,9 +281,10 @@ export function inferWidgetTitles(
       const title = source?.label ?? 'Table';
       const visibleColumnLabels = (
         config.columns?.length ? config.columns : (source?.fields.map((f) => f.id) ?? [])
-      )
-        .map((fieldId) => findFieldLabel(fieldId))
-        .filter((label): label is string => Boolean(label));
+      ).flatMap((fieldId) => {
+        const label = findFieldLabel(fieldId);
+        return label ? [label] : [];
+      });
 
       const subtitle =
         visibleColumnLabels.length > 0 ? summarizeFieldLabels(visibleColumnLabels) : '';

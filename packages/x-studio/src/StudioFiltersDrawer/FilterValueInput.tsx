@@ -78,13 +78,13 @@ function MetricPickerButton({
       if (suitableFields.length === 0) {
         continue;
       }
+      const primaryField =
+        (cap === 'numeric' && suitableFields.find((f) => f.id === 'value')) || suitableFields[0];
       for (const row of source.rows) {
         const nameVal = row.name ?? row.label ?? row.metric ?? row.title;
         if (!nameVal) {
           continue;
         }
-        const primaryField =
-          (cap === 'numeric' && suitableFields.find((f) => f.id === 'value')) || suitableFields[0];
         const val = row[primaryField.id];
         if (cap === 'temporal' ? typeof val !== 'string' : typeof val !== 'number') {
           continue;

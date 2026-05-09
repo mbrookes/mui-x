@@ -159,9 +159,12 @@ function InputNode({
 
   const allFieldOptions = [
     ...sourceFields.map((f) => ({ id: f.id, label: f.label, isExpr: false })),
-    ...expressionFields
-      .filter((ef) => !ef.isMeasure || isMeasure)
-      .map((ef) => ({ id: ef.id, label: ef.label, isExpr: true })),
+    ...expressionFields.flatMap((ef) => {
+      if (!ef.isMeasure || isMeasure) {
+        return [{ id: ef.id, label: ef.label, isExpr: true }];
+      }
+      return [];
+    }),
   ];
 
   return (
@@ -374,7 +377,7 @@ function ExpressionBuilder({
         }
 
         return (
-          <Stack key={i} direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+          <Stack key={`input-${i}`} direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
             <Box sx={{ flexGrow: 1 }}>
               <InputNode
                 expr={inp}
@@ -473,7 +476,7 @@ function ExpressionPreview({
       <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
         {previewResult.values.map((v, i) => (
           <Chip
-            key={i}
+            key={`preview-${i}`}
             label={v == null ? 'null' : String(v)}
             size="small"
             color="default"
@@ -682,7 +685,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
             <Alert severity="error">
               <Stack spacing={0.5}>
                 {validationErrors.map((err, i) => (
-                  <Typography key={i} variant="caption" component="div">
+                  <Typography key={`error-${i}`} variant="caption" component="div">
                     {err.message}
                   </Typography>
                 ))}

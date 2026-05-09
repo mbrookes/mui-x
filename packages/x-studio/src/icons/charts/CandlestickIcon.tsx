@@ -14,7 +14,7 @@ export function CandlestickIcon({
   return (
     <ChartSvg size={size}>
       {candles.map((c, i) => (
-        <React.Fragment key={i}>
+        <React.Fragment key={`shape-${i}`}>
           <line
             x1={c.x}
             y1={c.wickTop}

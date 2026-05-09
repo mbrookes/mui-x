@@ -143,9 +143,10 @@ describe('ChartSetupPanel', () => {
 
     await user.click(splitByInput);
 
-    const countryOption = await screen.findByRole('option', { name: /Country$/ });
-    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequential for test determinism: each findByRole waits for DOM to settle
-    const statusOption = await screen.findByRole('option', { name: /Status$/ });
+    const [countryOption, statusOption] = await Promise.all([
+      screen.findByRole('option', { name: /Country$/ }),
+      screen.findByRole('option', { name: /Status$/ }),
+    ]);
 
     expect(countryOption.getAttribute('aria-disabled')).toBe('false');
     expect(statusOption.getAttribute('aria-disabled')).toBe('true');
@@ -187,9 +188,10 @@ describe('ChartSetupPanel', () => {
 
     await user.click(splitByInput);
 
-    const countryOption = await screen.findByRole('option', { name: /Country$/ });
-    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequential for test determinism: each findByRole waits for DOM to settle
-    const statusOption = await screen.findByRole('option', { name: /Status$/ });
+    const [countryOption, statusOption] = await Promise.all([
+      screen.findByRole('option', { name: /Country$/ }),
+      screen.findByRole('option', { name: /Status$/ }),
+    ]);
 
     expect(countryOption.getAttribute('aria-disabled')).toBe('false');
     expect(statusOption.getAttribute('aria-disabled')).toBe('true');

@@ -33,7 +33,7 @@ import type { StudioChartType, StudioBarLayout } from '../models';
 import { ChartTypePicker } from './ChartTypePicker';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
-// react-doctor-disable-next-line react-doctor/no-giant-component -- ChartSetupPanel is intentionally cohesive; all sections share widget/dataSources context making extraction add more complexity than it removes
+// react-doctor-disable-next-line react-doctor/no-giant-component
 export function ChartSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();

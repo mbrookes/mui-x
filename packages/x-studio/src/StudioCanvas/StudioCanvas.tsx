@@ -74,7 +74,7 @@ function InsertionPoint({
     // onDrop is now a stable useCallback; mode changes require listener re-registration.
     // rowIndex/colIndex/orientation are read from posRef so excluded from deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    // react-doctor-disable-next-line react-doctor/prefer-use-effect-event -- posRef pattern is the intentional alternative: avoids re-registration on every render while keeping the ref current
+    // react-doctor-disable-next-line react-doctor/prefer-use-effect-event
   }, [onDrop, mode]);
   // Only show the line when hovered, otherwise invisible and non-interfering
   return (

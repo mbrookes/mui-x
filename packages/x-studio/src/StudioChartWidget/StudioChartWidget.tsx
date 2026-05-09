@@ -210,10 +210,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   );
 
   // Clear stale hover state when the chart's field/layout signature changes.
-  // Using render-phase state update (recommended over useEffect for derived state resets).
-  const [prevChartKey, setPrevChartKey] = React.useState(chartHighlightStateKey);
-  if (prevChartKey !== chartHighlightStateKey) {
-    setPrevChartKey(chartHighlightStateKey);
+  // useRef tracks the previous key without triggering extra re-renders; the setState
+  // calls below cause React to restart the render with cleared hover state.
+  const prevChartKeyRef = React.useRef(chartHighlightStateKey);
+  if (prevChartKeyRef.current !== chartHighlightStateKey) {
+    prevChartKeyRef.current = chartHighlightStateKey;
     setHoveredItem(null);
     setHoveredAxis(null);
   }

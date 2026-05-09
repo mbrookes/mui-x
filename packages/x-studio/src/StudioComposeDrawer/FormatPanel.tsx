@@ -25,20 +25,25 @@ export function FormatPanel(props: { widgetId: string }) {
   const controller = useStudioController();
   const widget = useStudioSelector(selectWidgets)[widgetId];
   const dataSources = useStudioSelector(selectDataSources);
-  const [title, setTitle] = React.useState(widget?.title ?? '');
-  const [subtitle, setSubtitle] = React.useState(widget?.subtitle ?? '');
-  const [titleDirty, setTitleDirty] = React.useState(false);
-  const [subtitleDirty, setSubtitleDirty] = React.useState(false);
+  const [formState, setFormState] = React.useState({
+    title: widget?.title ?? '',
+    subtitle: widget?.subtitle ?? '',
+    titleDirty: false,
+    subtitleDirty: false,
+  });
+  const { title, subtitle, titleDirty, subtitleDirty } = formState;
 
   const isAutoTitle = widget?.titleMode === 'auto' || (!widget?.titleMode && !widget?.title);
   const isAutoSubtitle =
     widget?.subtitleMode === 'auto' || (!widget?.subtitleMode && !widget?.subtitle);
 
   React.useEffect(() => {
-    setTitle(widget?.title ?? '');
-    setSubtitle(widget?.subtitle ?? '');
-    setTitleDirty(false);
-    setSubtitleDirty(false);
+    setFormState({
+      title: widget?.title ?? '',
+      subtitle: widget?.subtitle ?? '',
+      titleDirty: false,
+      subtitleDirty: false,
+    });
   }, [widget?.title, widget?.subtitle, widgetId]);
 
   const handleTitleBlur = () => {
@@ -49,7 +54,7 @@ export function FormatPanel(props: { widgetId: string }) {
     if (trimmed !== (widget?.title ?? '')) {
       controller.updateWidget(widgetId, { title: trimmed, titleMode: 'manual' });
     }
-    setTitleDirty(false);
+    setFormState((prev) => ({ ...prev, titleDirty: false }));
   };
 
   const handleResetTitle = () => {
@@ -58,7 +63,7 @@ export function FormatPanel(props: { widgetId: string }) {
     }
     const inferred = inferWidgetTitles(widget, dataSources);
     controller.updateWidget(widgetId, { title: inferred.title, titleMode: 'auto' });
-    setTitle(inferred.title);
+    setFormState((prev) => ({ ...prev, title: inferred.title }));
   };
 
   const handleSubtitleBlur = () => {
@@ -72,7 +77,7 @@ export function FormatPanel(props: { widgetId: string }) {
         subtitleMode: trimmed ? 'manual' : 'auto',
       });
     }
-    setSubtitleDirty(false);
+    setFormState((prev) => ({ ...prev, subtitleDirty: false }));
   };
 
   const handleResetSubtitle = () => {
@@ -81,7 +86,7 @@ export function FormatPanel(props: { widgetId: string }) {
     }
     const inferred = inferWidgetTitles(widget, dataSources);
     controller.updateWidget(widgetId, { subtitle: inferred.subtitle, subtitleMode: 'auto' });
-    setSubtitle(inferred.subtitle);
+    setFormState((prev) => ({ ...prev, subtitle: inferred.subtitle }));
   };
 
   return (
@@ -108,8 +113,7 @@ export function FormatPanel(props: { widgetId: string }) {
         helperText="Shown in the widget header"
         value={title}
         onChange={(event) => {
-          setTitle(event.target.value);
-          setTitleDirty(true);
+          setFormState((prev) => ({ ...prev, title: event.target.value, titleDirty: true }));
         }}
         onBlur={handleTitleBlur}
         onKeyDown={(event) => {
@@ -145,8 +149,7 @@ export function FormatPanel(props: { widgetId: string }) {
         value={subtitle}
         placeholder={isAutoSubtitle ? '' : 'No subtitle'}
         onChange={(event) => {
-          setSubtitle(event.target.value);
-          setSubtitleDirty(true);
+          setFormState((prev) => ({ ...prev, subtitle: event.target.value, subtitleDirty: true }));
         }}
         onBlur={handleSubtitleBlur}
         onKeyDown={(event) => {

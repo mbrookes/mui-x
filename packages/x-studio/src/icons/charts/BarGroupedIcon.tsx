@@ -22,7 +22,7 @@ export function BarGroupedIcon({
     <ChartSvg size={size}>
       {bars.map((b, i) => (
         <rect
-          key={i}
+          key={`shape-${i}`}
           x={b.x}
           y={bottom - b.h}
           width={3}

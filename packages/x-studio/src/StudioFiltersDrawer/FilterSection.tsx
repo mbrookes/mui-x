@@ -142,8 +142,7 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
               ? `${(filter.value as unknown[]).length} selected`
               : typeof filter.value === 'object' && filter.value !== null
                 ? Object.entries(filter.value as Record<string, unknown>)
-                    .filter(([, v]) => v != null)
-                    .map(([k, v]) => `${k}: ${String(v)}`)
+                    .flatMap(([k, v]) => (v != null ? [`${k}: ${String(v)}`] : []))
                     .join(' – ')
                 : String(filter.value ?? '');
             return (

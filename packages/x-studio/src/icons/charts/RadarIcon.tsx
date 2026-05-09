@@ -36,7 +36,7 @@ export function RadarIcon({
       />
       {outerPts.map(([x, y], i) => (
         <line
-          key={i}
+          key={`shape-${i}`}
           x1={cx}
           y1={cy}
           x2={x}

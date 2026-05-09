@@ -32,7 +32,7 @@ function InsertionPoint({
   const posRef = React.useRef({ rowIndex, colIndex, orientation });
   posRef.current = { rowIndex, colIndex, orientation };
 
-  // react-doctor-disable-next-line react-doctor/no-cascading-set-state, prefer-use-effect-event -- setIsOver calls are in separate DOM event handlers, not cascading; posRef pattern is the correct alternative to useEffectEvent for stable closure capture
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- setIsOver calls are in separate DOM event handlers, not cascading setState
   React.useEffect(() => {
     // No-op in view mode
     if (mode !== 'edit') {
@@ -74,6 +74,7 @@ function InsertionPoint({
     // onDrop is now a stable useCallback; mode changes require listener re-registration.
     // rowIndex/colIndex/orientation are read from posRef so excluded from deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/prefer-use-effect-event -- posRef pattern is the intentional alternative: avoids re-registration on every render while keeping the ref current
   }, [onDrop, mode]);
   // Only show the line when hovered, otherwise invisible and non-interfering
   return (

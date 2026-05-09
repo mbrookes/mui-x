@@ -143,8 +143,8 @@ describe('ChartSetupPanel', () => {
 
     await user.click(splitByInput);
 
-    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequential for test determinism: each findByRole waits for DOM to settle
     const countryOption = await screen.findByRole('option', { name: /Country$/ });
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequential for test determinism: each findByRole waits for DOM to settle
     const statusOption = await screen.findByRole('option', { name: /Status$/ });
 
     expect(countryOption.getAttribute('aria-disabled')).toBe('false');
@@ -187,8 +187,8 @@ describe('ChartSetupPanel', () => {
 
     await user.click(splitByInput);
 
-    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequential for test determinism: each findByRole waits for DOM to settle
     const countryOption = await screen.findByRole('option', { name: /Country$/ });
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequential for test determinism: each findByRole waits for DOM to settle
     const statusOption = await screen.findByRole('option', { name: /Status$/ });
 
     expect(countryOption.getAttribute('aria-disabled')).toBe('false');

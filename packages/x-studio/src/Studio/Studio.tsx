@@ -241,6 +241,7 @@ const StudioContent = React.memo(function StudioContent(props: StudioSlots) {
  * ```
  */
 export const Studio = React.memo(
+  // react-doctor-disable-next-line no-react19-deprecated-apis -- forwardRef needed for useImperativeHandle; React 19 ref-as-prop requires function components, but React.memo wrapping complicates the signature
   React.forwardRef<StudioHandle, StudioProps>(function Studio(props, ref) {
     const { initialState, onStateChange, ...slots } = props;
 

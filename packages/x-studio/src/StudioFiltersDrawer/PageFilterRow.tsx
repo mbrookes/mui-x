@@ -61,7 +61,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
   );
   const disableRankMode = hasAnotherRankFilter && filter.filterMode !== 'rank';
 
-  const handleChange = (changes: Partial<StudioFilterState>) => {
+  const handleFilterChange = (changes: Partial<StudioFilterState>) => {
     controller.updateFilter(filter.id, changes);
   };
 
@@ -69,7 +69,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
     if (newMode === 'rank' && disableRankMode) {
       return;
     }
-    handleChange(buildModeReset(newMode));
+    handleFilterChange(buildModeReset(newMode));
   };
 
   // Phase 1: no field selected yet — show mode toggle + field picker
@@ -100,7 +100,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
                   (o) => `${o.sourceId}:${o.id}` === event.target.value,
                 );
                 if (opt) {
-                  handleChange({
+                  handleFilterChange({
                     field: opt.id,
                     fieldType: opt.fieldType,
                     value: defaultValueForMode(currentMode),
@@ -142,7 +142,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
         activeOperator2={activeOperator2}
         fieldValues={fieldValues}
         onModeChange={handleModeChange}
-        onChange={handleChange}
+        onChange={handleFilterChange}
         disableRankMode={disableRankMode}
       />
     </FilterCard>

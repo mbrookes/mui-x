@@ -100,6 +100,7 @@ describe('FilterValueInput', () => {
   });
 
   it('clears the metric selection when the relative date amount is manually edited', () => {
+    // react-doctor-disable-next-line no-generic-handler-names -- test spy named generically intentionally
     const handleChange = vi.fn();
     const handleValueRefChange = vi.fn();
 
@@ -126,6 +127,7 @@ describe('FilterValueInput', () => {
   });
 
   it('applies a selected field to the relative date amount and sets valueRef', () => {
+    // react-doctor-disable-next-line no-generic-handler-names -- test spy named generically intentionally
     const handleChange = vi.fn();
     const handleValueRefChange = vi.fn();
 
@@ -173,6 +175,7 @@ describe('FilterValueInput', () => {
   });
 
   it('supports an atomic field link callback', () => {
+    // react-doctor-disable-next-line no-generic-handler-names -- test spy named generically intentionally
     const handleChange = vi.fn();
     const handleMetricSelect = vi.fn();
 

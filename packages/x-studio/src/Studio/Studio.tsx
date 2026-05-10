@@ -20,6 +20,7 @@ import type { StudioDataSourceAdapter, StudioMode, StudioState } from '../models
 import { StudioController } from '../store';
 import type { SerializedStudioState, MigrationResult } from '../store/statePersistence';
 import { DrawerPanel } from '../internals/DrawerPanel';
+import { TabbedSidebar } from '../internals/TabbedSidebar';
 import { useStudioKeyboardShortcuts } from '../internals/useStudioKeyboardShortcuts';
 import { StudioCanvas } from '../StudioCanvas';
 import { StudioDataDrawer } from '../StudioDataDrawer';
@@ -99,14 +100,22 @@ export interface StudioProps extends StudioSlots {
    * @param {StudioState} state - The new Studio state snapshot.
    */
   onStateChange?: (state: StudioState) => void;
+  /**
+   * Sidebar layout variant.
+   * - `'stacked'` (default): each panel has its own independent collapse strip.
+   * - `'tabbed'`: a single tab rail shows all panels; at most one panel is open at a time.
+   */
+  sidebarLayout?: 'stacked' | 'tabbed';
 }
 /* eslint-enable react/no-unused-prop-types */
 
 // ── Internal content (needs context) ─────────────────────────────────────────
 
 // Memoized so it doesn't re-render when Studio re-renders for unrelated reasons.
-const StudioContent = React.memo(function StudioContent(props: StudioSlots) {
-  const { canvas, composeDrawer, dataDrawer, filtersDrawer } = props;
+const StudioContent = React.memo(function StudioContent(
+  props: StudioSlots & { sidebarLayout?: 'stacked' | 'tabbed' },
+) {
+  const { canvas, composeDrawer, dataDrawer, filtersDrawer, sidebarLayout = 'stacked' } = props;
   const mode = useStudioSelector(selectMode);
   const controller = useStudioController();
   const canvasScrollRef = React.useRef<HTMLDivElement>(null);
@@ -131,6 +140,57 @@ const StudioContent = React.memo(function StudioContent(props: StudioSlots) {
 
   useStudioKeyboardShortcuts();
 
+  const sidebar =
+    sidebarLayout === 'tabbed' ? (
+      <TabbedSidebar
+        panels={[
+          ...(mode === 'edit'
+            ? [
+                {
+                  drawer: 'data' as const,
+                  label: 'Data',
+                  icon: <StorageIcon fontSize="small" />,
+                  children: dataDrawer ?? <StudioDataDrawer />,
+                },
+                {
+                  drawer: 'compose' as const,
+                  label: composeTitle,
+                  icon: composeOnBack ? undefined : <TuneIcon fontSize="small" />,
+                  children: composeDrawer ?? <StudioComposeDrawer />,
+                },
+              ]
+            : []),
+          {
+            drawer: 'filters' as const,
+            label: 'Filters',
+            icon: <FilterListIcon fontSize="small" />,
+            children: filtersDrawer ?? <StudioFiltersDrawer />,
+          },
+        ]}
+      />
+    ) : (
+      <React.Fragment>
+        {mode === 'edit' && (
+          <DrawerPanel drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
+            {dataDrawer ?? <StudioDataDrawer />}
+          </DrawerPanel>
+        )}
+        {mode === 'edit' && (
+          <DrawerPanel
+            drawer="compose"
+            title={composeTitle}
+            icon={<TuneIcon fontSize="small" />}
+            onBack={composeOnBack}
+          >
+            {composeDrawer ?? <StudioComposeDrawer />}
+          </DrawerPanel>
+        )}
+        <DrawerPanel drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
+          {filtersDrawer ?? <StudioFiltersDrawer />}
+        </DrawerPanel>
+      </React.Fragment>
+    );
+
   return (
     <Box
       sx={{
@@ -142,24 +202,7 @@ const StudioContent = React.memo(function StudioContent(props: StudioSlots) {
     >
       <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
         <CanvasScrollContext.Provider value={canvasScrollRef}>
-          {mode === 'edit' && (
-            <DrawerPanel drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
-              {dataDrawer ?? <StudioDataDrawer />}
-            </DrawerPanel>
-          )}
-          {mode === 'edit' && (
-            <DrawerPanel
-              drawer="compose"
-              title={composeTitle}
-              icon={<TuneIcon fontSize="small" />}
-              onBack={composeOnBack}
-            >
-              {composeDrawer ?? <StudioComposeDrawer />}
-            </DrawerPanel>
-          )}
-          <DrawerPanel drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
-            {filtersDrawer ?? <StudioFiltersDrawer />}
-          </DrawerPanel>
+          {sidebar}
 
           <Box
             ref={canvasScrollRef}

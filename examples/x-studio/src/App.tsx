@@ -286,7 +286,7 @@ export default function App() {
                 }}
               />
             )}
-            <Studio ref={studioRef} initialState={initialState} onStateChange={handleStateChange} />
+            <Studio ref={studioRef} initialState={initialState} onStateChange={handleStateChange} sidebarLayout="tabbed" />
           </Box>
         </Box>
         <Snackbar

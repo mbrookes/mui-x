@@ -80,7 +80,11 @@ export {
   DRAWER_WIDTH,
   COLLAPSED_WIDTH,
 } from './internals/DrawerPanel';
-export type { DrawerPanelProps } from './internals/DrawerPanel';
+export type { DrawerPanelProps, DrawerSubheaderContextValue } from './internals/DrawerPanel';
+
+// ─── TabbedSidebar (alternative tabbed sidebar layout) ────────────────────────
+export { TabbedSidebar } from './internals/TabbedSidebar';
+export type { TabbedSidebarProps, TabbedSidebarPanel } from './internals/TabbedSidebar';
 
 // ─── Keyboard shortcuts hook ──────────────────────────────────────────────────
 export { useStudioKeyboardShortcuts } from './internals/useStudioKeyboardShortcuts';

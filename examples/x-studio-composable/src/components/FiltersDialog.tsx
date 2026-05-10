@@ -21,6 +21,7 @@ export function FiltersDialog({ open, onClose }: FiltersDialogProps) {
         <FilterListIcon fontSize="small" color="action" />
         Filters
         <IconButton
+          autoFocus
           aria-label="Close filters dialog"
           onClick={onClose}
           size="small"

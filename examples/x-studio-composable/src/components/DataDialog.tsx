@@ -21,6 +21,7 @@ export function DataDialog({ open, onClose }: DataDialogProps) {
         <StorageIcon fontSize="small" color="action" />
         Data sources
         <IconButton
+          autoFocus
           aria-label="Close data dialog"
           onClick={onClose}
           size="small"

@@ -29,7 +29,7 @@ export function DataDialog({ open, onClose }: DataDialogProps) {
           <CloseIcon fontSize="small" />
         </IconButton>
       </DialogTitle>
-      <DialogContent dividers sx={{ p: 0, overflow: 'hidden' }}>
+      <DialogContent dividers sx={{ p: 3, overflow: 'hidden' }}>
         <StudioDataDrawer />
       </DialogContent>
     </Dialog>

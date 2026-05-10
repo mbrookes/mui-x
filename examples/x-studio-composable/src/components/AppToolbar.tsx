@@ -114,17 +114,17 @@ export function AppToolbar(props: AppToolbarProps) {
             </span>
           </Tooltip>
           <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
-          {onComposeOpen && (
-            <Tooltip title="Configure widget">
-              <IconButton size="small" onClick={onComposeOpen} aria-label="Configure widget">
-                <TuneIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
           {onDataOpen && (
             <Tooltip title="Data sources">
               <IconButton size="small" onClick={onDataOpen} aria-label="Data sources">
                 <StorageIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          {onComposeOpen && (
+            <Tooltip title="Configure widget">
+              <IconButton size="small" onClick={onComposeOpen} aria-label="Configure widget">
+                <TuneIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           )}

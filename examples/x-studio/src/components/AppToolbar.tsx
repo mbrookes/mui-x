@@ -4,6 +4,7 @@ import type { SwitchProps } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import RedoIcon from '@mui/icons-material/Redo';
+import SettingsIcon from '@mui/icons-material/Settings';
 import UndoIcon from '@mui/icons-material/Undo';
 import type { StudioMode, StudioPage } from '@mui/x-studio';
 import { StudioWordmark } from '@mui/x-studio';
@@ -14,6 +15,7 @@ export interface AppToolbarProps {
   onModeChange: SwitchProps['onChange'];
   onSave: () => void;
   onLoad: () => void;
+  onOpenSettings: () => void;
   pages: StudioPage[];
   activePageId: string;
   onPageChange: (event: React.SyntheticEvent, pageId: string) => void;
@@ -30,6 +32,7 @@ export function AppToolbar(props: AppToolbarProps) {
     onModeChange,
     onSave,
     onLoad,
+    onOpenSettings,
     pages,
     activePageId,
     onPageChange,
@@ -115,6 +118,11 @@ export function AppToolbar(props: AppToolbarProps) {
       <Tooltip title="Upload dashboard">
         <IconButton size="small" onClick={onLoad} aria-label="Upload dashboard">
           <FileUploadIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Settings">
+        <IconButton size="small" onClick={onOpenSettings} aria-label="Settings">
+          <SettingsIcon fontSize="small" />
         </IconButton>
       </Tooltip>
       <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />

@@ -36,7 +36,6 @@ function TabEntry({ isActive, onClick, panel }: TabEntryProps) {
       variant="caption"
       sx={{
         writingMode: 'vertical-rl',
-        transform: 'rotate(180deg)',
         fontWeight: 600,
         letterSpacing: 1,
         textTransform: 'uppercase',
@@ -70,7 +69,7 @@ function TabEntry({ isActive, onClick, panel }: TabEntryProps) {
         px: 0.5,
         py: 1.5,
         cursor: 'pointer',
-        borderLeft: 3,
+        borderRight: 3,
         borderColor: isActive ? 'primary.main' : 'transparent',
         bgcolor: isActive ? 'action.selected' : 'transparent',
         transition: 'background-color 0.15s, border-color 0.15s',
@@ -197,7 +196,6 @@ export function TabbedSidebar({ panels }: TabbedSidebarProps) {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'stretch',
-          py: 0.5,
         }}
       >
         {panels.map((panel) => (

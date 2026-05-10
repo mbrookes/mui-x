@@ -6,30 +6,32 @@ import TuneIcon from '@mui/icons-material/Tune';
 import {
   DrawerSubheaderContext,
   StudioComposeDrawer,
-  selectMode,
   selectShell,
   selectWidgets,
   useStudioController,
   useStudioSelector,
 } from '@mui/x-studio';
 
+export interface ComposeDialogProps {
+  open: boolean;
+  onClose: () => void;
+}
+
 /**
- * ComposeDialog opens reactively in edit mode when a widget is selected.
- * Closing calls controller.clearSelection() — no local open state needed.
+ * ComposeDialog wraps StudioComposeDrawer in a Dialog.
+ * It is prop-controlled (open/onClose) — callers decide when to open it.
+ * Clicking a widget or DnD repositioning does NOT open this dialog;
+ * use the AddWidgetFab (after adding) or the toolbar compose button instead.
  *
- * DrawerSubheaderContext is provided here so that WidgetConfigView's
- * useDrawerSubheader call (which injects the Setup/Format tabs) is captured
- * and rendered between the title and the scrollable content area.
+ * DrawerSubheaderContext is provided so WidgetConfigView's useDrawerSubheader
+ * call injects the Setup/Format tabs between the title and content.
  */
-export function ComposeDialog() {
+export function ComposeDialog({ open, onClose }: ComposeDialogProps) {
   const controller = useStudioController();
-  const mode = useStudioSelector(selectMode);
   const shell = useStudioSelector(selectShell);
   const widgets = useStudioSelector(selectWidgets);
 
   const { selectedWidgetId, selectedFieldId, selectedSourceId } = shell;
-  // Only open in edit mode — view mode clicks drive cross-filter, not config.
-  const open = mode === 'edit' && Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
 
   const selectedWidget = selectedWidgetId ? (widgets[selectedWidgetId] ?? null) : null;
   const title = selectedWidget?.title ?? 'Configure widget';
@@ -38,7 +40,8 @@ export function ComposeDialog() {
 
   const handleClose = React.useCallback(() => {
     controller.clearSelection();
-  }, [controller]);
+    onClose();
+  }, [controller, onClose]);
 
   const handleBack = React.useCallback(() => {
     if (hasNestedSelection) {
@@ -88,7 +91,7 @@ export function ComposeDialog() {
           </React.Fragment>
         )}
 
-        <DialogContent dividers sx={{ p: 1.5, overflow: 'auto', flexGrow: 1 }}>
+        <DialogContent dividers sx={{ p: 3, overflow: 'auto', flexGrow: 1 }}>
           <StudioComposeDrawer />
         </DialogContent>
 

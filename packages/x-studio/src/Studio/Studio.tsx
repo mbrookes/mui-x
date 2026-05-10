@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { Box } from '@mui/material';
+import { Box, IconButton, Tooltip } from '@mui/material';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';
@@ -26,6 +27,8 @@ import { StudioCanvas } from '../StudioCanvas';
 import { StudioDataDrawer } from '../StudioDataDrawer';
 import { StudioComposeDrawer } from '../StudioComposeDrawer';
 import { StudioFiltersDrawer } from '../StudioFiltersDrawer';
+import { StudioChatPanel } from '../StudioChatPanel/StudioChatPanel';
+import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
 
 const MIN_CANVAS_WIDTH = 480;
 
@@ -106,6 +109,13 @@ export interface StudioProps extends StudioSlots {
    * - `'tabbed'`: a single tab rail shows all panels; at most one panel is open at a time.
    */
   sidebarLayout?: 'stacked' | 'tabbed';
+  /**
+   * LLM configuration for the AI chat assistant.
+   * When provided, a floating AI button appears in the bottom-right corner
+   * that opens the `StudioChatPanel` as a slide-in overlay.
+   * If not provided, the AI panel is not rendered.
+   */
+  aiConfig?: StudioAIConfig | null;
 }
 /* eslint-enable react/no-unused-prop-types */
 
@@ -113,9 +123,9 @@ export interface StudioProps extends StudioSlots {
 
 // Memoized so it doesn't re-render when Studio re-renders for unrelated reasons.
 const StudioContent = React.memo(function StudioContent(
-  props: StudioSlots & { sidebarLayout?: 'stacked' | 'tabbed' },
+  props: StudioSlots & { sidebarLayout?: 'stacked' | 'tabbed'; aiConfig?: StudioAIConfig | null },
 ) {
-  const { canvas, composeDrawer, dataDrawer, filtersDrawer, sidebarLayout = 'stacked' } = props;
+  const { canvas, composeDrawer, dataDrawer, filtersDrawer, sidebarLayout = 'stacked', aiConfig } = props;
   const mode = useStudioSelector(selectMode);
   const controller = useStudioController();
   const canvasScrollRef = React.useRef<HTMLDivElement>(null);
@@ -139,6 +149,8 @@ const StudioContent = React.memo(function StudioContent(
   const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
 
   useStudioKeyboardShortcuts();
+
+  const [chatOpen, setChatOpen] = React.useState(false);
 
   const sidebar =
     sidebarLayout === 'tabbed' ? (
@@ -198,6 +210,7 @@ const StudioContent = React.memo(function StudioContent(
         flexDirection: 'column',
         height: '100%',
         bgcolor: 'background.default',
+        position: 'relative',
       }}
     >
       <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
@@ -219,6 +232,33 @@ const StudioContent = React.memo(function StudioContent(
           </Box>
         </CanvasScrollContext.Provider>
       </Box>
+
+      {/* AI chat button + panel */}
+      {aiConfig?.endpoint && (
+        <React.Fragment>
+          <Tooltip title={chatOpen ? 'Close AI assistant' : 'Open AI assistant'} placement="left">
+            <IconButton
+              onClick={() => setChatOpen((prev) => !prev)}
+              color={chatOpen ? 'primary' : 'default'}
+              aria-label={chatOpen ? 'Close AI assistant' : 'Open AI assistant'}
+              sx={{
+                position: 'absolute',
+                bottom: 20,
+                right: 20,
+                zIndex: (theme) => theme.zIndex.speedDial,
+                bgcolor: 'background.paper',
+                boxShadow: 4,
+                '&:hover': { bgcolor: 'action.hover' },
+                width: 48,
+                height: 48,
+              }}
+            >
+              <AutoAwesomeIcon />
+            </IconButton>
+          </Tooltip>
+          <StudioChatPanel aiConfig={aiConfig} open={chatOpen} overlay />
+        </React.Fragment>
+      )}
     </Box>
   );
 });

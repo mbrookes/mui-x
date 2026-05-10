@@ -39,7 +39,8 @@
     "@mui/x-date-pickers": "workspace:*",
     "@mui/x-date-pickers-pro": "workspace:*",
     "@mui/x-internals": "workspace:*",
-    "dayjs": "catalog:"
+    "dayjs": "catalog:",
+    "@mui/x-chat": "workspace:*"
   },
   "devDependencies": {
     "@mui/icons-material": "^9.0.0",

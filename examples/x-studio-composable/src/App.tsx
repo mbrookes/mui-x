@@ -5,6 +5,7 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import {
   CanvasScrollContext,
   StudioCanvas,
+  StudioChatPanel,
   StudioController,
   StudioProvider,
   createStudioController,
@@ -17,7 +18,7 @@ import {
   useStudioKeyboardShortcuts,
   useStudioSelector,
 } from '@mui/x-studio';
-import type { StudioMode, StudioPage, StudioState } from '@mui/x-studio';
+import type { StudioAIConfig, StudioMode, StudioPage, StudioState } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { AppToolbar } from './components/AppToolbar';
 import { ComposeDialog } from './components/ComposeDialog';
@@ -144,6 +145,7 @@ function buildInitialState(): Partial<StudioState> {
 
 interface DashboardLayoutProps {
   adapterMode: boolean;
+  aiConfig: StudioAIConfig | undefined;
   onSnackbar: (message: string, severity: 'success' | 'error' | 'info') => void;
 }
 
@@ -163,7 +165,7 @@ interface DashboardLayoutProps {
  * - `StudioCanvas` — the widget grid
  * - `CanvasScrollContext` — scroll-to-bottom after adding widgets
  */
-function DashboardLayout({ adapterMode, onSnackbar }: DashboardLayoutProps) {
+function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutProps) {
   const controller = useStudioController();
 
   // Register Cmd+Z / Cmd+Shift+Z keyboard shortcuts
@@ -302,39 +304,59 @@ function DashboardLayout({ adapterMode, onSnackbar }: DashboardLayoutProps) {
       <DataDialog open={dataOpen} onClose={handleDataClose} />
       <FiltersDialog open={filtersOpen} onClose={handleFiltersClose} />
 
-      <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
-        {adapterMode && (
-          <Chip
-            label="Adapter Mode"
-            size="small"
-            color="info"
-            sx={{
-              position: 'absolute',
-              bottom: 80,
-              right: 24,
-              zIndex: 10,
-              fontWeight: 600,
-              letterSpacing: 0.3,
-            }}
-          />
-        )}
-
+      <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         {/* Canvas takes full width — no sidebar in the composable shell */}
-        <CanvasScrollContext.Provider value={canvasScrollRef}>
+        <Box sx={{ flexGrow: 1, minWidth: 0, position: 'relative' }}>
+          {adapterMode && (
+            <Chip
+              label="Adapter Mode"
+              size="small"
+              color="info"
+              sx={{
+                position: 'absolute',
+                bottom: aiConfig ? 16 : 80,
+                right: 24,
+                zIndex: 10,
+                fontWeight: 600,
+                letterSpacing: 0.3,
+              }}
+            />
+          )}
+
+          <CanvasScrollContext.Provider value={canvasScrollRef}>
+            <Box
+              ref={canvasScrollRef}
+              sx={{
+                height: '100%',
+                overflow: 'auto',
+                bgcolor: (t) => (t.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+              }}
+            >
+              <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
+                <StudioCanvas />
+              </Box>
+            </Box>
+            {mode === 'edit' && <AddWidgetFab onWidgetAdded={handleComposeOpen} />}
+          </CanvasScrollContext.Provider>
+        </Box>
+
+        {/* Persistent AI chat panel */}
+        {aiConfig && (
           <Box
-            ref={canvasScrollRef}
             sx={{
-              height: '100%',
-              overflow: 'auto',
-              bgcolor: (t) => (t.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+              width: 360,
+              flexShrink: 0,
+              borderLeft: 1,
+              borderColor: 'divider',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              bgcolor: 'background.paper',
             }}
           >
-            <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
-              <StudioCanvas />
-            </Box>
+            <StudioChatPanel aiConfig={aiConfig} />
           </Box>
-          {mode === 'edit' && <AddWidgetFab onWidgetAdded={handleComposeOpen} />}
-        </CanvasScrollContext.Provider>
+        )}
       </Box>
     </Box>
   );
@@ -344,6 +366,18 @@ function DashboardLayout({ adapterMode, onSnackbar }: DashboardLayoutProps) {
 
 export default function App() {
   const adapterMode = React.useMemo(() => getUrlAdapterParam(), []);
+
+  const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
+    const endpoint = import.meta.env.VITE_AI_ENDPOINT as string | undefined;
+    if (!endpoint) {
+      return undefined;
+    }
+    return {
+      endpoint,
+      apiKey: import.meta.env.VITE_AI_API_KEY as string | undefined,
+      model: (import.meta.env.VITE_AI_MODEL as string | undefined) ?? 'gpt-4o',
+    };
+  }, []);
 
   // Create the controller once with the resolved initial state.
   // In the composable pattern we hold the controller directly (no imperative ref)
@@ -376,7 +410,7 @@ export default function App() {
         <CssBaseline />
         {/* StudioProvider makes the controller available to all descendants */}
         <StudioProvider controller={controller}>
-          <DashboardLayout adapterMode={adapterMode} onSnackbar={handleSnackbar} />
+          <DashboardLayout adapterMode={adapterMode} aiConfig={aiConfig} onSnackbar={handleSnackbar} />
         </StudioProvider>
         <Snackbar
           open={snackbar.open}

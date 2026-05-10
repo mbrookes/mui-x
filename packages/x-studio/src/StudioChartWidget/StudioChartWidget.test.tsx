@@ -1,7 +1,6 @@
 import * as React from 'react';
-import { createRenderer } from '@mui/internal-test-utils';
+import { createRenderer, act, screen } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
-import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { StudioDataSource, StudioState, StudioWidget } from '../models';
@@ -1177,10 +1176,10 @@ describe('<StudioChartWidget />', () => {
       dataSources: { orders: dataSource },
     });
 
-    const { getByText } = renderChart(widget, dataSource);
+    renderChart(widget, dataSource);
 
     expect(barChartSpy).not.toHaveBeenCalled();
-    getByText('Use the Setup tab to configure this chart.');
+    screen.getByText('Use the Setup tab to configure this chart.');
   });
 
   it('renders an empty box for scatter when there is no data', () => {

@@ -6,7 +6,6 @@ import type {
   StudioDataSource,
   StudioWidget,
   StudioFilterState,
-  StudioExpressionField,
 } from '../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { resolveRows, resolveMetricRefs } from '../internals/chartUtils';
@@ -40,18 +39,6 @@ import { KpiTrend, type KpiTrendResult } from './KpiTrend';
 export interface StudioKpiWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
-}
-
-function getFieldLabel(
-  fieldId: string,
-  dataSources: Record<string, StudioDataSource>,
-  expressionFields: StudioExpressionField[],
-): string {
-  const field =
-    Object.values(dataSources)
-      .flatMap((ds) => ds.fields)
-      .find((f) => f.id === fieldId) ?? expressionFields.find((ef) => ef.id === fieldId);
-  return field?.label ?? fieldId;
 }
 
 export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: StudioKpiWidgetProps) {
@@ -297,8 +284,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     relationships,
     expressionFields,
     config,
-    widget.id,
-    widget.sourceId,
+    widget,
   ]);
 
   const fieldDef = dataSource?.fields.find((f) => f.id === config.kpiValueField);

@@ -32,9 +32,13 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   );
   const expressionFields = useStudioSelector(selectExpressionFields);
   const activePageId = useStudioSelector(selectActivePageId);
-  const visibleFields = widget.config.columns?.length
-    ? widget.config.columns
-    : (dataSource?.fields.map((f) => f.id) ?? []);
+  const visibleFields = React.useMemo(
+    () =>
+      widget.config.columns?.length
+        ? widget.config.columns
+        : (dataSource?.fields.map((f) => f.id) ?? []),
+    [widget.config.columns, dataSource?.fields],
+  );
 
   // Check if this widget has an active cross-filter (on the current page)
   const activeCrossFilter = React.useMemo(
@@ -177,6 +181,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         hideFooter
         disableRowSelectionOnClick
         getRowId={(row) =>
+          // eslint-disable-next-line no-underscore-dangle
           ((row as Record<string, unknown>).__rowId ??
             (row as Record<string, unknown>).id) as string
         }

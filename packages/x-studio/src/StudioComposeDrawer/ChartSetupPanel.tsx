@@ -4,7 +4,6 @@ import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import {
   Alert,
-  Box,
   Divider,
   FormControl,
   IconButton,
@@ -112,7 +111,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     config.barLayout === 'horizontal';
 
   // Y series: prefer ySeries, else seed from yField
-  const ySeries = config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : []);
+  const ySeries = React.useMemo(
+    () => config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : []),
+    [config.ySeries, config.yField],
+  );
 
   const supportsMultipleSeries =
     chartType === 'bar' ||
@@ -228,6 +230,34 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     );
   }
 
+  // Computed labels to avoid nested ternaries in JSX
+  let xFieldLabel: string;
+  if (isScatter) {
+    xFieldLabel = 'X field (numeric)';
+  } else if (isHorizontalBarChart) {
+    xFieldLabel = 'Y / Category field';
+  } else {
+    xFieldLabel = 'X / Category field';
+  }
+
+  let xFieldHelperText: string;
+  if (isScatter) {
+    xFieldHelperText = 'Plotted on the horizontal axis';
+  } else if (isHorizontalBarChart) {
+    xFieldHelperText = 'Groups data along the vertical axis';
+  } else {
+    xFieldHelperText = 'Groups data along the horizontal axis';
+  }
+
+  let yMeasureLabel: string;
+  if (supportsMultipleSeries) {
+    yMeasureLabel = isHorizontalBarChart ? 'X / Measure fields' : 'Y / Measure fields';
+  } else {
+    yMeasureLabel = isHorizontalBarChart ? 'X / Measure field' : 'Y / Measure field';
+  }
+
+  const ySeriesLabelBase = isHorizontalBarChart ? 'X / Measure field' : 'Y / Measure field';
+
   return (
     <Stack spacing={2}>
       {!chartSupport.supported && chartSupport.reason ? (
@@ -254,23 +284,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         }}
         fields={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}
         getOptionDisabled={(option) => {
-          if (option.id === config.xField) return false;
+          if (option.id === config.xField) {return false;}
           return !analyzeCombination({ xField: option.id }).supported;
         }}
-        label={
-          isScatter
-            ? 'X field (numeric)'
-            : isHorizontalBarChart
-              ? 'Y / Category field'
-              : 'X / Category field'
-        }
-        helperText={
-          isScatter
-            ? 'Plotted on the horizontal axis'
-            : isHorizontalBarChart
-              ? 'Groups data along the vertical axis'
-              : 'Groups data along the horizontal axis'
-        }
+        label={xFieldLabel}
+        helperText={xFieldHelperText}
       />
 
       {/* Group by — shown only when x field is a date/datetime type */}
@@ -280,8 +298,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           <Select
             label="Group by"
             value={config.xGroupBy ?? ''}
-            onChange={(e) => {
-              const val = e.target.value as string;
+            onChange={(evt) => {
+              const val = evt.target.value as string;
               controller.updateWidgetConfig(widgetId, {
                 xGroupBy: val ? (val as 'day' | 'week' | 'month' | 'quarter' | 'year') : undefined,
               });
@@ -301,13 +319,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       <div>
         <Stack direction="row" sx={{ alignItems: 'center', mb: 0.5 }}>
           <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
-            {supportsMultipleSeries
-              ? isHorizontalBarChart
-                ? 'X / Measure fields'
-                : 'Y / Measure fields'
-              : isHorizontalBarChart
-                ? 'X / Measure field'
-                : 'Y / Measure field'}
+            {yMeasureLabel}
           </Typography>
           {supportsMultipleSeries && (
             <Tooltip
@@ -346,13 +358,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       }),
                     }).supported)
                 }
-                label={
-                  ySeries.length > 1
-                    ? `Series ${index + 1}`
-                    : isHorizontalBarChart
-                      ? 'X / Measure field'
-                      : 'Y / Measure field'
-                }
+                label={ySeries.length > 1 ? `Series ${index + 1}` : ySeriesLabelBase}
                 helperText={
                   isHorizontalBarChart
                     ? 'Numeric field plotted along the horizontal axis'
@@ -409,8 +415,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 }
                 fields={categoryFields}
                 getOptionDisabled={(option) => {
-                  if (seriesFieldDisabled) return true;
-                  if (option.id === config.seriesField) return false;
+                  if (seriesFieldDisabled) {return true;}
+                  if (option.id === config.seriesField) {return false;}
                   return !analyzeCombination({ seriesField: option.id }).supported;
                 }}
                 disabled={seriesFieldDisabled}

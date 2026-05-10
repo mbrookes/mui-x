@@ -42,6 +42,8 @@ import type { StudioDataSource, StudioFilterState, StudioWidget } from '../model
 /**
  * Builds a bench group that measures the given `fn` at `10_000` and `100_000`
  * orders.  The scenario is built once in `beforeAll`; only `fn` is timed.
+ * @param {ReturnType<typeof buildScenario>} scenario - The pre-built benchmark scenario.
+ * @param {number} orderCount - Number of synthetic orders in the scenario.
  */
 function layerBench(
   layerName: string,
@@ -432,7 +434,7 @@ describe('A4 StudioRequestCache.invalidateSource', () => {
 
       bench(`A4 invalidateSource (${entryCount} entries)`, () => {
         // Repopulate so each iteration exercises the same scan length.
-        for (let i = 0; i < entryCount; i++) {
+        for (let i = 0; i < entryCount; i += 1) {
           const f: StudioFilterState = {
             id: 'f1',
             scope: 'page',

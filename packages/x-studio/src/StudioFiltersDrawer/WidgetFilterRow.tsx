@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Autocomplete, Box, IconButton, Stack, TextField } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioController } from '../context';
+import { useStudioController , useStudioSelector, selectFilters } from '../context';
 import type { StudioFilterState } from '../models';
 import type { FieldOption, FilterMode } from './filterDrawerTypes';
 import {
@@ -16,7 +16,6 @@ import { FilterModeToggle } from './FilterModeToggle';
 import { FilterCard } from './FilterCard';
 import { FilterBody } from './FilterBody';
 import type { AvailableSeries } from './RankFilterInput';
-import { useStudioSelector, selectFilters } from '../context';
 
 export interface WidgetFilterRowProps {
   filter: StudioFilterState;

@@ -3,7 +3,6 @@ import * as React from 'react';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import BoltIcon from '@mui/icons-material/Bolt';
 import {
-  Box,
   FormControlLabel,
   IconButton,
   InputAdornment,
@@ -125,17 +124,25 @@ export function FormatPanel(props: { widgetId: string }) {
           input: {
             endAdornment: (
               <InputAdornment position="end">
-                {isAutoTitle && title === (widget?.title ?? '') ? (
-                  <Tooltip title="Auto-generated title">
-                    <BoltIcon fontSize="small" color="action" />
-                  </Tooltip>
-                ) : !isAutoTitle ? (
-                  <Tooltip title="Reset to auto-generated title">
-                    <IconButton size="small" onClick={handleResetTitle} edge="end">
-                      <AutorenewIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                ) : null}
+                {(() => {
+                  if (isAutoTitle && title === (widget?.title ?? '')) {
+                    return (
+                      <Tooltip title="Auto-generated title">
+                        <BoltIcon fontSize="small" color="action" />
+                      </Tooltip>
+                    );
+                  }
+                  if (!isAutoTitle) {
+                    return (
+                      <Tooltip title="Reset to auto-generated title">
+                        <IconButton size="small" onClick={handleResetTitle} edge="end">
+                          <AutorenewIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    );
+                  }
+                  return null;
+                })()}
               </InputAdornment>
             ),
           },
@@ -161,17 +168,25 @@ export function FormatPanel(props: { widgetId: string }) {
           input: {
             endAdornment: (
               <InputAdornment position="end">
-                {isAutoSubtitle && subtitle === (widget?.subtitle ?? '') ? (
-                  <Tooltip title="Auto-generated subtitle">
-                    <BoltIcon fontSize="small" color="action" />
-                  </Tooltip>
-                ) : !isAutoSubtitle ? (
-                  <Tooltip title="Reset to auto-generated subtitle">
-                    <IconButton size="small" onClick={handleResetSubtitle} edge="end">
-                      <AutorenewIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                ) : null}
+                {(() => {
+                  if (isAutoSubtitle && subtitle === (widget?.subtitle ?? '')) {
+                    return (
+                      <Tooltip title="Auto-generated subtitle">
+                        <BoltIcon fontSize="small" color="action" />
+                      </Tooltip>
+                    );
+                  }
+                  if (!isAutoSubtitle) {
+                    return (
+                      <Tooltip title="Reset to auto-generated subtitle">
+                        <IconButton size="small" onClick={handleResetSubtitle} edge="end">
+                          <AutorenewIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    );
+                  }
+                  return null;
+                })()}
               </InputAdornment>
             ),
           },

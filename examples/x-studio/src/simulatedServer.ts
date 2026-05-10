@@ -15,9 +15,9 @@ function matchLeaf(row: Row, node: Extract<StudioFilterNode, { type: 'leaf' }>):
 
   // Date normalisation: coerce to comparable string/number
   const coerce = (v: unknown): string | number | null => {
-    if (v === null || v === undefined) return null;
-    if (typeof v === 'number') return v;
-    if (typeof v === 'boolean') return v ? 1 : 0;
+    if (v === null || v === undefined) { return null; }
+    if (typeof v === 'number') { return v; }
+    if (typeof v === 'boolean') { return v ? 1 : 0; }
     return String(v);
   };
 
@@ -96,7 +96,7 @@ function matchLeaf(row: Row, node: Extract<StudioFilterNode, { type: 'leaf' }>):
 }
 
 function applyFilterNode(row: Row, node: StudioFilterNode | undefined): boolean {
-  if (!node) return true;
+  if (!node) { return true; }
 
   if (node.type === 'leaf') {
     const primaryMatch = matchLeaf(row, node);
@@ -123,7 +123,7 @@ function applyFilterNode(row: Row, node: StudioFilterNode | undefined): boolean 
 }
 
 function filterRows(rows: Row[], filter: StudioFilterNode | undefined): Row[] {
-  if (!filter) return rows;
+  if (!filter) { return rows; }
   return rows.filter((row) => applyFilterNode(row, filter));
 }
 

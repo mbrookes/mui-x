@@ -358,7 +358,7 @@ describe('StudioController.addWidget', () => {
   it('adds the widget to the widgets map', () => {
     const controller = new StudioController();
     controller.addWidget(makeWidget('w1'));
-    expect(controller.getState().widgets['w1']).toBeDefined();
+    expect(controller.getState().widgets.w1).toBeDefined();
   });
 
   it('adds the widget id to widgetRows on the active page', () => {
@@ -389,7 +389,7 @@ describe('StudioController.removeWidget', () => {
     const controller = new StudioController();
     controller.addWidget(makeWidget('w1'));
     controller.removeWidget('w1');
-    expect(controller.getState().widgets['w1']).toBeUndefined();
+    expect(controller.getState().widgets.w1).toBeUndefined();
   });
 
   it('removes the widget id from widgetRows', () => {
@@ -422,7 +422,7 @@ describe('StudioController.removeWidget', () => {
     controller.addWidget(makeWidget('w1'));
     controller.addWidget(makeWidget('w2'));
     controller.removeWidget('w1');
-    expect(controller.getState().widgets['w2']).toBeDefined();
+    expect(controller.getState().widgets.w2).toBeDefined();
   });
 });
 
@@ -657,7 +657,7 @@ describe('StudioController expression fields', () => {
     const ef2 = { ...ef, id: 'ef2', label: 'Other' };
     const controller = new StudioController({ expressionFields: [ef, ef2] });
     controller.removeExpressionField('ef1');
-    expect(controller.getState().expressionFields.map((e) => e.id)).toEqual(['ef2']);
+    expect(controller.getState().expressionFields.map((field) => field.id)).toEqual(['ef2']);
   });
 });
 
@@ -736,7 +736,7 @@ describe('StudioController undo/redo', () => {
     while (controller.canUndo()) {
       controller.undo();
       undoCount += 1;
-      if (undoCount > 110) break; // safety guard
+      if (undoCount > 110) {break;} // safety guard
     }
     expect(undoCount).toBe(100);
   });
@@ -842,7 +842,7 @@ describe('StudioController.loadSerializedState', () => {
     target.loadSerializedState(serialized);
 
     // The live data source should be preserved
-    expect(target.getState().dataSources['live']).toBeDefined();
+    expect(target.getState().dataSources.live).toBeDefined();
   });
 
   it('resets undo/redo history after a successful load', () => {

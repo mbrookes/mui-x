@@ -6,9 +6,8 @@ import { LineChart } from '@mui/x-charts/LineChart';
 import { PieChart, PieArc, type PieArcProps } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
-import { Box } from '@mui/material';
+import { Box , Typography } from '@mui/material';
 
-import { Typography } from '@mui/material';
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
   fillTemporalLabelGaps,
@@ -75,12 +74,16 @@ function alignFilteredToAllLabels(
   return allLabels.map((l) => filteredByLabel.get(String(l)) ?? null);
 }
 
+// eslint-disable-next-line jsdoc/require-param
 /**
  * Wraps a base valueFormatter to show "filtered / total" when a cross-filter is active.
+ * @param {((number | null)[]} filteredValues - Array of filtered values aligned to bar chart label indices.
+ * @param {(arg: number | null) => string} baseFormatter - The chart series' original value formatter.
+ * @returns {(v: number | null, ctx: { dataIndex: number }) => string} A composite formatter showing "filtered / total" for cross-filtered data.
  */
 function makeCrossFilterValueFormatter(
   filteredValues: (number | null)[],
-  baseFormatter: (value: number | null) => string,
+  baseFormatter: (arg: number | null) => string,
 ): (value: number | null, context: { dataIndex: number }) => string {
   return (value, { dataIndex }) => {
     const fv = filteredValues[dataIndex];
@@ -178,7 +181,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     allSeriesNames,
     chartSupport,
     activeYFields,
-    isMultiSeries,
     seriesFieldData,
     chartData,
     multiYData,
@@ -730,7 +732,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       }
       const multiYBarContext =
         hasCrossFilters && allBarMultiYData
-          ? {
+          ? // eslint-disable-next-line react/jsx-no-constructed-context-values
+            {
               filteredValuesBySeriesId: multiYFilteredBySeriesId,
               allValuesBySeriesId: multiYAllBySeriesId,
             }
@@ -763,6 +766,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         };
       });
       return (
+         
         <CrossFilterBarContext.Provider value={multiYBarContext}>
           <div style={{ height: chartHeight }}>
             <BarChart
@@ -894,6 +898,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       return (
         <div style={{ height: chartHeight }}>
           <PieRadiusContext.Provider
+            // eslint-disable-next-line react/jsx-no-constructed-context-values
             value={{ activeSeriesId: CROSS_FILTER_SERIES_ID, radiusByDataIndex }}
           >
             <PieChart
@@ -906,7 +911,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                   data: allChartData!.labels.map((label, i) => ({
                     id: i,
                     value: allChartData!.values[i] ?? 0,
-                    color: resolvedChartColors[i % resolvedChartColors.length] + '30',
+                    color: `${resolvedChartColors[i % resolvedChartColors.length]  }30`,
                   })),
                   highlightScope: { highlight: 'none' as const, fade: 'none' as const },
                 },
@@ -965,7 +970,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                   id: i,
                   label: formatLabel(label),
                   value: pieBaseData.values[i],
-                  ...(isDimmed && { color: color + '40' }),
+                  ...(isDimmed && { color: `${color  }40` }),
                 };
               }),
               highlightScope: { highlight: 'item', fade: 'global' },
@@ -1063,7 +1068,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
     const sfBarContext =
       hasCrossFilters && allBarSeriesFieldData && preserveSplitByBaseline
-        ? { filteredValuesBySeriesId: sfFilteredBySeriesId, allValuesBySeriesId: sfAllBySeriesId }
+        ? // eslint-disable-next-line react/jsx-no-constructed-context-values
+          { filteredValuesBySeriesId: sfFilteredBySeriesId, allValuesBySeriesId: sfAllBySeriesId }
         : null;
 
     const baseSeriesValueFormatter = is100
@@ -1072,14 +1078,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
     const series = effectiveSFData.seriesNames.map((name) => {
       const rawData = effectiveSFData.seriesData[name];
+      const stackedOrRaw = isStacked ? rawData.map((v) => v ?? 0) : rawData;
       const data: (number | null)[] = totals100
         ? rawData.map((v, i) => {
             const total = totals100[i];
             return total ? ((v ?? 0) / total) * 100 : 0;
           })
-        : isStacked
-          ? rawData.map((v) => v ?? 0)
-          : rawData;
+        : stackedOrRaw;
       const seriesId = String(name);
       const valueFormatter =
         sfBarContext && sfFilteredBySeriesId[seriesId]
@@ -1203,7 +1208,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ? sfLineAllData.seriesNames.map((name) => ({
           id: `${String(name)}-ghost`,
           data: sfLineAllData.seriesData[name],
-          color: (getSeriesColor(name) ?? resolvedChartColors[0]) + '40',
+          color: `${getSeriesColor(name) ?? resolvedChartColors[0]  }40`,
           area: isArea,
           connectNulls: true as const,
           showMark: false,
@@ -1220,15 +1225,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             seriesFieldData.seriesData[name] ?? sfLineAllData.labels.map(() => null),
           )
         : seriesFieldData.seriesData[name];
+      // Stacked area: null breaks the stacking algorithm → use 0
+      const stackedLineOrRaw = isStacked ? rawData.map((v) => v ?? 0) : rawData;
       const data: (number | null)[] = totals100
         ? rawData.map((v, i) => {
             const total = totals100[i];
             return total ? ((v ?? 0) / total) * 100 : 0;
           })
-        : isStacked
-          ? // Stacked area: null breaks the stacking algorithm → use 0
-            rawData.map((v) => v ?? 0)
-          : rawData;
+        : stackedLineOrRaw;
       return {
         id: String(name),
         data,
@@ -1324,7 +1328,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ? multiYAllData.series.map((s, i) => ({
           id: `${s.fieldId}-${i}-ghost`,
           data: s.values,
-          color: resolvedChartColors[i % resolvedChartColors.length] + '40',
+          color: `${resolvedChartColors[i % resolvedChartColors.length]  }40`,
           area: isArea,
           connectNulls: true as const,
           showMark: false,
@@ -1413,7 +1417,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       : null;
   const singleBarContext =
     singleSeriesFilteredValues && effectiveSingleSeriesData
-      ? {
+      ? // eslint-disable-next-line react/jsx-no-constructed-context-values
+        {
           filteredValuesBySeriesId: {
             [CROSS_FILTER_SERIES_ID]: singleSeriesFilteredValues,
           },
@@ -1471,7 +1476,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           ]}
           colors={
             ghostLineValues
-              ? [lineColor + '40', lineColor] // ghost at 25% opacity via hex alpha
+              ? [`${lineColor  }40`, lineColor] // ghost at 25% opacity via hex alpha
               : chartColors
           }
           hideLegend
@@ -1543,7 +1548,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               valueFormatter: seriesValueFormatter,
             },
           ]}
-          colors={ghostLineValues ? [lineColor + '30', lineColor] : chartColors}
+          colors={ghostLineValues ? [`${lineColor  }30`, lineColor] : chartColors}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={

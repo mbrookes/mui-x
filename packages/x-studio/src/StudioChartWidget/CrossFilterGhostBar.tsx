@@ -82,8 +82,7 @@ export function CrossFilterGhostBar(props: BarProps) {
     const fgY = y + height - fgHeight;
 
     return (
-      <>
-        {/* Ghost bar: full-data height, faded */}
+      <React.Fragment>
         <rect
           {...sharedProps}
           x={x}
@@ -105,10 +104,9 @@ export function CrossFilterGhostBar(props: BarProps) {
             opacity={fadedOpacity}
           />
         )}
-      </>
+      </React.Fragment>
     );
   }
-
   // Horizontal layout: width encodes value, height encodes band position
   const fgWidth = width * filteredRatio;
   const needsInset = filteredRatio > 1;
@@ -116,7 +114,7 @@ export function CrossFilterGhostBar(props: BarProps) {
   const fgHeight = height - 2 * insetY;
 
   return (
-    <>
+    <React.Fragment>
       <rect
         {...sharedProps}
         x={x}
@@ -137,6 +135,6 @@ export function CrossFilterGhostBar(props: BarProps) {
           opacity={fadedOpacity}
         />
       )}
-    </>
+    </React.Fragment>
   );
 }

@@ -47,12 +47,8 @@ export function FilterSetupPanel(props: { widgetId: string }) {
   const fieldId = config.filterWidgetField ?? '';
 
   // Capability constraint for the field picker based on filter type
-  const fieldCapability =
-    filterType === 'date-range'
-      ? 'temporal'
-      : filterType === 'slider'
-        ? undefined // slider supports both numeric and temporal — filtered via getOptionDisabled
-        : undefined;
+  // (slider supports both numeric and temporal — filtered via getOptionDisabled)
+  const fieldCapability = filterType === 'date-range' ? 'temporal' : undefined;
 
   const sliderGetOptionDisabled =
     filterType === 'slider'
@@ -111,7 +107,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
         <Select
           value={filterType}
           label="Control type"
-          onChange={(e) => handleTypeChange(e.target.value as StudioFilterWidgetType)}
+          onChange={(evt) => handleTypeChange(evt.target.value as StudioFilterWidgetType)}
         >
           {FILTER_WIDGET_TYPES.map((opt) => (
             <MenuItem key={opt.value} value={opt.value}>
@@ -143,9 +139,9 @@ export function FilterSetupPanel(props: { widgetId: string }) {
         label="Label (optional)"
         placeholder="Auto-detected from field"
         value={config.filterWidgetLabel ?? ''}
-        onChange={(e) =>
+        onChange={(evt) =>
           controller.updateWidgetConfig(widgetId, {
-            filterWidgetLabel: e.target.value || undefined,
+            filterWidgetLabel: evt.target.value || undefined,
           })
         }
       />
@@ -162,9 +158,9 @@ export function FilterSetupPanel(props: { widgetId: string }) {
               label="Min"
               type="number"
               value={config.filterWidgetMin ?? ''}
-              onChange={(e) =>
+              onChange={(evt) =>
                 controller.updateWidgetConfig(widgetId, {
-                  filterWidgetMin: e.target.value !== '' ? Number(e.target.value) : undefined,
+                  filterWidgetMin: evt.target.value !== '' ? Number(evt.target.value) : undefined,
                 })
               }
               sx={{ flex: 1 }}
@@ -174,9 +170,9 @@ export function FilterSetupPanel(props: { widgetId: string }) {
               label="Max"
               type="number"
               value={config.filterWidgetMax ?? ''}
-              onChange={(e) =>
+              onChange={(evt) =>
                 controller.updateWidgetConfig(widgetId, {
-                  filterWidgetMax: e.target.value !== '' ? Number(e.target.value) : undefined,
+                  filterWidgetMax: evt.target.value !== '' ? Number(evt.target.value) : undefined,
                 })
               }
               sx={{ flex: 1 }}
@@ -186,9 +182,9 @@ export function FilterSetupPanel(props: { widgetId: string }) {
               label="Step"
               type="number"
               value={config.filterWidgetStep ?? ''}
-              onChange={(e) =>
+              onChange={(evt) =>
                 controller.updateWidgetConfig(widgetId, {
-                  filterWidgetStep: e.target.value !== '' ? Number(e.target.value) : undefined,
+                  filterWidgetStep: evt.target.value !== '' ? Number(evt.target.value) : undefined,
                 })
               }
               sx={{ flex: 1 }}

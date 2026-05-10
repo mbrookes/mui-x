@@ -164,9 +164,10 @@ export function TabbedSidebar({ panels }: TabbedSidebarProps) {
   const shell = useStudioSelector(selectShell);
 
   const activePanel = panels.find((p) => shell.openDrawers[p.drawer]) ?? null;
+  const activeDrawer = activePanel?.drawer ?? null;
 
   const handleTabClick = (drawer: StudioDrawer) => {
-    if (shell.openDrawers[drawer]) {
+    if (activeDrawer === drawer) {
       // Same tab → close
       controller.setDrawerOpen(drawer, false);
     } else {
@@ -201,7 +202,7 @@ export function TabbedSidebar({ panels }: TabbedSidebarProps) {
           <TabEntry
             key={panel.drawer}
             panel={panel}
-            isActive={shell.openDrawers[panel.drawer]}
+            isActive={panel.drawer === activeDrawer}
             onClick={() => handleTabClick(panel.drawer)}
           />
         ))}

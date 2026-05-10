@@ -6,6 +6,7 @@ import FileUploadIcon from '@mui/icons-material/FileUpload';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import RedoIcon from '@mui/icons-material/Redo';
 import StorageIcon from '@mui/icons-material/Storage';
+import TuneIcon from '@mui/icons-material/Tune';
 import UndoIcon from '@mui/icons-material/Undo';
 import type { StudioMode, StudioPage } from '@mui/x-studio';
 import { StudioWordmark } from '@mui/x-studio';
@@ -23,6 +24,7 @@ export interface AppToolbarProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  onComposeOpen?: () => void;
   onDataOpen?: () => void;
   onFiltersOpen?: () => void;
 }
@@ -41,6 +43,7 @@ export function AppToolbar(props: AppToolbarProps) {
     canRedo,
     onUndo,
     onRedo,
+    onComposeOpen,
     onDataOpen,
     onFiltersOpen,
   } = props;
@@ -111,6 +114,13 @@ export function AppToolbar(props: AppToolbarProps) {
             </span>
           </Tooltip>
           <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
+          {onComposeOpen && (
+            <Tooltip title="Configure widget">
+              <IconButton size="small" onClick={onComposeOpen} aria-label="Configure widget">
+                <TuneIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
           {onDataOpen && (
             <Tooltip title="Data sources">
               <IconButton size="small" onClick={onDataOpen} aria-label="Data sources">

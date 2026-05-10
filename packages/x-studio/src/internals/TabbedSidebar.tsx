@@ -69,8 +69,7 @@ function TabEntry({ isActive, onClick, panel }: TabEntryProps) {
         px: 0.5,
         py: 1.5,
         cursor: 'pointer',
-        borderRight: 3,
-        borderColor: isActive ? 'primary.main' : 'transparent',
+
         bgcolor: isActive ? 'action.selected' : 'transparent',
         transition: 'background-color 0.15s, border-color 0.15s',
         '&:hover': { bgcolor: isActive ? 'action.selected' : 'action.hover' },

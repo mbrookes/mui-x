@@ -322,7 +322,7 @@ function DataSourceSection(props: {
   return (
     <div>
       <DataSourcePreviewTooltip source={source}>
-        <ListItemButton onClick={() => setOpen((prev) => !prev)} sx={{ px: 1, py: 0.5 }}>
+        <ListItemButton onClick={() => setOpen((prev) => !prev)} sx={{ pl: 2, pr: 1, py: 0.5 }}>
           <ListItemText
             primary={
               <Typography variant="subtitle2" noWrap>

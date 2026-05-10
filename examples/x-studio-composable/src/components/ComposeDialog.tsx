@@ -74,6 +74,7 @@ export function ComposeDialog({ open, onClose }: ComposeDialogProps) {
           {!hasNestedSelection && <TuneIcon fontSize="small" color="action" />}
           {title}
           <IconButton
+            autoFocus
             aria-label="Close compose dialog"
             onClick={handleClose}
             size="small"

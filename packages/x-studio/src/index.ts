@@ -155,3 +155,12 @@ export { CURRENT_SCHEMA_VERSION } from './store/statePersistence';
 // ─── Brand ───────────────────────────────────────────────────────────────────
 export { StudioWordmark } from './icons/StudioWordmark';
 export type { StudioWordmarkProps } from './icons/StudioWordmark';
+
+// ─── AI / Chat ────────────────────────────────────────────────────────────────
+export { StudioChatPanel } from './StudioChatPanel/StudioChatPanel';
+export type { StudioChatPanelProps } from './StudioChatPanel/StudioChatPanel';
+export { createStudioChatAdapter } from './StudioChatPanel/studioAdapter';
+export type { StudioAIConfig } from './StudioChatPanel/studioAdapter';
+export { buildAISystemPrompt } from './internals/buildAISystemPrompt';
+export { STUDIO_AI_TOOLS } from './StudioChatPanel/studioAITools';
+export type { StudioAIToolName } from './StudioChatPanel/studioAITools';

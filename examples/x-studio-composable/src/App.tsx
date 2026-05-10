@@ -156,7 +156,7 @@ interface DashboardLayoutProps {
  * - `useStudioController` — direct access to the controller
  * - `useStudioSelector` / selectors — reactive state reads
  * - `useStudioKeyboardShortcuts` — Cmd+Z undo / Cmd+Shift+Z redo
- * - `ComposeDialog` — dialog for widget configuration (opens on widget click)
+ * - `ComposeDialog` — dialog for widget configuration (opened via toolbar or AddWidgetFab)
  * - `DataDialog` — dialog for data source management
  * - `FiltersDialog` — dialog for filter management
  * - `AddWidgetFab` — floating action button to add widgets
@@ -187,10 +187,13 @@ function DashboardLayout({ adapterMode, onSnackbar }: DashboardLayoutProps) {
     [controller],
   );
 
-  // Dialog open state for data and filters
+  // Dialog open state for compose, data, and filters
+  const [composeOpen, setComposeOpen] = React.useState(false);
   const [dataOpen, setDataOpen] = React.useState(false);
   const [filtersOpen, setFiltersOpen] = React.useState(false);
 
+  const handleComposeOpen = React.useCallback(() => setComposeOpen(true), []);
+  const handleComposeClose = React.useCallback(() => setComposeOpen(false), []);
   const handleDataOpen = React.useCallback(() => setDataOpen(true), []);
   const handleDataClose = React.useCallback(() => setDataOpen(false), []);
   const handleFiltersOpen = React.useCallback(() => setFiltersOpen(true), []);
@@ -289,12 +292,13 @@ function DashboardLayout({ adapterMode, onSnackbar }: DashboardLayoutProps) {
         canRedo={canRedo}
         onUndo={handleUndo}
         onRedo={handleRedo}
+        onComposeOpen={handleComposeOpen}
         onDataOpen={handleDataOpen}
         onFiltersOpen={handleFiltersOpen}
       />
 
       {/* Dialogs — rendered outside the canvas so they overlay everything */}
-      <ComposeDialog />
+      <ComposeDialog open={composeOpen} onClose={handleComposeClose} />
       <DataDialog open={dataOpen} onClose={handleDataClose} />
       <FiltersDialog open={filtersOpen} onClose={handleFiltersClose} />
 
@@ -329,7 +333,7 @@ function DashboardLayout({ adapterMode, onSnackbar }: DashboardLayoutProps) {
               <StudioCanvas />
             </Box>
           </Box>
-          {mode === 'edit' && <AddWidgetFab />}
+          {mode === 'edit' && <AddWidgetFab onWidgetAdded={handleComposeOpen} />}
         </CanvasScrollContext.Provider>
       </Box>
     </Box>

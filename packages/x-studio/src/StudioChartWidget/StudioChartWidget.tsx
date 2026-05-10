@@ -458,7 +458,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ? hoveredItem
       : null;
   const controlledHighlightedAxis =
-    selectedFilterValue == null ? (hoveredAxis ?? undefined) : undefined;
+    selectedFilterValue == null ? hoveredAxis : null;
 
   // Grouped or stacked bar charts (by category field OR multiple y-fields)
   const isBar =

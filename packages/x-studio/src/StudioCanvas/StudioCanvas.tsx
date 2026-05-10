@@ -73,7 +73,6 @@ function InsertionPoint({
     };
     // onDrop is now a stable useCallback; mode changes require listener re-registration.
     // rowIndex/colIndex/orientation are read from posRef so excluded from deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     // react-doctor-disable-next-line react-doctor/prefer-use-effect-event
   }, [onDrop, mode]);
   // Only show the line when hovered, otherwise invisible and non-interfering
@@ -219,9 +218,9 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
     }
     node.addEventListener('dragover', onDragOver);
     node.addEventListener('drop', stopScroll);
-    node.addEventListener('dragleave', (e: DragEvent) => {
+    node.addEventListener('dragleave', (evt: DragEvent) => {
       // Only stop if leaving the canvas entirely (not moving between children)
-      if (!node.contains(e.relatedTarget as Node)) {
+      if (!node.contains(evt.relatedTarget as Node)) {
         stopScroll();
       }
     });
@@ -261,12 +260,12 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
           rows[rowIndex] = row;
         }
         const state = controller.getState();
-        const activePage = state.pages[activePageId];
+        const targetPage = state.pages[activePageId];
         controller.updateState({
           widgets: { ...state.widgets, [newWidget.id]: newWidget },
           pages: {
             ...state.pages,
-            [activePageId]: { ...activePage, widgetRows: rows },
+            [activePageId]: { ...targetPage, widgetRows: rows },
           },
           shell: { ...state.shell, selectedWidgetId: newWidget.id },
         });
@@ -281,7 +280,6 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
         }
         const cleaned = rows.filter((r) => r.length > 0);
         // Select the dropped widget after repositioning so the compose panel opens
-        const activePageId = controller.getState().dashboard.activePageId;
         controller.updateState({
           pages: {
             ...controller.getState().pages,

@@ -110,7 +110,6 @@ const rows: Row[] = [
 // ── Import hook (after mocks are set up) ────────────────────────────────────
 
 // Dynamic import keeps mock hoisting correct; vitest hoists vi.mock() before imports.
-// eslint-disable-next-line import/no-mutable-exports
 let useWidgetRows: (typeof import('./useWidgetRows'))['useWidgetRows'];
 
 beforeEach(async () => {
@@ -261,6 +260,7 @@ describe('async adapter path', () => {
 
     const { result } = renderHook(() => useWidgetRows(widget, dataSource));
 
+    // eslint-disable-next-line testing-library/no-unnecessary-act
     await act(async () => {
       await vi.waitFor(() => !result.current.isLoading);
     });
@@ -312,8 +312,8 @@ describe('async adapter path', () => {
     const dataSource = makeDataSource([], { adapter });
 
     // Render two instances of the hook with the same widget/source
-    const hook1 = renderHook(() => useWidgetRows(widget, dataSource));
-    const hook2 = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result: result1, unmount: unmount1 } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result: result2, unmount: unmount2 } = renderHook(() => useWidgetRows(widget, dataSource));
 
     await act(async () => {
       resolveAdapter({ rows });
@@ -322,11 +322,11 @@ describe('async adapter path', () => {
 
     // adapter.getRows should only be called once
     expect(adapterFn).toHaveBeenCalledTimes(1);
-    expect(hook1.result.current.filteredRows).toHaveLength(3);
-    expect(hook2.result.current.filteredRows).toHaveLength(3);
+    expect(result1.current.filteredRows).toHaveLength(3);
+    expect(result2.current.filteredRows).toHaveLength(3);
 
-    hook1.unmount();
-    hook2.unmount();
+    unmount1();
+    unmount2();
   });
 
   it('hasCrossFilters is always false for adapter sources', async () => {
@@ -352,6 +352,7 @@ describe('async adapter path', () => {
 
     const { result } = renderHook(() => useWidgetRows(widget, dataSource));
 
+    // eslint-disable-next-line testing-library/no-unnecessary-act
     await act(async () => {
       await vi.waitFor(() => !result.current.isLoading);
     });
@@ -373,6 +374,7 @@ describe('async adapter path', () => {
 
     const { result } = renderHook(() => useWidgetRows(widget, dataSource));
 
+    // eslint-disable-next-line testing-library/no-unnecessary-act
     await act(async () => {
       // Wait for the rejection to be handled
       await vi.waitFor(() => !result.current.isLoading);
@@ -413,6 +415,7 @@ describe('sync vs async parity', () => {
 
     const { result: asyncResult } = renderHook(() => useWidgetRows(widget, asyncDataSource));
 
+    // eslint-disable-next-line testing-library/no-unnecessary-act
     await act(async () => {
       await vi.waitFor(() => !asyncResult.current.isLoading);
     });

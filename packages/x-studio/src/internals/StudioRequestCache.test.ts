@@ -97,7 +97,7 @@ describe('StudioRequestCache', () => {
 
   it('clears the in-flight entry when the promise rejects', async () => {
     const error = new Error('fetch failed');
-    let reject!: (e: Error) => void;
+    let reject!: (err: Error) => void;
     const promise = new Promise<StudioQueryResult>((_, rej) => {
       reject = rej;
     });

@@ -1,6 +1,10 @@
 import type { StudioDataSource } from '@mui/x-studio';
 import { CATEGORY_REVENUE_MULTIPLIERS, roundCurrency } from './categoryRevenueMultipliers';
 
+/* eslint-disable no-bitwise, no-plusplus */
+// Intentional: mulberry32 PRNG uses bitwise ops for performance; i++ and shipIdx++
+// are standard counter idioms in this data-generation module.
+
 // ─── Seeded PRNG (mulberry32) ──────────────────────────────────────────────────
 // A simple, fast, high-quality 32-bit PRNG. No external dependency.
 // Returns a function that produces uniformly distributed floats in [0, 1).
@@ -33,7 +37,7 @@ function pickWeighted<T>(rng: Rng, options: readonly T[], weights: readonly numb
   let cumulative = 0;
   for (let i = 0; i < options.length; i++) {
     cumulative += weights[i];
-    if (r < cumulative) return options[i];
+    if (r < cumulative) { return options[i]; }
   }
   return options[options.length - 1];
 }
@@ -500,8 +504,8 @@ function generateShipments(
 
   for (const order of orders) {
     // Cancelled orders don't ship; Processing/Pending may not have shipped yet
-    if (order.status === 'Cancelled') continue;
-    if ((order.status === 'Pending' || order.status === 'Processing') && rng() < 0.5) continue;
+    if (order.status === 'Cancelled') { continue; }
+    if ((order.status === 'Pending' || order.status === 'Processing') && rng() < 0.5) { continue; }
 
     const isDelivered = order.status === 'Delivered' || order.status === 'Partially Delivered';
     const shipDate = addDays(order.date, randInt(rng, 1, 3));

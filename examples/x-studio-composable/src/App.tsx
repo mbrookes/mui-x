@@ -71,7 +71,9 @@ function getUrlRowsParam(): number | undefined {
     return undefined;
   }
   const raw = new URL(window.location.href).searchParams.get('rows');
-  if (!raw) return undefined;
+  if (!raw) {
+    return undefined;
+  }
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }

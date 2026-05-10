@@ -69,6 +69,9 @@ export interface StudioHandle {
 
 // ── Slots / Props ─────────────────────────────────────────────────────────────
 
+/* eslint-disable react/no-unused-prop-types */
+// False positives: ESLint can't trace slot props through `...slots` spread into
+// `StudioContent` or `initialState`/`onStateChange` through `memo + forwardRef`.
 export interface StudioSlots {
   dataDrawer?: React.ReactNode;
   composeDrawer?: React.ReactNode;
@@ -93,9 +96,11 @@ export interface StudioProps extends StudioSlots {
    *   setCanUndo(ref.current?.canUndo() ?? false);
    * }}
    * ```
+   * @param {StudioState} state - The new Studio state snapshot.
    */
   onStateChange?: (state: StudioState) => void;
 }
+/* eslint-enable react/no-unused-prop-types */
 
 // ── Internal content (needs context) ─────────────────────────────────────────
 

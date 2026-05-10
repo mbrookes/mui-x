@@ -93,8 +93,8 @@ function DateRangeControl({
               tabIndex={0}
               aria-label="Clear date range filter"
               onClick={onClear}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') onClear();
+              onKeyDown={(evt) => {
+                if (evt.key === 'Enter' || evt.key === ' ') {onClear();}
               }}
               sx={{
                 cursor: 'pointer',
@@ -168,8 +168,8 @@ function MultiSelectControl({
               tabIndex={0}
               aria-label="Clear selection filter"
               onClick={onClear}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') onClear();
+              onKeyDown={(evt) => {
+                if (evt.key === 'Enter' || evt.key === ' ') {onClear();}
               }}
               sx={{
                 cursor: 'pointer',
@@ -188,10 +188,10 @@ function MultiSelectControl({
         size="small"
         fullWidth
         value={selected}
-        onChange={(e) => handleSelectionChange(e.target.value as string[])}
+        onChange={(evt) => handleSelectionChange(evt.target.value as string[])}
         displayEmpty
         renderValue={(sel) => {
-          if ((sel as string[]).length === 0) return <em style={{ opacity: 0.5 }}>All</em>;
+          if ((sel as string[]).length === 0) {return <em style={{ opacity: 0.5 }}>All</em>;}
           return `${(sel as string[]).length} selected`;
         }}
         MenuProps={{
@@ -202,7 +202,7 @@ function MultiSelectControl({
         {/* Search inside the dropdown */}
         <MenuItem
           disableRipple
-          onKeyDown={(e) => e.stopPropagation()}
+          onKeyDown={(evt) => evt.stopPropagation()}
           sx={{ position: 'sticky', top: 0, zIndex: 1, bgcolor: 'background.paper', pb: 0.5 }}
         >
           <TextField
@@ -210,8 +210,8 @@ function MultiSelectControl({
             fullWidth
             placeholder="Search…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
+            onChange={(evt) => setSearch(evt.target.value)}
+            onClick={(evt) => evt.stopPropagation()}
             slotProps={{
               input: {
                 startAdornment: (
@@ -283,8 +283,8 @@ function ToggleControl({
               tabIndex={0}
               aria-label="Clear toggle filter"
               onClick={onClear}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') onClear();
+              onKeyDown={(evt) => {
+                if (evt.key === 'Enter' || evt.key === ' ') {onClear();}
               }}
               sx={{
                 cursor: 'pointer',
@@ -375,8 +375,8 @@ function SliderControl({
             tabIndex={isActive ? 0 : -1}
             aria-label="Clear slider filter"
             onClick={onClear}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') onClear();
+            onKeyDown={(evt) => {
+              if (evt.key === 'Enter' || evt.key === ' ') {onClear();}
             }}
             sx={{
               cursor: 'pointer',
@@ -532,8 +532,8 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       const raw = row[fieldId];
       const v = isDateField ? dayjs(raw as string).valueOf() : Number(raw);
       if (Number.isFinite(v)) {
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
+        if (v < lo) {lo = v;}
+        if (v > hi) {hi = v;}
       }
     }
     return {
@@ -545,13 +545,9 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   const sliderMin = config.filterWidgetMin ?? autoMin;
   const sliderMax = config.filterWidgetMax ?? autoMax;
   const MS_PER_DAY = 86_400_000;
-  const sliderStep =
-    config.filterWidgetStep ??
-    (isDateField
-      ? MS_PER_DAY // default to 1-day steps for date sliders
-      : sliderMax - sliderMin > 100
-        ? Math.round((sliderMax - sliderMin) / 100)
-        : 1);
+  const autoSliderStep =
+    sliderMax - sliderMin > 100 ? Math.round((sliderMax - sliderMin) / 100) : 1;
+  const sliderStep = config.filterWidgetStep ?? (isDateField ? MS_PER_DAY : autoSliderStep);
 
   const handleClear = React.useCallback(() => {
     controller.clearInteractiveFilter(widget.id);
@@ -641,15 +637,17 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       | { from?: string | number; to?: string | number }
       | null
       | undefined;
-    const val: { from?: number; to?: number } | null =
-      rawVal == null
-        ? null
-        : isDateField
-          ? {
-              from: rawVal.from != null ? dayjs(rawVal.from as string).valueOf() : undefined,
-              to: rawVal.to != null ? dayjs(rawVal.to as string).valueOf() : undefined,
-            }
-          : (rawVal as { from?: number; to?: number });
+    let val: { from?: number; to?: number } | null;
+    if (rawVal == null) {
+      val = null;
+    } else if (isDateField) {
+      val = {
+        from: rawVal.from != null ? dayjs(rawVal.from as string).valueOf() : undefined,
+        to: rawVal.to != null ? dayjs(rawVal.to as string).valueOf() : undefined,
+      };
+    } else {
+      val = rawVal as { from?: number; to?: number };
+    }
     const fieldType = isDateField ? (field?.type ?? 'date') : 'number';
     return (
       <SliderControl

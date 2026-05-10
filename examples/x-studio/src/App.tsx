@@ -53,7 +53,7 @@ function getUrlRowsParam(): number | undefined {
     return undefined;
   }
   const raw = new URL(window.location.href).searchParams.get('rows');
-  if (!raw) return undefined;
+  if (!raw) {return undefined;}
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
@@ -140,12 +140,12 @@ export default function App() {
   const adapterMode = React.useMemo(() => getUrlAdapterParam(), []);
 
   React.useEffect(() => {
-    if (!adapterMode) return;
+    if (!adapterMode) {return;}
 
     // Read the current data sources from the controller so we get the normalised
     // rows (which may have been generated via ?rows=N) rather than the raw imports.
     const state = studioRef.current?.getState();
-    if (!state) return;
+    if (!state) {return;}
 
     for (const source of Object.values(state.dataSources)) {
       if (source.rows && source.rows.length > 0) {
@@ -155,7 +155,6 @@ export default function App() {
     // eslint-disable-next-line no-console
     console.info('[x-studio] Adapter mode enabled — all sources routed through simulatedServer');
     // Only run once on mount (studioRef.current is stable after mount)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adapterMode]);
 
   const handleStateChange = React.useCallback((state: StudioState) => {

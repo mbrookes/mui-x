@@ -8,7 +8,6 @@ import {
   useStudioController,
   useStudioSelector,
   selectShell,
-  selectActivePageId,
   selectActivePage,
   selectWidgets,
   selectDataSources,
@@ -130,7 +129,7 @@ function WidgetInstanceItem({ widget, isSelected, onSelect }: WidgetInstanceItem
       tabIndex={0}
       role="button"
       aria-label={`Select widget: ${widget.title || widget.kind}`}
-      aria-selected={isSelected}
+      aria-pressed={isSelected}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
@@ -178,9 +177,8 @@ function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);
   const selectedWidgetId = shell.selectedWidgetId;
-  const activePageId = useStudioSelector(selectActivePageId);
   const activePage = useStudioSelector(selectActivePage);
-  const widgetRows = activePage?.widgetRows ?? [];
+  const widgetRows = React.useMemo(() => activePage?.widgetRows ?? [], [activePage]);
   const widgets = useStudioSelector(selectWidgets);
 
   const pageWidgetIds = React.useMemo(() => new Set(widgetRows.flat()), [widgetRows]);
@@ -249,13 +247,11 @@ function smoothScrollToBottom(container: HTMLElement, duration = 420) {
     const progress = Math.min(elapsed / duration, 1);
     // Re-read bottom each frame — widget content may still be loading
     const targetY = container.scrollHeight - container.clientHeight;
-    // eslint-disable-next-line no-param-reassign
     container.scrollTop = startY + (targetY - startY) * easeOutCubic(progress);
     if (progress < 1) {
       requestAnimationFrame(step);
     } else {
       // Final snap: catches any content that finished loading after the animation
-      // eslint-disable-next-line no-param-reassign
       container.scrollTop = container.scrollHeight - container.clientHeight;
     }
   }

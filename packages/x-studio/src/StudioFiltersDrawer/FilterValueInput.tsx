@@ -18,12 +18,12 @@ import {
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import type { Dayjs } from 'dayjs';
-import { NumberField } from '../internals/NumberField';
 import dayjs from 'dayjs';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import AddLinkIcon from '@mui/icons-material/AddLink';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
+import { NumberField } from '../internals/NumberField';
 import type { StudioFilterOperator, StudioMetricRef } from '../models';
 import type { RelativeDateUnit, RelativeDateValue } from '../internals/filterTypes';
 import type { FieldType } from './filterDrawerTypes';
@@ -131,7 +131,7 @@ function MetricPickerButton({
         <IconButton
           size="small"
           aria-label="Link to field"
-          onClick={(e) => setAnchorEl(e.currentTarget)}
+          onClick={(evt) => setAnchorEl(evt.currentTarget)}
         >
           <AddLinkIcon sx={{ fontSize: 14 }} />
         </IconButton>
@@ -300,6 +300,65 @@ function DateValueInput({
 
   const isLinked = Boolean(valueRef);
 
+  let dateContent: React.ReactNode;
+  if (onValueRefChange) {
+    dateContent = (
+      <Box sx={{ minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <DatePicker
+            label={label ?? 'Date'}
+            value={dayjsVal?.isValid() ? dayjsVal : null}
+            disabled={isLinked}
+            onChange={(d) => {
+              onChange(d?.isValid() ? d.format('YYYY-MM-DD') : '');
+              if (valueRef) {
+                onValueRefChange(undefined);
+              }
+            }}
+            slotProps={{ textField: { size: 'small' } }}
+            sx={{ flexGrow: 1, minWidth: 130 }}
+          />
+          <MetricPickerButton
+            fieldType={fieldType ?? 'date'}
+            isLinked={isLinked}
+            onRemoveLink={() => onValueRefChange(undefined)}
+            onSelect={(opt) => {
+              const nextValue = String(opt.value);
+              const nextRef = { sourceId: opt.sourceId, rowId: opt.rowId, field: opt.field };
+              if (onMetricSelect) {
+                onMetricSelect(nextValue, nextRef);
+                return;
+              }
+              onChange(nextValue);
+              onValueRefChange(nextRef);
+            }}
+          />
+        </Box>
+        {metricLabel && (
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: 'block', mt: 0.25, ml: 0.25 }}
+          >
+            {metricLabel}
+          </Typography>
+        )}
+      </Box>
+    );
+  } else {
+    dateContent = (
+      <DatePicker
+        label={label ?? 'Date'}
+        value={dayjsVal?.isValid() ? dayjsVal : null}
+        onChange={(d) => {
+          onChange(d?.isValid() ? d.format('YYYY-MM-DD') : '');
+        }}
+        slotProps={{ textField: { size: 'small' } }}
+        sx={{ flexGrow: 1, minWidth: 130 }}
+      />
+    );
+  }
+
   return (
     <Stack spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
       <ToggleButtonGroup
@@ -331,59 +390,7 @@ function DateValueInput({
           }
           metricLabel={metricLabel}
         />
-      ) : onValueRefChange ? (
-        <Box sx={{ minWidth: 0 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <DatePicker
-              label={label ?? 'Date'}
-              value={dayjsVal?.isValid() ? dayjsVal : null}
-              disabled={isLinked}
-              onChange={(d) => {
-                onChange(d?.isValid() ? d.format('YYYY-MM-DD') : '');
-                if (valueRef) {
-                  onValueRefChange(undefined);
-                }
-              }}
-              slotProps={{ textField: { size: 'small' } }}
-              sx={{ flexGrow: 1, minWidth: 130 }}
-            />
-            <MetricPickerButton
-              fieldType={fieldType ?? 'date'}
-              isLinked={isLinked}
-              onRemoveLink={() => onValueRefChange(undefined)}
-              onSelect={(opt) => {
-                const nextValue = String(opt.value);
-                const nextRef = { sourceId: opt.sourceId, rowId: opt.rowId, field: opt.field };
-                if (onMetricSelect) {
-                  onMetricSelect(nextValue, nextRef);
-                  return;
-                }
-                onChange(nextValue);
-                onValueRefChange(nextRef);
-              }}
-            />
-          </Box>
-          {metricLabel && (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ display: 'block', mt: 0.25, ml: 0.25 }}
-            >
-              {metricLabel}
-            </Typography>
-          )}
-        </Box>
-      ) : (
-        <DatePicker
-          label={label ?? 'Date'}
-          value={dayjsVal?.isValid() ? dayjsVal : null}
-          onChange={(d) => {
-            onChange(d?.isValid() ? d.format('YYYY-MM-DD') : '');
-          }}
-          slotProps={{ textField: { size: 'small' } }}
-          sx={{ flexGrow: 1, minWidth: 130 }}
-        />
-      )}
+      ) : dateContent}
     </Stack>
   );
 }

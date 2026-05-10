@@ -43,6 +43,10 @@ export const alias = [
     find: 'test/utils',
     replacement: fileURLToPath(new URL('./test/utils', import.meta.url)),
   },
+  {
+    find: /^x-studio-example\/(.+)$/,
+    replacement: resolve(WORKSPACE_ROOT, './examples/x-studio/$1'),
+  },
 ];
 
 export default defineConfig({

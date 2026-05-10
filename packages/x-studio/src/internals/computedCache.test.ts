@@ -35,7 +35,7 @@ describe('cachedCompute', () => {
     const rows1: Row[] = [{ id: 1 }];
     const rows2: Row[] = [{ id: 1 }]; // same content, different reference
     let callCount = 0;
-    const compute = () => ++callCount;
+    const compute = () => { callCount += 1; return callCount; };
     cachedCompute(rows1, 'key', compute);
     cachedCompute(rows2, 'key', compute);
     expect(callCount).toBe(2);

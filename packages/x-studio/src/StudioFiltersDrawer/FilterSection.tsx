@@ -138,13 +138,16 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
             const widgetTitle = filter.sourceWidgetId
               ? (widgets[filter.sourceWidgetId]?.title ?? filter.sourceWidgetId)
               : null;
-            const displayValue = Array.isArray(filter.value)
-              ? `${(filter.value as unknown[]).length} selected`
-              : typeof filter.value === 'object' && filter.value !== null
-                ? Object.entries(filter.value as Record<string, unknown>)
-                    .flatMap(([k, v]) => (v != null ? [`${k}: ${String(v)}`] : []))
-                    .join(' – ')
-                : String(filter.value ?? '');
+            let displayValue: string;
+            if (Array.isArray(filter.value)) {
+              displayValue = `${(filter.value as unknown[]).length} selected`;
+            } else if (typeof filter.value === 'object' && filter.value !== null) {
+              displayValue = Object.entries(filter.value as Record<string, unknown>)
+                .flatMap(([k, v]) => (v != null ? [`${k}: ${String(v)}`] : []))
+                .join(' – ');
+            } else {
+              displayValue = String(filter.value ?? '');
+            }
             return (
               <Box
                 key={filter.id}

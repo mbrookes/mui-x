@@ -62,10 +62,10 @@ const BOOLEAN_OPERATORS: { value: StudioFilterOperator; label: string }[] = [
 function operatorsForField(
   field: StudioDataField | undefined,
 ): { value: StudioFilterOperator; label: string }[] {
-  if (!field) return STRING_OPERATORS;
-  if (field.type === 'number') return NUMBER_OPERATORS;
-  if (field.type === 'date' || field.type === 'datetime') return DATE_OPERATORS;
-  if (field.type === 'boolean') return BOOLEAN_OPERATORS;
+  if (!field) {return STRING_OPERATORS;}
+  if (field.type === 'number') {return NUMBER_OPERATORS;}
+  if (field.type === 'date' || field.type === 'datetime') {return DATE_OPERATORS;}
+  if (field.type === 'boolean') {return BOOLEAN_OPERATORS;}
   return STRING_OPERATORS;
 }
 
@@ -90,7 +90,7 @@ function FilterRow(props: {
       <FormControl size="small" sx={{ minWidth: 130 }}>
         <Select
           value={filter.field}
-          onChange={(e) => onUpdate({ field: e.target.value as string })}
+          onChange={(evt) => onUpdate({ field: evt.target.value as string })}
           displayEmpty
           renderValue={(v) => fields.find((f) => f.id === v)?.label ?? v}
         >
@@ -106,7 +106,7 @@ function FilterRow(props: {
       <FormControl size="small" sx={{ minWidth: 130 }}>
         <Select
           value={filter.operator}
-          onChange={(e) => onUpdate({ operator: e.target.value as StudioFilterOperator })}
+          onChange={(evt) => onUpdate({ operator: evt.target.value as StudioFilterOperator })}
         >
           {operators.map((op) => (
             <MenuItem key={op.value} value={op.value}>
@@ -122,7 +122,7 @@ function FilterRow(props: {
           size="small"
           placeholder="Value"
           value={filter.value === undefined || filter.value === null ? '' : String(filter.value)}
-          onChange={(e) => onUpdate({ value: e.target.value })}
+          onChange={(evt) => onUpdate({ value: evt.target.value })}
           sx={{ flex: 1, minWidth: 80 }}
         />
       )}
@@ -161,7 +161,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
 
   const handleAdd = React.useCallback(() => {
     const firstField = fields[0];
-    if (!firstField) return;
+    if (!firstField) {return;}
     controller.addFilter({
       id: `wf-${widgetId}-${Date.now()}`,
       scope: 'widget',
@@ -183,7 +183,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
   const handleUpdate = React.useCallback(
     (filterId: string, patch: Partial<StudioFilterState>) => {
       const filter = allFilters.find((f) => f.id === filterId);
-      if (!filter) return;
+      if (!filter) {return;}
       // Remove old and re-add with merged patch
       controller.removeFilter(filterId);
       controller.addFilter({ ...filter, ...patch });
@@ -202,7 +202,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
   return (
     <Stack spacing={2}>
       <Typography variant="body2" color="text.secondary">
-        Always-on conditions applied to this widget's data before any interactive filters.
+        Always-on conditions applied to this widget&apos;s data before any interactive filters.
       </Typography>
 
       {widgetFilters.length > 0 ? (

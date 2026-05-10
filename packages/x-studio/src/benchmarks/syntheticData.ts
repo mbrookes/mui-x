@@ -1,3 +1,4 @@
+/* eslint-disable no-plusplus */
 /**
  * Deterministic synthetic data generator for pipeline benchmarks.
  *

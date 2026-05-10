@@ -1,3 +1,4 @@
+/* eslint-disable no-plusplus, no-console */
 /**
  * x-studio pipeline benchmarks — standalone runner
  *
@@ -38,7 +39,7 @@ interface BenchResult {
 
 function runBench(name: string, fn: () => void, warmup = 5, iterations = 50): BenchResult {
   // Warmup
-  for (let i = 0; i < warmup; i++) fn();
+  for (let i = 0; i < warmup; i++) {fn();}
 
   const times: number[] = [];
   for (let i = 0; i < iterations; i++) {
@@ -87,16 +88,14 @@ for (const n of SCALES) {
   );
 
   // L1 cache hit — getCachedNormalizedDataSource (same stable refs every call)
-  {
-    // Prime the cache with one cold call.
-    getCachedNormalizedDataSource(dataSources.orders);
-    results.push(
-      runBench(`L1 getCachedNormalizedDataSource (warm) @ ${scale}`, () => {
-        // Same rows + fields refs → O(1) WeakMap lookup, no recomputation.
-        getCachedNormalizedDataSource(dataSources.orders);
-      }),
-    );
-  }
+  // Prime the cache with one cold call.
+  getCachedNormalizedDataSource(dataSources.orders);
+  results.push(
+    runBench(`L1 getCachedNormalizedDataSource (warm) @ ${scale}`, () => {
+      // Same rows + fields refs → O(1) WeakMap lookup, no recomputation.
+      getCachedNormalizedDataSource(dataSources.orders);
+    }),
+  );
 
   // L2 — enrichRowsWithExpressions
   results.push(
@@ -112,28 +111,26 @@ for (const n of SCALES) {
   );
 
   // L2 cache hit — getCachedEnrichedRows (same stable refs every call)
-  {
-    // Prime the enrichedRowsCache with one cold call.
-    getCachedEnrichedRows(
-      dataSources.orders.rows!,
-      'orders',
-      expressionFields,
-      dataSources,
-      relationships,
-    );
-    results.push(
-      runBench(`L2 getCachedEnrichedRows (warm) @ ${scale}`, () => {
-        // Same rows/expressionFields/dataSources refs → O(1) ref-equality hit.
-        getCachedEnrichedRows(
-          dataSources.orders.rows!,
-          'orders',
-          expressionFields,
-          dataSources,
-          relationships,
-        );
-      }),
-    );
-  }
+  // Prime the enrichedRowsCache with one cold call.
+  getCachedEnrichedRows(
+    dataSources.orders.rows!,
+    'orders',
+    expressionFields,
+    dataSources,
+    relationships,
+  );
+  results.push(
+    runBench(`L2 getCachedEnrichedRows (warm) @ ${scale}`, () => {
+      // Same rows/expressionFields/dataSources refs → O(1) ref-equality hit.
+      getCachedEnrichedRows(
+        dataSources.orders.rows!,
+        'orders',
+        expressionFields,
+        dataSources,
+        relationships,
+      );
+    }),
+  );
 
   // L3 cold — resolveRows with 1 filter
   results.push(
@@ -208,33 +205,31 @@ for (const n of SCALES) {
   );
 
   // L4 cache hit — same stable args each call so WeakMap key is stable
-  {
-    // Prime the WeakMap cache
-    resolveChartRowsForAggregation(
-      dataSources.customers.rows!,
-      'customers',
-      'country',
-      ['total'],
-      undefined,
-      dataSources,
-      relationships,
-      expressionFields,
-    );
-    results.push(
-      runBench(`L4 resolveChartRows (warm) @ ${scale}`, () => {
-        resolveChartRowsForAggregation(
-          dataSources.customers.rows!,
-          'customers',
-          'country',
-          ['total'],
-          undefined,
-          dataSources,
-          relationships,
-          expressionFields,
-        );
-      }),
-    );
-  }
+  // Prime the WeakMap cache
+  resolveChartRowsForAggregation(
+    dataSources.customers.rows!,
+    'customers',
+    'country',
+    ['total'],
+    undefined,
+    dataSources,
+    relationships,
+    expressionFields,
+  );
+  results.push(
+    runBench(`L4 resolveChartRows (warm) @ ${scale}`, () => {
+      resolveChartRowsForAggregation(
+        dataSources.customers.rows!,
+        'customers',
+        'country',
+        ['total'],
+        undefined,
+        dataSources,
+        relationships,
+        expressionFields,
+      );
+    }),
+  );
 
   // L5a — aggregateByField
   results.push(

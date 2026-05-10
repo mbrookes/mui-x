@@ -92,12 +92,11 @@ export function useWidgetRows(
       return null;
     }
     return buildQueryDescriptor(widget, filters, activePageId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasAdapter, widget, filters, activePageId]);
 
   // Async state: rows fetched from adapter.
   const [adapterRows, setAdapterRows] = React.useState<Row[]>(() => {
-    if (!hasAdapter) return [];
+    if (!hasAdapter) {return [];}
     // Seed from cache synchronously on mount.
     const cached = descriptor ? studioRequestCache.get(descriptor.cacheKey) : undefined;
     return cached ? cached.rows : [];
@@ -228,7 +227,6 @@ export function useWidgetRows(
     expressionFields,
     widget.id,
     widget.sourceId,
-    widget.config,
     activePageId,
     usedFieldIds,
   ]);
@@ -271,7 +269,6 @@ export function useWidgetRows(
     expressionFields,
     widget.id,
     widget.sourceId,
-    widget.config,
     usedFieldIds,
   ]);
 

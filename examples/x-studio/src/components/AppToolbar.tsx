@@ -89,7 +89,7 @@ export function AppToolbar(props: AppToolbarProps) {
       )}
       {pages.length <= 1 && <Box sx={{ flexGrow: 1 }} />}
       {mode === 'edit' && (
-        <>
+        <React.Fragment>
           <Tooltip title="Undo (⌘Z)">
             <span>
               <IconButton size="small" onClick={onUndo} disabled={!canUndo} aria-label="Undo">
@@ -105,7 +105,7 @@ export function AppToolbar(props: AppToolbarProps) {
             </span>
           </Tooltip>
           <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
-        </>
+        </React.Fragment>
       )}
       <Tooltip title="Download dashboard">
         <IconButton size="small" onClick={onSave} aria-label="Download dashboard">

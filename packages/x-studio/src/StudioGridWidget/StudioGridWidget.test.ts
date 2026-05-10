@@ -116,7 +116,7 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
     );
 
     // O1 and O3 were shipped by DHL; O2 was shipped by FedEx
-    expect(result.map((r) => r['id'])).toEqual(['O1', 'O3']);
+    expect(result.map((r) => r.id)).toEqual(['O1', 'O3']);
   });
 
   it('regression: without filterSourceId, carrier filter on orders returns no rows', () => {

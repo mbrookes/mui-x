@@ -51,7 +51,7 @@ function FieldPreviewTooltip({
 
   const values = rows.slice(0, PREVIEW_ROWS).map((row) => {
     const v = row[field.id];
-    if (v === null || v === undefined) return '—';
+    if (v === null || v === undefined) {return '—';}
     return String(v);
   });
 
@@ -136,7 +136,6 @@ function DataSourcePreviewTooltip({
         </thead>
         <tbody>
           {previewRows.map((row, ri) => (
-            // eslint-disable-next-line react/no-array-index-key
             <tr key={ri}>
               {visibleFields.map((f) => {
                 const v = row[f.id];
@@ -213,11 +212,12 @@ function ExpressionFieldRow({
   const type = field.type ?? (field.isMeasure ? 'number' : 'string');
 
   // For measure fields show the aggregate value; for columns use the enriched rows
-  const previewRows: Record<string, unknown>[] | undefined = field.isMeasure
-    ? measureValue !== undefined
-      ? [{ [field.id]: measureValue }]
-      : undefined
-    : enrichedRows;
+  let previewRows: Record<string, unknown>[] | undefined;
+  if (field.isMeasure) {
+    previewRows = measureValue !== undefined ? [{ [field.id]: measureValue }] : undefined;
+  } else {
+    previewRows = enrichedRows;
+  }
 
   return (
     <FieldPreviewTooltip field={field} rows={previewRows}>
@@ -344,7 +344,7 @@ function DataSourceSection(props: {
         <List dense disablePadding sx={{ pl: 1 }}>
           {/* Physical fields */}
           {source.fields.flatMap((field) => {
-            if (field.hidden) return [];
+            if (field.hidden) {return [];}
             const isSelected = selectedSourceId === source.id && selectedFieldId === field.id;
             return [
               <FieldPreviewTooltip key={field.id} field={field} rows={source.rows}>

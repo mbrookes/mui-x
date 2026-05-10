@@ -1,7 +1,6 @@
 'use client';
 import * as React from 'react';
 import {
-  Autocomplete,
   Box,
   FormControl,
   IconButton,
@@ -10,10 +9,9 @@ import {
   MenuItem,
   Select,
   Stack,
-  TextField,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioController } from '../context';
+import { useStudioController , useStudioSelector, selectFilters } from '../context';
 import type { StudioFilterState } from '../models';
 import type { FieldOption, FilterMode, SimpleField } from './filterDrawerTypes';
 import {
@@ -26,7 +24,6 @@ import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
 import { FilterCard } from './FilterCard';
 import { FilterBody } from './FilterBody';
-import { useStudioSelector, selectFilters } from '../context';
 
 export interface PageFilterRowProps {
   filter: StudioFilterState;

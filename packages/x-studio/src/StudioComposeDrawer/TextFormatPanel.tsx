@@ -4,7 +4,6 @@ import FormatAlignLeftIcon from '@mui/icons-material/FormatAlignLeft';
 import FormatAlignCenterIcon from '@mui/icons-material/FormatAlignCenter';
 import FormatAlignRightIcon from '@mui/icons-material/FormatAlignRight';
 import {
-  Box,
   FormControl,
   InputLabel,
   MenuItem,
@@ -92,7 +91,7 @@ function TextSectionFormat(props: TextSectionFormatProps) {
           placeholder="Default"
         />
 
-        <Box>
+        <div>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
             Alignment
           </Typography>
@@ -116,7 +115,7 @@ function TextSectionFormat(props: TextSectionFormatProps) {
               <FormatAlignRightIcon fontSize="small" />
             </ToggleButton>
           </ToggleButtonGroup>
-        </Box>
+        </div>
       </Stack>
     </CollapsibleSection>
   );

@@ -6,10 +6,7 @@ import type {
   StudioFilterState,
   StudioRelationship,
 } from '../models';
-import type { StudioPipelineState } from './StudioPipeline';
-
-// Re-export the interface for TS coverage
-import type { StudioPipeline } from './StudioPipeline';
+import type { StudioPipeline, StudioPipelineState } from './StudioPipeline';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

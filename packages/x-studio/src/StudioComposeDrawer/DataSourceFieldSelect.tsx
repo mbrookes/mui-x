@@ -30,7 +30,11 @@ export interface DataSourceFieldSelectProps {
   dataSources?: Record<string, StudioDataSource>;
   /** Only include fields with this capability (requires `dataSources`). */
   filterCapability?: FieldCapability;
-  /** Disable individual options (e.g. cross-source incompatibility checks). */
+  /**
+   * Disable individual options (e.g. cross-source incompatibility checks).
+   * @param {DataSourceFieldEntry} option - The field entry to evaluate.
+   * @returns {boolean} Whether the option should be disabled.
+   */
   getOptionDisabled?: (option: DataSourceFieldEntry) => boolean;
   /** Disable the entire control. */
   disabled?: boolean;
@@ -71,8 +75,8 @@ export function DataSourceFieldSelect({
           return [];
         }
         return src.fields.flatMap((f) => {
-          if (f.hidden) return [];
-          if (filterCapability && !fieldHasCapability(f, filterCapability)) return [];
+          if (f.hidden) {return [];}
+          if (filterCapability && !fieldHasCapability(f, filterCapability)) {return [];}
           return [
             {
               id: f.id,

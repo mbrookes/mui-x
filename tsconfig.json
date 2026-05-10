@@ -65,6 +65,8 @@
       "@mui/x-virtualizer/*": ["./packages/x-virtualizer/src/*"],
       "@mui/x-studio": ["./packages/x-studio/src"],
       "@mui/x-studio/*": ["./packages/x-studio/src/*"],
+      "x-studio-example": ["./examples/x-studio"],
+      "x-studio-example/*": ["./examples/x-studio/*"],
       "test/*": ["./test/*"],
       "docs/*": ["./docs/*"]
     },

@@ -63,7 +63,7 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
     onClose();
   }, [onClose]);
 
-  if (!widget) return null;
+  if (!widget) {return null;}
 
   const kindLabel = KIND_LABEL[widget.kind] ?? widget.kind;
 

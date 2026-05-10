@@ -47,7 +47,7 @@ export const WIDGET_TYPES: {
   {
     kind: 'chart',
     label: 'Chart',
-    description: 'Bar, line, pie, area, and scatter charts',
+    description: 'Visualise data with a configurable chart',
     icon: <BarGroupedIcon size={28} />,
   },
   {

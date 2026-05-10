@@ -6,6 +6,8 @@ import { Studio } from '@mui/x-studio';
 import type { StudioHandle, StudioMode, StudioPage, StudioState } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { AppToolbar } from './components/AppToolbar';
+import { SettingsDialog } from './components/SettingsDialog';
+import type { SidebarLayout } from './components/SettingsDialog';
 import { downloadJson, uploadJson } from './utils/fileUtils';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
@@ -135,6 +137,8 @@ export default function App() {
     message: string;
     severity: 'success' | 'error' | 'info';
   }>({ open: false, message: '', severity: 'info' });
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [sidebarLayout, setSidebarLayout] = React.useState<SidebarLayout>('tabbed');
 
   // Adapter mode: wire a simulated-server adapter for every data source
   const adapterMode = React.useMemo(() => getUrlAdapterParam(), []);
@@ -238,6 +242,14 @@ export default function App() {
     setSnackbar((prev) => ({ ...prev, open: false }));
   };
 
+  const handleOpenSettings = React.useCallback(() => {
+    setSettingsOpen(true);
+  }, []);
+
+  const handleCloseSettings = React.useCallback(() => {
+    setSettingsOpen(false);
+  }, []);
+
   const handlePageChange = React.useCallback((_event: React.SyntheticEvent, pageId: string) => {
     studioRef.current?.setActivePage(pageId);
   }, []);
@@ -262,6 +274,7 @@ export default function App() {
             onModeChange={handleModeChange}
             onSave={handleSave}
             onLoad={handleLoad}
+            onOpenSettings={handleOpenSettings}
             pages={pageList}
             activePageId={activePageId}
             onPageChange={handlePageChange}
@@ -286,7 +299,7 @@ export default function App() {
                 }}
               />
             )}
-            <Studio ref={studioRef} initialState={initialState} onStateChange={handleStateChange} sidebarLayout="tabbed" />
+            <Studio ref={studioRef} initialState={initialState} onStateChange={handleStateChange} sidebarLayout={sidebarLayout} />
           </Box>
         </Box>
         <Snackbar
@@ -299,6 +312,12 @@ export default function App() {
             {snackbar.message}
           </Alert>
         </Snackbar>
+        <SettingsDialog
+          open={settingsOpen}
+          onClose={handleCloseSettings}
+          values={{ sidebarLayout, rowCount: getUrlRowsParam(), adapterEnabled: adapterMode }}
+          onSidebarLayoutChange={setSidebarLayout}
+        />
       </LocalizationProvider>
     </ThemeProvider>
   );

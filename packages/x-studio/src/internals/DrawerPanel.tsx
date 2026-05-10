@@ -16,7 +16,7 @@ export const COLLAPSED_WIDTH = 36;
  * Context that lets content rendered inside a DrawerPanel's scroll area inject
  * a node into the fixed subheader slot (above the scroll, below the title bar).
  */
-interface DrawerSubheaderContextValue {
+export interface DrawerSubheaderContextValue {
   setSubheader: (node: React.ReactNode) => void;
 }
 export const DrawerSubheaderContext = React.createContext<DrawerSubheaderContextValue | null>(null);

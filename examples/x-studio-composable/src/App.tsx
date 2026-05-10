@@ -2,17 +2,10 @@ import * as React from 'react';
 import { Alert, Box, Chip, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import StorageIcon from '@mui/icons-material/Storage';
-import TuneIcon from '@mui/icons-material/Tune';
-import FilterListIcon from '@mui/icons-material/FilterList';
 import {
   CanvasScrollContext,
-  DrawerPanel,
   StudioCanvas,
-  StudioComposeDrawer,
   StudioController,
-  StudioDataDrawer,
-  StudioFiltersDrawer,
   StudioProvider,
   createStudioController,
   downloadState,
@@ -20,8 +13,6 @@ import {
   selectDataSources,
   selectMode,
   selectPages,
-  selectShell,
-  selectWidgets,
   useStudioController,
   useStudioKeyboardShortcuts,
   useStudioSelector,
@@ -29,6 +20,10 @@ import {
 import type { StudioMode, StudioPage, StudioState } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { AppToolbar } from './components/AppToolbar';
+import { ComposeDialog } from './components/ComposeDialog';
+import { DataDialog } from './components/DataDialog';
+import { FiltersDialog } from './components/FiltersDialog';
+import { AddWidgetFab } from './components/AddWidgetFab';
 import { uploadJson } from './utils/fileUtils';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
@@ -159,8 +154,10 @@ interface DashboardLayoutProps {
  * - `useStudioController` — direct access to the controller
  * - `useStudioSelector` / selectors — reactive state reads
  * - `useStudioKeyboardShortcuts` — Cmd+Z undo / Cmd+Shift+Z redo
- * - `DrawerPanel` — collapsible sidebar panel
- * - `StudioDataDrawer`, `StudioComposeDrawer`, `StudioFiltersDrawer` — drawer contents
+ * - `ComposeDialog` — dialog for widget configuration (opens on widget click)
+ * - `DataDialog` — dialog for data source management
+ * - `FiltersDialog` — dialog for filter management
+ * - `AddWidgetFab` — floating action button to add widgets
  * - `StudioCanvas` — the widget grid
  * - `CanvasScrollContext` — scroll-to-bottom after adding widgets
  */
@@ -172,8 +169,6 @@ function DashboardLayout({ adapterMode, onSnackbar }: DashboardLayoutProps) {
 
   // Read reactive state via selectors
   const mode = useStudioSelector(selectMode);
-  const shell = useStudioSelector(selectShell);
-  const widgets = useStudioSelector(selectWidgets);
   const dataSources = useStudioSelector(selectDataSources);
   const dashboard = useStudioSelector(selectDashboard);
   const pages = useStudioSelector(selectPages);
@@ -190,6 +185,15 @@ function DashboardLayout({ adapterMode, onSnackbar }: DashboardLayoutProps) {
     [controller],
   );
 
+  // Dialog open state for data and filters
+  const [dataOpen, setDataOpen] = React.useState(false);
+  const [filtersOpen, setFiltersOpen] = React.useState(false);
+
+  const handleDataOpen = React.useCallback(() => setDataOpen(true), []);
+  const handleDataClose = React.useCallback(() => setDataOpen(false), []);
+  const handleFiltersOpen = React.useCallback(() => setFiltersOpen(true), []);
+  const handleFiltersClose = React.useCallback(() => setFiltersOpen(false), []);
+
   // Activate adapter mode once on mount
   React.useEffect(() => {
     if (!adapterMode) {
@@ -205,20 +209,6 @@ function DashboardLayout({ adapterMode, onSnackbar }: DashboardLayoutProps) {
     // Intentionally runs only on mount; adapterMode is read from URL and stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Compose drawer: title and back-button are derived from shell selection state
-  const { selectedWidgetId, selectedFieldId, selectedSourceId } = shell;
-  const selectedWidget = selectedWidgetId ? (widgets[selectedWidgetId] ?? null) : null;
-  const selectedField = React.useMemo(() => {
-    if (!selectedSourceId || !selectedFieldId) {
-      return null;
-    }
-    return dataSources[selectedSourceId]?.fields.find((f) => f.id === selectedFieldId) ?? null;
-  }, [dataSources, selectedSourceId, selectedFieldId]);
-
-  const composeTitle = selectedWidget?.title ?? selectedField?.label ?? 'Compose';
-  const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
-  const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
 
   // Sync active page id to the URL ?page= query param
   const { activePageId } = dashboard;
@@ -297,7 +287,14 @@ function DashboardLayout({ adapterMode, onSnackbar }: DashboardLayoutProps) {
         canRedo={canRedo}
         onUndo={handleUndo}
         onRedo={handleRedo}
+        onDataOpen={handleDataOpen}
+        onFiltersOpen={handleFiltersOpen}
       />
+
+      {/* Dialogs — rendered outside the canvas so they overlay everything */}
+      <ComposeDialog />
+      <DataDialog open={dataOpen} onClose={handleDataClose} />
+      <FiltersDialog open={filtersOpen} onClose={handleFiltersClose} />
 
       <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
         {adapterMode && (
@@ -307,8 +304,8 @@ function DashboardLayout({ adapterMode, onSnackbar }: DashboardLayoutProps) {
             color="info"
             sx={{
               position: 'absolute',
-              bottom: 12,
-              right: 12,
+              bottom: 80,
+              right: 24,
               zIndex: 10,
               fontWeight: 600,
               letterSpacing: 0.3,
@@ -316,43 +313,22 @@ function DashboardLayout({ adapterMode, onSnackbar }: DashboardLayoutProps) {
           />
         )}
 
-        {/* Composable layout: drawers and canvas assembled without <Studio> */}
-        <Box sx={{ display: 'flex', height: '100%', bgcolor: 'background.default' }}>
-          <CanvasScrollContext.Provider value={canvasScrollRef}>
-            {mode === 'edit' && (
-              <DrawerPanel drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
-                <StudioDataDrawer />
-              </DrawerPanel>
-            )}
-            {mode === 'edit' && (
-              <DrawerPanel
-                drawer="compose"
-                title={composeTitle}
-                icon={<TuneIcon fontSize="small" />}
-                onBack={composeOnBack}
-              >
-                <StudioComposeDrawer />
-              </DrawerPanel>
-            )}
-            <DrawerPanel drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
-              <StudioFiltersDrawer />
-            </DrawerPanel>
-
-            <Box
-              ref={canvasScrollRef}
-              sx={{
-                flexGrow: 1,
-                minWidth: 0,
-                overflow: 'auto',
-                bgcolor: (t) => (t.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
-              }}
-            >
-              <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
-                <StudioCanvas />
-              </Box>
+        {/* Canvas takes full width — no sidebar in the composable shell */}
+        <CanvasScrollContext.Provider value={canvasScrollRef}>
+          <Box
+            ref={canvasScrollRef}
+            sx={{
+              height: '100%',
+              overflow: 'auto',
+              bgcolor: (t) => (t.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+            }}
+          >
+            <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
+              <StudioCanvas />
             </Box>
-          </CanvasScrollContext.Provider>
-        </Box>
+          </Box>
+          {mode === 'edit' && <AddWidgetFab />}
+        </CanvasScrollContext.Provider>
       </Box>
     </Box>
   );

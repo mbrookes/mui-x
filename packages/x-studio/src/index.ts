@@ -85,6 +85,9 @@ export type { DrawerPanelProps } from './internals/DrawerPanel';
 // ─── Keyboard shortcuts hook ──────────────────────────────────────────────────
 export { useStudioKeyboardShortcuts } from './internals/useStudioKeyboardShortcuts';
 
+// ─── Widget utilities (composable API helpers) ────────────────────────────────
+export { WIDGET_TYPES, createDefaultWidget } from './internals/widgetUtils';
+
 // ─── Controller ───────────────────────────────────────────────────────────────
 export { StudioController, createStudioController } from './store/StudioController';
 export { createDefaultStudioState } from './models/studio';

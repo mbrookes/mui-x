@@ -3,7 +3,9 @@ import { Box, Divider, IconButton, Switch, Tab, Tabs, Tooltip, Typography } from
 import type { SwitchProps } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
+import FilterListIcon from '@mui/icons-material/FilterList';
 import RedoIcon from '@mui/icons-material/Redo';
+import StorageIcon from '@mui/icons-material/Storage';
 import UndoIcon from '@mui/icons-material/Undo';
 import type { StudioMode, StudioPage } from '@mui/x-studio';
 import { StudioWordmark } from '@mui/x-studio';
@@ -21,6 +23,8 @@ export interface AppToolbarProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  onDataOpen?: () => void;
+  onFiltersOpen?: () => void;
 }
 
 export function AppToolbar(props: AppToolbarProps) {
@@ -37,6 +41,8 @@ export function AppToolbar(props: AppToolbarProps) {
     canRedo,
     onUndo,
     onRedo,
+    onDataOpen,
+    onFiltersOpen,
   } = props;
 
   return (
@@ -105,6 +111,21 @@ export function AppToolbar(props: AppToolbarProps) {
             </span>
           </Tooltip>
           <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
+          {onDataOpen && (
+            <Tooltip title="Data sources">
+              <IconButton size="small" onClick={onDataOpen} aria-label="Data sources">
+                <StorageIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          {onFiltersOpen && (
+            <Tooltip title="Filters">
+              <IconButton size="small" onClick={onFiltersOpen} aria-label="Filters">
+                <FilterListIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
         </>
       )}
       <Tooltip title="Download dashboard">
@@ -135,3 +156,4 @@ export function AppToolbar(props: AppToolbarProps) {
     </Box>
   );
 }
+

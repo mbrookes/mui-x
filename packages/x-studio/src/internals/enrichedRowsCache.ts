@@ -45,23 +45,23 @@ function isEntryValid(
   relevantRelationships: StudioRelationship[],
 ): boolean {
   // 1. Own rows unchanged
-  if (entry.rows !== rows) return false;
+  if (entry.rows !== rows) {return false;}
 
   // 2. Relevant expression fields: same objects, same count, same order
-  if (entry.fieldRefs.length !== relevantFields.length) return false;
-  for (let i = 0; i < relevantFields.length; i++) {
-    if (entry.fieldRefs[i] !== relevantFields[i]) return false;
+  if (entry.fieldRefs.length !== relevantFields.length) {return false;}
+  for (let i = 0; i < relevantFields.length; i += 1) {
+    if (entry.fieldRefs[i] !== relevantFields[i]) {return false;}
   }
 
   // 3. Joined source rows unchanged (only the sources this entry actually joins to)
   for (const jId of joinedSourceIds) {
-    if (entry.joinedSourceRows.get(jId) !== dataSources[jId]?.rows) return false;
+    if (entry.joinedSourceRows.get(jId) !== dataSources[jId]?.rows) {return false;}
   }
 
   // 4. Relevant relationships unchanged (same objects)
-  if (entry.relRefs.length !== relevantRelationships.length) return false;
-  for (let i = 0; i < relevantRelationships.length; i++) {
-    if (entry.relRefs[i] !== relevantRelationships[i]) return false;
+  if (entry.relRefs.length !== relevantRelationships.length) {return false;}
+  for (let i = 0; i < relevantRelationships.length; i += 1) {
+    if (entry.relRefs[i] !== relevantRelationships[i]) {return false;}
   }
 
   return true;

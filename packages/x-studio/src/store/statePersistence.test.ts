@@ -153,13 +153,13 @@ describe('deserializeState', () => {
   });
 
   it('defaults relationships to [] when absent from serialized data', () => {
-    const { relationships: _r, ...withoutRel } = minimalSerialized;
+    const { relationships: ignoredRel, ...withoutRel } = minimalSerialized;
     const state = deserializeState(withoutRel as typeof minimalSerialized, {});
     expect(state.relationships).toEqual([]);
   });
 
   it('defaults expressionFields to [] when absent from serialized data', () => {
-    const { expressionFields: _e, ...withoutEf } = minimalSerialized;
+    const { expressionFields: ignoredEf, ...withoutEf } = minimalSerialized;
     const state = deserializeState(withoutEf as typeof minimalSerialized, {});
     expect(state.expressionFields).toEqual([]);
   });

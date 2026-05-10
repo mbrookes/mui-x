@@ -2210,7 +2210,7 @@ describe('applyRankToSeriesFieldData', () => {
     },
   };
 
-  function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
+  function makeLocalFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     return {
       id: 'f1',
       field: '',
@@ -2228,7 +2228,7 @@ describe('applyRankToSeriesFieldData', () => {
   it('top 2 keeps the 2 series with highest total', () => {
     const result = applyRankToSeriesFieldData(
       data,
-      makeFilter({ filterMode: 'rank', value: 2, rankDirection: 'top' }),
+      makeLocalFilter({ filterMode: 'rank', value: 2, rankDirection: 'top' }),
     );
     expect(result.seriesNames).toHaveLength(2);
     expect(result.seriesNames).toContain('Beta'); // 70
@@ -2239,7 +2239,7 @@ describe('applyRankToSeriesFieldData', () => {
   it('bottom 1 keeps the series with lowest total', () => {
     const result = applyRankToSeriesFieldData(
       data,
-      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom' }),
+      makeLocalFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom' }),
     );
     expect(result.seriesNames).toEqual(['Gamma']);
   });
@@ -2247,7 +2247,7 @@ describe('applyRankToSeriesFieldData', () => {
   it('removes excluded series from seriesData as well', () => {
     const result = applyRankToSeriesFieldData(
       data,
-      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }),
+      makeLocalFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }),
     );
     expect(Object.keys(result.seriesData)).not.toContain('Alpha');
     expect(Object.keys(result.seriesData)).not.toContain('Gamma');
@@ -2257,7 +2257,7 @@ describe('applyRankToSeriesFieldData', () => {
   it('preserves labels unchanged', () => {
     const result = applyRankToSeriesFieldData(
       data,
-      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }),
+      makeLocalFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }),
     );
     expect(result.labels).toEqual(data.labels);
   });
@@ -2265,7 +2265,7 @@ describe('applyRankToSeriesFieldData', () => {
   it('N=0 is a no-op', () => {
     const result = applyRankToSeriesFieldData(
       data,
-      makeFilter({ filterMode: 'rank', value: 0, rankDirection: 'top' }),
+      makeLocalFilter({ filterMode: 'rank', value: 0, rankDirection: 'top' }),
     );
     expect(result).toBe(data);
   });
@@ -2273,7 +2273,7 @@ describe('applyRankToSeriesFieldData', () => {
   it('N >= length returns all series', () => {
     const result = applyRankToSeriesFieldData(
       data,
-      makeFilter({ filterMode: 'rank', value: 99, rankDirection: 'top' }),
+      makeLocalFilter({ filterMode: 'rank', value: 99, rankDirection: 'top' }),
     );
     expect(result.seriesNames).toHaveLength(3);
   });
@@ -2303,9 +2303,8 @@ describe('aggregateByTwoFields', () => {
   it('sums values for the same x+series combination', () => {
     const result = aggregateByTwoFields(rows, 'region', 'product', 'revenue');
     const northIdx = result.labels.indexOf('North');
-    const aIdx = result.seriesNames.indexOf('A');
     // North/A: 100 + 75 = 175
-    expect(result.seriesData['A'][northIdx]).toBe(175);
+    expect(result.seriesData.A[northIdx]).toBe(175);
   });
 
   it('fills missing x+series combinations with null', () => {
@@ -2317,8 +2316,8 @@ describe('aggregateByTwoFields', () => {
     const result = aggregateByTwoFields(sparse, 'region', 'product', 'revenue');
     const northIdx = result.labels.indexOf('North');
     const southIdx = result.labels.indexOf('South');
-    expect(result.seriesData['B'][northIdx]).toBeNull(); // North has no product B
-    expect(result.seriesData['A'][southIdx]).toBeNull(); // South has no product A
+    expect(result.seriesData.B[northIdx]).toBeNull(); // North has no product B
+    expect(result.seriesData.A[southIdx]).toBeNull(); // South has no product A
   });
 });
 
@@ -2426,7 +2425,7 @@ describe('normalizeDataSourceRows', () => {
     { id: 'ts', label: 'Timestamp', type: 'datetime' as const },
   ];
 
-  const makeSource = (rows: Record<string, unknown>[]): StudioDataSource => ({
+  const makeNormSource = (rows: Record<string, unknown>[]): StudioDataSource => ({
     id: 's1',
     label: 'Source',
     fields,
@@ -2435,33 +2434,33 @@ describe('normalizeDataSourceRows', () => {
 
   it('converts Date objects to ISO strings', () => {
     const d = new Date('2024-03-15T12:00:00Z');
-    const result = normalizeDataSourceRows(makeSource([{ id: 1, date: d, ts: d }]));
+    const result = normalizeDataSourceRows(makeNormSource([{ id: 1, date: d, ts: d }]));
     expect(result.rows![0].date).toBe('2024-03-15');
     expect(result.rows![0].ts).toBe('2024-03-15T12:00:00.000Z');
   });
 
   it('converts millisecond timestamps to ISO strings', () => {
     const ms = new Date('2024-06-01T00:00:00Z').getTime();
-    const result = normalizeDataSourceRows(makeSource([{ id: 1, date: ms, ts: ms }]));
+    const result = normalizeDataSourceRows(makeNormSource([{ id: 1, date: ms, ts: ms }]));
     expect(result.rows![0].date).toBe('2024-06-01');
     expect(result.rows![0].ts).toBe('2024-06-01T00:00:00.000Z');
   });
 
   it('leaves already-canonical ISO strings untouched (returns same row reference)', () => {
     const row = { id: 1, date: '2024-01-01', ts: '2024-01-01T00:00:00.000Z' };
-    const source = makeSource([row]);
+    const source = makeNormSource([row]);
     const result = normalizeDataSourceRows(source);
     expect(result.rows![0]).toBe(row); // same reference — no copy made
   });
 
   it('leaves null/undefined values untouched', () => {
-    const result = normalizeDataSourceRows(makeSource([{ id: 1, date: null, ts: undefined }]));
+    const result = normalizeDataSourceRows(makeNormSource([{ id: 1, date: null, ts: undefined }]));
     expect(result.rows![0].date).toBeNull();
     expect(result.rows![0].ts).toBeUndefined();
   });
 
   it('does not touch non-date fields', () => {
-    const result = normalizeDataSourceRows(makeSource([{ id: 'abc', date: '2024-01-01' }]));
+    const result = normalizeDataSourceRows(makeNormSource([{ id: 'abc', date: '2024-01-01' }]));
     expect(result.rows![0].id).toBe('abc');
   });
 

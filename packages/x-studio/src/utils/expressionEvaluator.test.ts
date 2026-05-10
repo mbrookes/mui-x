@@ -490,8 +490,8 @@ describe('StudioJoinFieldExpression', () => {
     expect(result[1]['expr-order-country']).toBe('UK');
     expect(result[2]['expr-order-country']).toBeNull();
     // Original row fields must be preserved
-    expect(result[0]['total']).toBe(100);
-    expect(result[1]['total']).toBe(200);
+    expect(result[0].total).toBe(100);
+    expect(result[1].total).toBe(200);
   });
 
   it('join index fast path: evaluateExpression uses precomputed index when provided', () => {

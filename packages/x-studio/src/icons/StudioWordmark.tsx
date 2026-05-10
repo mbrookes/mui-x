@@ -47,7 +47,6 @@ export function StudioWordmark({ height = 28 }: StudioWordmarkProps) {
 
   return (
     <svg
-      xmlns="http://www.w3.org/2000/svg"
       viewBox={`0 0 ${vbWidth} ${CANVAS_HEIGHT}`}
       width={width}
       height={height}

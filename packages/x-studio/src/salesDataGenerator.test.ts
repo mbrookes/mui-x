@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateSalesData } from '../../../examples/x-studio/src/salesData/generator';
+import { generateSalesData } from 'x-studio-example/src/salesData/generator';
 
 /**
  * Tests for the sales data generator (BL-04).
@@ -149,13 +149,10 @@ describe('generateSalesData', () => {
     it('shipment.onTime is true when actualDelivery <= estimatedDelivery', () => {
       const data = generateSalesData({ seed: 42, orderCount: 100 });
       for (const shipment of data.shipmentsSource.rows!) {
-        if (shipment.actualDeliveryDate == null) {
-          expect(shipment.onTime).toBe(false);
-        } else {
-          const onTime =
-            String(shipment.actualDeliveryDate) <= String(shipment.estimatedDeliveryDate);
-          expect(shipment.onTime).toBe(onTime);
-        }
+        const expectedOnTime =
+          shipment.actualDeliveryDate != null &&
+          String(shipment.actualDeliveryDate) <= String(shipment.estimatedDeliveryDate);
+        expect(shipment.onTime).toBe(expectedOnTime);
       }
     });
 

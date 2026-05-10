@@ -86,7 +86,7 @@ export function StudioFiltersDrawer() {
       return undefined;
     }
     return yFields.flatMap((s) => {
-      if (!s.fieldId) return [];
+      if (!s.fieldId) {return [];}
       return [
         {
           fieldId: s.fieldId as string,
@@ -154,8 +154,7 @@ export function StudioFiltersDrawer() {
       <Divider />
 
       {selectedWidgetId && selectedWidget?.kind !== 'filter' ? (
-        <React.Fragment>
-          <WidgetFilterSection
+        <WidgetFilterSection
             title={`Widget: ${selectedWidget?.title ?? selectedWidgetId}`}
             filters={widgetFilters}
             widgetSourceId={selectedWidget?.sourceId}
@@ -167,7 +166,6 @@ export function StudioFiltersDrawer() {
             chartYFieldLabel={chartYFieldLabel}
             chartAvailableSeries={chartAvailableSeries}
           />
-        </React.Fragment>
       ) : null}
 
       {interactiveFilters.length > 0 && (

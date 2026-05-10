@@ -98,31 +98,13 @@ function isRelativeDateValue(value: unknown): value is RelativeDateValue {
   );
 }
 
-function resolveReferencedFilterValue(
-  originalValue: unknown,
-  ref: StudioMetricRef | undefined,
-  dataSources: Record<string, StudioDataSource>,
-) {
-  if (!ref) {
-    return originalValue;
-  }
-
-  const resolvedValue = resolveMetricRef(ref, dataSources);
-  if (resolvedValue === undefined) {
-    return originalValue;
-  }
-
-  if (isRelativeDateValue(originalValue) && typeof resolvedValue === 'number') {
-    return {
-      ...originalValue,
-      amount: Math.max(1, Math.trunc(resolvedValue) || 1),
-    };
-  }
-
-  return resolvedValue;
-}
-
-/** Fast variant of resolveReferencedFilterValue that uses a pre-built row index. */
+/**
+ * Fast variant that resolves a filter value using a pre-built row index.
+ * @param {unknown} originalValue - The original filter value to potentially resolve.
+ * @param {StudioMetricRef | undefined} ref - Optional metric reference to resolve against.
+ * @param {(ref: StudioMetricRef) => string | number | boolean | null | undefined} resolveRef - Row-index-based resolver.
+ * @returns {unknown} The resolved value, or the original value if ref is absent or unresolvable.
+ */
 function resolveReferencedFilterValueFast(
   originalValue: unknown,
   ref: StudioMetricRef | undefined,

@@ -9,7 +9,6 @@ import {
   Select,
   Stack,
   Switch,
-  TextField,
   Typography,
 } from '@mui/material';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -98,8 +97,8 @@ function CollapsibleFeatureSection({
           {label}
         </Typography>
         {/* Stop click from toggling expand when clicking the switch */}
-        <Box onClick={(e) => e.stopPropagation()}>
-          <Switch size="small" checked={enabled} onChange={(e) => handleSwitch(e.target.checked)} />
+        <Box onClick={(evt) => evt.stopPropagation()}>
+          <Switch size="small" checked={enabled} onChange={(evt) => handleSwitch(evt.target.checked)} />
         </Box>
       </Box>
 
@@ -220,7 +219,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
   ];
 
   return (
-    <>
+    <React.Fragment>
       {autoDateFilter ? (
         <Typography variant="caption" color="text.secondary">
           Using date filter: <strong>{autoFieldLabel}</strong>
@@ -305,7 +304,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
           }
         />
       </Box>
-    </>
+    </React.Fragment>
   );
 }
 

@@ -73,7 +73,7 @@ export function GeneratedFieldSvg({
       height={size}
       viewBox="0 0 20 16"
       fill="none"
-      xmlns="http://www.w3.org/2000/svg"
+
       aria-hidden
     >
       {/* Equals indicator */}
@@ -118,7 +118,7 @@ export function PaddedFieldSvg({
       height={size}
       viewBox="0 0 20 16"
       fill="none"
-      xmlns="http://www.w3.org/2000/svg"
+
       aria-hidden
     >
       {children}

@@ -50,7 +50,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
 
   // Map allFields to DataSourceFieldEntry for DataSourceFieldSelect
   const crossFilterFieldEntries = React.useMemo<DataSourceFieldEntry[]>(() => {
-    if (!source || !widget?.sourceId) return [];
+    if (!source || !widget?.sourceId) {return [];}
     return allFields.map((f) => ({
       id: f.id,
       label: f.label,
@@ -153,14 +153,14 @@ export function GridSetupPanel(props: { widgetId: string }) {
 
             {/* Summary aggregation — ⋮ icon button with dense checkmark menu */}
             {isVisible && (
-              <>
+              <React.Fragment>
                 <Tooltip title={currentAgg ? `Summary: ${AGG_LABELS[currentAgg]}` : 'Set summary'}>
                   <IconButton
                     size="small"
                     aria-label={`Summary for ${field.label}`}
                     aria-haspopup="true"
                     aria-expanded={openFieldId === field.id}
-                    onClick={(e) => setMenuAnchor({ fieldId: field.id, el: e.currentTarget })}
+                    onClick={(evt) => setMenuAnchor({ fieldId: field.id, el: evt.currentTarget })}
                     color={currentAgg ? 'primary' : 'default'}
                   >
                     <MoreVertIcon fontSize="small" />
@@ -202,7 +202,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     </MenuItem>
                   ))}
                 </Menu>
-              </>
+              </React.Fragment>
             )}
           </Box>
         );

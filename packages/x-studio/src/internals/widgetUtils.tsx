@@ -114,9 +114,9 @@ export function getWidgetSubtypeIcon(widget: StudioWidget, size = 16): React.Rea
         return <ListFilterWidgetIcon size={size} />;
     }
   }
-  if (widget.kind === 'kpi') return <KpiWidgetIcon size={size} />;
-  if (widget.kind === 'grid') return <TableWidgetIcon size={size} />;
-  if (widget.kind === 'text') return <TextWidgetIcon size={size} />;
+  if (widget.kind === 'kpi') {return <KpiWidgetIcon size={size} />;}
+  if (widget.kind === 'grid') {return <TableWidgetIcon size={size} />;}
+  if (widget.kind === 'text') {return <TextWidgetIcon size={size} />;}
   return null;
 }
 
@@ -269,11 +269,8 @@ export function inferWidgetTitles(
     case 'kpi': {
       const fieldLabel = findFieldLabel(config.kpiValueField);
       const aggPrefix = KPI_AGG_PREFIXES[config.kpiAggregation ?? 'sum'] ?? '';
-      const title = fieldLabel
-        ? `${aggPrefix} ${fieldLabel}`.trim()
-        : source
-          ? `${source.label} KPI`
-          : 'KPI';
+      const fallbackTitle = source ? `${source.label} KPI` : 'KPI';
+      const title = fieldLabel ? `${aggPrefix} ${fieldLabel}`.trim() : fallbackTitle;
       return { title, subtitle: '' };
     }
 

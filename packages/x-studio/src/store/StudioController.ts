@@ -639,6 +639,62 @@ export class StudioController {
   };
 
   /**
+   * Creates a new page with the given title and sets it as the active page.
+   * @returns The ID of the newly created page.
+   */
+  addPage = (title: string): string => {
+    const state = this.store.state;
+    const id = `page-${Date.now()}`;
+    const newPage: StudioPage = { id, title, widgetRows: [] };
+    this.commitState({
+      ...state,
+      pages: { ...state.pages, [id]: newPage },
+      dashboard: { ...state.dashboard, activePageId: id },
+    });
+    return id;
+  };
+
+  /**
+   * Removes a page and all widgets that belong exclusively to it.
+   * If the removed page is the active one, the first remaining page becomes active.
+   */
+  removePage = (pageId: string) => {
+    const state = this.store.state;
+    const page = state.pages[pageId];
+    if (!page) {
+      return;
+    }
+
+    // Collect widget IDs that are only on this page
+    const widgetIdsOnPage = new Set((page.widgetRows ?? []).flat());
+
+    /* eslint-disable-next-line @typescript-eslint/naming-convention */
+    const { [pageId]: _removed, ...remainingPages } = state.pages;
+
+    // Remove widgets that belong to this page
+    const remainingWidgets = Object.fromEntries(
+      Object.entries(state.widgets).filter(([id]) => !widgetIdsOnPage.has(id)),
+    );
+
+    // Remove filters scoped to this page
+    const remainingFilters = state.filters.filter((f) => f.pageId !== pageId);
+
+    const pageIds = Object.keys(remainingPages);
+    const nextActivePageId =
+      state.dashboard.activePageId === pageId
+        ? (pageIds[0] ?? '')
+        : state.dashboard.activePageId;
+
+    this.commitState({
+      ...state,
+      pages: remainingPages,
+      widgets: remainingWidgets,
+      filters: remainingFilters,
+      dashboard: { ...state.dashboard, activePageId: nextActivePageId },
+    });
+  };
+
+  /**
    * Updates the dashboard title
    */
   setDashboardTitle = (title: string) => {

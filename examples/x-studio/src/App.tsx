@@ -3,7 +3,7 @@ import { Alert, Box, Chip, CssBaseline, Snackbar, ThemeProvider } from '@mui/mat
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { Studio } from '@mui/x-studio';
-import type { StudioHandle, StudioMode, StudioPage, StudioState } from '@mui/x-studio';
+import type { StudioHandle, StudioMode, StudioPage, StudioState, StudioAIConfig } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { AppToolbar } from './components/AppToolbar';
 import { SettingsDialog } from './components/SettingsDialog';
@@ -139,6 +139,19 @@ export default function App() {
   }>({ open: false, message: '', severity: 'info' });
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [sidebarLayout, setSidebarLayout] = React.useState<SidebarLayout>('tabbed');
+
+  // AI config — read from Vite env vars set by the developer
+  const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
+    const endpoint = import.meta.env.VITE_AI_ENDPOINT as string | undefined;
+    if (!endpoint) {
+      return undefined;
+    }
+    return {
+      endpoint,
+      apiKey: import.meta.env.VITE_AI_API_KEY as string | undefined,
+      model: (import.meta.env.VITE_AI_MODEL as string | undefined) ?? 'gpt-4o',
+    };
+  }, []);
 
   // Adapter mode: wire a simulated-server adapter for every data source
   const adapterMode = React.useMemo(() => getUrlAdapterParam(), []);
@@ -299,7 +312,7 @@ export default function App() {
                 }}
               />
             )}
-            <Studio ref={studioRef} initialState={initialState} onStateChange={handleStateChange} sidebarLayout={sidebarLayout} />
+            <Studio ref={studioRef} initialState={initialState} onStateChange={handleStateChange} sidebarLayout={sidebarLayout} aiConfig={aiConfig} />
           </Box>
         </Box>
         <Snackbar

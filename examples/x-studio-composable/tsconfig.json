@@ -18,6 +18,10 @@
     "paths": {
       "@mui/x-studio": ["../../packages/x-studio/src"],
       "@mui/x-studio/*": ["../../packages/x-studio/src/*"],
+      "@mui/x-chat": ["../../packages/x-chat/src"],
+      "@mui/x-chat/*": ["../../packages/x-chat/src/*"],
+      "@mui/x-chat-headless": ["../../packages/x-chat-headless/src"],
+      "@mui/x-chat-headless/*": ["../../packages/x-chat-headless/src/*"],
       "@mui/x-charts": ["../../packages/x-charts/src"],
       "@mui/x-charts/*": ["../../packages/x-charts/src/*"],
       "@mui/x-data-grid": ["../../packages/x-data-grid/src"],

@@ -142,15 +142,15 @@ export default function App() {
 
   // AI config — read from Vite env vars set by the developer
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
-    const endpoint = import.meta.env.VITE_AI_ENDPOINT as string | undefined;
+    const endpoint = import.meta.env.LLM_ENDPOINT as string | undefined;
     if (!endpoint) {
       return undefined;
     }
-    const token = import.meta.env.VITE_AI_TOKEN as string | undefined;
+    const token = import.meta.env.LLM_TOKEN as string | undefined;
     return {
       endpoint,
-      apiKey: import.meta.env.VITE_AI_API_KEY as string | undefined,
-      model: (import.meta.env.VITE_AI_MODEL as string | undefined) ?? 'gpt-4o',
+      apiKey: import.meta.env.LLM_API_KEY as string | undefined,
+      model: (import.meta.env.LLM_MODEL as string | undefined) ?? 'gpt-4o',
       headers: token ? { 'X-Studio-Token': token } : undefined,
     };
   }, []);

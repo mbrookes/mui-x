@@ -9,12 +9,33 @@ import { STUDIO_AI_TOOLS, type StudioAIToolName } from './studioAITools';
  * The developer supplies these — typically from environment variables or server-side config.
  */
 export interface StudioAIConfig {
-  /** OpenAI-compatible completions endpoint, e.g. https://api.openai.com/v1/chat/completions */
+  /**
+   * OpenAI-compatible completions endpoint.
+   *
+   * **Direct (dev only):** `https://api.openai.com/v1/chat/completions`
+   * **Recommended for production:** URL of your own server-side proxy, e.g.
+   * `https://your-app.com/api/ai/chat`. The proxy holds the API key server-side
+   * so it is never exposed in the browser bundle.
+   */
   endpoint: string;
-  /** API key. For production, route through a server-side proxy instead of exposing this. */
+  /**
+   * API key sent as `Authorization: Bearer <key>`.
+   * Omit when using a server-side proxy — store the key in the proxy instead.
+   * For quick local development this can be set via `VITE_AI_API_KEY`, but
+   * **never** commit or ship a key in client-side code.
+   */
   apiKey?: string;
-  /** Model to use, e.g. 'gpt-4o'. Defaults to 'gpt-4o'. */
+  /** Model to use, e.g. `'gpt-4o'`. Defaults to `'gpt-4o'`. */
   model?: string;
+  /**
+   * Additional HTTP headers sent with every request to `endpoint`.
+   * Use this to authenticate with your server-side proxy without exposing the
+   * LLM API key in the browser, e.g.:
+   * ```ts
+   * headers: { 'X-Studio-Token': import.meta.env.VITE_AI_TOKEN }
+   * ```
+   */
+  headers?: Record<string, string>;
 }
 
 // ── OpenAI message types (subset) ─────────────────────────────────────────────
@@ -243,7 +264,7 @@ export function createStudioChatAdapter(
   controller: StudioController,
   onRemoveWidgetRequest?: (widgetId: string, widgetTitle: string) => Promise<boolean>,
 ): ChatAdapter {
-  const { endpoint, apiKey, model = 'gpt-4o' } = config;
+  const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders } = config;
 
   return {
     async sendMessage(input: ChatSendMessageInput): Promise<ReadableStream<ChatMessageChunk>> {
@@ -267,6 +288,7 @@ export function createStudioChatAdapter(
                 headers: {
                   'Content-Type': 'application/json',
                   ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+                  ...extraHeaders,
                 },
                 body: JSON.stringify({
                   model,

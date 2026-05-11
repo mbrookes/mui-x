@@ -394,9 +394,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           )}
           {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
           {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
-          {widget.kind === 'filter' && (
-            <StudioFilterWidget widget={widget} dataSource={source} />
-          )}
+          {widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
         </StudioWidgetEditDialog>
       )}
     </Paper>

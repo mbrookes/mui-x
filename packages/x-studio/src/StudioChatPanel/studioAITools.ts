@@ -77,8 +77,7 @@ export const STUDIO_AI_TOOLS = [
     type: 'function',
     function: {
       name: 'update_widget',
-      description:
-        'Updates an existing widget. Pass only the properties you want to change.',
+      description: 'Updates an existing widget. Pass only the properties you want to change.',
       parameters: {
         type: 'object',
         properties: {

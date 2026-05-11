@@ -94,7 +94,9 @@ function DateRangeControl({
               aria-label="Clear date range filter"
               onClick={onClear}
               onKeyDown={(evt) => {
-                if (evt.key === 'Enter' || evt.key === ' ') {onClear();}
+                if (evt.key === 'Enter' || evt.key === ' ') {
+                  onClear();
+                }
               }}
               sx={{
                 cursor: 'pointer',
@@ -169,7 +171,9 @@ function MultiSelectControl({
               aria-label="Clear selection filter"
               onClick={onClear}
               onKeyDown={(evt) => {
-                if (evt.key === 'Enter' || evt.key === ' ') {onClear();}
+                if (evt.key === 'Enter' || evt.key === ' ') {
+                  onClear();
+                }
               }}
               sx={{
                 cursor: 'pointer',
@@ -191,7 +195,9 @@ function MultiSelectControl({
         onChange={(evt) => handleSelectionChange(evt.target.value as string[])}
         displayEmpty
         renderValue={(sel) => {
-          if ((sel as string[]).length === 0) {return <em style={{ opacity: 0.5 }}>All</em>;}
+          if ((sel as string[]).length === 0) {
+            return <em style={{ opacity: 0.5 }}>All</em>;
+          }
           return `${(sel as string[]).length} selected`;
         }}
         MenuProps={{
@@ -284,7 +290,9 @@ function ToggleControl({
               aria-label="Clear toggle filter"
               onClick={onClear}
               onKeyDown={(evt) => {
-                if (evt.key === 'Enter' || evt.key === ' ') {onClear();}
+                if (evt.key === 'Enter' || evt.key === ' ') {
+                  onClear();
+                }
               }}
               sx={{
                 cursor: 'pointer',
@@ -367,7 +375,13 @@ function SliderControl({
   return (
     <Stack spacing={0.5} role="group" aria-label={label}>
       {/* Always render to avoid layout shift when the filter becomes active */}
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', visibility: isActive ? 'visible' : 'hidden' }}>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          visibility: isActive ? 'visible' : 'hidden',
+        }}
+      >
         <Tooltip title="Clear filter">
           <Box
             component="span"
@@ -376,7 +390,9 @@ function SliderControl({
             aria-label="Clear slider filter"
             onClick={onClear}
             onKeyDown={(evt) => {
-              if (evt.key === 'Enter' || evt.key === ' ') {onClear();}
+              if (evt.key === 'Enter' || evt.key === ' ') {
+                onClear();
+              }
             }}
             sx={{
               cursor: 'pointer',
@@ -481,7 +497,14 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       relationships,
       new Set([fieldId]),
     );
-  }, [normalizedDataSource, expressionFields, fieldId, widget.sourceId, dataSources, relationships]);
+  }, [
+    normalizedDataSource,
+    expressionFields,
+    fieldId,
+    widget.sourceId,
+    dataSources,
+    relationships,
+  ]);
 
   const label = config.filterWidgetLabel ?? field?.label ?? fieldId ?? 'Filter';
 
@@ -532,8 +555,12 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       const raw = row[fieldId];
       const v = isDateField ? dayjs(raw as string).valueOf() : Number(raw);
       if (Number.isFinite(v)) {
-        if (v < lo) {lo = v;}
-        if (v > hi) {hi = v;}
+        if (v < lo) {
+          lo = v;
+        }
+        if (v > hi) {
+          hi = v;
+        }
       }
     }
     return {

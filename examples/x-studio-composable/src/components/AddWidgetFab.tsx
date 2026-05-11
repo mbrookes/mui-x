@@ -9,13 +9,18 @@ import {
 } from '@mui/x-studio';
 import type { StudioWidgetKind } from '@mui/x-studio';
 
+export interface AddWidgetFabProps {
+  /** Called after a widget is added — use to open the ComposeDialog for configuration. */
+  onWidgetAdded?: () => void;
+}
+
 /**
  * AddWidgetFab — floating action button (edit mode only) that lets users pick
  * a widget type from a menu and adds it to the active page.
  * Place this inside CanvasScrollContext.Provider so it can scroll the canvas
- * after adding a widget.
+ * after adding a widget. Pass onWidgetAdded to open the config dialog.
  */
-export function AddWidgetFab() {
+export function AddWidgetFab({ onWidgetAdded }: AddWidgetFabProps) {
   const controller = useStudioController();
   const canvasScrollRef = React.useContext(CanvasScrollContext);
 
@@ -42,8 +47,9 @@ export function AddWidgetFab() {
           behavior: 'smooth',
         });
       });
+      onWidgetAdded?.();
     },
-    [controller, canvasScrollRef],
+    [controller, canvasScrollRef, onWidgetAdded],
   );
 
   return (

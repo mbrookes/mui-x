@@ -736,7 +736,9 @@ describe('StudioController undo/redo', () => {
     while (controller.canUndo()) {
       controller.undo();
       undoCount += 1;
-      if (undoCount > 110) {break;} // safety guard
+      if (undoCount > 110) {
+        break;
+      } // safety guard
     }
     expect(undoCount).toBe(100);
   });

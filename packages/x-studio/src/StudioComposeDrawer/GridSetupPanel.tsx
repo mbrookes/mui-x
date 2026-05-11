@@ -50,7 +50,9 @@ export function GridSetupPanel(props: { widgetId: string }) {
 
   // Map allFields to DataSourceFieldEntry for DataSourceFieldSelect
   const crossFilterFieldEntries = React.useMemo<DataSourceFieldEntry[]>(() => {
-    if (!source || !widget?.sourceId) {return [];}
+    if (!source || !widget?.sourceId) {
+      return [];
+    }
     return allFields.map((f) => ({
       id: f.id,
       label: f.label,

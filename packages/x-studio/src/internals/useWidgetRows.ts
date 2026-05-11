@@ -96,7 +96,9 @@ export function useWidgetRows(
 
   // Async state: rows fetched from adapter.
   const [adapterRows, setAdapterRows] = React.useState<Row[]>(() => {
-    if (!hasAdapter) {return [];}
+    if (!hasAdapter) {
+      return [];
+    }
     // Seed from cache synchronously on mount.
     const cached = descriptor ? studioRequestCache.get(descriptor.cacheKey) : undefined;
     return cached ? cached.rows : [];
@@ -178,9 +180,7 @@ export function useWidgetRows(
   const hasCrossFilters = React.useMemo(
     () =>
       !hasAdapter &&
-      (partitioned.cross.some(
-        (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-      ) ||
+      (partitioned.cross.some((f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId) ||
         partitioned.interactive.some(
           (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
         )),

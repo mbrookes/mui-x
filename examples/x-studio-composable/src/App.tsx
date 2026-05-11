@@ -372,10 +372,12 @@ export default function App() {
     if (!endpoint) {
       return undefined;
     }
+    const token = import.meta.env.VITE_AI_TOKEN as string | undefined;
     return {
       endpoint,
       apiKey: import.meta.env.VITE_AI_API_KEY as string | undefined,
       model: (import.meta.env.VITE_AI_MODEL as string | undefined) ?? 'gpt-4o',
+      headers: token ? { 'X-Studio-Token': token } : undefined,
     };
   }, []);
 

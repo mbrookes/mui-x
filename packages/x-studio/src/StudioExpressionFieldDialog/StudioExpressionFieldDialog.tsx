@@ -624,7 +624,9 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
                 <Switch
                   size="small"
                   checked={isMeasure}
-                  onChange={(event) => setForm((prev) => ({ ...prev, isMeasure: event.target.checked }))}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, isMeasure: event.target.checked }))
+                  }
                 />
               }
               label={

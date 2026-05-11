@@ -25,9 +25,7 @@ function generateSuggestions(
   activePageWidgetIds: string[],
 ): Array<{ label: string; value: string }> {
   const sourceList = Object.values(dataSources);
-  const activeWidgets = activePageWidgetIds
-    .map((id) => widgets[id])
-    .filter(Boolean);
+  const activeWidgets = activePageWidgetIds.map((id) => widgets[id]).filter(Boolean);
   const hasWidgets = activeWidgets.length > 0;
 
   const suggestions: Array<{ label: string; value: string }> = [];
@@ -35,9 +33,7 @@ function generateSuggestions(
   if (!hasWidgets) {
     // Empty state: suggest building first widgets from available sources
     for (const source of sourceList.slice(0, 3)) {
-      const numericField = source.fields.find(
-        (f) => f.type === 'number' && !f.hidden,
-      );
+      const numericField = source.fields.find((f) => f.type === 'number' && !f.hidden);
       const catField = source.fields.find(
         (f) => (f.type === 'string' || f.type === 'date') && !f.hidden,
       );
@@ -153,10 +149,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   const dashboard = useStudioSelector(selectDashboard);
 
   const activePage = pages[dashboard.activePageId];
-  const activeWidgetIds = React.useMemo(
-    () => (activePage?.widgetRows ?? []).flat(),
-    [activePage],
-  );
+  const activeWidgetIds = React.useMemo(() => (activePage?.widgetRows ?? []).flat(), [activePage]);
 
   // ── Confirmation dialog state ──────────────────────────────────────────────
   const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirmation | null>(null);

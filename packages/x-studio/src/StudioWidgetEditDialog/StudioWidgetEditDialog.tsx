@@ -1,15 +1,6 @@
 'use client';
 import * as React from 'react';
-import {
-  Box,
-  Dialog,
-  DialogTitle,
-  IconButton,
-  Stack,
-  Tab,
-  Tabs,
-  Typography,
-} from '@mui/material';
+import { Box, Dialog, DialogTitle, IconButton, Stack, Tab, Tabs, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { useStudioSelector, selectWidgets } from '../context';
 import { KIND_LABEL } from '../StudioComposeDrawer/StudioComposeDrawer';
@@ -63,7 +54,9 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
     onClose();
   }, [onClose]);
 
-  if (!widget) {return null;}
+  if (!widget) {
+    return null;
+  }
 
   const kindLabel = KIND_LABEL[widget.kind] ?? widget.kind;
 
@@ -114,9 +107,7 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
         </Stack>
 
         {/* Live widget */}
-        <Box sx={{ flex: 1, overflow: 'hidden', p: 2 }}>
-          {children}
-        </Box>
+        <Box sx={{ flex: 1, overflow: 'hidden', p: 2 }}>{children}</Box>
       </Box>
 
       {/* ── Right: config panel ─────────────────────────────────────────── */}

@@ -390,7 +390,9 @@ function DateValueInput({
           }
           metricLabel={metricLabel}
         />
-      ) : dateContent}
+      ) : (
+        dateContent
+      )}
     </Stack>
   );
 }

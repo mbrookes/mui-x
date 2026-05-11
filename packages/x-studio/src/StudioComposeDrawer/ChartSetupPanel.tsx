@@ -43,15 +43,14 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const relationships = useStudioSelector(selectRelationships);
 
   const allFields = React.useMemo(() => {
-    const physicalFields = Object.values(dataSources)
-      .flatMap((ds) => {
-        if (ds.hidden) {
-          return [];
-        }
-        return ds.fields.flatMap((f) =>
-          f.hidden ? [] : [{ ...f, sourceId: ds.id, sourceLabel: ds.label }],
-        );
-      });
+    const physicalFields = Object.values(dataSources).flatMap((ds) => {
+      if (ds.hidden) {
+        return [];
+      }
+      return ds.fields.flatMap((f) =>
+        f.hidden ? [] : [{ ...f, sourceId: ds.id, sourceLabel: ds.label }],
+      );
+    });
     const exprFields = expressionFields.flatMap((ef) => {
       if (ef.hidden) {
         return [];
@@ -284,7 +283,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         }}
         fields={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}
         getOptionDisabled={(option) => {
-          if (option.id === config.xField) {return false;}
+          if (option.id === config.xField) {
+            return false;
+          }
           return !analyzeCombination({ xField: option.id }).supported;
         }}
         label={xFieldLabel}
@@ -343,7 +344,12 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         </Stack>
         <Stack spacing={1}>
           {ySeries.map((s, index) => (
-            <Stack key={s.fieldId || `series-${index}`} direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+            <Stack
+              key={s.fieldId || `series-${index}`}
+              direction="row"
+              spacing={0.5}
+              sx={{ alignItems: 'flex-start' }}
+            >
               <DataSourceFieldSelect
                 value={s.fieldId ?? ''}
                 onChange={(fieldId) => handleSeriesFieldChange(index, fieldId)}
@@ -415,8 +421,12 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 }
                 fields={categoryFields}
                 getOptionDisabled={(option) => {
-                  if (seriesFieldDisabled) {return true;}
-                  if (option.id === config.seriesField) {return false;}
+                  if (seriesFieldDisabled) {
+                    return true;
+                  }
+                  if (option.id === config.seriesField) {
+                    return false;
+                  }
                   return !analyzeCombination({ seriesField: option.id }).supported;
                 }}
                 disabled={seriesFieldDisabled}

@@ -39,7 +39,9 @@ interface BenchResult {
 
 function runBench(name: string, fn: () => void, warmup = 5, iterations = 50): BenchResult {
   // Warmup
-  for (let i = 0; i < warmup; i++) {fn();}
+  for (let i = 0; i < warmup; i++) {
+    fn();
+  }
 
   const times: number[] = [];
   for (let i = 0; i < iterations; i++) {
@@ -334,7 +336,11 @@ for (const entryCount of [10, 100, 1_000]) {
     runBench(`A4 invalidateSource @ ${entryCount} entries`, () => {
       const cache = new StudioRequestCache();
       for (let i = 0; i < entryCount; i++) {
-        const key = buildQueryDescriptor(asyncWidget, [makePageFilter('f1', `v${i}`)], 'page-1').cacheKey;
+        const key = buildQueryDescriptor(
+          asyncWidget,
+          [makePageFilter('f1', `v${i}`)],
+          'page-1',
+        ).cacheKey;
         cache.set(key, { rows: [] });
       }
       cache.invalidateSource('orders');

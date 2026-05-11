@@ -93,7 +93,10 @@ describe('getCachedNormalizedDataSource', () => {
   });
 
   it('returns cached result without rebuilding fieldDistinctValues on second call', () => {
-    const rows: Row[] = [{ id: 1, region: 'EU' }, { id: 2, region: 'US' }];
+    const rows: Row[] = [
+      { id: 1, region: 'EU' },
+      { id: 2, region: 'US' },
+    ];
     const source = makeSource(rows, [stringField]);
 
     const first = getCachedNormalizedDataSource(source);

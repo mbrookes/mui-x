@@ -68,14 +68,7 @@ export function GeneratedFieldSvg({
   children: React.ReactNode;
 }) {
   return (
-    <svg
-      width={(size * 20) / 16}
-      height={size}
-      viewBox="0 0 20 16"
-      fill="none"
-
-      aria-hidden
-    >
+    <svg width={(size * 20) / 16} height={size} viewBox="0 0 20 16" fill="none" aria-hidden>
       {/* Equals indicator */}
       <line
         x1="0.5"
@@ -113,14 +106,7 @@ export function PaddedFieldSvg({
   children: React.ReactNode;
 }) {
   return (
-    <svg
-      width={(size * 20) / 16}
-      height={size}
-      viewBox="0 0 20 16"
-      fill="none"
-
-      aria-hidden
-    >
+    <svg width={(size * 20) / 16} height={size} viewBox="0 0 20 16" fill="none" aria-hidden>
       {children}
     </svg>
   );

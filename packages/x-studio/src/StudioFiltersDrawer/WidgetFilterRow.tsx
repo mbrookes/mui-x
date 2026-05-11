@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Autocomplete, Box, IconButton, Stack, TextField } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioController , useStudioSelector, selectFilters } from '../context';
+import { useStudioController, useStudioSelector, selectFilters } from '../context';
 import type { StudioFilterState } from '../models';
 import type { FieldOption, FilterMode } from './filterDrawerTypes';
 import {

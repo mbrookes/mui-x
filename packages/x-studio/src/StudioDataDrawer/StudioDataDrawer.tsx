@@ -51,7 +51,9 @@ function FieldPreviewTooltip({
 
   const values = rows.slice(0, PREVIEW_ROWS).map((row) => {
     const v = row[field.id];
-    if (v === null || v === undefined) {return '—';}
+    if (v === null || v === undefined) {
+      return '—';
+    }
     return String(v);
   });
 
@@ -62,7 +64,11 @@ function FieldPreviewTooltip({
       </Typography>
       {values.map((v, i) => (
         // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- display-only list of enum values, ordering is stable
-        <Typography key={`val-${i}`} variant="caption" sx={{ fontFamily: 'monospace', opacity: 0.9 }}>
+        <Typography
+          key={`val-${i}`}
+          variant="caption"
+          sx={{ fontFamily: 'monospace', opacity: 0.9 }}
+        >
           {v}
         </Typography>
       ))}
@@ -344,7 +350,9 @@ function DataSourceSection(props: {
         <List dense disablePadding sx={{ pl: 1 }}>
           {/* Physical fields */}
           {source.fields.flatMap((field) => {
-            if (field.hidden) {return [];}
+            if (field.hidden) {
+              return [];
+            }
             const isSelected = selectedSourceId === source.id && selectedFieldId === field.id;
             return [
               <FieldPreviewTooltip key={field.id} field={field} rows={source.rows}>

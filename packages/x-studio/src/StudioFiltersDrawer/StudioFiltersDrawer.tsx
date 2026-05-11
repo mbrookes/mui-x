@@ -86,7 +86,9 @@ export function StudioFiltersDrawer() {
       return undefined;
     }
     return yFields.flatMap((s) => {
-      if (!s.fieldId) {return [];}
+      if (!s.fieldId) {
+        return [];
+      }
       return [
         {
           fieldId: s.fieldId as string,
@@ -155,17 +157,17 @@ export function StudioFiltersDrawer() {
 
       {selectedWidgetId && selectedWidget?.kind !== 'filter' ? (
         <WidgetFilterSection
-            title={`Widget: ${selectedWidget?.title ?? selectedWidgetId}`}
-            filters={widgetFilters}
-            widgetSourceId={selectedWidget?.sourceId}
-            fieldOptions={widgetFieldOptions}
-            dataSources={dataSources}
-            onAddFilter={handleAddWidgetFilter}
-            onRemoveFilter={(id) => controller.removeFilter(id)}
-            chartXField={chartXField}
-            chartYFieldLabel={chartYFieldLabel}
-            chartAvailableSeries={chartAvailableSeries}
-          />
+          title={`Widget: ${selectedWidget?.title ?? selectedWidgetId}`}
+          filters={widgetFilters}
+          widgetSourceId={selectedWidget?.sourceId}
+          fieldOptions={widgetFieldOptions}
+          dataSources={dataSources}
+          onAddFilter={handleAddWidgetFilter}
+          onRemoveFilter={(id) => controller.removeFilter(id)}
+          chartXField={chartXField}
+          chartYFieldLabel={chartYFieldLabel}
+          chartAvailableSeries={chartAvailableSeries}
+        />
       ) : null}
 
       {interactiveFilters.length > 0 && (

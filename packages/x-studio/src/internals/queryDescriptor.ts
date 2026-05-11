@@ -68,28 +68,48 @@ export function collectSelectFields(widget: StudioWidget): string[] {
   const { config } = widget;
   const fields = new Set<string>();
 
-  if (!config) {return [];}
+  if (!config) {
+    return [];
+  }
 
   // Grid columns
   if (config.columns) {
     config.columns.forEach((f) => fields.add(f));
   }
-  if (config.gridGroupByField) {fields.add(config.gridGroupByField);}
-  if (config.gridSortField) {fields.add(config.gridSortField);}
-  if (config.crossFilterField) {fields.add(config.crossFilterField);}
+  if (config.gridGroupByField) {
+    fields.add(config.gridGroupByField);
+  }
+  if (config.gridSortField) {
+    fields.add(config.gridSortField);
+  }
+  if (config.crossFilterField) {
+    fields.add(config.crossFilterField);
+  }
 
   // Chart fields
-  if (config.xField) {fields.add(config.xField);}
-  if (config.yField) {fields.add(config.yField);}
-  if (config.yField2) {fields.add(config.yField2);}
-  if (config.seriesField) {fields.add(config.seriesField);}
+  if (config.xField) {
+    fields.add(config.xField);
+  }
+  if (config.yField) {
+    fields.add(config.yField);
+  }
+  if (config.yField2) {
+    fields.add(config.yField2);
+  }
+  if (config.seriesField) {
+    fields.add(config.seriesField);
+  }
   if (config.ySeries) {
     config.ySeries.forEach((s) => fields.add(s.fieldId));
   }
 
   // KPI fields
-  if (config.kpiValueField) {fields.add(config.kpiValueField);}
-  if (config.kpiSparklineField) {fields.add(config.kpiSparklineField);}
+  if (config.kpiValueField) {
+    fields.add(config.kpiValueField);
+  }
+  if (config.kpiSparklineField) {
+    fields.add(config.kpiSparklineField);
+  }
 
   return [...fields].filter(Boolean);
 }
@@ -104,7 +124,9 @@ function buildAggregations(
   const { config } = widget;
   const aggs: { field: string; fn: AggFn; alias: string }[] = [];
 
-  if (!config) {return undefined;}
+  if (!config) {
+    return undefined;
+  }
 
   // Single Y field
   if (config.yField) {

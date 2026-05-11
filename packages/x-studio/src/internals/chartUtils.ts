@@ -851,7 +851,6 @@ export function normalizeDataSourceRows(
     }
   }
 
-
   if (rows === dataSource.rows && !fieldDistinctValues) {
     return dataSource;
   }
@@ -1260,7 +1259,14 @@ function enrichSourceRowsWithExpressions(
   expressionFields: StudioExpressionField[],
   usedFieldIds?: ReadonlySet<string>,
 ): Row[] {
-  return getCachedEnrichedRows(rows, sourceId, expressionFields, dataSources, relationships, usedFieldIds);
+  return getCachedEnrichedRows(
+    rows,
+    sourceId,
+    expressionFields,
+    dataSources,
+    relationships,
+    usedFieldIds,
+  );
 }
 
 export type ChartSupportReason =

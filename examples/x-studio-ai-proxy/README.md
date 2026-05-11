@@ -19,7 +19,7 @@ npm install        # or pnpm install / yarn
 cp .env.example .env
 ```
 
-Edit `.env` and set at least `OPENAI_API_KEY`.
+Edit `.env` and set at least `LLM_API_KEY`.
 
 ### 3. Start the proxy
 
@@ -33,10 +33,10 @@ In `examples/x-studio` (or `examples/x-studio-composable`), edit `.env.local`:
 
 ```env
 # Point the app at your local proxy (no API key in the browser!)
-VITE_AI_ENDPOINT=http://localhost:3010/v1/chat/completions
+LLM_ENDPOINT=http://localhost:3010/v1/chat/completions
 
 # Optional: shared secret (must match STUDIO_TOKEN in the proxy .env)
-# VITE_AI_TOKEN=change-me-to-a-random-secret
+# LLM_TOKEN=change-me-to-a-random-secret
 ```
 
 Then start the example app normally:
@@ -48,25 +48,25 @@ npm run dev
 
 ## Environment variables
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `OPENAI_API_KEY` | ✅ | — | Your OpenAI API key (stays on the server) |
-| `PORT` | | `3010` | Port the proxy listens on |
-| `OPENAI_ENDPOINT` | | `https://api.openai.com/v1/chat/completions` | Upstream LLM endpoint (change for Azure, Ollama, etc.) |
-| `STUDIO_TOKEN` | | *(none)* | If set, clients must send `X-Studio-Token: <value>` header |
-| `ALLOWED_ORIGINS` | | `*` | Comma-separated list of allowed CORS origins |
+| Variable          | Required | Default                                      | Description                                                |
+| ----------------- | -------- | -------------------------------------------- | ---------------------------------------------------------- |
+| `LLM_API_KEY`     | ✅       | —                                            | Your API key (stays on the server)                         |
+| `PORT`            |          | `3010`                                       | Port the proxy listens on                                  |
+| `LLM_ENDPOINT`    |          | `https://api.openai.com/v1/chat/completions` | Upstream LLM endpoint (change for Azure, Ollama, etc.)     |
+| `STUDIO_TOKEN`    |          | _(none)_                                     | If set, clients must send `X-Studio-Token: <value>` header |
+| `ALLOWED_ORIGINS` |          | `*`                                          | Comma-separated list of allowed CORS origins               |
 
 ## Using a custom LLM endpoint (Azure, Ollama, etc.)
 
-Set `OPENAI_ENDPOINT` to any OpenAI-compatible endpoint:
+Set `LLM_ENDPOINT` to any OpenAI-compatible endpoint:
 
 ```env
 # Azure OpenAI
-OPENAI_ENDPOINT=https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT/chat/completions?api-version=2024-02-01
+LLM_ENDPOINT=https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT/chat/completions?api-version=2024-02-01
 
 # Ollama (local)
-OPENAI_ENDPOINT=http://localhost:11434/v1/chat/completions
-OPENAI_API_KEY=ollama   # Ollama requires a non-empty but otherwise arbitrary key
+LLM_ENDPOINT=http://localhost:11434/v1/chat/completions
+LLM_API_KEY=ollama   # Ollama requires a non-empty but otherwise arbitrary key
 ```
 
 ## Token authentication
@@ -82,7 +82,7 @@ Then configure the example app to send it:
 
 ```env
 # example app .env.local
-VITE_AI_TOKEN=change-me-to-a-random-secret
+LLM_TOKEN=change-me-to-a-random-secret
 ```
 
 The app passes it as an `X-Studio-Token` request header; the proxy rejects requests that omit or mismatched the token with a `401 Unauthorized` response.

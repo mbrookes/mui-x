@@ -3,7 +3,13 @@ import { Alert, Box, Chip, CssBaseline, Snackbar, ThemeProvider } from '@mui/mat
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { Studio } from '@mui/x-studio';
-import type { StudioHandle, StudioMode, StudioPage, StudioState, StudioAIConfig } from '@mui/x-studio';
+import type {
+  StudioHandle,
+  StudioMode,
+  StudioPage,
+  StudioState,
+  StudioAIConfig,
+} from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { AppToolbar } from './components/AppToolbar';
 import { SettingsDialog } from './components/SettingsDialog';
@@ -55,7 +61,9 @@ function getUrlRowsParam(): number | undefined {
     return undefined;
   }
   const raw = new URL(window.location.href).searchParams.get('rows');
-  if (!raw) {return undefined;}
+  if (!raw) {
+    return undefined;
+  }
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
@@ -159,12 +167,16 @@ export default function App() {
   const adapterMode = React.useMemo(() => getUrlAdapterParam(), []);
 
   React.useEffect(() => {
-    if (!adapterMode) {return;}
+    if (!adapterMode) {
+      return;
+    }
 
     // Read the current data sources from the controller so we get the normalised
     // rows (which may have been generated via ?rows=N) rather than the raw imports.
     const state = studioRef.current?.getState();
-    if (!state) {return;}
+    if (!state) {
+      return;
+    }
 
     for (const source of Object.values(state.dataSources)) {
       if (source.rows && source.rows.length > 0) {
@@ -314,7 +326,13 @@ export default function App() {
                 }}
               />
             )}
-            <Studio ref={studioRef} initialState={initialState} onStateChange={handleStateChange} sidebarLayout={sidebarLayout} aiConfig={aiConfig} />
+            <Studio
+              ref={studioRef}
+              initialState={initialState}
+              onStateChange={handleStateChange}
+              sidebarLayout={sidebarLayout}
+              aiConfig={aiConfig}
+            />
           </Box>
         </Box>
         <Snackbar

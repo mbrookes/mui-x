@@ -98,7 +98,11 @@ function CollapsibleFeatureSection({
         </Typography>
         {/* Stop click from toggling expand when clicking the switch */}
         <Box onClick={(evt) => evt.stopPropagation()}>
-          <Switch size="small" checked={enabled} onChange={(evt) => handleSwitch(evt.target.checked)} />
+          <Switch
+            size="small"
+            checked={enabled}
+            onChange={(evt) => handleSwitch(evt.target.checked)}
+          />
         </Box>
       </Box>
 
@@ -318,15 +322,14 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
   // Gather fields from all data sources (used for the value field anchor picker)
   const allFields = React.useMemo(() => {
-    const physicalFields = Object.values(dataSources)
-      .flatMap((ds) => {
-        if (ds.hidden) {
-          return [];
-        }
-        return ds.fields.flatMap((f) =>
-          f.hidden ? [] : [{ ...f, sourceId: ds.id, sourceLabel: ds.label }],
-        );
-      });
+    const physicalFields = Object.values(dataSources).flatMap((ds) => {
+      if (ds.hidden) {
+        return [];
+      }
+      return ds.fields.flatMap((f) =>
+        f.hidden ? [] : [{ ...f, sourceId: ds.id, sourceLabel: ds.label }],
+      );
+    });
     const exprFields = expressionFields.flatMap((ef) => {
       if (ef.hidden) {
         return [];

@@ -1,4 +1,4 @@
-import type { StudioDataField , StudioGridSummaryAggregation } from '../models/studio';
+import type { StudioDataField, StudioGridSummaryAggregation } from '../models/studio';
 import { formatFieldValue } from '../internals/numberFormat';
 
 export interface GridSummaryConfig {

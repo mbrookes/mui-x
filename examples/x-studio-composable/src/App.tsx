@@ -262,10 +262,7 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
         onSnackbar(result.errors.join('; ') || 'Failed to load dashboard', 'error');
       }
     } catch (error) {
-      onSnackbar(
-        error instanceof Error ? error.message : 'Failed to load dashboard',
-        'error',
-      );
+      onSnackbar(error instanceof Error ? error.message : 'Failed to load dashboard', 'error');
     }
   }, [controller, onSnackbar]);
 
@@ -368,15 +365,15 @@ export default function App() {
   const adapterMode = React.useMemo(() => getUrlAdapterParam(), []);
 
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
-    const endpoint = import.meta.env.VITE_AI_ENDPOINT as string | undefined;
+    const endpoint = import.meta.env.LLM_ENDPOINT as string | undefined;
     if (!endpoint) {
       return undefined;
     }
-    const token = import.meta.env.VITE_AI_TOKEN as string | undefined;
+    const token = import.meta.env.LLM_TOKEN as string | undefined;
     return {
       endpoint,
-      apiKey: import.meta.env.VITE_AI_API_KEY as string | undefined,
-      model: (import.meta.env.VITE_AI_MODEL as string | undefined) ?? 'gpt-4o',
+      apiKey: import.meta.env.LLM_API_KEY as string | undefined,
+      model: (import.meta.env.LLM_MODEL as string | undefined) ?? 'gpt-4o',
       headers: token ? { 'X-Studio-Token': token } : undefined,
     };
   }, []);
@@ -412,7 +409,11 @@ export default function App() {
         <CssBaseline />
         {/* StudioProvider makes the controller available to all descendants */}
         <StudioProvider controller={controller}>
-          <DashboardLayout adapterMode={adapterMode} aiConfig={aiConfig} onSnackbar={handleSnackbar} />
+          <DashboardLayout
+            adapterMode={adapterMode}
+            aiConfig={aiConfig}
+            onSnackbar={handleSnackbar}
+          />
         </StudioProvider>
         <Snackbar
           open={snackbar.open}

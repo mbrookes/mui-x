@@ -69,26 +69,29 @@ export function DataSourceFieldSelect({
     if (!dataSources) {
       return [];
     }
-    return Object.values(dataSources)
-      .flatMap((src) => {
-        if (src.hidden) {
+    return Object.values(dataSources).flatMap((src) => {
+      if (src.hidden) {
+        return [];
+      }
+      return src.fields.flatMap((f) => {
+        if (f.hidden) {
           return [];
         }
-        return src.fields.flatMap((f) => {
-          if (f.hidden) {return [];}
-          if (filterCapability && !fieldHasCapability(f, filterCapability)) {return [];}
-          return [
-            {
-              id: f.id,
-              label: f.label,
-              type: f.type,
-              generated: f.generated,
-              sourceId: src.id,
-              sourceLabel: src.label,
-            },
-          ];
-        });
+        if (filterCapability && !fieldHasCapability(f, filterCapability)) {
+          return [];
+        }
+        return [
+          {
+            id: f.id,
+            label: f.label,
+            type: f.type,
+            generated: f.generated,
+            sourceId: src.id,
+            sourceLabel: src.label,
+          },
+        ];
       });
+    });
   }, [fieldsProp, dataSources, filterCapability]);
 
   const selectedOption = computedFields.find((f) => f.id === value) ?? null;

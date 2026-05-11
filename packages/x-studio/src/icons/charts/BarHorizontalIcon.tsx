@@ -21,7 +21,16 @@ export function BarHorizontalIcon({
     <ChartSvg size={size}>
       {bars.map((b, i) => (
         // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- static SVG paths never reorder
-        <rect key={`shape-${i}`} x={2} y={b.y} width={b.w} height={3} fill={b.c} opacity={b.o ?? 1} rx={0.5} />
+        <rect
+          key={`shape-${i}`}
+          x={2}
+          y={b.y}
+          width={b.w}
+          height={3}
+          fill={b.c}
+          opacity={b.o ?? 1}
+          rx={0.5}
+        />
       ))}
     </ChartSvg>
   );

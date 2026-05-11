@@ -125,7 +125,14 @@ export interface StudioProps extends StudioSlots {
 const StudioContent = React.memo(function StudioContent(
   props: StudioSlots & { sidebarLayout?: 'stacked' | 'tabbed'; aiConfig?: StudioAIConfig | null },
 ) {
-  const { canvas, composeDrawer, dataDrawer, filtersDrawer, sidebarLayout = 'stacked', aiConfig } = props;
+  const {
+    canvas,
+    composeDrawer,
+    dataDrawer,
+    filtersDrawer,
+    sidebarLayout = 'stacked',
+    aiConfig,
+  } = props;
   const mode = useStudioSelector(selectMode);
   const controller = useStudioController();
   const canvasScrollRef = React.useRef<HTMLDivElement>(null);

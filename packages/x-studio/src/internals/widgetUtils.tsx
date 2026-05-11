@@ -114,9 +114,15 @@ export function getWidgetSubtypeIcon(widget: StudioWidget, size = 16): React.Rea
         return <ListFilterWidgetIcon size={size} />;
     }
   }
-  if (widget.kind === 'kpi') {return <KpiWidgetIcon size={size} />;}
-  if (widget.kind === 'grid') {return <TableWidgetIcon size={size} />;}
-  if (widget.kind === 'text') {return <TextWidgetIcon size={size} />;}
+  if (widget.kind === 'kpi') {
+    return <KpiWidgetIcon size={size} />;
+  }
+  if (widget.kind === 'grid') {
+    return <TableWidgetIcon size={size} />;
+  }
+  if (widget.kind === 'text') {
+    return <TextWidgetIcon size={size} />;
+  }
   return null;
 }
 
@@ -231,11 +237,12 @@ export function inferWidgetTitles(
   switch (widget.kind) {
     case 'chart': {
       const xLabel = findFieldLabel(config.xField);
-      const yLabels = (config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : []))
-        .flatMap((s) => {
-          const label = findFieldLabel(s.fieldId);
-          return label ? [label] : [];
-        });
+      const yLabels = (
+        config.ySeries ?? (config.yField ? [{ fieldId: config.yField }] : [])
+      ).flatMap((s) => {
+        const label = findFieldLabel(s.fieldId);
+        return label ? [label] : [];
+      });
 
       const seriesLabel = findFieldLabel(config.seriesField);
       const chartType = config.chartType ?? 'bar';

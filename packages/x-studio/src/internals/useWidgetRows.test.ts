@@ -312,8 +312,12 @@ describe('async adapter path', () => {
     const dataSource = makeDataSource([], { adapter });
 
     // Render two instances of the hook with the same widget/source
-    const { result: result1, unmount: unmount1 } = renderHook(() => useWidgetRows(widget, dataSource));
-    const { result: result2, unmount: unmount2 } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result: result1, unmount: unmount1 } = renderHook(() =>
+      useWidgetRows(widget, dataSource),
+    );
+    const { result: result2, unmount: unmount2 } = renderHook(() =>
+      useWidgetRows(widget, dataSource),
+    );
 
     await act(async () => {
       resolveAdapter({ rows });
@@ -411,7 +415,10 @@ describe('sync vs async parity', () => {
     const adapter: StudioDataSourceAdapter = {
       getRows: vi.fn().mockResolvedValue({ rows: filteredByServer }),
     };
-    const asyncDataSource = makeDataSource([], { id: 'src1', adapter } as Partial<StudioDataSource>);
+    const asyncDataSource = makeDataSource([], {
+      id: 'src1',
+      adapter,
+    } as Partial<StudioDataSource>);
 
     const { result: asyncResult } = renderHook(() => useWidgetRows(widget, asyncDataSource));
 

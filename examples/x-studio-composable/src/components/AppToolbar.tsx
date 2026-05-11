@@ -166,4 +166,3 @@ export function AppToolbar(props: AppToolbarProps) {
     </Box>
   );
 }
-

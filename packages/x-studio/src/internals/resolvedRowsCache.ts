@@ -42,7 +42,9 @@ function isEntryValid(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
 ): boolean {
-  if (entry.relationships !== relationships) {return false;}
+  if (entry.relationships !== relationships) {
+    return false;
+  }
   for (const f of resolvedFilters) {
     if (f.filterSourceId) {
       if (

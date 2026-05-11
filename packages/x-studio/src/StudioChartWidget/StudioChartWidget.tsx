@@ -6,7 +6,7 @@ import { LineChart } from '@mui/x-charts/LineChart';
 import { PieChart, PieArc, type PieArcProps } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
-import { Box , Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
@@ -457,8 +457,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     currentHighlightableSeriesIds.has(hoveredItem.seriesId)
       ? hoveredItem
       : null;
-  const controlledHighlightedAxis =
-    selectedFilterValue == null ? (hoveredAxis ?? []) : [];
+  const controlledHighlightedAxis = selectedFilterValue == null ? (hoveredAxis ?? []) : [];
 
   // Grouped or stacked bar charts (by category field OR multiple y-fields)
   const isBar =
@@ -766,7 +765,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         };
       });
       return (
-         
         <CrossFilterBarContext.Provider value={multiYBarContext}>
           <div style={{ height: chartHeight }}>
             <BarChart
@@ -886,7 +884,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           allValue > 0 && filteredValue != null
             ? Math.min(1, Math.max(0, filteredValue / allValue))
             : 0;
-        radiusByDataIndex.set(i, Math.round(innerRadius + (ghostOuterRadius - innerRadius) * ratio));
+        radiusByDataIndex.set(
+          i,
+          Math.round(innerRadius + (ghostOuterRadius - innerRadius) * ratio),
+        );
         return {
           id: i,
           label: formatLabel(label),
@@ -911,7 +912,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                   data: allChartData!.labels.map((label, i) => ({
                     id: i,
                     value: allChartData!.values[i] ?? 0,
-                    color: `${resolvedChartColors[i % resolvedChartColors.length]  }30`,
+                    color: `${resolvedChartColors[i % resolvedChartColors.length]}30`,
                   })),
                   highlightScope: { highlight: 'none' as const, fade: 'none' as const },
                 },
@@ -970,7 +971,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                   id: i,
                   label: formatLabel(label),
                   value: pieBaseData.values[i],
-                  ...(isDimmed && { color: `${color  }40` }),
+                  ...(isDimmed && { color: `${color}40` }),
                 };
               }),
               highlightScope: { highlight: 'item', fade: 'global' },
@@ -1208,7 +1209,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ? sfLineAllData.seriesNames.map((name) => ({
           id: `${String(name)}-ghost`,
           data: sfLineAllData.seriesData[name],
-          color: `${getSeriesColor(name) ?? resolvedChartColors[0]  }40`,
+          color: `${getSeriesColor(name) ?? resolvedChartColors[0]}40`,
           area: isArea,
           connectNulls: true as const,
           showMark: false,
@@ -1328,7 +1329,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ? multiYAllData.series.map((s, i) => ({
           id: `${s.fieldId}-${i}-ghost`,
           data: s.values,
-          color: `${resolvedChartColors[i % resolvedChartColors.length]  }40`,
+          color: `${resolvedChartColors[i % resolvedChartColors.length]}40`,
           area: isArea,
           connectNulls: true as const,
           showMark: false,
@@ -1342,7 +1343,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ? multiYAllData.series.map((s, i) => {
           const filteredSeries = multiYData.series[i];
           const alignedValues: (number | null)[] = filteredSeries
-            ? alignFilteredToAllLabels(multiYAllData.labels, multiYData.labels, filteredSeries.values)
+            ? alignFilteredToAllLabels(
+                multiYAllData.labels,
+                multiYData.labels,
+                filteredSeries.values,
+              )
             : multiYAllData.labels.map(() => null);
           const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
           return {
@@ -1476,7 +1481,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           ]}
           colors={
             ghostLineValues
-              ? [`${lineColor  }40`, lineColor] // ghost at 25% opacity via hex alpha
+              ? [`${lineColor}40`, lineColor] // ghost at 25% opacity via hex alpha
               : chartColors
           }
           hideLegend
@@ -1548,7 +1553,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               valueFormatter: seriesValueFormatter,
             },
           ]}
-          colors={ghostLineValues ? [`${lineColor  }30`, lineColor] : chartColors}
+          colors={ghostLineValues ? [`${lineColor}30`, lineColor] : chartColors}
           hideLegend
           margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
           highlightedItem={

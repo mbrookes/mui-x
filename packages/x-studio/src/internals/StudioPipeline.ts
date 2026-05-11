@@ -143,7 +143,14 @@ export function createStudioPipeline(state: StudioPipelineState | StudioState): 
     },
 
     getEnrichedRows(rows, sourceId, usedFieldIds) {
-      return getCachedEnrichedRows(rows, sourceId, expressionFields, dataSources, relationships, usedFieldIds);
+      return getCachedEnrichedRows(
+        rows,
+        sourceId,
+        expressionFields,
+        dataSources,
+        relationships,
+        usedFieldIds,
+      );
     },
   };
 }

@@ -11,7 +11,7 @@ import {
   Stack,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioController , useStudioSelector, selectFilters } from '../context';
+import { useStudioController, useStudioSelector, selectFilters } from '../context';
 import type { StudioFilterState } from '../models';
 import type { FieldOption, FilterMode, SimpleField } from './filterDrawerTypes';
 import {

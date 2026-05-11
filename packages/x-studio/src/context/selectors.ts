@@ -33,9 +33,7 @@ export const selectActivePage = (state: StudioState) => state.pages[state.dashbo
  */
 export function makeSelectActiveInteractiveFilter(widgetId: string) {
   return (state: StudioState) =>
-    state.filters.find(
-      (f) => f.scope === 'interactive' && f.sourceWidgetId === widgetId,
-    ) ?? null;
+    state.filters.find((f) => f.scope === 'interactive' && f.sourceWidgetId === widgetId) ?? null;
 }
 
 /**
@@ -118,7 +116,6 @@ export function makeSelectExpressionFieldsForSources(sourceIds: ReadonlySet<stri
     return filtered;
   };
 }
-
 
 export interface PartitionedFilters {
   /** Filters with scope === 'page' */

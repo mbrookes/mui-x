@@ -494,14 +494,28 @@ describe('getCachedEnrichedRows', () => {
 
     // Each widget's slot stays warm independently.
     expect(
-      getCachedEnrichedRows(ordersRows, 'orders', allExprs, dataSources, NO_RELATIONSHIPS, widgetAIds),
+      getCachedEnrichedRows(
+        ordersRows,
+        'orders',
+        allExprs,
+        dataSources,
+        NO_RELATIONSHIPS,
+        widgetAIds,
+      ),
     ).toBe(resultA);
     expect(
-      getCachedEnrichedRows(ordersRows, 'orders', allExprs, dataSources, NO_RELATIONSHIPS, widgetBIds),
+      getCachedEnrichedRows(
+        ordersRows,
+        'orders',
+        allExprs,
+        dataSources,
+        NO_RELATIONSHIPS,
+        widgetBIds,
+      ),
     ).toBe(resultB);
   });
 
-  it('expression on an unrelated source has zero effect on this source\'s cache', () => {
+  it("expression on an unrelated source has zero effect on this source's cache", () => {
     const ordersRows = makeRows(5);
     const customersRows = makeRows(3);
     const dataSources = makeDataSources(ordersRows, customersRows);

@@ -2,11 +2,7 @@
 import * as React from 'react';
 import { Box, Tooltip } from '@mui/material';
 
-import type {
-  StudioDataSource,
-  StudioWidget,
-  StudioFilterState,
-} from '../models';
+import type { StudioDataSource, StudioWidget, StudioFilterState } from '../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { resolveRows, resolveMetricRefs } from '../internals/chartUtils';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
@@ -85,13 +81,10 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       (ef) => ef.id === config.kpiValueField && ef.isMeasure,
     );
     const measureKey = measureExprField ? `measure:${measureExprField.id}` : `agg:${aggregation}`;
-    const value = cachedCompute(
-      rows,
-      `kpi-value:${config.kpiValueField}:${measureKey}`,
-      () =>
-        measureExprField
-          ? evaluateMeasure(measureExprField, rows, expressionFields)
-          : computeAggregate(rows, config.kpiValueField!, aggregation),
+    const value = cachedCompute(rows, `kpi-value:${config.kpiValueField}:${measureKey}`, () =>
+      measureExprField
+        ? evaluateMeasure(measureExprField, rows, expressionFields)
+        : computeAggregate(rows, config.kpiValueField!, aggregation),
     );
 
     const fieldDef =

@@ -21,7 +21,7 @@ export interface StudioAIConfig {
   /**
    * API key sent as `Authorization: Bearer <key>`.
    * Omit when using a server-side proxy — store the key in the proxy instead.
-   * For quick local development this can be set via `VITE_AI_API_KEY`, but
+   * For quick local development this can be set via `LLM_API_KEY`, but
    * **never** commit or ship a key in client-side code.
    */
   apiKey?: string;
@@ -32,7 +32,7 @@ export interface StudioAIConfig {
    * Use this to authenticate with your server-side proxy without exposing the
    * LLM API key in the browser, e.g.:
    * ```ts
-   * headers: { 'X-Studio-Token': import.meta.env.VITE_AI_TOKEN }
+   * headers: { 'X-Studio-Token': import.meta.env.LLM_TOKEN }
    * ```
    */
   headers?: Record<string, string>;
@@ -71,10 +71,7 @@ type ChatSendMessageInput = Parameters<ChatAdapter['sendMessage']>[0];
  * Convert x-chat ChatMessage[] to OpenAI messages format.
  * Extracts text parts and tool invocations from each message.
  */
-function toOpenAIMessages(
-  systemPrompt: string,
-  messages: ChatMessage[],
-): OpenAIMessage[] {
+function toOpenAIMessages(systemPrompt: string, messages: ChatMessage[]): OpenAIMessage[] {
   const result: OpenAIMessage[] = [{ role: 'system', content: systemPrompt }];
 
   for (const msg of messages) {
@@ -85,7 +82,13 @@ function toOpenAIMessages(
 
     const toolParts = msg.parts.filter((p) => p.type === 'dynamic-tool') as Array<{
       type: 'dynamic-tool';
-      toolInvocation: { toolCallId: string; toolName: string; input: unknown; output: unknown; state: string };
+      toolInvocation: {
+        toolCallId: string;
+        toolName: string;
+        input: unknown;
+        output: unknown;
+        state: string;
+      };
     }>;
 
     if (msg.role === 'user') {
@@ -139,11 +142,7 @@ interface ToolCallResult {
  * Executes a single tool call against the studio controller.
  * Returns a result string for the OpenAI tool message.
  */
-function executeTool(
-  toolName: string,
-  input: unknown,
-  controller: StudioController,
-): string {
+function executeTool(toolName: string, input: unknown, controller: StudioController): string {
   const args = (input ?? {}) as Record<string, unknown>;
   const name = toolName as StudioAIToolName;
   const state = controller.getState();
@@ -311,7 +310,8 @@ export function createStudioChatAdapter(
             }
 
             // Track tool call accumulation for this request
-            const reqToolCalls: Record<number, { id: string; name: string; argsBuffer: string }> = {};
+            const reqToolCalls: Record<number, { id: string; name: string; argsBuffer: string }> =
+              {};
             let finishReason: string | null = null;
 
             for await (const chunk of parseSSE(response)) {
@@ -350,7 +350,11 @@ export function createStudioChatAdapter(
                   streamController.enqueue({ type: 'text-start', id: textPartId });
                   textStarted = true;
                 }
-                streamController.enqueue({ type: 'text-delta', id: textPartId, delta: delta.content });
+                streamController.enqueue({
+                  type: 'text-delta',
+                  id: textPartId,
+                  delta: delta.content,
+                });
               }
 
               // Tool calls accumulation
@@ -445,7 +449,12 @@ export function createStudioChatAdapter(
                   output,
                 });
 
-                toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
+                toolResults.push({
+                  toolCallId: tc.id,
+                  toolName: tc.name,
+                  input: toolInput,
+                  output,
+                });
               }
 
               // Build follow-up messages with tool results and continue
@@ -469,7 +478,11 @@ export function createStudioChatAdapter(
               return;
             }
 
-            streamController.enqueue({ type: 'finish', messageId: msgId, finishReason: finishReason ?? 'stop' });
+            streamController.enqueue({
+              type: 'finish',
+              messageId: msgId,
+              finishReason: finishReason ?? 'stop',
+            });
             streamController.close();
           }
 

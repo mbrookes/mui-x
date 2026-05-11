@@ -37,7 +37,9 @@ function pickWeighted<T>(rng: Rng, options: readonly T[], weights: readonly numb
   let cumulative = 0;
   for (let i = 0; i < options.length; i++) {
     cumulative += weights[i];
-    if (r < cumulative) { return options[i]; }
+    if (r < cumulative) {
+      return options[i];
+    }
   }
   return options[options.length - 1];
 }
@@ -504,8 +506,12 @@ function generateShipments(
 
   for (const order of orders) {
     // Cancelled orders don't ship; Processing/Pending may not have shipped yet
-    if (order.status === 'Cancelled') { continue; }
-    if ((order.status === 'Pending' || order.status === 'Processing') && rng() < 0.5) { continue; }
+    if (order.status === 'Cancelled') {
+      continue;
+    }
+    if ((order.status === 'Pending' || order.status === 'Processing') && rng() < 0.5) {
+      continue;
+    }
 
     const isDelivered = order.status === 'Delivered' || order.status === 'Partially Delivered';
     const shipDate = addDays(order.date, randInt(rng, 1, 3));

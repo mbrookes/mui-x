@@ -5,14 +5,13 @@ import cors from 'cors';
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const PORT = parseInt(process.env.PORT ?? '3010', 10);
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_ENDPOINT =
-  process.env.OPENAI_ENDPOINT ?? 'https://api.openai.com/v1/chat/completions';
+const LLM_API_KEY = process.env.LLM_API_KEY;
+const LLM_ENDPOINT = process.env.LLM_ENDPOINT ?? 'https://api.openai.com/v1/chat/completions';
 const STUDIO_TOKEN = process.env.STUDIO_TOKEN;
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS;
 
-if (!OPENAI_API_KEY) {
-  console.error('[x-studio-ai-proxy] ERROR: OPENAI_API_KEY is not set.');
+if (!LLM_API_KEY) {
+  console.error('[x-studio-ai-proxy] ERROR: LLM_API_KEY is not set.');
   console.error('  Copy .env.example to .env and fill in your API key.');
   process.exit(1);
 }
@@ -22,9 +21,7 @@ if (!OPENAI_API_KEY) {
 const app = express();
 
 // CORS — allow all origins in dev, restrict in production via ALLOWED_ORIGINS
-const allowedOrigins = ALLOWED_ORIGINS
-  ? ALLOWED_ORIGINS.split(',').map((o) => o.trim())
-  : '*';
+const allowedOrigins = ALLOWED_ORIGINS ? ALLOWED_ORIGINS.split(',').map((o) => o.trim()) : '*';
 
 app.use(
   cors({
@@ -68,11 +65,11 @@ app.get('/health', (_req: Request, res: Response) => {
 app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   let upstream: globalThis.Response;
   try {
-    upstream = await fetch(OPENAI_ENDPOINT, {
+    upstream = await fetch(LLM_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${LLM_API_KEY}`,
       },
       body: JSON.stringify(req.body),
     });
@@ -134,7 +131,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
 
 app.listen(PORT, () => {
   console.warn(`[x-studio-ai-proxy] Listening on http://localhost:${PORT}`);
-  console.warn(`  Upstream endpoint: ${OPENAI_ENDPOINT}`);
+  console.warn(`  Upstream endpoint: ${LLM_ENDPOINT}`);
   if (STUDIO_TOKEN) {
     console.warn('  Token auth: enabled');
   }

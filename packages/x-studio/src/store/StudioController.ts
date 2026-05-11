@@ -681,9 +681,7 @@ export class StudioController {
 
     const pageIds = Object.keys(remainingPages);
     const nextActivePageId =
-      state.dashboard.activePageId === pageId
-        ? (pageIds[0] ?? '')
-        : state.dashboard.activePageId;
+      state.dashboard.activePageId === pageId ? (pageIds[0] ?? '') : state.dashboard.activePageId;
 
     this.commitState({
       ...state,

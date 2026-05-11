@@ -14,18 +14,9 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
-import type {
-  StudioDataField,
-  StudioFilterOperator,
-  StudioFilterState,
-} from '../models';
+import type { StudioDataField, StudioFilterOperator, StudioFilterState } from '../models';
 import { useStudioController } from '../context/StudioContext';
-import {
-  selectDataSources,
-  selectFilters,
-  selectWidgets,
-  useStudioSelector,
-} from '../context';
+import { selectDataSources, selectFilters, selectWidgets, useStudioSelector } from '../context';
 
 // ── Operator metadata ─────────────────────────────────────────────────────────
 
@@ -62,10 +53,18 @@ const BOOLEAN_OPERATORS: { value: StudioFilterOperator; label: string }[] = [
 function operatorsForField(
   field: StudioDataField | undefined,
 ): { value: StudioFilterOperator; label: string }[] {
-  if (!field) {return STRING_OPERATORS;}
-  if (field.type === 'number') {return NUMBER_OPERATORS;}
-  if (field.type === 'date' || field.type === 'datetime') {return DATE_OPERATORS;}
-  if (field.type === 'boolean') {return BOOLEAN_OPERATORS;}
+  if (!field) {
+    return STRING_OPERATORS;
+  }
+  if (field.type === 'number') {
+    return NUMBER_OPERATORS;
+  }
+  if (field.type === 'date' || field.type === 'datetime') {
+    return DATE_OPERATORS;
+  }
+  if (field.type === 'boolean') {
+    return BOOLEAN_OPERATORS;
+  }
   return STRING_OPERATORS;
 }
 
@@ -161,7 +160,9 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
 
   const handleAdd = React.useCallback(() => {
     const firstField = fields[0];
-    if (!firstField) {return;}
+    if (!firstField) {
+      return;
+    }
     controller.addFilter({
       id: `wf-${widgetId}-${Date.now()}`,
       scope: 'widget',
@@ -183,7 +184,9 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
   const handleUpdate = React.useCallback(
     (filterId: string, patch: Partial<StudioFilterState>) => {
       const filter = allFilters.find((f) => f.id === filterId);
-      if (!filter) {return;}
+      if (!filter) {
+        return;
+      }
       // Remove old and re-add with merged patch
       controller.removeFilter(filterId);
       controller.addFilter({ ...filter, ...patch });

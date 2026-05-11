@@ -1,9 +1,4 @@
-import type {
-  StudioDataSource,
-  StudioState,
-  StudioWidget,
-  StudioWidgetKind,
-} from '../models';
+import type { StudioDataSource, StudioState, StudioWidget, StudioWidgetKind } from '../models';
 
 // ── Widget kind / chart type descriptions ─────────────────────────────────────
 
@@ -114,7 +109,9 @@ export function buildAISystemPrompt(state: StudioState): string {
     for (const page of pageList) {
       const isActive = page.id === dashboard.activePageId;
       const widgetCount = (page.widgetRows ?? []).flat().length;
-      lines.push(`- ${page.title} [id: ${page.id}]${isActive ? ' (active)' : ''} — ${widgetCount} widget${widgetCount !== 1 ? 's' : ''}`);
+      lines.push(
+        `- ${page.title} [id: ${page.id}]${isActive ? ' (active)' : ''} — ${widgetCount} widget${widgetCount !== 1 ? 's' : ''}`,
+      );
     }
     lines.push('');
   }
@@ -149,13 +146,17 @@ export function buildAISystemPrompt(state: StudioState): string {
     lines.push(`- ${kind}: ${desc}`);
   }
   lines.push('');
-  lines.push('Chart types: bar, bar-stacked, bar-100, line, area, area-stacked, area-100, pie, donut, scatter');
+  lines.push(
+    'Chart types: bar, bar-stacked, bar-100, line, area, area-stacked, area-100, pie, donut, scatter',
+  );
   lines.push('');
 
   // Guidelines
   lines.push('## Guidelines');
   lines.push('- When adding a widget, pick sensible defaults from the available fields.');
-  lines.push('- For charts, choose xField (categorical/date) and yField (numeric) from the source fields.');
+  lines.push(
+    '- For charts, choose xField (categorical/date) and yField (numeric) from the source fields.',
+  );
   lines.push('- Use the widget id from the state when updating or removing a widget.');
   lines.push('- For data questions, reason from the field names and aggregations described above.');
 

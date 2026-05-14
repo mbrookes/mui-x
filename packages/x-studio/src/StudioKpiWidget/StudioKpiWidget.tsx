@@ -28,17 +28,38 @@ import {
   computeAggregate,
   computeSparklineData,
 } from './kpiUtils';
-import { KpiValue } from './KpiValue';
-import { KpiSparkline } from './KpiSparkline';
-import { KpiTrend, type KpiTrendResult } from './KpiTrend';
+import { KpiValue, type KpiValueProps } from './KpiValue';
+import { KpiSparkline, type KpiSparklineProps } from './KpiSparkline';
+import { KpiTrend, type KpiTrendResult, type KpiTrendProps } from './KpiTrend';
+
+export interface StudioKpiWidgetSlots {
+  /** Replaces the main metric value display. */
+  value?: React.ElementType<KpiValueProps>;
+  /** Replaces the sparkline chart. */
+  sparkline?: React.ElementType<KpiSparklineProps>;
+  /** Replaces the trend delta badge. */
+  trend?: React.ElementType<KpiTrendProps>;
+}
+
+export interface StudioKpiWidgetSlotProps {
+  value?: Partial<KpiValueProps>;
+  sparkline?: Partial<KpiSparklineProps>;
+  trend?: Partial<KpiTrendProps>;
+}
 
 export interface StudioKpiWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
+  slots?: StudioKpiWidgetSlots;
+  slotProps?: StudioKpiWidgetSlotProps;
 }
 
 export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: StudioKpiWidgetProps) {
-  const { dataSource, widget } = props;
+  const { dataSource, widget, slots, slotProps } = props;
+
+  const ValueComponent = slots?.value ?? KpiValue;
+  const SparklineComponent = slots?.sparkline ?? KpiSparkline;
+  const TrendComponent = slots?.trend ?? KpiTrend;
   const { config } = widget;
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
@@ -342,11 +363,11 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           placement="top"
         >
           <span>
-            <KpiValue value={displayValue} hasData={hasData} />
+            <ValueComponent value={displayValue} hasData={hasData} {...slotProps?.value} />
           </span>
         </Tooltip>
         {showSparkline && (
-          <KpiSparkline
+          <SparklineComponent
             data={sparklineData}
             timeFieldResolved={sparklineTimeField !== null}
             plotType={config.kpiSparklinePlotType ?? 'line'}
@@ -355,13 +376,15 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             fieldFormat={fieldDef?.format}
             fieldCurrencyCode={fieldDef?.currencyCode}
             colors={chartColors}
+            {...slotProps?.sparkline}
           />
         )}
       </Box>
-      <KpiTrend
+      <TrendComponent
         trendResult={trendResult}
         needsDateFilter={trendNeedsDateFilter}
         isInverted={config.kpiTrendInvert ?? false}
+        {...slotProps?.trend}
       />
     </Box>
   );

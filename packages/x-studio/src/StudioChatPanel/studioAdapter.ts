@@ -52,6 +52,7 @@ interface OpenAIToolCallMessage {
     id: string;
     type: 'function';
     function: { name: string; arguments: string };
+    extra_content?: unknown;
   }>;
 }
 
@@ -298,20 +299,31 @@ export function createStudioChatAdapter(
                 }),
               });
             } catch (err) {
-              streamController.enqueue({ type: 'abort', messageId: msgId });
-              streamController.close();
+              if (input.signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+                streamController.enqueue({ type: 'abort', messageId: msgId });
+                streamController.close();
+              } else {
+                streamController.error(err);
+              }
               return;
             }
 
             if (!response.ok) {
-              streamController.enqueue({ type: 'abort', messageId: msgId });
-              streamController.close();
+              const errText = await response.text().catch(() => response.statusText);
+              streamController.error(new Error(`HTTP ${response.status}: ${errText}`));
               return;
             }
 
             // Track tool call accumulation for this request
-            const reqToolCalls: Record<number, { id: string; name: string; argsBuffer: string }> =
-              {};
+            const reqToolCalls: Record<
+              number,
+              { id: string; name: string; argsBuffer: string; extra_content?: unknown }
+            > = {};
+            // Gemini omits `index` but provides `id`; map id → idx so that tool calls
+            // arriving in separate SSE chunks (each with a single entry, no index) are
+            // correctly assigned to distinct slots instead of all collapsing to index 0.
+            const idToIdx: Record<string, number> = {};
+            let nextAutoIdx = 0;
             let finishReason: string | null = null;
 
             for await (const chunk of parseSSE(response)) {
@@ -328,6 +340,8 @@ export function createStudioChatAdapter(
                     index: number;
                     id?: string;
                     function?: { name?: string; arguments?: string };
+                    // Gemini-specific: thought_signature required for tool results
+                    extra_content?: unknown;
                   }>;
                 };
                 finish_reason?: string | null;
@@ -359,20 +373,44 @@ export function createStudioChatAdapter(
 
               // Tool calls accumulation
               if (delta.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                  if (!reqToolCalls[tc.index]) {
-                    reqToolCalls[tc.index] = { id: tc.id ?? '', name: '', argsBuffer: '' };
-                    if (tc.id) {
-                      reqToolCalls[tc.index].id = tc.id;
+                delta.tool_calls.forEach((tc, i) => {
+                  // Resolve the slot index for this tool-call fragment:
+                  // 1. OpenAI always provides `index` — use it directly.
+                  // 2. Gemini omits `index` but provides a stable `id` — look up or
+                  //    assign a new auto-incrementing slot so that each distinct tool
+                  //    call gets its own entry even when chunks arrive one-per-delta.
+                  // 3. Last resort: fall back to the forEach position `i`.
+                  let idx: number;
+                  const tcIndex = tc.index as number | undefined;
+                  if (tcIndex !== undefined) {
+                    idx = tcIndex;
+                  } else if (tc.id) {
+                    if (idToIdx[tc.id] !== undefined) {
+                      idx = idToIdx[tc.id];
+                    } else {
+                      idx = nextAutoIdx;
+                      idToIdx[tc.id] = idx;
+                      nextAutoIdx += 1;
                     }
+                  } else {
+                    idx = i;
+                  }
+                  if (!reqToolCalls[idx]) {
+                    reqToolCalls[idx] = { id: tc.id ?? '', name: '', argsBuffer: '' };
+                  }
+                  if (tc.id) {
+                    reqToolCalls[idx].id = tc.id;
+                  }
+                  if (tc.extra_content) {
+                    reqToolCalls[idx].extra_content = tc.extra_content;
                   }
                   if (tc.function?.name) {
-                    reqToolCalls[tc.index].name += tc.function.name;
+                    reqToolCalls[idx].name += tc.function.name;
                   }
                   if (tc.function?.arguments) {
-                    reqToolCalls[tc.index].argsBuffer += tc.function.arguments;
+                    reqToolCalls[idx].argsBuffer += tc.function.arguments;
                   }
-                }
+                });
               }
             }
 
@@ -383,9 +421,9 @@ export function createStudioChatAdapter(
               textPartId = `text-${Date.now()}`;
             }
 
-            // Process tool calls if any
+            // Process tool calls if any (Gemini may use finish_reason 'stop' even for tool calls)
             const toolCallEntries = Object.entries(reqToolCalls);
-            if (finishReason === 'tool_calls' && toolCallEntries.length > 0) {
+            if (toolCallEntries.length > 0) {
               const toolResults: ToolCallResult[] = [];
               const assistantToolCallMsg: OpenAIToolCallMessage = {
                 role: 'assistant',
@@ -394,6 +432,8 @@ export function createStudioChatAdapter(
                   id: tc.id,
                   type: 'function' as const,
                   function: { name: tc.name, arguments: tc.argsBuffer },
+                  // Echo back thought_signature so Gemini can correlate tool results
+                  ...(tc.extra_content ? { extra_content: tc.extra_content } : {}),
                 })),
               };
 
@@ -486,7 +526,20 @@ export function createStudioChatAdapter(
             streamController.close();
           }
 
-          await doRequest(openAIMessages);
+          try {
+            await doRequest(openAIMessages);
+          } catch (err) {
+            // Catch anything not handled inside doRequest (e.g. thrown by parseSSE,
+            // executeTool, or a recursive doRequest call) and surface it as a stream
+            // error so processStream can report it instead of hanging forever.
+            // eslint-disable-next-line no-console
+            console.error('[StudioChatAdapter] Unhandled error in doRequest:', err);
+            try {
+              streamController.error(err);
+            } catch {
+              // Controller may already be closed/errored — ignore.
+            }
+          }
         },
       });
     },

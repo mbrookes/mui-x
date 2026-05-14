@@ -12,6 +12,14 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/x-studio/src'),
       },
       {
+        find: '@mui/x-chat-headless',
+        replacement: path.resolve(__dirname, '../../packages/x-chat-headless/src'),
+      },
+      {
+        find: '@mui/x-chat',
+        replacement: path.resolve(__dirname, '../../packages/x-chat/src'),
+      },
+      {
         find: '@mui/x-charts',
         replacement: path.resolve(__dirname, '../../packages/x-charts/src'),
       },
@@ -70,6 +78,7 @@ export default defineConfig({
       },
     ],
   },
+  envPrefix: 'LLM_',
   server: {
     port: 3004,
   },

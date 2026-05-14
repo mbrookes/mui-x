@@ -1133,6 +1133,52 @@ const pages: MuiPage[] = [
     ],
   },
   {
+    pathname: '/x/react-studio-group',
+    title: 'Studio',
+    unstable: true,
+    children: [
+      { pathname: '/x/react-studio', title: 'Overview' },
+      { pathname: '/x/react-studio/quickstart', title: 'Quickstart' },
+      {
+        pathname: '/x/react-studio/getting-started',
+        subheader: 'Getting Started',
+        children: [
+          { pathname: '/x/react-studio/getting-started/studio', title: 'Studio component' },
+          { pathname: '/x/react-studio/getting-started/composition', title: 'Composed approach' },
+        ],
+      },
+      {
+        pathname: '/x/react-studio/data',
+        subheader: 'Data',
+        children: [
+          { pathname: '/x/react-studio/data/data-sources', title: 'Inline data sources' },
+          { pathname: '/x/react-studio/data/async-adapters', title: 'Async adapters' },
+        ],
+      },
+      {
+        pathname: '/x/react-studio/persistence',
+        subheader: 'Persistence',
+        children: [
+          { pathname: '/x/react-studio/persistence/save-and-load', title: 'Save & load' },
+        ],
+      },
+      {
+        pathname: '/x/react-studio/ai',
+        subheader: 'AI Assistant',
+        children: [
+          { pathname: '/x/react-studio/ai/setup', title: 'Setup' },
+        ],
+      },
+      {
+        pathname: '/x/react-studio/customization',
+        subheader: 'Customization',
+        children: [
+          { pathname: '/x/react-studio/customization/slot-props', title: 'Slot props' },
+        ],
+      },
+    ],
+  },
+  {
     pathname: '/x/migration-group',
     title: 'Migration',
     children: [

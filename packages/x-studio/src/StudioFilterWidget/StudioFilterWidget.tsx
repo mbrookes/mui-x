@@ -31,26 +31,70 @@ import {
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
 
-export interface StudioFilterWidgetProps {
-  widget: StudioWidget;
-  dataSource?: StudioDataSource;
-}
+// ─── Control prop interfaces ──────────────────────────────────────────────────
 
-// ─── Date range control ───────────────────────────────────────────────────────
-
-function DateRangeControl({
-  label,
-  fieldId,
-  currentValue,
-  onApply,
-  onClear,
-}: {
+export interface StudioFilterDateRangeControlProps {
   label: string;
   fieldId: string;
   currentValue: { from?: string; to?: string } | null;
   onApply: (value: { from?: string; to?: string }) => void;
   onClear: () => void;
-}) {
+}
+
+export interface StudioFilterMultiSelectControlProps {
+  label: string;
+  values: string[];
+  selected: string[];
+  onApply: (v: string[]) => void;
+  onClear: () => void;
+}
+
+export interface StudioFilterToggleControlProps {
+  label: string;
+  values: string[];
+  selected: string[];
+  onApply: (v: string[]) => void;
+  onClear: () => void;
+}
+
+export interface StudioFilterSliderControlProps {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  isDate: boolean;
+  currentValue: { from?: number; to?: number } | null;
+  onApply: (from: number, to: number) => void;
+  onClear: () => void;
+}
+
+// ─── Slot interfaces ──────────────────────────────────────────────────────────
+
+export interface StudioFilterWidgetSlots {
+  dateRangeControl?: React.ElementType<StudioFilterDateRangeControlProps>;
+  multiSelectControl?: React.ElementType<StudioFilterMultiSelectControlProps>;
+  toggleControl?: React.ElementType<StudioFilterToggleControlProps>;
+  sliderControl?: React.ElementType<StudioFilterSliderControlProps>;
+}
+
+export interface StudioFilterWidgetSlotProps {
+  dateRangeControl?: Partial<StudioFilterDateRangeControlProps>;
+  multiSelectControl?: Partial<StudioFilterMultiSelectControlProps>;
+  toggleControl?: Partial<StudioFilterToggleControlProps>;
+  sliderControl?: Partial<StudioFilterSliderControlProps>;
+}
+
+export interface StudioFilterWidgetProps {
+  widget: StudioWidget;
+  dataSource?: StudioDataSource;
+  slots?: StudioFilterWidgetSlots;
+  slotProps?: StudioFilterWidgetSlotProps;
+}
+
+// ─── Date range control ───────────────────────────────────────────────────────
+
+function DateRangeControl(props: StudioFilterDateRangeControlProps) {
+  const { label, fieldId, currentValue, onApply, onClear } = props;
   const [from, setFrom] = React.useState<Dayjs | null>(
     currentValue?.from ? dayjs(currentValue.from) : null,
   );
@@ -131,19 +175,8 @@ function DateRangeControl({
 
 // ─── Multi-select control ─────────────────────────────────────────────────────
 
-function MultiSelectControl({
-  label,
-  values,
-  selected,
-  onApply,
-  onClear,
-}: {
-  label: string;
-  values: string[];
-  selected: string[];
-  onApply: (v: string[]) => void;
-  onClear: () => void;
-}) {
+function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
+  const { label, values, selected, onApply, onClear } = props;
   const [search, setSearch] = React.useState('');
   const isActive = selected.length > 0;
 
@@ -254,19 +287,8 @@ function MultiSelectControl({
 
 // ─── Toggle (chip) control ────────────────────────────────────────────────────
 
-function ToggleControl({
-  label,
-  values,
-  selected,
-  onApply,
-  onClear,
-}: {
-  label: string;
-  values: string[];
-  selected: string[];
-  onApply: (v: string[]) => void;
-  onClear: () => void;
-}) {
+function ToggleControl(props: StudioFilterToggleControlProps) {
+  const { label, values, selected, onApply, onClear } = props;
   const isActive = selected.length > 0;
 
   const toggle = (v: string) => {
@@ -324,25 +346,8 @@ function ToggleControl({
 
 // ─── Slider (numeric or date range) control ───────────────────────────────────
 
-function SliderControl({
-  label,
-  min,
-  max,
-  step,
-  isDate,
-  currentValue,
-  onApply,
-  onClear,
-}: {
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  isDate: boolean;
-  currentValue: { from?: number; to?: number } | null;
-  onApply: (from: number, to: number) => void;
-  onClear: () => void;
-}) {
+function SliderControl(props: StudioFilterSliderControlProps) {
+  const { label, min, max, step, isDate, currentValue, onApply, onClear } = props;
   const [localValue, setLocalValue] = React.useState<[number, number]>([
     currentValue?.from ?? min,
     currentValue?.to ?? max,
@@ -370,7 +375,7 @@ function SliderControl({
     }
   };
 
-  const formatLabel = (v: number) => (isDate ? dayjs(v).format('D MMM YYYY') : v.toLocaleString());
+  const formatLabel = (v: number) => (isDate ? dayjs(v).format('DD MMM YYYY') : v.toLocaleString());
 
   return (
     <Stack spacing={0.5} role="group" aria-label={label}>
@@ -406,24 +411,31 @@ function SliderControl({
         </Tooltip>
       </Box>
       {/* Prevent drag-and-drop of the widget card when interacting with the slider */}
-      <Box sx={{ px: 1 }} data-no-drag>
-        <Slider
-          value={localValue}
-          onChange={handleSliderChange}
-          onChangeCommitted={handleChangeCommitted}
-          min={min}
-          max={max}
-          step={step}
-          valueLabelDisplay="auto"
-          valueLabelFormat={formatLabel}
-          aria-label={label}
-        />
-      </Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-        <Typography variant="caption" color="text.secondary">
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1 }} data-no-drag>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ flexShrink: 0, minWidth: 64, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+        >
           {formatLabel(localValue[0])}
         </Typography>
-        <Typography variant="caption" color="text.secondary">
+        <Box sx={{ flex: 1 }}>
+          <Slider
+            value={localValue}
+            onChange={handleSliderChange}
+            onChangeCommitted={handleChangeCommitted}
+            min={min}
+            max={max}
+            step={step}
+            valueLabelDisplay="off"
+            aria-label={label}
+          />
+        </Box>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ flexShrink: 0, minWidth: 64, textAlign: 'left', fontVariantNumeric: 'tabular-nums' }}
+        >
           {formatLabel(localValue[1])}
         </Typography>
       </Box>
@@ -436,7 +448,7 @@ function SliderControl({
 export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   props: StudioFilterWidgetProps,
 ) {
-  const { widget, dataSource } = props;
+  const { widget, dataSource, slots, slotProps } = props;
   const { config } = widget;
   const controller = useStudioController();
   const dataSources = useStudioSelector(selectDataSources);
@@ -580,6 +592,11 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     controller.clearInteractiveFilter(widget.id);
   }, [controller, widget.id]);
 
+  const DateRangeControlComponent = slots?.dateRangeControl ?? DateRangeControl;
+  const MultiSelectControlComponent = slots?.multiSelectControl ?? MultiSelectControl;
+  const ToggleControlComponent = slots?.toggleControl ?? ToggleControl;
+  const SliderControlComponent = slots?.sliderControl ?? SliderControl;
+
   if (!fieldId) {
     return (
       <Box sx={{ p: 1 }}>
@@ -596,21 +613,23 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
 
   if (filterWidgetType === 'date-range') {
     const val = (activeFilter?.value as { from?: string; to?: string } | null) ?? null;
+    const managedOnApply = (value: { from?: string; to?: string }) => {
+      if (!value.from && !value.to) {
+        handleClear();
+        return;
+      }
+      controller.applyInteractiveFilter(widget.id, fieldId, 'between', value, {
+        fieldType: field?.type ?? 'date',
+        filterSourceId,
+      });
+    };
     return (
-      <DateRangeControl
+      <DateRangeControlComponent
         label={label}
         fieldId={fieldId}
         currentValue={val}
-        onApply={(value) => {
-          if (!value.from && !value.to) {
-            handleClear();
-            return;
-          }
-          controller.applyInteractiveFilter(widget.id, fieldId, 'between', value, {
-            fieldType: field?.type ?? 'date',
-            filterSourceId,
-          });
-        }}
+        {...slotProps?.dateRangeControl}
+        onApply={managedOnApply}
         onClear={handleClear}
       />
     );
@@ -618,22 +637,24 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
 
   if (filterWidgetType === 'multi-select') {
     const selected = (activeFilter?.value as string[] | undefined) ?? [];
+    const managedOnApply = (v: string[]) => {
+      if (v.length === 0) {
+        handleClear();
+        return;
+      }
+      controller.applyInteractiveFilter(widget.id, fieldId, 'in', v, {
+        filterMode: 'selection',
+        fieldType: field?.type ?? 'string',
+        filterSourceId,
+      });
+    };
     return (
-      <MultiSelectControl
+      <MultiSelectControlComponent
         label={label}
         values={distinctValues}
         selected={selected}
-        onApply={(v) => {
-          if (v.length === 0) {
-            handleClear();
-            return;
-          }
-          controller.applyInteractiveFilter(widget.id, fieldId, 'in', v, {
-            filterMode: 'selection',
-            fieldType: field?.type ?? 'string',
-            filterSourceId,
-          });
-        }}
+        {...slotProps?.multiSelectControl}
+        onApply={managedOnApply}
         onClear={handleClear}
       />
     );
@@ -641,18 +662,20 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
 
   if (filterWidgetType === 'toggle') {
     const selected = (activeFilter?.value as string[] | undefined) ?? [];
+    const managedOnApply = (v: string[]) => {
+      controller.applyInteractiveFilter(widget.id, fieldId, 'in', v, {
+        filterMode: 'selection',
+        fieldType: field?.type ?? 'string',
+        filterSourceId,
+      });
+    };
     return (
-      <ToggleControl
+      <ToggleControlComponent
         label={label}
         values={distinctValues}
         selected={selected}
-        onApply={(v) => {
-          controller.applyInteractiveFilter(widget.id, fieldId, 'in', v, {
-            filterMode: 'selection',
-            fieldType: field?.type ?? 'string',
-            filterSourceId,
-          });
-        }}
+        {...slotProps?.toggleControl}
+        onApply={managedOnApply}
         onClear={handleClear}
       />
     );
@@ -676,29 +699,31 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       val = rawVal as { from?: number; to?: number };
     }
     const fieldType = isDateField ? (field?.type ?? 'date') : 'number';
+    const managedOnApply = (lo: number, hi: number) => {
+      // For date sliders, convert timestamps back to ISO strings for filter matching
+      const from = isDateField ? dayjs(lo).format('YYYY-MM-DD') : lo;
+      const to = isDateField ? dayjs(hi).format('YYYY-MM-DD') : hi;
+      controller.applyInteractiveFilter(
+        widget.id,
+        fieldId,
+        'between',
+        { from, to },
+        {
+          fieldType,
+          filterSourceId,
+        },
+      );
+    };
     return (
-      <SliderControl
+      <SliderControlComponent
         label={label}
         min={sliderMin}
         max={sliderMax}
         step={sliderStep}
         isDate={isDateField}
         currentValue={val ?? null}
-        onApply={(lo, hi) => {
-          // For date sliders, convert timestamps back to ISO strings for filter matching
-          const from = isDateField ? dayjs(lo).format('YYYY-MM-DD') : lo;
-          const to = isDateField ? dayjs(hi).format('YYYY-MM-DD') : hi;
-          controller.applyInteractiveFilter(
-            widget.id,
-            fieldId,
-            'between',
-            { from, to },
-            {
-              fieldType,
-              filterSourceId,
-            },
-          );
-        }}
+        {...slotProps?.sliderControl}
+        onApply={managedOnApply}
         onClear={handleClear}
       />
     );

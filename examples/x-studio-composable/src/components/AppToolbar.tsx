@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Box, Divider, IconButton, Switch, Tab, Tabs, Tooltip, Typography } from '@mui/material';
 import type { SwitchProps } from '@mui/material';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import FilterListIcon from '@mui/icons-material/FilterList';
@@ -27,6 +28,8 @@ export interface AppToolbarProps {
   onComposeOpen?: () => void;
   onDataOpen?: () => void;
   onFiltersOpen?: () => void;
+  chatOpen?: boolean;
+  onChatToggle?: () => void;
 }
 
 export function AppToolbar(props: AppToolbarProps) {
@@ -46,6 +49,8 @@ export function AppToolbar(props: AppToolbarProps) {
     onComposeOpen,
     onDataOpen,
     onFiltersOpen,
+    chatOpen,
+    onChatToggle,
   } = props;
 
   return (
@@ -137,6 +142,18 @@ export function AppToolbar(props: AppToolbarProps) {
           )}
           <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
         </React.Fragment>
+      )}
+      {onChatToggle && (
+        <Tooltip title={chatOpen ? 'Close AI assistant' : 'Open AI assistant'}>
+          <IconButton
+            size="small"
+            onClick={onChatToggle}
+            color={chatOpen ? 'primary' : 'default'}
+            aria-label={chatOpen ? 'Close AI assistant' : 'Open AI assistant'}
+          >
+            <AutoAwesomeIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       )}
       <Tooltip title="Download dashboard">
         <IconButton size="small" onClick={onSave} aria-label="Download dashboard">

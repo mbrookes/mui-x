@@ -1104,13 +1104,15 @@ export function getTemporalAxisData(labels: (string | number)[]): Date[] | null 
   return axisData.every((value) => value != null) ? (axisData as Date[]) : null;
 }
 
-export function formatTemporalAxisLabel(value: Date, xGroupBy?: XGroupBy): string {
+export function formatTemporalAxisLabel(value: Date | number, xGroupBy?: XGroupBy): string {
+  const dateValue = value instanceof Date ? value : new Date(value);
+
   if (xGroupBy) {
-    const grouped = truncateToGranularity(value, xGroupBy);
-    return grouped ? formatPeriodLabel(grouped) : value.toISOString();
+    const grouped = truncateToGranularity(dateValue, xGroupBy);
+    return grouped ? formatPeriodLabel(grouped) : dateValue.toISOString();
   }
 
-  return value.toLocaleDateString(undefined, {
+  return dateValue.toLocaleDateString(undefined, {
     timeZone: 'UTC',
     year: 'numeric',
     month: 'short',

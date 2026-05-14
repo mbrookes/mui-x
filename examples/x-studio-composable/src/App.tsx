@@ -193,6 +193,7 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [dataOpen, setDataOpen] = React.useState(false);
   const [filtersOpen, setFiltersOpen] = React.useState(false);
+  const [chatOpen, setChatOpen] = React.useState(false);
 
   const handleComposeOpen = React.useCallback(() => setComposeOpen(true), []);
   const handleComposeClose = React.useCallback(() => setComposeOpen(false), []);
@@ -200,6 +201,14 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
   const handleDataClose = React.useCallback(() => setDataOpen(false), []);
   const handleFiltersOpen = React.useCallback(() => setFiltersOpen(true), []);
   const handleFiltersClose = React.useCallback(() => setFiltersOpen(false), []);
+  const handleChatToggle = React.useCallback(() => setChatOpen((prev) => !prev), []);
+
+  // Close chat when switching to view mode
+  React.useEffect(() => {
+    if (mode !== 'edit') {
+      setChatOpen(false);
+    }
+  }, [mode]);
 
   // Activate adapter mode once on mount
   React.useEffect(() => {
@@ -294,6 +303,8 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
         onComposeOpen={handleComposeOpen}
         onDataOpen={handleDataOpen}
         onFiltersOpen={handleFiltersOpen}
+        chatOpen={chatOpen}
+        onChatToggle={aiConfig && mode === 'edit' ? handleChatToggle : undefined}
       />
 
       {/* Dialogs — rendered outside the canvas so they overlay everything */}
@@ -337,22 +348,9 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
           </CanvasScrollContext.Provider>
         </Box>
 
-        {/* Persistent AI chat panel */}
+        {/* Overlay AI chat panel — edit mode only, toggled from toolbar */}
         {aiConfig && (
-          <Box
-            sx={{
-              width: 360,
-              flexShrink: 0,
-              borderLeft: 1,
-              borderColor: 'divider',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              bgcolor: 'background.paper',
-            }}
-          >
-            <StudioChatPanel aiConfig={aiConfig} />
-          </Box>
+          <StudioChatPanel aiConfig={aiConfig} open={chatOpen} overlay />
         )}
       </Box>
     </Box>

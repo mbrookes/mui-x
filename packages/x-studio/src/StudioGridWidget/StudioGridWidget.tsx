@@ -1,7 +1,6 @@
 'use client';
 import * as React from 'react';
 import { DataGridPro, type GridColDef, type GridCellParams } from '@mui/x-data-grid-pro';
-import { Chip, Stack } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
@@ -20,10 +19,14 @@ import { useWidgetRows } from '../internals/useWidgetRows';
 export interface StudioGridWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
+  /** Props forwarded to the underlying `DataGridPro`. */
+  slotProps?: {
+    dataGrid?: Partial<import('@mui/x-data-grid-pro').DataGridProProps>;
+  };
 }
 
 export const StudioGridWidget = React.memo(function StudioGridWidget(props: StudioGridWidgetProps) {
-  const { dataSource, widget } = props;
+  const { dataSource, widget, slotProps } = props;
   const controller = useStudioController();
   const filters = useStudioSelector(selectFilters);
   const selectExpressionFields = React.useMemo(
@@ -126,31 +129,8 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [controller, widget.id, widget.sourceId, activeCrossFilter, widget.config.crossFilterField],
   );
 
-  // Resolve the active filter field's display label for the chip
-  const activeCrossFilterLabel = React.useMemo(() => {
-    if (!activeCrossFilter) {
-      return null;
-    }
-    const exprField = expressionFields.find((ef) => ef.id === activeCrossFilter.field);
-    if (exprField) {
-      return exprField.label;
-    }
-    const dataField = dataSource?.fields.find((f) => f.id === activeCrossFilter.field);
-    return dataField?.label ?? activeCrossFilter.field;
-  }, [activeCrossFilter, expressionFields, dataSource]);
-
-  // Cross-filter indicator
-  const crossFilterIndicator = activeCrossFilter ? (
-    <Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: 'center' }}>
-      <Chip
-        size="small"
-        label={`${activeCrossFilterLabel} = ${activeCrossFilter.value}`}
-        onDelete={() => controller.clearCrossFilter(widget.id)}
-        color="primary"
-        variant="outlined"
-      />
-    </Stack>
-  ) : null;
+  // Resolve the active filter field's display label for the chip — unused
+  // (chip now rendered in StudioWidgetCard title row)
 
   // Compute summary values over ALL filtered rows (not just the current page).
   const summaryConfig = widget.config.gridSummaryFields;
@@ -171,7 +151,6 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   return (
     <div>
-      {crossFilterIndicator}
       <DataGridPro
         density="compact"
         columns={columns}
@@ -214,6 +193,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
           }),
         }}
         onCellClick={handleCellClick}
+        {...slotProps?.dataGrid}
       />
     </div>
   );

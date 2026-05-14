@@ -1145,6 +1145,7 @@ const pages: MuiPage[] = [
         children: [
           { pathname: '/x/react-studio/getting-started/studio', title: 'Studio component' },
           { pathname: '/x/react-studio/getting-started/composition', title: 'Composed approach' },
+          { pathname: '/x/react-studio/getting-started/state', title: 'State management' },
         ],
       },
       {
@@ -1153,6 +1154,18 @@ const pages: MuiPage[] = [
         children: [
           { pathname: '/x/react-studio/data/data-sources', title: 'Inline data sources' },
           { pathname: '/x/react-studio/data/async-adapters', title: 'Async adapters' },
+          { pathname: '/x/react-studio/data/relationships', title: 'Relationships' },
+        ],
+      },
+      {
+        pathname: '/x/react-studio/features',
+        subheader: 'Features',
+        children: [
+          { pathname: '/x/react-studio/features/cross-filters', title: 'Cross-filters' },
+          { pathname: '/x/react-studio/features/global-filters', title: 'Global filters' },
+          { pathname: '/x/react-studio/features/calculated-columns', title: 'Calculated columns' },
+          { pathname: '/x/react-studio/features/measures', title: 'Measures' },
+          { pathname: '/x/react-studio/features/multi-page', title: 'Multi-page' },
         ],
       },
       {
@@ -1174,6 +1187,7 @@ const pages: MuiPage[] = [
         subheader: 'Customization',
         children: [
           { pathname: '/x/react-studio/customization/slot-props', title: 'Slot props' },
+          { pathname: '/x/react-studio/customization/theming', title: 'Theming' },
         ],
       },
     ],

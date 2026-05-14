@@ -4,7 +4,15 @@ import { Box, Paper, Typography } from '@mui/material';
 
 import { useStudioController, useStudioSelector, selectMode, selectActivePage } from '../context';
 import { StudioWidgetCard } from '../StudioWidgetCard';
+import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../internals/widgetUtils';
+
+export interface StudioCanvasProps {
+  slotProps?: {
+    /** Forwarded to every `StudioWidgetCard` rendered on the canvas. */
+    widgetCard?: Partial<Omit<StudioWidgetCardProps, 'widgetId' | 'isFirstRow' | 'pageTheme'>>;
+  };
+}
 
 // Plain JS DnD insertion point component — must live at module level
 function InsertionPoint({
@@ -134,7 +142,8 @@ function InsertionPoint({
   );
 }
 
-export const StudioCanvas = React.memo(function StudioCanvas() {
+export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvasProps) {
+  const { slotProps } = props;
   const mode = useStudioSelector(selectMode);
   const activePage = useStudioSelector(selectActivePage);
   const widgetRows = activePage?.widgetRows;
@@ -386,6 +395,7 @@ export const StudioCanvas = React.memo(function StudioCanvas() {
                     widgetId={widgetId}
                     isFirstRow={rowIndex === 0}
                     pageTheme={pageTheme}
+                    {...slotProps?.widgetCard}
                   />
                 </Box>
                 {/* Insertion point after this widget */}

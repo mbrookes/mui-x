@@ -2,9 +2,13 @@
 
 import * as React from 'react';
 import { BarChart } from '@mui/x-charts/BarChart';
+import type { BarChartProps } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
+import type { LineChartProps } from '@mui/x-charts/LineChart';
 import { PieChart, PieArc, type PieArcProps } from '@mui/x-charts/PieChart';
+import type { PieChartProps } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
+import type { ScatterChartProps } from '@mui/x-charts/ScatterChart';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, Typography } from '@mui/material';
 
@@ -29,10 +33,29 @@ import { useChartWidgetData } from './useChartWidgetData';
 import { buildMultiYLineSeries } from './lineSeries';
 import { CrossFilterBarContext, CrossFilterGhostBar } from './CrossFilterGhostBar';
 
+export interface StudioChartWidgetSlots {
+  /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
+  noDataOverlay?: React.ElementType<React.HTMLAttributes<HTMLDivElement>>;
+}
+
+export interface StudioChartWidgetSlotProps {
+  noDataOverlay?: React.HTMLAttributes<HTMLDivElement>;
+  /** Spread onto BarChart (bar, bar-stacked, bar-100, horizontal variants). Applied before Studio's own props so Studio's required props take precedence. */
+  barChart?: Partial<BarChartProps>;
+  /** Spread onto LineChart (line, area, area-stacked, area-100). */
+  lineChart?: Partial<LineChartProps>;
+  /** Spread onto PieChart (pie, donut). */
+  pieChart?: Partial<PieChartProps>;
+  /** Spread onto ScatterChart. */
+  scatterChart?: Partial<ScatterChartProps>;
+}
+
 export interface StudioChartWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
   height?: number;
+  slots?: StudioChartWidgetSlots;
+  slotProps?: StudioChartWidgetSlotProps;
 }
 
 export const CHART_MIN_HEIGHT = 260;
@@ -116,7 +139,7 @@ function createLineXAxisConfig(
         data: temporalData,
         scaleType: 'utc' as const,
         height: 'auto' as const,
-        valueFormatter: (value: Date) => formatTemporalAxisLabel(value, xGroupBy),
+        valueFormatter: (value: Date | number) => formatTemporalAxisLabel(value, xGroupBy),
       },
     ];
   }
@@ -158,7 +181,7 @@ function normalizeCrossFilterValue(value: string | number | Date | undefined) {
 export const StudioChartWidget = React.memo(function StudioChartWidget(
   props: StudioChartWidgetProps,
 ) {
-  const { dataSource, widget, height: heightProp } = props;
+  const { dataSource, widget, height: heightProp, slots, slotProps } = props;
   const chartHeight = heightProp ?? CHART_MIN_HEIGHT;
   const { config } = widget;
   const xGroupBy = config.xGroupBy;
@@ -612,6 +635,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }
 
   if (!chartSupport.supported && chartSupport.reason) {
+    const NoDataOverlay = slots?.noDataOverlay;
+    if (NoDataOverlay) {
+      return <NoDataOverlay {...slotProps?.noDataOverlay} />;
+    }
     return (
       <Box
         sx={{
@@ -623,6 +650,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           px: 2,
           textAlign: 'center',
         }}
+        {...slotProps?.noDataOverlay}
       >
         <Typography variant="body2">{getChartSupportMessage(chartSupport.reason)}</Typography>
       </Box>
@@ -647,6 +675,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     return (
       <div style={{ height: chartHeight }}>
         <ScatterChart
+          {...slotProps?.scatterChart}
           series={[
             {
               data: scatterData,
@@ -768,6 +797,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         <CrossFilterBarContext.Provider value={multiYBarContext}>
           <div style={{ height: chartHeight }}>
             <BarChart
+              {...slotProps?.barChart}
               layout={isHorizontalBarLayout ? 'horizontal' : undefined}
               xAxis={
                 isHorizontalBarLayout
@@ -903,6 +933,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             value={{ activeSeriesId: CROSS_FILTER_SERIES_ID, radiusByDataIndex }}
           >
             <PieChart
+              {...slotProps?.pieChart}
               slots={{ pieArc: CrossFilterPieArc }}
               series={[
                 {
@@ -960,6 +991,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     return (
       <div style={{ height: chartHeight }}>
         <PieChart
+          {...slotProps?.pieChart}
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
@@ -1105,6 +1137,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <CrossFilterBarContext.Provider value={sfBarContext}>
         <div style={{ height: chartHeight }}>
           <BarChart
+            {...slotProps?.barChart}
             layout={isHorizontalBarLayout ? 'horizontal' : undefined}
             xAxis={
               isHorizontalBarLayout
@@ -1251,6 +1284,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     return (
       <div style={{ height: chartHeight }}>
         <LineChart
+          {...slotProps?.lineChart}
           xAxis={xAxis}
           yAxis={[
             {
@@ -1367,6 +1401,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     return (
       <div style={{ height: chartHeight }}>
         <LineChart
+          {...slotProps?.lineChart}
           xAxis={xAxis}
           yAxis={yAxes}
           series={[...ghostSeries, ...activeSeries]}
@@ -1449,6 +1484,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     return (
       <div style={{ height: chartHeight }}>
         <LineChart
+          {...slotProps?.lineChart}
           xAxis={xAxis}
           yAxis={[{ width: 'auto' }]}
           series={[
@@ -1525,6 +1561,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     return (
       <div style={{ height: chartHeight }}>
         <LineChart
+          {...slotProps?.lineChart}
           xAxis={xAxis}
           yAxis={[{ width: 'auto' }]}
           series={[
@@ -1592,6 +1629,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <CrossFilterBarContext.Provider value={singleBarContext}>
         <div style={{ height: chartHeight }}>
           <BarChart
+            {...slotProps?.barChart}
             layout="horizontal"
             xAxis={[{ height: 'auto' }]}
             yAxis={[
@@ -1643,6 +1681,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     <CrossFilterBarContext.Provider value={singleBarContext}>
       <div style={{ height: chartHeight }}>
         <BarChart
+          {...slotProps?.barChart}
           xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto' }]}
           yAxis={[{ width: 'auto' }]}
           series={[

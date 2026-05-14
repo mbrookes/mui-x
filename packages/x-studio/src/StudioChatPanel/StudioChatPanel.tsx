@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Box, IconButton, Slide, Tooltip, Typography } from '@mui/material';
+import { Box, Grow, IconButton, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { ChatBox, ChatConfirmation } from '@mui/x-chat';
 import type { ChatAdapter } from '@mui/x-chat/headless';
@@ -119,6 +119,21 @@ interface PendingConfirmation {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+export interface StudioChatPanelSlotProps {
+  /**
+   * Extra props spread onto `ChatBox` before Studio's own required props.
+   * Useful for `currentUser`, additional `features`, `localeText` overrides, etc.
+   * Studio's own `adapter`, `suggestions`, `sx`, `features`, and `localeText` always take precedence.
+   */
+  chatBox?: Partial<React.ComponentProps<typeof ChatBox>>;
+  /**
+   * Props for the fixed overlay panel container (overlay mode only).
+   * Use to override `width`, `bottom`, `right`, or add custom `sx`.
+   * The `sx` prop is merged additively with Studio's defaults.
+   */
+  panel?: Omit<React.ComponentProps<typeof Box>, 'sx'> & { sx?: object };
+}
+
 export interface StudioChatPanelProps {
   /**
    * LLM configuration — endpoint, optional API key, and model.
@@ -137,10 +152,12 @@ export interface StudioChatPanelProps {
    * When false (default), the panel fills its parent container (use for persistent side panels).
    */
   overlay?: boolean;
+  /** Slot props for sub-components. */
+  slotProps?: StudioChatPanelSlotProps;
 }
 
 export function StudioChatPanel(props: StudioChatPanelProps) {
-  const { aiConfig, open = true, onClose, overlay = false } = props;
+  const { aiConfig, open = true, onClose, overlay = false, slotProps } = props;
 
   const controller = useStudioController();
   const dataSources = useStudioSelector(selectDataSources);
@@ -184,43 +201,18 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     return null;
   }
 
-  const hasWidgets = activeWidgetIds.length > 0;
-
   const chatBox = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Empty-state header (shown only when no widgets) */}
-      {!hasWidgets && (
-        <Box
-          sx={{
-            px: 3,
-            pt: 3,
-            pb: 1,
-            flexShrink: 0,
-            borderBottom: 1,
-            borderColor: 'divider',
-          }}
-        >
-          <Typography variant="h6" gutterBottom>
-            What would you like to build?
-          </Typography>
-          {Object.values(dataSources).length > 0 && (
-            <Typography variant="body2" color="text.secondary">
-              Available data:{' '}
-              {Object.values(dataSources)
-                .map((s) => s.label)
-                .join(', ')}
-            </Typography>
-          )}
-        </Box>
-      )}
-
       {/* Chat box */}
       <Box sx={{ flexGrow: 1, minHeight: 0 }}>
         <ChatBox
+          {...slotProps?.chatBox}
           adapter={adapter}
           suggestions={suggestions}
           suggestionsAutoSubmit
           currentUser={{ id: 'user', displayName: 'You', role: 'user' }}
+          features={{ conversationHeader: false, attachments: false }}
+          localeText={{ composerInputPlaceholder: 'How can I help?' }}
           sx={{ height: '100%' }}
         />
       </Box>
@@ -250,24 +242,27 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     return chatBox;
   }
 
-  // Overlay mode: fixed-position slide-in panel with a close button
+  // Overlay mode: fixed-position panel that grows from the FAB corner
   return (
-    <Slide direction="left" in={open} mountOnEnter unmountOnExit>
+    <Grow in={open} mountOnEnter unmountOnExit style={{ transformOrigin: 'bottom right' }}>
       <Box
+        {...slotProps?.panel}
         sx={{
           position: 'fixed',
-          top: 0,
-          right: 0,
-          bottom: 0,
+          bottom: 80,
+          right: 16,
           width: 380,
+          height: 'clamp(320px, 50vh, calc(100vh - 96px))',
           bgcolor: 'background.paper',
-          borderLeft: 1,
+          border: 1,
           borderColor: 'divider',
+          borderRadius: 2,
           boxShadow: 8,
           zIndex: (theme) => theme.zIndex.drawer + 1,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
+          ...((slotProps?.panel as { sx?: object })?.sx ?? {}),
         }}
       >
         {/* Overlay header with close button */}
@@ -295,6 +290,6 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
         </Box>
         {chatBox}
       </Box>
-    </Slide>
+    </Grow>
   );
 }

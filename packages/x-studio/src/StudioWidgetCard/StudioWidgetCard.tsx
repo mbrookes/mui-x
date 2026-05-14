@@ -3,6 +3,7 @@ import * as React from 'react';
 import {
   Box,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -16,15 +17,20 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
 
-import { useStudioController, useStudioSelector } from '../context';
+import { useStudioController, useStudioSelector, selectPartitionedFilters } from '../context';
 import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import type { StudioPageTheme } from '../models';
 import { StudioGridWidget } from '../StudioGridWidget';
+import type { StudioGridWidgetProps } from '../StudioGridWidget';
 import { StudioChartWidget, CHART_MIN_HEIGHT } from '../StudioChartWidget';
+import type { StudioChartWidgetProps } from '../StudioChartWidget';
 import { StudioKpiWidget } from '../StudioKpiWidget';
+import type { StudioKpiWidgetProps } from '../StudioKpiWidget/StudioKpiWidget';
 import { StudioTextWidget } from '../StudioTextWidget';
+import type { StudioTextWidgetProps } from '../StudioTextWidget/StudioTextWidget';
 import { StudioFilterWidget } from '../StudioFilterWidget';
+import type { StudioFilterWidgetProps } from '../StudioFilterWidget/StudioFilterWidget';
 import { exportGridToCsv, exportChartToPng } from '../internals/widgetUtils';
 import { createStudioPipeline } from '../internals/StudioPipeline';
 
@@ -32,17 +38,60 @@ export interface StudioWidgetCardProps {
   widgetId: string;
   isFirstRow?: boolean;
   pageTheme?: StudioPageTheme;
+  /** Replaceable sub-components. */
+  slots?: {
+    /** Custom component rendered over widget content while cross-filters recompute. */
+    loadingOverlay?: React.ElementType;
+  };
+  /** Props forwarded to slot components. */
+  slotProps?: {
+    /** Extra props spread onto the default or custom loading overlay. Currently unused by the default overlay but available for custom implementations. */
+    loadingOverlay?: object;
+    /** Extra props spread onto `StudioChartWidget` for chart widgets. */
+    chart?: Partial<Omit<StudioChartWidgetProps, 'widget' | 'dataSource'>>;
+    /** Extra props spread onto `StudioGridWidget` for grid widgets. */
+    grid?: Partial<Omit<StudioGridWidgetProps, 'widget' | 'dataSource'>>;
+    /** Extra props spread onto `StudioKpiWidget` for KPI widgets. */
+    kpi?: Partial<Omit<StudioKpiWidgetProps, 'widget' | 'dataSource'>>;
+    /** Extra props spread onto `StudioFilterWidget` for filter widgets. */
+    filter?: Partial<Omit<StudioFilterWidgetProps, 'widget' | 'dataSource'>>;
+    /** Extra props spread onto `StudioTextWidget` for text widgets. */
+    text?: Partial<Omit<StudioTextWidgetProps, 'widget'>>;
+    /** Extra props spread onto the outer MUI `Paper` card shell. The `sx` prop is merged additively. */
+    paper?: Omit<import('@mui/material').PaperProps, 'sx'> & { sx?: object };
+  };
 }
 
 // Module-level set survives component unmount/remount (e.g. drag-and-drop repositioning).
 // Widgets that have already been rendered once skip the defer on subsequent mounts
 // so rearranging cards doesn't cause a visible blank-shell flash.
 const hydratedWidgets = new Set<string>();
-const COMPACT_WIDGET_MIN_HEIGHT = 160;
+const KPI_WIDGET_MIN_HEIGHT = 160;
+const FILTER_WIDGET_MIN_HEIGHT = KPI_WIDGET_MIN_HEIGHT / 2;
+
+function DefaultLoadingOverlay() {
+  return (
+    <Box
+      sx={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        bgcolor: 'rgba(255,255,255,0.6)',
+        zIndex: 1,
+        borderRadius: 'inherit',
+        backdropFilter: 'blur(2px)',
+      }}
+    >
+      <CircularProgress size={24} />
+    </Box>
+  );
+}
 
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
-  const { widgetId, isFirstRow = false, pageTheme } = props;
+  const { widgetId, isFirstRow = false, pageTheme, slots, slotProps } = props;
   const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
@@ -75,9 +124,35 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     );
   });
 
+  // Narrow selector: only extract the active cross-filter emitted by this widget
+  const activeCrossFilter = useStudioSelector((state) => {
+    if (widget?.kind !== 'chart' && widget?.kind !== 'grid') {
+      return null;
+    }
+    const activePageId = state.dashboard.activePageId;
+    return (
+      state.filters.find(
+        (f) =>
+          f.scope === 'cross-filter' &&
+          f.sourceWidgetId === widgetId &&
+          f.pageId === activePageId,
+      ) ?? null
+    );
+  });
+
   const ref = React.useRef<HTMLDivElement>(null);
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
   const chartExpandContainerRef = React.useRef<HTMLDivElement>(null);
+
+  // Detect when filter recomputation is in-flight (deferred rendering).
+  // Only relevant for chart and grid widgets that go through useWidgetRows.
+  const partitioned = useStudioSelector(selectPartitionedFilters);
+  const deferredPartitioned = React.useDeferredValue(partitioned);
+  const isRecomputing =
+    (widget?.kind === 'chart' || widget?.kind === 'grid') &&
+    deferredPartitioned !== partitioned;
+
+  const LoadingOverlay = slots?.loadingOverlay ?? DefaultLoadingOverlay;
   const [isDragging, setIsDragging] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
   const [editDialogOpen, setEditDialogOpen] = React.useState(false);
@@ -200,6 +275,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     <Paper
       ref={ref}
       variant="outlined"
+      {...slotProps?.paper}
       onClick={() => controller.setSelectedWidget(widgetId)}
       aria-selected={isSelected}
       aria-label={`Widget: ${widget.title}`}
@@ -223,13 +299,18 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         boxSizing: 'border-box',
         position: 'relative',
         minHeight:
-          widget.kind === 'kpi' || widget.kind === 'filter' ? COMPACT_WIDGET_MIN_HEIGHT : undefined,
+          widget.kind === 'kpi'
+            ? KPI_WIDGET_MIN_HEIGHT
+            : widget.kind === 'filter'
+              ? FILTER_WIDGET_MIN_HEIGHT
+              : undefined,
         outline: isSelected ? '2px solid' : undefined,
         outlineColor: isSelected ? 'primary.main' : undefined,
         outlineOffset: -1,
         transition: 'outline-color 0.15s',
         '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
         boxShadow: isDragging ? 4 : undefined,
+        ...(slotProps?.paper?.sx ?? {}),
       }}
     >
       {/* Action button overlay — floats over content so title is never truncated */}
@@ -250,76 +331,90 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       />
       <Stack spacing={widget.kind === 'grid' ? 2 : 0.5}>
         {/* Widget header */}
-        <div>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+        <Box sx={{ minWidth: 0 }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
               <Typography
                 variant="h6"
                 noWrap
-                sx={
-                  widget.kind === 'text'
-                    ? {
-                        ...(widget.config.textTitleColor && {
-                          color: widget.config.textTitleColor,
-                        }),
-                        ...(widget.config.textTitleFontFamily && {
-                          fontFamily:
-                            widget.config.textTitleFontFamily === 'serif'
-                              ? "Georgia, 'Times New Roman', Times, serif"
-                              : "'Courier New', Courier, monospace",
-                        }),
-                        ...(widget.config.textTitleFontSize && {
-                          fontSize: widget.config.textTitleFontSize,
-                        }),
-                        ...(widget.config.textTitleAlign && {
-                          textAlign: widget.config.textTitleAlign,
-                        }),
-                      }
-                    : undefined
-                }
+                sx={{
+                  minWidth: 0,
+                  flexShrink: 1,
+                  ...(widget.kind === 'text' && {
+                    ...(widget.config.textTitleColor && {
+                      color: widget.config.textTitleColor,
+                    }),
+                    ...(widget.config.textTitleFontFamily && {
+                      fontFamily:
+                        widget.config.textTitleFontFamily === 'serif'
+                          ? "Georgia, 'Times New Roman', Times, serif"
+                          : "'Courier New', Courier, monospace",
+                    }),
+                    ...(widget.config.textTitleFontSize && {
+                      fontSize: widget.config.textTitleFontSize,
+                    }),
+                    ...(widget.config.textTitleAlign && {
+                      textAlign: widget.config.textTitleAlign,
+                    }),
+                  }),
+                }}
               >
                 {widget.title ||
                   (widget.kind === 'kpi'
                     ? 'KPI'
                     : widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1))}
               </Typography>
-              {widget.subtitle && (
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  noWrap
-                  sx={{ display: 'block' }}
-                >
-                  {widget.subtitle}
-                </Typography>
+              {activeRankFilter && (
+                <Chip
+                  size="small"
+                  label={`${activeRankFilter.rankDirection === 'bottom' ? 'Bottom' : 'Top'} ${activeRankFilter.value}`}
+                  color="primary"
+                  variant="outlined"
+                  sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
+                />
               )}
-            </Box>
-            {activeRankFilter && (
-              <Chip
-                size="small"
-                label={`${activeRankFilter.rankDirection === 'bottom' ? 'Bottom' : 'Top'} ${activeRankFilter.value}`}
-                color="primary"
-                variant="outlined"
-                sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
-              />
+              {activeCrossFilter && (
+                <Chip
+                  size="small"
+                  label={`${source?.fields.find((f) => f.id === activeCrossFilter.field)?.label ?? activeCrossFilter.field} = ${activeCrossFilter.value}`}
+                  onDelete={() => controller.clearCrossFilter(widgetId)}
+                  color="primary"
+                  variant="outlined"
+                  sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
+                />
+              )}
+            </Stack>
+            {widget.subtitle && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                noWrap
+                sx={{ display: 'block' }}
+              >
+                {widget.subtitle}
+              </Typography>
             )}
-          </Stack>
-        </div>
+          </Box>
         {/* Widget content — deferred to after first paint to avoid blocking initial render */}
         {showContent && widget.kind === 'grid' && (
-          <StudioGridWidget widget={widget} dataSource={source} />
+          <Box sx={{ position: 'relative' }}>
+            <StudioGridWidget widget={widget} dataSource={source} {...slotProps?.grid} />
+            {isRecomputing && <LoadingOverlay />}
+          </Box>
         )}
         {showContent && widget.kind === 'chart' && (
-          <Box ref={chartContainerRef} sx={{ minHeight: CHART_MIN_HEIGHT }}>
-            <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} />
+          <Box sx={{ position: 'relative' }}>
+            <Box ref={chartContainerRef} sx={{ minHeight: CHART_MIN_HEIGHT }}>
+              <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} {...slotProps?.chart} />
+            </Box>
+            {isRecomputing && <LoadingOverlay />}
           </Box>
         )}
         {showContent && widget.kind === 'kpi' && (
-          <StudioKpiWidget widget={widget} dataSource={source} />
+          <StudioKpiWidget widget={widget} dataSource={source} {...slotProps?.kpi} />
         )}
-        {showContent && widget.kind === 'text' && <StudioTextWidget widget={widget} />}
+        {showContent && widget.kind === 'text' && <StudioTextWidget widget={widget} {...slotProps?.text} />}
         {showContent && widget.kind === 'filter' && (
-          <StudioFilterWidget widget={widget} dataSource={source} />
+          <StudioFilterWidget widget={widget} dataSource={source} {...slotProps?.filter} />
         )}
       </Stack>
       {/* Chart full-screen overlay dialog */}

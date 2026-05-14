@@ -35,6 +35,8 @@ export interface UseWidgetRowsResult {
    * Always false for sources without an adapter (sync path).
    */
   isLoading: boolean;
+  /** True while cross-filter or page-filter changes are being applied via React's deferred rendering. Always false for adapter-based sources (use isLoading instead). */
+  isRecomputing: boolean;
 }
 
 /**
@@ -53,6 +55,7 @@ export function useWidgetRows(
 ): UseWidgetRowsResult {
   const filters = useStudioSelector(selectFilters);
   const partitioned = useStudioSelector(selectPartitionedFilters);
+  const deferredPartitioned = React.useDeferredValue(partitioned);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   // expressionFields: subscribe to own source + all directly related sources.
@@ -194,14 +197,14 @@ export function useWidgetRows(
     if (!normalizedDataSource?.rows) {
       return [];
     }
-    const pageFilters = partitioned.page;
-    const widgetFilters = (partitioned.byWidgetId.get(widget.id) ?? []).filter(
+    const pageFilters = deferredPartitioned.page;
+    const widgetFilters = (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
       (f) => f.filterMode !== 'rank',
     );
-    const crossFilters = partitioned.cross.filter(
+    const crossFilters = deferredPartitioned.cross.filter(
       (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
     );
-    const interactiveFilters = partitioned.interactive.filter(
+    const interactiveFilters = deferredPartitioned.interactive.filter(
       (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
     );
     const allFilters = resolveMetricRefs(
@@ -221,7 +224,7 @@ export function useWidgetRows(
     hasAdapter,
     adapterRows,
     normalizedDataSource,
-    partitioned,
+    deferredPartitioned,
     dataSources,
     relationships,
     expressionFields,
@@ -244,8 +247,8 @@ export function useWidgetRows(
     if (!normalizedDataSource?.rows) {
       return [];
     }
-    const pageFilters = partitioned.page;
-    const widgetFilters = (partitioned.byWidgetId.get(widget.id) ?? []).filter(
+    const pageFilters = deferredPartitioned.page;
+    const widgetFilters = (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
       (f) => f.filterMode !== 'rank',
     );
     const allFilters = resolveMetricRefs([...pageFilters, ...widgetFilters], dataSources);
@@ -263,7 +266,7 @@ export function useWidgetRows(
     hasCrossFilters,
     filteredRows,
     normalizedDataSource,
-    partitioned,
+    deferredPartitioned,
     dataSources,
     relationships,
     expressionFields,
@@ -272,5 +275,7 @@ export function useWidgetRows(
     usedFieldIds,
   ]);
 
-  return { filteredRows, filteredRowsNoCross, hasCrossFilters, isLoading };
+  const isRecomputing = !hasAdapter && deferredPartitioned !== partitioned;
+
+  return { filteredRows, filteredRowsNoCross, hasCrossFilters, isLoading, isRecomputing };
 }

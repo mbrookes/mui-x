@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, Tab, Tabs } from '@mui/material';
-import { useDrawerSubheader } from '../internals/DrawerPanel';
+import { useDrawerSubheader } from '../Studio/DrawerPanel';
 import type { StudioWidgetKind } from '../models';
 import { useStudioSelector, selectWidgets, selectShell } from '../context';
 import { AddWidgetView } from './AddWidgetView';

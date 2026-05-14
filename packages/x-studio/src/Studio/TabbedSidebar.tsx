@@ -5,8 +5,8 @@ import { Badge, Box, Divider, Typography } from '@mui/material';
 
 import { useStudioController, useStudioSelector, selectShell } from '../context';
 import type { StudioDrawer } from '../models';
-import { DRAWER_WIDTH, COLLAPSED_WIDTH, DrawerSubheaderContext } from './DrawerPanel';
-import type { DrawerSubheaderContextValue } from './DrawerPanel';
+import { DRAWER_WIDTH, COLLAPSED_WIDTH, DrawerSubheaderContext } from '../Studio/DrawerPanel';
+import type { DrawerSubheaderContextValue } from '../Studio/DrawerPanel';
 
 export interface TabbedSidebarPanel {
   drawer: StudioDrawer;

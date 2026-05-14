@@ -20,15 +20,17 @@ import {
 import type { StudioDataSourceAdapter, StudioMode, StudioState } from '../models';
 import { StudioController } from '../store';
 import type { SerializedStudioState, MigrationResult } from '../store/statePersistence';
-import { DrawerPanel } from '../internals/DrawerPanel';
-import { TabbedSidebar } from '../internals/TabbedSidebar';
+import { DrawerPanel } from './DrawerPanel';
+import { TabbedSidebar } from './TabbedSidebar';
 import { useStudioKeyboardShortcuts } from '../internals/useStudioKeyboardShortcuts';
 import { StudioCanvas } from '../StudioCanvas';
 import { StudioDataDrawer } from '../StudioDataDrawer';
 import { StudioComposeDrawer } from '../StudioComposeDrawer';
 import { StudioFiltersDrawer } from '../StudioFiltersDrawer';
 import { StudioChatPanel } from '../StudioChatPanel/StudioChatPanel';
+import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
+import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
 
 const MIN_CANVAS_WIDTH = 480;
 
@@ -116,6 +118,20 @@ export interface StudioProps extends StudioSlots {
    * If not provided, the AI panel is not rendered.
    */
   aiConfig?: StudioAIConfig | null;
+  /** Props forwarded to slot sub-components. */
+  slotProps?: {
+    /**
+     * Extra props forwarded to the internally-rendered `StudioChatPanel`.
+     * `aiConfig`, `open`, `onClose`, and `overlay` are managed by `Studio` and cannot be overridden here.
+     */
+    chatPanel?: Omit<StudioChatPanelProps, 'aiConfig' | 'open' | 'onClose' | 'overlay'>;
+    /**
+     * Extra props forwarded to the internally-rendered `StudioCanvas`.
+     * Only applies when no custom `canvas` slot is provided.
+     * Use `slotProps.canvas.slotProps.widgetCard` to customise every widget card.
+     */
+    canvas?: StudioCanvasProps;
+  };
 }
 /* eslint-enable react/no-unused-prop-types */
 
@@ -123,7 +139,14 @@ export interface StudioProps extends StudioSlots {
 
 // Memoized so it doesn't re-render when Studio re-renders for unrelated reasons.
 const StudioContent = React.memo(function StudioContent(
-  props: StudioSlots & { sidebarLayout?: 'stacked' | 'tabbed'; aiConfig?: StudioAIConfig | null },
+  props: StudioSlots & {
+    sidebarLayout?: 'stacked' | 'tabbed';
+    aiConfig?: StudioAIConfig | null;
+    slotProps?: {
+      chatPanel?: Omit<StudioChatPanelProps, 'aiConfig' | 'open' | 'onClose' | 'overlay'>;
+      canvas?: StudioCanvasProps;
+    };
+  },
 ) {
   const {
     canvas,
@@ -132,6 +155,7 @@ const StudioContent = React.memo(function StudioContent(
     filtersDrawer,
     sidebarLayout = 'stacked',
     aiConfig,
+    slotProps,
   } = props;
   const mode = useStudioSelector(selectMode);
   const controller = useStudioController();
@@ -234,7 +258,7 @@ const StudioContent = React.memo(function StudioContent(
             }}
           >
             <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
-              {canvas ?? <StudioCanvas />}
+              {canvas ?? <StudioCanvas {...slotProps?.canvas} />}
             </Box>
           </Box>
         </CanvasScrollContext.Provider>
@@ -263,7 +287,7 @@ const StudioContent = React.memo(function StudioContent(
               <AutoAwesomeIcon />
             </IconButton>
           </Tooltip>
-          <StudioChatPanel aiConfig={aiConfig} open={chatOpen} overlay />
+          <StudioChatPanel {...slotProps?.chatPanel} aiConfig={aiConfig} open={chatOpen} overlay />
         </React.Fragment>
       )}
     </Box>

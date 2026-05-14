@@ -4,6 +4,7 @@ export type { StudioProps, StudioHandle, StudioSlots } from './Studio/Studio';
 
 // ─── StudioCanvas ─────────────────────────────────────────────────────────────
 export { StudioCanvas } from './StudioCanvas/StudioCanvas';
+export type { StudioCanvasProps } from './StudioCanvas/StudioCanvas';
 
 // ─── StudioWidgetCard ─────────────────────────────────────────────────────────
 export { StudioWidgetCard } from './StudioWidgetCard/StudioWidgetCard';
@@ -15,11 +16,19 @@ export type { StudioGridWidgetProps } from './StudioGridWidget/StudioGridWidget'
 
 // ─── StudioChartWidget ────────────────────────────────────────────────────────
 export { StudioChartWidget, CHART_MIN_HEIGHT } from './StudioChartWidget/StudioChartWidget';
-export type { StudioChartWidgetProps } from './StudioChartWidget/StudioChartWidget';
+export type {
+  StudioChartWidgetProps,
+  StudioChartWidgetSlots,
+  StudioChartWidgetSlotProps,
+} from './StudioChartWidget/StudioChartWidget';
 
 // ─── StudioKpiWidget ──────────────────────────────────────────────────────────
 export { StudioKpiWidget } from './StudioKpiWidget/StudioKpiWidget';
-export type { StudioKpiWidgetProps } from './StudioKpiWidget/StudioKpiWidget';
+export type {
+  StudioKpiWidgetProps,
+  StudioKpiWidgetSlots,
+  StudioKpiWidgetSlotProps,
+} from './StudioKpiWidget/StudioKpiWidget';
 
 // ─── StudioTextWidget ─────────────────────────────────────────────────────────
 export { StudioTextWidget } from './StudioTextWidget/StudioTextWidget';
@@ -27,7 +36,15 @@ export type { StudioTextWidgetProps } from './StudioTextWidget/StudioTextWidget'
 
 // ─── StudioFilterWidget ───────────────────────────────────────────────────────
 export { StudioFilterWidget } from './StudioFilterWidget/StudioFilterWidget';
-export type { StudioFilterWidgetProps } from './StudioFilterWidget/StudioFilterWidget';
+export type {
+  StudioFilterWidgetProps,
+  StudioFilterWidgetSlots,
+  StudioFilterWidgetSlotProps,
+  StudioFilterDateRangeControlProps,
+  StudioFilterMultiSelectControlProps,
+  StudioFilterToggleControlProps,
+  StudioFilterSliderControlProps,
+} from './StudioFilterWidget/StudioFilterWidget';
 
 // ─── StudioDataDrawer ─────────────────────────────────────────────────────────
 export { StudioDataDrawer } from './StudioDataDrawer/StudioDataDrawer';
@@ -79,12 +96,12 @@ export {
   DrawerSubheaderContext,
   DRAWER_WIDTH,
   COLLAPSED_WIDTH,
-} from './internals/DrawerPanel';
-export type { DrawerPanelProps, DrawerSubheaderContextValue } from './internals/DrawerPanel';
+} from './Studio/DrawerPanel';
+export type { DrawerPanelProps, DrawerSubheaderContextValue } from './Studio/DrawerPanel';
 
 // ─── TabbedSidebar (alternative tabbed sidebar layout) ────────────────────────
-export { TabbedSidebar } from './internals/TabbedSidebar';
-export type { TabbedSidebarProps, TabbedSidebarPanel } from './internals/TabbedSidebar';
+export { TabbedSidebar } from './Studio/TabbedSidebar';
+export type { TabbedSidebarProps, TabbedSidebarPanel } from './Studio/TabbedSidebar';
 
 // ─── Keyboard shortcuts hook ──────────────────────────────────────────────────
 export { useStudioKeyboardShortcuts } from './internals/useStudioKeyboardShortcuts';
@@ -158,7 +175,7 @@ export type { StudioWordmarkProps } from './icons/StudioWordmark';
 
 // ─── AI / Chat ────────────────────────────────────────────────────────────────
 export { StudioChatPanel } from './StudioChatPanel/StudioChatPanel';
-export type { StudioChatPanelProps } from './StudioChatPanel/StudioChatPanel';
+export type { StudioChatPanelProps, StudioChatPanelSlotProps } from './StudioChatPanel/StudioChatPanel';
 export { createStudioChatAdapter } from './StudioChatPanel/studioAdapter';
 export type { StudioAIConfig } from './StudioChatPanel/studioAdapter';
 export { buildAISystemPrompt } from './internals/buildAISystemPrompt';

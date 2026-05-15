@@ -167,3 +167,10 @@ const initialState = createDefaultStudioState({
   },
 });
 ```
+
+## See also
+
+- [Studio component](/x/react-studio/getting-started/studio/) — `ref.current.setActivePage()` and `ref.current.addPage()` for programmatic page navigation
+- [State management](/x/react-studio/getting-started/state/) — `selectPages` and `selectActivePageId` selectors
+- [Save & load](/x/react-studio/persistence/save-and-load/) — page state is included in the serialized snapshot
+- [Theming](/x/react-studio/customization/theming/) — `StudioPageTheme` for per-page canvas appearance

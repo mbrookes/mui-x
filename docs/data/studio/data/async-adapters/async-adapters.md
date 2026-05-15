@@ -289,3 +289,9 @@ async getRows(descriptor) {
   }
 }
 ```
+
+## See also
+
+- [Inline data sources](/x/react-studio/data/data-sources/) — synchronous inline rows for smaller datasets
+- [Relationships](/x/react-studio/data/relationships/) — declare foreign-key joins between data sources
+- [Save & load](/x/react-studio/persistence/save-and-load/) — persist and restore dashboard state; adapters are re-attached after load

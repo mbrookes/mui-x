@@ -133,3 +133,9 @@ If a dimension source should not appear in the widget picker (because users shou
 ## Using with async adapters
 
 Relationships work with async adapters too. The adapter receives the full `StudioQueryDescriptor` including any cross-source filter conditions. Resolve them server-side using the declared foreign keys, or expand them into a WHERE clause that joins the tables.
+
+## See also
+
+- [Inline data sources](/x/react-studio/data/data-sources/) — define the sources that relationships connect
+- [Cross-filters](/x/react-studio/features/cross-filters/) — cross-filter emission resolved across related sources automatically
+- [Calculated columns](/x/react-studio/features/calculated-columns/) — expression fields can reference joined sources via `StudioJoinFieldExpression`

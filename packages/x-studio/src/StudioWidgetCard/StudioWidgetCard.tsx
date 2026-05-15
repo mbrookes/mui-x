@@ -52,6 +52,12 @@ export interface StudioWidgetCardProps {
    * Ref to the canvas element — used to measure canvas width for column snapping.
    */
   canvasRef?: React.RefObject<HTMLDivElement | null>;
+  /**
+   * Called during a resize drag whenever the snapped column count changes,
+   * and with `null` when the drag ends. Used by the parent canvas to apply
+   * a live flex-basis override so the widget visually resizes during drag.
+   */
+  onResizeDrag?: (span: number | null) => void;
   pageTheme?: StudioPageTheme;
   /** Replaceable sub-components. */
   slots?: {
@@ -139,7 +145,7 @@ function DefaultLoadingOverlay() {
 
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
-  const { widgetId, isFirstRow = false, isSingleInRow = false, rowWidgetIds, canvasRef, pageTheme, slots, slotProps } = props;
+  const { widgetId, isFirstRow = false, isSingleInRow = false, rowWidgetIds, canvasRef, onResizeDrag, pageTheme, slots, slotProps } = props;
   const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
   // Read the current colSpan for this widget from the active page
@@ -342,10 +348,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const showResizeHandle =
     mode === 'edit' && !isSingleInRow && rowWidgetIds != null && rowWidgetIds.length > 1;
 
-  // Resize drag state
+  // Resize drag — tracks start position and reports live column snaps via onResizeDrag
   const resizeDragRef = React.useRef<{
     startX: number;
     startSpan: number;
+    lastSpan: number;
     canvasWidth: number;
     maxSpan: number;
   } | null>(null);
@@ -360,15 +367,15 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         return;
       }
       const canvasWidth = canvasEl.getBoundingClientRect().width;
-      // Clamp startSpan based on canvas width and existing row layout
       const otherWidgetsCount = rowWidgetIds.length - 1;
       const maxSpan = 12 - otherWidgetsCount * 3;
       const startSpan = currentColSpan ?? Math.round(12 / rowWidgetIds.length);
-      resizeDragRef.current = { startX: event.clientX, startSpan, canvasWidth, maxSpan };
+      resizeDragRef.current = { startX: event.clientX, startSpan, lastSpan: startSpan, canvasWidth, maxSpan };
       setDraggingSpan(startSpan);
+      onResizeDrag?.(startSpan);
       (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     },
-    [canvasRef, rowWidgetIds, currentColSpan],
+    [canvasRef, rowWidgetIds, currentColSpan, onResizeDrag],
   );
 
   const handleResizePointerMove = React.useCallback(
@@ -381,29 +388,33 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       const colWidth = drag.canvasWidth / 12;
       const colDelta = Math.round(deltaX / colWidth);
       const newSpan = Math.max(3, Math.min(drag.maxSpan, drag.startSpan + colDelta));
-      setDraggingSpan(newSpan);
+      if (newSpan !== drag.lastSpan) {
+        drag.lastSpan = newSpan;
+        setDraggingSpan(newSpan);
+        onResizeDrag?.(newSpan);
+      }
     },
-    [],
+    [onResizeDrag],
   );
 
   const handleResizePointerUp = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const drag = resizeDragRef.current;
       resizeDragRef.current = null;
-      if (draggingSpan != null) {
-        // If the resulting span would be equal to 12/rowWidgetIds.length (natural equal
-        // distribution), clear the explicit span so the widget reverts to flex:1 sizing.
+      onResizeDrag?.(null);
+      const finalSpan = drag?.lastSpan ?? null;
+      if (finalSpan != null) {
         const equalSpan = rowWidgetIds ? Math.round(12 / rowWidgetIds.length) : null;
-        if (equalSpan != null && draggingSpan === equalSpan) {
+        if (equalSpan != null && finalSpan === equalSpan) {
           controller.setWidgetColSpan(widgetId, null);
         } else {
-          controller.setWidgetColSpan(widgetId, draggingSpan);
+          controller.setWidgetColSpan(widgetId, finalSpan);
         }
       }
       setDraggingSpan(null);
       (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
     },
-    [controller, widgetId, draggingSpan, rowWidgetIds],
+    [controller, widgetId, rowWidgetIds, onResizeDrag],
   );
 
   return (

@@ -147,6 +147,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   const mode = useStudioSelector(selectMode);
   const activePage = useStudioSelector(selectActivePage);
   const widgetRows = activePage?.widgetRows;
+  const widgetColSpans = activePage?.widgetColSpans;
   const pageTheme = activePage?.theme;
   const controller = useStudioController();
   const canvasRef = React.useRef<HTMLDivElement>(null);
@@ -241,14 +242,14 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     };
   }, [mode]);
 
-  // Keep the latest widgetRows in a ref so the stable handleDrop closure can
-  // read current data without being recreated on every drop.
+  // Keep the latest widgetRows/colSpans in a ref so the stable handleDrop closure
+  // can read current data without being recreated on every drop.
   const widgetRowsRef = React.useRef(widgetRows);
   widgetRowsRef.current = widgetRows;
+  const widgetColSpansRef = React.useRef(widgetColSpans);
+  widgetColSpansRef.current = widgetColSpans;
 
   // Stable drop handler — useCallback with only [controller] as dep.
-  // rowIndex / colIndex / orientation are passed in by InsertionPoint at call time
-  // via posRef, so they never cause useEffect listener re-registration.
   const handleDrop = React.useCallback(
     (data: any, rowIndex: number, colIndex: number, orientation: 'horizontal' | 'vertical') => {
       const currentRows = widgetRowsRef.current;
@@ -279,25 +280,54 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           shell: { ...state.shell, selectedWidgetId: newWidget.id },
         });
       } else if (data?.type === 'canvas-widget' && data.widgetId) {
-        const rows = currentRows.map((r) => r.filter((id) => id !== data.widgetId));
+        const widgetId: string = data.widgetId;
+        const rows = currentRows.map((r) => r.filter((id) => id !== widgetId));
         if (orientation === 'horizontal') {
-          rows.splice(rowIndex, 0, [data.widgetId]);
+          rows.splice(rowIndex, 0, [widgetId]);
         } else {
           const row = rows[rowIndex] ?? [];
-          row.splice(colIndex, 0, data.widgetId);
+          row.splice(colIndex, 0, widgetId);
           rows[rowIndex] = row;
         }
         const cleaned = rows.filter((r) => r.length > 0);
-        // Select the dropped widget after repositioning so the compose panel opens
+
+        // Determine the destination row after cleaning
+        const destRow = cleaned.find((r) => r.includes(widgetId)) ?? [];
+        const isNewSingleton = destRow.length === 1;
+
+        // Clear the moved widget's colSpan if it lands alone in a row, or if
+        // its span would push the row total beyond 12 columns.
+        let nextColSpans = widgetColSpansRef.current;
+        if (isNewSingleton) {
+          if (nextColSpans?.[widgetId] != null) {
+            const { [widgetId]: _removed, ...rest } = nextColSpans;
+            void _removed;
+            nextColSpans = Object.keys(rest).length > 0 ? rest : undefined;
+          }
+        } else if (nextColSpans?.[widgetId] != null) {
+          // Check if the destination row's total spans exceed 12
+          const destSpanTotal = destRow.reduce((sum, id) => {
+            const s = nextColSpans?.[id];
+            return sum + (s ?? 0);
+          }, 0);
+          if (destSpanTotal > 12) {
+            const { [widgetId]: _removed, ...rest } = nextColSpans;
+            void _removed;
+            nextColSpans = Object.keys(rest).length > 0 ? rest : undefined;
+          }
+        }
+
+        const state = controller.getState();
         controller.updateState({
           pages: {
-            ...controller.getState().pages,
+            ...state.pages,
             [activePageId]: {
-              ...controller.getState().pages[activePageId],
+              ...state.pages[activePageId],
               widgetRows: cleaned,
+              widgetColSpans: nextColSpans,
             },
           },
-          shell: { ...controller.getState().shell, selectedWidgetId: data.widgetId },
+          shell: { ...state.shell, selectedWidgetId: widgetId },
         });
       }
     },
@@ -381,35 +411,44 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                 mode={mode}
               />
             )}
-            {row.map((widgetId, colIndex) => (
-              <React.Fragment key={widgetId}>
-                <Box
-                  sx={{
-                    flex: 1,
-                    minWidth: mode === 'edit' ? 0 : 280,
-                    display: 'flex',
-                    flexDirection: 'column',
-                  }}
-                >
-                  <StudioWidgetCard
-                    widgetId={widgetId}
-                    isFirstRow={rowIndex === 0}
-                    pageTheme={pageTheme}
-                    {...slotProps?.widgetCard}
-                  />
-                </Box>
-                {/* Insertion point after this widget */}
-                {mode === 'edit' && (
-                  <InsertionPoint
-                    rowIndex={rowIndex}
-                    colIndex={colIndex + 1}
-                    onDrop={handleDrop}
-                    orientation="vertical"
-                    mode={mode}
-                  />
-                )}
-              </React.Fragment>
-            ))}
+            {row.map((widgetId, colIndex) => {
+              const span = widgetColSpans?.[widgetId];
+              const pct = span != null ? `${(span / 12) * 100}%` : undefined;
+              const isSingleInRow = row.length === 1;
+              return (
+                <React.Fragment key={widgetId}>
+                  <Box
+                    sx={{
+                      flex: pct ? `0 0 ${pct}` : 1,
+                      maxWidth: pct ?? undefined,
+                      minWidth: mode === 'edit' ? 0 : 280,
+                      display: 'flex',
+                      flexDirection: 'column',
+                    }}
+                  >
+                    <StudioWidgetCard
+                      widgetId={widgetId}
+                      isFirstRow={rowIndex === 0}
+                      isSingleInRow={isSingleInRow}
+                      pageTheme={pageTheme}
+                      canvasRef={canvasRef}
+                      rowWidgetIds={row}
+                      {...slotProps?.widgetCard}
+                    />
+                  </Box>
+                  {/* Insertion point after this widget */}
+                  {mode === 'edit' && (
+                    <InsertionPoint
+                      rowIndex={rowIndex}
+                      colIndex={colIndex + 1}
+                      onDrop={handleDrop}
+                      orientation="vertical"
+                      mode={mode}
+                    />
+                  )}
+                </React.Fragment>
+              );
+            })}
           </Box>
           {/* Insertion point below this row */}
           {mode === 'edit' && (

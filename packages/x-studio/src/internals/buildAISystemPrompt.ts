@@ -130,13 +130,18 @@ export function buildAISystemPrompt(state: StudioState): string {
 
     // Layout: show current widgetRows so the LLM can reason about rearrangements
     const widgetRows = activePage.widgetRows ?? [];
+    const widgetColSpans = activePage.widgetColSpans ?? {};
     if (widgetRows.length > 0) {
-      lines.push('## Layout (current widgetRows — use set_widget_layout to rearrange)');
+      lines.push(
+        '## Layout (current widgetRows — use set_widget_layout to rearrange, set_widget_width to resize)',
+      );
       widgetRows.forEach((row, i) => {
         const rowDesc = row
           .map((id) => {
             const w = widgets[id];
-            return w ? `${id} ("${w.title}", ${w.kind})` : id;
+            const span = widgetColSpans[id];
+            const spanSuffix = span != null ? `, ${span}col` : '';
+            return w ? `${id} ("${w.title}", ${w.kind}${spanSuffix})` : id;
           })
           .join(', ');
         lines.push(`Row ${i + 1}: ${rowDesc}`);

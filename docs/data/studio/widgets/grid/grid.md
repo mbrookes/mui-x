@@ -18,7 +18,7 @@ respects all active global filters.
 
 ## Configuration
 
-```typescript
+```ts
 interface StudioGridConfig {
   dataSourceId: string;
   columns: StudioGridColumn[];
@@ -43,7 +43,7 @@ type StudioAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
 ## Basic example
 
-```typescript
+```ts
 const gridConfig: StudioGridConfig = {
   dataSourceId: 'orders',
   columns: [
@@ -61,7 +61,7 @@ const gridConfig: StudioGridConfig = {
 Enable `showSummaryRow: true` and add an `aggregation` value to each numeric column
 to display an aggregate row pinned to the bottom of the grid.
 
-```typescript
+```ts
 const gridConfig: StudioGridConfig = {
   dataSourceId: 'orders',
   columns: [
@@ -78,7 +78,7 @@ const gridConfig: StudioGridConfig = {
 Set `exportCsv: true` to show a toolbar with a **Download CSV** button. The export
 respects current sorting, filtering, and the column set visible to the user.
 
-```typescript
+```ts
 const gridConfig: StudioGridConfig = {
   dataSourceId: 'transactions',
   columns: [/* ... */],

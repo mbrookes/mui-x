@@ -20,7 +20,7 @@ all widgets on the same page respect automatically.
 
 The `StudioFilterConfig` type is a discriminated union on the `subType` field:
 
-```typescript
+```ts
 type StudioFilterConfig =
   | StudioDateRangeFilterConfig
   | StudioMultiSelectFilterConfig
@@ -38,7 +38,7 @@ interface StudioBaseFilterConfig {
 
 Renders two date pickers (start/end). The field must have type `date`.
 
-```typescript
+```ts
 interface StudioDateRangeFilterConfig extends StudioBaseFilterConfig {
   subType: 'date-range';
   defaultStart?: string;  // ISO-8601 date string
@@ -46,7 +46,7 @@ interface StudioDateRangeFilterConfig extends StudioBaseFilterConfig {
 }
 ```
 
-```typescript
+```ts
 const filterConfig: StudioDateRangeFilterConfig = {
   subType: 'date-range',
   dataSourceId: 'orders',
@@ -61,7 +61,7 @@ const filterConfig: StudioDateRangeFilterConfig = {
 Renders a multi-select dropdown populated with the unique values of a string or
 number field.
 
-```typescript
+```ts
 interface StudioMultiSelectFilterConfig extends StudioBaseFilterConfig {
   subType: 'multi-select';
   label?: string;
@@ -69,7 +69,7 @@ interface StudioMultiSelectFilterConfig extends StudioBaseFilterConfig {
 }
 ```
 
-```typescript
+```ts
 const filterConfig: StudioMultiSelectFilterConfig = {
   subType: 'multi-select',
   dataSourceId: 'orders',
@@ -82,7 +82,7 @@ const filterConfig: StudioMultiSelectFilterConfig = {
 
 Renders a boolean switch. The field must have type `boolean`.
 
-```typescript
+```ts
 interface StudioToggleFilterConfig extends StudioBaseFilterConfig {
   subType: 'toggle';
   label?: string;
@@ -90,7 +90,7 @@ interface StudioToggleFilterConfig extends StudioBaseFilterConfig {
 }
 ```
 
-```typescript
+```ts
 const filterConfig: StudioToggleFilterConfig = {
   subType: 'toggle',
   dataSourceId: 'products',
@@ -104,7 +104,7 @@ const filterConfig: StudioToggleFilterConfig = {
 
 Renders a numeric range slider. The field must have type `number`.
 
-```typescript
+```ts
 interface StudioSliderFilterConfig extends StudioBaseFilterConfig {
   subType: 'slider';
   min?: number;
@@ -115,7 +115,7 @@ interface StudioSliderFilterConfig extends StudioBaseFilterConfig {
 }
 ```
 
-```typescript
+```ts
 const filterConfig: StudioSliderFilterConfig = {
   subType: 'slider',
   dataSourceId: 'products',
@@ -136,7 +136,7 @@ whole page or only to a specific widget.
 | `'page'` (default) | Applied to every widget on the page that shares the data source |
 | `'widget'` | Applied only to the widget whose `widgetId` is specified alongside |
 
-```typescript
+```ts
 const filterConfig: StudioMultiSelectFilterConfig = {
   subType: 'multi-select',
   dataSourceId: 'orders',

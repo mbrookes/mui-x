@@ -17,7 +17,7 @@ defaults, plus optional inline Markdown for rich content.
 
 ## Configuration
 
-```typescript
+```ts
 interface StudioTextConfig {
   content: string;
   variant: StudioTextVariant;
@@ -41,7 +41,7 @@ theme tokens. Override them with `slotProps.textWidget.sx` if needed.
 
 ## Basic example
 
-```typescript
+```ts
 const textConfig: StudioTextConfig = {
   variant: 'title',
   content: 'Sales Overview',
@@ -49,7 +49,7 @@ const textConfig: StudioTextConfig = {
 };
 ```
 
-```typescript
+```ts
 const textConfig: StudioTextConfig = {
   variant: 'body',
   content: 'All figures are in USD. Refresh rate: every 15 minutes.',
@@ -62,7 +62,7 @@ const textConfig: StudioTextConfig = {
 Enable Markdown rendering by setting `markdown: true`. The content string is then
 parsed as CommonMark Markdown and rendered as HTML inside the widget card.
 
-```typescript
+```ts
 const textConfig: StudioTextConfig = {
   variant: 'body',
   markdown: true,
@@ -79,7 +79,7 @@ stripped to prevent XSS. Use trusted content only.
 
 Use `align` to control horizontal text alignment within the widget card.
 
-```typescript
+```ts
 const textConfig: StudioTextConfig = {
   variant: 'subtitle',
   content: 'Data as of 1 Jan 2025',

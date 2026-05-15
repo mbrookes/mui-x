@@ -37,7 +37,7 @@ See [Studio component](/x/react-studio/getting-started/studio/).
 
 Switch between `'edit'` and `'view'` mode.
 
-```typescript
+```ts
 controller.setMode('view');
 ```
 
@@ -47,7 +47,7 @@ controller.setMode('view');
 
 Add a new widget to the active page. Returns the created widget ID.
 
-```typescript
+```ts
 const widgetId = controller.addWidget({
   type: 'chart',
   config: {
@@ -63,7 +63,7 @@ const widgetId = controller.addWidget({
 
 Replace the configuration of an existing widget.
 
-```typescript
+```ts
 controller.updateWidget('w1', {
   type: 'bar-stacked',
   dataSourceId: 'orders',
@@ -75,7 +75,7 @@ controller.updateWidget('w1', {
 
 Remove a widget from the active page.
 
-```typescript
+```ts
 controller.removeWidget('w1');
 ```
 
@@ -83,7 +83,7 @@ controller.removeWidget('w1');
 
 Duplicate a widget on the active page. Returns the new widget ID.
 
-```typescript
+```ts
 const newId = controller.duplicateWidget('w1');
 ```
 
@@ -93,7 +93,7 @@ const newId = controller.duplicateWidget('w1');
 
 Add a new page. Optionally supply a title. Returns the new page ID.
 
-```typescript
+```ts
 const pageId = controller.addPage({ title: 'Orders' });
 ```
 
@@ -101,7 +101,7 @@ const pageId = controller.addPage({ title: 'Orders' });
 
 Remove a page and all its widgets.
 
-```typescript
+```ts
 controller.removePage('page-2');
 ```
 
@@ -109,7 +109,7 @@ controller.removePage('page-2');
 
 Update the display title of a page.
 
-```typescript
+```ts
 controller.renamePage('page-1', 'Sales Overview');
 ```
 
@@ -117,7 +117,7 @@ controller.renamePage('page-1', 'Sales Overview');
 
 Switch the visible page.
 
-```typescript
+```ts
 controller.setActivePage('page-2');
 ```
 
@@ -127,7 +127,7 @@ controller.setActivePage('page-2');
 
 Register a new inline data source.
 
-```typescript
+```ts
 controller.addDataSource({
   id: 'orders',
   label: 'Orders',
@@ -143,7 +143,7 @@ controller.addDataSource({
 
 Update properties of an existing data source.
 
-```typescript
+```ts
 controller.updateDataSource('orders', { rows: newOrdersData });
 ```
 
@@ -155,7 +155,7 @@ Remove a data source and any widgets that reference it.
 
 Attach or replace an async adapter for the specified data source.
 
-```typescript
+```ts
 controller.setDataSourceAdapter('orders', myAsyncAdapter);
 ```
 
@@ -165,7 +165,7 @@ controller.setDataSourceAdapter('orders', myAsyncAdapter);
 
 Add a global filter condition to the active page.
 
-```typescript
+```ts
 controller.addFilter({
   fieldId: 'region',
   operator: 'equals',
@@ -195,7 +195,7 @@ Redo the next history entry. No-op if at the latest state.
 
 Returns the current `StudioState` snapshot.
 
-```typescript
+```ts
 const state = controller.getState();
 console.log(state.dashboard.title);
 ```
@@ -204,7 +204,7 @@ console.log(state.dashboard.title);
 
 Returns a JSON-serializable representation of the current state.
 
-```typescript
+```ts
 const json = controller.serializeState();
 localStorage.setItem('dashboard', JSON.stringify(json));
 ```
@@ -214,7 +214,7 @@ localStorage.setItem('dashboard', JSON.stringify(json));
 Replaces the current state with a previously serialized snapshot.
 Clears the undo/redo history.
 
-```typescript
+```ts
 const json = JSON.parse(localStorage.getItem('dashboard') ?? '{}');
 controller.loadSerializedState(json);
 ```
@@ -225,7 +225,7 @@ controller.loadSerializedState(json);
 
 Update the top-level dashboard title.
 
-```typescript
+```ts
 controller.updateDashboardTitle('Q4 Sales Dashboard');
 ```
 

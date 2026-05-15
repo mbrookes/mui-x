@@ -50,7 +50,7 @@ Use them when you need to select a value that depends on a specific ID.
 
 Returns the active interactive (cross-filter) condition emitted by the specified widget.
 
-```typescript
+```ts
 const selectMyWidgetFilter = makeSelectActiveInteractiveFilter('w1');
 const filter = useStudioSelector(selectMyWidgetFilter);
 // filter: StudioFilter | undefined
@@ -61,7 +61,7 @@ const filter = useStudioSelector(selectMyWidgetFilter);
 Returns all expression fields (calculated columns + measures) scoped to a single
 data source.
 
-```typescript
+```ts
 const selectOrdersExpressions = makeSelectExpressionFieldsForSource('orders');
 const fields = useStudioSelector(selectOrdersExpressions);
 // fields: StudioExpressionField[]
@@ -71,7 +71,7 @@ const fields = useStudioSelector(selectOrdersExpressions);
 
 Returns all expression fields for any of the provided data source IDs.
 
-```typescript
+```ts
 const selectMultiSourceExpressions = makeSelectExpressionFieldsForSources(['orders', 'products']);
 const fields = useStudioSelector(selectMultiSourceExpressions);
 ```
@@ -80,7 +80,7 @@ const fields = useStudioSelector(selectMultiSourceExpressions);
 
 This selector returns filters pre-bucketed by scope for efficient consumption:
 
-```typescript
+```ts
 interface StudioPartitionedFilters {
   page: StudioFilter[];           // page-scoped conditions
   byWidgetId: Record<string, StudioFilter[]>; // widget-scoped conditions keyed by widgetId
@@ -95,7 +95,7 @@ const { page, byWidgetId, cross } = useStudioSelector(selectPartitionedFilters);
 
 Selectors are plain functions — compose them using standard JavaScript:
 
-```typescript
+```ts
 import { selectWidgets, selectDataSources } from '@mui/x-studio';
 import type { StudioState } from '@mui/x-studio';
 
@@ -113,7 +113,7 @@ const selectWidgetCount = (state: StudioState) =>
 For selectors that perform non-trivial computation, use a memoisation utility like
 `createSelector` from the `reselect` package to avoid unnecessary recalculations:
 
-```typescript
+```ts
 import { createSelector } from 'reselect';
 import { selectWidgets, selectDataSources } from '@mui/x-studio';
 

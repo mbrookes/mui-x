@@ -35,7 +35,7 @@ prompts, and Studio executes them to mutate the dashboard state.
 
 Each tool call is translated into the equivalent controller method call:
 
-```typescript
+```ts
 // add_widget({ type: 'chart', config: { ... } })
 controller.addWidget({ type: 'chart', config: chartConfig });
 
@@ -108,7 +108,7 @@ Pass additional tools in the `extraTools` array. Each tool must conform to the
 `StudioAiTool` interface and implement an `execute` method that mutates the
 controller:
 
-```typescript
+```ts
 interface StudioAiTool<TArgs = unknown> {
   name: string;
   description: string;  // shown to the LLM in the system prompt
@@ -117,7 +117,7 @@ interface StudioAiTool<TArgs = unknown> {
 }
 ```
 
-```typescript
+```ts
 const lockDashboardTool: StudioAiTool<{ locked: boolean }> = {
   name: 'set_locked',
   description: 'Lock or unlock the dashboard to prevent further edits',

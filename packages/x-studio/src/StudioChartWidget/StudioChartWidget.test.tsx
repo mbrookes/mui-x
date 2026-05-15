@@ -1406,4 +1406,204 @@ describe('<StudioChartWidget />', () => {
     expect(props.series[0].area).toBe(true);
     expect(props.series[0].connectNulls).toBe(true);
   });
+
+  describe('dual cross-filter: both category (own) and date (incoming) active simultaneously', () => {
+    const orderItemsSource: StudioDataSource = {
+      id: 'source-order-items',
+      label: 'Order Items',
+      fields: [
+        { id: 'orderId', label: 'Order ID', type: 'string' },
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: 'li1', orderId: 'o1', category: 'Supplies', total: 100 },
+        { id: 'li2', orderId: 'o2', category: 'Electronics', total: 200 },
+        { id: 'li3', orderId: 'o3', category: 'Supplies', total: 150 },
+        { id: 'li4', orderId: 'o4', category: 'Furniture', total: 300 },
+      ],
+    };
+
+    const ordersSource: StudioDataSource = {
+      id: 'source-orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'date', label: 'Date', type: 'date' },
+        { id: 'country', label: 'Country', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: 'o1', date: '2024-01-15', country: 'USA', total: 100 },
+        { id: 'o2', date: '2023-11-01', country: 'Germany', total: 200 },
+        { id: 'o3', date: '2024-02-20', country: 'USA', total: 150 },
+        { id: 'o4', date: '2024-04-10', country: 'France', total: 300 },
+      ],
+    };
+
+    const relationship = {
+      id: 'rel-orderitems-orders',
+      sourceId: 'source-order-items',
+      sourceField: 'orderId',
+      targetId: 'source-orders',
+      targetField: 'id',
+      type: 'many-to-one' as const,
+    };
+
+    // Both filters active at the same time:
+    //   - category=Supplies from widget-chart-category (OWN widget, excluded from incoming)
+    //   - date Q1 2024 from widget-chart-quarterly (INCOMING cross-filter)
+    const bothFilters = [
+      {
+        id: 'cf-category',
+        scope: 'cross-filter' as const,
+        sourceWidgetId: 'widget-chart-category',
+        pageId: 'page-1',
+        field: 'category',
+        operator: 'equals' as const,
+        value: 'Supplies',
+        filterSourceId: 'source-order-items',
+      },
+      {
+        id: 'cf-date',
+        scope: 'cross-filter' as const,
+        sourceWidgetId: 'widget-chart-quarterly',
+        pageId: 'page-1',
+        field: 'date',
+        operator: 'between' as const,
+        value: { from: '2024-01-01', to: '2024-03-31' },
+        filterSourceId: 'source-orders',
+        fieldType: 'date' as const,
+      },
+    ];
+
+    it('Revenue by Category (ORDER_ITEMS bar): renders a BarChart with ghost+filtered data when both cross-filters active', () => {
+      const widget: StudioWidget = {
+        id: 'widget-chart-category',
+        kind: 'chart',
+        title: 'Revenue by Category',
+        sourceId: 'source-order-items',
+        config: {
+          chartType: 'bar',
+          xField: 'category',
+          yField: 'total',
+        },
+      };
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: {
+          'source-order-items': orderItemsSource,
+          'source-orders': ordersSource,
+        },
+        relationships: [relationship],
+        filters: bothFilters,
+      });
+
+      renderChart(widget, orderItemsSource);
+
+      // Should render a BarChart — NOT return a blank box (chartData must be non-null/non-empty).
+      // filteredRows = ORDER_ITEMS whose order is in Q1 2024: li1 (o1=Jan), li3 (o3=Feb) → Supplies:250
+      // hasCrossFilters=true, preserveXFieldBaseline=true → ghost rendering:
+      //   effectiveSingleSeriesData = allBarChartData → all categories as x-axis
+      //   series[0].data = all-category totals from allBarChartData
+      expect(barChartSpy).toHaveBeenCalled();
+      const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+        series: Array<{ data: Array<number | null> }>;
+        xAxis: Array<{ data: unknown[] }>;
+      };
+      // Ghost rendering: x-axis shows ALL categories (not just filtered ones)
+      expect(props.xAxis[0].data).toEqual(['Electronics', 'Furniture', 'Supplies']);
+      // series data = all-category totals (ghost baseline): Electronics:200, Furniture:300, Supplies:250
+      expect(props.series[0].data).toEqual([200, 300, 250]);
+    });
+
+    it('Revenue by Country (ORDERS pie): renders a PieChart with cross-filter overlay when both cross-filters active', () => {
+      const widget: StudioWidget = {
+        id: 'widget-chart-country',
+        kind: 'chart',
+        title: 'Revenue by Country',
+        sourceId: 'source-orders',
+        config: {
+          chartType: 'pie',
+          xField: 'country',
+          yField: 'total',
+        },
+      };
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: {
+          'source-order-items': orderItemsSource,
+          'source-orders': ordersSource,
+        },
+        relationships: [relationship],
+        filters: bothFilters,
+      });
+
+      renderChart(widget, ordersSource);
+
+      // Should render a PieChart — NOT return a blank box.
+      // filteredRows for ORDERS:
+      //   category cross-filter (filterSourceId='source-order-items'): orders with Supplies items = o1, o3
+      //   date native filter (filterSourceId='source-orders'): o1 (Jan), o3 (Feb) — both in Q1 2024
+      //   filtered: o1 (USA, 100), o3 (USA, 150) → { USA: 250 }
+      // hasCrossFilters=true, preserveXFieldBaseline=true → showPieCrossFilterOverlay=true:
+      //   series[0] = ghost series (no labels — intentionally omitted from legend), data from allChartData
+      //   series[1] = active series (with labels), data from allChartData with filtered ratios
+      expect(pieChartSpy).toHaveBeenCalled();
+      const props = pieChartSpy.mock.calls.at(-1)?.[0] as {
+        series: Array<{ data: Array<{ label?: string; value: number }> }>;
+      };
+      // Two series: ghost (index 0, no labels) + active (index 1, with labels from allChartData)
+      expect(props.series).toHaveLength(2);
+      // Active series uses allChartData labels — all countries present (not just filtered USA)
+      const activeLabels = props.series[1].data.map((s) => s.label).filter(Boolean);
+      expect(activeLabels).toContain('USA');
+      expect(activeLabels).toContain('Germany');
+      expect(activeLabels).toContain('France');
+    });
+
+    it('Quarterly Revenue by Category (ORDER_ITEMS bar-stacked): receives only the category native filter', () => {
+      // This widget EMITS the date cross-filter (sourceWidgetId='widget-chart-quarterly'),
+      // so it receives category=Supplies as a native filter.
+      const widget: StudioWidget = {
+        id: 'widget-chart-quarterly',
+        kind: 'chart',
+        title: 'Quarterly Revenue by Category',
+        sourceId: 'source-order-items',
+        config: {
+          chartType: 'bar-stacked',
+          xField: 'date',
+          xGroupBy: 'quarter',
+          yField: 'total',
+          seriesField: 'category',
+        },
+      };
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: {
+          'source-order-items': orderItemsSource,
+          'source-orders': ordersSource,
+        },
+        relationships: [relationship],
+        filters: bothFilters,
+      });
+
+      renderChart(widget, orderItemsSource);
+
+      // Should render a BarChart with Supplies data.
+      // filteredRows: category cross-filter (filterSourceId='source-order-items' = widgetSourceId → NATIVE)
+      //   → ORDER_ITEMS where category='Supplies' = li1 (orderId=o1) and li3 (orderId=o3)
+      //   (date cross-filter is from own widget → excluded)
+      // After enriching with date from ORDERS: li1.date='2024-01-15', li3.date='2024-02-20'
+      // chartData (seriesField): { Supplies: { '2024-Q1': 250 } }
+      expect(barChartSpy).toHaveBeenCalled();
+      const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+        series: Array<{ label: string }>;
+      };
+      expect(props.series.map((s) => s.label)).toContain('Supplies');
+    });
+  });
 });

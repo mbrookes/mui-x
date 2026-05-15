@@ -8,6 +8,16 @@ export type StudioWidgetKind = 'grid' | 'chart' | 'kpi' | 'text' | 'filter';
 
 export type StudioFilterWidgetType = 'date-range' | 'multi-select' | 'toggle' | 'slider';
 
+/**
+ * Controls how a chart widget responds to incoming cross-filters from other widgets.
+ * - `'cross-highlight'` (default): shows the full dataset as a faded ghost behind the
+ *   filtered subset — communicates proportion ("what share does this selection represent?").
+ * - `'cross-filter'`: redraws the chart using only the filtered rows — focuses on the subset
+ *   and lets axes rescale to the filtered data.
+ * - `'none'`: ignores all cross-filters and always shows the full unfiltered dataset.
+ */
+export type StudioCrossFilterMode = 'cross-highlight' | 'cross-filter' | 'none';
+
 export type StudioChartType =
   | 'bar'
   | 'bar-stacked'
@@ -137,6 +147,12 @@ export interface StudioWidgetConfig {
   // Grid cross-filter
   /** Field used when a row is selected to emit a cross-filter to other widgets. Defaults to the first visible grid column. */
   crossFilterField?: string;
+  /**
+   * How this chart widget responds to incoming cross-filters from other widgets.
+   * See {@link StudioCrossFilterMode} for details.
+   * @default 'cross-highlight'
+   */
+  crossFilterMode?: StudioCrossFilterMode;
   // Text config
   textSubtitle?: string;
   textBody?: string;

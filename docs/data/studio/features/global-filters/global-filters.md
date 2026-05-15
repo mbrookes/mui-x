@@ -19,7 +19,7 @@ Every `StudioFilterState` has a `scope` that determines which widgets it affects
 | :--- | :--- |
 | `'page'` | Applied to every widget on the current page that has the matching field. |
 | `'widget'` | Applied to a single widget, identified by `widgetId`. |
-| `'cross-filter'` | Emitted by a user click on a chart or grid. Automatically cleared when the user clicks again. See [Cross-filters](/x/react-studio/features/cross-filters). |
+| `'cross-filter'` | Emitted by a user click on a chart or grid. Automatically cleared when the user clicks again. See [Cross-filters](/x/react-studio/features/cross-filters/). |
 | `'interactive'` | Emitted by a filter widget (slider, toggle, date range, multi-select). Managed automatically by Studio. |
 
 Use `page` for global constraints (for example, restrict all charts to the current fiscal year). Use `widget` for per-chart overrides (for example, a "Top 5" rank filter on one chart only).
@@ -124,7 +124,7 @@ Whenever the `kpi-metrics` data source updates, the filter threshold automatical
 
 ## Cross-source filters
 
-A page filter can target a field that lives on a related source. Set `filterSourceId` to the source that owns the field. Studio resolves the join path automatically using the declared [relationships](/x/react-studio/data/relationships):
+A page filter can target a field that lives on a related source. Set `filterSourceId` to the source that owns the field. Studio resolves the join path automatically using the declared [relationships](/x/react-studio/data/relationships/):
 
 ```ts
 {

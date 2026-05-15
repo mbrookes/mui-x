@@ -214,6 +214,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     multiYData,
     scatterData,
     hasCrossFilters,
+    shouldShowGhost,
     allChartData,
     allSeriesFieldData,
     allMultiYData,
@@ -622,9 +623,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     };
   }, [isBar, multiYData]);
 
-  // Densified all-data arrays for ghost rendering (only computed when cross-filters are active)
+  // Densified all-data arrays for ghost rendering (only computed when shouldShowGhost)
   const allBarChartData = React.useMemo(() => {
-    if (!hasCrossFilters || !isBar || !allChartData) {
+    if (!shouldShowGhost || !isBar || !allChartData) {
       return null;
     }
     const labels = densifyBarLabels(allChartData.labels);
@@ -638,10 +639,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       labels,
       values: labels.map((label) => valueByLabel.get(label) ?? null),
     };
-  }, [hasCrossFilters, isBar, allChartData]);
+  }, [shouldShowGhost, isBar, allChartData]);
 
   const allBarSeriesFieldData = React.useMemo(() => {
-    if (!hasCrossFilters || !isBar || !allSeriesFieldData) {
+    if (!shouldShowGhost || !isBar || !allSeriesFieldData) {
       return null;
     }
     const labels = densifyBarLabels(allSeriesFieldData.labels);
@@ -663,10 +664,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         }),
       ),
     };
-  }, [hasCrossFilters, isBar, allSeriesFieldData]);
+  }, [shouldShowGhost, isBar, allSeriesFieldData]);
 
   const allBarMultiYData = React.useMemo(() => {
-    if (!hasCrossFilters || !isBar || !allMultiYData) {
+    if (!shouldShowGhost || !isBar || !allMultiYData) {
       return null;
     }
     const labels = densifyBarLabels(allMultiYData.labels);
@@ -685,7 +686,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         };
       }),
     };
-  }, [hasCrossFilters, isBar, allMultiYData]);
+  }, [shouldShowGhost, isBar, allMultiYData]);
 
   // Guard: return placeholder if chart isn't configured yet (must be after all hooks)
   if (!dataSource || !config.xField) {
@@ -773,9 +774,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   if (isBar) {
     // Multi-Y-field path: each y-field is its own series
     if (barMultiYData && barMultiYData.labels.length > 0) {
-      // When cross-filtering, use all-data as the basis so ghost bars show full extent
+      // When cross-filtering with ghost, use all-data as the basis so ghost bars show full extent
       const effectiveMultiYData =
-        hasCrossFilters && allBarMultiYData ? allBarMultiYData : barMultiYData;
+        shouldShowGhost && allBarMultiYData ? allBarMultiYData : barMultiYData;
       const xAxisData = effectiveMultiYData.labels;
       const selectedDataIndex = getSelectedDataIndex(effectiveMultiYData.labels);
       const isStacked =
@@ -813,7 +814,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       // Build per-series filtered values (aligned to all-data labels) for ghost context
       const multiYFilteredBySeriesId: Record<string, (number | null)[]> = {};
       const multiYAllBySeriesId: Record<string, number[]> = {};
-      if (hasCrossFilters && allBarMultiYData) {
+      if (shouldShowGhost && allBarMultiYData) {
         allBarMultiYData.series.forEach((allSeries, i) => {
           const seriesId = `${allSeries.fieldId}-${i}`;
           const filteredSeries = barMultiYData.series[i];
@@ -829,7 +830,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         });
       }
       const multiYBarContext =
-        hasCrossFilters && allBarMultiYData
+        shouldShowGhost && allBarMultiYData
           ? // eslint-disable-next-line react/jsx-no-constructed-context-values
             {
               filteredValuesBySeriesId: multiYFilteredBySeriesId,
@@ -960,7 +961,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // proportionally to filtered/all, centered on each slice midpoint — giving a clear
     // "how much of this category survived the filter" signal without changing the chart's size.
     const showPieCrossFilterOverlay =
-      hasCrossFilters && allChartData != null && preserveXFieldBaseline;
+      shouldShowGhost && allChartData != null && preserveXFieldBaseline;
 
     if (showPieCrossFilterOverlay) {
       const ghostOuterRadius = Math.round(chartHeight * 0.38);
@@ -1045,11 +1046,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       );
     }
 
-    // No cross-filter (or baseline not meaningful): single series, original behaviour
+    // No ghost overlay (or baseline not meaningful): single series, original behaviour
     const pieBaseData =
-      hasCrossFilters && allChartData && preserveXFieldBaseline ? allChartData : chartData;
+      shouldShowGhost && allChartData && preserveXFieldBaseline ? allChartData : chartData;
     const filteredLabelSet =
-      hasCrossFilters && chartData ? new Set(chartData.labels.map(String)) : null;
+      shouldShowGhost && chartData ? new Set(chartData.labels.map(String)) : null;
 
     return (
       <div style={{ height: chartHeight }}>
@@ -1118,12 +1119,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       normalizedChartType === 'bar-stacked' ||
       normalizedChartType === 'bar-100')
   ) {
-    // When cross-filtering, use all-data as basis so ghost bars show full extent.
+    // When ghost-rendering, use all-data as basis so ghost bars show full extent.
     // Exception: if the incoming cross-filter constrains the same foreign source that
     // owns the split-by field, the baseline series set is misleading and should collapse
     // to the filtered series only.
     const effectiveSFData =
-      hasCrossFilters && allBarSeriesFieldData && preserveSplitByBaseline
+      shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline
         ? allBarSeriesFieldData
         : barSeriesFieldData;
     const xAxisData = effectiveSFData.labels;
@@ -1146,7 +1147,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // Build per-series filtered values for ghost context
     const sfFilteredBySeriesId: Record<string, (number | null)[]> = {};
     const sfAllBySeriesId: Record<string, number[]> = {};
-    if (hasCrossFilters && allBarSeriesFieldData && preserveSplitByBaseline) {
+    if (shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline) {
       allBarSeriesFieldData.seriesNames.forEach((name) => {
         const seriesId = String(name);
         const allVals = allBarSeriesFieldData.seriesData[name] ?? [];
@@ -1163,7 +1164,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       });
     }
     const sfBarContext =
-      hasCrossFilters && allBarSeriesFieldData && preserveSplitByBaseline
+      shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline
         ? // eslint-disable-next-line react/jsx-no-constructed-context-values
           { filteredValuesBySeriesId: sfFilteredBySeriesId, allValuesBySeriesId: sfAllBySeriesId }
         : null;
@@ -1279,10 +1280,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
     const is100 = normalizedChartType === 'area-100';
 
-    // When cross-filtering (non-stacked only), use allSeriesFieldData as the x-axis basis so
+    // When ghost-rendering (non-stacked only), use allSeriesFieldData as the x-axis basis so
     // ghost lines appear for all series/x-positions, including ones filtered away.
     const sfLineAllData =
-      !isStacked && hasCrossFilters && allSeriesFieldData && preserveSplitByBaseline
+      !isStacked && shouldShowGhost && allSeriesFieldData && preserveSplitByBaseline
         ? allSeriesFieldData
         : null;
     const effectiveSFLineData = sfLineAllData ?? seriesFieldData;
@@ -1397,10 +1398,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
     const is100 = normalizedChartType === 'area-100';
 
-    // When cross-filtering (non-stacked only), use allMultiYData as the x-axis basis so ghost
+    // When ghost-rendering (non-stacked only), use allMultiYData as the x-axis basis so ghost
     // series cover all x-positions including those filtered away.
     const multiYAllData =
-      !isStacked && hasCrossFilters && allMultiYData && preserveXFieldBaseline
+      !isStacked && shouldShowGhost && allMultiYData && preserveXFieldBaseline
         ? allMultiYData
         : null;
     const effectiveLabels = (multiYAllData ?? multiYData).labels;
@@ -1501,10 +1502,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     );
   }
 
-  // For single-series charts, when cross-filtering is active use all-data as basis
+  // For single-series charts, when ghost-rendering use all-data as basis
   const singleSeriesChartData = isBar ? barChartData : chartData;
   const effectiveSingleSeriesData =
-    isBar && hasCrossFilters && allBarChartData && preserveXFieldBaseline
+    isBar && shouldShowGhost && allBarChartData && preserveXFieldBaseline
       ? allBarChartData
       : singleSeriesChartData;
   const xAxisData = effectiveSingleSeriesData!.labels;
@@ -1515,7 +1516,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   // Filtered values aligned to all-data labels for ghost bar context
   const singleSeriesFilteredValues =
-    isBar && hasCrossFilters && allBarChartData && chartData && preserveXFieldBaseline
+    isBar && shouldShowGhost && allBarChartData && chartData && preserveXFieldBaseline
       ? alignFilteredToAllLabels(allBarChartData.labels, chartData.labels, chartData.values)
       : null;
   const singleBarContext =
@@ -1535,9 +1536,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ? makeCrossFilterValueFormatter(singleSeriesFilteredValues, seriesValueFormatter)
       : seriesValueFormatter;
 
-  // Ghost line series data (allChartData values) for line/area charts when cross-filtering
+  // Ghost line series data (allChartData values) for line/area charts when ghost-rendering
   const ghostLineValues =
-    !isBar && hasCrossFilters && allChartData && preserveXFieldBaseline
+    !isBar && shouldShowGhost && allChartData && preserveXFieldBaseline
       ? allChartData.values
       : null;
 

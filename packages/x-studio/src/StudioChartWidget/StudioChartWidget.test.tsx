@@ -1606,4 +1606,174 @@ describe('<StudioChartWidget />', () => {
       expect(props.series.map((s) => s.label)).toContain('Supplies');
     });
   });
+
+  // ─── crossFilterMode per widget ──────────────────────────────────────────────
+  //
+  // Tests for the three crossFilterMode settings:
+  //   'cross-highlight' (default) — ghost overlay shown when chart is clicked
+  //   'cross-filter'              — no ghost, chart redraws with filtered data only
+  //   'none'                      — chart ignores all cross-filters entirely
+  //
+  // Also verifies that interactive (filter widget) filters never trigger ghost
+  // rendering regardless of crossFilterMode.
+
+  describe('crossFilterMode per widget', () => {
+    const ordersSource: StudioDataSource = {
+      id: 'source-orders',
+      label: 'Orders',
+      fields: [
+        { id: 'country', label: 'Country', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: 'o1', country: 'Germany', total: 100 },
+        { id: 'o2', country: 'France', total: 200 },
+        { id: 'o3', country: 'Germany', total: 150 },
+      ],
+    };
+
+    // A chart-click cross-filter (scope: 'cross-filter') from another widget
+    const chartClickFilter = {
+      id: 'cf-country',
+      scope: 'cross-filter' as const,
+      sourceWidgetId: 'other-widget',
+      pageId: 'page-1',
+      field: 'country',
+      operator: 'equals' as const,
+      value: 'Germany',
+      filterSourceId: 'source-orders',
+    };
+
+    // An interactive filter (scope: 'interactive') from a StudioFilterWidget
+    const interactiveFilter = {
+      id: 'int-country',
+      scope: 'interactive' as const,
+      sourceWidgetId: 'filter-widget',
+      pageId: 'page-1',
+      field: 'country',
+      operator: 'equals' as const,
+      value: 'Germany',
+      filterSourceId: 'source-orders',
+    };
+
+    function makeBarWidget(
+      id: string,
+      crossFilterMode?: 'cross-highlight' | 'cross-filter' | 'none',
+    ): StudioWidget {
+      return {
+        id,
+        kind: 'chart',
+        title: 'Revenue by Country',
+        sourceId: 'source-orders',
+        config: {
+          chartType: 'bar',
+          xField: 'country',
+          yField: 'total',
+          ...(crossFilterMode ? { crossFilterMode } : {}),
+        },
+      };
+    }
+
+    it('cross-highlight (default): chart-click cross-filter triggers ghost overlay', () => {
+      // Default mode (no crossFilterMode set) — ghost bars should appear.
+      // With Germany filter: filteredRows = o1+o3 (Germany), allRows = o1+o2+o3 (all).
+      // Ghost bar for France should still appear in the x-axis basis.
+      const widget = makeBarWidget('widget-highlight');
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { 'source-orders': ordersSource },
+        filters: [chartClickFilter],
+      });
+
+      renderChart(widget, ordersSource);
+
+      expect(barChartSpy).toHaveBeenCalled();
+      const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+        xAxis: Array<{ data: unknown[] }>;
+        slots?: { bar?: unknown };
+      };
+      // Ghost rendering: x-axis should include all countries (from allBarChartData)
+      const xLabels = props.xAxis[0].data;
+      expect(xLabels).toContain('Germany');
+      expect(xLabels).toContain('France');
+      // CrossFilterGhostBar slot should be injected
+      expect(props.slots?.bar).toBeDefined();
+    });
+
+    it('cross-filter mode: chart-click cross-filter shows filtered data, no ghost slot', () => {
+      // crossFilterMode='cross-filter': no ghost overlay, chart redraws with Germany only.
+      const widget = makeBarWidget('widget-cfmode', 'cross-filter');
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { 'source-orders': ordersSource },
+        filters: [chartClickFilter],
+      });
+
+      renderChart(widget, ordersSource);
+
+      expect(barChartSpy).toHaveBeenCalled();
+      const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+        xAxis: Array<{ data: unknown[] }>;
+        slots?: { bar?: unknown };
+      };
+      // No ghost: x-axis should contain only Germany (filtered data drives the axis)
+      const xLabels = props.xAxis[0].data;
+      expect(xLabels).toContain('Germany');
+      expect(xLabels).not.toContain('France');
+      // No CrossFilterGhostBar slot
+      expect(props.slots?.bar).toBeUndefined();
+    });
+
+    it('none mode: chart-click cross-filter is ignored, full data always shown', () => {
+      // crossFilterMode='none': widget ignores cross-filters entirely.
+      const widget = makeBarWidget('widget-nonemode', 'none');
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { 'source-orders': ordersSource },
+        filters: [chartClickFilter],
+      });
+
+      renderChart(widget, ordersSource);
+
+      expect(barChartSpy).toHaveBeenCalled();
+      const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+        xAxis: Array<{ data: unknown[] }>;
+        slots?: { bar?: unknown };
+      };
+      // All data shown: both Germany and France in x-axis
+      const xLabels = props.xAxis[0].data;
+      expect(xLabels).toContain('Germany');
+      expect(xLabels).toContain('France');
+      // No ghost slot
+      expect(props.slots?.bar).toBeUndefined();
+    });
+
+    it('interactive (filter widget) filter: no ghost overlay regardless of mode', () => {
+      // scope: 'interactive' (filter widget) should never trigger ghost rendering.
+      // Default mode (cross-highlight) — but it's an interactive filter, so no ghost.
+      const widget = makeBarWidget('widget-interactive');
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { 'source-orders': ordersSource },
+        filters: [interactiveFilter],
+      });
+
+      renderChart(widget, ordersSource);
+
+      expect(barChartSpy).toHaveBeenCalled();
+      const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+        xAxis: Array<{ data: unknown[] }>;
+        slots?: { bar?: unknown };
+      };
+      // Data IS filtered (Germany only) — the interactive filter is a hard filter
+      const xLabels = props.xAxis[0].data;
+      expect(xLabels).toContain('Germany');
+      // No ghost slot: interactive filters don't trigger ghost rendering
+      expect(props.slots?.bar).toBeUndefined();
+    });
+  });
 });

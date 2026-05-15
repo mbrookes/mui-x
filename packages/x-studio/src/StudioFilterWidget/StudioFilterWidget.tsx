@@ -13,6 +13,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  IconButton,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import SearchIcon from '@mui/icons-material/Search';
@@ -378,68 +379,22 @@ function SliderControl(props: StudioFilterSliderControlProps) {
   const formatLabel = (v: number) => (isDate ? dayjs(v).format('DD MMM YYYY') : v.toLocaleString());
 
   return (
-    <Stack spacing={0.5} role="group" aria-label={label}>
-      {/* Always render to avoid layout shift when the filter becomes active */}
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'flex-end',
-          visibility: isActive ? 'visible' : 'hidden',
-        }}
-      >
-        <Tooltip title="Clear filter">
-          <Box
-            component="span"
-            role="button"
-            tabIndex={isActive ? 0 : -1}
-            aria-label="Clear slider filter"
-            onClick={onClear}
-            onKeyDown={(evt) => {
-              if (evt.key === 'Enter' || evt.key === ' ') {
-                onClear();
-              }
-            }}
-            sx={{
-              cursor: 'pointer',
-              color: 'text.secondary',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            <CloseIcon sx={{ fontSize: 14 }} />
-          </Box>
-        </Tooltip>
-      </Box>
-      {/* Prevent drag-and-drop of the widget card when interacting with the slider */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1 }} data-no-drag>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ flexShrink: 0, minWidth: 64, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
-        >
-          {formatLabel(localValue[0])}
-        </Typography>
-        <Box sx={{ flex: 1 }}>
-          <Slider
-            value={localValue}
-            onChange={handleSliderChange}
-            onChangeCommitted={handleChangeCommitted}
-            min={min}
-            max={max}
-            step={step}
-            valueLabelDisplay="off"
-            aria-label={label}
-          />
-        </Box>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ flexShrink: 0, minWidth: 64, textAlign: 'left', fontVariantNumeric: 'tabular-nums' }}
-        >
-          {formatLabel(localValue[1])}
-        </Typography>
-      </Box>
-    </Stack>
+    /* Prevent drag-and-drop of the widget card when interacting with the slider */
+    <Box role="group" aria-label={label} sx={{ px: 1 }} data-no-drag>
+      <Slider
+        size="small"
+        value={localValue}
+        onChange={handleSliderChange}
+        onChangeCommitted={handleChangeCommitted}
+        min={min}
+        max={max}
+        step={step}
+        valueLabelDisplay="auto"
+        valueLabelFormat={formatLabel}
+        aria-label={label}
+        sx={{ display: 'block' }}
+      />
+    </Box>
   );
 }
 

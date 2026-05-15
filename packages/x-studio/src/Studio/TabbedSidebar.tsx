@@ -20,6 +20,8 @@ export interface TabbedSidebarPanel {
 export interface TabbedSidebarProps {
   /** Ordered list of panels to show as tabs. Only the panels passed here are rendered. */
   panels: TabbedSidebarPanel[];
+  /** Which side of the canvas the sidebar is anchored to. Affects border placement and panel order. */
+  side?: 'left' | 'right';
 }
 
 // ── Tab rail entry ────────────────────────────────────────────────────────────
@@ -103,9 +105,10 @@ function TabEntry({ isActive, onClick, panel }: TabEntryProps) {
 
 interface ActivePanelProps {
   panel: TabbedSidebarPanel;
+  side?: 'left' | 'right';
 }
 
-function ActivePanel({ panel }: ActivePanelProps) {
+function ActivePanel({ panel, side = 'left' }: ActivePanelProps) {
   const [injectedSubheader, setInjectedSubheader] = React.useState<React.ReactNode>(null);
   const ctxValue = React.useMemo<DrawerSubheaderContextValue>(
     () => ({ setSubheader: setInjectedSubheader }),
@@ -118,7 +121,7 @@ function ActivePanel({ panel }: ActivePanelProps) {
         sx={{
           width: DRAWER_WIDTH,
           flexShrink: 0,
-          borderRight: 1,
+          ...(side === 'right' ? { borderLeft: 1 } : { borderRight: 1 }),
           borderColor: 'divider',
           bgcolor: 'background.paper',
           display: 'flex',
@@ -159,7 +162,7 @@ function ActivePanel({ panel }: ActivePanelProps) {
  * ]} />
  * ```
  */
-export function TabbedSidebar({ panels }: TabbedSidebarProps) {
+export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);
 
@@ -183,6 +186,11 @@ export function TabbedSidebar({ panels }: TabbedSidebarProps) {
 
   return (
     <Box sx={{ display: 'flex', flexShrink: 0, height: '100%' }}>
+      {/* Active panel content — rendered before tab rail when on the right */}
+      {side === 'right' && activePanel && (
+        <ActivePanel key={activePanel.drawer} panel={activePanel} side={side} />
+      )}
+
       {/* Tab rail */}
       <Box
         role="tablist"
@@ -190,7 +198,7 @@ export function TabbedSidebar({ panels }: TabbedSidebarProps) {
         sx={{
           width: COLLAPSED_WIDTH,
           flexShrink: 0,
-          borderRight: 1,
+          ...(side === 'right' ? { borderLeft: 1 } : { borderRight: 1 }),
           borderColor: 'divider',
           bgcolor: 'background.paper',
           display: 'flex',
@@ -208,8 +216,10 @@ export function TabbedSidebar({ panels }: TabbedSidebarProps) {
         ))}
       </Box>
 
-      {/* Active panel content */}
-      {activePanel && <ActivePanel key={activePanel.drawer} panel={activePanel} />}
+      {/* Active panel content — rendered after tab rail when on the left (default) */}
+      {side === 'left' && activePanel && (
+        <ActivePanel key={activePanel.drawer} panel={activePanel} side={side} />
+      )}
     </Box>
   );
 }

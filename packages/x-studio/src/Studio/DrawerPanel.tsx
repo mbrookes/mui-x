@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Badge, Box, Divider, IconButton, Typography } from '@mui/material';
 import ChevronDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import CloseIcon from '@mui/icons-material/Close';
 
 import { useStudioController, useStudioSelector, selectShell } from '../context';
@@ -39,13 +40,15 @@ export interface DrawerPanelProps {
   icon?: React.ReactNode;
   badge?: number;
   onBack?: () => void;
+  /** Which side of the canvas the panel is anchored to. Affects border placement and chevron direction. */
+  side?: 'left' | 'right';
   /** Rendered between the title divider and the scrollable content — never scrolls away. */
   subheader?: React.ReactNode;
   children?: React.ReactNode;
 }
 
 export function DrawerPanel(props: DrawerPanelProps) {
-  const { badge, children, drawer, icon, onBack, subheader: subheaderProp, title } = props;
+  const { badge, children, drawer, icon, onBack, side = 'left', subheader: subheaderProp, title } = props;
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);
   const open = shell.openDrawers[drawer];
@@ -72,7 +75,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
         sx={{
           width: COLLAPSED_WIDTH,
           flexShrink: 0,
-          borderRight: 1,
+          ...(side === 'right' ? { borderLeft: 1 } : { borderRight: 1 }),
           borderColor: 'divider',
           bgcolor: 'background.paper',
           display: 'flex',
@@ -140,7 +143,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
         sx={{
           width: DRAWER_WIDTH,
           flexShrink: 0,
-          borderRight: 1,
+          ...(side === 'right' ? { borderLeft: 1 } : { borderRight: 1 }),
           borderColor: 'divider',
           bgcolor: 'background.paper',
           display: 'flex',
@@ -174,7 +177,11 @@ export function DrawerPanel(props: DrawerPanelProps) {
             onClick={() => controller.setDrawerOpen(drawer, false)}
             aria-label={`Close ${title} panel`}
           >
-            <ChevronRightIcon fontSize="small" />
+            {side === 'right' ? (
+              <ChevronLeftIcon fontSize="small" />
+            ) : (
+              <ChevronRightIcon fontSize="small" />
+            )}
           </IconButton>
         </Box>
         <Divider />

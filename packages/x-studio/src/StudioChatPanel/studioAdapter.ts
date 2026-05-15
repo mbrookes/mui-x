@@ -219,6 +219,19 @@ function executeTool(toolName: string, input: unknown, controller: StudioControl
       }
     }
 
+    case 'set_widget_width': {
+      const { widgetId, columns } = args as { widgetId: string; columns: number | null };
+      if (typeof widgetId !== 'string') {
+        return JSON.stringify({ error: 'set_widget_width requires a "widgetId" string.' });
+      }
+      try {
+        controller.setWidgetColSpan(widgetId, columns);
+        return JSON.stringify({ success: true, widgetId, columns });
+      } catch (err) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
     default:
       return JSON.stringify({ error: `Unknown tool: ${toolName}` });
   }

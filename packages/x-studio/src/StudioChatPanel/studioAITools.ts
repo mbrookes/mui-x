@@ -138,6 +138,34 @@ export const STUDIO_AI_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'set_widget_width',
+      description:
+        'Sets the column-span (width) of a specific widget on the active page. ' +
+        'The canvas uses a 12-column grid; valid values are 3–12. ' +
+        'Set `columns` to null to reset the widget to auto-fill (equal share of row width). ' +
+        'Has no effect on a widget that is the only widget in its row (it always fills 100%). ' +
+        'Use set_widget_layout first to put multiple widgets on the same row if needed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          widgetId: {
+            type: 'string',
+            description: 'ID of the widget to resize.',
+          },
+          columns: {
+            type: ['integer', 'null'],
+            description: 'Column span (3–12) or null to reset to auto-fill.',
+            minimum: 3,
+            maximum: 12,
+          },
+        },
+        required: ['widgetId', 'columns'],
+      },
+    },
+  },
 ] as const;
 
 export type StudioAIToolName =
@@ -147,4 +175,5 @@ export type StudioAIToolName =
   | 'add_widget'
   | 'update_widget'
   | 'remove_widget'
-  | 'set_widget_layout';
+  | 'set_widget_layout'
+  | 'set_widget_width';

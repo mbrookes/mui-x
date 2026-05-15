@@ -112,6 +112,12 @@ export interface StudioProps extends StudioSlots {
    */
   sidebarLayout?: 'stacked' | 'tabbed';
   /**
+   * Side of the canvas the sidebar panels are anchored to.
+   * - `'left'` (default): sidebar is on the left.
+   * - `'right'`: sidebar is on the right.
+   */
+  sidebarSide?: 'left' | 'right';
+  /**
    * LLM configuration for the AI chat assistant.
    * When provided, a floating AI button appears in the bottom-right corner
    * that opens the `StudioChatPanel` as a slide-in overlay.
@@ -141,6 +147,7 @@ export interface StudioProps extends StudioSlots {
 const StudioContent = React.memo(function StudioContent(
   props: StudioSlots & {
     sidebarLayout?: 'stacked' | 'tabbed';
+    sidebarSide?: 'left' | 'right';
     aiConfig?: StudioAIConfig | null;
     slotProps?: {
       chatPanel?: Omit<StudioChatPanelProps, 'aiConfig' | 'open' | 'onClose' | 'overlay'>;
@@ -154,6 +161,7 @@ const StudioContent = React.memo(function StudioContent(
     dataDrawer,
     filtersDrawer,
     sidebarLayout = 'stacked',
+    sidebarSide = 'left',
     aiConfig,
     slotProps,
   } = props;
@@ -186,6 +194,7 @@ const StudioContent = React.memo(function StudioContent(
   const sidebar =
     sidebarLayout === 'tabbed' ? (
       <TabbedSidebar
+        side={sidebarSide}
         panels={[
           ...(mode === 'edit'
             ? [
@@ -211,15 +220,16 @@ const StudioContent = React.memo(function StudioContent(
           },
         ]}
       />
-    ) : (
+    ) : sidebarSide === 'right' ? (
+      // Right side: render panels in reverse order so they read Data → Compose → Filters
+      // from right to left (Data closest to the screen edge, Filters adjacent to the canvas).
       <React.Fragment>
-        {mode === 'edit' && (
-          <DrawerPanel drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
-            {dataDrawer ?? <StudioDataDrawer />}
-          </DrawerPanel>
-        )}
+        <DrawerPanel side={sidebarSide} drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
+          {filtersDrawer ?? <StudioFiltersDrawer />}
+        </DrawerPanel>
         {mode === 'edit' && (
           <DrawerPanel
+            side={sidebarSide}
             drawer="compose"
             title={composeTitle}
             icon={<TuneIcon fontSize="small" />}
@@ -228,7 +238,31 @@ const StudioContent = React.memo(function StudioContent(
             {composeDrawer ?? <StudioComposeDrawer />}
           </DrawerPanel>
         )}
-        <DrawerPanel drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
+        {mode === 'edit' && (
+          <DrawerPanel side={sidebarSide} drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
+            {dataDrawer ?? <StudioDataDrawer />}
+          </DrawerPanel>
+        )}
+      </React.Fragment>
+    ) : (
+      <React.Fragment>
+        {mode === 'edit' && (
+          <DrawerPanel side={sidebarSide} drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
+            {dataDrawer ?? <StudioDataDrawer />}
+          </DrawerPanel>
+        )}
+        {mode === 'edit' && (
+          <DrawerPanel
+            side={sidebarSide}
+            drawer="compose"
+            title={composeTitle}
+            icon={<TuneIcon fontSize="small" />}
+            onBack={composeOnBack}
+          >
+            {composeDrawer ?? <StudioComposeDrawer />}
+          </DrawerPanel>
+        )}
+        <DrawerPanel side={sidebarSide} drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
           {filtersDrawer ?? <StudioFiltersDrawer />}
         </DrawerPanel>
       </React.Fragment>
@@ -246,7 +280,7 @@ const StudioContent = React.memo(function StudioContent(
     >
       <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
         <CanvasScrollContext.Provider value={canvasScrollRef}>
-          {sidebar}
+          {sidebarSide === 'left' && sidebar}
 
           <Box
             ref={canvasScrollRef}
@@ -261,6 +295,8 @@ const StudioContent = React.memo(function StudioContent(
               {canvas ?? <StudioCanvas {...slotProps?.canvas} />}
             </Box>
           </Box>
+
+          {sidebarSide === 'right' && sidebar}
         </CanvasScrollContext.Provider>
       </Box>
 
@@ -287,7 +323,7 @@ const StudioContent = React.memo(function StudioContent(
               <AutoAwesomeIcon />
             </IconButton>
           </Tooltip>
-          <StudioChatPanel {...slotProps?.chatPanel} aiConfig={aiConfig} open={chatOpen} overlay />
+          <StudioChatPanel {...slotProps?.chatPanel} aiConfig={aiConfig} open={chatOpen} onClose={() => setChatOpen(false)} overlay />
         </React.Fragment>
       )}
     </Box>
@@ -360,5 +396,6 @@ export const Studio = React.memo(
         <StudioContent {...slots} />
       </StudioProvider>
     );
+    // Note: sidebarSide is included in {...slots} via the StudioProps spread
   }),
 );

@@ -76,3 +76,8 @@ function CrossFilterBadge() {
 ## Disabling cross-filters
 
 To prevent a specific widget from receiving cross-filters, there is currently no per-widget opt-out flag — all widgets on the page participate. If you need to isolate a widget, place it on a separate page.
+
+## See also
+
+- [Global filters](/x/react-studio/features/global-filters/) — page-level and widget-level condition filters
+- [Relationships](/x/react-studio/data/relationships/) — cross-filter emission resolved across related sources automatically

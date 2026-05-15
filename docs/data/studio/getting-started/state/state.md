@@ -194,3 +194,9 @@ function SaveButton() {
   );
 }
 ```
+
+## See also
+
+- [Studio component](/x/react-studio/getting-started/studio/) — the `onStateChange` callback and `StudioHandle.getState()`
+- [Composed approach](/x/react-studio/getting-started/composition/) — `StudioController` and `StudioProvider`
+- [Save & load](/x/react-studio/persistence/save-and-load/) — serialize and restore the full `StudioState` as JSON

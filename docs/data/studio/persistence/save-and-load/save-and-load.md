@@ -246,3 +246,10 @@ const savedState = React.useMemo<Partial<StudioState> | undefined>(() => {
 
 <Studio ref={studioRef} initialState={savedState} onStateChange={handleStateChange} />
 ```
+
+## See also
+
+- [State management](/x/react-studio/getting-started/state/) — the `StudioState` shape serialized by `serializeState()`
+- [Studio component](/x/react-studio/getting-started/studio/) — `StudioHandle.serializeState()` and `StudioHandle.loadSerializedState()`
+- [Async adapters](/x/react-studio/data/async-adapters/) — adapters must be re-attached after loading a serialized state
+- [Multi-page](/x/react-studio/features/multi-page/) — page configurations are included in the serialized snapshot

@@ -225,7 +225,11 @@ function executeTool(toolName: string, input: unknown, controller: StudioControl
         return JSON.stringify({ error: 'set_widget_width requires a "widgetId" string.' });
       }
       try {
-        controller.setWidgetColSpan(widgetId, columns);
+        const state = controller.getState();
+        const activePage = state.pages[state.dashboard.activePageId];
+        const rowWidgetIds =
+          activePage?.widgetRows?.find((row) => row.includes(widgetId)) ?? [widgetId];
+        controller.setWidgetColSpanInRow(widgetId, columns, rowWidgetIds);
         return JSON.stringify({ success: true, widgetId, columns });
       } catch (err) {
         return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });

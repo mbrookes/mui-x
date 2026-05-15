@@ -95,6 +95,27 @@ Controls how the sidebar panels are organized:
 - `'stacked'` (default) — each panel (Data, Compose, Filters) has its own independent collapse strip.
 - `'tabbed'` — a single tab rail shows all panels; at most one panel is open at a time.
 
+See also [`sidebarSide`](#sidebarside) to control which side of the canvas the sidebar appears on.
+
+### `sidebarSide`
+
+```ts
+sidebarSide?: 'left' | 'right'
+```
+
+Controls which side of the canvas the sidebar panels are anchored to:
+
+- `'left'` (default) — sidebar is on the left.
+- `'right'` — sidebar is on the right.
+
+```tsx
+<Studio sidebarSide="right" />
+```
+
+When `sidebarSide="right"` and `sidebarLayout="stacked"`, the panels are ordered
+Data → Compose → Filters reading right to left (Data closest to the screen edge,
+Filters adjacent to the canvas).
+
 ### `aiConfig`
 
 ```ts

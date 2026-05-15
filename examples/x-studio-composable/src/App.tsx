@@ -350,7 +350,7 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
 
         {/* Overlay AI chat panel — edit mode only, toggled from toolbar */}
         {aiConfig && (
-          <StudioChatPanel aiConfig={aiConfig} open={chatOpen} overlay />
+          <StudioChatPanel aiConfig={aiConfig} open={chatOpen} onClose={handleChatToggle} overlay />
         )}
       </Box>
     </Box>

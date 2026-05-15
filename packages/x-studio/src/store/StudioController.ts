@@ -314,6 +314,54 @@ export class StudioController {
     });
   };
 
+  /**
+   * Rearranges widgets on the active page by replacing `widgetRows` wholesale.
+   * Each entry in `newRows` is an array of widget IDs that will appear
+   * side-by-side on the same row.
+   *
+   * Throws if any ID in `newRows` is not on the active page, or if any widget
+   * on the active page is omitted from `newRows`.
+   */
+  setWidgetLayout = (newRows: string[][]): void => {
+    const state = this.store.state;
+    const activePage = state.pages[state.dashboard.activePageId];
+    if (!activePage) {
+      return;
+    }
+    const currentIds = new Set((activePage.widgetRows ?? []).flat());
+    const incomingIds = newRows.flat();
+
+    // Validate: no unknown IDs
+    const unknown = incomingIds.filter((id) => !currentIds.has(id));
+    if (unknown.length > 0) {
+      throw new Error(
+        `MUI X Studio: set_widget_layout received unknown widget IDs: ${unknown.join(', ')}.` +
+          ' Call get_dashboard_state to get the current widget IDs.',
+      );
+    }
+
+    // Validate: no orphaned widgets (every current widget must appear in newRows)
+    const incomingSet = new Set(incomingIds);
+    const orphaned = [...currentIds].filter((id) => !incomingSet.has(id));
+    if (orphaned.length > 0) {
+      throw new Error(
+        `MUI X Studio: set_widget_layout omitted widget IDs: ${orphaned.join(', ')}.` +
+          ' Include every widget on the page, or use remove_widget first.',
+      );
+    }
+
+    // Filter out any empty rows (defensive)
+    const sanitisedRows = newRows.filter((row) => row.length > 0);
+
+    this.commitState({
+      ...state,
+      pages: {
+        ...state.pages,
+        [activePage.id]: { ...activePage, widgetRows: sanitisedRows },
+      },
+    });
+  };
+
   removeWidget = (widgetId: string) => {
     const state = this.store.state;
     const activePage = state.pages[state.dashboard.activePageId];

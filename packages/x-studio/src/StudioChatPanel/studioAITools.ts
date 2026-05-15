@@ -112,6 +112,32 @@ export const STUDIO_AI_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'set_widget_layout',
+      description:
+        'Rearranges widgets on the active page by specifying which widgets share a row. ' +
+        'Each entry in `rows` is an array of widget IDs that will appear side-by-side on the same row. ' +
+        'Every widget currently on the page must appear in the new layout — use remove_widget first if you want to drop one. ' +
+        'The current layout is shown in the system prompt under "## Layout".',
+      parameters: {
+        type: 'object',
+        properties: {
+          rows: {
+            type: 'array',
+            description:
+              'New layout as an array of rows. Each row is an array of widget IDs to display side-by-side.',
+            items: {
+              type: 'array',
+              items: { type: 'string', description: 'Widget ID' },
+            },
+          },
+        },
+        required: ['rows'],
+      },
+    },
+  },
 ] as const;
 
 export type StudioAIToolName =
@@ -120,4 +146,5 @@ export type StudioAIToolName =
   | 'set_dashboard_title'
   | 'add_widget'
   | 'update_widget'
-  | 'remove_widget';
+  | 'remove_widget'
+  | 'set_widget_layout';

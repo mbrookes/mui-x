@@ -31,6 +31,23 @@ export interface UseWidgetRowsResult {
   /** Whether this widget has at least one incoming cross-filter or interactive filter. */
   hasCrossFilters: boolean;
   /**
+   * True when a ghost overlay should be rendered for this widget.
+   *
+   * This is true only when ALL of the following hold:
+   * - The widget's `crossFilterMode` is `'cross-highlight'` (the default)
+   * - There is at least one incoming **chart-click** cross-filter (`scope: 'cross-filter'`)
+   *
+   * Interactive (filter widget) selections never trigger ghost rendering because dedicated
+   * filter controls always act as hard filters, regardless of the target widget's mode.
+   */
+  shouldShowGhost: boolean;
+  /**
+   * The rows the widget should use as its primary dataset.
+   * - `'none'` mode: equals `filteredRowsNoCross` (cross-filters are ignored)
+   * - All other modes: equals `filteredRows`
+   */
+  effectiveRows: Row[];
+  /**
    * True while an async adapter fetch is in progress.
    * Always false for sources without an adapter (sync path).
    */
@@ -190,6 +207,22 @@ export function useWidgetRows(
     [hasAdapter, partitioned, widget.id, activePageId],
   );
 
+  // Separate boolean for chart-click cross-filters only — interactive (filter widget)
+  // selections do NOT trigger ghost rendering, regardless of crossFilterMode.
+  const hasChartCrossFilters = React.useMemo(
+    () =>
+      !hasAdapter &&
+      partitioned.cross.some((f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId),
+    [hasAdapter, partitioned, widget.id, activePageId],
+  );
+
+  const crossFilterMode = widget.config?.crossFilterMode ?? 'cross-highlight';
+
+  // Ghost overlay should only render when:
+  // 1. The widget is in 'cross-highlight' mode (default)
+  // 2. There is a chart-click cross-filter active (never for interactive/filter-widget filters)
+  const shouldShowGhost = crossFilterMode === 'cross-highlight' && hasChartCrossFilters;
+
   const filteredRows = React.useMemo((): Row[] => {
     if (hasAdapter) {
       return adapterRows;
@@ -277,5 +310,16 @@ export function useWidgetRows(
 
   const isRecomputing = !hasAdapter && deferredPartitioned !== partitioned;
 
-  return { filteredRows, filteredRowsNoCross, hasCrossFilters, isLoading, isRecomputing };
+  // 'none' mode: widget ignores cross-filters entirely and always shows the full baseline.
+  const effectiveRows = crossFilterMode === 'none' ? filteredRowsNoCross : filteredRows;
+
+  return {
+    filteredRows,
+    filteredRowsNoCross,
+    hasCrossFilters,
+    shouldShowGhost,
+    effectiveRows,
+    isLoading,
+    isRecomputing,
+  };
 }

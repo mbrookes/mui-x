@@ -1213,6 +1213,14 @@ const pages: MuiPage[] = [
         ],
       },
       {
+        pathname: '/x/react-studio/demos',
+        subheader: 'Demos',
+        children: [
+          { pathname: '/x/react-studio/demos/sales-dashboard', title: 'Sales dashboard' },
+          { pathname: '/x/react-studio/demos/embedded-view', title: 'Embedded view' },
+        ],
+      },
+      {
         pathname: '/x/react-studio/resources',
         subheader: 'Resources',
         children: [

@@ -709,6 +709,64 @@ export function applyRankToSeriesFieldData(
 
 export type XGroupBy = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
+/**
+ * Converts a sort-stable period key (output of truncateToGranularity) to an
+ * inclusive [from, to] date range string pair suitable for a `between` filter.
+ *
+ * '2024-Q1'   → { from: '2024-01-01', to: '2024-03-31' }
+ * '2024-01'   → { from: '2024-01-01', to: '2024-01-31' }
+ * '2024'      → { from: '2024-01-01', to: '2024-12-31' }
+ * '2024-W03'  → { from: '2024-01-15', to: '2024-01-21' }
+ * '2024-01-15' → { from: '2024-01-15', to: '2024-01-15' }
+ */
+export function periodKeyToDateRange(key: string): { from: string; to: string } | null {
+  // Day: '2024-01-15'
+  if (/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+    return { from: key, to: key };
+  }
+  // Quarter: '2024-Q1'
+  const qMatch = key.match(/^(\d{4})-Q([1-4])$/);
+  if (qMatch) {
+    const year = qMatch[1];
+    const q = Number(qMatch[2]);
+    const firstMonth = (q - 1) * 3 + 1;
+    const lastMonth = firstMonth + 2;
+    const lastDay = new Date(Date.UTC(Number(year), lastMonth, 0)).getUTCDate();
+    return {
+      from: `${year}-${String(firstMonth).padStart(2, '0')}-01`,
+      to: `${year}-${String(lastMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
+    };
+  }
+  // Month: '2024-01'
+  const mMatch = key.match(/^(\d{4})-(\d{2})$/);
+  if (mMatch) {
+    const lastDay = new Date(Date.UTC(Number(mMatch[1]), Number(mMatch[2]), 0)).getUTCDate();
+    return {
+      from: `${mMatch[1]}-${mMatch[2]}-01`,
+      to: `${mMatch[1]}-${mMatch[2]}-${String(lastDay).padStart(2, '0')}`,
+    };
+  }
+  // Year: '2024'
+  if (/^\d{4}$/.test(key)) {
+    return { from: `${key}-01-01`, to: `${key}-12-31` };
+  }
+  // Week: '2024-W03'
+  const wMatch = key.match(/^(\d{4})-W(\d{2})$/);
+  if (wMatch) {
+    const year = Number(wMatch[1]);
+    const week = Number(wMatch[2]);
+    // ISO week 1 contains Jan 4. Monday is day 1.
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const jan4Day = jan4.getUTCDay() || 7;
+    const week1Monday = new Date(jan4.getTime() - (jan4Day - 1) * 86400000);
+    const weekStart = new Date(week1Monday.getTime() + (week - 1) * 7 * 86400000);
+    const weekEnd = new Date(weekStart.getTime() + 6 * 86400000);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    return { from: fmt(weekStart), to: fmt(weekEnd) };
+  }
+  return null;
+}
+
 /** Normalise any date-like value (Date, ms number, or string) to a Date. */
 export function normalizeToDate(value: unknown): Date | null {
   if (value instanceof Date) {

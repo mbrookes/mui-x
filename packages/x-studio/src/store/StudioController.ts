@@ -686,6 +686,8 @@ export class StudioController {
     field: string,
     value: unknown,
     filterSourceId?: string,
+    operator: import('../models').StudioFilterState['operator'] = 'equals',
+    fieldType?: import('../models').StudioFilterState['fieldType'],
   ) => {
     const state = this.store.state;
     // Remove any existing cross-filter from the same source widget
@@ -696,12 +698,13 @@ export class StudioController {
     const crossFilter: import('../models').StudioFilterState = {
       id: `cross-filter-${sourceWidgetId}-${Date.now()}`,
       field,
-      operator: 'equals',
+      operator,
       value,
       scope: 'cross-filter',
       sourceWidgetId,
       pageId: state.dashboard.activePageId,
       ...(filterSourceId && { filterSourceId }),
+      ...(fieldType && { fieldType }),
     };
 
     this.commitState({

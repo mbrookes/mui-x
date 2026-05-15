@@ -152,6 +152,13 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   const controller = useStudioController();
   const canvasRef = React.useRef<HTMLDivElement>(null);
 
+  // Live resize: tracks which widget is being dragged and what column span
+  // the user has snapped to, before the pointer is released.
+  const [dragSpanOverride, setDragSpanOverride] = React.useState<{
+    widgetId: string;
+    span: number;
+  } | null>(null);
+
   // ── Auto-scroll while dragging near the top/bottom viewport edge ────────────
   React.useEffect(() => {
     if (mode !== 'edit') {
@@ -412,7 +419,10 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
               />
             )}
             {row.map((widgetId, colIndex) => {
-              const span = widgetColSpans?.[widgetId];
+              const span =
+                dragSpanOverride?.widgetId === widgetId
+                  ? dragSpanOverride.span
+                  : (widgetColSpans?.[widgetId] ?? null);
               const pct = span != null ? `${(span / 12) * 100}%` : undefined;
               const isSingleInRow = row.length === 1;
               return (
@@ -433,6 +443,11 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                       pageTheme={pageTheme}
                       canvasRef={canvasRef}
                       rowWidgetIds={row}
+                      onResizeDrag={(liveSpan) =>
+                        setDragSpanOverride(
+                          liveSpan != null ? { widgetId, span: liveSpan } : null,
+                        )
+                      }
                       {...slotProps?.widgetCard}
                     />
                   </Box>

@@ -31,7 +31,7 @@ It integrates with the MUI X Charts library for rendering and participates in th
 
 ## Configuration
 
-```typescript
+```ts
 interface StudioChartConfig {
   type: StudioChartType;
   dataSourceId: string;
@@ -66,7 +66,7 @@ the `aggregation` function before rendering.
 Add multiple entries to the `series` array to render stacked or grouped series. Each
 entry can target a different numeric field or measure.
 
-```typescript
+```ts
 const chartConfig: StudioChartConfig = {
   type: 'bar-stacked',
   dataSourceId: 'orders',
@@ -83,7 +83,7 @@ const chartConfig: StudioChartConfig = {
 The `splitBy` option dynamically creates one series per unique value of the specified field.
 This is useful when you do not know the category names at build time.
 
-```typescript
+```ts
 const chartConfig: StudioChartConfig = {
   type: 'line',
   dataSourceId: 'revenue',
@@ -104,7 +104,7 @@ value configuration.
 
 When `xField` points to a `date` field, set `groupBy` to control bucketing:
 
-```typescript
+```ts
 const chartConfig: StudioChartConfig = {
   type: 'area',
   dataSourceId: 'events',
@@ -124,7 +124,7 @@ same `dataSourceId` (or a related source) react automatically.
 
 Set `crossFilterEnabled: false` in the widget config to disable emission.
 
-```typescript
+```ts
 const chartWidgetConfig = {
   type: 'chart',
   config: chartConfig,

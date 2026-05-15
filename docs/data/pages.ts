@@ -1139,6 +1139,7 @@ const pages: MuiPage[] = [
     children: [
       { pathname: '/x/react-studio', title: 'Overview' },
       { pathname: '/x/react-studio/quickstart', title: 'Quickstart' },
+      { pathname: '/x/react-studio/comparison', title: 'vs AG Studio' },
       {
         pathname: '/x/react-studio/getting-started',
         subheader: 'Getting Started',

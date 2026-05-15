@@ -13,7 +13,7 @@ import type {
 import { INITIAL_STATE } from './config/salesDashboard';
 import { AppToolbar } from './components/AppToolbar';
 import { SettingsDialog } from './components/SettingsDialog';
-import type { SidebarLayout } from './components/SettingsDialog';
+import type { SidebarLayout, SidebarSide } from './components/SettingsDialog';
 import { downloadJson, uploadJson } from './utils/fileUtils';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
@@ -147,6 +147,7 @@ export default function App() {
   }>({ open: false, message: '', severity: 'info' });
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [sidebarLayout, setSidebarLayout] = React.useState<SidebarLayout>('tabbed');
+  const [sidebarSide, setSidebarSide] = React.useState<SidebarSide>('left');
 
   // AI config — read from Vite env vars set by the developer
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
@@ -331,6 +332,7 @@ export default function App() {
               initialState={initialState}
               onStateChange={handleStateChange}
               sidebarLayout={sidebarLayout}
+              sidebarSide={sidebarSide}
               aiConfig={aiConfig}
             />
           </Box>
@@ -348,8 +350,9 @@ export default function App() {
         <SettingsDialog
           open={settingsOpen}
           onClose={handleCloseSettings}
-          values={{ sidebarLayout, rowCount: getUrlRowsParam(), adapterEnabled: adapterMode }}
+          values={{ sidebarLayout, sidebarSide, rowCount: getUrlRowsParam(), adapterEnabled: adapterMode }}
           onSidebarLayoutChange={setSidebarLayout}
+          onSidebarSideChange={setSidebarSide}
         />
       </LocalizationProvider>
     </ThemeProvider>

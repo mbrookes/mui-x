@@ -430,6 +430,22 @@ export function resolveRows(
   for (const f of filters) {
     if (f.filterSourceId && f.filterSourceId !== widgetSourceId) {
       crossFilters.push(f as StudioFilterState & { filterSourceId: string });
+    } else if (!f.filterSourceId && f.field) {
+      // No filterSourceId set (e.g. page filters added via the Filters Drawer).
+      // If the field is an expression owned by a different source, route it as a
+      // cross-filter so the semi-join path enriches the foreign source correctly.
+      // Without this, the field is undefined on the widget's own rows and every
+      // row is silently filtered out.
+      const exprOwner = expressionFields.find(
+        (ef) => ef.id === f.field && ef.sourceId !== widgetSourceId && !ef.isMeasure,
+      );
+      if (exprOwner) {
+        crossFilters.push({ ...f, filterSourceId: exprOwner.sourceId } as StudioFilterState & {
+          filterSourceId: string;
+        });
+      } else {
+        nativeFilters.push(f);
+      }
     } else {
       nativeFilters.push(f);
     }

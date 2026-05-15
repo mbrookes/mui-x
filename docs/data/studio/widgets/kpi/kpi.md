@@ -17,7 +17,7 @@ it, and optionally plots a sparkline using a secondary time-series field.
 
 ## Configuration
 
-```typescript
+```ts
 interface StudioKpiConfig {
   dataSourceId: string;
   valueField: string;              // numeric or measure field id
@@ -42,7 +42,7 @@ type StudioGroupBy = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 ## Basic example
 
-```typescript
+```ts
 const kpiConfig: StudioKpiConfig = {
   dataSourceId: 'orders',
   valueField: 'revenue',
@@ -59,7 +59,7 @@ Rendered: **$1.4M** with the label "Total Revenue".
 
 Use `prefix` and `suffix` for currency symbols, unit labels, and percentage signs.
 
-```typescript
+```ts
 const kpiConfig: StudioKpiConfig = {
   dataSourceId: 'sessions',
   valueField: 'conversionRate',
@@ -90,7 +90,7 @@ By default, an increase is positive (green) and a decrease is negative (red).
 For KPIs where a lower value is better (such as error rate or cost), set
 `invertTrend: true` to flip the colour logic.
 
-```typescript
+```ts
 const kpiConfig: StudioKpiConfig = {
   dataSourceId: 'incidents',
   valueField: 'errorRate',
@@ -104,7 +104,7 @@ const kpiConfig: StudioKpiConfig = {
 Add a sparkline to give context over time. Configure a `date` field for `xField` and
 choose a time bucket via `groupBy`.
 
-```typescript
+```ts
 const kpiConfig: StudioKpiConfig = {
   dataSourceId: 'revenue',
   valueField: 'amount',

@@ -405,11 +405,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       const finalSpan = drag?.lastSpan ?? null;
       if (finalSpan != null) {
         const equalSpan = rowWidgetIds ? Math.round(12 / rowWidgetIds.length) : null;
-        if (equalSpan != null && finalSpan === equalSpan) {
-          controller.setWidgetColSpan(widgetId, null);
-        } else {
-          controller.setWidgetColSpan(widgetId, finalSpan);
-        }
+        const commitSpan = equalSpan != null && finalSpan === equalSpan ? null : finalSpan;
+        controller.setWidgetColSpanInRow(widgetId, commitSpan, rowWidgetIds ?? [widgetId]);
       }
       setDraggingSpan(null);
       (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);

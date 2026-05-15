@@ -19,6 +19,8 @@ import {
   formatPeriodLabel,
   getTemporalAxisData,
   getChartSupportMessage,
+  periodKeyToDateRange,
+  truncateToGranularity,
 } from '../internals/chartUtils';
 import {
   useStudioController,
@@ -63,25 +65,27 @@ const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
 const GHOST_SERIES_SUFFIX = '-ghost';
 
-// Context used to pass per-item outerRadius overrides to the custom pieArc slot.
-// The standard PieValueType does not support per-item outerRadius, so we use a
-// slot + context to achieve variable radii per slice.
+// Context used to pass per-item filter ratios to the custom pieArc slot.
+// The standard PieValueType does not support per-item arc overrides, so we use a
+// slot + context to narrow each active slice's angular span proportionally.
 const PieRadiusContext = React.createContext<{
   activeSeriesId: string;
-  radiusByDataIndex: ReadonlyMap<number, number>;
-}>({ activeSeriesId: '', radiusByDataIndex: new Map() });
+  ratioByDataIndex: ReadonlyMap<number, number>;
+}>({ activeSeriesId: '', ratioByDataIndex: new Map() });
 
 /**
- * Custom pieArc slot that overrides outerRadius per item for the active (non-ghost) series,
- * enabling proportional-radius cross-filter highlighting on pie/donut charts.
+ * Custom pieArc slot that narrows each active slice's arc span proportionally to the
+ * filtered/all ratio, centered on the slice midpoint.
+ * Ghost series arcs are rendered at their full angles unchanged.
  */
 function CrossFilterPieArc(props: PieArcProps) {
-  const { activeSeriesId, radiusByDataIndex } = React.use(PieRadiusContext);
-  const outerRadius =
-    props.seriesId === activeSeriesId
-      ? (radiusByDataIndex.get(props.dataIndex) ?? props.outerRadius)
-      : props.outerRadius;
-  return <PieArc {...props} outerRadius={outerRadius} />;
+  const { activeSeriesId, ratioByDataIndex } = React.use(PieRadiusContext);
+  if (props.seriesId !== activeSeriesId) {
+    return <PieArc {...props} />;
+  }
+  const ratio = ratioByDataIndex.get(props.dataIndex) ?? 1;
+  const span = (props.endAngle - props.startAngle) * ratio;
+  return <PieArc {...props} endAngle={props.startAngle + span} />;
 }
 
 /**
@@ -147,9 +151,10 @@ function createLineXAxisConfig(
   return [
     {
       ...(axisId ? { id: axisId } : {}),
-      data: labels.map(formatLabel),
+      data: labels,
       scaleType: 'point' as const,
       height: 'auto' as const,
+      valueFormatter: (v: string | number) => formatLabel(String(v)),
     },
   ];
 }
@@ -384,6 +389,34 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     [allSeriesNames, resolvedChartColors],
   );
 
+  const selectedFilterValue =
+    activeCrossFilter &&
+    activeCrossFilter.field === config.xField &&
+    activeCrossFilter.operator !== 'between'
+      ? normalizeCrossFilterValue(activeCrossFilter.value as string | number | Date)
+      : null;
+
+  // For period-grouped (between) cross-filters, resolve the matching period key
+  // so getSelectedDataIndex can highlight the correct bar/point.
+  const selectedPeriodKey = React.useMemo(() => {
+    if (
+      !activeCrossFilter ||
+      activeCrossFilter.field !== config.xField ||
+      activeCrossFilter.operator !== 'between' ||
+      !xGroupBy
+    ) {
+      return null;
+    }
+    const range = activeCrossFilter.value as { from?: string } | null;
+    if (!range?.from) {
+      return null;
+    }
+    return truncateToGranularity(range.from, xGroupBy);
+  }, [activeCrossFilter, config.xField, xGroupBy]);
+
+  // True when any cross-filter is active on the x-field from this widget.
+  const hasActiveXFilter = selectedFilterValue != null || selectedPeriodKey != null;
+
   const handleItemClick = React.useCallback(
     (label: string | number | Date) => {
       if (!config.xField) {
@@ -391,6 +424,37 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       }
 
       const filterSourceId = chartSupport.fieldOwners?.get(config.xField) ?? widget.sourceId;
+
+      if (xGroupBy) {
+        // For period-grouped axes, emit a `between` filter covering the full period date range
+        // so downstream widgets filter by raw dates, not the formatted period label.
+        const periodKey =
+          label instanceof Date
+            ? truncateToGranularity(label, xGroupBy)
+            : typeof label === 'string'
+              ? label // band axis data now uses internal period keys directly
+              : null;
+
+        if (periodKey) {
+          const range = periodKeyToDateRange(periodKey);
+          if (range) {
+            // Toggle: clear if the same period is already selected
+            if (selectedPeriodKey === periodKey) {
+              controller.clearCrossFilter(widget.id);
+            } else {
+              controller.applyCrossFilter(
+                widget.id,
+                config.xField,
+                range,
+                filterSourceId,
+                'between',
+                'date',
+              );
+            }
+            return;
+          }
+        }
+      }
 
       // Convert Date to string for filtering
       const filterValue = label instanceof Date ? label.toISOString() : label;
@@ -409,6 +473,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       config.xField,
       activeCrossFilter,
       chartSupport.fieldOwners,
+      xGroupBy,
+      selectedPeriodKey,
     ],
   );
 
@@ -417,20 +483,24 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const normalizedChartType = chartType === 'bar-grouped' ? 'bar' : chartType;
   const barLayout = config.barLayout ?? 'grouped';
   const isHorizontalBarLayout = barLayout === 'horizontal';
-  const selectedFilterValue =
-    activeCrossFilter && activeCrossFilter.field === config.xField
-      ? normalizeCrossFilterValue(activeCrossFilter.value as string | number | Date)
-      : null;
 
   const getSelectedDataIndex = React.useCallback(
     (labels: Array<string | number | Date>) => {
+      // Period-grouped between filter: match by period key
+      if (selectedPeriodKey != null) {
+        return labels.findIndex((l) => {
+          if (l instanceof Date) {
+            return truncateToGranularity(l, xGroupBy ?? 'day') === selectedPeriodKey;
+          }
+          return String(l) === selectedPeriodKey;
+        });
+      }
       if (selectedFilterValue == null) {
         return -1;
       }
-
       return labels.findIndex((label) => normalizeCrossFilterValue(label) === selectedFilterValue);
     },
-    [selectedFilterValue],
+    [selectedFilterValue, selectedPeriodKey, xGroupBy],
   );
 
   const currentHighlightableSeriesIds = React.useMemo(() => {
@@ -475,12 +545,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }, [multiYData, normalizedChartType, seriesFieldData]);
 
   const controlledHighlightedItem =
-    selectedFilterValue == null &&
+    !hasActiveXFilter &&
     hoveredItem &&
     currentHighlightableSeriesIds.has(hoveredItem.seriesId)
       ? hoveredItem
       : null;
-  const controlledHighlightedAxis = selectedFilterValue == null ? (hoveredAxis ?? []) : [];
+  const controlledHighlightedAxis = !hasActiveXFilter ? (hoveredAxis ?? []) : [];
 
   // Grouped or stacked bar charts (by category field OR multiple y-fields)
   const isBar =
@@ -706,7 +776,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       // When cross-filtering, use all-data as the basis so ghost bars show full extent
       const effectiveMultiYData =
         hasCrossFilters && allBarMultiYData ? allBarMultiYData : barMultiYData;
-      const xAxisData = effectiveMultiYData.labels.map(formatLabel);
+      const xAxisData = effectiveMultiYData.labels;
       const selectedDataIndex = getSelectedDataIndex(effectiveMultiYData.labels);
       const isStacked =
         normalizedChartType === 'bar-stacked' ||
@@ -817,6 +887,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                         data: xAxisData,
                         scaleType: 'band',
                         height: 'auto',
+                        valueFormatter: (v: string | number) => formatLabel(String(v)),
                       },
                     ]
               }
@@ -828,6 +899,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                         data: xAxisData,
                         scaleType: 'band',
                         width: 'auto',
+                        valueFormatter: (v: string | number) => formatLabel(String(v)),
                       },
                     ]
                   : yAxes
@@ -883,16 +955,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const selectedDataIndex = getSelectedDataIndex(chartData.labels);
 
     // When cross-filters are active and the x-field baseline is meaningful, render two
-    // concentric series: a faded ghost outer pie (full baseline) and a solid active inner
-    // pie (cross-filtered subset). This preserves the full context while clearly showing
-    // the filtered proportion.
-    const showConcentricCrossFilter =
+    // concentric series at the same radius: a faded ghost outer pie (full baseline data) and a
+    // solid active pie (same radius). Active slices have their angular span narrowed
+    // proportionally to filtered/all, centered on each slice midpoint — giving a clear
+    // "how much of this category survived the filter" signal without changing the chart's size.
+    const showPieCrossFilterOverlay =
       hasCrossFilters && allChartData != null && preserveXFieldBaseline;
 
-    if (showConcentricCrossFilter) {
-      // Ghost fills the available space. Active inner shares the same radial range so a
-      // fully-retained slice reaches the ghost edge; a fully-filtered slice collapses to
-      // the inner hole edge (invisible for pie, hole-edge for donut).
+    if (showPieCrossFilterOverlay) {
       const ghostOuterRadius = Math.round(chartHeight * 0.38);
 
       // Build a lookup of filtered values keyed by label string for O(1) access.
@@ -900,13 +970,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         chartData.labels.map((l, i) => [String(l), chartData.values[i]]),
       );
 
-      // Compute per-item outerRadius:
-      //   outerRadius = innerRadius + (ghostOuterRadius - innerRadius) * (filtered / all)
-      // A slice at 100% retention reaches the ghost edge; one fully filtered collapses to
-      // the inner hole (or center for a plain pie).
-      // NOTE: PieValueType does not support per-item outerRadius, so we pass the radii
-      // through PieRadiusContext and override them in the CrossFilterPieArc slot.
-      const radiusByDataIndex = new Map<number, number>();
+      // Compute per-item ratio (0–1): filtered / all.
+      // The CrossFilterPieArc slot narrows each active arc's span by this ratio.
+      const ratioByDataIndex = new Map<number, number>();
       const activeData = allChartData!.labels.map((label, i) => {
         const allValue = allChartData!.values[i] ?? 0;
         const filteredValue = filteredValueByLabel.get(String(label));
@@ -914,10 +980,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           allValue > 0 && filteredValue != null
             ? Math.min(1, Math.max(0, filteredValue / allValue))
             : 0;
-        radiusByDataIndex.set(
-          i,
-          Math.round(innerRadius + (ghostOuterRadius - innerRadius) * ratio),
-        );
+        ratioByDataIndex.set(i, ratio);
         return {
           id: i,
           label: formatLabel(label),
@@ -930,7 +993,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         <div style={{ height: chartHeight }}>
           <PieRadiusContext.Provider
             // eslint-disable-next-line react/jsx-no-constructed-context-values
-            value={{ activeSeriesId: CROSS_FILTER_SERIES_ID, radiusByDataIndex }}
+            value={{ activeSeriesId: CROSS_FILTER_SERIES_ID, ratioByDataIndex }}
           >
             <PieChart
               {...slotProps?.pieChart}
@@ -1063,7 +1126,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       hasCrossFilters && allBarSeriesFieldData && preserveSplitByBaseline
         ? allBarSeriesFieldData
         : barSeriesFieldData;
-    const xAxisData = effectiveSFData.labels.map(formatLabel);
+    const xAxisData = effectiveSFData.labels;
     const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
     const isStacked =
       normalizedChartType === 'bar-stacked' ||
@@ -1151,11 +1214,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       }),
                     },
                   ]
-                : [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto' }]
+                : [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto', valueFormatter: (v: string | number) => formatLabel(String(v)) }]
             }
             yAxis={
               isHorizontalBarLayout
-                ? [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', width: 'auto' }]
+                ? [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', width: 'auto', valueFormatter: (v: string | number) => formatLabel(String(v)) }]
                 : [
                     {
                       width: 'auto' as const,
@@ -1444,7 +1507,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     isBar && hasCrossFilters && allBarChartData && preserveXFieldBaseline
       ? allBarChartData
       : singleSeriesChartData;
-  const xAxisData = effectiveSingleSeriesData!.labels.map(formatLabel);
+  const xAxisData = effectiveSingleSeriesData!.labels;
   const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
   const seriesLabel = yFieldDef?.label ?? activeYFields[0] ?? 'Value';
   const seriesValueFormatter = makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode);
@@ -1633,7 +1696,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             layout="horizontal"
             xAxis={[{ height: 'auto' }]}
             yAxis={[
-              { id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', width: 'auto' },
+              { id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', width: 'auto', valueFormatter: (v: string | number) => formatLabel(String(v)) },
             ]}
             series={[
               {
@@ -1682,7 +1745,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <div style={{ height: chartHeight }}>
         <BarChart
           {...slotProps?.barChart}
-          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto' }]}
+          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto', valueFormatter: (v: string | number) => formatLabel(String(v)) }]}
           yAxis={[{ width: 'auto' }]}
           series={[
             {

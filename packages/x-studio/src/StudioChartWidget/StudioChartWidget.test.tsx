@@ -710,7 +710,7 @@ describe('<StudioChartWidget />', () => {
     expect(props.layout).toBe('horizontal');
     expect(props.xAxis[0].scaleType).toBeUndefined();
     expect(props.yAxis[0].scaleType).toBe('band');
-    expect(props.yAxis[0].data).toEqual(['1', '2']);
+    expect(props.yAxis[0].data).toEqual([1, 2]);
   });
 
   it('normalizes split-by bar-100 series and configures a percent axis', () => {
@@ -824,7 +824,7 @@ describe('<StudioChartWidget />', () => {
     expect(props.layout).toBe('horizontal');
     expect(props.xAxis[0].scaleType).toBeUndefined();
     expect(props.yAxis[0].scaleType).toBe('band');
-    expect(props.yAxis[0].data).toEqual(['1', '2']);
+    expect(props.yAxis[0].data).toEqual([1, 2]);
   });
 
   it('highlights the selected x-value when a multi-y bar chart has an active cross-filter', () => {

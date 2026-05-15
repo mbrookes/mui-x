@@ -423,14 +423,26 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                 dragOverrides != null && widgetId in dragOverrides
                   ? dragOverrides[widgetId]
                   : (widgetColSpans?.[widgetId] ?? null);
-              const pct = span != null ? `${(span / 12) * 100}%` : undefined;
+              // Edit mode: use flex-grow proportional to column span (flex-basis: 0).
+              // Insertion points have a fixed 8px width each; percentage-based flex-basis
+              // would sum to 100% *before* those, causing overflow.  Flex-grow distributes
+              // only the remaining space after fixed items, so the row fills correctly.
+              // View mode: use percentage flex-basis (no insertion points present).
+              const flexValue =
+                mode === 'edit'
+                  ? `${span ?? 1} 0 0`
+                  : span != null
+                    ? `0 0 ${(span / 12) * 100}%`
+                    : 1;
+              const maxWidth =
+                mode !== 'edit' && span != null ? `${(span / 12) * 100}%` : undefined;
               const isSingleInRow = row.length === 1;
               return (
                 <React.Fragment key={widgetId}>
                   <Box
                     sx={{
-                      flex: pct ? `0 0 ${pct}` : 1,
-                      maxWidth: pct ?? undefined,
+                      flex: flexValue,
+                      maxWidth: maxWidth ?? undefined,
                       minWidth: mode === 'edit' ? 0 : 280,
                       display: 'flex',
                       flexDirection: 'column',

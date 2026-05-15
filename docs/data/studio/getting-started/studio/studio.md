@@ -57,7 +57,7 @@ const initialState: Partial<StudioState> = {
 };
 ```
 
-See [Inline data sources](/x/react-studio/data/data-sources/) for the full `StudioDataSource` shape.
+See [Inline data sources](/x/react-studio/data/data-sources/)/) for the full `StudioDataSource` shape.
 
 ### `onStateChange`
 
@@ -112,7 +112,7 @@ const aiConfig: StudioAIConfig = {
 };
 ```
 
-See [AI assistant](/x/react-studio/ai/setup/) for detailed setup.
+See [AI assistant](/x/react-studio/ai/setup/)/) for detailed setup.
 
 ### `slotProps`
 
@@ -148,7 +148,7 @@ Forwards extra props to internally-rendered sub-components.
 />
 ```
 
-See [Slot props](/x/react-studio/customization/slot-props/) for the full hierarchy.
+See [Slot props](/x/react-studio/customization/slot-props/)/) for the full hierarchy.
 
 ### Slots (ReactNode overrides)
 
@@ -236,7 +236,7 @@ ref.current.serializeState()             // Returns a JSON-safe SerializedStudio
 ref.current.loadSerializedState(data)    // Restores state; returns MigrationResult
 ```
 
-See [Save & load](/x/react-studio/persistence/save-and-load/) for the full persistence API.
+See [Save & load](/x/react-studio/persistence/save-and-load/)/) for the full persistence API.
 
 ### Data source adapters
 
@@ -245,7 +245,7 @@ ref.current.setDataSourceAdapter(sourceId: string, adapter: StudioDataSourceAdap
 ```
 
 Attaches (or removes) an async data source adapter after mount.
-See [Async adapters](/x/react-studio/data/async-adapters/).
+See [Async adapters](/x/react-studio/data/async-adapters/)/).
 
 ## Mode indicator in the toolbar
 

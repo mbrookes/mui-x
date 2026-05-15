@@ -104,7 +104,7 @@ Applies an operator to one or more sub-expressions:
 
 ### Join field (`StudioJoinFieldExpression`)
 
-Looks up a field on a related source via a declared [relationship](/x/react-studio/data/relationships):
+Looks up a field on a related source via a declared [relationship](/x/react-studio/data/relationships/):
 
 ```ts
 {

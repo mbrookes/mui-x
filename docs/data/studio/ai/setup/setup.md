@@ -292,3 +292,8 @@ interface StudioAIConfig {
   headers?: Record<string, string>;
 }
 ```
+
+## See also
+
+- [Composed approach](/x/react-studio/getting-started/composition/) — adding `StudioChatPanel` to a custom layout
+- [Slot props](/x/react-studio/customization/slot-props/) — customize the AI panel via `slotProps.chatPanel`

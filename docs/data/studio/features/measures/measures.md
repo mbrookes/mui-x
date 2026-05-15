@@ -153,3 +153,9 @@ const initialState = createDefaultStudioState({
 ```
 
 Measures appear in KPI value pickers alongside physical fields for the matching source.
+
+## See also
+
+- [Calculated columns](/x/react-studio/features/calculated-columns/) — per-row derived fields (complement to measures)
+- [Inline data sources](/x/react-studio/data/data-sources/) — `aggregatable: true` marks physical fields for aggregation
+- [Global filters](/x/react-studio/features/global-filters/) — filters applied before measure aggregation

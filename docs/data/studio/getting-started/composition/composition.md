@@ -248,7 +248,7 @@ It accepts `slotProps.widgetCard` to customize every card on the canvas:
 />
 ```
 
-See [Slot props](/x/react-studio/customization/slot-props/)/) for the full hierarchy.
+See [Slot props](/x/react-studio/customization/slot-props  for the full hierarchy.
 
 ## Hiding the sidebar in view mode
 
@@ -419,3 +419,10 @@ export default function ComposedApp({ initialState }: { initialState?: Partial<S
   );
 }
 ```
+
+## See also
+
+- [Studio component](/x/react-studio/getting-started/studio/) — the all-in-one `<Studio>` API and `StudioHandle`
+- [State management](/x/react-studio/getting-started/state/) — `useStudioSelector`, exported selectors, and selector factories
+- [Slot props](/x/react-studio/customization/slot-props/) — customize widget cards, charts, and KPIs via the slot props chain
+- [AI assistant](/x/react-studio/ai/setup/) — add `StudioChatPanel` to a composed layout

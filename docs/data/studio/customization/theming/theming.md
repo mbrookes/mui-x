@@ -135,3 +135,8 @@ const theme = createTheme({
 ```
 
 See the [MUI X Charts theming documentation](https://mui.com/x/react-charts/styling/) for the full list of tokens.
+
+## See also
+
+- [Slot props](/x/react-studio/customization/slot-props/) — component-level overrides alongside the theme token
+- [Composed approach](/x/react-studio/getting-started/composition/) — wrap in `CssVarsProvider` before `StudioProvider` for MUI System integration

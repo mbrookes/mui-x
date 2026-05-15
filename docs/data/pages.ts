@@ -1150,6 +1150,26 @@ const pages: MuiPage[] = [
         ],
       },
       {
+        pathname: '/x/react-studio/widgets',
+        subheader: 'Widgets',
+        children: [
+          { pathname: '/x/react-studio/widgets/chart', title: 'Chart' },
+          { pathname: '/x/react-studio/widgets/kpi', title: 'KPI' },
+          { pathname: '/x/react-studio/widgets/grid', title: 'Grid' },
+          { pathname: '/x/react-studio/widgets/filter', title: 'Filter' },
+          { pathname: '/x/react-studio/widgets/text', title: 'Text' },
+        ],
+      },
+      {
+        pathname: '/x/react-studio/behaviors',
+        subheader: 'Behaviors',
+        children: [
+          { pathname: '/x/react-studio/behaviors/edit-and-view-mode', title: 'Edit & view mode' },
+          { pathname: '/x/react-studio/behaviors/canvas-interactions', title: 'Canvas interactions' },
+          { pathname: '/x/react-studio/behaviors/undo-redo', title: 'Undo & redo' },
+        ],
+      },
+      {
         pathname: '/x/react-studio/data',
         subheader: 'Data',
         children: [
@@ -1181,6 +1201,7 @@ const pages: MuiPage[] = [
         subheader: 'AI Assistant',
         children: [
           { pathname: '/x/react-studio/ai/setup', title: 'Setup' },
+          { pathname: '/x/react-studio/ai/tools', title: 'AI tools' },
         ],
       },
       {
@@ -1189,6 +1210,14 @@ const pages: MuiPage[] = [
         children: [
           { pathname: '/x/react-studio/customization/slot-props', title: 'Slot props' },
           { pathname: '/x/react-studio/customization/theming', title: 'Theming' },
+        ],
+      },
+      {
+        pathname: '/x/react-studio/resources',
+        subheader: 'Resources',
+        children: [
+          { pathname: '/x/react-studio/resources/selectors', title: 'Selectors' },
+          { pathname: '/x/react-studio/resources/controller-api', title: 'Controller API' },
         ],
       },
     ],

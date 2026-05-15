@@ -166,3 +166,9 @@ const allFilters = useStudioSelector(selectFilters);
 // Pre-bucketed by scope (more efficient for components that only care about one scope)
 const { page, byWidgetId, cross, interactive } = useStudioSelector(selectPartitionedFilters);
 ```
+
+## See also
+
+- [Cross-filters](/x/react-studio/features/cross-filters/) — click-driven filters emitted by chart and grid widgets
+- [Inline data sources](/x/react-studio/data/data-sources/) — field types that drive filter operator availability
+- [Calculated columns](/x/react-studio/features/calculated-columns/) — filter on derived fields the same as physical fields

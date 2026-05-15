@@ -28,6 +28,7 @@ import {
 import type {
   StudioDataField,
   StudioDataSource,
+  StudioExpressionField,
   StudioFilterState,
   StudioRelationship,
 } from '../models';
@@ -866,6 +867,146 @@ describe('resolveRows — cross-filter via ORDER_ITEMS → ORDERS join', () => {
     // amount > 100: ITEM-3 (ORD-2)
     // Cross-filters are applied sequentially, so only ORD-2 survives both
     expect(result.map((r) => r.id)).toEqual(['ORD-2']);
+  });
+});
+
+// ─── dual cross-filter: category (ORDER_ITEMS) + date between (ORDERS) ────────
+//
+// Mirrors the real bug: clicking Category=Supplies on "Revenue by Category" AND
+// Q1 2024 on "Quarterly Revenue by Category" simultaneously. Both cross-filters
+// must propagate correctly to downstream widgets on both ORDER_ITEMS and ORDERS.
+
+describe('resolveRows — dual cross-filter: category on ORDER_ITEMS + date between on ORDERS', () => {
+  const orders: Record<string, unknown>[] = [
+    { id: 'o1', date: '2024-01-15', total: 100 }, // Q1 2024
+    { id: 'o2', date: '2024-04-15', total: 200 }, // Q2 2024
+    { id: 'o3', date: '2024-02-10', total: 150 }, // Q1 2024
+  ];
+
+  const orderItems: Record<string, unknown>[] = [
+    { id: 'i1', orderId: 'o1', category: 'Supplies', total: 60 },
+    { id: 'i2', orderId: 'o1', category: 'Electronics', total: 40 },
+    { id: 'i3', orderId: 'o2', category: 'Supplies', total: 200 },
+    { id: 'i4', orderId: 'o3', category: 'Supplies', total: 150 },
+  ];
+
+  const ordersSource: StudioDataSource = {
+    id: 'orders',
+    label: 'Orders',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string' },
+      { id: 'date', label: 'Date', type: 'date' },
+      { id: 'total', label: 'Total', type: 'number' },
+    ],
+    rows: orders,
+  };
+
+  const orderItemsSource: StudioDataSource = {
+    id: 'orderItems',
+    label: 'Order Items',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string' },
+      { id: 'orderId', label: 'Order ID', type: 'string' },
+      { id: 'category', label: 'Category', type: 'string' },
+      { id: 'total', label: 'Total', type: 'number' },
+    ],
+    rows: orderItems,
+  };
+
+  const dataSources: Record<string, StudioDataSource> = {
+    orders: ordersSource,
+    orderItems: orderItemsSource,
+  };
+
+  const relationships: StudioRelationship[] = [
+    {
+      id: 'rel-orderitems-orders',
+      sourceId: 'orderItems',
+      sourceField: 'orderId',
+      targetId: 'orders',
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+  ];
+
+  // Cross-filter 1: "Revenue by Category" chart emits category=Supplies
+  const categoryCrossFilter = makeFilter({
+    id: 'cf-category',
+    field: 'category',
+    operator: 'equals',
+    value: 'Supplies',
+    filterSourceId: 'orderItems',
+  });
+
+  // Cross-filter 2: "Quarterly Revenue by Category" chart emits date between Q1 2024
+  const dateCrossFilter = makeFilter({
+    id: 'cf-date',
+    field: 'date',
+    operator: 'between',
+    value: { from: '2024-01-01', to: '2024-03-31' },
+    fieldType: 'date',
+    filterSourceId: 'orders',
+  });
+
+  it('analyzeChartSupport: date field on ORDER_ITEMS widget owned by ORDERS', () => {
+    // Verify that "Quarterly Revenue by Category" correctly identifies 'date' as owned by ORDERS.
+    // This is the source of filterSourceId used when emitting the date cross-filter.
+    const support = analyzeChartSupport(
+      'orderItems',
+      'date',
+      ['total'],
+      'category',
+      'bar-stacked',
+      dataSources,
+      relationships,
+    );
+    expect(support.supported).toBe(true);
+    expect(support.fieldOwners?.get('date')).toBe('orders');
+    expect(support.fieldOwners?.get('total')).toBe('orderItems');
+    expect(support.fieldOwners?.get('category')).toBe('orderItems');
+  });
+
+  it('ORDER_ITEMS widget receiving date cross-filter (filterSourceId=orders) returns Q1 items', () => {
+    // "Revenue by Category" (ORDER_ITEMS) receiving the date cross-filter only.
+    // Expected: i1, i2, i4 (the items belonging to Q1 2024 orders o1 and o3).
+    const result = resolveRows(
+      orderItems,
+      'orderItems',
+      [dateCrossFilter],
+      dataSources,
+      relationships,
+    );
+    expect(result.map((r) => r.id).sort()).toEqual(['i1', 'i2', 'i4']);
+  });
+
+  it('ORDERS widget receiving both cross-filters returns Q1 orders with Supplies items', () => {
+    // "Revenue by Country" or "Recent Orders" (ORDERS) receiving both cross-filters:
+    //   - category=Supplies (filterSourceId=orderItems) → semi-join
+    //   - date between Q1 2024 (filterSourceId=orders = widgetSourceId) → native filter
+    // Expected: o1 and o3 both have Supplies items and fall in Q1 2024.
+    const result = resolveRows(
+      orders,
+      'orders',
+      [categoryCrossFilter, dateCrossFilter],
+      dataSources,
+      relationships,
+    );
+    expect(result.map((r) => r.id).sort()).toEqual(['o1', 'o3']);
+  });
+
+  it('ORDER_ITEMS widget receiving both cross-filters from other widgets', () => {
+    // A second ORDER_ITEMS widget receiving both cross-filters (neither is its own):
+    //   - category=Supplies (filterSourceId=orderItems = widgetSourceId) → native filter
+    //   - date between Q1 2024 (filterSourceId=orders ≠ widgetSourceId) → cross-filter
+    // Expected: Q1 2024 items (i1, i2, i4) that are also Supplies (i1, i4).
+    const result = resolveRows(
+      orderItems,
+      'orderItems',
+      [categoryCrossFilter, dateCrossFilter],
+      dataSources,
+      relationships,
+    );
+    expect(result.map((r) => r.id).sort()).toEqual(['i1', 'i4']);
   });
 });
 
@@ -2415,6 +2556,150 @@ describe('prepareScatterData', () => {
 
   it('returns empty array for empty rows', () => {
     expect(prepareScatterData([], 'x', 'y')).toEqual([]);
+  });
+});
+
+// ─── resolveRows — page filter on expression field (no filterSourceId) ───────
+//
+// Bug: Filters Drawer creates page filters with scope:'page' but no filterSourceId.
+// When the filtered field is an expression field owned by a different source, the
+// rows are silently filtered out (the field is undefined on the widget's rows).
+// Fix: auto-route such filters as cross-filters using the expression field's sourceId.
+
+describe('resolveRows — page filter on expression field without filterSourceId', () => {
+  const orders: Record<string, unknown>[] = [
+    { id: 'o1', country: 'Germany', total: 100 },
+    { id: 'o2', country: 'France', total: 200 },
+    { id: 'o3', country: 'Germany', total: 150 },
+  ];
+
+  const orderItems: Record<string, unknown>[] = [
+    { id: 'i1', orderId: 'o1', category: 'Supplies', total: 60 },
+    { id: 'i2', orderId: 'o2', category: 'Electronics', total: 200 },
+    { id: 'i3', orderId: 'o3', category: 'Supplies', total: 150 },
+  ];
+
+  const ordersSource: StudioDataSource = {
+    id: 'source-orders',
+    label: 'Orders',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string' },
+      { id: 'country', label: 'Country', type: 'string' },
+      { id: 'total', label: 'Total', type: 'number' },
+    ],
+    rows: orders,
+  };
+
+  const orderItemsSource: StudioDataSource = {
+    id: 'source-order-items',
+    label: 'Order Items',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string' },
+      { id: 'orderId', label: 'Order ID', type: 'string' },
+      { id: 'category', label: 'Category', type: 'string' },
+      { id: 'total', label: 'Total', type: 'number' },
+    ],
+    rows: orderItems,
+  };
+
+  const dataSources: Record<string, StudioDataSource> = {
+    'source-orders': ordersSource,
+    'source-order-items': orderItemsSource,
+  };
+
+  const relationships: StudioRelationship[] = [
+    {
+      id: 'rel-items-orders',
+      sourceId: 'source-order-items',
+      sourceField: 'orderId',
+      targetId: 'source-orders',
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+  ];
+
+  // An expression field that lives on ORDERS (e.g. "Country" derived from orders)
+  const exprCountry: StudioExpressionField = {
+    id: 'expr-order-country',
+    label: 'Country',
+    type: 'string',
+    sourceId: 'source-orders',
+    isMeasure: false,
+    expression: { id: 'country' },
+  };
+
+  const expressionFields: StudioExpressionField[] = [exprCountry];
+
+  it('page filter on expr-order-country (no filterSourceId) returns ORDER_ITEMS for Germany', () => {
+    // Simulates Filters Drawer: country=Germany, no filterSourceId
+    const pageFilter = makeFilter({
+      id: 'pf-country',
+      field: 'expr-order-country',
+      operator: 'equals',
+      value: 'Germany',
+      scope: 'page',
+      filterSourceId: undefined,
+    });
+
+    const result = resolveRows(
+      orderItems,
+      'source-order-items',
+      [pageFilter],
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    // o1 and o3 are Germany → i1 and i3
+    expect(result.map((r) => r.id).sort()).toEqual(['i1', 'i3']);
+  });
+
+  it('page filter on expr-order-country does NOT blank out an ORDERS widget (native path)', () => {
+    // For an ORDERS widget: expr-order-country.sourceId === widgetSourceId → native filter
+    // The expression is enriched onto ORDERS rows → should work without cross-filter routing
+    const pageFilter = makeFilter({
+      id: 'pf-country',
+      field: 'expr-order-country',
+      operator: 'equals',
+      value: 'Germany',
+      scope: 'page',
+      filterSourceId: undefined,
+    });
+
+    // Enrich the orders rows with the expression field value (country is a plain field here)
+    const enrichedOrders = orders.map((r) => ({ ...r, 'expr-order-country': r.country }));
+    const enrichedOrdersSource = { ...ordersSource, rows: enrichedOrders };
+
+    const result = resolveRows(
+      enrichedOrders,
+      'source-orders',
+      [pageFilter],
+      { ...dataSources, 'source-orders': enrichedOrdersSource },
+      relationships,
+      expressionFields,
+    );
+    expect(result.map((r) => r.id).sort()).toEqual(['o1', 'o3']);
+  });
+
+  it('page filter on a native field (no filterSourceId) still applies as native filter', () => {
+    // category is owned by source-order-items → no cross-filter routing
+    const pageFilter = makeFilter({
+      id: 'pf-category',
+      field: 'category',
+      operator: 'equals',
+      value: 'Supplies',
+      scope: 'page',
+      filterSourceId: undefined,
+    });
+
+    const result = resolveRows(
+      orderItems,
+      'source-order-items',
+      [pageFilter],
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    expect(result.map((r) => r.id).sort()).toEqual(['i1', 'i3']);
   });
 });
 

@@ -19,9 +19,11 @@ import {
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 export type SidebarLayout = 'stacked' | 'tabbed';
+export type SidebarSide = 'left' | 'right';
 
 export interface SettingsValues {
   sidebarLayout: SidebarLayout;
+  sidebarSide: SidebarSide;
   rowCount: number | undefined;
   adapterEnabled: boolean;
 }
@@ -31,10 +33,11 @@ export interface SettingsDialogProps {
   onClose: () => void;
   values: SettingsValues;
   onSidebarLayoutChange: (layout: SidebarLayout) => void;
+  onSidebarSideChange: (side: SidebarSide) => void;
 }
 
 export function SettingsDialog(props: SettingsDialogProps) {
-  const { open, onClose, values, onSidebarLayoutChange } = props;
+  const { open, onClose, values, onSidebarLayoutChange, onSidebarSideChange } = props;
 
   const [rowInput, setRowInput] = React.useState(
     values.rowCount !== undefined ? String(values.rowCount) : '',
@@ -96,6 +99,19 @@ export function SettingsDialog(props: SettingsDialogProps) {
           >
             <FormControlLabel value="tabbed" control={<Radio size="small" />} label="Tabbed" />
             <FormControlLabel value="stacked" control={<Radio size="small" />} label="Stacked" />
+          </RadioGroup>
+        </FormControl>
+
+        {/* Sidebar side — immediate */}
+        <FormControl>
+          <FormLabel>Sidebar position</FormLabel>
+          <RadioGroup
+            row
+            value={values.sidebarSide}
+            onChange={(_evt, val) => onSidebarSideChange(val as SidebarSide)}
+          >
+            <FormControlLabel value="left" control={<Radio size="small" />} label="Left" />
+            <FormControlLabel value="right" control={<Radio size="small" />} label="Right" />
           </RadioGroup>
         </FormControl>
 

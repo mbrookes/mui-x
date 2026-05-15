@@ -260,3 +260,9 @@ AG Studio exposes a single `<AgStudio>` component. Individual panel components a
 [^23]: packages/x-studio/src/models/studio.ts — `StudioPageTheme`; not found in AG Studio public documentation
 [^24]: packages/x-studio/src/Studio/Studio.tsx — `StudioSlots`, `StudioProps.slotProps`, composition exports; AG Studio: not documented
 [^25]: [AG Studio — Localisation](https://www.ag-grid.com/studio/react/localisation/)
+
+## See also
+
+- [Overview](/x/react-studio/) — what x-studio is and what it's designed for
+- [Quickstart](/x/react-studio/quickstart/) — get a working studio running in minutes
+- [Slot props](/x/react-studio/customization/slot-props/) — deep customisation unique to x-studio

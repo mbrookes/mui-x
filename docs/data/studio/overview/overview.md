@@ -52,7 +52,7 @@ const ref = React.useRef<StudioHandle>(null);
 />
 ```
 
-See [Studio component](/x/react-studio/getting-started/studio/)/) for the full API.
+See [Studio component](/x/react-studio/getting-started/studio/) for the full API.
 
 ### Composed approach
 
@@ -76,7 +76,7 @@ import {
 </StudioProvider>
 ```
 
-See [Composed approach](/x/react-studio/getting-started/composition/)/) for details.
+See [Composed approach](/x/react-studio/getting-started/composition/) for details.
 
 ## Widget types
 
@@ -113,4 +113,12 @@ studioRef.current?.setDataSourceAdapter('orders', {
 });
 ```
 
-See [Inline data sources](/x/react-studio/data/data-sources/)/) and [Async adapters](/x/react-studio/data/async-adapters/)/).
+See [Inline data sources](/x/react-studio/data/data-sources/) and [Async adapters](/x/react-studio/data/async-adapters/).
+
+## See also
+
+- [Quickstart](/x/react-studio/quickstart/) — install and render your first dashboard in minutes
+- [Studio component](/x/react-studio/getting-started/studio/) — full `<Studio>` API and `StudioHandle` reference
+- [Composed approach](/x/react-studio/getting-started/composition/) — build a custom layout using `StudioProvider`
+- [Inline data sources](/x/react-studio/data/data-sources/) — the `StudioDataSource` and `StudioDataField` shapes
+- [AI assistant](/x/react-studio/ai/setup/) — add a chat panel powered by any OpenAI-compatible endpoint

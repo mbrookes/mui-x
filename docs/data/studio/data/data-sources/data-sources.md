@@ -145,7 +145,7 @@ Inline rows are processed in-memory by Studio.
 For large datasets (tens of thousands of rows), consider:
 
 - Using an async adapter to push filtering and aggregation to the server.
-  See [Async adapters](/x/react-studio/data/async-adapters/)/).
+  See [Async adapters](/x/react-studio/data/async-adapters .
 - Using the `?rows=N` URL parameter in `examples/x-studio` to benchmark performance.
   Studio uses `useDeferredValue` for cross-filter recomputation so the UI remains responsive.
 
@@ -175,3 +175,10 @@ const ordersSource: StudioDataSource = {
   rows: [],
 };
 ```
+
+## See also
+
+- [Async adapters](/x/react-studio/data/async-adapters/) — delegate filtering and aggregation to your server for large datasets
+- [Relationships](/x/react-studio/data/relationships/) — join sources so widgets can use fields across tables
+- [Calculated columns](/x/react-studio/features/calculated-columns/) — add derived fields without modifying source data
+- [Measures](/x/react-studio/features/measures/) — add pre-aggregated metrics for KPI and chart widgets

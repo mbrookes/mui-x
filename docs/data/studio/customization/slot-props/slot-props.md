@@ -339,3 +339,9 @@ interface StudioChatPanelSlotProps {
   panel?: Partial<BoxProps>;
 }
 ```
+
+## See also
+
+- [Composed approach](/x/react-studio/getting-started/composition/) — the composed approach exposes each panel individually
+- [Theming](/x/react-studio/customization/theming/) — `StudioTheme` for global chart palette and canvas colours
+- [Studio component](/x/react-studio/getting-started/studio/) — full `StudioSlots` and `StudioSlotProps` reference

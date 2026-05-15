@@ -187,3 +187,9 @@ const initialState = createDefaultStudioState({
 ```
 
 They appear alongside physical fields in every picker (chart axis, KPI value, grid column) for the matching source.
+
+## See also
+
+- [Measures](/x/react-studio/features/measures/) — aggregate expression fields for KPI and single-value widgets
+- [Inline data sources](/x/react-studio/data/data-sources/) — field types used by expression operators
+- [Relationships](/x/react-studio/data/relationships/) — `StudioJoinFieldExpression` pulls fields from related sources

@@ -362,6 +362,29 @@ export class StudioController {
     });
   };
 
+  /**
+   * Sets an explicit column span (3–12) for a widget on the active page.
+   * Pass `null` to remove the explicit span and revert to auto-fill (`flex: 1`).
+   */
+  setWidgetColSpan = (widgetId: string, span: number | null): void => {
+    const state = this.store.state;
+    const activePage = state.pages[state.dashboard.activePageId];
+    if (!activePage) {
+      return;
+    }
+    const { [widgetId]: _removed, ...restSpans } = activePage.widgetColSpans ?? {};
+    void _removed;
+    const newSpans =
+      span == null ? restSpans : { ...restSpans, [widgetId]: Math.max(3, Math.min(12, Math.round(span))) };
+    this.commitState({
+      ...state,
+      pages: {
+        ...state.pages,
+        [activePage.id]: { ...activePage, widgetColSpans: newSpans },
+      },
+    });
+  };
+
   removeWidget = (widgetId: string) => {
     const state = this.store.state;
     const activePage = state.pages[state.dashboard.activePageId];
@@ -372,6 +395,9 @@ export class StudioController {
     const newWidgetRows = widgetRows
       .map((row) => row.filter((id) => id !== widgetId))
       .filter((row) => row.length > 0);
+    // Also clean up any explicit column span for this widget
+    const { [widgetId]: _span, ...remainingSpans } = activePage.widgetColSpans ?? {};
+    void _span;
     this.commitState({
       ...state,
       widgets: remainingWidgets,
@@ -380,6 +406,7 @@ export class StudioController {
         [activePage.id]: {
           ...activePage,
           widgetRows: newWidgetRows,
+          widgetColSpans: Object.keys(remainingSpans).length > 0 ? remainingSpans : undefined,
         },
       },
       filters: (() => {

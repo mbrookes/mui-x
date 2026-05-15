@@ -16,8 +16,9 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
+import dayjs from 'dayjs';
 
-import { useStudioController, useStudioSelector, selectPartitionedFilters } from '../context';
+import { useStudioController, useStudioSelector, selectPartitionedFilters, selectActivePage } from '../context';
 import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import type { StudioPageTheme } from '../models';
@@ -37,6 +38,20 @@ import { createStudioPipeline } from '../internals/StudioPipeline';
 export interface StudioWidgetCardProps {
   widgetId: string;
   isFirstRow?: boolean;
+  /**
+   * When true, this widget is the only widget in its row.
+   * The resize handle is hidden in this case (the widget always fills 100%).
+   */
+  isSingleInRow?: boolean;
+  /**
+   * All widget IDs in the same row, used to compute valid resize limits.
+   * If omitted, the resize handle is hidden.
+   */
+  rowWidgetIds?: string[];
+  /**
+   * Ref to the canvas element — used to measure canvas width for column snapping.
+   */
+  canvasRef?: React.RefObject<HTMLDivElement | null>;
   pageTheme?: StudioPageTheme;
   /** Replaceable sub-components. */
   slots?: {
@@ -66,6 +81,39 @@ export interface StudioWidgetCardProps {
 // Widgets that have already been rendered once skip the defer on subsequent mounts
 // so rearranging cards doesn't cause a visible blank-shell flash.
 const hydratedWidgets = new Set<string>();
+
+function SliderFilterPill({
+  filter,
+  source,
+  onClear,
+}: {
+  filter: { field: string; value: unknown };
+  source: { fields: { id: string; type?: string }[] } | undefined;
+  onClear: () => void;
+}) {
+  const val = filter.value as { from?: string | number; to?: string | number } | null;
+  const fieldType = source?.fields.find((f) => f.id === filter.field)?.type;
+  const isDate = fieldType === 'date' || fieldType === 'datetime';
+  const fmt = (v: string | number | undefined) => {
+    if (v == null) {
+      return '';
+    }
+    return isDate ? dayjs(v as string).format('DD MMM YYYY') : Number(v).toLocaleString();
+  };
+  if (!val) {
+    return null;
+  }
+  return (
+    <Chip
+      size="small"
+      label={`${fmt(val.from)} – ${fmt(val.to)}`}
+      onDelete={onClear}
+      color="primary"
+      variant="outlined"
+      sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
+    />
+  );
+}
 const KPI_WIDGET_MIN_HEIGHT = 160;
 const FILTER_WIDGET_MIN_HEIGHT = KPI_WIDGET_MIN_HEIGHT / 2;
 
@@ -91,9 +139,13 @@ function DefaultLoadingOverlay() {
 
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
-  const { widgetId, isFirstRow = false, pageTheme, slots, slotProps } = props;
+  const { widgetId, isFirstRow = false, isSingleInRow = false, rowWidgetIds, canvasRef, pageTheme, slots, slotProps } = props;
   const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
+  // Read the current colSpan for this widget from the active page
+  const currentColSpan = useStudioSelector(
+    (state) => selectActivePage(state)?.widgetColSpans?.[widgetId] ?? null,
+  );
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
   // Narrow selector: only re-render when THIS widget's selection state changes
   const isSelected = useStudioSelector((state) => state.shell.selectedWidgetId === widgetId);
@@ -120,6 +172,22 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           f.filterMode === 'rank' &&
           typeof f.value === 'number' &&
           f.value > 0,
+      ) ?? null
+    );
+  });
+
+  // Narrow selector: active interactive filter for filter widgets (e.g. slider range)
+  const activeSliderFilter = useStudioSelector((state) => {
+    if (widget?.kind !== 'filter' || widget?.config?.filterWidgetType !== 'slider') {
+      return null;
+    }
+    const activePageId = state.dashboard.activePageId;
+    return (
+      state.filters.find(
+        (f) =>
+          f.scope === 'interactive' &&
+          f.sourceWidgetId === widgetId &&
+          f.pageId === activePageId,
       ) ?? null
     );
   });
@@ -271,8 +339,76 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // inside the card for top-row widgets (where there's no room above to overhang).
   const overlayTopSx = isFirstRow ? { top: 6 } : { top: 0, transform: 'translateY(-50%)' };
 
+  const showResizeHandle =
+    mode === 'edit' && !isSingleInRow && rowWidgetIds != null && rowWidgetIds.length > 1;
+
+  // Resize drag state
+  const resizeDragRef = React.useRef<{
+    startX: number;
+    startSpan: number;
+    canvasWidth: number;
+    maxSpan: number;
+  } | null>(null);
+  const [draggingSpan, setDraggingSpan] = React.useState<number | null>(null);
+
+  const handleResizePointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const canvasEl = canvasRef?.current;
+      if (!canvasEl || !rowWidgetIds) {
+        return;
+      }
+      const canvasWidth = canvasEl.getBoundingClientRect().width;
+      // Clamp startSpan based on canvas width and existing row layout
+      const otherWidgetsCount = rowWidgetIds.length - 1;
+      const maxSpan = 12 - otherWidgetsCount * 3;
+      const startSpan = currentColSpan ?? Math.round(12 / rowWidgetIds.length);
+      resizeDragRef.current = { startX: event.clientX, startSpan, canvasWidth, maxSpan };
+      setDraggingSpan(startSpan);
+      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    },
+    [canvasRef, rowWidgetIds, currentColSpan],
+  );
+
+  const handleResizePointerMove = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = resizeDragRef.current;
+      if (!drag) {
+        return;
+      }
+      const deltaX = event.clientX - drag.startX;
+      const colWidth = drag.canvasWidth / 12;
+      const colDelta = Math.round(deltaX / colWidth);
+      const newSpan = Math.max(3, Math.min(drag.maxSpan, drag.startSpan + colDelta));
+      setDraggingSpan(newSpan);
+    },
+    [],
+  );
+
+  const handleResizePointerUp = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = resizeDragRef.current;
+      resizeDragRef.current = null;
+      if (draggingSpan != null) {
+        // If the resulting span would be equal to 12/rowWidgetIds.length (natural equal
+        // distribution), clear the explicit span so the widget reverts to flex:1 sizing.
+        const equalSpan = rowWidgetIds ? Math.round(12 / rowWidgetIds.length) : null;
+        if (equalSpan != null && draggingSpan === equalSpan) {
+          controller.setWidgetColSpan(widgetId, null);
+        } else {
+          controller.setWidgetColSpan(widgetId, draggingSpan);
+        }
+      }
+      setDraggingSpan(null);
+      (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+    },
+    [controller, widgetId, draggingSpan, rowWidgetIds],
+  );
+
   return (
-    <Paper
+    <Box sx={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Paper
       ref={ref}
       variant="outlined"
       {...slotProps?.paper}
@@ -382,6 +518,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                   sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
                 />
               )}
+              {activeSliderFilter && <SliderFilterPill filter={activeSliderFilter} source={source} onClear={() => controller.clearInteractiveFilter(widgetId)} />}
             </Stack>
             {widget.subtitle && (
               <Typography
@@ -493,5 +630,64 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         </StudioWidgetEditDialog>
       )}
     </Paper>
+    {/* Column-resize handle — right edge, edit mode only, hidden for singleton rows */}
+    {showResizeHandle && (
+      <Box
+        onPointerDown={handleResizePointerDown}
+        onPointerMove={handleResizePointerMove}
+        onPointerUp={handleResizePointerUp}
+        sx={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: 8,
+          cursor: 'col-resize',
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          '&:hover .resize-line, &:active .resize-line': {
+            opacity: 1,
+          },
+        }}
+      >
+        <Box
+          className="resize-line"
+          sx={{
+            width: 3,
+            height: '40%',
+            minHeight: 24,
+            borderRadius: 4,
+            bgcolor: draggingSpan != null ? 'primary.main' : 'action.disabled',
+            opacity: draggingSpan != null ? 1 : 0,
+            transition: 'opacity 0.15s, background-color 0.15s',
+          }}
+        />
+        {draggingSpan != null && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: '50%',
+              right: 12,
+              transform: 'translateY(-50%)',
+              bgcolor: 'primary.main',
+              color: 'primary.contrastText',
+              borderRadius: 1,
+              px: 0.75,
+              py: 0.25,
+              fontSize: 11,
+              fontWeight: 600,
+              lineHeight: 1.4,
+              pointerEvents: 'none',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {draggingSpan}/12
+          </Box>
+        )}
+      </Box>
+    )}
+  </Box>
   );
 });

@@ -218,6 +218,13 @@ export interface StudioPage {
   id: string;
   title: string;
   widgetRows: string[][]; // Each row is an array of widget IDs
+  /**
+   * Per-widget explicit column span (3–12).
+   * Widgets absent from this map take equal shares of the remaining space (`flex: 1`).
+   * The total columns in a row do not need to sum to 12 — any remainder is left as
+   * whitespace when all widgets in the row have explicit spans.
+   */
+  widgetColSpans?: Record<string, number>;
   theme?: StudioPageTheme;
 }
 

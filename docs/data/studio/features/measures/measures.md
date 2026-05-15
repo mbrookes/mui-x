@@ -13,7 +13,7 @@ githubLabel: 'scope: studio'
 
 ## What is a measure?
 
-A measure is a `StudioExpressionField` with `isMeasure: true`. Unlike a [calculated column](/x/react-studio/features/calculated-columns) (which runs once per row), a measure aggregates the **entire filtered dataset** down to a single scalar value.
+A measure is a `StudioExpressionField` with `isMeasure: true`. Unlike a [calculated column](/x/react-studio/features/calculated-columns/) (which runs once per row), a measure aggregates the **entire filtered dataset** down to a single scalar value.
 
 Measures are ideal for KPI tiles: the headline number you see in a card is typically a measure — Total Revenue, Average Order Size, Unique Customers, and so on.
 

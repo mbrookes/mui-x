@@ -40,7 +40,7 @@ When `crossFilterField` is not set, clicking a row does nothing (the grid remain
 
 All widgets automatically receive and apply cross-filters that target a field in their data source. No configuration is required on the receiving side.
 
-If the cross-filter's field lives on a related source, Studio walks the declared [relationships](/x/react-studio/data/relationships) to resolve the filter. For example, an orders grid receives a cross-filter on `customers.country` and Studio resolves the FK path `orders.customerId → customers.id` to filter the orders rows automatically.
+If the cross-filter's field lives on a related source, Studio walks the declared [relationships](/x/react-studio/data/relationships/) to resolve the filter. For example, an orders grid receives a cross-filter on `customers.country` and Studio resolves the FK path `orders.customerId → customers.id` to filter the orders rows automatically.
 
 ## Dismissing a cross-filter
 

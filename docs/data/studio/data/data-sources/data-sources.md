@@ -145,7 +145,7 @@ Inline rows are processed in-memory by Studio.
 For large datasets (tens of thousands of rows), consider:
 
 - Using an async adapter to push filtering and aggregation to the server.
-  See [Async adapters](/x/react-studio/data/async-adapters/).
+  See [Async adapters](/x/react-studio/data/async-adapters/)/).
 - Using the `?rows=N` URL parameter in `examples/x-studio` to benchmark performance.
   Studio uses `useDeferredValue` for cross-filter recomputation so the UI remains responsive.
 

@@ -1,14 +1,123 @@
-# x-studio Detailed Requirements
+# x-studio Demo: Dashboard Content Specification
 
-MUI X demo app (`examples/x-studio`) — Sales Dashboard built on `@mui/x-studio`.
+Detailed spec of what the `examples/x-studio` demo dashboard actually contains.
+For the lightweight tracker see `REQUIREMENTS.md`.
+For component-level planned features see the root `BACKLOG.md`.
 
 ---
 
 ## Summary Table
 
 | ID    | Area      | Description                                       | Status     |
-| ----- | --------- | ------------------------------------------------- | ---------- |
-| D-01  | Data      | Multi-source relational data model                | ✅ Done    |
+| :---- | :-------- | :------------------------------------------------ | :--------- |
+| D-01  | Data      | Multi-source relational sales data model          | ✅ Done    |
+| D-02  | Data      | Expression fields (calculated columns & measures) | ✅ Done    |
+| D-03  | Data      | Cross-source join projection                      | ✅ Done    |
+| DB-01 | Dashboard | Four-page dashboard                               | ✅ Done    |
+| DB-02 | Dashboard | Page-level and widget-level filters               | ✅ Done    |
+| DB-03 | Dashboard | Cross-filter (click-to-filter)                    | ✅ Done    |
+| DB-04 | Dashboard | Customers page                                    | ✅ Done    |
+| DB-05 | Dashboard | Data refresh simulation                           | 📋 Planned |
+| DB-06 | Dashboard | Shareable filter links                            | 🔭 Future  |
+| DB-07 | Dashboard | State persistence (localStorage)                  | 🔭 Future  |
+| DB-08 | Dashboard | Additional demo pages (e.g. Inventory)            | 🔭 Future  |
+
+---
+
+## ✅ Completed
+
+### D-01 · Multi-source relational data model
+
+- Orders, order items (1–5 per order), customers, products, shipments, shipment items, business metrics
+- Deterministic PRNG-generated data (seeded, reproducible); activates via `?rows=N` URL param
+- Partially Delivered order status for split shipments
+- Country-weighted order frequency (`COUNTRY_ORDER_WEIGHTS`) for realistic revenue distribution
+- Declared relationships between sources (many-to-one)
+
+### D-02 · Expression fields
+
+- Calculated columns: per-row scalar values (e.g. `margin %`, `discount %`, `expr-order-country`)
+- Measures: single aggregate values over the filtered dataset (e.g. `total revenue`, `avg order value`)
+- Expression field dialog for authoring
+- Expression fields appear in all field pickers (chart, KPI, grid, filters)
+
+### D-03 · Cross-source join projection
+
+- Chart aggregations can use a y-field from a related source
+- Join path resolved automatically via declared relationships
+- Sparkline time-field can be sourced from a related table
+
+### DB-01 · Dashboard pages
+
+**Overview page**
+- KPIs: Total Revenue (sum), Order Count (count), Avg Order Value, Enterprise Customer Count
+- Charts: Revenue Over Time (line by month), Revenue by Category (bar, split by category),
+  Top Products by Revenue (horizontal bar, top 10), Order Status Breakdown (donut)
+- Grid: Recent orders with status, country, total
+- Interactive filters: Date Range, Status toggle
+
+**Products & Logistics page**
+- KPIs: Total Shipped Value, On-Time Delivery %, Average Shipment Days
+- Charts: Shipments by Status (donut), Revenue by Product Category (bar-stacked),
+  Monthly Shipments (area)
+- Grid: Products with revenue, order count, avg margin
+
+**Customers page** (see DB-04)
+
+### DB-02 · Page-level and widget-level filters (as used in the demo)
+
+- Filters drawer scope control: page vs. widget
+- Condition mode with all operators, compound AND/OR, relative dates
+- Selection mode: multi-select chips with field value enumeration
+- Rank mode: Top N / Bottom N with rank-by field
+- Metric refs: filter value driven by a business metric row
+
+### DB-03 · Cross-filter (as used in the demo)
+
+- Clicking a chart bar/slice emits a cross-filter to other widgets on the page
+- Grid row click also emits a cross-filter
+- Source widget excluded from its own cross-filter
+- Cross-filter scope separate from user-defined page/widget filters
+
+### DB-04 · Customers page
+
+- KPIs: Lifetime Value (sum of order totals), Customer Count, Avg Order Value, Enterprise Customer Count
+- Filter widgets: Segment toggle (chip buttons) and Signup Date Range (date picker pair)
+- Charts: Customer Acquisition Over Time (bar by year), Revenue by Segment (donut),
+  Top Customers by Revenue (horizontal bar, top 12), Quarterly Revenue by Segment (stacked area)
+- Grid: Top 20 customers by total revenue, order count + revenue sum
+- Cross-source joins: order-based charts use `expr-order-company`, `expr-order-segment`,
+  `expr-order-country` expression fields
+- Filter widgets pass `filterSourceId` for cross-source application
+- Bookmarkable via `?page=customers`
+
+---
+
+## 📋 Planned
+
+### DB-05 · Data refresh simulation
+
+- "Refresh" button in the demo toolbar
+- Re-runs the PRNG generator with a time-shifted seed to simulate new data arriving
+- KPI trend deltas and sparklines should visibly update after refresh
+
+---
+
+## 🔭 Future
+
+### DB-06 · Shareable filter links
+
+- Encode the active filter state into URL query params
+- "Copy link" button restores the same view on reload
+
+### DB-07 · State persistence
+
+- Auto-save dashboard config to `localStorage` on every change
+- Restore on page reload with schema migration
+
+### DB-08 · Additional demo pages
+
+- **Inventory** page: stock levels, reorder alerts, supplier breakdown chart
 | D-02  | Data      | Expression fields (calculated columns & measures) | ✅ Done    |
 | D-03  | Data      | Cross-source join projection                      | ✅ Done    |
 | D-04  | Data      | Async / real data connector                       | 🔭 Future  |

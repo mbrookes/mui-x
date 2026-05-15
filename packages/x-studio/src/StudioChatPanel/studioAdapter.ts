@@ -206,6 +206,19 @@ function executeTool(toolName: string, input: unknown, controller: StudioControl
       return JSON.stringify({ success: true, widgetId });
     }
 
+    case 'set_widget_layout': {
+      const rows = args.rows as string[][];
+      if (!Array.isArray(rows)) {
+        return JSON.stringify({ error: 'set_widget_layout requires a "rows" array.' });
+      }
+      try {
+        controller.setWidgetLayout(rows);
+        return JSON.stringify({ success: true, rows });
+      } catch (err) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
     default:
       return JSON.stringify({ error: `Unknown tool: ${toolName}` });
   }

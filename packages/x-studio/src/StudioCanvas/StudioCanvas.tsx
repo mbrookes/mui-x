@@ -427,10 +427,13 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
               // Insertion points have a fixed 8px width each; percentage-based flex-basis
               // would sum to 100% *before* those, causing overflow.  Flex-grow distributes
               // only the remaining space after fixed items, so the row fills correctly.
+              // Default flex-grow: 12/rowLength so unsized widgets match the same ratio
+              // as the startSpan computed in StudioWidgetCard on drag start.
               // View mode: use percentage flex-basis (no insertion points present).
+              const defaultFlexGrow = Math.round(12 / row.length);
               const flexValue =
                 mode === 'edit'
-                  ? `${span ?? 1} 0 0`
+                  ? `${span ?? defaultFlexGrow} 0 0`
                   : span != null
                     ? `0 0 ${(span / 12) * 100}%`
                     : 1;
@@ -462,18 +465,43 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                         }
                         const overrides: Record<string, number | null> = { [widgetId]: liveSpan };
                         const otherIds = row.filter((id) => id !== widgetId);
-                        const otherStoredTotal = otherIds.reduce(
-                          (sum, id) => sum + (widgetColSpans?.[id] ?? 0),
+                        const remaining = 12 - liveSpan;
+
+                        // Always include every sibling in overrides so no widget falls
+                        // back to the `span ?? defaultFlexGrow` render default and causes
+                        // a ratio discontinuity between pre-drag and drag-start states.
+                        const siblingStoredSpans = otherIds.map(
+                          (id) => widgetColSpans?.[id] ?? null,
+                        );
+                        const explicitSiblingTotal = siblingStoredSpans.reduce<number>(
+                          (sum, s) => sum + (s ?? 0),
                           0,
                         );
-                        if (liveSpan + otherStoredTotal > 12) {
+                        const unsizedCount = siblingStoredSpans.filter((s) => s == null).length;
+                        // Each unsized sibling gets an equal share of what remains after
+                        // sized siblings and the dragged widget, clamped to min 3.
+                        const unsizedShare =
+                          unsizedCount > 0
+                            ? Math.max(
+                                3,
+                                Math.round((remaining - explicitSiblingTotal) / unsizedCount),
+                              )
+                            : 0;
+                        const effectiveSiblingTotal =
+                          explicitSiblingTotal + unsizedCount * unsizedShare;
+
+                        if (effectiveSiblingTotal > remaining) {
+                          // Overflow after accounting for effective spans: adjust siblings.
                           if (otherIds.length === 1) {
-                            const remaining = 12 - liveSpan;
                             overrides[otherIds[0]] = remaining >= 3 ? remaining : null;
                           } else {
                             for (const id of otherIds) {
                               overrides[id] = null;
                             }
+                          }
+                        } else {
+                          for (let i = 0; i < otherIds.length; i++) {
+                            overrides[otherIds[i]] = siblingStoredSpans[i] ?? unsizedShare;
                           }
                         }
                         setDragOverrides(overrides);

@@ -212,8 +212,8 @@ All six `setState` calls in `onStateChange` are batched into a single re-render 
 
 ## Next steps
 
-- [Studio component](/x/react-studio/getting-started/studio/) — full `<Studio>` API, `StudioHandle`, and slot props
-- [Composed approach](/x/react-studio/getting-started/composition/) — build a custom layout using `StudioProvider` and individual pieces
-- [Inline data sources](/x/react-studio/data/data-sources/) — the full `StudioDataSource` and `StudioDataField` shapes
-- [Async adapters](/x/react-studio/data/async-adapters/) — delegate filtering and aggregation to your server
-- [AI assistant](/x/react-studio/ai/setup/) — add an AI chat panel with tool calling
+- [Studio component](/x/react-studio/getting-started/studio/)/) — full `<Studio>` API, `StudioHandle`, and slot props
+- [Composed approach](/x/react-studio/getting-started/composition/)/) — build a custom layout using `StudioProvider` and individual pieces
+- [Inline data sources](/x/react-studio/data/data-sources/)/) — the full `StudioDataSource` and `StudioDataField` shapes
+- [Async adapters](/x/react-studio/data/async-adapters/)/) — delegate filtering and aggregation to your server
+- [AI assistant](/x/react-studio/ai/setup/)/) — add an AI chat panel with tool calling

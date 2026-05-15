@@ -248,7 +248,7 @@ It accepts `slotProps.widgetCard` to customize every card on the canvas:
 />
 ```
 
-See [Slot props](/x/react-studio/customization/slot-props/) for the full hierarchy.
+See [Slot props](/x/react-studio/customization/slot-props/)/) for the full hierarchy.
 
 ## Hiding the sidebar in view mode
 

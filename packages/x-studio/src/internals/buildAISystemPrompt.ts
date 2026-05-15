@@ -127,6 +127,22 @@ export function buildAISystemPrompt(state: StudioState): string {
       }
     }
     lines.push('');
+
+    // Layout: show current widgetRows so the LLM can reason about rearrangements
+    const widgetRows = activePage.widgetRows ?? [];
+    if (widgetRows.length > 0) {
+      lines.push('## Layout (current widgetRows — use set_widget_layout to rearrange)');
+      widgetRows.forEach((row, i) => {
+        const rowDesc = row
+          .map((id) => {
+            const w = widgets[id];
+            return w ? `${id} ("${w.title}", ${w.kind})` : id;
+          })
+          .join(', ');
+        lines.push(`Row ${i + 1}: ${rowDesc}`);
+      });
+      lines.push('');
+    }
   }
 
   // Data sources
@@ -159,6 +175,9 @@ export function buildAISystemPrompt(state: StudioState): string {
   );
   lines.push('- Use the widget id from the state when updating or removing a widget.');
   lines.push('- For data questions, reason from the field names and aggregations described above.');
+  lines.push(
+    '- To rearrange widgets (e.g. "put the KPI widgets on the same row"), use set_widget_layout with a full rows array. Every widget on the page must appear in the new layout.',
+  );
 
   return lines.join('\n');
 }

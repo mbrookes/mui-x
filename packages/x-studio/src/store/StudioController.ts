@@ -385,6 +385,57 @@ export class StudioController {
     });
   };
 
+  /**
+   * Sets the column span for `widgetId` and, if the row's total would exceed 12,
+   * adjusts sibling spans to keep the row valid:
+   * - 2-widget row: sibling is shrunk to the remaining columns (12 - span)
+   * - 3+ widget row: siblings' explicit spans are cleared so they share remaining space via flex:1
+   */
+  setWidgetColSpanInRow = (widgetId: string, span: number | null, rowWidgetIds: string[]): void => {
+    const state = this.store.state;
+    const activePage = state.pages[state.dashboard.activePageId];
+    if (!activePage) {
+      return;
+    }
+    const clamped = span == null ? null : Math.max(3, Math.min(12, Math.round(span)));
+    const newSpans: Record<string, number> = { ...(activePage.widgetColSpans ?? {}) };
+
+    if (clamped == null) {
+      delete newSpans[widgetId];
+    } else {
+      newSpans[widgetId] = clamped;
+      const otherIds = rowWidgetIds.filter((id) => id !== widgetId);
+      const otherTotal = otherIds.reduce((sum, id) => sum + (newSpans[id] ?? 0), 0);
+      if (clamped + otherTotal > 12) {
+        if (otherIds.length === 1) {
+          // Shrink the sibling to the remaining space
+          const remaining = 12 - clamped;
+          if (remaining >= 3) {
+            newSpans[otherIds[0]] = remaining;
+          } else {
+            delete newSpans[otherIds[0]];
+          }
+        } else {
+          // Clear all siblings — they share remaining space via flex:1
+          for (const id of otherIds) {
+            delete newSpans[id];
+          }
+        }
+      }
+    }
+
+    this.commitState({
+      ...state,
+      pages: {
+        ...state.pages,
+        [activePage.id]: {
+          ...activePage,
+          widgetColSpans: Object.keys(newSpans).length > 0 ? newSpans : undefined,
+        },
+      },
+    });
+  };
+
   removeWidget = (widgetId: string) => {
     const state = this.store.state;
     const activePage = state.pages[state.dashboard.activePageId];
@@ -395,9 +446,15 @@ export class StudioController {
     const newWidgetRows = widgetRows
       .map((row) => row.filter((id) => id !== widgetId))
       .filter((row) => row.length > 0);
-    // Also clean up any explicit column span for this widget
+    // Clean up the removed widget's span, and also clear spans for any widgets that are
+    // now the sole occupant of their row (orphaned singleton — span no longer meaningful).
     const { [widgetId]: _span, ...remainingSpans } = activePage.widgetColSpans ?? {};
     void _span;
+    for (const row of newWidgetRows) {
+      if (row.length === 1 && remainingSpans[row[0]] != null) {
+        delete remainingSpans[row[0]];
+      }
+    }
     this.commitState({
       ...state,
       widgets: remainingWidgets,

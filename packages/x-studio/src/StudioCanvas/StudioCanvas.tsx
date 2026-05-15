@@ -152,12 +152,12 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   const controller = useStudioController();
   const canvasRef = React.useRef<HTMLDivElement>(null);
 
-  // Live resize: tracks which widget is being dragged and what column span
-  // the user has snapped to, before the pointer is released.
-  const [dragSpanOverride, setDragSpanOverride] = React.useState<{
-    widgetId: string;
-    span: number;
-  } | null>(null);
+  // Live resize: maps widgetId → adjusted span during a drag (null = revert to flex:1).
+  // The dragged widget's entry is the live snap value; sibling entries are adjusted
+  // to prevent the row total from exceeding 12 columns.
+  const [dragOverrides, setDragOverrides] = React.useState<Record<string, number | null> | null>(
+    null,
+  );
 
   // ── Auto-scroll while dragging near the top/bottom viewport edge ────────────
   React.useEffect(() => {
@@ -420,8 +420,8 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
             )}
             {row.map((widgetId, colIndex) => {
               const span =
-                dragSpanOverride?.widgetId === widgetId
-                  ? dragSpanOverride.span
+                dragOverrides != null && widgetId in dragOverrides
+                  ? dragOverrides[widgetId]
                   : (widgetColSpans?.[widgetId] ?? null);
               const pct = span != null ? `${(span / 12) * 100}%` : undefined;
               const isSingleInRow = row.length === 1;
@@ -443,11 +443,29 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                       pageTheme={pageTheme}
                       canvasRef={canvasRef}
                       rowWidgetIds={row}
-                      onResizeDrag={(liveSpan) =>
-                        setDragSpanOverride(
-                          liveSpan != null ? { widgetId, span: liveSpan } : null,
-                        )
-                      }
+                      onResizeDrag={(liveSpan) => {
+                        if (liveSpan == null) {
+                          setDragOverrides(null);
+                          return;
+                        }
+                        const overrides: Record<string, number | null> = { [widgetId]: liveSpan };
+                        const otherIds = row.filter((id) => id !== widgetId);
+                        const otherStoredTotal = otherIds.reduce(
+                          (sum, id) => sum + (widgetColSpans?.[id] ?? 0),
+                          0,
+                        );
+                        if (liveSpan + otherStoredTotal > 12) {
+                          if (otherIds.length === 1) {
+                            const remaining = 12 - liveSpan;
+                            overrides[otherIds[0]] = remaining >= 3 ? remaining : null;
+                          } else {
+                            for (const id of otherIds) {
+                              overrides[id] = null;
+                            }
+                          }
+                        }
+                        setDragOverrides(overrides);
+                      }}
                       {...slotProps?.widgetCard}
                     />
                   </Box>

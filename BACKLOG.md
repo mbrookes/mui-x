@@ -59,3 +59,96 @@ BL-16: ~~the delete button for fields doesn't line up vertically with the textfi
 ~~BL-28: When dragging a widget past the top or bottom of the page, make sure the page scrolls.~~ **Fixed** (added `dragover` edge-scroll in `StudioCanvas`: finds nearest scrollable ancestor, starts a rAF loop when pointer is within 80px of viewport top/bottom, stops on drop/dragleave)
 
 ~~BL-29: Adding a cross-filter: (Company = Tech Systems From: Top Customers by Revenue) revenue charts still show multiple segments even thoug company.segment can only be one~~ **Fixed** (chart click cross-filters now use the owning source of `xField` from `chartSupport.fieldOwners`, so related-source dimensions like customer company filter through the correct join path)
+
+---
+
+## Component Feature Backlog
+
+Items migrated from `examples/x-studio/REQUIREMENTS.md` — these are features of
+`@mui/x-studio` itself, not the demo app.
+
+### 📋 Planned
+
+**Dashboard**
+
+BL-30: Dashboard-level date range filter — single date range picker driving all KPI/chart/grid widgets as a page-level filter; pre-sets: This month, Last 3 months, Last 12 months, Year-to-date, All time
+
+BL-31: Drill-down / detail panel — click a chart segment or grid row → slide-in panel showing related child rows; resolves relationship paths from the data model automatically; breadcrumb trail for multi-level drill
+
+**Grid widget**
+
+BL-32: Grid conditional formatting — rule-based cell colour (e.g. negative margin → red); configurable in the Format tab; multiple rules per column, first-match wins
+
+BL-33: Grid totals / summary row — pinned footer showing sum/avg/count per configured column; toggle per column in the compose drawer
+
+**Chart widget**
+
+BL-34: Scatter chart configuration — expose X field, Y field, size field, and colour-by field in the compose drawer (currently hardcoded in the demo config)
+
+BL-35: Pie/donut label formatting — label position (inside/outside/legend-only), label content (value/percent/both), minimum-slice threshold to suppress tiny-slice labels
+
+**KPI widget**
+
+BL-36: KPI target line — optional reference value (from a businessMetrics data source) shown on the sparkline; delta badge compares to target rather than prior period; configurable source field + row ID
+
+BL-37: Per-widget chart palette override — override the page-level chart palette on individual chart widgets using the same colour-picker UI
+
+**Canvas authoring**
+
+BL-38: Widget resize — drag handle on the card edge to change column span within a row; snaps to MUI Grid breakpoints (1–12); persisted in `widgetRows` layout config
+
+BL-39: Row management + layout picker — "Add row" / "Remove row" buttons; preset layout picker (1-col, 2-equal, 3-equal, sidebar-left, sidebar-right)
+
+BL-40: Widget reorder within a row — drag-and-drop to swap positions within a row; also allow moving a widget to a different row
+
+**Filters**
+
+BL-41: Saved views / filter presets — name and save the current filter state; recall from a dropdown above the canvas; presets serialized with the dashboard state
+
+BL-42: Quick filter bar — compact row of active-filter chips pinned above the canvas; click to jump to the filter in the drawer; "Clear all" shortcut
+
+BL-43: Global filter search — search box at the top of the filters drawer; narrows the filter card list by field name or current value
+
+BL-44: Filter dependency (cascading) — when a parent filter is set (e.g. Country), child filter options (e.g. State) narrow automatically; dependency declared in filter setup
+
+### 🔭 Future
+
+**Data**
+
+BL-45: Real data connector — pluggable `DataLoader` interface (`async fetchRows(sourceId, filters)`); adapters for REST, GraphQL, SQL via thin server proxy; loading states and error handling in widget cards
+
+BL-46: Pivot table widget — row/column/value field pickers; collapsible row groups; export to CSV
+
+BL-47: Ad-hoc formula bar — lightweight single-expression input in chart/KPI setup; creates a one-off expression field without opening the full expression dialog
+
+BL-48: Data lineage view — graph view in the data drawer showing sources as nodes and declared relationships as edges; click an edge to inspect join key fields
+
+**New chart types**
+
+BL-49: Mixed chart (bar + line) — dual-series chart with one series as bars and another as a line overlay; secondary Y axis (e.g. revenue bars + margin % line)
+
+BL-50: Map / choropleth — country or region data on a world map; colour scale from a numeric field; tooltip on hover
+
+BL-51: Gantt / timeline chart — start/end date fields; optional colour-by status field; useful for shipment delivery windows
+
+BL-52: Heatmap — two categorical axes + numeric value → colour intensity grid (e.g. day-of-week × hour revenue)
+
+BL-53: Funnel chart — ordered stages with value and drop-off percentage
+
+BL-54: Chart annotations — user-placed text callout or horizontal/vertical reference line; stored in widget config; visible in edit and view mode
+
+**Authoring**
+
+BL-55: Move widgets across pages — drag a widget card onto another page tab; or right-click → "Move to page" context menu
+
+BL-56: Widget template library — panel of pre-built chart/KPI configs the user can drag onto the canvas; Studio auto-maps fields from the active data source
+
+BL-57: Visual expression builder — node-graph editor for building expression trees; replaces the JSON-based dialog; includes live value preview
+
+BL-58: Natural language widget creation — text prompt → inferred chart type, fields, and filters (e.g. "Show me revenue by country as a bar chart for last year")
+
+**Platform**
+
+BL-59: Embeddable SDK — `<StudioDashboard config={…} dataLoader={…} />` with sensible defaults; zero-config auto-discovery mode; publishable as a standalone npm package
+
+BL-60: Multi-user / permissions — view-only mode (no compose/filter drawers); per-page and per-widget visibility rules; user roles: viewer, editor, admin

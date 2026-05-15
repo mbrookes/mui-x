@@ -94,6 +94,21 @@ const COUNTRY_CURRENCY: Record<string, string> = {
   Australia: 'AUD',
 };
 
+// Relative order-frequency weights per country. Higher values mean more orders
+// are assigned to customers in that country, producing natural revenue variance.
+const COUNTRY_ORDER_WEIGHTS: Record<string, number> = {
+  USA: 3.0,
+  UK: 2.0,
+  Germany: 1.5,
+  France: 1.2,
+  Canada: 1.2,
+  Netherlands: 1.0,
+  Australia: 1.0,
+  Sweden: 0.8,
+  Spain: 0.8,
+  Poland: 0.6,
+};
+
 const SEGMENTS = ['Enterprise', 'Mid-Market', 'SMB'] as const;
 
 const ORDER_STATUSES = [
@@ -359,8 +374,15 @@ function generateOrders(
   customerRows: Record<string, unknown>[],
 ): { source: StudioDataSource; rows: GeneratedOrder[] } {
   const rows: GeneratedOrder[] = [];
+  // Pre-compute per-customer weights so weighted pick reflects country order frequency.
+  const customerWeights = customerRows.map(
+    (c) => COUNTRY_ORDER_WEIGHTS[String(c.country)] ?? 1,
+  );
+  const weightSum = customerWeights.reduce((s, w) => s + w, 0);
+  const customerWeightsNorm = customerWeights.map((w) => w / weightSum);
+
   for (let i = 0; i < count; i++) {
-    const customer = pick(rng, customerRows);
+    const customer = pickWeighted(rng, customerRows, customerWeightsNorm);
     const country = customer.country as string;
     rows.push({
       id: `ORD-${zeroPad(i + 1, 4)}`,

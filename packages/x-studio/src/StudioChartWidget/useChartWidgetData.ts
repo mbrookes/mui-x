@@ -52,7 +52,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
   // Page-level chart colour palette (undefined → charts use their default).
   const chartColors = usePageChartColors();
 
-  const { filteredRows, filteredRowsNoCross, hasCrossFilters, isLoading, isRecomputing } = useWidgetRows(widget, dataSource);
+  const { filteredRows, filteredRowsNoCross, hasCrossFilters, shouldShowGhost, effectiveRows, isLoading, isRecomputing } = useWidgetRows(widget, dataSource);
 
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {
@@ -88,7 +88,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
   );
 
   // Resolve chart rows at the right grain for direct related fields used by x/series/y.
-  const enrichedRows = useChartRows(filteredRows, widget, activeYFields, chartSupport);
+  const enrichedRows = useChartRows(effectiveRows, widget, activeYFields, chartSupport);
 
   // Enriched rows from non-cross-filtered data — used to compute stable series names.
   const allEnrichedRows = useChartRows(filteredRowsNoCross, widget, activeYFields, chartSupport);
@@ -206,9 +206,9 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
   }, [enrichedRows, config.xField, activeYFields, widgetRankFilter, xGroupBy]);
 
   // Full (baseline) aggregations — used for ghost rendering when cross-filters are active.
-  // Only computed when hasCrossFilters to avoid wasteful work.
+  // Only computed when shouldShowGhost to avoid wasteful work.
   const allChartData = React.useMemo(() => {
-    if (!hasCrossFilters) {
+    if (!shouldShowGhost) {
       return null;
     }
     const xField = config.xField;
@@ -231,7 +231,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
       },
     );
   }, [
-    hasCrossFilters,
+    shouldShowGhost,
     allEnrichedRows,
     config.xField,
     activeYFields,
@@ -242,7 +242,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
   ]);
 
   const allSeriesFieldData = React.useMemo(() => {
-    if (!hasCrossFilters) {
+    if (!shouldShowGhost) {
       return null;
     }
     const xField = config.xField;
@@ -262,7 +262,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
         ),
     );
   }, [
-    hasCrossFilters,
+    shouldShowGhost,
     allEnrichedRows,
     config.xField,
     config.seriesField,
@@ -272,7 +272,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
   ]);
 
   const allMultiYData = React.useMemo(() => {
-    if (!hasCrossFilters) {
+    if (!shouldShowGhost) {
       return null;
     }
     const xField = config.xField;
@@ -288,7 +288,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
         return applyRankToMultiSeries(raw, widgetRankFilter);
       },
     );
-  }, [hasCrossFilters, allEnrichedRows, config.xField, activeYFields, widgetRankFilter, xGroupBy]);
+  }, [shouldShowGhost, allEnrichedRows, config.xField, activeYFields, widgetRankFilter, xGroupBy]);
 
   // Data for scatter charts
   const scatterData = React.useMemo(() => {
@@ -318,6 +318,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     multiYData,
     scatterData,
     hasCrossFilters,
+    shouldShowGhost,
     allChartData,
     allSeriesFieldData,
     allMultiYData,

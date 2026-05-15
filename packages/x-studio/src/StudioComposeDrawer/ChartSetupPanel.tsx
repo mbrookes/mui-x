@@ -11,6 +11,8 @@ import {
   MenuItem,
   Select,
   Stack,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -28,7 +30,7 @@ import {
   getChartSupportMessage,
   getReachableSourceIds,
 } from '../internals/chartUtils';
-import type { StudioChartType, StudioBarLayout } from '../models';
+import type { StudioChartType, StudioBarLayout, StudioCrossFilterMode } from '../models';
 import { ChartTypePicker } from './ChartTypePicker';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
@@ -441,6 +443,37 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           </Tooltip>
         </div>
       )}
+      {/* Interactions — cross-filter mode */}
+      <div>
+        <Divider sx={{ mb: 1.5 }} />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+          Interactions
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+          When other widgets are clicked, this chart…
+        </Typography>
+        <ToggleButtonGroup
+          value={(config.crossFilterMode ?? 'cross-highlight') as StudioCrossFilterMode}
+          exclusive
+          onChange={(_e, value: StudioCrossFilterMode | null) => {
+            controller.updateWidgetConfig(widgetId, {
+              crossFilterMode: value ?? 'cross-highlight',
+            });
+          }}
+          size="small"
+          fullWidth
+        >
+          <ToggleButton value="cross-highlight" sx={{ fontSize: 11, textTransform: 'none' }}>
+            Highlight
+          </ToggleButton>
+          <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
+            Filter
+          </ToggleButton>
+          <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
+            None
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </div>
     </Stack>
   );
 }

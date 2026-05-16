@@ -73,9 +73,60 @@ function CrossFilterBadge() {
 }
 ```
 
+## Per-widget cross-filter mode
+
+By default, when a widget receives a cross-filter it **dims** non-matching data points while keeping them visible. This is called _cross-highlight_ mode. You can change this behaviour per widget using `crossFilterMode` in the widget config:
+
+```ts
+{
+  crossFilterMode: 'cross-highlight', // default — dims non-matching data, keeps them visible
+  crossFilterMode: 'cross-filter',    // hides non-matching data entirely (true filtering)
+  crossFilterMode: 'none',            // widget ignores all incoming cross-filters
+}
+```
+
+| Value | Behaviour |
+| :--- | :--- |
+| `'cross-highlight'` | Non-matching data points are dimmed/greyed. The full dataset is still visible. This is the default for all widgets. |
+| `'cross-filter'` | Non-matching rows are removed. Only rows that match the cross-filter are shown. Use this to build filter widgets that enforce a strict selection. |
+| `'none'` | The widget ignores incoming cross-filters entirely. Use this to keep a reference widget always showing the full picture while others react to user clicks. |
+
+### Example — strictly filtered widget
+
+```ts
+const config: StudioWidgetConfig = {
+  xField: 'country',
+  yField: 'revenue',
+  crossFilterMode: 'cross-filter', // clicking a country bar hides all other countries
+};
+```
+
+### Example — reference widget
+
+```ts
+const config: StudioWidgetConfig = {
+  xField: 'date',
+  yField: 'total',
+  crossFilterMode: 'none', // always shows the full time series regardless of cross-filters
+};
+```
+
+The `crossFilterMode` setting does not affect cross-filter _emission_ — it only changes how the widget _responds_ to filters emitted by other widgets.
+
+The mode can be changed at runtime (it is persisted in widget config):
+
+```ts
+studioRef.current?.updateWidget('chart-revenue', (w) => ({
+  ...w,
+  config: { ...w.config, crossFilterMode: 'cross-filter' },
+}));
+```
+
+Users can also change it from the widget's settings panel in edit mode.
+
 ## Disabling cross-filters
 
-To prevent a specific widget from receiving cross-filters, there is currently no per-widget opt-out flag — all widgets on the page participate. If you need to isolate a widget, place it on a separate page.
+To prevent a specific widget from receiving any cross-filters, set `crossFilterMode: 'none'` in its config. To prevent all widgets on a page from participating, place the widgets on a separate page.
 
 ## See also
 

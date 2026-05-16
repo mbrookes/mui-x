@@ -181,3 +181,7 @@ export type { StudioAIConfig } from './StudioChatPanel/studioAdapter';
 export { buildAISystemPrompt } from './internals/buildAISystemPrompt';
 export { STUDIO_AI_TOOLS } from './StudioChatPanel/studioAITools';
 export type { StudioAIToolName } from './StudioChatPanel/studioAITools';
+
+// ─── Server adapter utilities ─────────────────────────────────────────────────
+export { createBatchingAdapter } from './server/createBatchingAdapter';
+export type { BatchingAdapterOptions } from './server/createBatchingAdapter';

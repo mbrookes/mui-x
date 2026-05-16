@@ -10,6 +10,10 @@ export type { StudioCanvasProps } from './StudioCanvas/StudioCanvas';
 export { StudioWidgetCard } from './StudioWidgetCard/StudioWidgetCard';
 export type { StudioWidgetCardProps } from './StudioWidgetCard/StudioWidgetCard';
 
+// ─── StudioNoDataOverlay ──────────────────────────────────────────────────────
+export { StudioNoDataOverlay } from './internals/StudioNoDataOverlay';
+export type { StudioNoDataOverlayProps } from './internals/StudioNoDataOverlay';
+
 // ─── StudioGridWidget ─────────────────────────────────────────────────────────
 export { StudioGridWidget } from './StudioGridWidget/StudioGridWidget';
 export type { StudioGridWidgetProps } from './StudioGridWidget/StudioGridWidget';

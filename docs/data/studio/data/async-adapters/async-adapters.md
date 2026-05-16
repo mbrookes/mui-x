@@ -290,8 +290,89 @@ async getRows(descriptor) {
 }
 ```
 
+## Batching multiple widgets into one request
+
+By default, each widget fires its own `getRows()` call independently. On a page with 10 widgets, this produces 10 separate HTTP requests. Use `createBatchingAdapter` from `@mui/x-studio` to collapse all widget requests within a 50 ms window into a single `POST` request.
+
+```ts
+import { createBatchingAdapter } from '@mui/x-studio';
+
+const ordersSource: StudioDataSource = {
+  id: 'orders',
+  label: 'Orders',
+  fields: [...],
+  adapter: createBatchingAdapter('https://api.example.com/api/studio-data'),
+};
+```
+
+All data sources that point to the **same endpoint URL** share one batcher — a page with 10 widgets querying different sources via the same API endpoint produces exactly **one** HTTP request per 50 ms window.
+
+### Batch request format
+
+The adapter sends a single `POST` with all pending widget descriptors:
+
+```json
+{
+  "pageId": "page-1",
+  "widgets": [
+    { "id": "widget-revenue", "table": "orders", "columns": ["date", "total"], "filters": [] },
+    { "id": "widget-by-country", "table": "orders", "columns": ["country", "total"], "filters": [] }
+  ]
+}
+```
+
+### Batch response format
+
+Your server must return results keyed by the widget `id`:
+
+```json
+{
+  "pageId": "page-1",
+  "results": [
+    { "id": "widget-revenue", "rows": [...], "tier": "client", "rowCount": 2000 },
+    { "id": "widget-by-country", "rows": [...], "tier": "client", "rowCount": 2000 }
+  ]
+}
+```
+
+### `BatchingAdapterOptions`
+
+```ts
+import { createBatchingAdapter, type BatchingAdapterOptions } from '@mui/x-studio';
+
+const adapter = createBatchingAdapter('/api/studio-data', {
+  batchDelayMs: 50,    // default — window to collect widget requests
+  fetchFn: myFetch,    // custom fetch (for auth headers, interceptors, etc.)
+});
+```
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `batchDelayMs` | `number` | `50` | Window in milliseconds to collect widget requests before dispatching. |
+| `fetchFn` | `typeof fetch` | `globalThis.fetch` | Custom fetch implementation. Useful for adding auth headers or test mocks. |
+
+### Adding auth headers
+
+```ts
+const adapter = createBatchingAdapter('/api/studio-data', {
+  fetchFn: (url, init) =>
+    fetch(url, {
+      ...init,
+      headers: {
+        ...init?.headers,
+        Authorization: `Bearer ${getAccessToken()}`,
+      },
+    }),
+});
+```
+
+### Server-side counterpart
+
+`createBatchingAdapter` is designed to work with the [`@mui/x-studio-server`](/x/react-studio/data/server-middleware/) package, which provides a framework-agnostic `handleBatchQuery()` handler that processes the batch, applies security predicates, and routes queries to the optimal execution tier. See the [Server middleware](/x/react-studio/data/server-middleware/) guide for the full server setup.
+
 ## See also
 
 - [Inline data sources](/x/react-studio/data/data-sources/) — synchronous inline rows for smaller datasets
 - [Relationships](/x/react-studio/data/relationships/) — declare foreign-key joins between data sources
+- [Server middleware](/x/react-studio/data/server-middleware/) — `@mui/x-studio-server` batch handler with security, caching, and adaptive routing
 - [Save & load](/x/react-studio/persistence/save-and-load/) — persist and restore dashboard state; adapters are re-attached after load

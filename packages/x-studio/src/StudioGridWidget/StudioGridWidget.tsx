@@ -15,6 +15,7 @@ import { formatFieldValue } from '../internals/numberFormat';
 import { buildGroupedGridRows } from '../utils/gridGrouping';
 import { computeGridSummary } from '../utils/gridSummary';
 import { useWidgetRows } from '../internals/useWidgetRows';
+import { StudioNoDataOverlay } from '../internals/StudioNoDataOverlay';
 
 export interface StudioGridWidgetProps {
   widget: StudioWidget;
@@ -79,7 +80,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     });
   }, [dataSource, expressionFields, visibleFields]);
 
-  const { filteredRows } = useWidgetRows(widget, dataSource);
+  const { filteredRows, isLoading } = useWidgetRows(widget, dataSource);
 
   const rows = React.useMemo(() => {
     if (widget.config.gridGroupByField) {
@@ -158,7 +159,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         rows={rows}
         pinnedRows={pinnedRows}
         hideFooter
+        loading={isLoading}
         disableRowSelectionOnClick
+        slots={{ noRowsOverlay: StudioNoDataOverlay }}
         getRowId={(row) =>
           // eslint-disable-next-line no-underscore-dangle
           ((row as Record<string, unknown>).__rowId ??

@@ -34,6 +34,7 @@ import type { StudioNumberFormat } from '../models/studio';
 import { useChartWidgetData } from './useChartWidgetData';
 import { buildMultiYLineSeries } from './lineSeries';
 import { CrossFilterBarContext, CrossFilterGhostBar } from './CrossFilterGhostBar';
+import { StudioNoDataOverlay } from '../internals/StudioNoDataOverlay';
 
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
@@ -218,6 +219,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     allChartData,
     allSeriesFieldData,
     allMultiYData,
+    filteredRows,
+    isLoading,
   } = useChartWidgetData(widget, dataSource);
 
   const chartHighlightStateKey = React.useMemo(
@@ -726,6 +729,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         <Typography variant="body2">{getChartSupportMessage(chartSupport.reason)}</Typography>
       </Box>
     );
+  }
+
+  // No data after filtering — show overlay instead of an empty chart canvas
+  if (!isLoading && filteredRows.length === 0) {
+    return <StudioNoDataOverlay height={chartHeight} />;
   }
 
   // Scatter chart

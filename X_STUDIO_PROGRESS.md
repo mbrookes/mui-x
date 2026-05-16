@@ -1,7 +1,7 @@
 # @mui/x-studio — Requirements Progress Tracker
 
 > Source of truth: [`examples/x-studio/REQUIREMENTS-DETAILED.md`](examples/x-studio/REQUIREMENTS-DETAILED.md)
-> Last updated: 2026-05-01
+> Last updated: 2026-05-16
 
 ---
 
@@ -21,14 +21,15 @@
 | DB-03 | Dashboard | Cross-filter (click-to-filter)            | ✅ Completed |
 | DB-04 | Dashboard | Dashboard-level date range filter         | 📋 Planned   |
 | DB-05 | Dashboard | Drill-down / detail panel                 | 📋 Planned   |
-| DB-06 | Dashboard | Additional demo pages (Customers etc.)    | 📋 Planned   |
+| DB-06 | Dashboard | Customers page                            | ✅ Completed |
 | DB-07 | Dashboard | Data refresh simulation                   | 📋 Planned   |
-| DB-08 | Dashboard | State persistence (save/restore)          | 🔭 Future    |
+| DB-08 | Dashboard | State persistence (save/restore JSON)     | ✅ Completed |
 | DB-09 | Dashboard | Shareable filter links (URL encoding)     | 🔭 Future    |
 | W-01  | Widget    | Grid: sort, export, cross-filter          | ✅ Completed |
 | W-02  | Widget    | Grid: conditional formatting              | 📋 Planned   |
 | W-03  | Widget    | Grid: totals / summary row                | 📋 Planned   |
 | W-04  | Widget    | Chart: all major types + horizontal       | ✅ Completed |
+| W-04a | Widget    | Chart: crossFilterMode per widget         | ✅ Completed |
 | W-05  | Widget    | Chart: scatter axis configuration         | 📋 Planned   |
 | W-06  | Widget    | Chart: pie/donut label formatting         | 📋 Planned   |
 | W-07  | Widget    | Chart: mixed (bar + line on same axes)    | 🔭 Future    |
@@ -46,7 +47,7 @@
 | C-03  | Compose   | Auto-inferred titles + manual override    | ✅ Completed |
 | C-04  | Compose   | Page theming (bg, cards, palette)         | ✅ Completed |
 | C-05  | Compose   | Undo / redo                               | ✅ Completed |
-| C-06  | Compose   | Widget resize (column width)              | 📋 Planned   |
+| C-06  | Compose   | Widget resize (column width)              | ✅ Completed |
 | C-07  | Compose   | Row add/remove and layout picker          | 📋 Planned   |
 | C-08  | Compose   | Widget reorder within / across rows       | 📋 Planned   |
 | C-09  | Compose   | Saved views / filter presets              | 📋 Planned   |
@@ -66,6 +67,11 @@
 | A-04  | Arch      | Field capability system                   | ✅ Completed |
 | A-05  | Arch      | Embeddable SDK / zero-config consumer API | 🔭 Future    |
 | A-06  | Arch      | Multi-user / permissions                  | 🔭 Future    |
+| A-07  | Arch      | AI chat assistant (`StudioChatPanel`)     | ✅ Completed |
+| A-08  | Arch      | Slot props chain (canvas → card → widget) | ✅ Completed |
+| A-09  | Arch      | Async data source adapter interface       | ✅ Completed |
+| A-10  | Arch      | `@mui/x-studio-server` middleware package | ✅ Completed |
+| A-11  | Arch      | `sidebarLayout` + `sidebarSide` props     | ✅ Completed |
 
 ---
 
@@ -93,10 +99,9 @@
 
 ### DB-01 · Multi-page dashboard with theming
 
-- Two pages: Overview and Products & Logistics
+- Four pages: Overview, Products & Logistics, (third page), Customers
 - Per-page theme: background colour, card background/padding/radius/border
-- Chart palette per page (4 named palettes + custom colour list)
-- Crayon colour swatches with contrast-aware icon colour
+- Bookmarkable page tabs via `?page=` URL query param
 
 ### DB-02 · Page-level and widget-level filters
 
@@ -161,6 +166,77 @@
 - Memoized `StudioWidgetCard` and canvas rows
 - Field capability system (type-derived, per-field overridable)
 
+### DB-06 · Customers page
+
+- KPIs: Lifetime Value, Customer Count, Avg Order Value, Enterprise Customer Count
+- Filter widgets: Segment toggle and Signup Date Range picker
+- Charts: Acquisition Over Time (bar/year), Revenue by Segment (donut),
+  Top Customers by Revenue (horizontal bar, top 12), Quarterly Revenue by Segment (stacked area)
+- Grid: Top 20 customers by total revenue with order count
+- Cross-source joins via `expr-order-company`, `expr-order-segment`, `expr-order-country` expression fields
+
+### DB-08 · State persistence (save/restore JSON)
+
+- `ref.serializeState()` returns a JSON-safe `SerializedStudioState` snapshot
+- `ref.loadSerializedState(data)` restores state and applies schema migrations
+- Returns `MigrationResult` with `{ success, fromVersion, toVersion, errors }`
+- Demo app provides Save (download JSON) and Load (upload JSON) toolbar buttons
+
+### W-04a · Chart: `crossFilterMode` per widget
+
+- `StudioCrossFilterMode = 'cross-highlight' | 'cross-filter' | 'none'`
+- Set via `crossFilterMode` field in `StudioWidgetConfig`
+- `'cross-highlight'` (default): shows full dataset as a faded ghost behind the filtered subset
+- `'cross-filter'`: redraws chart using only the filtered rows (axes rescale)
+- `'none'`: widget ignores all incoming cross-filters
+- Configurable in the Chart Setup panel compose drawer
+
+### C-06 · Widget resize (column width)
+
+- Drag handle on the right edge of each widget card (visible in edit mode)
+- Live flex-basis override during drag; snaps to 12-column grid on release
+- `setWidgetColSpan` / `setWidgetColSpanInRow` on `StudioController`
+- Persisted in `widgetColSpans` on the page state; serialized with dashboard state
+- AI `set_widget_width` tool also drives resize programmatically
+
+### A-07 · AI chat assistant
+
+- `StudioChatPanel` component with slide-in overlay and streaming message rendering
+- `aiConfig` prop on `Studio`: `{ endpoint, apiKey?, model?, headers? }`
+- Floating action button (bottom-right) opens/closes the panel
+- Built-in tool suite: add/update/remove widget, set layout, navigate pages, manage filters
+- `extraTools` prop on `StudioChatPanel` for custom tool extensions
+- `@mui/x-studio-server` middleware validates and routes LLM requests server-side
+
+### A-08 · Slot props chain
+
+- `Studio.slotProps.canvas` → forwarded to `StudioCanvas`
+- `StudioCanvas.slotProps.widgetCard` → forwarded to every `StudioWidgetCard`
+- `StudioWidgetCard.slotProps.{ paper, chart, grid, kpi, text, filter }` → forwarded to widget renderers
+- Allows deep customisation without replacing entire components
+
+### A-09 · Async data source adapter interface
+
+- `StudioDataSourceAdapter` interface: `getRows(descriptor): Promise<unknown[]>`
+- `ref.setDataSourceAdapter(sourceId, adapter)` attaches/removes an adapter at runtime
+- When an adapter is present Studio calls it instead of the in-memory rows pipeline
+- Demo `?adapter=true` mode routes all sources through a simulated server adapter
+
+### A-10 · `@mui/x-studio-server` middleware package
+
+- Framework-agnostic server handler: `handleBatchQuery(request, options)`
+- `runPreflight` + `executeForTier` routing (`'client' | 'server' | 'db'`)
+- `buildSecureQuery` prevents injection and enforces schema allowlist
+- `LRUCacheProvider` for response caching; pluggable `CacheProvider` interface
+- `extractSecurityClaims` for JWT/session-based row-level security
+
+### A-11 · `sidebarLayout` + `sidebarSide` props
+
+- `sidebarLayout?: 'stacked' | 'tabbed'` — stacked (independent collapse strips) vs. single tab rail
+- `sidebarSide?: 'left' | 'right'` — which side of the canvas the sidebar is anchored to
+- Right-side stacked layout renders panels Data → Compose → Filters reading right-to-left
+- `DrawerPanel` and `TabbedSidebar` receive `side` and flip borders + chevron direction accordingly
+
 ---
 
 ## 🔄 In Progress
@@ -185,12 +261,6 @@ _Nothing actively in flight._
 - Shows related child rows (e.g. order → its line items)
 - Resolves relationships automatically from the declared data model
 - Breadcrumb trail for multi-level drill
-
-### DB-06 · Additional demo pages
-
-- **Gap:** Only two pages shipped; demo breadth is limited
-- "Customers" page: lifetime value KPI, acquisition over time chart, top-customers grid
-- Possible "Inventory" page: stock levels, reorder alerts, supplier breakdown
 
 ### DB-07 · Data refresh simulation
 
@@ -237,13 +307,6 @@ _Nothing actively in flight._
 - **Gap:** Palette is page-level only; widgets cannot deviate
 - Override the page-level palette on individual chart widgets
 - Same colour picker UI as the page palette panel
-
-### C-06 · Widget resize
-
-- **Gap:** Column widths are fixed; no resize handle
-- Drag handle on widget card edge to change column width within a row
-- Snaps to MUI Grid breakpoints (1–12 columns)
-- Persisted in `widgetRows` layout config
 
 ### C-07 · Row management + layout picker
 
@@ -312,13 +375,6 @@ _Nothing actively in flight._
 - **Gap:** No visual representation of source relationships
 - Graph view in the data drawer: sources as nodes, relationships as edges
 - Click an edge to inspect join key fields
-
-### DB-08 · State persistence
-
-- **Gap:** Dashboard config is lost on page reload
-- Auto-save to `localStorage` on change
-- Optional server backend: POST/GET via configurable endpoint
-- Migration on load to handle schema version upgrades
 
 ### DB-09 · Shareable links
 
@@ -406,22 +462,20 @@ Ordered by impact on demo credibility and implementation feasibility:
 | Priority | ID    | Description                       | Rationale                                                              |
 | -------- | ----- | --------------------------------- | ---------------------------------------------------------------------- |
 | 1        | DB-04 | Dashboard-level date range filter | Most-expected BI feature; high visual impact, straightforward to build |
-| 2        | C-06  | Widget resize                     | Immediately noticeable gap in the edit experience                      |
-| 3        | C-07  | Row management + layout picker    | Needed to build a third page without hardcoding                        |
-| 4        | C-08  | Widget reorder                    | Completes the basic canvas authoring loop                              |
-| 5        | W-05  | Scatter chart config              | Removes a "broken" feel — scatter fields are hardcoded today           |
-| 6        | DB-05 | Drill-down / detail panel         | Strong demo story: from summary → detail in one click                  |
-| 7        | W-14  | KPI target line                   | Closes the loop on the businessMetrics source (currently unused in UI) |
-| 8        | W-02  | Grid conditional formatting       | High visual impact; commonly expected in data grids                    |
-| 9        | F-04  | Quick filter bar                  | Reduces friction when applying/clearing common filters                 |
-| 10       | W-03  | Grid totals row                   | Small, high-utility addition to the grid widget                        |
-| 11       | DB-06 | More demo pages (Customers)       | More content = more compelling demo                                    |
-| 12       | C-09  | Saved filter presets              | Nice-to-have for the repeatability demo story                          |
-| 13       | W-06  | Pie/donut label formatting        | Polish; current labels are acceptable                                  |
-| 14       | W-15  | Per-widget palette override       | Polish; page-level palette already works well                          |
-| 15       | DB-07 | Data refresh simulation           | Interesting demo moment but not critical                               |
-| 16       | F-05  | Global filter search              | Only useful when filter list is long                                   |
-| 17       | F-06  | Filter dependency                 | Complex to implement; limited demo benefit                             |
+| 2        | C-07  | Row management + layout picker    | Needed to build additional pages without hardcoding rows               |
+| 3        | C-08  | Widget reorder                    | Completes the basic canvas authoring loop                              |
+| 4        | W-05  | Scatter chart config              | Removes a "broken" feel — scatter fields are hardcoded today           |
+| 5        | DB-05 | Drill-down / detail panel         | Strong demo story: from summary → detail in one click                  |
+| 6        | W-14  | KPI target line                   | Closes the loop on the businessMetrics source (currently unused in UI) |
+| 7        | W-02  | Grid conditional formatting       | High visual impact; commonly expected in data grids                    |
+| 8        | F-04  | Quick filter bar                  | Reduces friction when applying/clearing common filters                 |
+| 9        | W-03  | Grid totals row                   | Small, high-utility addition to the grid widget                        |
+| 10       | C-09  | Saved filter presets              | Nice-to-have for the repeatability demo story                          |
+| 11       | W-06  | Pie/donut label formatting        | Polish; current labels are acceptable                                  |
+| 12       | W-15  | Per-widget palette override       | Polish; page-level palette already works well                          |
+| 13       | DB-07 | Data refresh simulation           | Interesting demo moment but not critical                               |
+| 14       | F-05  | Global filter search              | Only useful when filter list is long                                   |
+| 15       | F-06  | Filter dependency                 | Complex to implement; limited demo benefit                             |
 
 ### Future work: priority groupings
 

@@ -39,33 +39,27 @@ export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
   db.exec('PRAGMA journal_mode = WAL');
 
   // ── customers ──────────────────────────────────────────────────────────────
+  // Column names match Studio source field IDs so descriptors map directly to SQL
   db.exec(`
     CREATE TABLE IF NOT EXISTS customers (
       id        INTEGER PRIMARY KEY,
-      name      TEXT NOT NULL,
+      company   TEXT NOT NULL,
+      contact   TEXT NOT NULL,
+      email     TEXT NOT NULL,
       country   TEXT NOT NULL,
-      city      TEXT NOT NULL,
-      segment   TEXT NOT NULL
+      segment   TEXT NOT NULL,
+      since     TEXT NOT NULL
     )
   `);
 
   const insertCustomer = db.prepare(
-    'INSERT INTO customers(id, name, country, city, segment) VALUES (?, ?, ?, ?, ?)',
+    'INSERT INTO customers(id, company, contact, email, country, segment, since) VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
-
-  const CITIES: Record<string, string[]> = {
-    US: ['New York', 'Los Angeles', 'Chicago', 'Houston'],
-    UK: ['London', 'Manchester', 'Birmingham'],
-    DE: ['Berlin', 'Munich', 'Hamburg'],
-    FR: ['Paris', 'Lyon', 'Marseille'],
-    CA: ['Toronto', 'Vancouver', 'Montreal'],
-    AU: ['Sydney', 'Melbourne', 'Brisbane'],
-    JP: ['Tokyo', 'Osaka', 'Kyoto'],
-    BR: ['São Paulo', 'Rio de Janeiro', 'Brasilia'],
-  };
 
   const SEGMENTS = ['Consumer', 'Corporate', 'Home Office'];
   const customerCount = Math.min(rowCount, 500);
+  const FIRST_NAMES = ['Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Drew', 'Avery'];
+  const LAST_NAMES = ['Smith', 'Jones', 'Brown', 'Davis', 'Miller', 'Wilson', 'Moore', 'Taylor'];
 
   // Store customer data for denormalization
   const customerCountries: string[] = [];
@@ -77,22 +71,35 @@ export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
     const segment = pick(rng, SEGMENTS);
     customerCountries.push(country);
     customerSegments.push(segment);
-    insertCustomer.run(i, `Customer ${i}`, country, pick(rng, CITIES[country]), segment);
+    const first = pick(rng, FIRST_NAMES);
+    const last = pick(rng, LAST_NAMES);
+    const company = `${last} ${pick(rng, ['GmbH', 'AG', 'Inc', 'Ltd', 'SAS', 'Corp'])}`;
+    const contact = `${first} ${last}`;
+    const email = `${first.toLowerCase()}.${last.toLowerCase()}${i}@example.com`;
+    const year = 2018 + Math.floor(rng() * 7);
+    const month = String(Math.floor(rng() * 12) + 1).padStart(2, '0');
+    const day = String(Math.floor(rng() * 28) + 1).padStart(2, '0');
+    const since = `${year}-${month}-${day}`;
+    insertCustomer.run(i, company, contact, email, country, segment, since);
   }
   db.exec('COMMIT');
 
   // ── products ───────────────────────────────────────────────────────────────
+  // Column names match Studio source field IDs
   db.exec(`
     CREATE TABLE IF NOT EXISTS products (
-      id        INTEGER PRIMARY KEY,
-      name      TEXT NOT NULL,
-      category  TEXT NOT NULL,
-      price     REAL NOT NULL
+      id           INTEGER PRIMARY KEY,
+      product      TEXT NOT NULL,
+      category     TEXT NOT NULL,
+      price        REAL NOT NULL,
+      cost         REAL NOT NULL,
+      stock        INTEGER NOT NULL,
+      reorderLevel INTEGER NOT NULL
     )
   `);
 
   const insertProduct = db.prepare(
-    'INSERT INTO products(id, name, category, price) VALUES (?, ?, ?, ?)',
+    'INSERT INTO products(id, product, category, price, cost, stock, reorderLevel) VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
 
   // Store product categories for denormalization
@@ -102,44 +109,53 @@ export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
   for (let i = 1; i <= 100; i++) {
     const category = pick(rng, CATEGORIES);
     productCategories.push(category);
-    insertProduct.run(i, `Product ${i}`, category, +(rng() * 500 + 5).toFixed(2));
+    const price = +(rng() * 500 + 5).toFixed(2);
+    const cost = +(price * (0.4 + rng() * 0.3)).toFixed(2);
+    const stock = Math.floor(rng() * 500);
+    const reorderLevel = Math.floor(rng() * 50) + 10;
+    insertProduct.run(i, `Product ${i}`, category, price, cost, stock, reorderLevel);
   }
   db.exec('COMMIT');
 
   // ── orders ─────────────────────────────────────────────────────────────────
-  // Denormalized for demo: country/segment from customers, category from products
+  // Column names match Studio source field IDs; country/segment/category are
+  // denormalized for demo-friendly filtering without JOINs
   db.exec(`
     CREATE TABLE IF NOT EXISTS orders (
-      id          INTEGER PRIMARY KEY,
-      customer_id INTEGER NOT NULL,
-      status      TEXT NOT NULL,
-      date        TEXT NOT NULL,
-      total       REAL NOT NULL,
-      country     TEXT NOT NULL,
-      segment     TEXT NOT NULL,
-      category    TEXT NOT NULL
+      id         INTEGER PRIMARY KEY,
+      customerId INTEGER NOT NULL,
+      status     TEXT NOT NULL,
+      date       TEXT NOT NULL,
+      total      REAL NOT NULL,
+      currency   TEXT NOT NULL,
+      country    TEXT NOT NULL,
+      segment    TEXT NOT NULL,
+      category   TEXT NOT NULL
     )
   `);
 
   const insertOrder = db.prepare(
-    'INSERT INTO orders(id, customer_id, status, date, total, country, segment, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO orders(id, customerId, status, date, total, currency, country, segment, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
 
   // ── order_items ────────────────────────────────────────────────────────────
+  // Column names match Studio source field IDs
   db.exec(`
     CREATE TABLE IF NOT EXISTS order_items (
-      id         INTEGER PRIMARY KEY,
-      order_id   INTEGER NOT NULL,
-      product_id INTEGER NOT NULL,
-      quantity   INTEGER NOT NULL,
-      unit_price REAL NOT NULL,
-      discount   REAL NOT NULL,
-      total      REAL NOT NULL
+      id        INTEGER PRIMARY KEY,
+      orderId   INTEGER NOT NULL,
+      productId INTEGER NOT NULL,
+      product   TEXT NOT NULL,
+      category  TEXT NOT NULL,
+      quantity  INTEGER NOT NULL,
+      unitPrice REAL NOT NULL,
+      discount  REAL NOT NULL,
+      total     REAL NOT NULL
     )
   `);
 
   const insertItem = db.prepare(
-    'INSERT INTO order_items(id, order_id, product_id, quantity, unit_price, discount, total) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO order_items(id, orderId, productId, product, category, quantity, unitPrice, discount, total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
 
   db.exec('BEGIN');
@@ -157,8 +173,9 @@ export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
     const country = customerCountries[customerId - 1];
     const segment = customerSegments[customerId - 1];
     const category = productCategories[productId - 1];
+    const currency = pick(rng, ['USD', 'EUR', 'GBP', 'CAD', 'AUD']);
 
-    insertOrder.run(i, customerId, pick(rng, STATUSES), date, total, country, segment, category);
+    insertOrder.run(i, customerId, pick(rng, STATUSES), date, total, currency, country, segment, category);
 
     // 1–3 items per order
     const itemCount = Math.floor(rng() * 3) + 1;
@@ -168,7 +185,8 @@ export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
       const iPrice = +(rng() * 150 + 5).toFixed(2);
       const iDiscount = +(rng() * 0.25).toFixed(2);
       const iTotal = +(iQty * iPrice * (1 - iDiscount)).toFixed(2);
-      insertItem.run(itemId++, i, iProductId, iQty, iPrice, iDiscount, iTotal);
+      const iCategory = productCategories[iProductId - 1];
+      insertItem.run(itemId++, i, iProductId, `Product ${iProductId}`, iCategory, iQty, iPrice, iDiscount, iTotal);
     }
   }
   db.exec('COMMIT');

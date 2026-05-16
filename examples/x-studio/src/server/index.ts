@@ -26,7 +26,16 @@ import { seedDatabase } from './seedDatabase.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const DEMO_JWT_SECRET = process.env.JWT_SECRET ?? 'demo-secret-change-in-production';
-const SCHEMA_ALLOWLIST = ['orders', 'order_items', 'customers', 'products'];
+
+/** Maps Studio source IDs to SQLite table names */
+const SOURCE_TO_TABLE: Record<string, string> = {
+  'source-customers': 'customers',
+  'source-orders': 'orders',
+  'source-order-items': 'order_items',
+  'source-products': 'products',
+};
+
+const SCHEMA_ALLOWLIST = Object.values(SOURCE_TO_TABLE);
 
 // ── Database setup ─────────────────────────────────────────────────────────────
 
@@ -45,11 +54,16 @@ type Row = Record<string, unknown>;
 
 function executeQuery(
   claims: JwtSecurityClaims,
-  table: string,
+  sourceId: string,
   filters: BatchQueryRequest['widgets'][0]['filters'],
 ): Row[] {
+  // Resolve source ID to SQL table name (e.g. "source-orders" → "orders")
+  const table = SOURCE_TO_TABLE[sourceId] ?? sourceId;
+
   if (!SCHEMA_ALLOWLIST.includes(table)) {
-    throw new Error(`Table "${table}" not in allowlist`);
+    // Unknown / unsupported source — return empty rows (safe fallback, not a 500)
+    console.warn(`[server] Unknown source "${sourceId}" — returning empty rows`);
+    return [];
   }
 
   // Build SQL with parameterized bindings (never string concatenation)

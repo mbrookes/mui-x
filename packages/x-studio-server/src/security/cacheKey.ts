@@ -32,10 +32,13 @@ function computeSecurityHash(claims: JwtSecurityClaims, hmacSecret: string): str
 
 /**
  * Generate a deterministic hash from a widget descriptor (the "query shape").
+ * The widget `id` is excluded so two widgets with identical table/columns/filters
+ * share the same cache entry — enabling cross-widget deduplication.
  * Keys are recursively sorted so filter order never affects the hash.
  */
 function computeQueryHash(descriptor: BatchWidgetDescriptor): string {
-  return createHash('sha256').update(sortedStringify(descriptor)).digest('hex').slice(0, 16);
+  const { id: _id, ...queryShape } = descriptor;
+  return createHash('sha256').update(sortedStringify(queryShape)).digest('hex').slice(0, 16);
 }
 
 /**

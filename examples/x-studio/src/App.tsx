@@ -18,6 +18,7 @@ import { downloadJson, uploadJson } from './utils/fileUtils';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
+import { createBatchingAdapter } from '@mui/x-studio';
 
 function slugifyPageTitle(title: string) {
   return title
@@ -74,6 +75,18 @@ function getUrlAdapterParam(): boolean {
     return false;
   }
   return new URL(window.location.href).searchParams.has('adapter');
+}
+
+/**
+ * Read ?server=<url> to route queries through a real server instead of
+ * simulatedServer.ts. Example: ?server=http://localhost:3001/api/studio-data
+ * Uses createBatchingAdapter() which collapses N widget requests into one POST.
+ */
+function getUrlServerParam(): string | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  return new URL(window.location.href).searchParams.get('server') ?? undefined;
 }
 
 function setUrlPageId(pageId: string, pages: Record<string, StudioPage> | undefined) {
@@ -188,6 +201,30 @@ export default function App() {
     console.info('[x-studio] Adapter mode enabled — all sources routed through simulatedServer');
     // Only run once on mount (studioRef.current is stable after mount)
   }, [adapterMode]);
+
+  // Server mode: route all widget queries through a real server endpoint.
+  // Activate with ?server=http://localhost:3001/api/studio-data
+  // All data sources on the same endpoint share one DataLoader (50ms batch window).
+  const serverEndpoint = React.useMemo(() => getUrlServerParam(), []);
+
+  React.useEffect(() => {
+    if (!serverEndpoint || adapterMode) {
+      return;
+    }
+
+    const state = studioRef.current?.getState();
+    if (!state) {
+      return;
+    }
+
+    const batchingAdapter = createBatchingAdapter(serverEndpoint);
+    for (const source of Object.values(state.dataSources)) {
+      studioRef.current?.setDataSourceAdapter(source.id, batchingAdapter);
+    }
+    // eslint-disable-next-line no-console
+    console.info(`[x-studio] Server mode enabled — queries routed to ${serverEndpoint}`);
+    // Only run once on mount
+  }, [serverEndpoint, adapterMode]);
 
   const handleStateChange = React.useCallback((state: StudioState) => {
     // Use functional updates so React can skip if the value is unchanged,
@@ -317,6 +354,21 @@ export default function App() {
                 label="Adapter Mode"
                 size="small"
                 color="info"
+                sx={{
+                  position: 'absolute',
+                  bottom: 12,
+                  right: 12,
+                  zIndex: 10,
+                  fontWeight: 600,
+                  letterSpacing: 0.3,
+                }}
+              />
+            )}
+            {serverEndpoint && !adapterMode && (
+              <Chip
+                label="Server Mode"
+                size="small"
+                color="success"
                 sx={{
                   position: 'absolute',
                   bottom: 12,

@@ -199,4 +199,12 @@ describe('buildQueryDescriptor', () => {
     const desc = buildQueryDescriptor(widget, [], PAGE_ID);
     expect(desc.cacheKey).toMatch(/^source-orders:/);
   });
+
+  it('same-query widgets with different ids share the same cacheKey', () => {
+    const widget1 = makeWidget({ xField: 'date', yField: 'amount' });
+    const widget2 = { ...makeWidget({ xField: 'date', yField: 'amount' }), id: 'w2' };
+    const desc1 = buildQueryDescriptor(widget1, [], PAGE_ID);
+    const desc2 = buildQueryDescriptor(widget2, [], PAGE_ID);
+    expect(desc1.cacheKey).toBe(desc2.cacheKey);
+  });
 });

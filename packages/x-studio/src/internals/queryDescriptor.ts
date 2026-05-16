@@ -187,10 +187,11 @@ export function buildQueryDescriptor(
   const xGroupBy = widget.config?.xGroupBy;
   const aggregations = buildAggregations(widget);
 
-  // Compute a stable cache key from all descriptor fields (excluding cacheKey itself)
+  // Compute a stable cache key from query shape (no widgetId) so widgets with
+  // identical queries — same source, filters, select, groupBy, aggregations —
+  // share one cache entry and one server request.
   const cacheKeySource = {
     sourceId: widget.sourceId,
-    widgetId: widget.id,
     select: [...select].sort(),
     filter,
     groupBy,

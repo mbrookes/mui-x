@@ -22,7 +22,20 @@
  *     adapter: createBatchingAdapter('https://api.example.com/studio-data'),
  *   };
  */
-import type { StudioDataSourceAdapter, StudioQueryDescriptor, StudioQueryResult } from '../models/studio';
+import type {
+  StudioDataSourceAdapter,
+  StudioFilterNode,
+  StudioFilterOperator,
+  StudioQueryDescriptor,
+  StudioQueryResult,
+} from '../models/studio';
+
+/** Structured filter predicate sent to the server (mirrors FilterPredicate in @mui/x-studio-server) */
+interface FilterPredicate {
+  column: string;
+  operator: 'eq' | 'neq' | 'in' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'between';
+  value?: unknown;
+}
 
 /**
  * A minimal DataLoader-style batch scheduler.
@@ -122,7 +135,7 @@ export function createBatchingAdapter(
             id: d.widgetId,
             table: d.sourceId,
             columns: d.select,
-            filters: d.filter ? [flattenFilterNode(d.filter)] : undefined,
+            filters: d.filter ? flattenFilterNode(d.filter) : undefined,
             orderBy: undefined,
             limit: undefined,
           })),
@@ -169,10 +182,55 @@ export function createBatchingAdapter(
 }
 
 /**
- * Flatten a StudioFilterNode into a simple predicate for the batch request.
- * Production adapters should map the full filter tree to structured predicates.
- * This stub passes through the filter node as-is for initial wiring.
+ * Map a Studio filter operator to the server's FilterPredicate operator.
+ * Returns null for operators not supported by the batch protocol.
  */
-function flattenFilterNode(node: unknown): unknown {
-  return node;
+function mapOperator(op: StudioFilterOperator): FilterPredicate['operator'] | null {
+  switch (op) {
+    case 'equals':
+      return 'eq';
+    case 'not_equals':
+      return 'neq';
+    case 'in':
+      return 'in';
+    case 'greater_than':
+      return 'gt';
+    case 'less_than':
+      return 'lt';
+    case 'greater_than_or_equal':
+      return 'gte';
+    case 'less_than_or_equal':
+      return 'lte';
+    case 'contains':
+      return 'like';
+    case 'between':
+      return 'between';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Flatten a StudioFilterNode tree into an array of FilterPredicates.
+ * Group nodes are flattened (AND logic only — OR groups are skipped server-side
+ * and will fall back to showing all rows, which is safe/conservative).
+ */
+function flattenFilterNode(node: StudioFilterNode): FilterPredicate[] {
+  if (node.type === 'group') {
+    return node.children.flatMap(flattenFilterNode);
+  }
+  const operator = mapOperator(node.op);
+  if (!operator) {
+    return [];
+  }
+  const predicate: FilterPredicate = { column: node.field, operator, value: node.value };
+  const predicates: FilterPredicate[] = [predicate];
+  // Handle range (op2 / value2) — e.g. date-range filter emits between with two bounds
+  if (node.op2 && node.value2 !== undefined) {
+    const op2 = mapOperator(node.op2);
+    if (op2) {
+      predicates.push({ column: node.field, operator: op2, value: node.value2 });
+    }
+  }
+  return predicates;
 }

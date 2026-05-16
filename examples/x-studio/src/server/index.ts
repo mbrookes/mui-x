@@ -27,15 +27,12 @@ import { seedDatabase } from './seedDatabase.js';
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const DEMO_JWT_SECRET = process.env.JWT_SECRET ?? 'demo-secret-change-in-production';
 
-/** Maps Studio source IDs to SQLite table names */
-const SOURCE_TO_TABLE: Record<string, string> = {
-  'source-customers': 'customers',
-  'source-orders': 'orders',
-  'source-order-items': 'order_items',
-  'source-products': 'products',
-};
+const SCHEMA_ALLOWLIST = ['orders', 'order_items', 'customers', 'products'];
 
-const SCHEMA_ALLOWLIST = Object.values(SOURCE_TO_TABLE);
+/** Derive a SQL table name from a Studio source ID (e.g. "source-order-items" → "order_items") */
+function sourceIdToTable(sourceId: string): string {
+  return sourceId.replace(/^source-/, '').replace(/-/g, '_');
+}
 
 // ── Database setup ─────────────────────────────────────────────────────────────
 
@@ -57,8 +54,8 @@ function executeQuery(
   sourceId: string,
   filters: BatchQueryRequest['widgets'][0]['filters'],
 ): Row[] {
-  // Resolve source ID to SQL table name (e.g. "source-orders" → "orders")
-  const table = SOURCE_TO_TABLE[sourceId] ?? sourceId;
+  // Resolve source ID to SQL table name (e.g. "source-order-items" → "order_items")
+  const table = sourceIdToTable(sourceId);
 
   if (!SCHEMA_ALLOWLIST.includes(table)) {
     // Unknown / unsupported source — return empty rows (safe fallback, not a 500)

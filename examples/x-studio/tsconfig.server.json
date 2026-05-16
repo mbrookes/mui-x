@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "paths": {
+      "@mui/x-studio-server": ["../../packages/x-studio-server/src/index.ts"],
+      "@mui/x-studio-server/*": ["../../packages/x-studio-server/src/*"]
+    }
+  },
+  "include": ["src/server/**/*"]
+}

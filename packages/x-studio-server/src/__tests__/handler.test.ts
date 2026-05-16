@@ -58,10 +58,11 @@ describe('generateCacheKey', () => {
     expect(key1).toBe(key2);
   });
 
-  it('produces different keys for different widget ids', () => {
+  it('produces the SAME key for different widget ids with identical query shape', () => {
+    // Two widgets querying the same table/columns/filters share one cache entry
     const key1 = generateCacheKey(ACME_CLAIMS, { id: 'w1', table: 'sales' }, SECRET);
     const key2 = generateCacheKey(ACME_CLAIMS, { id: 'w2', table: 'sales' }, SECRET);
-    expect(key1).not.toBe(key2);
+    expect(key1).toBe(key2);
   });
 
   it('key format is studio:v1:<tenant>:<securityHash>:<queryHash>', () => {

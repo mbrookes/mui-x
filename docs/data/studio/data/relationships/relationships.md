@@ -116,6 +116,30 @@ A filter can target a field that belongs to a related source. Studio walks the d
 
 When a KPI's sparkline time field lives on a related source, declare `kpiSparklineSourceId` in the widget config to point Studio at the right source for the time axis.
 
+## L4: Cross-source chart aggregation
+
+When a chart widget's y-field (or series field) lives on a related source, Studio runs an extra pipeline layer — **L4** — after the standard filter pass.
+
+L4 re-projects the already-filtered rows onto the correct aggregation grain.
+For example, if a chart is on the `order_items` source but the y-field is `orders.revenue`, Studio uses the declared `order_items → orders` relationship to join, then re-groups by the chart's x-field.
+
+This happens automatically and requires no extra configuration beyond the relationship declaration.
+L4 is only applied when a cross-source join is actually required — if all widget fields live on the primary source, it is skipped entirely.
+
+To observe L4 in isolation, use [`createStudioPipeline`](/x/react-studio/resources/pipeline/#createstudiopipeline) outside React:
+
+```ts
+import { createStudioPipeline } from '@mui/x-studio';
+
+const pipeline = createStudioPipeline(controller.getState());
+
+// L3: filter to the widget's effective rows
+const filtered = pipeline.resolveWidgetRows(widget.id, widget.sourceId, source.rows, activePageId);
+
+// L4: re-anchor to the correct aggregation grain for the chart
+const chartRows = pipeline.resolveChartRows(filtered, widget.sourceId, xField, yFields, seriesField);
+```
+
 ## Hidden join-only sources
 
 If a dimension source should not appear in the widget picker (because users should never chart it directly), set `hidden: true` on its `StudioDataSource`:

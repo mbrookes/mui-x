@@ -286,6 +286,31 @@ interface StudioQueryResult {
 }
 ```
 
+## Loading and recomputing states
+
+`useWidgetRows` exposes two status flags that your custom widgets can use to show feedback while new data is being produced:
+
+| Flag | When true |
+| :--- | :--- |
+| `isLoading` | An adapter `getRows()` call is in flight and no prior cached result exists. Studio shows a spinner on built-in widget cards automatically. |
+| `isRecomputing` | The in-memory sync pipeline has received a new filter state but React's deferred re-render has not yet committed. Always `false` for adapter-backed sources. |
+
+```tsx
+import { useWidgetRows } from '@mui/x-studio';
+
+function MyCustomWidget({ widget, dataSource }) {
+  const { effectiveRows, isLoading, isRecomputing } = useWidgetRows(widget, dataSource);
+
+  if (isLoading) return <Skeleton />;
+  return <MyChart rows={effectiveRows} dimmed={isRecomputing} />;
+}
+```
+
+The `StudioRequestCache` that backs the async path gives you stale-while-revalidate behaviour by default:
+on the first render after a query change it returns the last known rows synchronously (`isLoading: false`),
+then updates once the new fetch settles. This means widgets only show the spinner on the very first load —
+subsequent filter changes produce an instant render with the old data replaced smoothly.
+
 ## Error handling
 
 If `getRows` throws, Studio catches the error and leaves the widget in its previous state.

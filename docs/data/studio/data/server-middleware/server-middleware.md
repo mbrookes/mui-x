@@ -141,6 +141,38 @@ await handleBatchQuery(req.body, claims, {
 
 This enforces the Zero-Knowledge Rule: the middleware never has hardcoded table names — all access is controlled by the host application.
 
+### Source ID to table name
+
+`createBatchingAdapter` sends the Studio data source's `id` as the `table` field in every batch widget descriptor. If your source IDs follow the convention `source-<table-name>`, you can derive the SQL table name programmatically rather than maintaining an explicit mapping:
+
+```ts
+function sourceIdToTable(sourceId: string): string {
+  return sourceId.replace(/^source-/, '').replace(/-/g, '_');
+}
+
+// "source-orders"       → "orders"
+// "source-order-items"  → "order_items"
+// "source-customers"    → "customers"
+```
+
+Use this in your handler before checking the allowlist. Return empty rows (not an error) for unknown or unmapped sources so adding a new data source to the dashboard doesn't break existing widgets while a server deploy is in progress:
+
+```ts
+app.post('/api/studio-data', async (req, res) => {
+  const results = await Promise.all(
+    req.body.widgets.map(async (widget) => {
+      const table = sourceIdToTable(widget.table);
+      if (!allowlist.includes(table)) {
+        console.warn(`[studio] Unknown source "${widget.table}" — returning empty rows`);
+        return { id: widget.id, rows: [], tier: 'client', rowCount: 0 };
+      }
+      // ... execute query
+    }),
+  );
+  res.json({ pageId: req.body.pageId, results });
+});
+```
+
 ### Cache key isolation
 
 Server-side cache keys are structured as:

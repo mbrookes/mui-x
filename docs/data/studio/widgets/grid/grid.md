@@ -115,6 +115,45 @@ import { StudioGridWidget } from '@mui/x-studio';
 />
 ```
 
+## Empty state
+
+When all rows are filtered out, `StudioGridWidget` shows a `StudioNoDataOverlay` (inbox icon + "No data" label) in place of the default "No rows" text that DataGridPro renders by default.
+
+While data is being fetched from an async adapter, the grid shows the DataGridPro loading skeleton (`loading` prop) to distinguish an in-progress fetch from a genuinely empty result set.
+
+### Customising the empty overlay
+
+Pass a custom component via `slotProps.grid.slotProps.dataGrid.slots.noRowsOverlay`:
+
+```tsx
+import { StudioNoDataOverlay } from '@mui/x-studio';
+
+// Custom message using the default look
+<Studio
+  slotProps={{
+    canvas: {
+      slotProps: {
+        widgetCard: {
+          slotProps: {
+            grid: {
+              slotProps: {
+                dataGrid: {
+                  slots: {
+                    noRowsOverlay: () => (
+                      <StudioNoDataOverlay message="No results — try adjusting filters" />
+                    ),
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }}
+/>
+```
+
 ## See also
 
 - [Cross-filters](/x/react-studio/features/cross-filters/) — how row selection emits cross-filter events to other widgets

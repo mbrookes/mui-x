@@ -309,17 +309,71 @@ All data sources that point to the **same endpoint URL** share one batcher — a
 
 ### Batch request format
 
-The adapter sends a single `POST` with all pending widget descriptors:
+The adapter sends a single `POST` with all pending widget descriptors.
+The `table` field contains the Studio **source ID** for that widget (e.g. `source-orders`) — see [Source ID to table name](#source-id-to-table-name) for how your server should map this to a SQL table.
 
 ```json
 {
   "pageId": "page-1",
   "widgets": [
-    { "id": "widget-revenue", "table": "orders", "columns": ["date", "total"], "filters": [] },
-    { "id": "widget-by-country", "table": "orders", "columns": ["country", "total"], "filters": [] }
+    { "id": "widget-revenue", "table": "source-orders", "columns": ["date", "total"], "filters": [] },
+    {
+      "id": "widget-by-country",
+      "table": "source-orders",
+      "columns": ["country", "total"],
+      "filters": [
+        { "column": "country", "operator": "in", "value": ["US", "DE", "GB"] }
+      ]
+    }
   ]
 }
 ```
+
+#### `filters` format
+
+Active page and widget filters are converted from Studio's internal `StudioFilterNode` tree into a flat `FilterPredicate[]` array before being sent in the batch request.
+Each predicate has a `column` (the Studio field ID), an `operator`, and a `value`:
+
+```ts
+interface FilterPredicate {
+  column: string;
+  operator: 'eq' | 'neq' | 'in' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'between';
+  value?: unknown;
+}
+```
+
+The operator mapping from Studio's UI to the batch format:
+
+| Studio operator | Batch `operator` | Notes |
+| :--- | :--- | :--- |
+| `equals` | `eq` | Exact match |
+| `not_equals` | `neq` | |
+| `in` | `in` | Value is an array, e.g. `["US", "DE"]` |
+| `greater_than` | `gt` | |
+| `less_than` | `lt` | |
+| `greater_than_or_equal` | `gte` | |
+| `less_than_or_equal` | `lte` | |
+| `contains` | `like` | Value should be matched with `LIKE %value%` |
+| `between` | `between` | Emits two predicates (one `gte`, one `lte`) |
+
+Group nodes (`and`/`or`) in the filter tree are flattened — all leaf predicates are collected into the flat array. For queries requiring strict `OR` logic between predicates, implement that server-side based on your schema knowledge.
+
+### Source ID to table name
+
+Studio sends the data source's `id` as the `table` field in each batch widget descriptor.
+If your source IDs follow the convention `source-<table-name>` (e.g. `source-orders`, `source-order-items`), you can derive the SQL table name by stripping the prefix and replacing hyphens with underscores:
+
+```ts
+function sourceIdToTable(sourceId: string): string {
+  return sourceId.replace(/^source-/, '').replace(/-/g, '_');
+}
+
+// "source-orders"       → "orders"
+// "source-order-items"  → "order_items"
+// "source-customers"    → "customers"
+```
+
+Always validate the derived name against your [schema allowlist](/x/react-studio/data/server-middleware/#schema-allowlist) before querying, and return empty rows (not an error) for unknown source IDs to avoid 500s when new sources are added to the dashboard before the server is updated.
 
 ### Batch response format
 

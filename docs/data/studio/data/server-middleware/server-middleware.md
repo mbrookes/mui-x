@@ -24,6 +24,32 @@ Key capabilities:
 - **Server-side caching** — a size-bounded LRU cache with HMAC-scoped keys prevents cross-tenant data leakage
 - **Pluggable** — swap the cache provider, override routing thresholds, or bring your own Knex instance
 
+### End-to-end pipeline
+
+```text
+Browser — N widgets
+  │  buildQueryDescriptor()  (per widget, excludes widgetId from cacheKey)
+  │  StudioRequestCache       deduplicates in-flight calls by cacheKey
+  │  createBatchingAdapter()  50 ms window → single POST per tick
+  ▼
+POST /api/studio-data
+  │  extractSecurityClaims()  JWT HS256 verification → JwtSecurityClaims
+  │  handleBatchQuery()
+  │    ├── schema allowlist check (all tables validated upfront)
+  │    └── per widget (in parallel):
+  │         ├── server LRU cache lookup  (HMAC-scoped key, excludes widgetId)
+  │         ├── COUNT(*) pre-flight      (~0.1–1 ms on indexed tables)
+  │         │      ≤ 10 k  → client tier  (raw rows, client filters in-browser)
+  │         │      ≤ 100 k → server tier  (raw rows, cached for reuse)
+  │         │      > 100 k → db tier      (GROUP BY push-down, not cached)
+  │         └── executeForTier()          Knex parameterized query
+  ▼
+BatchQueryResponse  { pageId, results: [{ id, rows, tier, rowCount }] }
+  │  createBatchingAdapter()  routes each result back to originating widget
+  ▼
+Widget renders with fresh rows
+```
+
 ## Installation
 
 <codeblock storageKey="package-manager">
@@ -209,6 +235,18 @@ incoming request
 
 The pre-flight is consistently 5–20× faster than the actual query, making it a safe overhead even for the smallest datasets.
 
+### Routing threshold benchmark
+
+Measured on `node:sqlite` in-memory with covering indexes. Use these numbers as a guide when choosing `thresholds` for your database:
+
+| Row count | COUNT(\*) | Full scan | GROUP BY SUM |
+| :--- | :--- | :--- | :--- |
+| 10 k | 0.07 ms | 12 ms | 1.65 ms |
+| 100 k | 0.73 ms | 127 ms | 18 ms |
+| 1 M | 7 ms | 2,200 ms | 207 ms |
+
+The default thresholds (`clientTier: 10_000`, `serverMemoryTier: 100_000`) are derived from these measurements. Networked databases will have higher latencies — tune accordingly.
+
 ### Customising thresholds
 
 ```ts
@@ -221,6 +259,27 @@ await handleBatchQuery(req.body, claims, {
   },
 });
 ```
+
+### DB push-down aggregation columns
+
+When the row count exceeds `serverMemoryTier`, the middleware uses database-side aggregation (`GROUP BY`). It identifies aggregation columns by a name prefix convention on the `columns` list in the `BatchWidgetDescriptor`:
+
+| Prefix | SQL aggregate | Example column name | SQL fragment |
+| :--- | :--- | :--- | :--- |
+| `sum_` | `SUM` | `sum_revenue` | `SUM(revenue) AS sum_revenue` |
+| `avg_` | `AVG` | `avg_order_value` | `AVG(order_value) AS avg_order_value` |
+| `count_` | `COUNT` | `count_orders` | `COUNT(orders) AS count_orders` |
+
+All other columns in the list are treated as `GROUP BY` keys. For example, `columns: ['region', 'sum_revenue', 'count_orders']` produces:
+
+```sql
+SELECT region, SUM(revenue) AS sum_revenue, COUNT(orders) AS count_orders
+FROM orders
+WHERE tenant_id = ? -- security predicate
+GROUP BY region
+```
+
+`createBatchingAdapter` maps Studio widget `aggregations` descriptors to this naming convention automatically when preparing the batch request.
 
 ## Caching
 

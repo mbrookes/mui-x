@@ -89,8 +89,12 @@ interface StudioQueryDescriptor {
   /** Time-series bucketing (charts with date x-axis). */
   xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /**
-   * Stable hash of all other fields. Use as a cache key.
-   * Studio computes this — you do not need to hash it yourself.
+   * Stable hash of all query-shape fields (sourceId, select, filter, groupBy,
+   * xGroupBy, aggregations). Studio computes this — you do not need to hash it yourself.
+   *
+   * Note: widgetId is intentionally excluded from the hash. Two widgets that
+   * request the same source with the same filters and select share one cache
+   * entry and one in-flight request, avoiding redundant server calls.
    */
   cacheKey: string;
 }
@@ -156,8 +160,11 @@ function toSQL(node: StudioFilterNode): string {
 
 ## Caching with `cacheKey`
 
-`descriptor.cacheKey` is a stable hash of all descriptor fields except itself.
-Use it as a cache key to avoid re-fetching when a widget re-renders without a query change:
+`descriptor.cacheKey` is a stable hash of the query shape (`sourceId`, `select`, `filter`, `groupBy`, `xGroupBy`, `aggregations`). It deliberately excludes `widgetId`.
+
+This means two widgets that request the **same source with the same filters** produce an identical `cacheKey`. Your adapter (and, on the server side, `handleBatchQuery`) can therefore share one cache entry and one in-flight request across both widgets — halving the load for dashboards with related widgets.
+
+Use the key to avoid re-fetching when a widget re-renders without a query change:
 
 ```ts
 const cache = new Map<string, StudioQueryResult>();
@@ -175,6 +182,11 @@ const adapter: StudioDataSourceAdapter = {
 ```
 
 For production use, consider a proper LRU cache (e.g. `lru-cache`) and cache invalidation on data mutations.
+
+When using [`createBatchingAdapter`](#batching-multiple-widgets-into-one-request) together with [`@mui/x-studio-server`](/x/react-studio/data/server-middleware/), cross-widget deduplication is handled automatically at both layers:
+
+- **Client** — `StudioRequestCache` coalesces concurrent requests with the same `cacheKey` into a single in-flight `getRows()` call.
+- **Server** — `generateCacheKey` excludes `widgetId` from the server-side LRU key, so widgets with identical queries share one cache entry regardless of their IDs.
 
 ## Mixing inline rows and adapters
 

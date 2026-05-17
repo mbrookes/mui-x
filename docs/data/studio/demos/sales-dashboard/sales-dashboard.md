@@ -7,7 +7,7 @@ githubLabel: 'scope: studio'
 
 # Sales dashboard demo
 
-<p class="description">A complete sales analytics dashboard built with Studio: KPI cards, revenue charts, orders table, regional filters, and AI-powered layout editing — all persisted to localStorage.</p>
+<p class="description">A sales analytics dashboard with KPI cards, revenue charts, orders table, regional filters, and AI-powered layout editing — all persisted to localStorage.</p>
 
 ## Overview
 

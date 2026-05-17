@@ -381,17 +381,17 @@ interface FilterPredicate {
 
 The operator mapping from Studio's UI to the batch format:
 
-| Studio operator | Batch `operator` | Notes |
+| Batch `operator` | Studio operator | Notes |
 | :--- | :--- | :--- |
-| `equals` | `eq` | Exact match |
-| `not_equals` | `neq` | |
+| `eq` | `equals` | Exact match |
+| `neq` | `not_equals` | |
 | `in` | `in` | Value is an array, e.g. `["US", "DE"]` |
-| `greater_than` | `gt` | |
-| `less_than` | `lt` | |
-| `greater_than_or_equal` | `gte` | |
-| `less_than_or_equal` | `lte` | |
-| `contains` | `like` | Value should be matched with `LIKE %value%` |
-| `between` | `between` | Emits two predicates (one `gte`, one `lte`) |
+| `gt` | `greater_than` | |
+| `lt` | `less_than` | |
+| `gte` | `greater_than_or_equal` | |
+| `lte` | `less_than_or_equal` | |
+| `like` | `contains` | Match with `LIKE %value%` |
+| `between` | `between` | Emits two predicates (`gte` lower bound, `lte` upper bound) |
 
 Group nodes (`and`/`or`) in the filter tree are flattened — all leaf predicates are collected into the flat array. For queries requiring strict `OR` logic between predicates, implement that server-side based on your schema knowledge.
 

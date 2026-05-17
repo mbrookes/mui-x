@@ -50,6 +50,7 @@ For component-level planned features see the root `BACKLOG.md`.
 ### DB-01 · Dashboard pages
 
 **Overview page**
+
 - KPIs: Total Revenue (sum), Order Count (count), Avg Order Value, Enterprise Customer Count
 - Charts: Revenue Over Time (line by month), Revenue by Category (bar, split by category),
   Top Products by Revenue (horizontal bar, top 10), Order Status Breakdown (donut)
@@ -57,6 +58,7 @@ For component-level planned features see the root `BACKLOG.md`.
 - Interactive filters: Date Range, Status toggle
 
 **Products & Logistics page**
+
 - KPIs: Total Shipped Value, On-Time Delivery %, Average Shipment Days
 - Charts: Shipments by Status (donut), Revenue by Product Category (bar-stacked),
   Monthly Shipments (area)

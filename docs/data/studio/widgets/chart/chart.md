@@ -147,6 +147,61 @@ import { StudioChartWidget } from '@mui/x-studio';
 />
 ```
 
+## No data state
+
+When all rows for a chart widget have been filtered out — by a page filter, cross-filter, or adapter returning an empty result — Studio renders a `StudioNoDataOverlay` in place of the empty chart canvas.
+
+The overlay shows a centered inbox icon with a "No data" label in `text.disabled` colour. It appears only after loading is complete so it never flickers during an in-flight adapter fetch.
+
+### Customising the overlay
+
+`StudioNoDataOverlay` is exported from `@mui/x-studio` and accepts a `message` prop. You can pass a fully custom component via the `slots.noDataOverlay` prop on `StudioChartWidget` or at the dashboard level:
+
+```tsx
+import { StudioNoDataOverlay } from '@mui/x-studio';
+
+// Custom message using the default look
+<StudioChartWidget
+  widget={widget}
+  dataSource={source}
+  slots={{
+    noDataOverlay: () => (
+      <StudioNoDataOverlay message="No orders match the selected filters" />
+    ),
+  }}
+/>
+```
+
+```tsx
+// Fully custom component via Studio's slot chain
+function MyEmptyChart() {
+  return (
+    <Box sx={{ textAlign: 'center', py: 6, color: 'text.disabled' }}>
+      <TrendingFlatIcon sx={{ fontSize: 40 }} />
+      <Typography variant="body2">Try removing some filters</Typography>
+    </Box>
+  );
+}
+
+<Studio
+  slotProps={{
+    canvas: {
+      slotProps: {
+        widgetCard: {
+          slotProps: {
+            chart: { slots: { noDataOverlay: MyEmptyChart } },
+          },
+        },
+      },
+    },
+  }}
+/>
+```
+
+:::info
+The `slots.noDataOverlay` on `StudioChartWidget` is also used when the chart has an unsupported configuration (e.g. missing required fields). If you replace it with a fully custom component, make sure your component handles both the "no data" and "misconfigured" cases, or scope it only to `StudioNoDataOverlay`.
+:::
+
 ## See also
 
 - [Cross-filters](/x/react-studio/features/cross-filters/) — how chart clicks emit cross-filter events

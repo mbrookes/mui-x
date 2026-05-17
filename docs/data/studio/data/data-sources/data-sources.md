@@ -73,24 +73,13 @@ Each field describes one column of the data source:
 
 ## Field types
 
-### `'string'`
-
-Used for categorical dimensions (axes, group-by, pie sectors) and in multi-select filter widgets.
-Studio automatically computes distinct values for string fields at ingestion time (`fieldDistinctValues`), making filter dropdowns instant.
-
-### `'number'`
-
-Used for metrics and chart values.
-Set `aggregatable: true` to allow sum, average, count distinct, min, and max aggregations on charts and KPIs.
-
-### `'date'` and `'datetime'`
-
-Row values must be ISO 8601 strings (`'2024-01-15'`) or `Date` objects.
-Studio uses date fields in date-range filter widgets and for time-series chart axes (with automatic day/week/month/quarter/year bucketing).
-
-### `'boolean'`
-
-Used in toggle filter widgets.
+| Type | Used for | Notes |
+| :--- | :--- | :--- |
+| `'string'` | Categorical dimensions (axes, group-by, pie sectors), multi-select filter widgets | Studio computes distinct values at ingestion (`fieldDistinctValues`), making filter dropdowns instant. |
+| `'number'` | Metrics and chart values | Set `aggregatable: true` to allow sum, average, count distinct, min, and max aggregations on charts and KPIs. |
+| `'date'` | Date-range filters, time-series axes | Row values must be ISO 8601 strings (`'2024-01-15'`) or `Date` objects. Studio buckets by day / week / month / quarter / year automatically. |
+| `'datetime'` | Date-time range filters, time-series axes | Same format requirements as `'date'`. |
+| `'boolean'` | Toggle filter widgets | |
 
 ## Multiple data sources and relationships
 

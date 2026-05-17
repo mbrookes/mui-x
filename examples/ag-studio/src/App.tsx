@@ -1,9 +1,8 @@
 import * as React from 'react';
-import { Alert, Box, Button, CssBaseline, Snackbar, ThemeProvider, Toolbar, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Alert, Box, Button, CssBaseline, Snackbar, Tab, Tabs, ThemeProvider, Toolbar, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import { AgStudio } from 'ag-studio-react';
-import type { AgStudioApiReadyEvent, AgStudioStateUpdatedEvent } from 'ag-studio-react';
 import {
   customersSource,
   ordersSource,
@@ -20,6 +19,7 @@ import {
   generateSalesData,
 } from './salesData';
 import { downloadJson, uploadJson } from './utils/fileUtils';
+import { AG_SALES_DASHBOARD_STATE, PAGES } from './config/salesDashboard';
 import { theme } from './theme';
 
 function getUrlRowsParam(): number | undefined {
@@ -38,6 +38,7 @@ export default function App() {
   // AG Studio API is accessed via ref.current.api after onApiReady fires.
   const apiRef = React.useRef<{ getState: () => unknown; setState: (s: unknown) => void } | null>(null);
   const [mode, setMode] = React.useState<'edit' | 'view'>('edit');
+  const [currentPageId, setCurrentPageId] = React.useState<string>(AG_SALES_DASHBOARD_STATE.selectedPageId);
   const [snackbar, setSnackbar] = React.useState<{
     open: boolean;
     message: string;
@@ -109,12 +110,17 @@ export default function App() {
     };
   }, []);
 
-  const handleApiReady = React.useCallback((event: AgStudioApiReadyEvent) => {
+  const handleApiReady = React.useCallback((event: any) => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     apiRef.current = event.api;
   }, []);
 
-  const handleStateUpdated = React.useCallback((_event: AgStudioStateUpdatedEvent) => {
-    // Reserved for future use (e.g. dirty-state indicator).
+  const handleStateUpdated = React.useCallback((event: any) => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    const newPageId: string | undefined = event?.state?.selectedPageId;
+    if (newPageId) {
+      setCurrentPageId(newPageId);
+    }
   }, []);
 
   const handleModeChange = React.useCallback(
@@ -153,14 +159,28 @@ export default function App() {
     setSnackbar((prev) => ({ ...prev, open: false }));
   }, []);
 
+  const handlePageChange = React.useCallback(
+    (_event: React.SyntheticEvent, pageId: string) => {
+      const api = apiRef.current;
+      if (!api) {
+        return;
+      }
+      const state = api.getState() as { selectedPageId: string };
+      api.setState({ ...state, selectedPageId: pageId });
+      setCurrentPageId(pageId);
+    },
+    [],
+  );
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-        {/* Minimal toolbar */}
+        {/* Header: toolbar + page tabs */}
+        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
         <Toolbar
           variant="dense"
-          sx={{ gap: 1, borderBottom: 1, borderColor: 'divider', minHeight: 48 }}
+          sx={{ gap: 1, minHeight: 48 }}
         >
           <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 700, fontSize: 15 }}>
             Sales Dashboard
@@ -182,12 +202,26 @@ export default function App() {
             Load
           </Button>
         </Toolbar>
+        <Tabs
+          value={currentPageId}
+          onChange={handlePageChange}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{ minHeight: 36, px: 2 }}
+        >
+          {PAGES.map((page) => (
+            <Tab key={page.id} label={page.label} value={page.id} sx={{ minHeight: 36, py: 0.5 }} />
+          ))}
+        </Tabs>
+        </Box>
 
         {/* AG Studio fills remaining space */}
-        <Box sx={{ flexGrow: 1, minHeight: 0 }}>
+        <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <AgStudio
+            style={{ flex: 1, minHeight: 0 }}
             data={data}
             mode={mode}
+            initialState={AG_SALES_DASHBOARD_STATE as any}
             onApiReady={handleApiReady}
             onStateUpdated={handleStateUpdated}
           />

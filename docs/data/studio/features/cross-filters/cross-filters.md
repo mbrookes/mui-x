@@ -128,6 +128,36 @@ Users can also change it from the widget's settings panel in edit mode.
 
 To prevent a specific widget from receiving any cross-filters, set `crossFilterMode: 'none'` in its config. To prevent all widgets on a page from participating, place the widgets on a separate page.
 
+## Using cross-filter state in custom widgets
+
+When building a [custom widget](/x/react-studio/getting-started/composition/), use `useWidgetRows` to get the row arrays that already have cross-filters applied. Three outputs are relevant:
+
+| Output | Description |
+| :--- | :--- |
+| `effectiveRows` | The rows the widget should render — respects `crossFilterMode` automatically. |
+| `filteredRowsNoCross` | Rows with page and widget filters only (no cross-filters). Useful as a ghost/background dataset when `shouldShowGhost` is true. |
+| `shouldShowGhost` | `true` when the widget should render a dimmed background layer. Only set when `crossFilterMode === 'cross-highlight'` (the default) **and** a chart-click cross-filter is active. Interactive filter-widget selections never trigger ghost rendering. |
+| `hasCrossFilters` | `true` when at least one incoming cross-filter or interactive filter is active for this widget on the current page. |
+
+```tsx
+import { useWidgetRows } from '@mui/x-studio';
+
+function MyChartWidget({ widget, dataSource }) {
+  const { effectiveRows, filteredRowsNoCross, shouldShowGhost } = useWidgetRows(widget, dataSource);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      {shouldShowGhost && (
+        <MyChart rows={filteredRowsNoCross} style={{ opacity: 0.25, position: 'absolute', inset: 0 }} />
+      )}
+      <MyChart rows={effectiveRows} />
+    </div>
+  );
+}
+```
+
+Note: `filteredRowsNoCross` returns the same reference as `effectiveRows` when there are no active cross-filters, so the ghost layer is zero-cost when unused.
+
 ## See also
 
 - [Global filters](/x/react-studio/features/global-filters/) — page-level and widget-level condition filters

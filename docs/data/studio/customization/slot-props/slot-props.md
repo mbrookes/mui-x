@@ -35,7 +35,7 @@ Studio
       │  └─ slotProps.lineChart  → <LineChart> props
       │  └─ slotProps.pieChart   → <PieChart> props
       │  └─ slotProps.scatterChart → <ScatterChart> props
-      │  └─ slots.noDataOverlay  → custom "no data" component
+      │  └─ slots.noDataOverlay  → custom component for unconfigured/empty state
       ├─ slotProps.kpi          → StudioKpiWidget
       │  └─ slotProps.value      → <KpiValue> props
       │  └─ slotProps.sparkline  → <KpiSparkline> props
@@ -43,6 +43,7 @@ Studio
       │  └─ slots.value/sparkline/trend → replace sub-components
       ├─ slotProps.grid         → StudioGridWidget
       │  └─ slotProps.dataGrid  → DataGridPro props
+      │     └─ slots.noRowsOverlay → custom component for empty rows
       ├─ slotProps.filter       → StudioFilterWidget
       │  └─ slotProps.dateRangeControl / multiSelectControl / toggleControl / sliderControl
       │  └─ slots.dateRangeControl / ...  → replace control components
@@ -126,24 +127,18 @@ Forward `borderRadius` to every bar chart:
 />
 ```
 
-### Custom no-data overlay for charts
+### Custom no-data overlay for charts and grids
 
-Replace the default "chart not configured" message:
+When widgets have no rows to display (after filtering, or because the server returned an empty result), Studio shows a `StudioNoDataOverlay` — a centered inbox icon with a "No data" label in `text.disabled` colour. This component is exported from `@mui/x-studio` so you can use it directly with a custom message, or replace it entirely.
+
+#### Chart widgets
+
+The chart `slots.noDataOverlay` is used both when a chart has no data **and** when it has an unsupported configuration (e.g. missing required fields). Provide a custom component to cover both cases, or just override the message for the default look:
 
 ```tsx
-import { StudioChartWidget } from '@mui/x-studio';
-import type { StudioChartWidgetSlots } from '@mui/x-studio';
+import { StudioNoDataOverlay } from '@mui/x-studio';
 
-function MyNoDataOverlay() {
-  return (
-    <Box sx={{ textAlign: 'center', color: 'text.secondary', py: 4 }}>
-      <InfoIcon />
-      <Typography>Select a data source to get started</Typography>
-    </Box>
-  );
-}
-
-// Via Studio
+// Custom message, default appearance
 <Studio
   slotProps={{
     canvas: {
@@ -151,7 +146,11 @@ function MyNoDataOverlay() {
         widgetCard: {
           slotProps: {
             chart: {
-              slots: { noDataOverlay: MyNoDataOverlay },
+              slots: {
+                noDataOverlay: () => (
+                  <StudioNoDataOverlay message="No orders match the current filters" />
+                ),
+              },
             },
           },
         },
@@ -164,8 +163,51 @@ function MyNoDataOverlay() {
 <StudioChartWidget
   widget={widget}
   dataSource={source}
-  slots={{ noDataOverlay: MyNoDataOverlay }}
+  slots={{ noDataOverlay: () => <StudioNoDataOverlay message="No data available" /> }}
 />
+```
+
+#### Grid widgets
+
+The grid's empty overlay is surfaced through the underlying `DataGridPro` `noRowsOverlay` slot:
+
+```tsx
+import { StudioNoDataOverlay } from '@mui/x-studio';
+
+<Studio
+  slotProps={{
+    canvas: {
+      slotProps: {
+        widgetCard: {
+          slotProps: {
+            grid: {
+              slotProps: {
+                dataGrid: {
+                  slots: {
+                    noRowsOverlay: () => (
+                      <StudioNoDataOverlay message="No results — try adjusting filters" />
+                    ),
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }}
+/>
+```
+
+#### `StudioNoDataOverlay` props
+
+```ts
+interface StudioNoDataOverlayProps {
+  /** Override the default "No data" label. */
+  message?: string;
+  /** Optional fixed height — used by chart widgets to match the chart canvas height. */
+  height?: number | string;
+}
 ```
 
 ### Custom KPI value renderer

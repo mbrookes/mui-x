@@ -139,6 +139,30 @@ Some sources exist only to provide joined dimensions and shouldn't appear in the
 }
 ```
 
+## In-memory processing pipeline
+
+When rows are provided inline (no adapter), Studio runs a multi-layer pipeline to produce the rows each widget renders.
+Understanding the layers helps when debugging unexpected filter behaviour or performance issues.
+
+| Layer | Name | What it does |
+| :--- | :--- | :--- |
+| **L1** | Normalization | Parses ISO date strings into `Date` objects and builds `fieldDistinctValues` indexes for string fields. Scoped lazily to the fields each widget actually uses — adding an unused field to one widget does not force re-normalization for others. |
+| **L1** | Metric-ref resolution | Replaces `{ type: 'metric-ref' }` filter values with their current scalar value from a named row in the `businessMetrics` source. Runs once over the merged filter list before filtering. |
+| **L2** | Enrichment | Appends expression-field values (calculated columns) to each row. Evaluated lazily — only expression fields referenced by the current widget are computed. Transitive dependencies are resolved automatically. |
+| **L3** | Filter application | Applies all active filters scoped to this widget: page, widget, cross-filter (chart-click), and interactive (filter-widget). Results are cached by filter-set fingerprint so widgets with unchanged filters pay zero cost when other widgets change. |
+| **L4** | Cross-source re-anchor | For chart widgets whose y-field lives on a related source, re-projects the filtered rows onto the correct aggregation grain. Only runs when a cross-source join is required. |
+
+The pipeline produces three row arrays:
+
+| Output | Description |
+| :--- | :--- |
+| `filteredRows` | All filters applied (page + widget + cross-filter + interactive). |
+| `filteredRowsNoCross` | Page and widget filters only — cross-filter and interactive filters excluded. Same reference as `filteredRows` when no cross-filters are active. |
+| `effectiveRows` | The rows the widget should render. Equals `filteredRowsNoCross` when `crossFilterMode: 'none'`; equals `filteredRows` for all other modes. |
+
+All filter scoping and cache management is handled internally — your component receives `effectiveRows` via `useWidgetRows`.
+When an async adapter is attached to a source, the entire in-memory pipeline is bypassed for that source.
+
 ## Large datasets
 
 Inline rows are processed in-memory by Studio.

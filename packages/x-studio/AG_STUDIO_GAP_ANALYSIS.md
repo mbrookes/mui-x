@@ -1,8 +1,8 @@
 # @mui/x-studio Gap Analysis vs AG Studio Clone Requirements
 
-**Date:** 2026-04-29  
-**Reviewer:** Copilot (automated code review)  
-**Scope:** `packages/x-studio/src/` vs `AG_STUDIO_CLONE_REQUIREMENTS.md`  
+**Date:** 2026-04-29
+**Reviewer:** Copilot (automated code review)
+**Scope:** `packages/x-studio/src/` vs `AG_STUDIO_CLONE_REQUIREMENTS.md`
 **AG Studio reference:** https://www.ag-grid.com/studio/react/reference/
 
 ---
@@ -26,7 +26,7 @@
 
 All three drawers exist (`StudioDataDrawer`, `StudioComposeDrawer`, `StudioFiltersDrawer`). Each collapses to 36 px with `DrawerPanel` (`components/DrawerPanel.tsx`). Keyboard accessible: `tabIndex=0`, `role="button"`, `Enter`/`Space` open/close, `aria-label` set, `aria-expanded` reflected via `expanded` prop.
 
-**Partial gap — AC2 "drawer state persists per session":**  
+**Partial gap — AC2 "drawer state persists per session":**
 `ShellState` (including `dataDrawerOpen`, `composeDrawerOpen`, `filtersDrawerOpen`) is defined in the model and held in the controller store, but `serializeState()` in `store/statePersistence.ts` explicitly excludes shell state:
 
 ```ts

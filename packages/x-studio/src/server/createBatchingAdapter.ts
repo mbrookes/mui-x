@@ -182,32 +182,23 @@ export function createBatchingAdapter(
 }
 
 /**
- * Map a Studio filter operator to the server's FilterPredicate operator.
- * Returns null for operators not supported by the batch protocol.
+ * Lookup table from Studio filter operators to batch protocol operators.
+ * Operators absent from this map are not supported by the batch protocol.
  */
+const OPERATOR_MAP: Partial<Record<StudioFilterOperator, FilterPredicate['operator']>> = {
+  equals: 'eq',
+  not_equals: 'neq',
+  in: 'in',
+  greater_than: 'gt',
+  less_than: 'lt',
+  greater_than_or_equal: 'gte',
+  less_than_or_equal: 'lte',
+  contains: 'like',
+  between: 'between',
+};
+
 function mapOperator(op: StudioFilterOperator): FilterPredicate['operator'] | null {
-  switch (op) {
-    case 'equals':
-      return 'eq';
-    case 'not_equals':
-      return 'neq';
-    case 'in':
-      return 'in';
-    case 'greater_than':
-      return 'gt';
-    case 'less_than':
-      return 'lt';
-    case 'greater_than_or_equal':
-      return 'gte';
-    case 'less_than_or_equal':
-      return 'lte';
-    case 'contains':
-      return 'like';
-    case 'between':
-      return 'between';
-    default:
-      return null;
-  }
+  return OPERATOR_MAP[op] ?? null;
 }
 
 /**

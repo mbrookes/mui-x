@@ -102,7 +102,10 @@ function CrossHighlightPieArc(props: PieArcProps) {
 
   return (
     <React.Fragment>
-      {/* Ghost arc — always rendered; full colour when inactive, dimmed when active */}
+      {/* Ghost arc — full surface area; handles ALL pointer interaction for this slice.
+          The overlay arc sits on top but defers interaction to the ghost so that
+          hovering anywhere on the slice (ghost or overlay region) consistently
+          triggers highlighting. */}
       <PieArc
         {...rest}
         startAngle={startAngle}
@@ -112,7 +115,8 @@ function CrossHighlightPieArc(props: PieArcProps) {
         color={ghostColor}
         skipAnimation={skipAnimation}
       />
-      {/* Overlay arc — only when active; angular span proportional to filtered/total.
+      {/* Overlay arc — purely visual; skipInteraction prevents duplicate/conflicting
+          pointer events with the ghost arc beneath it.
           stroke="none" removes the radial end-line at the overlay boundary.
           Radii are inset by 1px to match the visual footprint of the ghost arc's 1px
           background stroke, so the curved outer/inner edges align correctly. */}
@@ -127,6 +131,7 @@ function CrossHighlightPieArc(props: PieArcProps) {
           skipAnimation={skipAnimation}
           isFaded={false}
           stroke="none"
+          skipInteraction
         />
       )}
     </React.Fragment>

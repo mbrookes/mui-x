@@ -74,7 +74,15 @@ export function useWidgetRows(
 ): UseWidgetRowsResult {
   const filters = useStudioSelector(selectFilters);
   const partitioned = useStudioSelector(selectPartitionedFilters);
-  const deferredPartitioned = React.useDeferredValue(partitioned);
+  const rawDeferredPartitioned = React.useDeferredValue(partitioned);
+  // When cross-filters are being *removed* (live count < deferred count), use the
+  // live value immediately — there's no heavy computation and the extra deferred
+  // render cycle makes removal feel sluggish. Only defer when adding filters (which
+  // requires a new row-filtering pass that may be expensive).
+  const deferredPartitioned =
+    partitioned.cross.length < rawDeferredPartitioned.cross.length
+      ? partitioned
+      : rawDeferredPartitioned;
   // Separate deferred for isRecomputing — only triggers the loading overlay
   // for page/widget filter changes, not cross-filter or interactive changes.
   const basePartitioned = useStudioSelector(selectPartitionedBaseFilters);

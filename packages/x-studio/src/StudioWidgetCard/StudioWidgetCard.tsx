@@ -18,7 +18,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
 import dayjs from 'dayjs';
 
-import { useStudioController, useStudioSelector, selectPartitionedFilters, selectActivePage } from '../context';
+import { useStudioController, useStudioSelector, selectPartitionedBaseFilters, selectActivePage } from '../context';
 import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import type { StudioPageTheme } from '../models';
@@ -220,7 +220,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
 
   // Detect when filter recomputation is in-flight (deferred rendering).
   // Only relevant for chart and grid widgets that go through useWidgetRows.
-  const partitioned = useStudioSelector(selectPartitionedFilters);
+  const partitioned = useStudioSelector(selectPartitionedBaseFilters);
   const deferredPartitioned = React.useDeferredValue(partitioned);
   const isRecomputing =
     (widget?.kind === 'chart' || widget?.kind === 'grid') &&

@@ -152,3 +152,7 @@ BL-58: Natural language widget creation — text prompt → inferred chart type,
 BL-59: Embeddable SDK — `<StudioDashboard config={…} dataLoader={…} />` with sensible defaults; zero-config auto-discovery mode; publishable as a standalone npm package
 
 BL-60: Multi-user / permissions — view-only mode (no compose/filter drawers); per-page and per-widget visibility rules; user roles: viewer, editor, admin
+
+BL-61: I18n support for all Studio component text, with a Brazilian Portuguese translation.
+
+BL-61: From docs x/react-studio/resources/selectors/ #memoising-expensive-selectors "For selectors that perform non-trivial computation, use a memoisation utility like createSelector from the reselect package to avoid unnecessary recalculations:". Are we using this in x-studio? If not should we?

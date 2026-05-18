@@ -21,6 +21,7 @@ import {
   getChartSupportMessage,
   periodKeyToDateRange,
   truncateToGranularity,
+  aggregateByField,
 } from '../internals/chartUtils';
 import {
   useStudioController,
@@ -219,6 +220,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     allChartData,
     allSeriesFieldData,
     allMultiYData,
+    enrichedRows,
+    allEnrichedRows,
     filteredRows,
     isLoading,
   } = useChartWidgetData(widget, dataSource);
@@ -507,8 +510,56 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     [selectedFilterValue, selectedPeriodKey, xGroupBy],
   );
 
+  // Pre-compute grouped-ring pie data: one ring per xField category, each ring
+  // divided into slices by seriesField — like grouped bars but as concentric rings.
+  const twoRingData = React.useMemo(() => {
+    if (
+      (normalizedChartType !== 'pie' && normalizedChartType !== 'donut') ||
+      !config.seriesField ||
+      !config.xField ||
+      enrichedRows.length === 0
+    ) {
+      return null;
+    }
+    const xField = config.xField;
+    const sliceField = config.seriesField;
+    const yField = config.yField ?? activeYFields[0] ?? '';
+
+    // Always use baseline rows so cross-filters dim rather than remove slices.
+    const baseRows = allEnrichedRows.length > 0 ? allEnrichedRows : enrichedRows;
+
+    // Get unique category values (xField) in stable order.
+    const categories = [...new Set(baseRows.map((r) => String(r[xField] ?? '')))].filter(Boolean);
+
+    // For each category, aggregate by sliceField within that category's rows.
+    const rings = categories.map((category) => {
+      const catRows = baseRows.filter((r) => String(r[xField] ?? '') === category);
+      const agg = aggregateByField(catRows, sliceField, yField);
+      return { id: `ring-${category}`, label: category, slices: agg };
+    });
+
+    // Filtered label sets for dimming when cross-filters are active.
+    const filteredCategories = shouldShowGhost
+      ? new Set(enrichedRows.map((r) => String(r[xField] ?? '')))
+      : null;
+    const filteredSlicesByCategory = shouldShowGhost
+      ? new Map(
+          categories.map((cat) => {
+            const catRows = enrichedRows.filter((r) => String(r[xField] ?? '') === cat);
+            const agg = aggregateByField(catRows, sliceField, yField);
+            return [cat, new Set(agg.labels.map(String))];
+          }),
+        )
+      : null;
+
+    return { rings, filteredCategories, filteredSlicesByCategory };
+  }, [normalizedChartType, config.seriesField, config.xField, config.yField, activeYFields, enrichedRows, allEnrichedRows, shouldShowGhost]);
+
   const currentHighlightableSeriesIds = React.useMemo(() => {
     if (normalizedChartType === 'pie' || normalizedChartType === 'donut') {
+      if (config.seriesField && twoRingData) {
+        return new Set(twoRingData.rings.map((r) => r.id));
+      }
       return new Set([CROSS_FILTER_SERIES_ID]);
     }
 
@@ -546,7 +597,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
 
     return new Set<string>();
-  }, [multiYData, normalizedChartType, seriesFieldData]);
+  }, [multiYData, normalizedChartType, seriesFieldData, config.seriesField]);
 
   const controlledHighlightedItem =
     !hasActiveXFilter &&
@@ -960,7 +1011,82 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }
 
   if (normalizedChartType === 'pie' || normalizedChartType === 'donut') {
-    const innerRadius = normalizedChartType === 'donut' ? 50 : 0;
+    const donutHole = normalizedChartType === 'donut' ? 50 : 0;
+    // Fill the drawing area: chartHeight minus top+bottom margins (16+16).
+    const maxRadius = Math.round((chartHeight - 32) / 2);
+    const ringGap = 6;
+
+    // ── Grouped rings: one ring per xField category, slices by seriesField ──
+    if (config.seriesField && twoRingData) {
+      const { rings, filteredCategories, filteredSlicesByCategory } = twoRingData;
+      const n = rings.length;
+      if (n === 0) {
+        return <div style={{ height: chartHeight }} />;
+      }
+
+      const totalSpace = maxRadius - donutHole;
+      const ringGapActual = 1;
+      const ringWidth = Math.max(6, Math.floor((totalSpace - ringGapActual * (n - 1)) / n));
+
+      const pieSeries = rings.map((ring, ringIndex) => {
+        const outerRadius = maxRadius - ringIndex * (ringWidth + ringGapActual);
+        const innerRadius = Math.max(donutHole, outerRadius - ringWidth);
+        const isCatDimmed =
+          filteredCategories != null && !filteredCategories.has(ring.label);
+        const filteredSlices = filteredSlicesByCategory?.get(ring.label) ?? null;
+
+        return {
+          id: ring.id,
+          label: ring.label,
+          innerRadius,
+          outerRadius,
+          data: ring.slices.labels.map((label, i) => {
+            const isDimmed =
+              isCatDimmed || (filteredSlices != null && !filteredSlices.has(String(label)));
+            const color = resolvedChartColors[i % resolvedChartColors.length];
+            return {
+              id: i,
+              // Use a function label: tooltip gets the slice name, legend only
+              // shows entries for the outermost ring to avoid duplicates.
+              label:
+                ringIndex === 0
+                  ? formatLabel(label)
+                  : (location: string) =>
+                      location === 'tooltip' ? formatLabel(label) : undefined,
+              value: ring.slices.values[i] ?? 0,
+              ...(isDimmed && { color: `${color}40` }),
+            };
+          }),
+          highlightScope: { highlight: 'item' as const, fade: 'series' as const },
+        };
+      });
+
+      return (
+        <div style={{ height: chartHeight }}>
+          <PieChart
+            {...slotProps?.pieChart}
+            series={pieSeries}
+            colors={chartColors}
+            height={chartHeight}
+            slotProps={{
+              legend: {
+                position: { vertical: 'middle', horizontal: 'end' },
+                direction: 'column',
+                sx: { overflowY: 'auto', flexWrap: 'nowrap', maxHeight: '100%' },
+              },
+            }}
+            margin={{ top: 8, right: 160, bottom: 8, left: 8 }}
+            highlightedItem={controlledHighlightedItem}
+            onHighlightChange={(item) =>
+              setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+            }
+          />
+        </div>
+      );
+    }
+
+    // ── Single series paths (unchanged below) ────────────────────────────
+    const innerRadius = donutHole;
     const selectedDataIndex = getSelectedDataIndex(chartData.labels);
 
     // When cross-filters are active and the x-field baseline is meaningful, render two
@@ -972,7 +1098,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       shouldShowGhost && allChartData != null && preserveXFieldBaseline;
 
     if (showPieCrossFilterOverlay) {
-      const ghostOuterRadius = Math.round(chartHeight * 0.38);
+      const ghostOuterRadius = Math.round((chartHeight - 32) / 2);
 
       // Build a lookup of filtered values keyed by label string for O(1) access.
       const filteredValueByLabel = new Map(
@@ -1007,6 +1133,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             <PieChart
               {...slotProps?.pieChart}
               slots={{ pieArc: CrossFilterPieArc }}
+              height={chartHeight}
               series={[
                 {
                   id: `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`,
@@ -1030,10 +1157,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               colors={chartColors}
               slotProps={{
                 legend: {
+                  position: { vertical: 'middle', horizontal: 'end' },
+                  direction: 'column',
                   sx: { overflowY: 'auto', flexWrap: 'nowrap', maxHeight: '100%' },
                 },
               }}
-              margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
+              margin={{ top: 8, right: 160, bottom: 8, left: 8 }}
               highlightedItem={controlledHighlightedItem}
               onHighlightChange={(item) =>
                 setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
@@ -1064,6 +1193,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <div style={{ height: chartHeight }}>
         <PieChart
           {...slotProps?.pieChart}
+          height={chartHeight}
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
@@ -1084,14 +1214,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           colors={chartColors}
           slotProps={{
             legend: {
-              sx: {
-                overflowY: 'auto',
-                flexWrap: 'nowrap',
-                maxHeight: '100%',
-              },
+              position: { vertical: 'middle', horizontal: 'end' },
+              direction: 'column',
+              sx: { overflowY: 'auto', flexWrap: 'nowrap', maxHeight: '100%' },
             },
           }}
-          margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
+          margin={{ top: 8, right: 160, bottom: 8, left: 8 }}
           highlightedItem={
             selectedDataIndex >= 0
               ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }

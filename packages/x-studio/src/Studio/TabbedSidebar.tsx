@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { Badge, Box, Divider, Typography } from '@mui/material';
+import { Badge, Box, Divider, IconButton, Typography } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 
 import { useStudioController, useStudioSelector, selectShell } from '../context';
 import type { StudioDrawer } from '../models';
@@ -14,6 +15,8 @@ export interface TabbedSidebarPanel {
   icon?: React.ReactNode;
   /** Badge count shown on the tab when the panel is closed. */
   badge?: number;
+  /** When provided, a close (×) button is shown in the panel header that calls this callback. */
+  onBack?: () => void;
   children?: React.ReactNode;
 }
 
@@ -129,6 +132,26 @@ function ActivePanel({ panel, side = 'left' }: ActivePanelProps) {
           overflow: 'hidden',
         }}
       >
+        {panel.onBack && (
+          <React.Fragment>
+            <Box
+              sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 0.5, minHeight: 48 }}
+            >
+              <IconButton
+                size="small"
+                onClick={panel.onBack}
+                aria-label="Close widget configuration"
+                sx={{ mr: 0.5 }}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+              <Typography variant="subtitle2" sx={{ color: 'text.primary', flexGrow: 1 }} noWrap>
+                {panel.label}
+              </Typography>
+            </Box>
+            <Divider />
+          </React.Fragment>
+        )}
         {injectedSubheader && (
           <React.Fragment>
             {injectedSubheader}

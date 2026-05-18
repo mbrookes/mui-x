@@ -208,6 +208,7 @@ const StudioContent = React.memo(function StudioContent(
                   drawer: 'compose' as const,
                   label: composeTitle,
                   icon: composeOnBack ? undefined : <TuneIcon fontSize="small" />,
+                  onBack: composeOnBack,
                   children: composeDrawer ?? <StudioComposeDrawer />,
                 },
               ]

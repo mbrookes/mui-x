@@ -2,6 +2,7 @@ import * as React from 'react';
 
 import type {
   StudioDataSource,
+  StudioGridColumn,
   StudioKpiAggregation,
   StudioWidget,
   StudioWidgetKind,
@@ -66,6 +67,11 @@ export const WIDGET_TYPES: {
 
 export function widgetKindRequiresDataSource(kind: StudioWidgetKind) {
   return kind !== 'text';
+}
+
+/** Extracts the `fieldId` strings from a `StudioGridColumn[]` for callers that only need IDs. */
+export function columnFieldIds(columns: StudioGridColumn[] | undefined): string[] {
+  return columns?.map((c) => c.fieldId) ?? [];
 }
 
 /** Returns a small (16px) icon representing the specific sub-type of a widget. */
@@ -149,7 +155,7 @@ export function createDefaultWidget(
       id,
       kind,
       title: '',
-      config: { columns: source ? source.fields.map((f) => f.id) : [] },
+      config: { columns: source ? source.fields.map((f) => ({ fieldId: f.id })) : [] },
       ...(source ? { sourceId: source.id } : {}),
     };
   }
@@ -284,7 +290,7 @@ export function inferWidgetTitles(
     case 'grid': {
       const title = source?.label ?? 'Table';
       const visibleColumnLabels = (
-        config.columns?.length ? config.columns : (source?.fields.map((f) => f.id) ?? [])
+        config.columns?.length ? columnFieldIds(config.columns) : (source?.fields.map((f) => f.id) ?? [])
       ).flatMap((fieldId) => {
         const label = findFieldLabel(fieldId);
         return label ? [label] : [];
@@ -323,7 +329,7 @@ export function buildCsvContent(
   rows: Record<string, unknown>[],
 ): string {
   const visibleColumns = widget.config.columns?.length
-    ? widget.config.columns
+    ? columnFieldIds(widget.config.columns)
     : dataSource.fields.map((f) => f.id);
 
   const fieldMap = new Map(dataSource.fields.map((f) => [f.id, f]));

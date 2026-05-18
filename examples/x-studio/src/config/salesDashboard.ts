@@ -283,7 +283,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       kind: 'chart',
       title: 'Revenue by Category',
       sourceId: ORDER_ITEMS_SOURCE_ID,
-      config: { chartType: 'bar', xField: 'category', yField: 'total' },
+      config: { chartType: 'donut', xField: 'category', yField: 'total' },
     },
     'widget-chart-country': {
       id: 'widget-chart-country',
@@ -298,7 +298,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Recent Orders',
       sourceId: ORDERS_SOURCE_ID,
       config: {
-        columns: ['id', 'date', 'customerId', 'status', 'total'],
+        columns: [{ fieldId: 'id' }, { fieldId: 'date' }, { fieldId: 'customerId' }, { fieldId: 'status' }, { fieldId: 'total' }],
         gridSortField: 'id',
         gridSortDirection: 'desc',
         gridSummaryFields: { id: 'count', total: 'sum' },
@@ -423,16 +423,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       titleMode: 'manual',
       sourceId: PRODUCTS_SOURCE_ID,
       config: {
-        columns: [
-          'product',
-          'category',
-          'price',
-          'cost',
-          'expr-product-margin',
-          'expr-product-margin-pct',
-          'stock',
-          'reorderLevel',
-        ],
+        columns: [{ fieldId: 'product' }, { fieldId: 'category' }, { fieldId: 'price' }, { fieldId: 'cost' }, { fieldId: 'expr-product-margin' }, { fieldId: 'expr-product-margin-pct' }, { fieldId: 'stock' }, { fieldId: 'reorderLevel' }],
         crossFilterField: 'category',
         gridSummaryFields: { price: 'avg', cost: 'avg', stock: 'sum', reorderLevel: 'sum' },
       },
@@ -520,16 +511,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       titleMode: 'manual',
       sourceId: SHIPMENTS_SOURCE_ID,
       config: {
-        columns: [
-          'id',
-          'carrier',
-          'shipDate',
-          'estimatedDeliveryDate',
-          'actualDeliveryDate',
-          'status',
-          'onTime',
-          'itemCount',
-        ],
+        columns: [{ fieldId: 'id' }, { fieldId: 'carrier' }, { fieldId: 'shipDate' }, { fieldId: 'estimatedDeliveryDate' }, { fieldId: 'actualDeliveryDate' }, { fieldId: 'status' }, { fieldId: 'onTime' }, { fieldId: 'itemCount' }],
         gridSortField: 'shipDate',
         gridSortDirection: 'desc',
         gridSummaryFields: { id: 'count', itemCount: 'sum' },
@@ -687,7 +669,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       titleMode: 'manual',
       sourceId: ORDERS_SOURCE_ID,
       config: {
-        columns: ['expr-order-company', 'expr-order-segment', 'expr-order-country', 'id', 'total'],
+        columns: [{ fieldId: 'expr-order-company' }, { fieldId: 'expr-order-segment' }, { fieldId: 'expr-order-country' }, { fieldId: 'id' }, { fieldId: 'total' }],
         gridGroupByField: 'expr-order-company',
         gridAggregations: { id: 'count', total: 'sum' },
         gridSortField: 'total',

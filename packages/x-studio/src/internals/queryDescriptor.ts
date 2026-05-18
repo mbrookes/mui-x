@@ -74,7 +74,7 @@ export function collectSelectFields(widget: StudioWidget): string[] {
 
   // Grid columns
   if (config.columns) {
-    config.columns.forEach((f) => fields.add(f));
+    config.columns.forEach((col) => fields.add(col.fieldId));
   }
   if (config.gridGroupByField) {
     fields.add(config.gridGroupByField);
@@ -145,6 +145,25 @@ function buildAggregations(
   if (config.kpiValueField) {
     const fn = (config.kpiAggregation as AggFn | undefined) ?? 'sum';
     aggs.push({ field: config.kpiValueField, fn, alias: config.kpiValueField });
+  }
+
+  // Grid with groupBy — emit per-column aggregations so async adapters receive them
+  if (widget.kind === 'grid' && config.gridGroupByField) {
+    // Prefer per-column aggregationFn from StudioGridColumn, fall back to gridAggregations
+    if (config.columns?.length) {
+      config.columns.forEach((col) => {
+        const fn =
+          (col.aggregationFn as AggFn | undefined) ??
+          (config.gridAggregations?.[col.fieldId] as AggFn | undefined);
+        if (fn && col.fieldId !== config.gridGroupByField) {
+          aggs.push({ field: col.fieldId, fn, alias: col.fieldId });
+        }
+      });
+    } else if (config.gridAggregations) {
+      Object.entries(config.gridAggregations).forEach(([field, fn]) => {
+        aggs.push({ field, fn: fn as AggFn, alias: field });
+      });
+    }
   }
 
   return aggs.length > 0 ? aggs : undefined;

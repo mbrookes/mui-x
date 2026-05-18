@@ -55,7 +55,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     }
   } else if (widget.kind === 'grid') {
     if (cfg.columns?.length) {
-      parts.push(`columns: [${cfg.columns.join(', ')}]`);
+      parts.push(`columns: [${cfg.columns.map((c) => c.fieldId).join(', ')}]`);
     }
   } else if (widget.kind === 'filter') {
     if (cfg.filterWidgetType) {

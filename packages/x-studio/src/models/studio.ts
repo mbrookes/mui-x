@@ -41,6 +41,47 @@ export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 /** Aggregation function to show in the grid summary (totals) row. */
 export type StudioGridSummaryAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
+/**
+ * Aggregation function for a grid column — extends `StudioGridSummaryAggregation`
+ * with `count_distinct` for deduplication use-cases.
+ */
+export type StudioGridColumnAggFn = StudioGridSummaryAggregation | 'count_distinct';
+
+/**
+ * A column definition for a grid widget.
+ *
+ * Replaces the previous `string[]` columns format to carry per-column
+ * aggregation and (optionally) cross-source metadata.
+ */
+export interface StudioGridColumn {
+  /** Field ID within the source identified by `sourceId` or `widget.sourceId`. */
+  fieldId: string;
+  /**
+   * Source ID for this column. When set and different from `widget.sourceId`,
+   * the column's data is pulled from a related source via the declared
+   * `StudioRelationship`. Only `many-to-one` relationships are supported
+   * (the widget's primary source must be the "many" side).
+   */
+  sourceId?: string;
+  /**
+   * Aggregation function applied when `gridGroupByField` is active, or when
+   * this column references a related source at a coarser grain (fan-out).
+   * Falls back to `StudioDataField.defaultAggregationFn` then `'sum'` for
+   * numeric fields if absent.
+   */
+  aggregationFn?: StudioGridColumnAggFn;
+  /** Column header label override (defaults to `StudioDataField.label`). */
+  label?: string;
+}
+
+/**
+ * Normalise a column entry that may be either a legacy `string` field ID or a
+ * `StudioGridColumn` object. Call this when reading persisted state.
+ */
+export function normalizeGridColumn(col: string | StudioGridColumn): StudioGridColumn {
+  return typeof col === 'string' ? { fieldId: col } : col;
+}
+
 export type StudioFilterOperator =
   | 'equals'
   | 'in'
@@ -81,7 +122,8 @@ export interface StudioMetricRef {
 
 export interface StudioWidgetConfig {
   // Grid config
-  columns?: string[];
+  /** Ordered list of visible columns. Use `normalizeGridColumn()` when reading persisted state. */
+  columns?: StudioGridColumn[];
   /** Optional field used to group raw rows into one aggregated grid row per unique value. */
   gridGroupByField?: string;
   /** Per-column aggregations applied when gridGroupByField is set. */
@@ -265,6 +307,13 @@ export interface StudioDataField {
    * See `FieldCapability` in `utils/fieldCapabilities` for available values.
    */
   capabilities?: FieldCapability[];
+  /**
+   * Default aggregation function when this field is used as a measure column.
+   * When set, the grid column picker auto-assigns this aggregation and shows
+   * the field in the "Metrics" section of related pickers.
+   * Omit for dimension fields (string, boolean, date) — they are never aggregated.
+   */
+  defaultAggregationFn?: StudioGridColumnAggFn;
 }
 
 // Filter tree node for QueryDescriptor

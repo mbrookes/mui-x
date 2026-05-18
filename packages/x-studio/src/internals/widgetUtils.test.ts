@@ -238,7 +238,7 @@ describe('inferWidgetTitles — grid', () => {
     const { subtitle } = inferWidgetTitles(
       makeWidget({
         kind: 'grid',
-        config: { columns: ['category', 'revenue', 'month', 'status'] },
+        config: { columns: [{ fieldId: 'category' }, { fieldId: 'revenue' }, { fieldId: 'month' }, { fieldId: 'status' }] },
       }),
       {
         ...SOURCES,
@@ -323,7 +323,7 @@ describe('createDefaultWidget', () => {
 
   it('grid with source: config.columns is pre-populated from source field ids', () => {
     const widget = createDefaultWidget('grid', SOURCES.orders);
-    expect(widget.config.columns).toEqual(['category', 'revenue', 'month']);
+    expect(widget.config.columns).toEqual([{ fieldId: 'category' }, { fieldId: 'revenue' }, { fieldId: 'month' }]);
     expect(widget.sourceId).toBe('orders');
   });
 
@@ -393,7 +393,7 @@ describe('buildCsvContent', () => {
       id: 'w1',
       kind: 'grid',
       title: 'Orders',
-      config: { columns: ['id', 'revenue'] },
+      config: { columns: [{ fieldId: 'id' }, { fieldId: 'revenue' }] },
     };
     const csv = buildCsvContent(widget, source, rows);
     const header = csv.split('\n')[0];

@@ -38,7 +38,7 @@ export interface BatchWidgetDescriptor {
   id: string;
   /** Data source / table to query */
   table: string;
-  /** Columns to include in SELECT (projection) */
+  /** Columns to include in SELECT (projection); aggregated columns use the `sum_`/`avg_`/`count_` prefix convention */
   columns?: string[];
   /** Client-supplied filter predicates (structured, never raw SQL) */
   filters?: FilterPredicate[];

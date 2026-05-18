@@ -131,14 +131,36 @@ export function createBatchingAdapter(
       async (descriptors) => {
         const body = {
           pageId: descriptors[0]?.sourceId ?? 'unknown',
-          widgets: descriptors.map((d) => ({
-            id: d.widgetId,
-            table: d.sourceId,
-            columns: d.select,
-            filters: d.filter ? flattenFilterNode(d.filter) : undefined,
-            orderBy: undefined,
-            limit: undefined,
-          })),
+          widgets: descriptors.map((d) => {
+            // Encode aggregated columns using the server's prefix convention:
+            // e.g. { field: 'revenue', fn: 'sum' } → 'sum_revenue'
+            let columns: string[];
+            if (d.aggregations?.length && d.groupBy) {
+              const aggFieldIds = new Set(d.aggregations.map((a) => a.field));
+              columns = d.select.map((fieldId) => {
+                if (aggFieldIds.has(fieldId)) {
+                  const agg = d.aggregations!.find((a) => a.field === fieldId)!;
+                  const prefix =
+                    agg.fn === 'count_distinct' ? 'count_' : `${agg.fn}_`;
+                  return `${prefix}${fieldId}`;
+                }
+                return fieldId;
+              });
+            } else {
+              columns = d.select;
+            }
+
+            return {
+              id: d.widgetId,
+              table: d.sourceId,
+              columns,
+              filters: d.filter ? flattenFilterNode(d.filter) : undefined,
+              orderBy: d.groupBy
+                ? [{ column: d.groupBy, direction: 'asc' as const }]
+                : undefined,
+              limit: undefined,
+            };
+          }),
         };
 
         const response = await fetchFn(endpoint, {

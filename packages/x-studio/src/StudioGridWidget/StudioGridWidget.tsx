@@ -48,7 +48,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const visibleFields = React.useMemo(
     () =>
       widget.config.columns?.length
-        ? widget.config.columns
+        ? widget.config.columns.map((c) => c.fieldId)
         : (dataSource?.fields.map((f) => f.id) ?? []),
     [widget.config.columns, dataSource?.fields],
   );

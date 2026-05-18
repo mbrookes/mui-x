@@ -9,11 +9,15 @@ import {
   Menu,
   MenuItem,
   Stack,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CheckIcon from '@mui/icons-material/Check';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import type { StudioGridSummaryAggregation } from '../models';
 import {
   useStudioController,
@@ -43,10 +47,17 @@ export function GridSetupPanel(props: { widgetId: string }) {
 
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
   const allFields = (source?.fields ?? []).filter((f) => !f.hidden);
-  const visibleColumns: string[] = widget?.config?.columns ?? allFields.map((f) => f.id);
+  const visibleColumns: string[] = (widget?.config?.columns ?? allFields.map((f) => f.id)).filter(
+    (id) => allFields.some((f) => f.id === id),
+  );
   const crossFilterField = widget?.config?.crossFilterField ?? '';
   const summaryFields: Record<string, StudioGridSummaryAggregation> =
     widget?.config?.gridSummaryFields ?? {};
+  const groupByField = widget?.config?.gridGroupByField ?? '';
+  const groupAggregations: Record<string, StudioGridSummaryAggregation> =
+    widget?.config?.gridAggregations ?? {};
+  const sortField = widget?.config?.gridSortField ?? '';
+  const sortDirection = widget?.config?.gridSortDirection ?? 'asc';
 
   // Map allFields to DataSourceFieldEntry for DataSourceFieldSelect
   const crossFilterFieldEntries = React.useMemo<DataSourceFieldEntry[]>(() => {
@@ -88,6 +99,19 @@ export function GridSetupPanel(props: { widgetId: string }) {
     setMenuAnchor(null);
   };
 
+  const handleGroupAggChange = (fieldId: string, value: StudioGridSummaryAggregation | '') => {
+    const next = { ...groupAggregations };
+    if (value === '') {
+      delete next[fieldId];
+    } else {
+      next[fieldId] = value;
+    }
+    controller.updateWidgetConfig(widgetId, {
+      gridAggregations: Object.keys(next).length > 0 ? next : undefined,
+    });
+    setMenuAnchor(null);
+  };
+
   if (!source) {
     return (
       <Alert severity="warning" sx={{ mt: 1 }}>
@@ -113,14 +137,73 @@ export function GridSetupPanel(props: { widgetId: string }) {
 
       <Divider />
 
+      {/* Group-by field */}
+      <DataSourceFieldSelect
+        value={groupByField}
+        onChange={(fieldId) =>
+          controller.updateWidgetConfig(widgetId, {
+            gridGroupByField: fieldId || undefined,
+            gridAggregations: fieldId ? groupAggregations : undefined,
+          })
+        }
+        fields={crossFilterFieldEntries}
+        label="Group by"
+        helperText="Collapse rows into groups — set per-column aggregation below"
+      />
+
+      {/* Sort field + direction */}
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+        <Box sx={{ flex: 1 }}>
+          <DataSourceFieldSelect
+            value={sortField}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, {
+                gridSortField: fieldId || undefined,
+                gridSortDirection: fieldId ? sortDirection : undefined,
+              })
+            }
+            fields={crossFilterFieldEntries}
+            label="Default sort"
+          />
+        </Box>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={sortDirection}
+          disabled={!sortField}
+          onChange={(_, next) => {
+            if (next) {
+              controller.updateWidgetConfig(widgetId, { gridSortDirection: next });
+            }
+          }}
+          sx={{ height: 40, flexShrink: 0 }}
+        >
+          <ToggleButton value="asc" aria-label="Ascending">
+            <Tooltip title="Ascending">
+              <ArrowUpwardIcon fontSize="small" />
+            </Tooltip>
+          </ToggleButton>
+          <ToggleButton value="desc" aria-label="Descending">
+            <Tooltip title="Descending">
+              <ArrowDownwardIcon fontSize="small" />
+            </Tooltip>
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
+
+      <Divider />
+
       <Typography variant="caption" color="text.secondary">
         Visible columns ({visibleColumns.length}/{allFields.length})
+        {groupByField ? ' — ⋮ sets group aggregation' : ' — ⋮ sets summary row'}
       </Typography>
       {allFields.map((field) => {
         const isNumeric = field.type === 'number';
         const availableAggs = isNumeric ? NUMERIC_AGGREGATIONS : STRING_AGGREGATIONS;
-        const currentAgg = summaryFields[field.id];
+        // In group-by mode the ⋮ menu controls gridAggregations; otherwise gridSummaryFields
+        const currentAgg = groupByField ? groupAggregations[field.id] : summaryFields[field.id];
         const isVisible = visibleColumns.includes(field.id);
+        const isGroupByField = field.id === groupByField;
 
         return (
           <Box
@@ -151,15 +234,20 @@ export function GridSetupPanel(props: { widgetId: string }) {
             >
               <FieldTypeIcon type={field.type} generated={field.generated} size={14} />
               <Typography variant="body2">{field.label}</Typography>
+              {isGroupByField && (
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                  (group)
+                </Typography>
+              )}
             </Box>
 
-            {/* Summary aggregation — ⋮ icon button with dense checkmark menu */}
-            {isVisible && (
+            {/* Summary / group aggregation — ⋮ icon button with dense checkmark menu */}
+            {isVisible && !isGroupByField && (
               <React.Fragment>
-                <Tooltip title={currentAgg ? `Summary: ${AGG_LABELS[currentAgg]}` : 'Set summary'}>
+                <Tooltip title={currentAgg ? `${groupByField ? 'Aggregate' : 'Summary'}: ${AGG_LABELS[currentAgg]}` : groupByField ? 'Set aggregation' : 'Set summary'}>
                   <IconButton
                     size="small"
-                    aria-label={`Summary for ${field.label}`}
+                    aria-label={`${groupByField ? 'Aggregation' : 'Summary'} for ${field.label}`}
                     aria-haspopup="true"
                     aria-expanded={openFieldId === field.id}
                     onClick={(evt) => setMenuAnchor({ fieldId: field.id, el: evt.currentTarget })}
@@ -175,7 +263,11 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   slotProps={{ list: { dense: true } }}
                 >
                   <MenuItem
-                    onClick={() => handleSummaryChange(field.id, '')}
+                    onClick={() =>
+                      groupByField
+                        ? handleGroupAggChange(field.id, '')
+                        : handleSummaryChange(field.id, '')
+                    }
                     selected={currentAgg == null}
                   >
                     {currentAgg == null ? (
@@ -190,7 +282,11 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   {availableAggs.map((agg) => (
                     <MenuItem
                       key={agg}
-                      onClick={() => handleSummaryChange(field.id, agg)}
+                      onClick={() =>
+                        groupByField
+                          ? handleGroupAggChange(field.id, agg)
+                          : handleSummaryChange(field.id, agg)
+                      }
                       selected={currentAgg === agg}
                     >
                       {currentAgg === agg ? (

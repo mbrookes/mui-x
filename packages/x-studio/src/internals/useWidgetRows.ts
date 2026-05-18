@@ -10,6 +10,7 @@ import {
   makeSelectExpressionFieldsForSources,
   selectActivePageId,
   selectPartitionedFilters,
+  selectPartitionedBaseFilters,
 } from '../context';
 import { resolveMetricRefs } from './chartUtils';
 import { resolveRowsCached } from './resolvedRowsCache';
@@ -74,6 +75,10 @@ export function useWidgetRows(
   const filters = useStudioSelector(selectFilters);
   const partitioned = useStudioSelector(selectPartitionedFilters);
   const deferredPartitioned = React.useDeferredValue(partitioned);
+  // Separate deferred for isRecomputing — only triggers the loading overlay
+  // for page/widget filter changes, not cross-filter or interactive changes.
+  const basePartitioned = useStudioSelector(selectPartitionedBaseFilters);
+  const deferredBasePartitioned = React.useDeferredValue(basePartitioned);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   // expressionFields: subscribe to own source + all directly related sources.
@@ -309,7 +314,7 @@ export function useWidgetRows(
     usedFieldIds,
   ]);
 
-  const isRecomputing = !hasAdapter && deferredPartitioned !== partitioned;
+  const isRecomputing = !hasAdapter && deferredBasePartitioned !== basePartitioned;
 
   // 'none' mode: widget ignores cross-filters entirely and always shows the full baseline.
   const effectiveRows = crossFilterMode === 'none' ? filteredRowsNoCross : filteredRows;

@@ -1078,8 +1078,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // angles stay stable; dim non-matching slices via colour alpha.
     const pieBaseData =
       shouldShowGhost && allChartData && preserveXFieldBaseline ? allChartData : chartData;
-    const filteredLabelSet =
-      shouldShowGhost && chartData ? new Set(chartData.labels.map(String)) : null;
+
+    // When ghost rendering is active with a stable baseline, compute a per-label
+    // filtered-value map for proportional alpha dimming. Value-based ratios produce
+    // a visible signal even when every label appears in both datasets (e.g. every
+    // country has some Electronics orders); a purely binary presence-check cannot.
+    const filteredValueByLabel =
+      shouldShowGhost && allChartData && preserveXFieldBaseline && chartData
+        ? new Map(chartData.labels.map((l, idx) => [String(l), chartData.values[idx]]))
+        : null;
 
     return (
       <div style={{ height: chartHeight }}>
@@ -1091,13 +1098,24 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               id: CROSS_FILTER_SERIES_ID,
               innerRadius,
               data: pieBaseData.labels.map((label, i) => {
-                const isDimmed = filteredLabelSet != null && !filteredLabelSet.has(String(label));
                 const color = resolvedChartColors[i % resolvedChartColors.length];
+                let sliceColor: string | undefined;
+                if (filteredValueByLabel != null) {
+                  const allValue = pieBaseData.values[i];
+                  const filteredValue = filteredValueByLabel.get(String(label)) ?? 0;
+                  const ratio = allValue > 0 ? filteredValue / allValue : 1;
+                  if (ratio < 0.999) {
+                    const alpha = Math.round((0.25 + 0.75 * ratio) * 255)
+                      .toString(16)
+                      .padStart(2, '0');
+                    sliceColor = `${color}${alpha}`;
+                  }
+                }
                 return {
                   id: i,
                   label: formatLabel(label),
                   value: pieBaseData.values[i],
-                  ...(isDimmed && { color: `${color}40` }),
+                  ...(sliceColor != null && { color: sliceColor }),
                 };
               }),
               highlightScope: { highlight: 'item', fade: 'global' },

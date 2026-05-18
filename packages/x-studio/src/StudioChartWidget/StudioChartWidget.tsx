@@ -110,7 +110,9 @@ function CrossHighlightPieArc(props: PieArcProps) {
         color={ghostColor}
         skipAnimation={skipAnimation}
       />
-      {/* Overlay arc — only when active; angular span proportional to filtered/total */}
+      {/* Overlay arc — only when active; angular span proportional to filtered/total.
+          stroke="none" removes the background-color border so it blends cleanly on
+          top of the ghost arc without a visible white dividing line. */}
       {isActive && ratio > 0.001 && (
         <PieArc
           {...rest}
@@ -119,6 +121,7 @@ function CrossHighlightPieArc(props: PieArcProps) {
           color={color}
           skipAnimation={skipAnimation}
           isFaded={false}
+          stroke="none"
         />
       )}
     </React.Fragment>

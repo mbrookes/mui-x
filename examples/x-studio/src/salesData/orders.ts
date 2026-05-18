@@ -34,10 +34,10 @@ const ordersSourceRaw: StudioDataSource = {
   fields: [
     { id: 'id', label: 'Order ID', type: 'string', hidden: true },
     { id: 'date', label: 'Order Date', type: 'date' },
-    { id: 'customerId', label: 'Customer ID', type: 'string', hidden: true },
+    { id: 'customerId', label: 'Customer ID', type: 'string' },
     { id: 'status', label: 'Status', type: 'string' },
-    { id: 'total', label: 'Order Total', type: 'number', format: 'currency' },
     { id: 'currency', label: 'Currency', type: 'string' },
+    { id: 'total', label: 'Order Total', type: 'number', format: 'currency' },
   ],
   rows: [
     {

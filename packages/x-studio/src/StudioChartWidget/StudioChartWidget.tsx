@@ -26,9 +26,10 @@ import {
 import {
   useStudioController,
   useStudioSelector,
-  selectFilters,
   selectActivePageId,
   makeSelectExpressionFieldsForSource,
+  makeSelectActiveCrossFilter,
+  makeSelectIncomingCrossFilters,
 } from '../context';
 import { formatNumber } from '../internals/numberFormat';
 import type { StudioNumberFormat } from '../models/studio';
@@ -193,13 +194,24 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const { config } = widget;
   const xGroupBy = config.xGroupBy;
   const controller = useStudioController();
-  const filters = useStudioSelector(selectFilters);
   const activePageId = useStudioSelector(selectActivePageId);
   const selectExpressionFields = React.useMemo(
     () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
     [widget.sourceId],
   );
   const expressionFields = useStudioSelector(selectExpressionFields);
+
+  const selectActiveCrossFilter = React.useMemo(
+    () => makeSelectActiveCrossFilter(widget.id, activePageId),
+    [widget.id, activePageId],
+  );
+  const activeCrossFilter = useStudioSelector(selectActiveCrossFilter);
+
+  const selectIncomingCrossFilters = React.useMemo(
+    () => makeSelectIncomingCrossFilters(widget.id, activePageId),
+    [widget.id, activePageId],
+  );
+  const incomingCrossFilters = useStudioSelector(selectIncomingCrossFilters);
   const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<
     'bar' | 'line' | 'pie'
   > | null>(null);
@@ -271,25 +283,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     (labels: (string | number)[], axisId?: string) =>
       createLineXAxisConfig(labels, xGroupBy, formatLabel, axisId),
     [formatLabel, xGroupBy],
-  );
-
-  // Check if this widget has an active cross-filter on the current page
-  const activeCrossFilter = React.useMemo(
-    () =>
-      filters.find(
-        (f) =>
-          f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === activePageId,
-      ) ?? null,
-    [filters, widget.id, activePageId],
-  );
-
-  const incomingCrossFilters = React.useMemo(
-    () =>
-      filters.filter(
-        (f) =>
-          f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-      ),
-    [filters, widget.id, activePageId],
   );
 
   const getFieldDependencySource = React.useCallback(

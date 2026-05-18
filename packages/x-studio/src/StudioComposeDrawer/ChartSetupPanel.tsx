@@ -133,7 +133,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     chartType === 'line' ||
     chartType === 'area' ||
     chartType === 'area-stacked' ||
-    chartType === 'area-100';
+    chartType === 'area-100' ||
+    chartType === 'pie' ||
+    chartType === 'donut';
 
   // Split-by is mutually exclusive with multiple Y-series: keep the control
   // visible so users can see why it's unavailable, but disable it.
@@ -222,6 +224,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       yField: next[0]?.fieldId ?? '',
     });
   };
+
+  const isPieOrDonut = chartType === 'pie' || chartType === 'donut';
 
   if (allFields.length === 0) {
     return (
@@ -432,11 +436,13 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   return !analyzeCombination({ seriesField: option.id }).supported;
                 }}
                 disabled={seriesFieldDisabled}
-                label="Split by (series field)"
+                label={isPieOrDonut ? 'Inner ring category' : 'Split by (series field)'}
                 helperText={
                   seriesFieldDisabled
                     ? 'Not available when multiple measure fields are configured'
-                    : 'Divides data into a separate series per value'
+                    : isPieOrDonut
+                      ? 'Adds a concentric inner ring grouped by this field'
+                      : 'Divides data into a separate series per value'
                 }
               />
             </span>

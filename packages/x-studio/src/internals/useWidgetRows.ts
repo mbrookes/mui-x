@@ -201,11 +201,11 @@ export function useWidgetRows(
   const hasCrossFilters = React.useMemo(
     () =>
       !hasAdapter &&
-      (partitioned.cross.some((f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId) ||
-        partitioned.interactive.some(
+      (deferredPartitioned.cross.some((f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId) ||
+        deferredPartitioned.interactive.some(
           (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
         )),
-    [hasAdapter, partitioned, widget.id, activePageId],
+    [hasAdapter, deferredPartitioned, widget.id, activePageId],
   );
 
   // Separate boolean for chart-click cross-filters only — interactive (filter widget)
@@ -213,8 +213,8 @@ export function useWidgetRows(
   const hasChartCrossFilters = React.useMemo(
     () =>
       !hasAdapter &&
-      partitioned.cross.some((f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId),
-    [hasAdapter, partitioned, widget.id, activePageId],
+      deferredPartitioned.cross.some((f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId),
+    [hasAdapter, deferredPartitioned, widget.id, activePageId],
   );
 
   const crossFilterMode = widget.config?.crossFilterMode ?? 'cross-highlight';

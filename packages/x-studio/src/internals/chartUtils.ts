@@ -1713,7 +1713,7 @@ export function aggregateByTwoFields(
   }
 
   const labels = sortLabels(Array.from(xValuesSet));
-  const seriesNames = Array.from(seriesValuesSet);
+  const seriesNames = sortLabels(Array.from(seriesValuesSet));
 
   // Build series data arrays — use null (not 0) for missing points so that
   // line/area charts render visible gaps instead of collapsing to zero.

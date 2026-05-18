@@ -1012,8 +1012,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   if (normalizedChartType === 'pie' || normalizedChartType === 'donut') {
     const donutHole = normalizedChartType === 'donut' ? 50 : 0;
-    // Fill the drawing area: chartHeight minus top+bottom margins (16+16).
-    const maxRadius = Math.round((chartHeight - 32) / 2);
+    const maxRadius = Math.round(chartHeight * 0.38);
     const ringGap = 6;
 
     // ── Grouped rings: one ring per xField category, slices by seriesField ──
@@ -1067,15 +1066,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             {...slotProps?.pieChart}
             series={pieSeries}
             colors={chartColors}
-            height={chartHeight}
             slotProps={{
               legend: {
-                position: { vertical: 'middle', horizontal: 'end' },
-                direction: 'column',
                 sx: { overflowY: 'auto', flexWrap: 'nowrap', maxHeight: '100%' },
               },
             }}
-            margin={{ top: 8, right: 160, bottom: 8, left: 8 }}
+            margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
             highlightedItem={controlledHighlightedItem}
             onHighlightChange={(item) =>
               setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
@@ -1098,7 +1094,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       shouldShowGhost && allChartData != null && preserveXFieldBaseline;
 
     if (showPieCrossFilterOverlay) {
-      const ghostOuterRadius = Math.round((chartHeight - 32) / 2);
+      const ghostOuterRadius = Math.round(chartHeight * 0.38);
 
       // Build a lookup of filtered values keyed by label string for O(1) access.
       const filteredValueByLabel = new Map(
@@ -1133,7 +1129,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             <PieChart
               {...slotProps?.pieChart}
               slots={{ pieArc: CrossFilterPieArc }}
-              height={chartHeight}
               series={[
                 {
                   id: `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`,
@@ -1157,12 +1152,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               colors={chartColors}
               slotProps={{
                 legend: {
-                  position: { vertical: 'middle', horizontal: 'end' },
-                  direction: 'column',
                   sx: { overflowY: 'auto', flexWrap: 'nowrap', maxHeight: '100%' },
                 },
               }}
-              margin={{ top: 8, right: 160, bottom: 8, left: 8 }}
+              margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
               highlightedItem={controlledHighlightedItem}
               onHighlightChange={(item) =>
                 setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
@@ -1193,7 +1186,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <div style={{ height: chartHeight }}>
         <PieChart
           {...slotProps?.pieChart}
-          height={chartHeight}
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
@@ -1214,12 +1206,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           colors={chartColors}
           slotProps={{
             legend: {
-              position: { vertical: 'middle', horizontal: 'end' },
-              direction: 'column',
-              sx: { overflowY: 'auto', flexWrap: 'nowrap', maxHeight: '100%' },
+              sx: {
+                overflowY: 'auto',
+                flexWrap: 'nowrap',
+                maxHeight: '100%',
+              },
             },
           }}
-          margin={{ top: 8, right: 160, bottom: 8, left: 8 }}
+          margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
           highlightedItem={
             selectedDataIndex >= 0
               ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }

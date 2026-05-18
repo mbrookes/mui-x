@@ -1549,26 +1549,29 @@ describe('<StudioChartWidget />', () => {
       //   date native filter (filterSourceId='source-orders'): o1 (Jan), o3 (Feb) — both in Q1 2024
       //   filtered: o1 (USA, 100), o3 (USA, 150) → { USA: 250 }
       // allChartData (filteredRowsNoCross): all orders → { USA: 250, Germany: 200, France: 300 }
-      // hasCrossFilters=true, preserveXFieldBaseline=true → single-series with value-based colour dimming:
-      //   series[0] uses allChartData labels (all countries)
-      //   slices with filteredValue < allValue get proportional alpha dimming
+      // hasCrossFilters=true, preserveXFieldBaseline=true → ghost + overlay arc rendering:
+      //   series[0] uses allChartData labels (all countries, stable angles)
+      //   CrossHighlightPieArc draws dimmed ghost arc + proportional overlay arc per slice
+      //   ratioByIndex: USA=1.0, Germany=0, France=0
       expect(pieChartSpy).toHaveBeenCalled();
       const props = pieChartSpy.mock.calls.at(-1)?.[0] as {
         series: Array<{ data: Array<{ label?: string; value: number; color?: string }> }>;
+        slots?: { pieArc?: unknown };
       };
-      // Single series using allChartData baseline; slices not in filtered data get dimmed colour.
+      // Single series using allChartData baseline; no per-slice color overrides in data
+      // (colors are handled by CrossHighlightPieArc via context, not in the data array).
       expect(props.series).toHaveLength(1);
       const labels = props.series[0].data.map((s) => s.label).filter(Boolean);
       expect(labels).toContain('USA');
       expect(labels).toContain('Germany');
       expect(labels).toContain('France');
-      // USA has ratio=1 → no color override; Germany and France have ratio=0 → dimmed color (${color}40)
-      const sliceByLabel = Object.fromEntries(
-        props.series[0].data.map((s) => [s.label, s]),
-      );
-      expect(sliceByLabel['USA']?.color).toBeUndefined(); // full match: no dimming
-      expect(sliceByLabel['Germany']?.color).toMatch(/^#[0-9a-f]{6}40$/i); // ratio=0 → min alpha
-      expect(sliceByLabel['France']?.color).toMatch(/^#[0-9a-f]{6}40$/i); // ratio=0 → min alpha
+      // All slice values come from allChartData (stable baseline), not filtered values
+      const sliceByLabel = Object.fromEntries(props.series[0].data.map((s) => [s.label, s]));
+      expect(sliceByLabel['USA']?.value).toBe(250); // USA total (all orders, not just Supplies)
+      expect(sliceByLabel['Germany']?.value).toBe(200);
+      expect(sliceByLabel['France']?.value).toBe(300);
+      // Overlay arc rendering delegated to CrossHighlightPieArc via slots.pieArc
+      expect(props.slots?.pieArc).toBeDefined();
     });
 
     it('Quarterly Revenue by Category (ORDER_ITEMS bar-stacked): receives only the category native filter', () => {

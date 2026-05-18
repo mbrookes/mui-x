@@ -173,6 +173,77 @@ export const selectPartitionedFilters = (state: StudioState): PartitionedFilters
 };
 
 /**
+ * Like selectPartitionedFilters but only includes page-scoped and widget-scoped
+ * filters — it is intentionally stable when only cross-filters or interactive
+ * filters change.
+ *
+ * Use this for `isRecomputing` comparisons so that the loading overlay is NOT
+ * shown during cross-filter changes (those use cached row results and are fast).
+ */
+export interface BasePartitionedFilters {
+  page: StudioFilterState[];
+  byWidgetId: Map<string, StudioFilterState[]>;
+}
+
+let lastBaseFiltersInput: StudioFilterState[] | undefined;
+let lastBasePartitionResult: BasePartitionedFilters | undefined;
+
+export const selectPartitionedBaseFilters = (state: StudioState): BasePartitionedFilters => {
+  const filters = state.filters;
+  if (filters === lastBaseFiltersInput && lastBasePartitionResult !== undefined) {
+    return lastBasePartitionResult;
+  }
+
+  // Check whether the page/widget filters are the same as before — if so,
+  // return the previous result so useDeferredValue sees no change (no spinner).
+  const page: StudioFilterState[] = [];
+  const byWidgetId = new Map<string, StudioFilterState[]>();
+
+  for (const f of filters) {
+    if (f.scope === 'page') {
+      page.push(f);
+    } else if (f.scope === 'widget') {
+      const key = f.widgetId ?? '';
+      let bucket = byWidgetId.get(key);
+      if (!bucket) {
+        bucket = [];
+        byWidgetId.set(key, bucket);
+      }
+      bucket.push(f);
+    }
+  }
+
+  // If the previous result had the same page/widget filter content, reuse it.
+  if (lastBasePartitionResult !== undefined) {
+    const prev = lastBasePartitionResult;
+    const pageUnchanged =
+      prev.page.length === page.length && prev.page.every((f, i) => f === page[i]);
+    if (pageUnchanged) {
+      // Check byWidgetId: same keys and same arrays
+      let widgetUnchanged = prev.byWidgetId.size === byWidgetId.size;
+      if (widgetUnchanged) {
+        for (const [key, arr] of byWidgetId) {
+          const prevArr = prev.byWidgetId.get(key);
+          if (!prevArr || prevArr.length !== arr.length || arr.some((f, i) => f !== prevArr[i])) {
+            widgetUnchanged = false;
+            break;
+          }
+        }
+      }
+      if (widgetUnchanged) {
+        lastBaseFiltersInput = filters;
+        return prev;
+      }
+    }
+  }
+
+  const result: BasePartitionedFilters = { page, byWidgetId };
+  lastBaseFiltersInput = filters;
+  lastBasePartitionResult = result;
+  return result;
+};
+
+/**
  * Returns a stable memoized selector that returns only the cross-filter
  * emitted by the given widget on the given page (or null if none).
  *

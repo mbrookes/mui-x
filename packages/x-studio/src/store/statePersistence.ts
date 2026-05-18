@@ -1,4 +1,4 @@
-import { createDefaultStudioState, type StudioState, type StudioExpressionField } from '../models';
+import { createDefaultStudioState, normalizeGridColumn, type StudioState, type StudioExpressionField } from '../models';
 
 /**
  * Current schema version for the studio state
@@ -176,7 +176,20 @@ export function deserializeState(
     mode: 'edit',
     dashboard: serialized.dashboard,
     pages: serialized.pages,
-    widgets: serialized.widgets,
+    widgets: Object.fromEntries(
+      Object.entries(serialized.widgets).map(([id, widget]) => [
+        id,
+        widget.config?.columns
+          ? {
+              ...widget,
+              config: {
+                ...widget.config,
+                columns: widget.config.columns.map(normalizeGridColumn),
+              },
+            }
+          : widget,
+      ]),
+    ),
     dataSources,
     filters: serialized.filters,
     relationships: serialized.relationships ?? [],

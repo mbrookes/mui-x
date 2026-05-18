@@ -183,7 +183,7 @@ const StudioContent = React.memo(function StudioContent(
     return dataSources[selectedSourceId]?.fields.find((f) => f.id === selectedFieldId) ?? null;
   }, [dataSources, selectedSourceId, selectedFieldId]);
 
-  const composeTitle = selectedField?.label ?? 'Compose';
+  const composePanelTitle = selectedWidget?.title ?? selectedField?.label ?? 'Compose';
   const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
   const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
 
@@ -206,8 +206,9 @@ const StudioContent = React.memo(function StudioContent(
                 },
                 {
                   drawer: 'compose' as const,
-                  label: composeTitle,
-                  icon: composeOnBack ? undefined : <TuneIcon fontSize="small" />,
+                  label: 'Compose',
+                  title: composePanelTitle,
+                  icon: <TuneIcon fontSize="small" />,
                   onBack: composeOnBack,
                   children: composeDrawer ?? <StudioComposeDrawer />,
                 },
@@ -232,7 +233,7 @@ const StudioContent = React.memo(function StudioContent(
           <DrawerPanel
             side={sidebarSide}
             drawer="compose"
-            title={composeTitle}
+            title={composePanelTitle}
             icon={<TuneIcon fontSize="small" />}
             onBack={composeOnBack}
           >
@@ -256,7 +257,7 @@ const StudioContent = React.memo(function StudioContent(
           <DrawerPanel
             side={sidebarSide}
             drawer="compose"
-            title={composeTitle}
+            title={composePanelTitle}
             icon={<TuneIcon fontSize="small" />}
             onBack={composeOnBack}
           >

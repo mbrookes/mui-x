@@ -12,6 +12,8 @@ import type { DrawerSubheaderContextValue } from '../Studio/DrawerPanel';
 export interface TabbedSidebarPanel {
   drawer: StudioDrawer;
   label: string;
+  /** Title shown in the panel header when open. Defaults to label. */
+  title?: string;
   icon?: React.ReactNode;
   /** Badge count shown on the tab when the panel is closed. */
   badge?: number;
@@ -146,7 +148,7 @@ function ActivePanel({ panel, side = 'left' }: ActivePanelProps) {
                 <CloseIcon fontSize="small" />
               </IconButton>
               <Typography variant="subtitle2" sx={{ color: 'text.primary', flexGrow: 1 }} noWrap>
-                {panel.label}
+                {panel.title ?? panel.label}
               </Typography>
             </Box>
             <Divider />

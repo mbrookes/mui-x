@@ -5,7 +5,7 @@ import { BarChart } from '@mui/x-charts/BarChart';
 import type { BarChartProps } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import type { LineChartProps } from '@mui/x-charts/LineChart';
-import { PieChart } from '@mui/x-charts/PieChart';
+import { PieChart, PieArc, type PieArcProps } from '@mui/x-charts/PieChart';
 import type { PieChartProps } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { ScatterChartProps } from '@mui/x-charts/ScatterChart';
@@ -68,9 +68,66 @@ const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
 const GHOST_SERIES_SUFFIX = '-ghost';
 
-// Context used to pass per-item filter ratios to the custom pieArc slot.
-// The standard PieValueType does not support per-item arc overrides, so we use a
-// slot + context to narrow each active slice's angular span proportionally.
+// ── Pie cross-highlight: ghost + proportional overlay arc ────────────────────
+//
+// When a cross-filter is active the custom pieArc slot renders two layered arcs
+// per slice instead of one:
+//   1. Ghost arc  — full angle (allChartData), dimmed to ~25% opacity.
+//   2. Overlay arc — same start angle, end angle shrunk to `ratio × full span`
+//      where ratio = filteredValue / allValue. Full color. Shows the share of
+//      that slice that belongs to the selected filter.
+//
+// The PieHighlightContext is always provided (non-conditional) so PieChart never
+// changes tree position, preventing entrance-animation remounts.
+//
+interface PieHighlightContextValue {
+  ratioByIndex: Map<number, number>;
+  isActive: boolean;
+  skipAnimation: boolean;
+}
+
+const PieHighlightContext = React.createContext<PieHighlightContextValue>({
+  ratioByIndex: new Map(),
+  isActive: false,
+  skipAnimation: false,
+});
+
+function CrossHighlightPieArc(props: PieArcProps) {
+  const { startAngle, endAngle, color, ...rest } = props;
+  const { ratioByIndex, isActive, skipAnimation } = React.useContext(PieHighlightContext);
+
+  const ratio = ratioByIndex.get(rest.dataIndex) ?? 1;
+  const ghostColor = isActive ? `${color}40` : color;
+  const overlayEndAngle = startAngle + ratio * (endAngle - startAngle);
+
+  return (
+    <React.Fragment>
+      {/* Ghost arc — always rendered; full colour when inactive, dimmed when active */}
+      <PieArc
+        {...rest}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        color={ghostColor}
+        skipAnimation={skipAnimation}
+      />
+      {/* Overlay arc — only when active; angular span proportional to filtered/total */}
+      {isActive && ratio > 0.001 && (
+        <PieArc
+          {...rest}
+          startAngle={startAngle}
+          endAngle={overlayEndAngle}
+          color={color}
+          skipAnimation={skipAnimation}
+          isFaded={false}
+        />
+      )}
+    </React.Fragment>
+  );
+}
+
+// Stable slots object — defined at module scope so the reference never changes
+// between renders and PieChart never unmounts/remounts its arc elements.
+const PIE_HIGHLIGHT_SLOTS = { pieArc: CrossHighlightPieArc } as const;
 
 /**
  * Aligns filteredValues to the positions in allLabels.
@@ -728,6 +785,34 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     };
   }, [shouldShowGhost, isBar, allMultiYData]);
 
+  // ── Pie cross-highlight context (must be before any early returns) ───────────
+  // Computed at top level to satisfy the Rules of Hooks (no conditional useMemo).
+  const isPieOrDonut =
+    normalizedChartType === 'pie' || normalizedChartType === 'donut';
+  const isPieHighlightActive = Boolean(
+    isPieOrDonut && shouldShowGhost && allChartData && preserveXFieldBaseline,
+  );
+  const pieRatioByIndex = React.useMemo((): Map<number, number> => {
+    if (!isPieHighlightActive || !allChartData || !chartData) {
+      return new Map();
+    }
+    const filteredValueMap = new Map(
+      chartData.labels.map((l, i) => [String(l), chartData.values[i]]),
+    );
+    const map = new Map<number, number>();
+    allChartData.labels.forEach((label, i) => {
+      const allValue = allChartData.values[i];
+      const filteredValue = filteredValueMap.get(String(label)) ?? 0;
+      map.set(i, allValue > 0 ? filteredValue / allValue : 1);
+    });
+    return map;
+  }, [isPieHighlightActive, allChartData, chartData]);
+
+  const pieHighlightCtxValue = React.useMemo(
+    () => ({ ratioByIndex: pieRatioByIndex, isActive: isPieHighlightActive, skipAnimation }),
+    [pieRatioByIndex, isPieHighlightActive, skipAnimation],
+  );
+
   // Guard: return placeholder if chart isn't configured yet (must be after all hooks)
   if (!dataSource || !config.xField) {
     return (
@@ -1074,80 +1159,58 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const innerRadius = donutHole;
     const selectedDataIndex = getSelectedDataIndex(chartData.labels);
 
-    // Single series: use baseline data when cross-filters are active so slice
-    // angles stay stable; dim non-matching slices via colour alpha.
-    const pieBaseData =
-      shouldShowGhost && allChartData && preserveXFieldBaseline ? allChartData : chartData;
-
-    // When ghost rendering is active with a stable baseline, compute a per-label
-    // filtered-value map for proportional alpha dimming. Value-based ratios produce
-    // a visible signal even when every label appears in both datasets (e.g. every
-    // country has some Electronics orders); a purely binary presence-check cannot.
-    const filteredValueByLabel =
-      shouldShowGhost && allChartData && preserveXFieldBaseline && chartData
-        ? new Map(chartData.labels.map((l, idx) => [String(l), chartData.values[idx]]))
-        : null;
+    // Use stable baseline data (isPieHighlightActive / pieRatioByIndex computed at top level)
+    const pieBaseData = isPieHighlightActive ? allChartData! : chartData;
 
     return (
       <div style={{ height: chartHeight }}>
-        <PieChart
-          {...slotProps?.pieChart}
-          skipAnimation={skipAnimation}
-          series={[
-            {
-              id: CROSS_FILTER_SERIES_ID,
-              innerRadius,
-              data: pieBaseData.labels.map((label, i) => {
-                const color = resolvedChartColors[i % resolvedChartColors.length];
-                let sliceColor: string | undefined;
-                if (filteredValueByLabel != null) {
-                  const allValue = pieBaseData.values[i];
-                  const filteredValue = filteredValueByLabel.get(String(label)) ?? 0;
-                  const ratio = allValue > 0 ? filteredValue / allValue : 1;
-                  if (ratio < 0.999) {
-                    const alpha = Math.round((0.25 + 0.75 * ratio) * 255)
-                      .toString(16)
-                      .padStart(2, '0');
-                    sliceColor = `${color}${alpha}`;
-                  }
-                }
-                return {
+        {/* PieHighlightContext always wraps PieChart — never conditionally — so PieChart
+            stays at the same tree position and arcs never remount on filter changes. */}
+        <PieHighlightContext.Provider value={pieHighlightCtxValue}>
+          <PieChart
+            {...slotProps?.pieChart}
+            skipAnimation={skipAnimation}
+            slots={PIE_HIGHLIGHT_SLOTS}
+            series={[
+              {
+                id: CROSS_FILTER_SERIES_ID,
+                innerRadius,
+                data: pieBaseData.labels.map((label, i) => ({
                   id: i,
                   label: formatLabel(label),
                   value: pieBaseData.values[i],
-                  ...(sliceColor != null && { color: sliceColor }),
-                };
-              }),
-              highlightScope: { highlight: 'item', fade: 'global' },
-            },
-          ]}
-          colors={chartColors}
-          slotProps={{
-            legend: {
-              sx: {
-                overflowY: 'auto',
-                flexWrap: 'nowrap',
-                maxHeight: '100%',
+                })),
+                highlightScope: { highlight: 'item', fade: 'global' },
               },
-            },
-          }}
-          margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
-          highlightedItem={
-            selectedDataIndex >= 0
-              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
-              : controlledHighlightedItem
-          }
-          onHighlightChange={(item) =>
-            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-          }
-          onItemClick={(_event, params) => {
-            const label = pieBaseData.labels[params.dataIndex];
-            if (label !== undefined) {
-              handleItemClick(label);
+            ]}
+            colors={chartColors}
+            slotProps={{
+              legend: {
+                sx: {
+                  overflowY: 'auto',
+                  flexWrap: 'nowrap',
+                  maxHeight: '100%',
+                },
+              },
+            }}
+            margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
+            highlightedItem={
+              selectedDataIndex >= 0
+                ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
+                : controlledHighlightedItem
             }
-          }}
-          sx={{ cursor: 'pointer' }}
-        />
+            onHighlightChange={(item) =>
+              setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+            }
+            onItemClick={(_event, params) => {
+              const label = pieBaseData.labels[params.dataIndex];
+              if (label !== undefined) {
+                handleItemClick(label);
+              }
+            }}
+            sx={{ cursor: 'pointer' }}
+          />
+        </PieHighlightContext.Provider>
       </div>
     );
   }

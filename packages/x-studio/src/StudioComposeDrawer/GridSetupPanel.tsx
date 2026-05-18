@@ -20,13 +20,15 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CheckIcon from '@mui/icons-material/Check';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import type { StudioGridSummaryAggregation } from '../models';
+import type { StudioGridColumn, StudioGridSummaryAggregation } from '../models';
 import {
   useStudioController,
   useStudioSelector,
   selectWidgets,
   selectDataSources,
+  selectRelationships,
 } from '../context';
+import { getReachableSourceIds } from '../internals/chartUtils';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 
@@ -41,17 +43,90 @@ const AGG_LABELS: Record<StudioGridSummaryAggregation, string> = {
   max: 'Max',
 };
 
+/** A selectable field entry with its source context */
+interface SelectableField {
+  fieldId: string;
+  label: string;
+  type: string;
+  generated?: boolean;
+  sourceId: string;
+  sourceLabel: string;
+  isPrimary: boolean;
+}
+
 export function GridSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const widget = useStudioSelector(selectWidgets)[widgetId];
   const dataSources = useStudioSelector(selectDataSources);
+  const relationships = useStudioSelector(selectRelationships);
 
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
-  const allFields = (source?.fields ?? []).filter((f) => !f.hidden);
-  const visibleColumns: string[] = (
-    widget?.config?.columns?.map((c) => c.fieldId) ?? allFields.map((f) => f.id)
-  ).filter((id) => allFields.some((f) => f.id === id));
+
+  // configColumns: the current StudioGridColumn[] from widget config, or default all-primary-fields
+  const primaryFields = React.useMemo(
+    () => (source?.fields ?? []).filter((f) => !f.hidden),
+    [source],
+  );
+  const configColumns: StudioGridColumn[] = React.useMemo(() => {
+    if (widget?.config?.columns?.length) {
+      return widget.config.columns;
+    }
+    return primaryFields.map((f) => ({ fieldId: f.id }));
+  }, [widget?.config?.columns, primaryFields]);
+
+  // All selectable fields: primary source + many-to-one reachable related sources
+  const allSelectableFields = React.useMemo<SelectableField[]>(() => {
+    if (!widget?.sourceId || !source) {
+      return [];
+    }
+    const reachableIds = getReachableSourceIds(widget.sourceId, relationships);
+    const fields: SelectableField[] = [];
+
+    // Primary source first
+    for (const f of primaryFields) {
+      fields.push({
+        fieldId: f.id,
+        label: f.label,
+        type: f.type,
+        generated: f.generated,
+        sourceId: widget.sourceId,
+        sourceLabel: source.label,
+        isPrimary: true,
+      });
+    }
+
+    // Many-to-one related sources only
+    for (const rel of relationships) {
+      if (rel.type !== 'many-to-one' || rel.sourceId !== widget.sourceId) {
+        continue;
+      }
+      if (!reachableIds.has(rel.targetId)) {
+        continue;
+      }
+      const relatedSource = dataSources[rel.targetId];
+      if (!relatedSource || relatedSource.hidden) {
+        continue;
+      }
+      for (const f of relatedSource.fields) {
+        if (f.hidden) {
+          continue;
+        }
+        fields.push({
+          fieldId: f.id,
+          label: f.label,
+          type: f.type,
+          generated: f.generated,
+          sourceId: rel.targetId,
+          sourceLabel: relatedSource.label,
+          isPrimary: false,
+        });
+      }
+    }
+    return fields;
+  }, [widget?.sourceId, source, primaryFields, relationships, dataSources]);
+
+  // For cross-filter, group-by, and sort pickers: only primary source fields
   const crossFilterField = widget?.config?.crossFilterField ?? '';
   const summaryFields: Record<string, StudioGridSummaryAggregation> =
     widget?.config?.gridSummaryFields ?? {};
@@ -71,15 +146,42 @@ export function GridSetupPanel(props: { widgetId: string }) {
     null,
   );
 
+  const crossFilterFieldEntries = React.useMemo<DataSourceFieldEntry[]>(() => {
+    if (!source || !widget?.sourceId) {
+      return [];
+    }
+    return primaryFields.map((f) => ({
+      id: f.id,
+      label: f.label,
+      type: f.type,
+      generated: f.generated,
+      sourceId: widget.sourceId!,
+      sourceLabel: source.label,
+    }));
+  }, [primaryFields, source, widget?.sourceId]);
+
   const handleSourceChange = (_: React.SyntheticEvent, selected: { id: string } | null) => {
     controller.updateWidget(widgetId, { sourceId: selected?.id ?? undefined, config: { columns: [] } });
   };
 
-  const handleColumnToggle = (fieldId: string) => {
-    const next = visibleColumns.includes(fieldId)
-      ? visibleColumns.filter((c) => c !== fieldId)
-      : [...visibleColumns, fieldId];
-    controller.updateWidgetConfig(widgetId, { columns: next.map((id) => ({ fieldId: id })) });
+  const handleColumnToggle = (fieldId: string, sourceId: string) => {
+    const isPrimary = sourceId === widget?.sourceId;
+    const colKey = isPrimary ? fieldId : `${sourceId}/${fieldId}`;
+    const isCurrentlyVisible = configColumns.some(
+      (c) => c.fieldId === fieldId && (isPrimary ? !c.sourceId || c.sourceId === sourceId : c.sourceId === sourceId),
+    );
+
+    let next: StudioGridColumn[];
+    if (isCurrentlyVisible) {
+      next = configColumns.filter(
+        (c) => !(c.fieldId === fieldId && (isPrimary ? (!c.sourceId || c.sourceId === sourceId) : c.sourceId === sourceId)),
+      );
+    } else {
+      next = [...configColumns, isPrimary ? { fieldId } : { fieldId, sourceId }];
+    }
+    // Suppress unused variable warning
+    void colKey;
+    controller.updateWidgetConfig(widgetId, { columns: next });
   };
 
   const handleSummaryChange = (fieldId: string, value: StudioGridSummaryAggregation | '') => {
@@ -108,23 +210,23 @@ export function GridSetupPanel(props: { widgetId: string }) {
     setMenuAnchor(null);
   };
 
-  const crossFilterFieldEntries = React.useMemo<DataSourceFieldEntry[]>(() => {
-    if (!source || !widget?.sourceId) {
-      return [];
-    }
-    return allFields.map((f) => ({
-      id: f.id,
-      label: f.label,
-      type: f.type,
-      generated: f.generated,
-      sourceId: widget.sourceId!,
-      sourceLabel: source.label,
-    }));
-  }, [allFields, source, widget?.sourceId]);
-
   const openFieldId = menuAnchor?.fieldId ?? null;
-
   const sourcePickerValue = source ? { id: source.id, label: source.label } : null;
+
+  // Group fields by source for section headers
+  const fieldsBySource = React.useMemo(() => {
+    const groups = new Map<string, { sourceLabel: string; isPrimary: boolean; fields: SelectableField[] }>();
+    for (const f of allSelectableFields) {
+      if (!groups.has(f.sourceId)) {
+        groups.set(f.sourceId, { sourceLabel: f.sourceLabel, isPrimary: f.isPrimary, fields: [] });
+      }
+      groups.get(f.sourceId)!.fields.push(f);
+    }
+    return groups;
+  }, [allSelectableFields]);
+
+  const visibleCount = configColumns.length;
+  const totalCount = allSelectableFields.length;
 
   return (
     <Stack spacing={2}>
@@ -224,119 +326,138 @@ export function GridSetupPanel(props: { widgetId: string }) {
           <Divider />
 
           <Typography variant="caption" color="text.secondary">
-            Visible columns ({visibleColumns.length}/{allFields.length})
+            Visible columns ({visibleCount}/{totalCount})
             {groupByField ? ' — ⋮ sets group aggregation' : ' — ⋮ sets summary row'}
           </Typography>
-          {allFields.map((field) => {
-            const isNumeric = field.type === 'number';
-            const availableAggs = isNumeric ? NUMERIC_AGGREGATIONS : STRING_AGGREGATIONS;
-            // In group-by mode the ⋮ menu controls gridAggregations; otherwise gridSummaryFields
-            const currentAgg = groupByField ? groupAggregations[field.id] : summaryFields[field.id];
-            const isVisible = visibleColumns.includes(field.id);
-            const isGroupByField = field.id === groupByField;
 
-            return (
-              <Box
-                key={field.id}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  p: 1,
-                  borderRadius: 1,
-                  bgcolor: isVisible ? 'action.selected' : 'transparent',
-                  border: 1,
-                  borderColor: 'divider',
-                }}
-              >
-                {/* Column visibility toggle */}
-                <Box
-                  sx={{ display: 'flex', alignItems: 'center', flex: 1, gap: 0.5, cursor: 'pointer' }}
-                  onClick={() => handleColumnToggle(field.id)}
-                  role="checkbox"
-                  aria-checked={isVisible}
-                  tabIndex={0}
-                  onKeyDown={(event) => {
-                    if (event.key === ' ' || event.key === 'Enter') {
-                      handleColumnToggle(field.id);
-                    }
-                  }}
+          {/* Column list grouped by source */}
+          {Array.from(fieldsBySource.entries()).map(([srcId, group]) => (
+            <React.Fragment key={srcId}>
+              {!group.isPrimary && (
+                <Typography
+                  variant="overline"
+                  color="text.secondary"
+                  sx={{ display: 'block', lineHeight: 1.5, mt: 0.5 }}
                 >
-                  <FieldTypeIcon type={field.type} generated={field.generated} size={14} />
-                  <Typography variant="body2">{field.label}</Typography>
-                  {isGroupByField && (
-                    <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
-                      (group)
-                    </Typography>
-                  )}
-                </Box>
+                  {group.sourceLabel}
+                </Typography>
+              )}
+              {group.fields.map((field) => {
+                const isNumeric = field.type === 'number';
+                const availableAggs = isNumeric ? NUMERIC_AGGREGATIONS : STRING_AGGREGATIONS;
+                const currentAgg = groupByField ? groupAggregations[field.fieldId] : summaryFields[field.fieldId];
+                const isVisible = configColumns.some(
+                  (c) =>
+                    c.fieldId === field.fieldId &&
+                    (field.isPrimary ? (!c.sourceId || c.sourceId === field.sourceId) : c.sourceId === field.sourceId),
+                );
+                const isGroupByField = field.fieldId === groupByField;
 
-                {/* Summary / group aggregation — ⋮ icon button with dense checkmark menu */}
-                {isVisible && !isGroupByField && (
-                  <React.Fragment>
-                    <Tooltip title={currentAgg ? `${groupByField ? 'Aggregate' : 'Summary'}: ${AGG_LABELS[currentAgg]}` : groupByField ? 'Set aggregation' : 'Set summary'}>
-                      <IconButton
-                        size="small"
-                        aria-label={`${groupByField ? 'Aggregation' : 'Summary'} for ${field.label}`}
-                        aria-haspopup="true"
-                        aria-expanded={openFieldId === field.id}
-                        onClick={(evt) => setMenuAnchor({ fieldId: field.id, el: evt.currentTarget })}
-                        color={currentAgg ? 'primary' : 'default'}
-                      >
-                        <MoreVertIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Menu
-                      open={openFieldId === field.id}
-                      anchorEl={menuAnchor?.el}
-                      onClose={() => setMenuAnchor(null)}
-                      slotProps={{ list: { dense: true } }}
-                    >
-                      <MenuItem
-                        onClick={() =>
-                          groupByField
-                            ? handleGroupAggChange(field.id, '')
-                            : handleSummaryChange(field.id, '')
+                return (
+                  <Box
+                    key={`${field.sourceId}/${field.fieldId}`}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      p: 1,
+                      borderRadius: 1,
+                      bgcolor: isVisible ? 'action.selected' : 'transparent',
+                      border: 1,
+                      borderColor: 'divider',
+                    }}
+                  >
+                    {/* Column visibility toggle */}
+                    <Box
+                      sx={{ display: 'flex', alignItems: 'center', flex: 1, gap: 0.5, cursor: 'pointer' }}
+                      onClick={() => handleColumnToggle(field.fieldId, field.sourceId)}
+                      role="checkbox"
+                      aria-checked={isVisible}
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === ' ' || event.key === 'Enter') {
+                          handleColumnToggle(field.fieldId, field.sourceId);
                         }
-                        selected={currentAgg == null}
-                      >
-                        {currentAgg == null ? (
-                          <ListItemIcon>
-                            <CheckIcon fontSize="small" />
-                          </ListItemIcon>
-                        ) : (
-                          <ListItemIcon />
-                        )}
-                        None
-                      </MenuItem>
-                      {availableAggs.map((agg) => (
-                        <MenuItem
-                          key={agg}
-                          onClick={() =>
-                            groupByField
-                              ? handleGroupAggChange(field.id, agg)
-                              : handleSummaryChange(field.id, agg)
-                          }
-                          selected={currentAgg === agg}
+                      }}
+                    >
+                      <FieldTypeIcon type={field.type as any} generated={field.generated} size={14} />
+                      <Typography variant="body2">{field.label}</Typography>
+                      {isGroupByField && (
+                        <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                          (group)
+                        </Typography>
+                      )}
+                    </Box>
+
+                    {/* Summary / group aggregation — ⋮ icon button with dense checkmark menu */}
+                    {isVisible && !isGroupByField && (
+                      <React.Fragment>
+                        <Tooltip title={currentAgg ? `${groupByField ? 'Aggregate' : 'Summary'}: ${AGG_LABELS[currentAgg]}` : groupByField ? 'Set aggregation' : 'Set summary'}>
+                          <IconButton
+                            size="small"
+                            aria-label={`${groupByField ? 'Aggregation' : 'Summary'} for ${field.label}`}
+                            aria-haspopup="true"
+                            aria-expanded={openFieldId === field.fieldId}
+                            onClick={(evt) => setMenuAnchor({ fieldId: field.fieldId, el: evt.currentTarget })}
+                            color={currentAgg ? 'primary' : 'default'}
+                          >
+                            <MoreVertIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Menu
+                          open={openFieldId === field.fieldId}
+                          anchorEl={menuAnchor?.el}
+                          onClose={() => setMenuAnchor(null)}
+                          slotProps={{ list: { dense: true } }}
                         >
-                          {currentAgg === agg ? (
-                            <ListItemIcon>
-                              <CheckIcon fontSize="small" />
-                            </ListItemIcon>
-                          ) : (
-                            <ListItemIcon />
-                          )}
-                          {AGG_LABELS[agg]}
-                        </MenuItem>
-                      ))}
-                    </Menu>
-                  </React.Fragment>
-                )}
-              </Box>
-            );
-          })}
+                          <MenuItem
+                            onClick={() =>
+                              groupByField
+                                ? handleGroupAggChange(field.fieldId, '')
+                                : handleSummaryChange(field.fieldId, '')
+                            }
+                            selected={currentAgg == null}
+                          >
+                            {currentAgg == null ? (
+                              <ListItemIcon>
+                                <CheckIcon fontSize="small" />
+                              </ListItemIcon>
+                            ) : (
+                              <ListItemIcon />
+                            )}
+                            None
+                          </MenuItem>
+                          {availableAggs.map((agg) => (
+                            <MenuItem
+                              key={agg}
+                              onClick={() =>
+                                groupByField
+                                  ? handleGroupAggChange(field.fieldId, agg)
+                                  : handleSummaryChange(field.fieldId, agg)
+                              }
+                              selected={currentAgg === agg}
+                            >
+                              {currentAgg === agg ? (
+                                <ListItemIcon>
+                                  <CheckIcon fontSize="small" />
+                                </ListItemIcon>
+                              ) : (
+                                <ListItemIcon />
+                              )}
+                              {AGG_LABELS[agg]}
+                            </MenuItem>
+                          ))}
+                        </Menu>
+                      </React.Fragment>
+                    )}
+                  </Box>
+                );
+              })}
+            </React.Fragment>
+          ))}
         </React.Fragment>
       )}
     </Stack>
   );
 }
+

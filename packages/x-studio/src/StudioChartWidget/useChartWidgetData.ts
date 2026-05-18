@@ -312,6 +312,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     filteredRows,
     activeYFields,
     enrichedRows,
+    allEnrichedRows,
     isMultiSeries,
     seriesFieldData,
     chartData,

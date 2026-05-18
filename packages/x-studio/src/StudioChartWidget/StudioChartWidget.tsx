@@ -5,7 +5,7 @@ import { BarChart } from '@mui/x-charts/BarChart';
 import type { BarChartProps } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import type { LineChartProps } from '@mui/x-charts/LineChart';
-import { PieChart, PieArc, type PieArcProps } from '@mui/x-charts/PieChart';
+import { PieChart } from '@mui/x-charts/PieChart';
 import type { PieChartProps } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { ScatterChartProps } from '@mui/x-charts/ScatterChart';
@@ -71,25 +71,6 @@ const GHOST_SERIES_SUFFIX = '-ghost';
 // Context used to pass per-item filter ratios to the custom pieArc slot.
 // The standard PieValueType does not support per-item arc overrides, so we use a
 // slot + context to narrow each active slice's angular span proportionally.
-const PieRadiusContext = React.createContext<{
-  activeSeriesId: string;
-  ratioByDataIndex: ReadonlyMap<number, number>;
-}>({ activeSeriesId: '', ratioByDataIndex: new Map() });
-
-/**
- * Custom pieArc slot that narrows each active slice's arc span proportionally to the
- * filtered/all ratio, centered on the slice midpoint.
- * Ghost series arcs are rendered at their full angles unchanged.
- */
-function CrossFilterPieArc(props: PieArcProps) {
-  const { activeSeriesId, ratioByDataIndex } = React.use(PieRadiusContext);
-  if (props.seriesId !== activeSeriesId) {
-    return <PieArc {...props} />;
-  }
-  const ratio = ratioByDataIndex.get(props.dataIndex) ?? 1;
-  const span = (props.endAngle - props.startAngle) * ratio;
-  return <PieArc {...props} endAngle={props.startAngle + span} />;
-}
 
 /**
  * Aligns filteredValues to the positions in allLabels.
@@ -242,9 +223,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   // don't animate when a highlight is applied or removed. We need to skip for
   // one extra render after hasCrossFilters goes false (the removal case) so the
   // transition from filtered data → full data is also instant.
+  // NOTE: the ref update is in useLayoutEffect (not during render) to avoid
+  // incorrect values when React 18 concurrent mode interrupts and retries renders.
   const prevHadCrossFiltersRef = React.useRef(false);
   const skipAnimation = hasCrossFilters || prevHadCrossFiltersRef.current;
-  prevHadCrossFiltersRef.current = hasCrossFilters;
+  React.useLayoutEffect(() => {
+    prevHadCrossFiltersRef.current = hasCrossFilters;
+  });
 
   const chartHighlightStateKey = React.useMemo(
     () =>
@@ -1089,99 +1074,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const innerRadius = donutHole;
     const selectedDataIndex = getSelectedDataIndex(chartData.labels);
 
-    // When cross-filters are active and the x-field baseline is meaningful, render two
-    // concentric series at the same radius: a faded ghost outer pie (full baseline data) and a
-    // solid active pie (same radius). Active slices have their angular span narrowed
-    // proportionally to filtered/all, centered on each slice midpoint — giving a clear
-    // "how much of this category survived the filter" signal without changing the chart's size.
-    const showPieCrossFilterOverlay =
-      shouldShowGhost && allChartData != null && preserveXFieldBaseline;
-
-    if (showPieCrossFilterOverlay) {
-      const ghostOuterRadius = Math.round(chartHeight * 0.38);
-
-      // Build a lookup of filtered values keyed by label string for O(1) access.
-      const filteredValueByLabel = new Map(
-        chartData.labels.map((l, i) => [String(l), chartData.values[i]]),
-      );
-
-      // Compute per-item ratio (0–1): filtered / all.
-      // The CrossFilterPieArc slot narrows each active arc's span by this ratio.
-      const ratioByDataIndex = new Map<number, number>();
-      const activeData = allChartData!.labels.map((label, i) => {
-        const allValue = allChartData!.values[i] ?? 0;
-        const filteredValue = filteredValueByLabel.get(String(label));
-        const ratio =
-          allValue > 0 && filteredValue != null
-            ? Math.min(1, Math.max(0, filteredValue / allValue))
-            : 0;
-        ratioByDataIndex.set(i, ratio);
-        return {
-          id: i,
-          label: formatLabel(label),
-          value: allValue,
-          color: resolvedChartColors[i % resolvedChartColors.length],
-        };
-      });
-
-      return (
-        <div style={{ height: chartHeight }}>
-          <PieRadiusContext.Provider
-            // eslint-disable-next-line react/jsx-no-constructed-context-values
-            value={{ activeSeriesId: CROSS_FILTER_SERIES_ID, ratioByDataIndex }}
-          >
-            <PieChart
-              {...slotProps?.pieChart}
-              skipAnimation={skipAnimation}
-              slots={{ pieArc: CrossFilterPieArc }}
-              series={[
-                {
-                  id: `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`,
-                  innerRadius,
-                  outerRadius: ghostOuterRadius,
-                  data: allChartData!.labels.map((label, i) => ({
-                    id: i,
-                    value: allChartData!.values[i] ?? 0,
-                    color: `${resolvedChartColors[i % resolvedChartColors.length]}30`,
-                  })),
-                  highlightScope: { highlight: 'none' as const, fade: 'none' as const },
-                },
-                {
-                  id: CROSS_FILTER_SERIES_ID,
-                  innerRadius,
-                  outerRadius: ghostOuterRadius,
-                  data: activeData,
-                  highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-                },
-              ]}
-              colors={chartColors}
-              slotProps={{
-                legend: {
-                  sx: { overflowY: 'auto', flexWrap: 'nowrap', maxHeight: '100%' },
-                },
-              }}
-              margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
-              highlightedItem={controlledHighlightedItem}
-              onHighlightChange={(item) =>
-                setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-              }
-              onItemClick={(_event, params) => {
-                if (params.seriesId === `${CROSS_FILTER_SERIES_ID}${GHOST_SERIES_SUFFIX}`) {
-                  return;
-                }
-                const label = allChartData!.labels[params.dataIndex];
-                if (label !== undefined) {
-                  handleItemClick(label);
-                }
-              }}
-              sx={{ cursor: 'pointer' }}
-            />
-          </PieRadiusContext.Provider>
-        </div>
-      );
-    }
-
-    // No ghost overlay (or baseline not meaningful): single series, original behaviour
+    // Single series: use baseline data when cross-filters are active so slice
+    // angles stay stable; dim non-matching slices via colour alpha.
     const pieBaseData =
       shouldShowGhost && allChartData && preserveXFieldBaseline ? allChartData : chartData;
     const filteredLabelSet =

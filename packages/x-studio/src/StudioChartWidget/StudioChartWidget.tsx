@@ -93,7 +93,7 @@ const PieHighlightContext = React.createContext<PieHighlightContextValue>({
 });
 
 function CrossHighlightPieArc(props: PieArcProps) {
-  const { startAngle, endAngle, color, ...rest } = props;
+  const { startAngle, endAngle, color, innerRadius, outerRadius, ...rest } = props;
   const { ratioByIndex, isActive, skipAnimation } = React.useContext(PieHighlightContext);
 
   const ratio = ratioByIndex.get(rest.dataIndex) ?? 1;
@@ -107,17 +107,22 @@ function CrossHighlightPieArc(props: PieArcProps) {
         {...rest}
         startAngle={startAngle}
         endAngle={endAngle}
+        innerRadius={innerRadius}
+        outerRadius={outerRadius}
         color={ghostColor}
         skipAnimation={skipAnimation}
       />
       {/* Overlay arc — only when active; angular span proportional to filtered/total.
-          stroke="none" removes the background-color border so it blends cleanly on
-          top of the ghost arc without a visible white dividing line. */}
+          stroke="none" removes the radial end-line at the overlay boundary.
+          Radii are inset by 1px to match the visual footprint of the ghost arc's 1px
+          background stroke, so the curved outer/inner edges align correctly. */}
       {isActive && ratio > 0.001 && (
         <PieArc
           {...rest}
           startAngle={startAngle}
           endAngle={overlayEndAngle}
+          innerRadius={innerRadius + 1}
+          outerRadius={outerRadius - 1}
           color={color}
           skipAnimation={skipAnimation}
           isFaded={false}

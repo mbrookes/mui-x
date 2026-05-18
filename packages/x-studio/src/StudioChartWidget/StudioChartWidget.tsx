@@ -238,6 +238,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     isLoading,
   } = useChartWidgetData(widget, dataSource);
 
+  // Skip chart animations during cross-filter transitions so bars/lines/pies
+  // don't animate when a highlight is applied or removed. We need to skip for
+  // one extra render after hasCrossFilters goes false (the removal case) so the
+  // transition from filtered data → full data is also instant.
+  const prevHadCrossFiltersRef = React.useRef(false);
+  const skipAnimation = hasCrossFilters || prevHadCrossFiltersRef.current;
+  prevHadCrossFiltersRef.current = hasCrossFilters;
+
   const chartHighlightStateKey = React.useMemo(
     () =>
       JSON.stringify({
@@ -799,6 +807,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <div style={{ height: chartHeight }}>
         <ScatterChart
           {...slotProps?.scatterChart}
+          skipAnimation={skipAnimation}
           series={[
             {
               data: scatterData,
@@ -921,6 +930,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           <div style={{ height: chartHeight }}>
             <BarChart
               {...slotProps?.barChart}
+              skipAnimation={skipAnimation}
               layout={isHorizontalBarLayout ? 'horizontal' : undefined}
               xAxis={
                 isHorizontalBarLayout
@@ -1057,6 +1067,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         <div style={{ height: chartHeight }}>
           <PieChart
             {...slotProps?.pieChart}
+            skipAnimation={skipAnimation}
             series={pieSeries}
             colors={chartColors}
             slotProps={{
@@ -1121,6 +1132,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           >
             <PieChart
               {...slotProps?.pieChart}
+              skipAnimation={skipAnimation}
               slots={{ pieArc: CrossFilterPieArc }}
               series={[
                 {
@@ -1179,6 +1191,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <div style={{ height: chartHeight }}>
         <PieChart
           {...slotProps?.pieChart}
+          skipAnimation={skipAnimation}
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
@@ -1325,6 +1338,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         <div style={{ height: chartHeight }}>
           <BarChart
             {...slotProps?.barChart}
+            skipAnimation={skipAnimation}
             layout={isHorizontalBarLayout ? 'horizontal' : undefined}
             xAxis={
               isHorizontalBarLayout
@@ -1472,6 +1486,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <div style={{ height: chartHeight }}>
         <LineChart
           {...slotProps?.lineChart}
+          skipAnimation={skipAnimation}
           xAxis={xAxis}
           yAxis={[
             {
@@ -1589,6 +1604,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <div style={{ height: chartHeight }}>
         <LineChart
           {...slotProps?.lineChart}
+          skipAnimation={skipAnimation}
           xAxis={xAxis}
           yAxis={yAxes}
           series={[...ghostSeries, ...activeSeries]}
@@ -1672,6 +1688,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <div style={{ height: chartHeight }}>
         <LineChart
           {...slotProps?.lineChart}
+          skipAnimation={skipAnimation}
           xAxis={xAxis}
           yAxis={[{ width: 'auto' }]}
           series={[
@@ -1749,6 +1766,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <div style={{ height: chartHeight }}>
         <LineChart
           {...slotProps?.lineChart}
+          skipAnimation={skipAnimation}
           xAxis={xAxis}
           yAxis={[{ width: 'auto' }]}
           series={[
@@ -1817,6 +1835,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         <div style={{ height: chartHeight }}>
           <BarChart
             {...slotProps?.barChart}
+            skipAnimation={skipAnimation}
             layout="horizontal"
             xAxis={[{ height: 'auto' }]}
             yAxis={[
@@ -1869,6 +1888,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <div style={{ height: chartHeight }}>
         <BarChart
           {...slotProps?.barChart}
+          skipAnimation={skipAnimation}
           xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto', valueFormatter: (v: string | number) => formatLabel(String(v)) }]}
           yAxis={[{ width: 'auto' }]}
           series={[

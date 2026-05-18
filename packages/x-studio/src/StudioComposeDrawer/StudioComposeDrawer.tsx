@@ -109,8 +109,6 @@ export function StudioComposeDrawer() {
   const selectedWidgetId = shell.selectedWidgetId;
   const selectedFieldId = shell.selectedFieldId;
 
-  useDrawerSubheader(null);
-
   if (selectedWidgetId) {
     return <WidgetConfigView widgetId={selectedWidgetId} />;
   }

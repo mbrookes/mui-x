@@ -1,6 +1,11 @@
 'use client';
 import * as React from 'react';
-import { DataGridPro, type GridColDef, type GridCellParams } from '@mui/x-data-grid-pro';
+import {
+  DataGridPremium,
+  type GridColDef,
+  type GridCellParams,
+  type GridAggregationModel,
+} from '@mui/x-data-grid-premium';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
@@ -12,17 +17,21 @@ import {
 } from '../context';
 import { formatFieldValue } from '../internals/numberFormat';
 
-import { buildGroupedGridRows } from '../utils/gridGrouping';
 import { computeGridSummary } from '../utils/gridSummary';
 import { useWidgetRows } from '../internals/useWidgetRows';
 import { StudioNoDataOverlay } from '../internals/StudioNoDataOverlay';
 
+/** Maps our model's aggregation names to DataGridPremium built-in function names. */
+function toGridAggFn(fn: string): string {
+  return fn === 'count' ? 'size' : fn;
+}
+
 export interface StudioGridWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
-  /** Props forwarded to the underlying `DataGridPro`. */
+  /** Props forwarded to the underlying `DataGridPremium`. */
   slotProps?: {
-    dataGrid?: Partial<import('@mui/x-data-grid-pro').DataGridProProps>;
+    dataGrid?: Partial<import('@mui/x-data-grid-premium').DataGridPremiumProps>;
   };
 }
 
@@ -54,8 +63,19 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [filters, widget.id, activePageId],
   );
 
+  // Build column defs for ALL data source fields so any field can be used for
+  // grouping without dynamically adding/removing column definitions (which causes
+  // DataGridPremium to pollute its internal column visibility state).
+  const allFieldIds = React.useMemo(
+    () => [
+      ...(dataSource?.fields.map((f) => f.id) ?? []),
+      ...expressionFields.map((f) => f.id),
+    ],
+    [dataSource?.fields, expressionFields],
+  );
+
   const columns = React.useMemo<GridColDef[]>(() => {
-    return visibleFields.map((fieldName) => {
+    return allFieldIds.map((fieldName) => {
       const field = dataSource?.fields.find((candidate) => candidate.id === fieldName);
       const expressionField = expressionFields.find((candidate) => candidate.id === fieldName);
       const fieldType = field?.type ?? expressionField?.type;
@@ -78,33 +98,49 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
             : undefined,
       };
     });
-  }, [dataSource, expressionFields, visibleFields]);
+  }, [dataSource, expressionFields, allFieldIds]);
 
   const { filteredRows, isLoading } = useWidgetRows(widget, dataSource);
 
   const rows = React.useMemo(() => {
-    if (widget.config.gridGroupByField) {
-      return buildGroupedGridRows(
-        filteredRows,
-        widget.config.gridGroupByField,
-        visibleFields,
-        widget.config.gridAggregations ?? {},
-        widget.id,
-      );
-    }
-
     return filteredRows.map((row, index) => ({
-      __rowId: row.id ?? `${widget.id}-${index}`,
       id: row.id ?? `${widget.id}-${index}`,
       ...row,
     }));
-  }, [
-    filteredRows,
-    widget.config.gridAggregations,
-    widget.config.gridGroupByField,
-    widget.id,
-    visibleFields,
-  ]);
+  }, [filteredRows, widget.id]);
+
+  // Native DataGridPremium row grouping
+  const rowGroupingModel = React.useMemo(
+    () => (widget.config.gridGroupByField ? [widget.config.gridGroupByField] : []),
+    [widget.config.gridGroupByField],
+  );
+
+  const aggregationModel = React.useMemo<GridAggregationModel>(() => {
+    if (!widget.config.gridAggregations) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(widget.config.gridAggregations).map(([field, fn]) => [
+        field,
+        toGridAggFn(fn),
+      ]),
+    );
+  }, [widget.config.gridAggregations]);
+
+  // Drive column visibility externally so toggling always reflects widget config,
+  // even when a field has previously been used as a group-by column.
+  // Grouped columns must be hidden from the data view (DataGridPremium renders them
+  // as the group cell instead); we enforce that here since we own the model.
+  const columnVisibilityModel = React.useMemo(
+    () =>
+      Object.fromEntries(
+        allFieldIds.map((id) => [
+          id,
+          visibleFields.includes(id) && !rowGroupingModel.includes(id),
+        ]),
+      ),
+    [allFieldIds, visibleFields, rowGroupingModel],
+  );
 
   const handleCellClick = React.useCallback(
     (params: GridCellParams) => {
@@ -130,11 +166,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [controller, widget.id, widget.sourceId, activeCrossFilter, widget.config.crossFilterField],
   );
 
-  // Resolve the active filter field's display label for the chip — unused
-  // (chip now rendered in StudioWidgetCard title row)
-
   // Compute summary values over ALL filtered rows (not just the current page).
-  const summaryConfig = widget.config.gridSummaryFields;
+  // Only shown when grouping is not active (DataGridPremium aggregation handles it otherwise).
+  const summaryConfig = widget.config.gridGroupByField ? undefined : widget.config.gridSummaryFields;
   const summaryValues = React.useMemo(() => {
     if (!summaryConfig || Object.keys(summaryConfig).length === 0 || !dataSource) {
       return null;
@@ -142,7 +176,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     return computeGridSummary(rows, dataSource.fields, { fields: summaryConfig });
   }, [rows, dataSource, summaryConfig]);
 
-  // Build a pinned bottom row for DataGridPro using the summary values.
+  // Build a pinned bottom row for DataGridPremium using the summary values.
   const pinnedRows = React.useMemo(() => {
     if (!summaryValues) {
       return undefined;
@@ -152,7 +186,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   return (
     <div>
-      <DataGridPro
+      <DataGridPremium
         density="compact"
         columns={columns}
         disableColumnMenu
@@ -162,11 +196,12 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         loading={isLoading}
         disableRowSelectionOnClick
         slots={{ noRowsOverlay: StudioNoDataOverlay }}
-        getRowId={(row) =>
-          // eslint-disable-next-line no-underscore-dangle
-          ((row as Record<string, unknown>).__rowId ??
-            (row as Record<string, unknown>).id) as string
-        }
+        rowGroupingModel={rowGroupingModel}
+        onRowGroupingModelChange={() => {}}
+        aggregationModel={aggregationModel}
+        onAggregationModelChange={() => {}}
+        columnVisibilityModel={columnVisibilityModel}
+        onColumnVisibilityModelChange={() => {}}
         sx={{
           height: 400,
           '& .MuiDataGrid-cell': { cursor: 'pointer' },
@@ -201,3 +236,6 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     </div>
   );
 });
+
+
+

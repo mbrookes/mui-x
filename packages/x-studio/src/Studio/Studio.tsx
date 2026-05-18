@@ -183,7 +183,7 @@ const StudioContent = React.memo(function StudioContent(
     return dataSources[selectedSourceId]?.fields.find((f) => f.id === selectedFieldId) ?? null;
   }, [dataSources, selectedSourceId, selectedFieldId]);
 
-  const composeTitle = selectedWidget?.title ?? selectedField?.label ?? 'Compose';
+  const composeTitle = selectedField?.label ?? 'Compose';
   const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
   const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
 

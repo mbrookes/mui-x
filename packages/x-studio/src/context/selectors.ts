@@ -171,3 +171,66 @@ export const selectPartitionedFilters = (state: StudioState): PartitionedFilters
   lastPartitionResult = result;
   return result;
 };
+
+/**
+ * Returns a stable memoized selector that returns only the cross-filter
+ * emitted by the given widget on the given page (or null if none).
+ *
+ * The returned filter object reference is preserved between renders as long
+ * as the same filter is in the array, so charts that produced a cross-filter
+ * won't re-render just because another widget's filter changed.
+ *
+ * @example
+ * const sel = React.useMemo(
+ *   () => makeSelectActiveCrossFilter(widget.id, activePageId),
+ *   [widget.id, activePageId],
+ * );
+ * const activeCrossFilter = useStudioSelector(sel);
+ */
+export function makeSelectActiveCrossFilter(widgetId: string, pageId: string) {
+  return (state: StudioState): StudioFilterState | null =>
+    state.filters.find(
+      (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widgetId && f.pageId === pageId,
+    ) ?? null;
+}
+
+/**
+ * Returns a stable memoized selector that returns the cross-filters
+ * arriving from OTHER widgets on the given page.
+ *
+ * Uses reference-equality caching so a chart only re-renders when the
+ * set of incoming cross-filters actually changes (same pattern as
+ * makeSelectExpressionFieldsForSource).
+ *
+ * @example
+ * const sel = React.useMemo(
+ *   () => makeSelectIncomingCrossFilters(widget.id, activePageId),
+ *   [widget.id, activePageId],
+ * );
+ * const incomingCrossFilters = useStudioSelector(sel);
+ */
+export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string) {
+  let lastInput: StudioFilterState[] | undefined;
+  let lastResult: StudioFilterState[] | undefined;
+
+  return (state: StudioState): StudioFilterState[] => {
+    const filters = state.filters;
+    if (filters === lastInput && lastResult !== undefined) {
+      return lastResult;
+    }
+    const filtered = filters.filter(
+      (f) => f.scope === 'cross-filter' && f.sourceWidgetId !== widgetId && f.pageId === pageId,
+    );
+    if (
+      lastResult !== undefined &&
+      filtered.length === lastResult.length &&
+      filtered.every((f, i) => f === lastResult![i])
+    ) {
+      lastInput = filters;
+      return lastResult;
+    }
+    lastInput = filters;
+    lastResult = filtered;
+    return filtered;
+  };
+}

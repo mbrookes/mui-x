@@ -16,6 +16,7 @@ import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 import { studioRequestCache } from './StudioRequestCache';
+import { enrichWithCrossSourceColumns } from './crossSourceEnrichment';
 
 type Row = Record<string, unknown>;
 
@@ -313,12 +314,57 @@ export function useWidgetRows(
   // 'none' mode: widget ignores cross-filters entirely and always shows the full baseline.
   const effectiveRows = crossFilterMode === 'none' ? filteredRowsNoCross : filteredRows;
 
+  // ── Cross-source column enrichment ─────────────────────────────────────
+  // For grid widgets that have columns referencing many-to-one related sources,
+  // join field values from those sources onto the primary rows by FK lookup.
+  // Columns from sources without in-memory rows (async sources) are skipped.
+  const crossSourceColumns = React.useMemo(
+    () =>
+      (widget.config?.columns ?? []).filter(
+        (c) => c.sourceId && c.sourceId !== widget.sourceId,
+      ),
+    [widget.config?.columns, widget.sourceId],
+  );
+
+  const hasCrossSourceColumns = crossSourceColumns.length > 0;
+
+  const enrichedFilteredRows = React.useMemo(
+    () =>
+      hasCrossSourceColumns
+        ? enrichWithCrossSourceColumns(
+            filteredRows,
+            widget.sourceId,
+            widget.config?.columns,
+            dataSources,
+            relationships,
+          )
+        : filteredRows,
+    [hasCrossSourceColumns, filteredRows, widget.sourceId, widget.config?.columns, dataSources, relationships],
+  );
+
+  const enrichedFilteredRowsNoCross = React.useMemo(
+    () =>
+      hasCrossSourceColumns
+        ? enrichWithCrossSourceColumns(
+            filteredRowsNoCross,
+            widget.sourceId,
+            widget.config?.columns,
+            dataSources,
+            relationships,
+          )
+        : filteredRowsNoCross,
+    [hasCrossSourceColumns, filteredRowsNoCross, widget.sourceId, widget.config?.columns, dataSources, relationships],
+  );
+
+  const enrichedEffectiveRows =
+    crossFilterMode === 'none' ? enrichedFilteredRowsNoCross : enrichedFilteredRows;
+
   return {
-    filteredRows,
-    filteredRowsNoCross,
+    filteredRows: enrichedFilteredRows,
+    filteredRowsNoCross: enrichedFilteredRowsNoCross,
     hasCrossFilters,
     shouldShowGhost,
-    effectiveRows,
+    effectiveRows: enrichedEffectiveRows,
     isLoading,
     isRecomputing,
   };

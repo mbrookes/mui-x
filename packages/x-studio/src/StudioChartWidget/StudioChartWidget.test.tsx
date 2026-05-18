@@ -1548,20 +1548,18 @@ describe('<StudioChartWidget />', () => {
       //   category cross-filter (filterSourceId='source-order-items'): orders with Supplies items = o1, o3
       //   date native filter (filterSourceId='source-orders'): o1 (Jan), o3 (Feb) — both in Q1 2024
       //   filtered: o1 (USA, 100), o3 (USA, 150) → { USA: 250 }
-      // hasCrossFilters=true, preserveXFieldBaseline=true → showPieCrossFilterOverlay=true:
-      //   series[0] = ghost series (no labels — intentionally omitted from legend), data from allChartData
-      //   series[1] = active series (with labels), data from allChartData with filtered ratios
+      // hasCrossFilters=true, preserveXFieldBaseline=true → single-series with colour dimming:
+      //   series[0] uses allChartData labels (all countries); non-matching slices get dimmed colour
       expect(pieChartSpy).toHaveBeenCalled();
       const props = pieChartSpy.mock.calls.at(-1)?.[0] as {
-        series: Array<{ data: Array<{ label?: string; value: number }> }>;
+        series: Array<{ data: Array<{ label?: string; value: number; color?: string }> }>;
       };
-      // Two series: ghost (index 0, no labels) + active (index 1, with labels from allChartData)
-      expect(props.series).toHaveLength(2);
-      // Active series uses allChartData labels — all countries present (not just filtered USA)
-      const activeLabels = props.series[1].data.map((s) => s.label).filter(Boolean);
-      expect(activeLabels).toContain('USA');
-      expect(activeLabels).toContain('Germany');
-      expect(activeLabels).toContain('France');
+      // Single series using allChartData baseline; non-matching slices get dimmed colour.
+      expect(props.series).toHaveLength(1);
+      const labels = props.series[0].data.map((s) => s.label).filter(Boolean);
+      expect(labels).toContain('USA');
+      expect(labels).toContain('Germany');
+      expect(labels).toContain('France');
     });
 
     it('Quarterly Revenue by Category (ORDER_ITEMS bar-stacked): receives only the category native filter', () => {

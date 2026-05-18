@@ -1860,7 +1860,7 @@ describe('resolveChartRowsForAggregation', () => {
 
     expect(aggregateByTwoFields(resolvedRows, 'country', 'country', 'total')).toEqual({
       labels: ['France', 'Germany'],
-      seriesNames: ['Germany', 'France'],
+      seriesNames: ['France', 'Germany'],
       seriesData: {
         Germany: [null, 150],
         France: [70, null],

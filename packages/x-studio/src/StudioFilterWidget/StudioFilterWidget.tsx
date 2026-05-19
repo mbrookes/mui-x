@@ -473,7 +473,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     relationships,
   ]);
 
-  const label = config.filterWidgetLabel ?? field?.label ?? fieldId ?? 'Filter';
+  const label = widget.title || field?.label || fieldId || '';
 
   // Current interactive filter value for this widget (stable selector, not inline arrow)
   const selectActiveFilter = React.useMemo(

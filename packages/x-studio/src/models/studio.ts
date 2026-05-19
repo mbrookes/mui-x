@@ -229,8 +229,6 @@ export interface StudioWidgetConfig {
   filterWidgetField?: string;
   /** Source ID for the filter field — only needed when the field belongs to a related source */
   filterWidgetSourceId?: string;
-  /** Optional label override shown above the control */
-  filterWidgetLabel?: string;
   /** Minimum value for slider filter widgets */
   filterWidgetMin?: number;
   /** Maximum value for slider filter widgets */

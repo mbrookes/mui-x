@@ -30,8 +30,23 @@ export interface UseWidgetRowsResult {
    * `filteredRows`, allowing downstream memos to short-circuit automatically.
    */
   filteredRowsNoCross: Row[];
+  /**
+   * Rows after applying page, widget, and interactive (filter-widget) filters, but WITHOUT
+   * chart-click cross-filters (`scope: 'cross-filter'`).
+   *
+   * This is the correct "all rows" baseline for table cross-highlight mode: interactive
+   * filter-widget selections are always hard-filtered (BI norm), while chart cross-filters
+   * drive the highlight/dim overlay. When no chart cross-filters are active, this is the
+   * same reference as `filteredRows`.
+   */
+  filteredRowsNoChartCross: Row[];
   /** Whether this widget has at least one incoming cross-filter or interactive filter. */
   hasCrossFilters: boolean;
+  /**
+   * True when there is at least one incoming chart-click cross-filter (`scope: 'cross-filter'`)
+   * from another widget on the active page.
+   */
+  hasChartCrossFilters: boolean;
   /**
    * True when a ghost overlay should be rendered for this widget.
    *
@@ -327,6 +342,56 @@ export function useWidgetRows(
   // 'none' mode: widget ignores cross-filters entirely and always shows the full baseline.
   const effectiveRows = crossFilterMode === 'none' ? filteredRowsNoCross : filteredRows;
 
+  // ── filteredRowsNoChartCross ────────────────────────────────────────────
+  // Page + widget + interactive (filter-widget) filters, but WITHOUT chart-click
+  // cross-filters. Used as the "all rows" baseline for table cross-highlight mode:
+  // interactive filters always hard-filter (BI norm), chart cross-filters drive the overlay.
+  const filteredRowsNoChartCross = React.useMemo((): Row[] => {
+    if (hasAdapter) {
+      return filteredRows;
+    }
+    if (!hasChartCrossFilters) {
+      // No chart cross-filters — same reference as filteredRows (short-circuit).
+      return filteredRows;
+    }
+    if (!normalizedDataSource?.rows) {
+      return [];
+    }
+    const pageFilters = deferredPartitioned.page;
+    const widgetFilters = (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
+      (f) => f.filterMode !== 'rank',
+    );
+    const interactiveFilters = deferredPartitioned.interactive.filter(
+      (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+    );
+    const allFilters = resolveMetricRefs(
+      [...pageFilters, ...widgetFilters, ...interactiveFilters],
+      dataSources,
+    );
+    return resolveRowsCached(
+      normalizedDataSource.rows,
+      widget.sourceId,
+      allFilters,
+      dataSources,
+      relationships,
+      expressionFields,
+      usedFieldIds,
+    );
+  }, [
+    hasAdapter,
+    hasChartCrossFilters,
+    filteredRows,
+    normalizedDataSource,
+    deferredPartitioned,
+    dataSources,
+    relationships,
+    expressionFields,
+    widget.id,
+    widget.sourceId,
+    activePageId,
+    usedFieldIds,
+  ]);
+
   // ── Cross-source column enrichment ─────────────────────────────────────
   // For grid widgets that have columns referencing many-to-one related sources,
   // join field values from those sources onto the primary rows by FK lookup.
@@ -369,13 +434,29 @@ export function useWidgetRows(
     [hasCrossSourceColumns, filteredRowsNoCross, widget.sourceId, widget.config?.columns, dataSources, relationships],
   );
 
+  const enrichedFilteredRowsNoChartCross = React.useMemo(
+    () =>
+      hasCrossSourceColumns
+        ? enrichWithCrossSourceColumns(
+            filteredRowsNoChartCross,
+            widget.sourceId,
+            widget.config?.columns,
+            dataSources,
+            relationships,
+          )
+        : filteredRowsNoChartCross,
+    [hasCrossSourceColumns, filteredRowsNoChartCross, widget.sourceId, widget.config?.columns, dataSources, relationships],
+  );
+
   const enrichedEffectiveRows =
     crossFilterMode === 'none' ? enrichedFilteredRowsNoCross : enrichedFilteredRows;
 
   return {
     filteredRows: enrichedFilteredRows,
     filteredRowsNoCross: enrichedFilteredRowsNoCross,
+    filteredRowsNoChartCross: enrichedFilteredRowsNoChartCross,
     hasCrossFilters,
+    hasChartCrossFilters,
     shouldShowGhost,
     effectiveRows: enrichedEffectiveRows,
     isLoading,

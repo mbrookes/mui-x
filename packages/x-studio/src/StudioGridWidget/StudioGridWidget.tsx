@@ -100,14 +100,36 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     });
   }, [dataSource, expressionFields, allFieldIds]);
 
-  const { filteredRows, isLoading } = useWidgetRows(widget, dataSource);
+  const { filteredRows, filteredRowsNoChartCross, hasChartCrossFilters, isLoading } =
+    useWidgetRows(widget, dataSource);
+
+  const crossFilterMode = widget.config?.crossFilterMode ?? 'cross-highlight';
+
+  // In cross-highlight mode, show all baseline rows (hard-filtered by page/widget/interactive)
+  // and dim the non-matching ones. In cross-filter or none mode, use the appropriate row set.
+  const baseRows =
+    hasChartCrossFilters && crossFilterMode === 'cross-highlight'
+      ? filteredRowsNoChartCross
+      : filteredRows;
+
+  // IDs of rows that pass the chart cross-filter — used to determine which rows to highlight.
+  const highlightedRowIds = React.useMemo((): Set<unknown> | null => {
+    if (!hasChartCrossFilters || crossFilterMode !== 'cross-highlight') {
+      return null;
+    }
+    const ids = new Set<unknown>();
+    for (const row of filteredRows) {
+      ids.add(row.id);
+    }
+    return ids;
+  }, [hasChartCrossFilters, crossFilterMode, filteredRows]);
 
   const rows = React.useMemo(() => {
-    return filteredRows.map((row, index) => ({
+    return baseRows.map((row, index) => ({
       id: row.id ?? `${widget.id}-${index}`,
       ...row,
     }));
-  }, [filteredRows, widget.id]);
+  }, [baseRows, widget.id]);
 
   // Native DataGridPremium row grouping
   const rowGroupingModel = React.useMemo(
@@ -208,15 +230,26 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
           '& .StudioGrid-crossFilterMatch': {
             bgcolor: 'action.selected',
           },
+          '& .StudioGrid-dimmed': {
+            opacity: 0.3,
+          },
         }}
         getRowClassName={(params) => {
-          if (!activeCrossFilter || params.id === '__summary__') {
+          if (params.id === '__summary__') {
             return '';
           }
-          const rowValue = (params.row as Record<string, unknown>)[activeCrossFilter.field];
-          return String(rowValue) === String(activeCrossFilter.value)
-            ? 'StudioGrid-crossFilterMatch'
-            : '';
+          // Incoming chart cross-highlight: dim rows that don't match the cross-filter.
+          if (highlightedRowIds !== null) {
+            return highlightedRowIds.has(params.row.id) ? '' : 'StudioGrid-dimmed';
+          }
+          // Outgoing cross-filter: highlight the row this table is filtering on.
+          if (activeCrossFilter) {
+            const rowValue = (params.row as Record<string, unknown>)[activeCrossFilter.field];
+            return String(rowValue) === String(activeCrossFilter.value)
+              ? 'StudioGrid-crossFilterMatch'
+              : '';
+          }
+          return '';
         }}
         initialState={{
           ...(widget.config.gridSortField && {

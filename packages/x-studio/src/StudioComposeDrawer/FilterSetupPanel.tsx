@@ -132,20 +132,6 @@ export function FilterSetupPanel(props: { widgetId: string }) {
         label="Field"
       />
 
-      {/* Optional label override */}
-      <TextField
-        size="small"
-        fullWidth
-        label="Label (optional)"
-        placeholder="Auto-detected from field"
-        value={config.filterWidgetLabel ?? ''}
-        onChange={(evt) =>
-          controller.updateWidgetConfig(widgetId, {
-            filterWidgetLabel: evt.target.value || undefined,
-          })
-        }
-      />
-
       {/* Slider-specific: min / max / step */}
       {filterType === 'slider' && (
         <Stack spacing={1.5}>

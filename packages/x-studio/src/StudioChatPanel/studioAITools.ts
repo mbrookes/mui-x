@@ -66,7 +66,7 @@ export const STUDIO_AI_TOOLS = [
               'chart: chartType (bar|line|area|pie|donut|scatter|bar-stacked|area-stacked), xField, yField, seriesField, yAggregation (sum|count|avg|min|max); ' +
               'kpi: kpiValueField, kpiAggregation (sum|avg|count|min|max), kpiSparkline; ' +
               'grid: columns (array of field IDs); ' +
-              'filter: filterWidgetType (date-range|multi-select|toggle|slider), filterWidgetField, filterWidgetLabel.',
+              'filter: filterWidgetType (date-range|multi-select|toggle|slider), filterWidgetField.',
           },
         },
         required: ['kind', 'title'],

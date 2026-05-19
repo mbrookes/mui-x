@@ -20,7 +20,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CheckIcon from '@mui/icons-material/Check';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import type { StudioGridColumn, StudioGridSummaryAggregation } from '../models';
+import type { StudioCrossFilterMode, StudioGridColumn, StudioGridSummaryAggregation } from '../models';
 import {
   useStudioController,
   useStudioSelector,
@@ -455,6 +455,40 @@ export function GridSetupPanel(props: { widgetId: string }) {
               })}
             </React.Fragment>
           ))}
+        </React.Fragment>
+      )}
+
+      {source && (
+        <React.Fragment>
+          {/* Interactions — cross-filter mode */}
+          <Divider />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+            Interactions
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+            When other widgets are clicked, this table…
+          </Typography>
+          <ToggleButtonGroup
+            value={(widget.config?.crossFilterMode ?? 'cross-highlight') as StudioCrossFilterMode}
+            exclusive
+            onChange={(_e, value: StudioCrossFilterMode | null) => {
+              controller.updateWidgetConfig(widgetId, {
+                crossFilterMode: value ?? 'cross-highlight',
+              });
+            }}
+            size="small"
+            fullWidth
+          >
+            <ToggleButton value="cross-highlight" sx={{ fontSize: 11, textTransform: 'none' }}>
+              Highlight
+            </ToggleButton>
+            <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
+              Filter
+            </ToggleButton>
+            <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
+              None
+            </ToggleButton>
+          </ToggleButtonGroup>
         </React.Fragment>
       )}
     </Stack>

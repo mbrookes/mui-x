@@ -195,6 +195,87 @@ describe('sync path (no adapter)', () => {
     expect(result.current.filteredRowsNoCross).toHaveLength(3);
   });
 
+  it('filteredRowsNoChartCross equals filteredRows when no chart cross-filters are active', () => {
+    mockState = createState();
+    const widget = makeWidget({ id: 'w1' });
+    const dataSource = makeDataSource(rows);
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+
+    // Same reference when no chart cross-filters
+    expect(result.current.filteredRowsNoChartCross).toBe(result.current.filteredRows);
+    expect(result.current.hasChartCrossFilters).toBe(false);
+  });
+
+  it('filteredRowsNoChartCross excludes chart cross-filter but includes interactive filter', () => {
+    // interactive (filter-widget) filter: only EU rows
+    // chart cross-filter: only rows with amount > 120
+    // Expected: filteredRowsNoChartCross = EU rows (2), filteredRows = EU rows with amount > 120 (1)
+    mockState = createState({
+      filters: [
+        makeFilter({
+          id: 'f-interactive',
+          scope: 'interactive',
+          sourceWidgetId: 'filter-widget',
+          pageId: 'page-1',
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+          filterMode: 'filter',
+        }),
+        makeFilter({
+          id: 'f-cross',
+          scope: 'cross-filter',
+          sourceWidgetId: 'w-other',
+          pageId: 'page-1',
+          field: 'amount',
+          operator: 'greater_than',
+          value: 120,
+        }),
+      ],
+    });
+    const widget = makeWidget({ id: 'w1' });
+    const dataSource = makeDataSource(rows);
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+
+    // All 3 filters: page+widget+interactive+chart-cross
+    expect(result.current.filteredRows).toHaveLength(1);
+    expect(result.current.filteredRows[0]).toMatchObject({ id: 3, region: 'EU', amount: 150 });
+
+    // filteredRowsNoCross: page+widget only (no interactive, no chart-cross) → all 3 rows
+    expect(result.current.filteredRowsNoCross).toHaveLength(3);
+
+    // filteredRowsNoChartCross: page+widget+interactive (no chart-cross) → 2 EU rows
+    expect(result.current.filteredRowsNoChartCross).toHaveLength(2);
+    expect(result.current.filteredRowsNoChartCross.every((r) => r.region === 'EU')).toBe(true);
+
+    expect(result.current.hasChartCrossFilters).toBe(true);
+  });
+
+  it('hasChartCrossFilters is false when only interactive filters are active', () => {
+    mockState = createState({
+      filters: [
+        makeFilter({
+          id: 'f-interactive',
+          scope: 'interactive',
+          sourceWidgetId: 'filter-widget',
+          pageId: 'page-1',
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+          filterMode: 'filter',
+        }),
+      ],
+    });
+    const widget = makeWidget({ id: 'w1' });
+    const dataSource = makeDataSource(rows);
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+
+    expect(result.current.hasChartCrossFilters).toBe(false);
+    expect(result.current.hasCrossFilters).toBe(true);
+    // filteredRowsNoChartCross is same reference as filteredRows (no chart cross-filter)
+    expect(result.current.filteredRowsNoChartCross).toBe(result.current.filteredRows);
+  });
+
   it('returns empty array when dataSource has no rows', () => {
     mockState = createState();
     const widget = makeWidget();

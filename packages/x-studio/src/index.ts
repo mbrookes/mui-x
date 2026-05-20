@@ -55,6 +55,7 @@ export { StudioDataDrawer } from './StudioDataDrawer/StudioDataDrawer';
 
 // ─── StudioComposeDrawer ──────────────────────────────────────────────────────
 export { StudioComposeDrawer } from './StudioComposeDrawer/StudioComposeDrawer';
+export type { StudioComposeDrawerProps } from './StudioComposeDrawer/StudioComposeDrawer';
 
 // ─── StudioFiltersDrawer ──────────────────────────────────────────────────────
 export { StudioFiltersDrawer } from './StudioFiltersDrawer/StudioFiltersDrawer';

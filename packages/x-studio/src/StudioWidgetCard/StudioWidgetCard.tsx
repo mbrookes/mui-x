@@ -348,6 +348,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         cursor: isDragging ? 'grabbing' : 'pointer',
         p: pageTheme?.cardPadding ?? 2,
         boxSizing: 'border-box',
+        height: '100%',
         position: 'relative',
         minHeight:
           widget.kind === 'kpi'

@@ -197,8 +197,8 @@ MUI X Studio includes a `schemaVersion` field and a sequential migration pipelin
 AG Studio's public state documentation does not describe versioning or migration.
 See [AG Studio — State](https://www.ag-grid.com/studio/react/state/) and [AG Studio — Studio API](https://www.ag-grid.com/studio/react/studio-api/).
 
-The `downloadState()` and `uploadState()` helpers in MUI X Studio wrap save/load with browser file-download and file-picker APIs.
-AG Studio exposes `getState()`/`setState()` and leaves file I/O to the host app.
+MUI X Studio exposes `serializeState()` / `loadSerializedState()` on the `StudioHandle` ref and leaves file I/O to the host app.
+AG Studio exposes `getState()`/`setState()` and similarly leaves file I/O to the host app.
 
 ## Theming & Customisation
 

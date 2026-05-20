@@ -125,8 +125,6 @@ export {
   migrateState,
   stateToJson,
   jsonToState,
-  downloadState,
-  uploadState,
 } from './store/statePersistence';
 export type { SerializedStudioState, MigrationResult } from './store/statePersistence';
 

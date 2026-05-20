@@ -162,6 +162,7 @@ export default function App() {
   const [sidebarLayout, setSidebarLayout] = React.useState<SidebarLayout>('tabbed');
   const [sidebarSide, setSidebarSide] = React.useState<SidebarSide>('left');
   const [tableSourceMode, setTableSourceMode] = React.useState<TableSourceMode>('explicit');
+  const [stackBreakpoint, setStackBreakpoint] = React.useState(600);
 
   // AI config — read from Vite env vars set by the developer
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
@@ -387,6 +388,7 @@ export default function App() {
               sidebarLayout={sidebarLayout}
               sidebarSide={sidebarSide}
               tableSourceMode={tableSourceMode}
+              stackBreakpoint={stackBreakpoint}
               aiConfig={aiConfig}
             />
           </Box>
@@ -404,10 +406,11 @@ export default function App() {
         <SettingsDialog
           open={settingsOpen}
           onClose={handleCloseSettings}
-          values={{ sidebarLayout, sidebarSide, tableSourceMode, rowCount: getUrlRowsParam(), adapterEnabled: adapterMode }}
+          values={{ sidebarLayout, sidebarSide, tableSourceMode, stackBreakpoint, rowCount: getUrlRowsParam(), adapterEnabled: adapterMode }}
           onSidebarLayoutChange={setSidebarLayout}
           onSidebarSideChange={setSidebarSide}
           onTableSourceModeChange={setTableSourceMode}
+          onStackBreakpointChange={setStackBreakpoint}
         />
       </LocalizationProvider>
     </ThemeProvider>

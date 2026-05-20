@@ -386,6 +386,27 @@ export class StudioController {
   };
 
   /**
+   * Sets the responsive stack breakpoint for the active page.
+   * When the canvas width drops below this value in view mode, all widgets stack to full width.
+   * Pass `undefined` to clear the per-page override and inherit the global `stackBreakpoint` prop.
+   * Pass `0` to disable stacking for this page regardless of the global setting.
+   */
+  setPageStackBreakpoint = (breakpoint: number | undefined): void => {
+    const state = this.store.state;
+    const activePage = state.pages[state.dashboard.activePageId];
+    if (!activePage) {
+      return;
+    }
+    this.commitState({
+      ...state,
+      pages: {
+        ...state.pages,
+        [activePage.id]: { ...activePage, stackBreakpoint: breakpoint },
+      },
+    });
+  };
+
+  /**
    * Sets the column span for `widgetId` and, if the row's total would exceed 12,
    * adjusts sibling spans to keep the row valid:
    * - 2-widget row: sibling is shrunk to the remaining columns (12 - span)

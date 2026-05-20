@@ -26,6 +26,7 @@ export interface SettingsValues {
   sidebarLayout: SidebarLayout;
   sidebarSide: SidebarSide;
   tableSourceMode: TableSourceMode;
+  stackBreakpoint: number;
   rowCount: number | undefined;
   adapterEnabled: boolean;
 }
@@ -37,10 +38,11 @@ export interface SettingsDialogProps {
   onSidebarLayoutChange: (layout: SidebarLayout) => void;
   onSidebarSideChange: (side: SidebarSide) => void;
   onTableSourceModeChange: (mode: TableSourceMode) => void;
+  onStackBreakpointChange: (breakpoint: number) => void;
 }
 
 export function SettingsDialog(props: SettingsDialogProps) {
-  const { open, onClose, values, onSidebarLayoutChange, onSidebarSideChange, onTableSourceModeChange } = props;
+  const { open, onClose, values, onSidebarLayoutChange, onSidebarSideChange, onTableSourceModeChange, onStackBreakpointChange } = props;
 
   const [rowInput, setRowInput] = React.useState(
     values.rowCount !== undefined ? String(values.rowCount) : '',
@@ -130,6 +132,25 @@ export function SettingsDialog(props: SettingsDialogProps) {
             <FormControlLabel value="implicit" control={<Radio size="small" />} label="Implicit (inferred)" />
           </RadioGroup>
         </FormControl>
+
+        {/* Responsive stack breakpoint — immediate */}
+        <TextField
+          label="Responsive stack breakpoint"
+          helperText="Canvas width (px) below which widgets stack. Set to 0 to disable."
+          value={values.stackBreakpoint}
+          onChange={(evt) => {
+            const n = Number.parseInt(evt.target.value, 10);
+            if (Number.isFinite(n) && n >= 0) {
+              onStackBreakpointChange(n);
+            }
+          }}
+          size="small"
+          type="number"
+          slotProps={{
+            input: { endAdornment: <InputAdornment position="end">px</InputAdornment> },
+            htmlInput: { min: 0, step: 100 },
+          }}
+        />
 
         <Divider />
 

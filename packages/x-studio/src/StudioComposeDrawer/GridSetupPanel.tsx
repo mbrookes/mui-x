@@ -287,75 +287,6 @@ export function GridSetupPanel(props: { widgetId: string }) {
 
       {source && (
         <React.Fragment>
-          {/* Cross-filter field */}
-          <DataSourceFieldSelect
-            value={crossFilterField}
-            onChange={(fieldId) =>
-              controller.updateWidgetConfig(widgetId, { crossFilterField: fieldId || undefined })
-            }
-            fields={crossFilterFieldEntries}
-            label="Cross-filter field"
-            helperText="Field applied to other widgets when a row is selected; defaults to the first visible column"
-          />
-
-          <Divider />
-
-          {/* Group-by field */}
-          <DataSourceFieldSelect
-            value={groupByField}
-            onChange={(fieldId) =>
-              controller.updateWidgetConfig(widgetId, {
-                gridGroupByField: fieldId || undefined,
-                gridAggregations: fieldId ? groupAggregations : undefined,
-              })
-            }
-            fields={crossFilterFieldEntries}
-            label="Group by"
-            helperText="Collapse rows into groups — set per-column aggregation below"
-          />
-
-          {/* Sort field + direction */}
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
-            <Box sx={{ flex: 1 }}>
-              <DataSourceFieldSelect
-                value={sortField}
-                onChange={(fieldId) =>
-                  controller.updateWidgetConfig(widgetId, {
-                    gridSortField: fieldId || undefined,
-                    gridSortDirection: fieldId ? sortDirection : undefined,
-                  })
-                }
-                fields={crossFilterFieldEntries}
-                label="Default sort"
-              />
-            </Box>
-            <ToggleButtonGroup
-              size="small"
-              exclusive
-              value={sortDirection}
-              disabled={!sortField}
-              onChange={(_, next) => {
-                if (next) {
-                  controller.updateWidgetConfig(widgetId, { gridSortDirection: next });
-                }
-              }}
-              sx={{ height: 40, flexShrink: 0 }}
-            >
-              <ToggleButton value="asc" aria-label="Ascending">
-                <Tooltip title="Ascending">
-                  <ArrowUpwardIcon fontSize="small" />
-                </Tooltip>
-              </ToggleButton>
-              <ToggleButton value="desc" aria-label="Descending">
-                <Tooltip title="Descending">
-                  <ArrowDownwardIcon fontSize="small" />
-                </Tooltip>
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-
-          <Divider />
-
           <Typography variant="caption" color="text.secondary">
             Columns
             {groupByField ? ' — ⋮ sets group aggregation' : ' — ⋮ sets summary row'}
@@ -536,6 +467,73 @@ export function GridSetupPanel(props: { widgetId: string }) {
               <MenuItem disabled>All available columns added</MenuItem>
             )}
           </Menu>
+
+          <Divider />
+
+          {/* Cross-filter field */}
+          <DataSourceFieldSelect
+            value={crossFilterField}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, { crossFilterField: fieldId || undefined })
+            }
+            fields={crossFilterFieldEntries}
+            label="Cross-filter field"
+            helperText="Field applied to other widgets when a row is selected; defaults to the first visible column"
+          />
+
+          {/* Group-by field */}
+          <DataSourceFieldSelect
+            value={groupByField}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, {
+                gridGroupByField: fieldId || undefined,
+                gridAggregations: fieldId ? groupAggregations : undefined,
+              })
+            }
+            fields={crossFilterFieldEntries}
+            label="Group by"
+            helperText="Collapse rows into groups — set per-column aggregation below"
+          />
+
+          {/* Sort field + direction */}
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+            <Box sx={{ flex: 1 }}>
+              <DataSourceFieldSelect
+                value={sortField}
+                onChange={(fieldId) =>
+                  controller.updateWidgetConfig(widgetId, {
+                    gridSortField: fieldId || undefined,
+                    gridSortDirection: fieldId ? sortDirection : undefined,
+                  })
+                }
+                fields={crossFilterFieldEntries}
+                label="Default sort"
+              />
+            </Box>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={sortDirection}
+              disabled={!sortField}
+              onChange={(_, next) => {
+                if (next) {
+                  controller.updateWidgetConfig(widgetId, { gridSortDirection: next });
+                }
+              }}
+              sx={{ height: 40, flexShrink: 0 }}
+            >
+              <ToggleButton value="asc" aria-label="Ascending">
+                <Tooltip title="Ascending">
+                  <ArrowUpwardIcon fontSize="small" />
+                </Tooltip>
+              </ToggleButton>
+              <ToggleButton value="desc" aria-label="Descending">
+                <Tooltip title="Descending">
+                  <ArrowDownwardIcon fontSize="small" />
+                </Tooltip>
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
         </React.Fragment>
       )}
 

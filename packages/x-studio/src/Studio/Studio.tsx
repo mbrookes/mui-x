@@ -134,6 +134,13 @@ export interface StudioProps extends StudioSlots {
    *   resets the source so a different one can be chosen.
    */
   tableSourceMode?: 'explicit' | 'implicit';
+  /**
+   * Canvas width (in px) below which all widgets stack to full width in view mode.
+   * Individual pages can override this via `StudioPage.stackBreakpoint`.
+   * Set to `0` to disable responsive stacking entirely.
+   * @default 600
+   */
+  stackBreakpoint?: number;
   /** Props forwarded to slot sub-components. */
   slotProps?: {
     /**
@@ -159,6 +166,7 @@ const StudioContent = React.memo(function StudioContent(
     sidebarLayout?: 'stacked' | 'tabbed';
     sidebarSide?: 'left' | 'right';
     tableSourceMode?: 'explicit' | 'implicit';
+    stackBreakpoint?: number;
     aiConfig?: StudioAIConfig | null;
     slotProps?: {
       chatPanel?: Omit<StudioChatPanelProps, 'aiConfig' | 'open' | 'onClose' | 'overlay'>;
@@ -174,6 +182,7 @@ const StudioContent = React.memo(function StudioContent(
     sidebarLayout = 'stacked',
     sidebarSide = 'left',
     tableSourceMode = 'explicit',
+    stackBreakpoint,
     aiConfig,
     slotProps,
   } = props;
@@ -307,7 +316,7 @@ const StudioContent = React.memo(function StudioContent(
             }}
           >
             <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
-              {canvas ?? <StudioCanvas {...slotProps?.canvas} />}
+              {canvas ?? <StudioCanvas stackBreakpoint={stackBreakpoint} {...slotProps?.canvas} />}
             </Box>
           </Box>
 

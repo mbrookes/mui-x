@@ -9,7 +9,6 @@ import {
   StudioController,
   StudioProvider,
   createStudioController,
-  downloadState,
   selectDashboard,
   selectDataSources,
   selectMode,
@@ -26,6 +25,7 @@ import { DataDialog } from './components/DataDialog';
 import { FiltersDialog } from './components/FiltersDialog';
 import { AddWidgetFab } from './components/AddWidgetFab';
 import { uploadJson } from './utils/fileUtils';
+import { downloadJson } from './utils/fileUtils';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
@@ -247,9 +247,10 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
   const handleRedo = React.useCallback(() => controller.redo(), [controller]);
 
   const handleSave = React.useCallback(() => {
-    const state = controller.getState();
-    // downloadState serializes the state and prompts a file download
-    downloadState(state);
+    const serialized = controller.serializeState();
+    if (!serialized) return;
+    const title = (controller.getState().dashboard.title ?? 'dashboard').replace(/[^a-z0-9]/gi, '_');
+    downloadJson(serialized, `${title}_dashboard.json`);
     onSnackbar('Dashboard saved successfully', 'success');
   }, [controller, onSnackbar]);
 

@@ -20,10 +20,12 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 export type SidebarLayout = 'stacked' | 'tabbed';
 export type SidebarSide = 'left' | 'right';
+export type TableSourceMode = 'explicit' | 'implicit';
 
 export interface SettingsValues {
   sidebarLayout: SidebarLayout;
   sidebarSide: SidebarSide;
+  tableSourceMode: TableSourceMode;
   rowCount: number | undefined;
   adapterEnabled: boolean;
 }
@@ -34,10 +36,11 @@ export interface SettingsDialogProps {
   values: SettingsValues;
   onSidebarLayoutChange: (layout: SidebarLayout) => void;
   onSidebarSideChange: (side: SidebarSide) => void;
+  onTableSourceModeChange: (mode: TableSourceMode) => void;
 }
 
 export function SettingsDialog(props: SettingsDialogProps) {
-  const { open, onClose, values, onSidebarLayoutChange, onSidebarSideChange } = props;
+  const { open, onClose, values, onSidebarLayoutChange, onSidebarSideChange, onTableSourceModeChange } = props;
 
   const [rowInput, setRowInput] = React.useState(
     values.rowCount !== undefined ? String(values.rowCount) : '',
@@ -112,6 +115,19 @@ export function SettingsDialog(props: SettingsDialogProps) {
           >
             <FormControlLabel value="left" control={<Radio size="small" />} label="Left" />
             <FormControlLabel value="right" control={<Radio size="small" />} label="Right" />
+          </RadioGroup>
+        </FormControl>
+
+        {/* Table source mode — immediate */}
+        <FormControl>
+          <FormLabel>Table source mode</FormLabel>
+          <RadioGroup
+            row
+            value={values.tableSourceMode}
+            onChange={(_evt, val) => onTableSourceModeChange(val as TableSourceMode)}
+          >
+            <FormControlLabel value="explicit" control={<Radio size="small" />} label="Explicit (picker)" />
+            <FormControlLabel value="implicit" control={<Radio size="small" />} label="Implicit (inferred)" />
           </RadioGroup>
         </FormControl>
 

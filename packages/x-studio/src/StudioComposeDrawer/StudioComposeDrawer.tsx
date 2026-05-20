@@ -4,6 +4,7 @@ import { Box, Tab, Tabs } from '@mui/material';
 import { useDrawerSubheader } from '../Studio/DrawerPanel';
 import type { StudioWidgetKind } from '../models';
 import { useStudioSelector, selectWidgets, selectShell } from '../context';
+import { StudioUIConfigContext } from '../internals/StudioUIConfigContext';
 import { AddWidgetView } from './AddWidgetView';
 import { ChartSetupPanel } from './ChartSetupPanel';
 import { FieldDetailView } from './FieldDetailView';
@@ -104,18 +105,48 @@ function WidgetConfigView(props: { widgetId: string }) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export function StudioComposeDrawer() {
+export interface StudioComposeDrawerProps {
+  /**
+   * Controls how the table widget's data source is determined.
+   * - `'explicit'` (default): a data source picker is shown at the top of the
+   *   table setup panel.
+   * - `'implicit'`: no source picker; the source is inferred from the first
+   *   column added (Tableau / Power BI style).
+   *
+   * This prop overrides the value provided by the parent `Studio` component.
+   */
+  tableSourceMode?: 'explicit' | 'implicit';
+}
+
+export function StudioComposeDrawer(props: StudioComposeDrawerProps = {}) {
+  const { tableSourceMode } = props;
   const shell = useStudioSelector(selectShell);
   const selectedWidgetId = shell.selectedWidgetId;
   const selectedFieldId = shell.selectedFieldId;
 
-  if (selectedWidgetId) {
-    return <WidgetConfigView widgetId={selectedWidgetId} />;
+  const parentConfig = React.useContext(StudioUIConfigContext);
+  const resolvedTableSourceMode = tableSourceMode ?? parentConfig.tableSourceMode;
+
+  const configValue = React.useMemo(
+    () => ({ tableSourceMode: resolvedTableSourceMode }),
+    [resolvedTableSourceMode],
+  );
+
+  const content = selectedWidgetId ? (
+    <WidgetConfigView widgetId={selectedWidgetId} />
+  ) : selectedFieldId ? (
+    <FieldDetailView />
+  ) : (
+    <AddWidgetView />
+  );
+
+  if (tableSourceMode !== undefined) {
+    return (
+      <StudioUIConfigContext.Provider value={configValue}>
+        {content}
+      </StudioUIConfigContext.Provider>
+    );
   }
 
-  if (selectedFieldId) {
-    return <FieldDetailView />;
-  }
-
-  return <AddWidgetView />;
+  return content;
 }

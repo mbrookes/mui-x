@@ -35,6 +35,7 @@ import {
   selectExpressionFields,
 } from '../context';
 import { getReachableSourceIds } from '../internals/chartUtils';
+import { StudioUIConfigContext } from '../internals/StudioUIConfigContext';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
@@ -68,6 +69,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const expressionFields = useStudioSelector(selectExpressionFields);
+  const { tableSourceMode } = React.useContext(StudioUIConfigContext);
 
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
 
@@ -83,8 +85,34 @@ export function GridSetupPanel(props: { widgetId: string }) {
     return primaryFields.map((f) => ({ fieldId: f.id }));
   }, [widget?.config?.columns, primaryFields]);
 
-  // All selectable fields: primary source + many-to-one reachable related sources
+  // All selectable fields: primary source + many-to-one reachable related sources.
+  // In implicit mode with no source yet: all fields from all non-hidden sources.
   const allSelectableFields = React.useMemo<SelectableField[]>(() => {
+    // Implicit mode, no source chosen yet — show every source's fields
+    if (tableSourceMode === 'implicit' && !widget?.sourceId) {
+      const fields: SelectableField[] = [];
+      for (const ds of Object.values(dataSources)) {
+        if (ds.hidden) {
+          continue;
+        }
+        for (const f of ds.fields) {
+          if (f.hidden) {
+            continue;
+          }
+          fields.push({
+            fieldId: f.id,
+            label: f.label,
+            type: f.type,
+            generated: f.generated,
+            sourceId: ds.id,
+            sourceLabel: ds.label,
+            isPrimary: true,
+          });
+        }
+      }
+      return fields;
+    }
+
     if (!widget?.sourceId || !source) {
       return [];
     }
@@ -132,7 +160,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
       }
     }
     return fields;
-  }, [widget?.sourceId, source, primaryFields, relationships, dataSources]);
+  }, [tableSourceMode, widget?.sourceId, source, primaryFields, relationships, dataSources]);
 
   // Lookup map: composite key → SelectableField
   const fieldLookup = React.useMemo(() => {
@@ -219,7 +247,12 @@ export function GridSetupPanel(props: { widgetId: string }) {
     const next = configColumns.filter(
       (c) => !(c.fieldId === col.fieldId && c.sourceId === col.sourceId),
     );
-    controller.updateWidgetConfig(widgetId, { columns: next });
+    if (tableSourceMode === 'implicit' && next.length === 0) {
+      // Reset source when the last column is removed so the user can switch sources
+      controller.updateWidget(widgetId, { sourceId: undefined, config: { columns: [] } });
+    } else {
+      controller.updateWidgetConfig(widgetId, { columns: next });
+    }
     setMenuAnchor(null);
   };
 
@@ -227,7 +260,15 @@ export function GridSetupPanel(props: { widgetId: string }) {
     const newCol: StudioGridColumn = field.isPrimary
       ? { fieldId: field.fieldId }
       : { fieldId: field.fieldId, sourceId: field.sourceId };
-    controller.updateWidgetConfig(widgetId, { columns: [...configColumns, newCol] });
+    if (tableSourceMode === 'implicit' && !widget?.sourceId) {
+      // Infer source from the first column added
+      controller.updateWidget(widgetId, {
+        sourceId: field.sourceId,
+        config: { ...widget?.config, columns: [newCol] },
+      });
+    } else {
+      controller.updateWidgetConfig(widgetId, { columns: [...configColumns, newCol] });
+    }
     setAddMenuAnchor(null);
   };
 
@@ -261,31 +302,35 @@ export function GridSetupPanel(props: { widgetId: string }) {
 
   return (
     <Stack spacing={2}>
-      {/* Data source selector */}
-      <Autocomplete
-        size="small"
-        options={availableSources.map((s) => ({ id: s.id, label: s.label }))}
-        getOptionLabel={(opt) => opt.label}
-        isOptionEqualToValue={(opt, val) => opt.id === val.id}
-        value={sourcePickerValue}
-        onChange={handleSourceChange}
-        renderInput={(params) => (
-          <TextField
-            {...params}
-            label="Data source"
-            placeholder="Select a data source…"
-            helperText={!source ? 'Choose a data source to configure columns' : undefined}
+      {/* Data source selector — hidden in implicit mode (source is inferred from columns) */}
+      {tableSourceMode === 'explicit' && (
+        <React.Fragment>
+          <Autocomplete
+            size="small"
+            options={availableSources.map((s) => ({ id: s.id, label: s.label }))}
+            getOptionLabel={(opt) => opt.label}
+            isOptionEqualToValue={(opt, val) => opt.id === val.id}
+            value={sourcePickerValue}
+            onChange={handleSourceChange}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Data source"
+                placeholder="Select a data source…"
+                helperText={!source ? 'Choose a data source to configure columns' : undefined}
+              />
+            )}
           />
-        )}
-      />
-
-      {!source && (
-        <Alert severity="info">
-          Select a data source above to configure this table&apos;s columns and settings.
-        </Alert>
+          {!source && (
+            <Alert severity="info">
+              Select a data source above to configure this table&apos;s columns and settings.
+            </Alert>
+          )}
+        </React.Fragment>
       )}
 
-      {source && (
+      {/* Columns section — always shown in implicit mode, gated by source in explicit */}
+      {(source || tableSourceMode === 'implicit') && (
         <React.Fragment>
           <Typography variant="caption" color="text.secondary">
             Columns
@@ -468,72 +513,76 @@ export function GridSetupPanel(props: { widgetId: string }) {
             )}
           </Menu>
 
-          <Divider />
+          {source && (
+            <React.Fragment>
+              <Divider />
 
-          {/* Cross-filter field */}
-          <DataSourceFieldSelect
-            value={crossFilterField}
-            onChange={(fieldId) =>
-              controller.updateWidgetConfig(widgetId, { crossFilterField: fieldId || undefined })
-            }
-            fields={crossFilterFieldEntries}
-            label="Cross-filter field"
-            helperText="Field applied to other widgets when a row is selected; defaults to the first visible column"
-          />
-
-          {/* Group-by field */}
-          <DataSourceFieldSelect
-            value={groupByField}
-            onChange={(fieldId) =>
-              controller.updateWidgetConfig(widgetId, {
-                gridGroupByField: fieldId || undefined,
-                gridAggregations: fieldId ? groupAggregations : undefined,
-              })
-            }
-            fields={crossFilterFieldEntries}
-            label="Group by"
-            helperText="Collapse rows into groups — set per-column aggregation below"
-          />
-
-          {/* Sort field + direction */}
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
-            <Box sx={{ flex: 1 }}>
+              {/* Cross-filter field */}
               <DataSourceFieldSelect
-                value={sortField}
+                value={crossFilterField}
+                onChange={(fieldId) =>
+                  controller.updateWidgetConfig(widgetId, { crossFilterField: fieldId || undefined })
+                }
+                fields={crossFilterFieldEntries}
+                label="Cross-filter field"
+                helperText="Field applied to other widgets when a row is selected; defaults to the first visible column"
+              />
+
+              {/* Group-by field */}
+              <DataSourceFieldSelect
+                value={groupByField}
                 onChange={(fieldId) =>
                   controller.updateWidgetConfig(widgetId, {
-                    gridSortField: fieldId || undefined,
-                    gridSortDirection: fieldId ? sortDirection : undefined,
+                    gridGroupByField: fieldId || undefined,
+                    gridAggregations: fieldId ? groupAggregations : undefined,
                   })
                 }
                 fields={crossFilterFieldEntries}
-                label="Default sort"
+                label="Group by"
+                helperText="Collapse rows into groups — set per-column aggregation below"
               />
-            </Box>
-            <ToggleButtonGroup
-              size="small"
-              exclusive
-              value={sortDirection}
-              disabled={!sortField}
-              onChange={(_, next) => {
-                if (next) {
-                  controller.updateWidgetConfig(widgetId, { gridSortDirection: next });
-                }
-              }}
-              sx={{ height: 40, flexShrink: 0 }}
-            >
-              <ToggleButton value="asc" aria-label="Ascending">
-                <Tooltip title="Ascending">
-                  <ArrowUpwardIcon fontSize="small" />
-                </Tooltip>
-              </ToggleButton>
-              <ToggleButton value="desc" aria-label="Descending">
-                <Tooltip title="Descending">
-                  <ArrowDownwardIcon fontSize="small" />
-                </Tooltip>
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
+
+              {/* Sort field + direction */}
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+                <Box sx={{ flex: 1 }}>
+                  <DataSourceFieldSelect
+                    value={sortField}
+                    onChange={(fieldId) =>
+                      controller.updateWidgetConfig(widgetId, {
+                        gridSortField: fieldId || undefined,
+                        gridSortDirection: fieldId ? sortDirection : undefined,
+                      })
+                    }
+                    fields={crossFilterFieldEntries}
+                    label="Default sort"
+                  />
+                </Box>
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={sortDirection}
+                  disabled={!sortField}
+                  onChange={(_, next) => {
+                    if (next) {
+                      controller.updateWidgetConfig(widgetId, { gridSortDirection: next });
+                    }
+                  }}
+                  sx={{ height: 40, flexShrink: 0 }}
+                >
+                  <ToggleButton value="asc" aria-label="Ascending">
+                    <Tooltip title="Ascending">
+                      <ArrowUpwardIcon fontSize="small" />
+                    </Tooltip>
+                  </ToggleButton>
+                  <ToggleButton value="desc" aria-label="Descending">
+                    <Tooltip title="Descending">
+                      <ArrowDownwardIcon fontSize="small" />
+                    </Tooltip>
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+            </React.Fragment>
+          )}
         </React.Fragment>
       )}
 

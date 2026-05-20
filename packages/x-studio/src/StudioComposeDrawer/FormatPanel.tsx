@@ -73,7 +73,7 @@ export function FormatPanel(props: { widgetId: string }) {
     if (trimmed !== (widget?.subtitle ?? '')) {
       controller.updateWidget(widgetId, {
         subtitle: trimmed || undefined,
-        subtitleMode: trimmed ? 'manual' : 'auto',
+        subtitleMode: 'manual',
       });
     }
     setFormState((prev) => ({ ...prev, subtitleDirty: false }));

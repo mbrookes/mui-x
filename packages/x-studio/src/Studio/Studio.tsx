@@ -31,6 +31,7 @@ import { StudioChatPanel } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
+import { StudioUIConfigContext } from '../internals/StudioUIConfigContext';
 
 const MIN_CANVAS_WIDTH = 480;
 
@@ -124,6 +125,15 @@ export interface StudioProps extends StudioSlots {
    * If not provided, the AI panel is not rendered.
    */
   aiConfig?: StudioAIConfig | null;
+  /**
+   * Controls how the table widget's data source is determined.
+   * - `'explicit'` (default): a data source picker is shown at the top of the
+   *   table setup panel. The user must choose a source before adding columns.
+   * - `'implicit'`: no source picker is shown. The source is inferred from the
+   *   first column added (Tableau / Power BI style). Removing all columns
+   *   resets the source so a different one can be chosen.
+   */
+  tableSourceMode?: 'explicit' | 'implicit';
   /** Props forwarded to slot sub-components. */
   slotProps?: {
     /**
@@ -148,6 +158,7 @@ const StudioContent = React.memo(function StudioContent(
   props: StudioSlots & {
     sidebarLayout?: 'stacked' | 'tabbed';
     sidebarSide?: 'left' | 'right';
+    tableSourceMode?: 'explicit' | 'implicit';
     aiConfig?: StudioAIConfig | null;
     slotProps?: {
       chatPanel?: Omit<StudioChatPanelProps, 'aiConfig' | 'open' | 'onClose' | 'overlay'>;
@@ -162,6 +173,7 @@ const StudioContent = React.memo(function StudioContent(
     filtersDrawer,
     sidebarLayout = 'stacked',
     sidebarSide = 'left',
+    tableSourceMode = 'explicit',
     aiConfig,
     slotProps,
   } = props;
@@ -271,6 +283,7 @@ const StudioContent = React.memo(function StudioContent(
     );
 
   return (
+    <StudioUIConfigContext.Provider value={{ tableSourceMode }}>
     <Box
       sx={{
         display: 'flex',
@@ -329,6 +342,7 @@ const StudioContent = React.memo(function StudioContent(
         </React.Fragment>
       )}
     </Box>
+    </StudioUIConfigContext.Provider>
   );
 });
 

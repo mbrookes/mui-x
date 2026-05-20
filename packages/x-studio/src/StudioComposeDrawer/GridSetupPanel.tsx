@@ -4,9 +4,11 @@ import {
   Alert,
   Autocomplete,
   Box,
+  Button,
   Divider,
   IconButton,
   ListItemIcon,
+  ListSubheader,
   Menu,
   MenuItem,
   Stack,
@@ -20,6 +22,9 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CheckIcon from '@mui/icons-material/Check';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
+import FunctionsIcon from '@mui/icons-material/Functions';
 import type { StudioCrossFilterMode, StudioGridColumn, StudioGridSummaryAggregation } from '../models';
 import {
   useStudioController,
@@ -27,10 +32,12 @@ import {
   selectWidgets,
   selectDataSources,
   selectRelationships,
+  selectExpressionFields,
 } from '../context';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
+import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
 const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = ['sum', 'avg', 'min', 'max', 'count'];
 const STRING_AGGREGATIONS: StudioGridSummaryAggregation[] = ['count'];
@@ -60,6 +67,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const widget = useStudioSelector(selectWidgets)[widgetId];
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
+  const expressionFields = useStudioSelector(selectExpressionFields);
 
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
 
@@ -126,6 +134,45 @@ export function GridSetupPanel(props: { widgetId: string }) {
     return fields;
   }, [widget?.sourceId, source, primaryFields, relationships, dataSources]);
 
+  // Lookup map: composite key → SelectableField
+  const fieldLookup = React.useMemo(() => {
+    const map = new Map<string, SelectableField>();
+    for (const f of allSelectableFields) {
+      map.set(f.isPrimary ? f.fieldId : `${f.sourceId}/${f.fieldId}`, f);
+    }
+    return map;
+  }, [allSelectableFields]);
+
+  // Fields not yet added — for the "Add column" menu
+  const addableFields = React.useMemo(
+    () =>
+      allSelectableFields.filter(
+        (f) =>
+          !configColumns.some(
+            (c) =>
+              c.fieldId === f.fieldId &&
+              (f.isPrimary
+                ? !c.sourceId || c.sourceId === f.sourceId
+                : c.sourceId === f.sourceId),
+          ),
+      ),
+    [allSelectableFields, configColumns],
+  );
+
+  const addableFieldsBySource = React.useMemo(() => {
+    const groups = new Map<
+      string,
+      { sourceLabel: string; isPrimary: boolean; fields: SelectableField[] }
+    >();
+    for (const f of addableFields) {
+      if (!groups.has(f.sourceId)) {
+        groups.set(f.sourceId, { sourceLabel: f.sourceLabel, isPrimary: f.isPrimary, fields: [] });
+      }
+      groups.get(f.sourceId)!.fields.push(f);
+    }
+    return groups;
+  }, [addableFields]);
+
   // For cross-filter, group-by, and sort pickers: only primary source fields
   const crossFilterField = widget?.config?.crossFilterField ?? '';
   const summaryFields: Record<string, StudioGridSummaryAggregation> =
@@ -141,10 +188,14 @@ export function GridSetupPanel(props: { widgetId: string }) {
     [dataSources],
   );
 
-  // Menu anchor state: fieldId → anchor element
-  const [menuAnchor, setMenuAnchor] = React.useState<{ fieldId: string; el: HTMLElement } | null>(
+  // ⋮ menu anchor for selected columns (keyed by composite column key)
+  const [menuAnchor, setMenuAnchor] = React.useState<{ key: string; el: HTMLElement } | null>(
     null,
   );
+  // "Add column" pill menu anchor
+  const [addMenuAnchor, setAddMenuAnchor] = React.useState<HTMLElement | null>(null);
+  // Calculated column dialog
+  const [calcDialogOpen, setCalcDialogOpen] = React.useState(false);
 
   const crossFilterFieldEntries = React.useMemo<DataSourceFieldEntry[]>(() => {
     if (!source || !widget?.sourceId) {
@@ -164,24 +215,20 @@ export function GridSetupPanel(props: { widgetId: string }) {
     controller.updateWidget(widgetId, { sourceId: selected?.id ?? undefined, config: { columns: [] } });
   };
 
-  const handleColumnToggle = (fieldId: string, sourceId: string) => {
-    const isPrimary = sourceId === widget?.sourceId;
-    const colKey = isPrimary ? fieldId : `${sourceId}/${fieldId}`;
-    const isCurrentlyVisible = configColumns.some(
-      (c) => c.fieldId === fieldId && (isPrimary ? !c.sourceId || c.sourceId === sourceId : c.sourceId === sourceId),
+  const handleColumnRemove = (col: StudioGridColumn) => {
+    const next = configColumns.filter(
+      (c) => !(c.fieldId === col.fieldId && c.sourceId === col.sourceId),
     );
-
-    let next: StudioGridColumn[];
-    if (isCurrentlyVisible) {
-      next = configColumns.filter(
-        (c) => !(c.fieldId === fieldId && (isPrimary ? (!c.sourceId || c.sourceId === sourceId) : c.sourceId === sourceId)),
-      );
-    } else {
-      next = [...configColumns, isPrimary ? { fieldId } : { fieldId, sourceId }];
-    }
-    // Suppress unused variable warning
-    void colKey;
     controller.updateWidgetConfig(widgetId, { columns: next });
+    setMenuAnchor(null);
+  };
+
+  const handleColumnAdd = (field: SelectableField) => {
+    const newCol: StudioGridColumn = field.isPrimary
+      ? { fieldId: field.fieldId }
+      : { fieldId: field.fieldId, sourceId: field.sourceId };
+    controller.updateWidgetConfig(widgetId, { columns: [...configColumns, newCol] });
+    setAddMenuAnchor(null);
   };
 
   const handleSummaryChange = (fieldId: string, value: StudioGridSummaryAggregation | '') => {
@@ -210,23 +257,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
     setMenuAnchor(null);
   };
 
-  const openFieldId = menuAnchor?.fieldId ?? null;
   const sourcePickerValue = source ? { id: source.id, label: source.label } : null;
-
-  // Group fields by source for section headers
-  const fieldsBySource = React.useMemo(() => {
-    const groups = new Map<string, { sourceLabel: string; isPrimary: boolean; fields: SelectableField[] }>();
-    for (const f of allSelectableFields) {
-      if (!groups.has(f.sourceId)) {
-        groups.set(f.sourceId, { sourceLabel: f.sourceLabel, isPrimary: f.isPrimary, fields: [] });
-      }
-      groups.get(f.sourceId)!.fields.push(f);
-    }
-    return groups;
-  }, [allSelectableFields]);
-
-  const visibleCount = configColumns.length;
-  const totalCount = allSelectableFields.length;
 
   return (
     <Stack spacing={2}>
@@ -326,135 +357,185 @@ export function GridSetupPanel(props: { widgetId: string }) {
           <Divider />
 
           <Typography variant="caption" color="text.secondary">
-            Visible columns ({visibleCount}/{totalCount})
+            Columns
             {groupByField ? ' — ⋮ sets group aggregation' : ' — ⋮ sets summary row'}
           </Typography>
 
-          {/* Column list grouped by source */}
-          {Array.from(fieldsBySource.entries()).map(([srcId, group]) => (
-            <React.Fragment key={srcId}>
-              {!group.isPrimary && (
-                <Typography
-                  variant="overline"
-                  color="text.secondary"
-                  sx={{ display: 'block', lineHeight: 1.5, mt: 0.5 }}
-                >
-                  {group.sourceLabel}
+          {/* Selected columns list */}
+          {configColumns.map((col) => {
+            const colKey = col.sourceId ? `${col.sourceId}/${col.fieldId}` : col.fieldId;
+            const fieldInfo = fieldLookup.get(colKey) ?? fieldLookup.get(col.fieldId);
+            const isNumeric = fieldInfo?.type === 'number';
+            const availableAggs = isNumeric ? NUMERIC_AGGREGATIONS : STRING_AGGREGATIONS;
+            const currentAgg = groupByField
+              ? groupAggregations[col.fieldId]
+              : summaryFields[col.fieldId];
+            const isGroupByField = col.fieldId === groupByField && !col.sourceId;
+
+            return (
+              <Box
+                key={colKey}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 1,
+                  py: 0.5,
+                  borderRadius: 1,
+                  border: 1,
+                  borderColor: 'divider',
+                }}
+              >
+                <FieldTypeIcon
+                  type={(fieldInfo?.type ?? 'string') as any}
+                  generated={fieldInfo?.generated}
+                  size={14}
+                />
+                <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }} noWrap>
+                  {fieldInfo?.label ?? col.fieldId}
                 </Typography>
-              )}
-              {group.fields.map((field) => {
-                const isNumeric = field.type === 'number';
-                const availableAggs = isNumeric ? NUMERIC_AGGREGATIONS : STRING_AGGREGATIONS;
-                const currentAgg = groupByField ? groupAggregations[field.fieldId] : summaryFields[field.fieldId];
-                const isVisible = configColumns.some(
-                  (c) =>
-                    c.fieldId === field.fieldId &&
-                    (field.isPrimary ? (!c.sourceId || c.sourceId === field.sourceId) : c.sourceId === field.sourceId),
-                );
-                const isGroupByField = field.fieldId === groupByField;
-
-                return (
-                  <Box
-                    key={`${field.sourceId}/${field.fieldId}`}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 1,
-                      p: 1,
-                      borderRadius: 1,
-                      bgcolor: isVisible ? 'action.selected' : 'transparent',
-                      border: 1,
-                      borderColor: 'divider',
-                    }}
+                {col.sourceId && (
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    {fieldInfo?.sourceLabel}
+                  </Typography>
+                )}
+                {isGroupByField && (
+                  <Typography variant="caption" color="text.secondary">
+                    (group)
+                  </Typography>
+                )}
+                <Tooltip
+                  title={
+                    currentAgg
+                      ? `${groupByField ? 'Aggregate' : 'Summary'}: ${AGG_LABELS[currentAgg]}`
+                      : groupByField
+                        ? 'Set aggregation'
+                        : 'Set summary / remove'
+                  }
+                >
+                  <IconButton
+                    size="small"
+                    aria-label={`Options for ${fieldInfo?.label ?? col.fieldId}`}
+                    aria-haspopup="true"
+                    aria-expanded={menuAnchor?.key === colKey}
+                    onClick={(evt) => setMenuAnchor({ key: colKey, el: evt.currentTarget })}
+                    color={currentAgg ? 'primary' : 'default'}
                   >
-                    {/* Column visibility toggle */}
-                    <Box
-                      sx={{ display: 'flex', alignItems: 'center', flex: 1, gap: 0.5, cursor: 'pointer' }}
-                      onClick={() => handleColumnToggle(field.fieldId, field.sourceId)}
-                      role="checkbox"
-                      aria-checked={isVisible}
-                      tabIndex={0}
-                      onKeyDown={(event) => {
-                        if (event.key === ' ' || event.key === 'Enter') {
-                          handleColumnToggle(field.fieldId, field.sourceId);
-                        }
-                      }}
+                    <MoreVertIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Menu
+                  open={menuAnchor?.key === colKey}
+                  anchorEl={menuAnchor?.el}
+                  onClose={() => setMenuAnchor(null)}
+                  slotProps={{ list: { dense: true } }}
+                >
+                  <MenuItem onClick={() => handleColumnRemove(col)}>
+                    <ListItemIcon>
+                      <DeleteIcon fontSize="small" />
+                    </ListItemIcon>
+                    Remove
+                  </MenuItem>
+                  {!isGroupByField && <Divider />}
+                  {!isGroupByField && (
+                    <MenuItem
+                      onClick={() =>
+                        groupByField
+                          ? handleGroupAggChange(col.fieldId, '')
+                          : handleSummaryChange(col.fieldId, '')
+                      }
+                      selected={currentAgg == null}
                     >
-                      <FieldTypeIcon type={field.type as any} generated={field.generated} size={14} />
-                      <Typography variant="body2">{field.label}</Typography>
-                      {isGroupByField && (
-                        <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
-                          (group)
-                        </Typography>
+                      {currentAgg == null ? (
+                        <ListItemIcon>
+                          <CheckIcon fontSize="small" />
+                        </ListItemIcon>
+                      ) : (
+                        <ListItemIcon />
                       )}
-                    </Box>
+                      None
+                    </MenuItem>
+                  )}
+                  {!isGroupByField &&
+                    availableAggs.map((agg) => (
+                      <MenuItem
+                        key={agg}
+                        onClick={() =>
+                          groupByField
+                            ? handleGroupAggChange(col.fieldId, agg)
+                            : handleSummaryChange(col.fieldId, agg)
+                        }
+                        selected={currentAgg === agg}
+                      >
+                        {currentAgg === agg ? (
+                          <ListItemIcon>
+                            <CheckIcon fontSize="small" />
+                          </ListItemIcon>
+                        ) : (
+                          <ListItemIcon />
+                        )}
+                        {AGG_LABELS[agg]}
+                      </MenuItem>
+                    ))}
+                </Menu>
+              </Box>
+            );
+          })}
 
-                    {/* Summary / group aggregation — ⋮ icon button with dense checkmark menu */}
-                    {isVisible && !isGroupByField && (
-                      <React.Fragment>
-                        <Tooltip title={currentAgg ? `${groupByField ? 'Aggregate' : 'Summary'}: ${AGG_LABELS[currentAgg]}` : groupByField ? 'Set aggregation' : 'Set summary'}>
-                          <IconButton
-                            size="small"
-                            aria-label={`${groupByField ? 'Aggregation' : 'Summary'} for ${field.label}`}
-                            aria-haspopup="true"
-                            aria-expanded={openFieldId === field.fieldId}
-                            onClick={(evt) => setMenuAnchor({ fieldId: field.fieldId, el: evt.currentTarget })}
-                            color={currentAgg ? 'primary' : 'default'}
-                          >
-                            <MoreVertIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Menu
-                          open={openFieldId === field.fieldId}
-                          anchorEl={menuAnchor?.el}
-                          onClose={() => setMenuAnchor(null)}
-                          slotProps={{ list: { dense: true } }}
-                        >
-                          <MenuItem
-                            onClick={() =>
-                              groupByField
-                                ? handleGroupAggChange(field.fieldId, '')
-                                : handleSummaryChange(field.fieldId, '')
-                            }
-                            selected={currentAgg == null}
-                          >
-                            {currentAgg == null ? (
-                              <ListItemIcon>
-                                <CheckIcon fontSize="small" />
-                              </ListItemIcon>
-                            ) : (
-                              <ListItemIcon />
-                            )}
-                            None
-                          </MenuItem>
-                          {availableAggs.map((agg) => (
-                            <MenuItem
-                              key={agg}
-                              onClick={() =>
-                                groupByField
-                                  ? handleGroupAggChange(field.fieldId, agg)
-                                  : handleSummaryChange(field.fieldId, agg)
-                              }
-                              selected={currentAgg === agg}
-                            >
-                              {currentAgg === agg ? (
-                                <ListItemIcon>
-                                  <CheckIcon fontSize="small" />
-                                </ListItemIcon>
-                              ) : (
-                                <ListItemIcon />
-                              )}
-                              {AGG_LABELS[agg]}
-                            </MenuItem>
-                          ))}
-                        </Menu>
-                      </React.Fragment>
-                    )}
-                  </Box>
-                );
-              })}
-            </React.Fragment>
-          ))}
+          {/* Add column pill */}
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<AddIcon />}
+            onClick={(evt) => setAddMenuAnchor(evt.currentTarget)}
+            sx={{ alignSelf: 'flex-start' }}
+          >
+            Add column
+          </Button>
+          <Menu
+            open={Boolean(addMenuAnchor)}
+            anchorEl={addMenuAnchor}
+            onClose={() => setAddMenuAnchor(null)}
+            slotProps={{ list: { dense: true } }}
+          >
+            <MenuItem
+              onClick={() => {
+                setCalcDialogOpen(true);
+                setAddMenuAnchor(null);
+              }}
+            >
+              <ListItemIcon>
+                <FunctionsIcon fontSize="small" />
+              </ListItemIcon>
+              Calculated column…
+            </MenuItem>
+            {addableFields.length > 0 && <Divider />}
+            {Array.from(addableFieldsBySource.entries()).map(([srcId, group]) => (
+              <React.Fragment key={srcId}>
+                {!group.isPrimary && (
+                  <ListSubheader sx={{ lineHeight: '32px' }}>{group.sourceLabel}</ListSubheader>
+                )}
+                {group.fields.map((field) => (
+                  <MenuItem
+                    key={`${field.sourceId}/${field.fieldId}`}
+                    onClick={() => handleColumnAdd(field)}
+                  >
+                    <ListItemIcon>
+                      <FieldTypeIcon
+                        type={field.type as any}
+                        generated={field.generated}
+                        size={14}
+                      />
+                    </ListItemIcon>
+                    {field.label}
+                  </MenuItem>
+                ))}
+              </React.Fragment>
+            ))}
+            {addableFields.length === 0 && (
+              <MenuItem disabled>All available columns added</MenuItem>
+            )}
+          </Menu>
         </React.Fragment>
       )}
 
@@ -491,7 +572,17 @@ export function GridSetupPanel(props: { widgetId: string }) {
           </ToggleButtonGroup>
         </React.Fragment>
       )}
+
+      {/* Calculated column dialog */}
+      {source && (
+        <StudioExpressionFieldDialog
+          key={calcDialogOpen ? 'open' : 'closed'}
+          open={calcDialogOpen}
+          onClose={() => setCalcDialogOpen(false)}
+          dataSource={source}
+          expressionFields={expressionFields}
+        />
+      )}
     </Stack>
   );
 }
-

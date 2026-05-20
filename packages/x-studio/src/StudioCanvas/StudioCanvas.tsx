@@ -142,6 +142,127 @@ function InsertionPoint({
   );
 }
 
+// Between-widget column resize handle — sits in the gap between two flex siblings
+function RowResizeHandle({
+  leftId,
+  rightId,
+  leftSpan,
+  rightSpan,
+  onDragMove,
+  onDragEnd,
+}: {
+  leftId: string;
+  rightId: string;
+  leftSpan: number;
+  rightSpan: number;
+  onDragMove: (leftId: string, rightId: string, leftSpanLive: number) => void;
+  onDragEnd: (leftId: string, rightId: string, leftSpan: number, rightSpan: number) => void;
+}) {
+  const totalSpan = leftSpan + rightSpan;
+  const dragRef = React.useRef<{
+    combinedLeft: number;
+    combinedWidth: number;
+    totalSpan: number;
+  } | null>(null);
+  const [active, setActive] = React.useState(false);
+
+  const handlePointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const handle = event.currentTarget;
+      // The handle sits inside a gap element; find the widget boxes on either side
+      const gap = handle.parentElement;
+      if (!gap) {
+        return;
+      }
+      const leftBox = gap.previousElementSibling as HTMLElement | null;
+      const rightBox = gap.nextElementSibling as HTMLElement | null;
+      if (!leftBox || !rightBox) {
+        return;
+      }
+      const leftRect = leftBox.getBoundingClientRect();
+      const rightRect = rightBox.getBoundingClientRect();
+      dragRef.current = {
+        combinedLeft: leftRect.left,
+        combinedWidth: rightRect.right - leftRect.left,
+        totalSpan,
+      };
+      setActive(true);
+      handle.setPointerCapture(event.pointerId);
+    },
+    [totalSpan],
+  );
+
+  const handlePointerMove = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current;
+      if (!drag) {
+        return;
+      }
+      const fraction = (event.clientX - drag.combinedLeft) / drag.combinedWidth;
+      const minFrac = 3 / drag.totalSpan;
+      const clamped = Math.max(minFrac, Math.min(1 - minFrac, fraction));
+      const leftSpanLive = clamped * drag.totalSpan;
+      onDragMove(leftId, rightId, leftSpanLive);
+    },
+    [leftId, rightId, onDragMove],
+  );
+
+  const handlePointerUp = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current;
+      if (!drag) {
+        return;
+      }
+      dragRef.current = null;
+      setActive(false);
+      (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+      const fraction = (event.clientX - drag.combinedLeft) / drag.combinedWidth;
+      const minFrac = 3 / drag.totalSpan;
+      const clamped = Math.max(minFrac, Math.min(1 - minFrac, fraction));
+      const snappedLeft = Math.max(3, Math.min(drag.totalSpan - 3, Math.round(clamped * drag.totalSpan)));
+      const snappedRight = drag.totalSpan - snappedLeft;
+      onDragEnd(leftId, rightId, snappedLeft, snappedRight);
+    },
+    [leftId, rightId, onDragEnd],
+  );
+
+  return (
+    <Box
+      data-resize-handle
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      sx={{
+        position: 'absolute',
+        inset: 0,
+        cursor: 'col-resize',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 20,
+        '&:hover .rh-bar, &[data-active] .rh-bar': { opacity: 1, bgcolor: 'primary.main' },
+      }}
+      data-active={active ? '' : undefined}
+    >
+      <Box
+        className="rh-bar"
+        sx={{
+          width: 3,
+          height: '36%',
+          minHeight: 20,
+          borderRadius: 4,
+          bgcolor: active ? 'primary.main' : 'action.disabled',
+          opacity: active ? 1 : 0,
+          transition: 'opacity 0.15s, background-color 0.15s',
+          pointerEvents: 'none',
+        }}
+      />
+    </Box>
+  );
+}
+
 export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvasProps) {
   const { slotProps } = props;
   const mode = useStudioSelector(selectMode);
@@ -152,12 +273,13 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   const controller = useStudioController();
   const canvasRef = React.useRef<HTMLDivElement>(null);
 
-  // Live resize: maps widgetId → adjusted span during a drag (null = revert to flex:1).
-  // The dragged widget's entry is the live snap value; sibling entries are adjusted
-  // to prevent the row total from exceeding 12 columns.
-  const [dragOverrides, setDragOverrides] = React.useState<Record<string, number | null> | null>(
-    null,
-  );
+  // Live resize: maps widgetId → continuous (float) span during a between-widget drag.
+  const [liveDrag, setLiveDrag] = React.useState<{
+    leftId: string;
+    rightId: string;
+    leftSpanLive: number;
+    totalSpan: number;
+  } | null>(null);
 
   // ── Auto-scroll while dragging near the top/bottom viewport edge ────────────
   React.useEffect(() => {
@@ -419,16 +541,23 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
               />
             )}
             {row.map((widgetId, colIndex) => {
-              const span =
-                dragOverrides != null && widgetId in dragOverrides
-                  ? dragOverrides[widgetId]
-                  : (widgetColSpans?.[widgetId] ?? null);
+              // Compute flex value, using live drag for the two resizing widgets
+              const storedSpan = widgetColSpans?.[widgetId] ?? null;
+              let liveSpan: number | null = null;
+              if (liveDrag) {
+                if (widgetId === liveDrag.leftId) {
+                  liveSpan = liveDrag.leftSpanLive;
+                } else if (widgetId === liveDrag.rightId) {
+                  liveSpan = liveDrag.totalSpan - liveDrag.leftSpanLive;
+                }
+              }
+              const span = liveSpan ?? storedSpan;
+
               // Edit mode: use flex-grow proportional to column span (flex-basis: 0).
               // Insertion points have a fixed 8px width each; percentage-based flex-basis
               // would sum to 100% *before* those, causing overflow.  Flex-grow distributes
               // only the remaining space after fixed items, so the row fills correctly.
-              // Default flex-grow: 12/rowLength so unsized widgets match the same ratio
-              // as the startSpan computed in StudioWidgetCard on drag start.
+              // Default flex-grow: 12/rowLength so unsized widgets match the same ratio.
               // View mode: use percentage flex-basis (no insertion points present).
               const defaultFlexGrow = Math.round(12 / row.length);
               const flexValue =
@@ -439,7 +568,18 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                     : 1;
               const maxWidth =
                 mode !== 'edit' && span != null ? `${(span / 12) * 100}%` : undefined;
-              const isSingleInRow = row.length === 1;
+
+              // Spans for the resize handle on the right of this widget
+              const nextId = row[colIndex + 1];
+              const nextStoredSpan = nextId ? (widgetColSpans?.[nextId] ?? null) : null;
+              const myEffectiveSpan = storedSpan ?? defaultFlexGrow;
+              const nextEffectiveSpan = nextId
+                ? (nextStoredSpan ?? Math.round(12 / row.length))
+                : 0;
+
+              const isResizing =
+                liveDrag && (widgetId === liveDrag.leftId || widgetId === liveDrag.rightId);
+
               return (
                 <React.Fragment key={widgetId}>
                   <Box
@@ -449,75 +589,61 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                       minWidth: mode === 'edit' ? 0 : 280,
                       display: 'flex',
                       flexDirection: 'column',
+                      // Outline during active resize drag
+                      outline: isResizing ? '2px solid' : 'none',
+                      outlineColor: 'primary.main',
+                      outlineOffset: -1,
+                      borderRadius: 1,
+                      transition: isResizing ? 'none' : 'flex 0.1s ease',
                     }}
                   >
                     <StudioWidgetCard
                       widgetId={widgetId}
                       isFirstRow={rowIndex === 0}
-                      isSingleInRow={isSingleInRow}
                       pageTheme={pageTheme}
-                      canvasRef={canvasRef}
-                      rowWidgetIds={row}
-                      onResizeDrag={(liveSpan) => {
-                        if (liveSpan == null) {
-                          setDragOverrides(null);
-                          return;
-                        }
-                        const overrides: Record<string, number | null> = { [widgetId]: liveSpan };
-                        const otherIds = row.filter((id) => id !== widgetId);
-                        const remaining = 12 - liveSpan;
-
-                        // Always include every sibling in overrides so no widget falls
-                        // back to the `span ?? defaultFlexGrow` render default and causes
-                        // a ratio discontinuity between pre-drag and drag-start states.
-                        const siblingStoredSpans = otherIds.map(
-                          (id) => widgetColSpans?.[id] ?? null,
-                        );
-                        const explicitSiblingTotal = siblingStoredSpans.reduce<number>(
-                          (sum, s) => sum + (s ?? 0),
-                          0,
-                        );
-                        const unsizedCount = siblingStoredSpans.filter((s) => s == null).length;
-                        // Each unsized sibling gets an equal share of what remains after
-                        // sized siblings and the dragged widget, clamped to min 3.
-                        const unsizedShare =
-                          unsizedCount > 0
-                            ? Math.max(
-                                3,
-                                Math.round((remaining - explicitSiblingTotal) / unsizedCount),
-                              )
-                            : 0;
-                        const effectiveSiblingTotal =
-                          explicitSiblingTotal + unsizedCount * unsizedShare;
-
-                        if (effectiveSiblingTotal > remaining) {
-                          // Overflow after accounting for effective spans: adjust siblings.
-                          if (otherIds.length === 1) {
-                            overrides[otherIds[0]] = remaining >= 3 ? remaining : null;
-                          } else {
-                            for (const id of otherIds) {
-                              overrides[id] = null;
-                            }
-                          }
-                        } else {
-                          for (let i = 0; i < otherIds.length; i++) {
-                            overrides[otherIds[i]] = siblingStoredSpans[i] ?? unsizedShare;
-                          }
-                        }
-                        setDragOverrides(overrides);
-                      }}
                       {...slotProps?.widgetCard}
                     />
                   </Box>
-                  {/* Insertion point after this widget */}
+                  {/* Gap: insertion point (DnD) + resize handle (between consecutive widgets) */}
                   {mode === 'edit' && (
-                    <InsertionPoint
-                      rowIndex={rowIndex}
-                      colIndex={colIndex + 1}
-                      onDrop={handleDrop}
-                      orientation="vertical"
-                      mode={mode}
-                    />
+                    <Box
+                      data-gap
+                      sx={{
+                        position: 'relative',
+                        flexShrink: 0,
+                        width: 8,
+                        alignSelf: 'stretch',
+                      }}
+                    >
+                      <InsertionPoint
+                        rowIndex={rowIndex}
+                        colIndex={colIndex + 1}
+                        onDrop={handleDrop}
+                        orientation="vertical"
+                        mode={mode}
+                      />
+                      {/* Resize handle only between consecutive widgets (not after the last) */}
+                      {colIndex < row.length - 1 && (
+                        <RowResizeHandle
+                          leftId={widgetId}
+                          rightId={nextId}
+                          leftSpan={myEffectiveSpan}
+                          rightSpan={nextEffectiveSpan}
+                          onDragMove={(lId, rId, leftSpanLive) => {
+                            setLiveDrag({
+                              leftId: lId,
+                              rightId: rId,
+                              leftSpanLive,
+                              totalSpan: myEffectiveSpan + nextEffectiveSpan,
+                            });
+                          }}
+                          onDragEnd={(lId, rId, snappedLeft, snappedRight) => {
+                            setLiveDrag(null);
+                            controller.setAdjacentWidgetColSpans(lId, snappedLeft, rId, snappedRight);
+                          }}
+                        />
+                      )}
+                    </Box>
                   )}
                 </React.Fragment>
               );

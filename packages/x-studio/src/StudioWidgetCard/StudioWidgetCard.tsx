@@ -18,7 +18,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
 import dayjs from 'dayjs';
 
-import { useStudioController, useStudioSelector, selectPartitionedBaseFilters, selectActivePage } from '../context';
+import { useStudioController, useStudioSelector, selectPartitionedBaseFilters } from '../context';
 import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import type { StudioPageTheme } from '../models';
@@ -38,26 +38,6 @@ import { createStudioPipeline } from '../internals/StudioPipeline';
 export interface StudioWidgetCardProps {
   widgetId: string;
   isFirstRow?: boolean;
-  /**
-   * When true, this widget is the only widget in its row.
-   * The resize handle is hidden in this case (the widget always fills 100%).
-   */
-  isSingleInRow?: boolean;
-  /**
-   * All widget IDs in the same row, used to compute valid resize limits.
-   * If omitted, the resize handle is hidden.
-   */
-  rowWidgetIds?: string[];
-  /**
-   * Ref to the canvas element — used to measure canvas width for column snapping.
-   */
-  canvasRef?: React.RefObject<HTMLDivElement | null>;
-  /**
-   * Called during a resize drag whenever the snapped column count changes,
-   * and with `null` when the drag ends. Used by the parent canvas to apply
-   * a live flex-basis override so the widget visually resizes during drag.
-   */
-  onResizeDrag?: (span: number | null) => void;
   pageTheme?: StudioPageTheme;
   /** Replaceable sub-components. */
   slots?: {
@@ -145,13 +125,9 @@ function DefaultLoadingOverlay() {
 
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
-  const { widgetId, isFirstRow = false, isSingleInRow = false, rowWidgetIds, canvasRef, onResizeDrag, pageTheme, slots, slotProps } = props;
+  const { widgetId, isFirstRow = false, pageTheme, slots, slotProps } = props;
   const controller = useStudioController();
   const mode = useStudioSelector((state) => state.mode);
-  // Read the current colSpan for this widget from the active page
-  const currentColSpan = useStudioSelector(
-    (state) => selectActivePage(state)?.widgetColSpans?.[widgetId] ?? null,
-  );
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
   // Narrow selector: only re-render when THIS widget's selection state changes
   const isSelected = useStudioSelector((state) => state.shell.selectedWidgetId === widgetId);
@@ -344,75 +320,6 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
   // inside the card for top-row widgets (where there's no room above to overhang).
   const overlayTopSx = isFirstRow ? { top: 6 } : { top: 0, transform: 'translateY(-50%)' };
-
-  const showResizeHandle =
-    mode === 'edit' && !isSingleInRow && rowWidgetIds != null && rowWidgetIds.length > 1;
-
-  // Resize drag — tracks start position and reports live column snaps via onResizeDrag
-  const resizeDragRef = React.useRef<{
-    startX: number;
-    startSpan: number;
-    lastSpan: number;
-    canvasWidth: number;
-    maxSpan: number;
-  } | null>(null);
-  const [draggingSpan, setDraggingSpan] = React.useState<number | null>(null);
-
-  const handleResizePointerDown = React.useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const canvasEl = canvasRef?.current;
-      if (!canvasEl || !rowWidgetIds) {
-        return;
-      }
-      const canvasWidth = canvasEl.getBoundingClientRect().width;
-      const otherWidgetsCount = rowWidgetIds.length - 1;
-      const maxSpan = 12 - otherWidgetsCount * 3;
-      const startSpan = currentColSpan ?? Math.round(12 / rowWidgetIds.length);
-      resizeDragRef.current = { startX: event.clientX, startSpan, lastSpan: startSpan, canvasWidth, maxSpan };
-      setDraggingSpan(startSpan);
-      onResizeDrag?.(startSpan);
-      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-    },
-    [canvasRef, rowWidgetIds, currentColSpan, onResizeDrag],
-  );
-
-  const handleResizePointerMove = React.useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      const drag = resizeDragRef.current;
-      if (!drag) {
-        return;
-      }
-      const deltaX = event.clientX - drag.startX;
-      const colWidth = drag.canvasWidth / 12;
-      const colDelta = Math.round(deltaX / colWidth);
-      const newSpan = Math.max(3, Math.min(drag.maxSpan, drag.startSpan + colDelta));
-      if (newSpan !== drag.lastSpan) {
-        drag.lastSpan = newSpan;
-        setDraggingSpan(newSpan);
-        onResizeDrag?.(newSpan);
-      }
-    },
-    [onResizeDrag],
-  );
-
-  const handleResizePointerUp = React.useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      const drag = resizeDragRef.current;
-      resizeDragRef.current = null;
-      onResizeDrag?.(null);
-      const finalSpan = drag?.lastSpan ?? null;
-      if (finalSpan != null) {
-        const equalSpan = rowWidgetIds ? Math.round(12 / rowWidgetIds.length) : null;
-        const commitSpan = equalSpan != null && finalSpan === equalSpan ? null : finalSpan;
-        controller.setWidgetColSpanInRow(widgetId, commitSpan, rowWidgetIds ?? [widgetId]);
-      }
-      setDraggingSpan(null);
-      (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
-    },
-    [controller, widgetId, rowWidgetIds, onResizeDrag],
-  );
 
   return (
     <Box sx={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -638,64 +545,6 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         </StudioWidgetEditDialog>
       )}
     </Paper>
-    {/* Column-resize handle — right edge, edit mode only, hidden for singleton rows */}
-    {showResizeHandle && (
-      <Box
-        onPointerDown={handleResizePointerDown}
-        onPointerMove={handleResizePointerMove}
-        onPointerUp={handleResizePointerUp}
-        sx={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: 8,
-          cursor: 'col-resize',
-          zIndex: 10,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          '&:hover .resize-line, &:active .resize-line': {
-            opacity: 1,
-          },
-        }}
-      >
-        <Box
-          className="resize-line"
-          sx={{
-            width: 3,
-            height: '40%',
-            minHeight: 24,
-            borderRadius: 4,
-            bgcolor: draggingSpan != null ? 'primary.main' : 'action.disabled',
-            opacity: draggingSpan != null ? 1 : 0,
-            transition: 'opacity 0.15s, background-color 0.15s',
-          }}
-        />
-        {draggingSpan != null && (
-          <Box
-            sx={{
-              position: 'absolute',
-              top: '50%',
-              right: 12,
-              transform: 'translateY(-50%)',
-              bgcolor: 'primary.main',
-              color: 'primary.contrastText',
-              borderRadius: 1,
-              px: 0.75,
-              py: 0.25,
-              fontSize: 11,
-              fontWeight: 600,
-              lineHeight: 1.4,
-              pointerEvents: 'none',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {draggingSpan}/12
-          </Box>
-        )}
-      </Box>
-    )}
   </Box>
   );
 });

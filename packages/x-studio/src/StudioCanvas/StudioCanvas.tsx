@@ -650,7 +650,9 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                 </React.Fragment>
               );
             })}
-            {/* Column grid lines overlay — shown during a resize drag on this row */}
+            {/* Column grid lines overlay — shown during a resize drag on this row.
+                Lines are offset to align with the widget area, accounting for the
+                8px insertion point at the left and the 8px gap(s) within and after. */}
             {liveDrag && row.includes(liveDrag.leftId) &&
               Array.from({ length: 11 }).map((_, i) => (
                 <Box
@@ -659,7 +661,9 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                     position: 'absolute',
                     top: 0,
                     bottom: 0,
-                    left: `${((i + 1) / 12) * 100}%`,
+                    // Widget area starts at 8px (left IP) and ends at rowWidth − 8px (trailing gap).
+                    // Internal gaps add (row.length − 1) × 8px; total fixed = (row.length + 1) × 8px.
+                    left: `calc(8px + ${(i + 1) / 12} * (100% - ${(row.length + 1) * 8}px))`,
                     width: '1px',
                     bgcolor: 'divider',
                     opacity: 0.6,

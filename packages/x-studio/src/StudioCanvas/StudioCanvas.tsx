@@ -8,6 +8,13 @@ import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../internals/widgetUtils';
 
 export interface StudioCanvasProps {
+  /**
+   * Canvas width (in px) below which all widgets stack to full width in view mode.
+   * This is the global default; individual pages can override it via `StudioPage.stackBreakpoint`.
+   * Set to `0` to disable responsive stacking entirely.
+   * @default 600
+   */
+  stackBreakpoint?: number;
   slotProps?: {
     /** Forwarded to every `StudioWidgetCard` rendered on the canvas. */
     widgetCard?: Partial<Omit<StudioWidgetCardProps, 'widgetId' | 'isFirstRow' | 'pageTheme'>>;
@@ -265,7 +272,7 @@ function RowResizeHandle({
 }
 
 export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvasProps) {
-  const { slotProps } = props;
+  const { slotProps, stackBreakpoint: stackBreakpointProp = 600 } = props;
   const mode = useStudioSelector(selectMode);
   const activePage = useStudioSelector(selectActivePage);
   const widgetRows = activePage?.widgetRows;
@@ -273,6 +280,35 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   const pageTheme = activePage?.theme;
   const controller = useStudioController();
   const canvasRef = React.useRef<HTMLDivElement>(null);
+
+  // Effective breakpoint: per-page override takes priority over the prop.
+  const effectiveBreakpoint =
+    activePage?.stackBreakpoint !== undefined ? activePage.stackBreakpoint : stackBreakpointProp;
+
+  // Track canvas width to determine when to stack widgets in view mode.
+  const [canvasWidth, setCanvasWidth] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    if (mode === 'edit' || effectiveBreakpoint === 0) {
+      return undefined;
+    }
+    const node = canvasRef.current;
+    if (!node) {
+      return undefined;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setCanvasWidth(entry.contentRect.width);
+      }
+    });
+    observer.observe(node);
+    // Set initial width
+    setCanvasWidth(node.getBoundingClientRect().width);
+    return () => observer.disconnect();
+  }, [mode, effectiveBreakpoint]);
+
+  const isStacked =
+    mode !== 'edit' && effectiveBreakpoint > 0 && canvasWidth !== null && canvasWidth < effectiveBreakpoint;
 
   // Live resize: maps widgetId → continuous (float) span during a between-widget drag.
   const [liveDrag, setLiveDrag] = React.useState<{
@@ -561,15 +597,20 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
               // only the remaining space after fixed items, so the row fills correctly.
               // Default flex-grow: 12/rowLength so unsized widgets match the same ratio.
               // View mode: use percentage flex-basis (no insertion points present).
+              // Stacked mode: force full width regardless of stored span.
               const defaultFlexGrow = Math.round(12 / row.length);
-              const flexValue =
-                mode === 'edit'
+              const flexValue = isStacked
+                ? '0 0 100%'
+                : mode === 'edit'
                   ? `${span ?? defaultFlexGrow} 0 0`
                   : span != null
                     ? `0 0 ${(span / 12) * 100}%`
                     : 1;
-              const maxWidth =
-                mode !== 'edit' && span != null ? `${(span / 12) * 100}%` : undefined;
+              const maxWidth = isStacked
+                ? '100%'
+                : mode !== 'edit' && span != null
+                  ? `${(span / 12) * 100}%`
+                  : undefined;
 
               // Spans for the resize handle on the right of this widget
               const nextId = row[colIndex + 1];

@@ -529,6 +529,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
               gap: mode === 'edit' ? 0 : 1,
               width: '100%',
               alignItems: 'stretch',
+              position: 'relative',
             }}
           >
             {/* Insertion point before first widget in row */}
@@ -649,6 +650,24 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                 </React.Fragment>
               );
             })}
+            {/* Column grid lines overlay — shown during a resize drag on this row */}
+            {liveDrag && row.includes(liveDrag.leftId) &&
+              Array.from({ length: 11 }).map((_, i) => (
+                <Box
+                  key={i}
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: `${((i + 1) / 12) * 100}%`,
+                    width: '1px',
+                    bgcolor: 'divider',
+                    opacity: 0.6,
+                    pointerEvents: 'none',
+                    zIndex: 15,
+                  }}
+                />
+              ))}
           </Box>
           {/* Insertion point below this row */}
           {mode === 'edit' && (

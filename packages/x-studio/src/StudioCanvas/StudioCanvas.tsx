@@ -203,7 +203,8 @@ function RowResizeHandle({
       const fraction = (event.clientX - drag.combinedLeft) / drag.combinedWidth;
       const minFrac = 3 / drag.totalSpan;
       const clamped = Math.max(minFrac, Math.min(1 - minFrac, fraction));
-      const leftSpanLive = clamped * drag.totalSpan;
+      // Snap at midpoint: jump to the next column when the mouse crosses 50% between columns
+      const leftSpanLive = Math.max(3, Math.min(drag.totalSpan - 3, Math.round(clamped * drag.totalSpan)));
       onDragMove(leftId, rightId, leftSpanLive);
     },
     [leftId, rightId, onDragMove],

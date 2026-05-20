@@ -5,158 +5,182 @@ description: The grid widget renders a data table with configurable columns, sor
 
 # Studio - Grid widget
 
-<p class="description">The grid widget renders a data table with configurable columns, sorting, filtering, CSV export, and an optional summary row.</p>
+<p class="description">The grid widget renders a data table from a data source, with configurable columns, sorting, grouping, aggregation, CSV export, and cross-filter support.</p>
 
 {{"component": "@mui/internal-core-docs/ComponentLinkHeader", "design": false}}
 
 ## Overview
 
-`StudioGridWidget` wraps the MUI X Data Grid to render tabular data from a Studio
-data source. Users can configure which columns to show, their order, and their
-width in the Studio sidebar. The grid participates in cross-filter emission and
-respects all active global filters.
+`StudioGridWidget` wraps the MUI X Data Grid to render tabular data from a Studio
+data source. Configure which columns to show, their order, default sort, grouping,
+and aggregation in the Studio sidebar. The table participates in cross-filter
+emission and responds to cross-filters from other widgets.
 
-## Configuration
+## Columns
+
+Each column in the `columns` array is described by a `StudioGridColumn`:
 
 ```ts
-interface StudioGridConfig {
-  dataSourceId: string;
-  columns: StudioGridColumn[];
-  defaultPageSize?: number;  // rows per page; defaults to 25
-  showSummaryRow?: boolean;  // aggregate row pinned at the bottom
-  exportCsv?: boolean;       // show CSV export toolbar button
-}
-
 interface StudioGridColumn {
-  field: string;             // field id from the data source
-  headerName?: string;       // display label (defaults to field label)
-  width?: number;            // pixel width
-  flex?: number;             // flex ratio when set alongside other flex columns
-  type?: StudioColumnType;   // overrides the field type for rendering
-  aggregation?: StudioAggregation; // aggregation for the summary row
-  hide?: boolean;            // hidden by default; user can re-enable via column menu
+  fieldId: string;   // field ID from the data source
+  sourceId?: string; // omit for the primary source; set for cross-source columns
 }
-
-type StudioColumnType = 'string' | 'number' | 'date' | 'boolean';
-type StudioAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 ```
 
-## Basic example
+The `fieldId` maps to a field declared on the data source. When `sourceId` is
+omitted the column comes from the widget's primary data source.
+
+## Cross-source columns
+
+Tables can display columns from related (many-to-one) data sources alongside
+primary-source columns. Add a column with both `fieldId` and `sourceId` to pull
+in a field from a different source that is joined to the primary source via a
+[relationship](/x/react-studio/data/relationships/).
 
 ```ts
-const gridConfig: StudioGridConfig = {
-  dataSourceId: 'orders',
-  columns: [
-    { field: 'orderId', headerName: 'Order ID', width: 120 },
-    { field: 'customer', headerName: 'Customer', flex: 1 },
-    { field: 'date', headerName: 'Date', width: 120, type: 'date' },
-    { field: 'amount', headerName: 'Amount ($)', width: 130, type: 'number' },
-  ],
-  defaultPageSize: 50,
-};
+// Primary source: 'orders'. Related source: 'customers' (orders.customerId → customers.id)
+const columns: StudioGridColumn[] = [
+  { fieldId: 'orderId' },
+  { fieldId: 'amount' },
+  { fieldId: 'country', sourceId: 'customers' }, // field from the related source
+];
 ```
+
+Studio resolves the join path automatically using the declared relationship. The
+column renders `customers.country` for each order row without any extra wiring.
 
 ## Summary row
 
-Enable `showSummaryRow: true` and add an `aggregation` value to each numeric column
-to display an aggregate row pinned to the bottom of the grid.
+Pin a per-column aggregation row at the bottom of the table using `gridSummaryFields`:
 
 ```ts
-const gridConfig: StudioGridConfig = {
-  dataSourceId: 'orders',
-  columns: [
-    { field: 'customer', headerName: 'Customer', flex: 1 },
-    { field: 'amount', headerName: 'Amount ($)', width: 130, aggregation: 'sum' },
-    { field: 'items', headerName: 'Items', width: 100, aggregation: 'sum' },
-  ],
-  showSummaryRow: true,
-};
+{
+  gridSummaryFields: {
+    amount: 'sum',
+    quantity: 'sum',
+    unitPrice: 'avg',
+    orderId: 'count',
+  },
+}
 ```
 
-## CSV export
+Supported aggregations: `'sum'`, `'avg'`, `'count'`, `'min'`, `'max'`.
 
-Set `exportCsv: true` to show a toolbar with a **Download CSV** button. The export
-respects current sorting, filtering, and the column set visible to the user.
+## Group by
+
+Group rows by a field value and aggregate the remaining columns:
 
 ```ts
-const gridConfig: StudioGridConfig = {
-  dataSourceId: 'transactions',
-  columns: [/* ... */],
-  exportCsv: true,
-};
+{
+  gridGroupByField: 'category',
+  gridAggregations: {
+    revenue: 'sum',
+    orders: 'count',
+    avgValue: 'avg',
+  },
+}
 ```
+
+When `gridGroupByField` is set, each unique value of that field becomes a group row.
+Columns listed in `gridAggregations` show the aggregated value; other columns are blank.
+
+## Default sort
+
+Set the initial sort column and direction:
+
+```ts
+{
+  gridSortField: 'createdAt',
+  gridSortDirection: 'desc', // 'asc' | 'desc'
+}
+```
+
+Users can still click column headers to override the sort at runtime.
 
 ## Cross-filter emission
 
-When a user selects a row, the grid emits a cross-filter for the values in the
-row's fields. Other widgets on the same page that share the same `dataSourceId`
-react automatically.
+When a row is clicked, the table emits a cross-filter for the field specified by
+`crossFilterField`. All other widgets on the same page that share the filtered field
+(or can resolve it through a relationship) react automatically.
 
-:::info
-Row selection must be enabled (`checkboxSelection` or single-click selection)
-for cross-filter emission to trigger. This is controlled in the Studio sidebar.
-:::
-
-## Sorting and filtering
-
-The grid supports column-header click sorting and MUI X Data Grid column filters.
-These operate on the already-materialised data — for large async datasets, delegate
-sorting and filtering to your server via the [async adapter](/x/react-studio/data/async-adapters/).
-
-## Rendering with `StudioGridWidget`
-
-```tsx
-import { StudioGridWidget } from '@mui/x-studio';
-
-<StudioGridWidget
-  config={gridConfig}
-  width={800}
-  height={500}
-/>
+```ts
+{
+  crossFilterField: 'category', // clicking a row emits category = <row value>
+}
 ```
 
-## Empty state
+If `crossFilterField` is not set, the first visible column is used by default.
 
-When all rows are filtered out, `StudioGridWidget` shows a `StudioNoDataOverlay` (inbox icon + "No data" label) in place of the default "No rows" text that DataGridPro renders by default.
+## Cross-filter recipient
 
-While data is being fetched from an async adapter, the grid shows the DataGridPro loading skeleton (`loading` prop) to distinguish an in-progress fetch from a genuinely empty result set.
+The table responds to incoming cross-filters emitted by charts and other widgets.
+The behavior is controlled by `crossFilterMode` in the widget config:
 
-### Customising the empty overlay
+```ts
+{
+  crossFilterMode: 'cross-highlight', // default — dims non-matching rows (30% opacity)
+  crossFilterMode: 'cross-filter',    // hides non-matching rows entirely
+  crossFilterMode: 'none',            // ignores all incoming cross-filters
+}
+```
 
-Pass a custom component via `slotProps.grid.slotProps.dataGrid.slots.noRowsOverlay`:
+| Value | Behavior |
+| `'cross-filter'` | Non-matching rows are hidden. Only rows that match the cross-filter are shown. |
+| `'none'` | The table ignores all incoming cross-filters entirely. |
 
-```tsx
-import { StudioNoDataOverlay } from '@mui/x-studio';
+:::info
+Interactive filter-widget selections (from the Filters panel) always hard-filter the
+table regardless of `crossFilterMode`. This matches Tableau and Power BI behavior:
+explicit filter selections are always enforced.
+:::
 
-// Custom message using the default look
-<Studio
-  slotProps={{
-    canvas: {
-      slotProps: {
-        widgetCard: {
-          slotProps: {
-            grid: {
-              slotProps: {
-                dataGrid: {
-                  slots: {
-                    noRowsOverlay: () => (
-                      <StudioNoDataOverlay message="No results — try adjusting filters" />
-                    ),
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  }}
-/>
+## Table source mode
+
+The `tableSourceMode` prop on `Studio` (or `StudioComposeDrawer`) controls how the
+data source is chosen in the table setup panel:
+
+- `'explicit'` (default) — a data source picker appears at the top of the setup
+  panel. The user must choose a source before adding columns.
+- `'implicit'` — no source picker is shown. The source is inferred from the first
+  column the user adds (Tableau / Power BI style). Removing all columns resets
+  the source.
+
+See [`Studio.tableSourceMode`](/x/react-studio/getting-started/studio/#tablesourcemode)
+for details.
+
+## Full config example
+
+```ts
+const widgetConfig = {
+  // Columns — mix of primary-source and cross-source
+  columns: [
+    { fieldId: 'orderId' },
+    { fieldId: 'createdAt' },
+    { fieldId: 'amount' },
+    { fieldId: 'country', sourceId: 'customers' },
+  ],
+
+  // Summary row: total amount, order count
+  gridSummaryFields: {
+    amount: 'sum',
+    orderId: 'count',
+  },
+
+  // Default sort: newest orders first
+  gridSortField: 'createdAt',
+  gridSortDirection: 'desc',
+
+  // Cross-filter emission: clicking a row filters by category
+  crossFilterField: 'category',
+
+  // Cross-filter receipt: dim non-matching rows when a chart is clicked
+  crossFilterMode: 'cross-highlight',
+};
 ```
 
 ## See also
 
-- [Cross-filters](/x/react-studio/features/cross-filters/) — how row selection emits cross-filter events to other widgets
-- [Async adapters](/x/react-studio/data/async-adapters/) — server-side sorting, filtering, and pagination for large datasets
-- [Global filters](/x/react-studio/features/global-filters/) — page-level filters applied before grid rendering
-- [Chart widget](/x/react-studio/widgets/chart/) — companion chart driven by the same data source
+- [Cross-filters](/x/react-studio/features/cross-filters/) — cross-filter emission and receipt across widgets
+- [Relationships](/x/react-studio/data/relationships/) — cross-source columns and FK resolution
+- [Async adapters](/x/react-studio/data/async-adapters/) — server-side sorting, filtering, and pagination
+- [Calculated columns](/x/react-studio/data/calculated-columns/) — derived fields computed from existing data

@@ -32,7 +32,7 @@ Choose the composed approach when you need to:
 | `useStudioSelector` | Subscribes to a state slice; re-renders only when that slice changes. |
 | `StudioCanvas` | Renders the grid of widget cards. |
 | `StudioDataDrawer` | Data sources sidebar panel. |
-| `StudioComposeDrawer` | Widget configuration sidebar panel. |
+| `StudioComposeDrawer` | Widget configuration sidebar panel. Accepts `StudioComposeDrawerProps`. |
 | `StudioFiltersDrawer` | Page-level filter panel. |
 | `DrawerPanel` | Collapsible sidebar strip that wraps a drawer component. |
 | `TabbedSidebar` | Tabbed sidebar that shows one panel at a time. |
@@ -230,6 +230,29 @@ const panels: TabbedSidebarPanel[] = [
 
 <TabbedSidebar panels={panels} />
 ```
+
+## StudioComposeDrawer props
+
+`StudioComposeDrawer` accepts `StudioComposeDrawerProps`:
+
+### `tableSourceMode`
+
+```ts
+tableSourceMode?: 'explicit' | 'implicit'
+```
+
+Overrides the `tableSourceMode` value from the parent `Studio` or `StudioProvider`
+context. Use this when composing `StudioComposeDrawer` directly and you want to
+control how the table setup panel picks a data source.
+
+```tsx
+<DrawerPanel drawer="compose" title="Compose">
+  <StudioComposeDrawer tableSourceMode="implicit" />
+</DrawerPanel>
+```
+
+See [`Studio.tableSourceMode`](/x/react-studio/getting-started/studio/#tablesourcemode)
+for full documentation.
 
 ## StudioCanvas
 

@@ -27,20 +27,9 @@ const serialized = studioRef.current?.serializeState();
 
 Persist it anywhere: `localStorage`, a database, a file, or your app's backend.
 
-### Helper: download to file
+### Downloading to a file
 
-The `downloadState` helper triggers a browser file download:
-
-```ts
-import { downloadState } from '@mui/x-studio';
-
-const state = studioRef.current?.getState();
-if (state) {
-  downloadState(state, 'my-dashboard.json');
-}
-```
-
-Or serialize first for a compact format:
+Use the browser's built-in APIs to trigger a download:
 
 ```ts
 const serialized = studioRef.current?.serializeState();
@@ -98,21 +87,25 @@ if (result.success) {
 }
 ```
 
-### Helper: load from file
+### Loading from a file
 
-The `uploadState` helper opens a file picker and returns the parsed JSON:
+Open a file picker, read the file, and pass the parsed JSON to `loadSerializedState`:
 
 ```ts
-import { uploadState } from '@mui/x-studio';
-
 async function handleLoad() {
-  try {
-    const data = await uploadState();
-    const result = studioRef.current?.loadSerializedState(data);
-    // handle result...
-  } catch {
-    // User cancelled or file was invalid JSON
-  }
+  const data = await new Promise<unknown>((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) { reject(new Error('No file selected')); return; }
+      try { resolve(JSON.parse(await file.text())); } catch (e) { reject(e); }
+    };
+    input.click();
+  });
+  const result = studioRef.current?.loadSerializedState(data);
+  // handle result...
 }
 ```
 
@@ -122,8 +115,21 @@ async function handleLoad() {
 import * as React from 'react';
 import { Button, Snackbar, Alert } from '@mui/material';
 import { Studio } from '@mui/x-studio';
-import { uploadState } from '@mui/x-studio';
 import type { StudioHandle } from '@mui/x-studio';
+
+function uploadJson(): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) { reject(new Error('No file selected')); return; }
+      try { resolve(JSON.parse(await file.text())); } catch (e) { reject(e); }
+    };
+    input.click();
+  });
+}
 
 export default function SaveLoadExample() {
   const studioRef = React.useRef<StudioHandle>(null);
@@ -148,7 +154,7 @@ export default function SaveLoadExample() {
 
   const handleLoad = async () => {
     try {
-      const data = await uploadState();
+      const data = await uploadJson();
       const result = studioRef.current?.loadSerializedState(data);
       if (!result) return;
       if (result.success) {
@@ -212,8 +218,6 @@ These are used internally by the Studio controller but are exported for advanced
 | `migrateState(data)` | Runs schema migrations and returns `MigrationResult` |
 | `stateToJson(state)` | Serializes to a JSON string |
 | `jsonToState(json)` | Parses a JSON string to `StudioState` |
-| `downloadState(state, filename)` | Triggers browser download of the serialized state |
-| `uploadState()` | Opens a file picker; returns parsed JSON |
 
 ## Auto-save to localStorage
 

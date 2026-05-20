@@ -282,6 +282,12 @@ export interface StudioPage {
    */
   widgetColSpans?: Record<string, number>;
   theme?: StudioPageTheme;
+  /**
+   * Canvas width (in px) below which all widgets stack to full width in view mode.
+   * When set, overrides the global `stackBreakpoint` prop on `Studio`.
+   * Set to `0` to disable responsive stacking for this page.
+   */
+  stackBreakpoint?: number;
 }
 
 export interface StudioDataField {

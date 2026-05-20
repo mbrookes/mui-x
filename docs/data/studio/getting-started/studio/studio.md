@@ -31,7 +31,7 @@ const ref = React.useRef<StudioHandle>(null);
 />
 ```
 
-Studio fills its container — wrap it in a sized element (e.g. `height: 100vh` or `flexGrow: 1`).
+Studio fills its container — wrap it in a sized element (for example, `height: 100vh` or `flexGrow: 1`).
 
 ## Props
 
@@ -116,6 +116,25 @@ When `sidebarSide="right"` and `sidebarLayout="stacked"`, the panels are ordered
 Data → Compose → Filters reading right to left (Data closest to the screen edge,
 Filters adjacent to the canvas).
 
+### `tableSourceMode`
+
+```ts
+tableSourceMode?: 'explicit' | 'implicit'
+```
+
+Controls how the table widget's data source is determined in the setup panel:
+
+- `'explicit'` (default) — a data source picker is shown at the top of the table
+  setup panel. The user must choose a source before adding columns. This matches
+  the Metabase / SQL-first mental model.
+- `'implicit'` — no source picker is shown. The source is inferred from the first
+  column the user adds (Tableau / Power BI style). Removing all columns resets the
+  source, allowing a different one to be chosen.
+
+```tsx
+<Studio tableSourceMode="implicit" />
+```
+
 ### `aiConfig`
 
 ```ts
@@ -144,7 +163,7 @@ slotProps?: {
 }
 ```
 
-Forwards extra props to internally-rendered sub-components.
+Forwards extra props to internally-rendered subcomponents.
 
 `slotProps.canvas` unlocks the full slot props chain:
 

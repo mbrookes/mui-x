@@ -21,7 +21,18 @@ The source widget shows a dismissible chip next to its title indicating the acti
 
 Any chart that has a categorical x-axis emits a cross-filter when a bar, line point, or pie slice is clicked. The filter field is the chart's x-axis field.
 
-Cross-filter emission is automatic — no configuration needed for the chart itself. Charts that are receiving a cross-filter from another widget also show the chip and honour the filter in their own data query.
+Cross-filter emission is automatic — no configuration needed for the chart itself. Charts that are receiving a cross-filter from another widget also show the chip and honor the filter in their own data query.
+
+### Pie chart highlight
+
+When a cross-filter is active, pie charts render a ghost layer (the full unfiltered
+dataset at 20% opacity) underneath the filtered slices, so the full picture remains
+visible. Each slice also gets a proportional overlay arc: the arc covers the fraction
+of the slice angle that corresponds to the filtered value versus the baseline.
+
+For example, if a country's total revenue is $100 K and the cross-filtered subset
+accounts for $43 K, the overlay arc covers 43% of that slice's angle. This gives an
+immediate visual read of what proportion of each category matches the active filter.
 
 ## Grids
 
@@ -35,6 +46,27 @@ Grid cross-filters are opt-in. Set `crossFilterField` in the widget config to th
 ```
 
 When `crossFilterField` is not set, clicking a row does nothing (the grid remains a passive receiver of cross-filters from other widgets).
+
+## Table cross-filter recipient
+
+By default, when a chart cross-filter is active, the table dims non-matching rows
+to 30% opacity while keeping them visible. This is `crossFilterMode: 'cross-highlight'`.
+
+Set `crossFilterMode: 'cross-filter'` to hide non-matching rows entirely:
+
+```ts
+{
+  crossFilterMode: 'cross-filter', // non-matching rows are hidden
+}
+```
+
+Set `crossFilterMode: 'none'` to make the table ignore all incoming cross-filters.
+
+:::info
+Interactive filter-widget selections (from the Filters panel) always hard-filter
+the table regardless of `crossFilterMode`. This matches Tableau and Power BI
+behavior: explicit user selections are always enforced.
+:::
 
 ## Receiving cross-filters
 
@@ -75,7 +107,7 @@ function CrossFilterBadge() {
 
 ## Per-widget cross-filter mode
 
-By default, when a widget receives a cross-filter it **dims** non-matching data points while keeping them visible. This is called _cross-highlight_ mode. You can change this behaviour per widget using `crossFilterMode` in the widget config:
+By default, when a widget receives a cross-filter it **dims** non-matching data points while keeping them visible. This is called _cross-highlight_ mode. You can change this behavior per widget using `crossFilterMode` in the widget config:
 
 ```ts
 {
@@ -85,7 +117,7 @@ By default, when a widget receives a cross-filter it **dims** non-matching data 
 }
 ```
 
-| Value | Behaviour |
+| Value | Behavior |
 | :--- | :--- |
 | `'cross-highlight'` | Non-matching data points are dimmed/greyed. The full dataset is still visible. This is the default for all widgets. |
 | `'cross-filter'` | Non-matching rows are removed. Only rows that match the cross-filter are shown. Use this to build filter widgets that enforce a strict selection. |
@@ -136,8 +168,10 @@ When building a [custom widget](/x/react-studio/getting-started/composition/), u
 | :--- | :--- |
 | `effectiveRows` | The rows the widget should render — respects `crossFilterMode` automatically. |
 | `filteredRowsNoCross` | Rows with page and widget filters only (no cross-filters). Useful as a ghost/background dataset when `shouldShowGhost` is true. |
+| `filteredRowsNoChartCross` | Rows with page, widget, and interactive filters applied, but NOT chart-click cross-filters. Use as the baseline for table cross-highlight (interactive selections always hard-filter). Same reference as `effectiveRows` when no chart cross-filter is active. |
 | `shouldShowGhost` | `true` when the widget should render a dimmed background layer. Only set when `crossFilterMode === 'cross-highlight'` (the default) **and** a chart-click cross-filter is active. Interactive filter-widget selections never trigger ghost rendering. |
 | `hasCrossFilters` | `true` when at least one incoming cross-filter or interactive filter is active for this widget on the current page. |
+| `hasChartCrossFilters` | `true` when at least one chart-click cross-filter is active for this widget. |
 
 ```tsx
 import { useWidgetRows } from '@mui/x-studio';

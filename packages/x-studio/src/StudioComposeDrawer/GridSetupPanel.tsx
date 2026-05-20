@@ -85,7 +85,8 @@ export function GridSetupPanel(props: { widgetId: string }) {
     return primaryFields.map((f) => ({ fieldId: f.id }));
   }, [widget?.config?.columns, primaryFields]);
 
-  // All selectable fields: primary source + many-to-one reachable related sources.
+  // All selectable fields: primary source + many-to-one reachable related sources +
+  // calculated columns (non-measure expression fields).
   // In implicit mode with no source yet: all fields from all non-hidden sources.
   const allSelectableFields = React.useMemo<SelectableField[]>(() => {
     // Implicit mode, no source chosen yet — show every source's fields
@@ -109,6 +110,21 @@ export function GridSetupPanel(props: { widgetId: string }) {
             isPrimary: true,
           });
         }
+        // Calculated columns for this source
+        for (const ef of expressionFields) {
+          if (ef.sourceId !== ds.id || ef.isMeasure || ef.hidden) {
+            continue;
+          }
+          fields.push({
+            fieldId: ef.id,
+            label: ef.label,
+            type: ef.type ?? 'number',
+            generated: true,
+            sourceId: ds.id,
+            sourceLabel: ds.label,
+            isPrimary: true,
+          });
+        }
       }
       return fields;
     }
@@ -126,6 +142,21 @@ export function GridSetupPanel(props: { widgetId: string }) {
         label: f.label,
         type: f.type,
         generated: f.generated,
+        sourceId: widget.sourceId,
+        sourceLabel: source.label,
+        isPrimary: true,
+      });
+    }
+    // Calculated columns for the primary source
+    for (const ef of expressionFields) {
+      if (ef.sourceId !== widget.sourceId || ef.isMeasure || ef.hidden) {
+        continue;
+      }
+      fields.push({
+        fieldId: ef.id,
+        label: ef.label,
+        type: ef.type ?? 'number',
+        generated: true,
         sourceId: widget.sourceId,
         sourceLabel: source.label,
         isPrimary: true,
@@ -158,9 +189,32 @@ export function GridSetupPanel(props: { widgetId: string }) {
           isPrimary: false,
         });
       }
+      // Calculated columns for related sources
+      for (const ef of expressionFields) {
+        if (ef.sourceId !== rel.targetId || ef.isMeasure || ef.hidden) {
+          continue;
+        }
+        fields.push({
+          fieldId: ef.id,
+          label: ef.label,
+          type: ef.type ?? 'number',
+          generated: true,
+          sourceId: rel.targetId,
+          sourceLabel: relatedSource.label,
+          isPrimary: false,
+        });
+      }
     }
     return fields;
-  }, [tableSourceMode, widget?.sourceId, source, primaryFields, relationships, dataSources]);
+  }, [
+    tableSourceMode,
+    widget?.sourceId,
+    source,
+    primaryFields,
+    relationships,
+    dataSources,
+    expressionFields,
+  ]);
 
   // Lookup map: composite key → SelectableField
   const fieldLookup = React.useMemo(() => {

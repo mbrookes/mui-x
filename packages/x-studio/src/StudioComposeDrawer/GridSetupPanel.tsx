@@ -332,10 +332,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
       {/* Columns section — always shown in implicit mode, gated by source in explicit */}
       {(source || tableSourceMode === 'implicit') && (
         <React.Fragment>
-          <Typography variant="caption" color="text.secondary">
-            Columns
-            {groupByField ? ' — ⋮ sets group aggregation' : ' — ⋮ sets summary row'}
-          </Typography>
+          <Typography variant="caption" color="text.secondary">Columns</Typography>
 
           {/* Selected columns list */}
           {configColumns.map((col) => {
@@ -488,7 +485,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
             {addableFields.length > 0 && <Divider />}
             {Array.from(addableFieldsBySource.entries()).map(([srcId, group]) => (
               <React.Fragment key={srcId}>
-                {!group.isPrimary && (
+                {addableFieldsBySource.size > 1 && (
                   <ListSubheader sx={{ lineHeight: '32px' }}>{group.sourceLabel}</ListSubheader>
                 )}
                 {group.fields.map((field) => (

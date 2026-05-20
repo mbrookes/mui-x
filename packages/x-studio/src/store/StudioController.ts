@@ -436,6 +436,38 @@ export class StudioController {
     });
   };
 
+  /**
+   * Atomically set the column spans of two adjacent widgets in the same row.
+   * Used by the between-widget resize handle to commit a drag that affects both sides.
+   */
+  setAdjacentWidgetColSpans = (
+    leftId: string,
+    leftSpan: number,
+    rightId: string,
+    rightSpan: number,
+  ): void => {
+    const state = this.store.state;
+    const activePage = state.pages[state.dashboard.activePageId];
+    if (!activePage) {
+      return;
+    }
+    const clampedLeft = Math.max(3, Math.min(9, Math.round(leftSpan)));
+    const clampedRight = Math.max(3, Math.min(9, Math.round(rightSpan)));
+    const newSpans: Record<string, number> = { ...(activePage.widgetColSpans ?? {}) };
+    newSpans[leftId] = clampedLeft;
+    newSpans[rightId] = clampedRight;
+    this.commitState({
+      ...state,
+      pages: {
+        ...state.pages,
+        [activePage.id]: {
+          ...activePage,
+          widgetColSpans: newSpans,
+        },
+      },
+    });
+  };
+
   removeWidget = (widgetId: string) => {
     const state = this.store.state;
     const activePage = state.pages[state.dashboard.activePageId];

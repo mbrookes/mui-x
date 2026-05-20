@@ -220,7 +220,7 @@ describe('sync path (no adapter)', () => {
           field: 'region',
           operator: 'equals',
           value: 'EU',
-          filterMode: 'filter',
+          filterMode: 'condition',
         }),
         makeFilter({
           id: 'f-cross',
@@ -262,7 +262,7 @@ describe('sync path (no adapter)', () => {
           field: 'region',
           operator: 'equals',
           value: 'EU',
-          filterMode: 'filter',
+          filterMode: 'condition',
         }),
       ],
     });

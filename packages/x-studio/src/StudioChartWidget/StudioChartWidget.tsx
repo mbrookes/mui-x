@@ -1136,8 +1136,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               label:
                 ringIndex === 0
                   ? formatLabel(label)
-                  : (location: string) =>
-                      location === 'tooltip' ? formatLabel(label) : undefined,
+                  : (location: 'legend' | 'tooltip' | 'arc') =>
+                      location === 'tooltip' ? formatLabel(label) : '',
               value: ring.slices.values[i] ?? 0,
               ...(isDimmed && { color: `${color}40` }),
             };

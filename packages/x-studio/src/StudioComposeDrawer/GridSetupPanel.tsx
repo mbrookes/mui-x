@@ -515,7 +515,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
             size="small"
             startIcon={<AddIcon />}
             onClick={(evt) => setAddMenuAnchor(evt.currentTarget)}
-            sx={{ alignSelf: 'flex-start' }}
+            fullWidth
           >
             Add column
           </Button>

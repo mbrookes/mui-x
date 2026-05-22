@@ -1,0 +1,13 @@
+<DataGridPro
+  {...data}
+  loading={loading}
+  showToolbar
+  slotProps={{
+    filterPanel: {
+      filterFormProps: {
+        filterColumns,
+      },
+      getColumnForNewFilter,
+    },
+  }}
+/>

@@ -1,0 +1,221 @@
+{
+  "props": {
+    "autoFocus": { "type": { "name": "bool" } },
+    "calendars": {
+      "type": { "name": "enum", "description": "1<br>&#124;&nbsp;2<br>&#124;&nbsp;3" },
+      "default": "1 if `displayStaticWrapperAs === 'mobile'`, 2 otherwise."
+    },
+    "currentMonthCalendarPosition": {
+      "type": { "name": "enum", "description": "1<br>&#124;&nbsp;2<br>&#124;&nbsp;3" },
+      "default": "1"
+    },
+    "dayOfWeekFormatter": {
+      "type": { "name": "func" },
+      "default": "(date: PickerValidDate) => adapter.format(date, 'weekdayShort').charAt(0).toUpperCase()",
+      "signature": {
+        "type": "function(date: PickerValidDate) => string",
+        "describedArgs": ["date"],
+        "returned": "string"
+      }
+    },
+    "defaultRangePosition": {
+      "type": { "name": "enum", "description": "'end'<br>&#124;&nbsp;'start'" },
+      "default": "'start'"
+    },
+    "defaultValue": { "type": { "name": "arrayOf", "description": "Array&lt;object&gt;" } },
+    "disableAutoMonthSwitching": { "type": { "name": "bool" }, "default": "false" },
+    "disabled": { "type": { "name": "bool" }, "default": "false" },
+    "disableDragEditing": { "type": { "name": "bool" }, "default": "false" },
+    "disableFuture": { "type": { "name": "bool" }, "default": "false" },
+    "disableHighlightToday": { "type": { "name": "bool" }, "default": "false" },
+    "disablePast": { "type": { "name": "bool" }, "default": "false" },
+    "displayStaticWrapperAs": {
+      "type": { "name": "enum", "description": "'desktop'<br>&#124;&nbsp;'mobile'" },
+      "default": "\"mobile\""
+    },
+    "displayWeekNumber": { "type": { "name": "bool" } },
+    "fixedWeekNumber": { "type": { "name": "number" } },
+    "loading": { "type": { "name": "bool" }, "default": "false" },
+    "localeText": { "type": { "name": "object" } },
+    "maxDate": { "type": { "name": "object" }, "default": "2099-12-31" },
+    "minDate": { "type": { "name": "object" }, "default": "1900-01-01" },
+    "onAccept": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(value: TValue, context: FieldChangeHandlerContext<TError>) => void",
+        "describedArgs": ["value", "context"]
+      }
+    },
+    "onChange": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(value: TValue, context: FieldChangeHandlerContext<TError>) => void",
+        "describedArgs": ["value", "context"]
+      }
+    },
+    "onClose": {
+      "type": { "name": "func" },
+      "deprecated": true,
+      "deprecationInfo": "Please avoid using as it will be removed in next major version."
+    },
+    "onError": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(error: TError, value: TValue) => void",
+        "describedArgs": ["error", "value"]
+      }
+    },
+    "onMonthChange": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(month: PickerValidDate) => void",
+        "describedArgs": ["month"]
+      }
+    },
+    "onRangePositionChange": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(rangePosition: RangePosition) => void",
+        "describedArgs": ["rangePosition"]
+      }
+    },
+    "rangePosition": { "type": { "name": "enum", "description": "'end'<br>&#124;&nbsp;'start'" } },
+    "readOnly": { "type": { "name": "bool" }, "default": "false" },
+    "reduceAnimations": {
+      "type": { "name": "bool" },
+      "default": "`@media(prefers-reduced-motion: reduce)` || `navigator.userAgent` matches Android <10 or iOS <13"
+    },
+    "referenceDate": {
+      "type": { "name": "union", "description": "Array&lt;object&gt;<br>&#124;&nbsp;object" },
+      "default": "The closest valid date-time using the validation props, except callbacks like `shouldDisable<...>`."
+    },
+    "renderLoading": {
+      "type": { "name": "func" },
+      "default": "() => \"...\"",
+      "signature": {
+        "type": "function() => React.ReactNode",
+        "describedArgs": [],
+        "returned": "React.ReactNode"
+      }
+    },
+    "shouldDisableDate": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(day: PickerValidDate, position: string) => boolean",
+        "describedArgs": ["day", "position"],
+        "returned": "boolean"
+      }
+    },
+    "showDaysOutsideCurrentMonth": { "type": { "name": "bool" }, "default": "false" },
+    "slotProps": { "type": { "name": "object" }, "default": "{}" },
+    "slots": {
+      "type": { "name": "object" },
+      "default": "{}",
+      "additionalInfo": { "slotsApi": true }
+    },
+    "sx": {
+      "type": {
+        "name": "union",
+        "description": "Array&lt;func<br>&#124;&nbsp;object<br>&#124;&nbsp;bool&gt;<br>&#124;&nbsp;func<br>&#124;&nbsp;object"
+      },
+      "additionalInfo": { "sx": true }
+    },
+    "timezone": {
+      "type": { "name": "string" },
+      "default": "The timezone of the `value` or `defaultValue` prop is defined, 'default' otherwise.",
+      "seeMoreLink": {
+        "url": "https://mui.com/x/react-date-pickers/timezone/",
+        "text": "timezones documentation"
+      }
+    },
+    "value": { "type": { "name": "arrayOf", "description": "Array&lt;object&gt;" } },
+    "viewRenderers": { "type": { "name": "shape", "description": "{ day?: func }" } }
+  },
+  "name": "StaticDateRangePicker",
+  "imports": [
+    "import { StaticDateRangePicker } from '@mui/x-date-pickers-pro/StaticDateRangePicker';",
+    "import { StaticDateRangePicker } from '@mui/x-date-pickers-pro';"
+  ],
+  "slots": [
+    {
+      "name": "actionBar",
+      "description": "Custom component for the action bar, it is placed below the Picker views.",
+      "default": "PickersActionBar",
+      "class": null
+    },
+    {
+      "name": "calendarHeader",
+      "description": "Custom component for calendar header.\nCheck the [PickersCalendarHeader](https://mui.com/x/api/date-pickers/pickers-calendar-header/) component.",
+      "default": "PickersCalendarHeader",
+      "class": null
+    },
+    {
+      "name": "day",
+      "description": "Custom component for day in range pickers.\nCheck the [DateRangePickerDay](https://mui.com/x/api/date-pickers/date-range-picker-day/) component.",
+      "default": "DateRangePickerDay",
+      "class": null
+    },
+    {
+      "name": "layout",
+      "description": "Custom component for wrapping the layout.\nIt wraps the toolbar, views, action bar, and shortcuts.",
+      "class": null
+    },
+    {
+      "name": "leftArrowIcon",
+      "description": "Icon displayed in the left view switch button.",
+      "default": "ArrowLeft",
+      "class": null
+    },
+    {
+      "name": "nextIconButton",
+      "description": "Button allowing to switch to the right view.",
+      "default": "IconButton",
+      "class": null
+    },
+    {
+      "name": "previousIconButton",
+      "description": "Button allowing to switch to the left view.",
+      "default": "IconButton",
+      "class": null
+    },
+    {
+      "name": "rightArrowIcon",
+      "description": "Icon displayed in the right view switch button.",
+      "default": "ArrowRight",
+      "class": null
+    },
+    {
+      "name": "shortcuts",
+      "description": "Custom component for the shortcuts.",
+      "default": "PickersShortcuts",
+      "class": null
+    },
+    {
+      "name": "switchViewButton",
+      "description": "Button displayed to switch between different calendar views.",
+      "default": "IconButton",
+      "class": null
+    },
+    {
+      "name": "switchViewIcon",
+      "description": "Icon displayed in the SwitchViewButton. Rotated by 180° when the open view is `year`.",
+      "default": "ArrowDropDown",
+      "class": null
+    },
+    {
+      "name": "toolbar",
+      "description": "Custom component for the toolbar rendered above the views.",
+      "default": "DateTimePickerToolbar",
+      "class": null
+    }
+  ],
+  "classes": [],
+  "spread": true,
+  "themeDefaultProps": false,
+  "muiName": "MuiStaticDateRangePicker",
+  "forwardsRefTo": "HTMLDivElement",
+  "filename": "/packages/x-date-pickers-pro/src/StaticDateRangePicker/StaticDateRangePicker.tsx",
+  "inheritance": null,
+  "demos": "<ul><li><a href=\"/x/react-date-pickers/date-range-picker/\">Date Range Picker <a href=\"/x/introduction/licensing/#pro-plan\" title=\"Pro plan\"><span class=\"plan-pro\"></span></a></a></li>\n<li><a href=\"/x/react-date-pickers/validation/\">Date and Time Pickers - Validation</a></li></ul>",
+  "cssComponent": false
+}

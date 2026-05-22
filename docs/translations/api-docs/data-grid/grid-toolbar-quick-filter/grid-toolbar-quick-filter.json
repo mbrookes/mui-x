@@ -1,0 +1,28 @@
+{
+  "componentDescription": "",
+  "deprecationInfo": "Use the {@link <a href=\"https://mui.com/x/react-data-grid/components/quick-filter/\">https://mui.com/x/react-data-grid/components/quick-filter/</a> Quick Filter} component instead. This component will be removed in a future major release.",
+  "propDescriptions": {
+    "debounceMs": { "description": "The debounce time in milliseconds." },
+    "quickFilterFormatter": {
+      "description": "Function responsible for formatting values of quick filter in a string when the model is modified",
+      "typeDescriptions": {
+        "values": {
+          "name": "values",
+          "description": "The new values passed to the quick filter model"
+        },
+        "string": { "name": "string", "description": "The string to display in the text field" }
+      }
+    },
+    "quickFilterParser": {
+      "description": "Function responsible for parsing text input in an array of independent values for quick filtering.",
+      "typeDescriptions": {
+        "input": { "name": "input", "description": "The value entered by the user" },
+        "Array<any>": {
+          "name": "Array<any>",
+          "description": "The array of value on which quick filter is applied"
+        }
+      }
+    }
+  },
+  "classDescriptions": {}
+}

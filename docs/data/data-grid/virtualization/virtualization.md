@@ -1,0 +1,88 @@
+# Data Grid - Virtualization
+
+<p class="description">The grid is high performing thanks to its rows and columns virtualization engine.</p>
+
+DOM virtualization is what makes it possible for the Data Grid to handle an unlimited\* number of rows and columns.
+This is a built-in feature of the rendering engine and greatly improves rendering performance.
+
+_\*unlimited: Browsers set a limit on the number of pixels a scroll container can host: 17.5 million pixels on Firefox, 33.5 million pixels on Chrome, Edge, and Safari. A [reproduction](https://codesandbox.io/s/beautiful-silence-1yifo?file=/src/App.js)._
+
+## Row virtualization [<span class="plan-pro"></span>](/x/introduction/licensing/#pro-plan 'Pro plan')
+
+Row virtualization is the insertion and removal of rows as the Data Grid scrolls vertically.
+
+The grid renders some additional rows above and below the visible rows. You can use `rowBufferPx` prop to hint to the Data Grid the area to render, but this value may not be respected in certain situations, for example during high-speed scrolling.
+Row virtualization is limited to 100 rows in the Data Grid component.
+
+:::warning
+Row virtualization does not work with the `autoHeight` prop enabled.
+:::
+
+## Column virtualization
+
+Column virtualization is the insertion and removal of columns as the Data Grid scrolls horizontally.
+
+- Overscanning by at least one column lets the arrow key focus on the next (not yet visible) item.
+- Overscanning slightly can reduce or prevent a flash of empty space when a user first starts scrolling.
+- Overscanning more lets the built-in search feature of the browser find more matching cells.
+- Overscanning too much can negatively impact performance.
+
+By default, columns coming under 150 pixels region are rendered outside of the viewport. You can change this option with the `columnBufferPx` prop. As for `rowBufferPx`, the value may be ignored in some situations. The following demo renders 1,000 columns in total:
+
+{{"demo": "ColumnVirtualizationGrid.js", "bg": "inline"}}
+
+You can disable column virtualization by calling `apiRef.current.unstable_setColumnVirtualization(false)`, or by setting the [`columnBufferPx`](/x/api/data-grid/data-grid/#data-grid-prop-columnBufferPx) to a high value.
+
+:::info
+Column virtualization is disabled when dynamic row height is enabled.
+See [dynamic row height and column virtualization](/x/react-data-grid/row-height/#column-virtualization) to learn more.
+:::
+
+## Scrolling without render gaps
+
+:::warning
+This feature is experimental.
+It may change or be removed in a future release.
+:::
+
+The virtualizer supports two layout modes that differ in how scrolling and row positioning work.
+
+In the default **uncontrolled** mode, the browser drives scrolling natively and the grid uses CSS `sticky` positioning to keep headers and pinned rows in place.
+Rendered rows are positioned inside a filler element that stretches the scroll container to the correct total height.
+Because the browser and JavaScript run asynchronously, fast scrolling can outpace rendering and produce brief white areas in the viewport.
+
+In **controlled** mode, the grid takes over the scrolling.
+All visible elements are positioned with CSS `position: absolute` and updated together in a single JavaScript pass whenever the scroll position changes.
+This removes the filler element and ensures that headers, pinned rows, and data rows always move as one unit—eliminating the white-area gaps that can appear under fast scrolling.
+However, this mode may have a perceivable performance cost on some devices and browsers, as the browser can't use native scrolling.
+
+Use the `virtualizerLayoutMode` key inside `experimentalFeatures` to opt in to the controlled mode:
+
+```tsx
+<DataGrid experimentalFeatures={{ virtualizerLayoutMode: 'controlled' }} />
+```
+
+The demo below lets you switch between modes and scroll quickly to see the difference.
+If you don't see the difference, consider setting [CPU Throttling in Chrome Dev Tools](https://developer.chrome.com/docs/devtools/settings/throttling) to simulate a lower-end device.
+
+{{"demo": "VirtualizerLayoutMode.js", "bg": "inline"}}
+
+## Disable virtualization
+
+The virtualization can be disabled completely using the `disableVirtualization` prop.
+You may want to turn it off to be able to test the Data Grid with a headless browser, like jsdom.
+
+```tsx
+<DataGrid {...data} disableVirtualization />
+```
+
+:::warning
+Disabling the virtualization will increase the size of the DOM and drastically reduce the performance.
+Use it only for testing purposes or on small datasets.
+:::
+
+## API
+
+- [DataGrid](/x/api/data-grid/data-grid/)
+- [DataGridPro](/x/api/data-grid/data-grid-pro/)
+- [DataGridPremium](/x/api/data-grid/data-grid-premium/)

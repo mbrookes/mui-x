@@ -1,0 +1,291 @@
+'use client';
+import * as React from 'react';
+import PropTypes from 'prop-types';
+import { useMergedRefs } from '@base-ui/utils/useMergedRefs';
+import composeClasses from '@mui/utils/composeClasses';
+import useSlotProps from '@mui/utils/useSlotProps';
+import { warnOnce } from '@mui/x-internals/warning';
+import { styled, createUseThemeProps } from '../internals/zero-styled';
+import { getSimpleTreeViewUtilityClass } from './simpleTreeViewClasses';
+import { SimpleTreeViewProps } from './SimpleTreeView.types';
+import { TreeViewProvider } from '../internals/TreeViewProvider';
+import { useExtractSimpleTreeViewParameters } from './useExtractSimpleTreeViewParameters';
+import { useTreeViewRootProps } from '../internals/hooks/useTreeViewRootProps';
+import { TreeViewChildrenItemProvider } from '../internals/TreeViewProvider/TreeViewChildrenItemProvider';
+import { TreeViewItemDepthContext } from '../internals/TreeViewItemDepthContext';
+import { useTreeViewStore } from '../internals/hooks/useTreeViewStore';
+import { SimpleTreeViewStore } from '../internals/SimpleTreeViewStore';
+
+const useThemeProps = createUseThemeProps('MuiSimpleTreeView');
+
+const useUtilityClasses = <Multiple extends boolean | undefined>(
+  ownerState: SimpleTreeViewProps<Multiple>,
+) => {
+  const { classes } = ownerState;
+
+  return React.useMemo(() => {
+    const slots = {
+      root: ['root'],
+      item: ['item'],
+      itemContent: ['itemContent'],
+      itemGroupTransition: ['itemGroupTransition'],
+      itemIconContainer: ['itemIconContainer'],
+      itemLabel: ['itemLabel'],
+      // itemLabelInput: ['itemLabelInput'], => feature not available on this component
+      itemCheckbox: ['itemCheckbox'],
+      // itemDragAndDropOverlay: ['itemDragAndDropOverlay'], => feature not available on this component
+      // itemErrorIcon: ['itemErrorIcon'], => feature not available on this component
+    };
+
+    return composeClasses(slots, getSimpleTreeViewUtilityClass, classes);
+  }, [classes]);
+};
+
+export const SimpleTreeViewRoot = styled('ul', {
+  name: 'MuiSimpleTreeView',
+  slot: 'Root',
+})<{ ownerState: SimpleTreeViewProps<any> }>({
+  padding: 0,
+  margin: 0,
+  listStyle: 'none',
+  outline: 0,
+  position: 'relative',
+});
+
+type SimpleTreeViewComponent = (<Multiple extends boolean | undefined = undefined>(
+  props: SimpleTreeViewProps<Multiple> & React.RefAttributes<HTMLUListElement>,
+) => React.JSX.Element) & { propTypes?: any };
+
+/**
+ *
+ * Demos:
+ *
+ * - [Tree View](https://mui.com/x/react-tree-view/)
+ *
+ * API:
+ *
+ * - [SimpleTreeView API](https://mui.com/x/api/tree-view/simple-tree-view/)
+ */
+const SimpleTreeView = React.forwardRef(function SimpleTreeView<
+  Multiple extends boolean | undefined = undefined,
+>(inProps: SimpleTreeViewProps<Multiple>, forwardedRef: React.Ref<HTMLUListElement>) {
+  const props = useThemeProps({ props: inProps, name: 'MuiSimpleTreeView' });
+  if (process.env.NODE_ENV !== 'production') {
+    if ((props as any).items != null) {
+      warnOnce([
+        'MUI X: The Simple Tree View component does not support the `items` prop.',
+        'If you want to add items, you need to pass them as JSX children.',
+        'Check the documentation for more details: https://mui.com/x/react-tree-view/simple-tree-view/items/.',
+      ]);
+    }
+  }
+
+  const { slots, slotProps, apiRef, parameters, forwardedProps } =
+    useExtractSimpleTreeViewParameters(props);
+  const store = useTreeViewStore(SimpleTreeViewStore, parameters);
+
+  const ref = React.useRef<HTMLUListElement | null>(null);
+  const handleRef = useMergedRefs(forwardedRef, ref);
+  const getRootProps = useTreeViewRootProps(store, forwardedProps, handleRef);
+  const classes = useUtilityClasses(props);
+
+  const Root = slots?.root ?? SimpleTreeViewRoot;
+  const rootProps = useSlotProps({
+    elementType: Root,
+    externalSlotProps: slotProps?.root,
+    className: classes.root,
+    getSlotProps: getRootProps,
+    ownerState: props as SimpleTreeViewProps<any>,
+  });
+
+  return (
+    <TreeViewProvider
+      store={store}
+      classes={classes}
+      slots={slots}
+      slotProps={slotProps}
+      apiRef={apiRef}
+      rootRef={ref}
+    >
+      <TreeViewChildrenItemProvider itemId={null} idAttribute={null}>
+        <TreeViewItemDepthContext.Provider value={0}>
+          <Root {...rootProps} />
+        </TreeViewItemDepthContext.Provider>
+      </TreeViewChildrenItemProvider>
+    </TreeViewProvider>
+  );
+}) as SimpleTreeViewComponent;
+
+SimpleTreeView.propTypes = {
+  // ----------------------------- Warning --------------------------------
+  // | These PropTypes are generated from the TypeScript type definitions |
+  // | To update them edit the TypeScript types and run "pnpm proptypes"  |
+  // ----------------------------------------------------------------------
+  /**
+   * The ref object that allows Tree View manipulation. Can be instantiated with `useSimpleTreeViewApiRef()`.
+   */
+  apiRef: PropTypes.shape({
+    current: PropTypes.shape({
+      focusItem: PropTypes.func,
+      getItem: PropTypes.func,
+      getItemDOMElement: PropTypes.func,
+      getItemOrderedChildrenIds: PropTypes.func,
+      getItemTree: PropTypes.func,
+      getParentId: PropTypes.func,
+      isItemExpanded: PropTypes.func,
+      setIsItemDisabled: PropTypes.func,
+      setItemExpansion: PropTypes.func,
+      setItemSelection: PropTypes.func,
+    }),
+  }),
+  /**
+   * Whether the Tree View renders a checkbox at the left of its label that allows selecting it.
+   * @default false
+   */
+  checkboxSelection: PropTypes.bool,
+  /**
+   * The content of the component.
+   */
+  children: PropTypes.node,
+  /**
+   * Override or extend the styles applied to the component.
+   */
+  classes: PropTypes.object,
+  className: PropTypes.string,
+  /**
+   * Expanded item ids.
+   * Used when the item's expansion is not controlled.
+   * @default []
+   */
+  defaultExpandedItems: PropTypes.arrayOf(PropTypes.string),
+  /**
+   * Selected item ids. (Uncontrolled)
+   * When `multiSelect` is true this takes an array of strings; when false (default) a string.
+   * @default []
+   */
+  defaultSelectedItems: PropTypes.any,
+  /**
+   * Whether the items should be focusable when disabled.
+   * @default false
+   */
+  disabledItemsFocusable: PropTypes.bool,
+  /**
+   * Whether selection is disabled.
+   * @default false
+   */
+  disableSelection: PropTypes.bool,
+  /**
+   * Expanded item ids.
+   * Used when the item's expansion is controlled.
+   */
+  expandedItems: PropTypes.arrayOf(PropTypes.string),
+  /**
+   * The slot that triggers the item's expansion when clicked.
+   * @default 'content'
+   */
+  expansionTrigger: PropTypes.oneOf(['content', 'iconContainer']),
+  /**
+   * This prop is used to help implement the accessibility logic.
+   * If you don't provide this prop. It falls back to a randomly generated id.
+   */
+  id: PropTypes.string,
+  /**
+   * Horizontal indentation between an item and its children.
+   * Examples: 24, "24px", "2rem", "2em".
+   * @default 12px
+   */
+  itemChildrenIndentation: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+  /**
+   * Sets the height in pixel of an item.
+   * Set to `null` to explicitly remove any item height restriction when items have different heights.
+   * @default null
+   */
+  itemHeight: PropTypes.number,
+  /**
+   * Whether multiple items can be selected.
+   * @default false
+   */
+  multiSelect: PropTypes.bool,
+  /**
+   * Callback fired when Tree Items are expanded/collapsed.
+   * @param {React.SyntheticEvent} event The DOM event that triggered the change. Can be null when the change is caused by the `publicAPI.setItemExpansion()` method.
+   * @param {TreeViewItemId[]} itemIds The ids of the expanded items.
+   */
+  onExpandedItemsChange: PropTypes.func,
+  /**
+   * Callback fired when the `content` slot of a given Tree Item is clicked.
+   * @param {React.MouseEvent} event The DOM event that triggered the change.
+   * @param {TreeViewItemId} itemId The id of the focused item.
+   */
+  onItemClick: PropTypes.func,
+  /**
+   * Callback fired when a Tree Item is expanded or collapsed.
+   * @param {React.SyntheticEvent | null} event The DOM event that triggered the change. Can be null when the change is caused by the `publicAPI.setItemExpansion()` method.
+   * @param {TreeViewItemId} itemId The itemId of the modified item.
+   * @param {boolean} isExpanded `true` if the item has just been expanded, `false` if it has just been collapsed.
+   */
+  onItemExpansionToggle: PropTypes.func,
+  /**
+   * Callback fired when a given Tree Item is focused.
+   * @param {React.SyntheticEvent | null} event The DOM event that triggered the change. **Warning**: This is a generic event not a focus event.
+   * @param {TreeViewItemId} itemId The id of the focused item.
+   */
+  onItemFocus: PropTypes.func,
+  /**
+   * Callback fired when a Tree Item is selected or deselected.
+   * @param {React.SyntheticEvent} event The DOM event that triggered the change. Can be null when the change is caused by the `publicAPI.setItemSelection()` method.
+   * @param {TreeViewItemId} itemId The itemId of the modified item.
+   * @param {boolean} isSelected `true` if the item has just been selected, `false` if it has just been deselected.
+   */
+  onItemSelectionToggle: PropTypes.func,
+  /**
+   * Callback fired when Tree Items are selected/deselected.
+   * @param {React.SyntheticEvent} event The DOM event that triggered the change. Can be null when the change is caused by the `publicAPI.setItemSelection()` method.
+   * @param {TreeViewItemId[] | TreeViewItemId} itemIds The ids of the selected items.
+   * When `multiSelect` is `true`, this is an array of strings; when false (default) a string.
+   */
+  onSelectedItemsChange: PropTypes.func,
+  /**
+   * Selected item ids. (Controlled)
+   * When `multiSelect` is true this takes an array of strings; when false (default) a string.
+   */
+  selectedItems: PropTypes.any,
+  /**
+   * When `selectionPropagation.descendants` is set to `true`.
+   *
+   * - Selecting a parent selects all its descendants automatically.
+   * - Deselecting a parent deselects all its descendants automatically.
+   *
+   * When `selectionPropagation.parents` is set to `true`.
+   *
+   * - Selecting all the descendants of a parent selects the parent automatically.
+   * - Deselecting a descendant of a selected parent deselects the parent automatically.
+   *
+   * Only works when `multiSelect` is `true`.
+   * On the <SimpleTreeView />, only the expanded items are considered (since the collapsed item are not passed to the Tree View component at all)
+   *
+   * @default { parents: false, descendants: false }
+   */
+  selectionPropagation: PropTypes.shape({
+    descendants: PropTypes.bool,
+    parents: PropTypes.bool,
+  }),
+  /**
+   * The props used for each component slot.
+   */
+  slotProps: PropTypes.object,
+  /**
+   * Overridable component slots.
+   */
+  slots: PropTypes.object,
+  /**
+   * The system prop that allows defining system overrides as well as additional CSS styles.
+   */
+  sx: PropTypes.oneOfType([
+    PropTypes.arrayOf(PropTypes.oneOfType([PropTypes.func, PropTypes.object, PropTypes.bool])),
+    PropTypes.func,
+    PropTypes.object,
+  ]),
+} as any;
+
+export { SimpleTreeView };

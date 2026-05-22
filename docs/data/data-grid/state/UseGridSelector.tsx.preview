@@ -1,0 +1,11 @@
+<DataGrid
+  {...data}
+  loading={loading}
+  paginationModel={paginationModel}
+  onPaginationModelChange={setPaginationModel}
+  hideFooter
+  slots={{
+    toolbar: Toolbar,
+  }}
+  showToolbar
+/>

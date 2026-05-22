@@ -1,0 +1,37 @@
+{
+  "props": {
+    "changeImportance": {
+      "type": { "name": "enum", "description": "'accept'<br>&#124;&nbsp;'set'" },
+      "default": "\"accept\""
+    },
+    "dense": { "type": { "name": "bool" }, "default": "false" },
+    "disablePadding": { "type": { "name": "bool" }, "default": "false" },
+    "items": {
+      "type": {
+        "name": "arrayOf",
+        "description": "Array&lt;{ getValue: func, id?: string, label: string }&gt;"
+      },
+      "default": "[]"
+    },
+    "subheader": { "type": { "name": "node" } },
+    "sx": {
+      "type": {
+        "name": "union",
+        "description": "Array&lt;func<br>&#124;&nbsp;object<br>&#124;&nbsp;bool&gt;<br>&#124;&nbsp;func<br>&#124;&nbsp;object"
+      },
+      "additionalInfo": { "sx": true }
+    }
+  },
+  "name": "PickersShortcuts",
+  "imports": [
+    "import { PickersShortcuts } from '@mui/x-date-pickers/PickersShortcuts';",
+    "import { PickersShortcuts } from '@mui/x-date-pickers';",
+    "import { PickersShortcuts } from '@mui/x-date-pickers-pro';"
+  ],
+  "classes": [],
+  "muiName": "MuiPickersShortcuts",
+  "filename": "/packages/x-date-pickers/src/PickersShortcuts/PickersShortcuts.tsx",
+  "inheritance": null,
+  "demos": "<ul><li><a href=\"/x/react-date-pickers/custom-components/\">Custom slots and subcomponents</a></li>\n<li><a href=\"/x/react-date-pickers/shortcuts/\">Shortcuts</a></li></ul>",
+  "cssComponent": false
+}

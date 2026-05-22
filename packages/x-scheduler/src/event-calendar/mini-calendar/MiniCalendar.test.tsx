@@ -1,0 +1,304 @@
+import { spy } from 'sinon';
+import { screen, waitFor, within } from '@mui/internal-test-utils';
+import { createSchedulerRenderer } from 'test/utils/scheduler';
+import { EventCalendar } from '@mui/x-scheduler/event-calendar';
+
+describe('MiniCalendar', () => {
+  const { render } = createSchedulerRenderer({ clockConfig: new Date('2025-05-26T10:00:00Z') });
+
+  // Helper to get the mini calendar element
+  const getMiniCalendar = () => screen.getByRole('grid', { name: /calendar/i });
+
+  describe('Rendering', () => {
+    it('should render the mini calendar with month label', () => {
+      render(<EventCalendar events={[]} />);
+
+      // Should find the mini calendar grid
+      const miniCalendar = getMiniCalendar();
+      expect(miniCalendar).not.to.equal(null);
+
+      // Should display May 2025 inside the mini calendar
+      expect(within(miniCalendar).getByText(/May 2025/i)).not.to.equal(null);
+    });
+
+    it('should render weekday headers inside the mini calendar', () => {
+      render(<EventCalendar events={[]} />);
+
+      const miniCalendar = getMiniCalendar();
+      // Check for columnheaders within the mini calendar
+      const weekdayHeaders = within(miniCalendar).getAllByRole('columnheader');
+      expect(weekdayHeaders.length).to.equal(7);
+    });
+
+    it('should highlight today with data-today attribute', () => {
+      render(<EventCalendar events={[]} />);
+
+      const miniCalendar = getMiniCalendar();
+      // Find buttons within the mini calendar that have aria-selected attribute (mini calendar day buttons)
+      const dayButtons = within(miniCalendar).getAllByRole('button');
+      // Find the one with aria-current="date" (today)
+      const todayButton = dayButtons.find((btn) => btn.getAttribute('aria-current') === 'date');
+
+      expect(todayButton).not.to.equal(undefined);
+      expect(todayButton?.getAttribute('data-today')).to.equal('true');
+    });
+
+    it('should highlight the active/visible date with data-active attribute', () => {
+      render(<EventCalendar events={[]} defaultVisibleDate={new Date('2025-05-20T00:00:00Z')} />);
+
+      const miniCalendar = getMiniCalendar();
+      const dayButtons = within(miniCalendar).getAllByRole('button');
+      // Find the one with aria-selected="true"
+      const activeButton = dayButtons.find((btn) => btn.getAttribute('aria-selected') === 'true');
+
+      expect(activeButton).not.to.equal(undefined);
+      expect(activeButton?.getAttribute('data-active')).to.equal('true');
+    });
+
+    it('should mark days from other months with data-other-month attribute', () => {
+      render(<EventCalendar events={[]} />);
+
+      const miniCalendar = getMiniCalendar();
+      const dayButtons = within(miniCalendar).getAllByRole('button');
+      // Find any button with data-other-month attribute
+      const otherMonthButton = dayButtons.find(
+        (btn) => btn.getAttribute('data-other-month') === 'true',
+      );
+
+      expect(otherMonthButton).not.to.equal(undefined);
+    });
+  });
+
+  describe('Navigation', () => {
+    it('should navigate to previous month when clicking previous button', async () => {
+      const { user } = render(<EventCalendar events={[]} />);
+
+      const miniCalendar = getMiniCalendar();
+      expect(within(miniCalendar).getByText(/May 2025/i)).not.to.equal(null);
+
+      const prevButton = screen.getByRole('button', { name: /show previous month in calendar/i });
+      await user.click(prevButton);
+
+      expect(within(miniCalendar).getByText(/April 2025/i)).not.to.equal(null);
+    });
+
+    it('should navigate to next month when clicking next button', async () => {
+      const { user } = render(<EventCalendar events={[]} />);
+
+      const miniCalendar = getMiniCalendar();
+      expect(within(miniCalendar).getByText(/May 2025/i)).not.to.equal(null);
+
+      const nextButton = screen.getByRole('button', { name: /show next month in calendar/i });
+      await user.click(nextButton);
+
+      expect(within(miniCalendar).getByText(/June 2025/i)).not.to.equal(null);
+    });
+
+    it('should call onVisibleDateChange when clicking a day', async () => {
+      const onVisibleDateChange = spy();
+      const { user } = render(
+        <EventCalendar events={[]} onVisibleDateChange={onVisibleDateChange} defaultView="week" />,
+      );
+
+      const miniCalendar = getMiniCalendar();
+      const dayButtons = within(miniCalendar).getAllByRole('button');
+      // Find a day that is not the currently selected one
+      const day15Button = dayButtons.find((btn) => btn.textContent === '15');
+
+      expect(day15Button).not.to.equal(undefined);
+      await user.click(day15Button!);
+
+      expect(onVisibleDateChange.calledOnce).to.equal(true);
+    });
+
+    it('should not change the view when clicking a day', async () => {
+      const onViewChange = spy();
+      const { user } = render(
+        <EventCalendar events={[]} onViewChange={onViewChange} defaultView="week" />,
+      );
+
+      const miniCalendar = getMiniCalendar();
+      const dayButtons = within(miniCalendar).getAllByRole('button');
+      const day15Button = dayButtons.find((btn) => btn.textContent === '15');
+
+      expect(day15Button).not.to.equal(undefined);
+      await user.click(day15Button!);
+
+      // onViewChange should NOT be called (view should remain week)
+      expect(onViewChange.called).to.equal(false);
+    });
+
+    it('should sync mini calendar month when scheduler visibleDate changes', async () => {
+      const { user } = render(
+        <EventCalendar events={[]} defaultVisibleDate={new Date('2025-05-26T00:00:00Z')} />,
+      );
+
+      // Initially the mini calendar shows May 2025
+      const miniCalendar = getMiniCalendar();
+      expect(within(miniCalendar).getByText(/May 2025/i)).not.to.equal(null);
+
+      // Click on the mini calendar's next month navigation
+      const nextMonthButton = screen.getByRole('button', { name: /show next month in calendar/i });
+      await user.click(nextMonthButton);
+
+      // Now mini calendar shows June 2025
+      expect(within(miniCalendar).getByText(/June 2025/i)).not.to.equal(null);
+
+      // Click on a day in June
+      const dayButtons = within(miniCalendar).getAllByRole('button');
+      const day15Button = dayButtons.find((btn) => btn.textContent === '15');
+
+      expect(day15Button).not.to.equal(undefined);
+      await user.click(day15Button!);
+
+      // Mini calendar should still show June after clicking a day
+      await waitFor(() => {
+        expect(within(miniCalendar).getByText(/June 2025/i)).not.to.equal(null);
+      });
+    });
+  });
+
+  describe('Accessibility', () => {
+    it('should have proper ARIA attributes on the grid', () => {
+      render(<EventCalendar events={[]} />);
+
+      const grid = getMiniCalendar();
+      expect(grid).not.to.equal(null);
+      expect(grid.getAttribute('role')).to.equal('grid');
+      expect(grid.getAttribute('aria-label')).to.equal('Calendar');
+    });
+
+    it('should have aria-current="date" on today', () => {
+      render(<EventCalendar events={[]} />);
+
+      const miniCalendar = getMiniCalendar();
+      const dayButtons = within(miniCalendar).getAllByRole('button');
+      const todayButton = dayButtons.find((btn) => btn.getAttribute('aria-current') === 'date');
+
+      expect(todayButton).not.to.equal(undefined);
+    });
+
+    it('should have aria-selected on the active day', () => {
+      render(<EventCalendar events={[]} defaultVisibleDate={new Date('2025-05-20T00:00:00Z')} />);
+
+      const miniCalendar = getMiniCalendar();
+      const dayButtons = within(miniCalendar).getAllByRole('button');
+      const activeButton = dayButtons.find((btn) => btn.getAttribute('aria-selected') === 'true');
+
+      expect(activeButton).not.to.equal(undefined);
+    });
+
+    it('should have accessible labels on weekday headers', () => {
+      render(<EventCalendar events={[]} />);
+
+      const miniCalendar = getMiniCalendar();
+      const weekdayHeaders = within(miniCalendar).getAllByRole('columnheader');
+
+      // Check that headers have aria-labels with full weekday names
+      const sundayHeader = weekdayHeaders.find(
+        (header) => header.getAttribute('aria-label')?.toLowerCase() === 'sunday',
+      );
+      expect(sundayHeader).not.to.equal(undefined);
+
+      const mondayHeader = weekdayHeaders.find(
+        (header) => header.getAttribute('aria-label')?.toLowerCase() === 'monday',
+      );
+      expect(mondayHeader).not.to.equal(undefined);
+    });
+
+    it('should set aria-rowcount and aria-colcount on the grid root', () => {
+      render(<EventCalendar events={[]} />);
+
+      const grid = getMiniCalendar();
+      expect(grid.getAttribute('aria-colcount')).to.equal('7');
+      // 1 header row + 6 week rows
+      expect(grid.getAttribute('aria-rowcount')).to.equal('7');
+    });
+
+    it('should set aria-rowindex on weekday header row and each week row', () => {
+      render(<EventCalendar events={[]} />);
+
+      const miniCalendar = getMiniCalendar();
+      const rows = within(miniCalendar).getAllByRole('row');
+      // 1 weekday header row + 6 week rows
+      expect(rows.length).to.equal(7);
+      rows.forEach((row, i) => {
+        expect(row.getAttribute('aria-rowindex')).to.equal(String(i + 1));
+      });
+    });
+
+    it('should set aria-colindex on weekday header cells from 1 to 7', () => {
+      render(<EventCalendar events={[]} />);
+
+      const miniCalendar = getMiniCalendar();
+      const weekdayHeaders = within(miniCalendar).getAllByRole('columnheader');
+      expect(weekdayHeaders.length).to.equal(7);
+      weekdayHeaders.forEach((header, i) => {
+        expect(header.getAttribute('aria-colindex')).to.equal(String(i + 1));
+      });
+    });
+
+    it('should set aria-colindex on each day cell from 1 to 7', () => {
+      render(<EventCalendar events={[]} />);
+
+      const miniCalendar = getMiniCalendar();
+      const dayCells = within(miniCalendar).getAllByRole('gridcell');
+      // 6 weeks × 7 days = 42 day cells
+      expect(dayCells.length).to.equal(42);
+      dayCells.forEach((cell, i) => {
+        expect(cell.getAttribute('aria-colindex')).to.equal(String((i % 7) + 1));
+      });
+    });
+  });
+
+  describe('Side panel visibility', () => {
+    it('should not be visible when side panel is closed', async () => {
+      const { user } = render(<EventCalendar events={[]} />);
+
+      // Initially the mini calendar should be visible
+      expect(getMiniCalendar()).not.to.equal(null);
+
+      // Close the side panel
+      const closeSidePanelButton = screen.getByRole('button', { name: /close side panel/i });
+      await user.click(closeSidePanelButton);
+
+      // Check that the side panel is collapsed (open side panel button appears)
+      await waitFor(() => {
+        const openSidePanelButton = screen.queryByRole('button', { name: /open side panel/i });
+        expect(openSidePanelButton).not.to.equal(null);
+      });
+    });
+  });
+
+  describe('weekStartsOn preference', () => {
+    function getFirstWeekdayHeader() {
+      const miniCalendar = getMiniCalendar();
+      return within(miniCalendar).getAllByRole('columnheader')[0];
+    }
+
+    it('should show Sunday as the first weekday header when weekStartsOn is 0', () => {
+      render(<EventCalendar events={[]} defaultPreferences={{ weekStartsOn: 0 }} />);
+
+      expect(getFirstWeekdayHeader().getAttribute('aria-label')).to.match(/sunday/i);
+    });
+
+    it('should show Monday as the first weekday header when weekStartsOn is 1', () => {
+      render(<EventCalendar events={[]} defaultPreferences={{ weekStartsOn: 1 }} />);
+
+      expect(getFirstWeekdayHeader().getAttribute('aria-label')).to.match(/monday/i);
+    });
+
+    it('should show Saturday as the first weekday header when weekStartsOn is 6', () => {
+      render(<EventCalendar events={[]} defaultPreferences={{ weekStartsOn: 6 }} />);
+
+      expect(getFirstWeekdayHeader().getAttribute('aria-label')).to.match(/saturday/i);
+    });
+
+    it('should always render exactly 7 weekday headers regardless of weekStartsOn', () => {
+      render(<EventCalendar events={[]} defaultPreferences={{ weekStartsOn: 6 }} />);
+
+      const miniCalendar = getMiniCalendar();
+      expect(within(miniCalendar).getAllByRole('columnheader').length).to.equal(7);
+    });
+  });
+});

@@ -1,0 +1,94 @@
+{
+  "props": {
+    "axisId": { "type": { "name": "union", "description": "number<br>&#124;&nbsp;string" } },
+    "classes": { "type": { "name": "object" }, "additionalInfo": { "cssApi": true } },
+    "disableLine": { "type": { "name": "bool" }, "default": "false" },
+    "disableTicks": { "type": { "name": "bool" }, "default": "false" },
+    "label": { "type": { "name": "string" } },
+    "labelStyle": { "type": { "name": "object" } },
+    "slotProps": { "type": { "name": "object" }, "default": "{}" },
+    "slots": {
+      "type": { "name": "object" },
+      "default": "{}",
+      "additionalInfo": { "slotsApi": true }
+    },
+    "tickInterval": {
+      "type": { "name": "union", "description": "'auto'<br>&#124;&nbsp;array<br>&#124;&nbsp;func" },
+      "default": "'auto'"
+    },
+    "tickLabelInterval": {
+      "type": { "name": "union", "description": "'auto'<br>&#124;&nbsp;func" },
+      "default": "'auto'"
+    },
+    "tickLabelMinGap": { "type": { "name": "number" }, "default": "4" },
+    "tickLabelPlacement": {
+      "type": { "name": "enum", "description": "'middle'<br>&#124;&nbsp;'tick'" },
+      "default": "'middle'"
+    },
+    "tickLabelStyle": { "type": { "name": "object" } },
+    "tickMaxStep": { "type": { "name": "number" } },
+    "tickMinStep": { "type": { "name": "number" } },
+    "tickNumber": { "type": { "name": "number" } },
+    "tickPlacement": {
+      "type": {
+        "name": "enum",
+        "description": "'end'<br>&#124;&nbsp;'extremities'<br>&#124;&nbsp;'middle'<br>&#124;&nbsp;'start'"
+      },
+      "default": "'extremities'"
+    },
+    "tickSize": { "type": { "name": "number" }, "default": "6" }
+  },
+  "name": "ChartsXAxis",
+  "imports": [
+    "import { ChartsXAxis } from '@mui/x-charts/ChartsXAxis';",
+    "import { ChartsXAxis } from '@mui/x-charts';",
+    "import { ChartsXAxis } from '@mui/x-charts-pro';",
+    "import { ChartsXAxis } from '@mui/x-charts-premium';"
+  ],
+  "slots": [
+    {
+      "name": "axisLabel",
+      "description": "Custom component for axis label.",
+      "default": "ChartsText",
+      "class": null
+    },
+    {
+      "name": "axisLine",
+      "description": "Custom component for the axis main line.",
+      "default": "'line'",
+      "class": null
+    },
+    {
+      "name": "axisTick",
+      "description": "Custom component for the axis tick.",
+      "default": "'line'",
+      "class": null
+    },
+    {
+      "name": "axisTickLabel",
+      "description": "Custom component for tick label.",
+      "default": "ChartsText",
+      "class": null
+    },
+    {
+      "name": "xAxis",
+      "description": "Custom component for the x-axis.",
+      "default": "ChartsXAxis",
+      "class": null
+    },
+    {
+      "name": "yAxis",
+      "description": "Custom component for the y-axis.",
+      "default": "ChartsYAxis",
+      "class": null
+    }
+  ],
+  "classes": [],
+  "spread": true,
+  "themeDefaultProps": null,
+  "muiName": "MuiChartsXAxis",
+  "filename": "/packages/x-charts/src/ChartsXAxis/ChartsXAxis.tsx",
+  "inheritance": null,
+  "demos": "<ul><li><a href=\"/x/react-charts/axis/\">Charts - Axis</a></li>\n<li><a href=\"/x/react-charts/axis-customization/\">Charts - Axis customization</a></li>\n<li><a href=\"/x/react-charts/axis-ticks/\">Charts - Axis ticks and grid</a></li></ul>",
+  "cssComponent": false
+}

@@ -1,0 +1,640 @@
+import { type ChartImageExportMimeType } from './imageMimeTypes';
+
+export interface ChartsLocaleText {
+  /**
+   * Title displayed in the overlay if `loading` is `true`.
+   */
+  loading: string;
+  /**
+   * Title displayed in the overlay if there is no data to display.
+   */
+  noData: string;
+  /**
+   * Tooltip text shown when hovering over the zoom in button.
+   */
+  zoomIn: string;
+  /**
+   * Tooltip text shown when hovering over the zoom out button.
+   */
+  zoomOut: string;
+  /**
+   * Text for the export button tooltip in the toolbar.
+   */
+  toolbarExport: string;
+  /**
+   * Text for the print button in the toolbar's export menu.
+   */
+  toolbarExportPrint: string;
+  /**
+   * Text for an "Export as {image type}" button in the toolbar's export menu.
+   * The only format supported in all browsers is 'image/png'.
+   *
+   * @param {string} mimeType The MIME type of the image to export, e.g., 'image/png'.
+   * @returns {string} The localized string for an export image button.
+   */
+  toolbarExportImage: (mimeType: ChartImageExportMimeType | (string & {})) => string;
+
+  // Charts renderer configuration
+  /**
+   * Label for the bar chart type.
+   */
+  chartTypeBar: string;
+  /**
+   * Label for the column chart type.
+   */
+  chartTypeColumn: string;
+  /**
+   * Label for the line chart type.
+   */
+  chartTypeLine: string;
+  /**
+   * Label for the area chart type.
+   */
+  chartTypeArea: string;
+  /**
+   * Label for the pie chart type.
+   */
+  chartTypePie: string;
+  /**
+   * Label for the color palette control.
+   */
+  chartPaletteLabel: string;
+  /**
+   * Label for the rainbow surge palette.
+   */
+  chartPaletteNameRainbowSurge: string;
+  /**
+   * Label for the blueberry twilight palette.
+   */
+  chartPaletteNameBlueberryTwilight: string;
+  /**
+   * Label for the mango fusion palette.
+   */
+  chartPaletteNameMangoFusion: string;
+  /**
+   * Label for the cheerful fiesta palette.
+   */
+  chartPaletteNameCheerfulFiesta: string;
+  /**
+   * Label for the strawberry sky palette.
+   */
+  chartPaletteNameStrawberrySky: string;
+  /**
+   * Label for the blue palette.
+   */
+  chartPaletteNameBlue: string;
+  /**
+   * Label for the green palette.
+   */
+  chartPaletteNameGreen: string;
+  /**
+   * Label for the purple palette.
+   */
+  chartPaletteNamePurple: string;
+  /**
+   * Label for the red palette.
+   */
+  chartPaletteNameRed: string;
+  /**
+   * Label for the orange palette.
+   */
+  chartPaletteNameOrange: string;
+  /**
+   * Label for the yellow palette.
+   */
+  chartPaletteNameYellow: string;
+  /**
+   * Label for the cyan palette.
+   */
+  chartPaletteNameCyan: string;
+  /**
+   * Label for the pink palette.
+   */
+  chartPaletteNamePink: string;
+  /**
+   * Label for the chart configuration section.
+   */
+  chartConfigurationSectionChart: string;
+  /**
+   * Label for the axes configuration section.
+   */
+  chartConfigurationSectionAxes: string;
+  /**
+   * Label for the tooltip configuration section.
+   */
+  chartConfigurationSectionTooltip: string;
+  /**
+   * Label for the legend configuration section.
+   */
+  chartConfigurationSectionLegend: string;
+  /**
+   * Label for the columns configuration section.
+   */
+  chartConfigurationSectionColumns: string;
+  /**
+   * Label for the bars configuration section.
+   */
+  chartConfigurationSectionBars: string;
+  /**
+   * Label for the lines configuration section.
+   */
+  chartConfigurationSectionLines: string;
+  /**
+   * Label for the areas configuration section.
+   */
+  chartConfigurationSectionAreas: string;
+  /**
+   * Label for the arcs configuration section.
+   */
+  chartConfigurationSectionArcs: string;
+  /**
+   * Label for the grid configuration control.
+   */
+  chartConfigurationGrid: string;
+  /**
+   * Label for the border radius configuration control.
+   */
+  chartConfigurationBorderRadius: string;
+  /**
+   * Label for the category gap ratio configuration control.
+   */
+  chartConfigurationCategoryGapRatio: string;
+  /**
+   * Label for the bar gap ratio configuration control.
+   */
+  chartConfigurationBarGapRatio: string;
+  /**
+   * Label for the stacked configuration control.
+   */
+  chartConfigurationStacked: string;
+  /**
+   * Label for the skip animation configuration control.
+   */
+  chartConfigurationShowToolbar: string;
+  /**
+   * Label for the skip animation configuration control.
+   */
+  chartConfigurationSkipAnimation: string;
+  /**
+   * Label for the inner radius configuration control.
+   */
+  chartConfigurationInnerRadius: string;
+  /**
+   * Label for the outer radius configuration control.
+   */
+  chartConfigurationOuterRadius: string;
+  /**
+   * Label for the colors configuration control.
+   */
+  chartConfigurationColors: string;
+  /**
+   * Label for the hide legend configuration control.
+   */
+  chartConfigurationHideLegend: string;
+  /**
+   * Label for the show mark configuration control.
+   */
+  chartConfigurationShowMark: string;
+  /**
+   * Label for the height configuration control.
+   */
+  chartConfigurationHeight: string;
+  /**
+   * Label for the width configuration control.
+   */
+  chartConfigurationWidth: string;
+  /**
+   * Label for the series gap configuration control.
+   */
+  chartConfigurationSeriesGap: string;
+  /**
+   * Label for the tick placement configuration control.
+   */
+  chartConfigurationTickPlacement: string;
+  /**
+   * Label for the tick label placement configuration control.
+   */
+  chartConfigurationTickLabelPlacement: string;
+  /**
+   * Label for the categories axis label configuration control.
+   */
+  chartConfigurationCategoriesAxisLabel: string;
+  /**
+   * Label for the series axis label configuration control.
+   */
+  chartConfigurationSeriesAxisLabel: string;
+  /**
+   * Label for the X-axis position configuration control.
+   */
+  chartConfigurationXAxisPosition: string;
+  /**
+   * Label for the Y-axis position configuration control.
+   */
+  chartConfigurationYAxisPosition: string;
+  /**
+   * Label for the reverse series axis configuration control.
+   */
+  chartConfigurationSeriesAxisReverse: string;
+  /**
+   * Label for the tooltip placement configuration control.
+   */
+  chartConfigurationTooltipPlacement: string;
+  /**
+   * Label for the tooltip trigger configuration control.
+   */
+  chartConfigurationTooltipTrigger: string;
+  /**
+   * Label for the legend position configuration control.
+   */
+  chartConfigurationLegendPosition: string;
+  /**
+   * Label for the legend direction configuration control.
+   */
+  chartConfigurationLegendDirection: string;
+  /**
+   * Label for the bar labels configuration control.
+   */
+  chartConfigurationBarLabels: string;
+  /**
+   * Label for the column labels configuration control.
+   */
+  chartConfigurationColumnLabels: string;
+  /**
+   * Label for the interpolation configuration control.
+   */
+  chartConfigurationInterpolation: string;
+  /**
+   * Label for the padding angle configuration control.
+   */
+  chartConfigurationPaddingAngle: string;
+  /**
+   * Label for the corner radius configuration control.
+   */
+  chartConfigurationCornerRadius: string;
+  /**
+   * Label for the arc labels configuration control.
+   */
+  chartConfigurationArcLabels: string;
+  /**
+   * Label for the start angle configuration control.
+   */
+  chartConfigurationStartAngle: string;
+  /**
+   * Label for the end angle configuration control.
+   */
+  chartConfigurationEndAngle: string;
+  /**
+   * Label for the pie tooltip trigger configuration control.
+   */
+  chartConfigurationPieTooltipTrigger: string;
+  /**
+   * Label for the pie legend position configuration control.
+   */
+  chartConfigurationPieLegendPosition: string;
+  /**
+   * Label for the pie legend direction configuration control.
+   */
+  chartConfigurationPieLegendDirection: string;
+  // Common option labels
+  /**
+   * Label for the "None" option.
+   */
+  chartConfigurationOptionNone: string;
+  /**
+   * Label for the "Value" option.
+   */
+  chartConfigurationOptionValue: string;
+  /**
+   * Label for the "Auto" option.
+   */
+  chartConfigurationOptionAuto: string;
+  /**
+   * Label for the "Top" option.
+   */
+  chartConfigurationOptionTop: string;
+  /**
+   * Label for the "Top Left" option.
+   */
+  chartConfigurationOptionTopLeft: string;
+  /**
+   * Label for the "Top Right" option.
+   */
+  chartConfigurationOptionTopRight: string;
+  /**
+   * Label for the "Bottom" option.
+   */
+  chartConfigurationOptionBottom: string;
+  /**
+   * Label for the "Bottom Left" option.
+   */
+  chartConfigurationOptionBottomLeft: string;
+  /**
+   * Label for the "Bottom Right" option.
+   */
+  chartConfigurationOptionBottomRight: string;
+  /**
+   * Label for the "Left" option.
+   */
+  chartConfigurationOptionLeft: string;
+  /**
+   * Label for the "Right" option.
+   */
+  chartConfigurationOptionRight: string;
+  /**
+   * Label for the "Axis" option.
+   */
+  chartConfigurationOptionAxis: string;
+  /**
+   * Label for the "Item" option.
+   */
+  chartConfigurationOptionItem: string;
+  /**
+   * Label for the "Horizontal" option.
+   */
+  chartConfigurationOptionHorizontal: string;
+  /**
+   * Label for the "Vertical" option.
+   */
+  chartConfigurationOptionVertical: string;
+  /**
+   * Label for the "Both" grid configuration option.
+   */
+  chartConfigurationOptionBoth: string;
+  /**
+   * Label for the "Start" option.
+   */
+  chartConfigurationOptionStart: string;
+  /**
+   * Label for the "Middle" option.
+   */
+  chartConfigurationOptionMiddle: string;
+  /**
+   * Label for the "End" option.
+   */
+  chartConfigurationOptionEnd: string;
+  /**
+   * Label for the "Extremities" option.
+   */
+  chartConfigurationOptionExtremities: string;
+  /**
+   * Label for the "Tick" option.
+   */
+  chartConfigurationOptionTick: string;
+  /**
+   * Label for the "Monotone X" interpolation option.
+   */
+  chartConfigurationOptionMonotoneX: string;
+  /**
+   * Label for the "Monotone Y" interpolation option.
+   */
+  chartConfigurationOptionMonotoneY: string;
+  /**
+   * Label for the "Catmull-Rom" interpolation option.
+   */
+  chartConfigurationOptionCatmullRom: string;
+  /**
+   * Label for the "Linear" interpolation option.
+   */
+  chartConfigurationOptionLinear: string;
+  /**
+   * Label for the "Natural" interpolation option.
+   */
+  chartConfigurationOptionNatural: string;
+  /**
+   * Label for the "Step" interpolation option.
+   */
+  chartConfigurationOptionStep: string;
+  /**
+   * Label for the "Step Before" interpolation option.
+   */
+  chartConfigurationOptionStepBefore: string;
+  /**
+   * Label for the "Step After" interpolation option.
+   */
+  chartConfigurationOptionStepAfter: string;
+  /**
+   * Label for the "Bump X" interpolation option.
+   */
+  chartConfigurationOptionBumpX: string;
+  /**
+   * Label for the "Bump Y" interpolation option.
+   */
+  chartConfigurationOptionBumpY: string;
+
+  /**
+   * Label for the "Open" value in the context of an OHLC/Candlestick chart.
+   */
+  open: string;
+  /**
+   * Label for the "High" value in the context of an OHLC/Candlestick chart.
+   */
+  high: string;
+  /**
+   * Label for the "Low" value in the context of an OHLC/Candlestick chart.
+   */
+  low: string;
+  /**
+   * Label for the "Close" value in the context of an OHLC/Candlestick chart.
+   */
+  close: string;
+
+  /**
+   * The description functions return a string that describes the chart element for screen readers.
+   */
+  a11yNoValue: string;
+  /**
+   * The string used to merge description values.
+   */
+  a11yConnector: string;
+  /**
+   * The description of a bar series item for accessibility purpose.
+   * @param {object} params - The parameters for the description getter.
+   * @param {number|null} params.value - The value of the bar item.
+   * @param {string} params.formattedValue - The formatted value of the bar item, as it appears in tooltips or labels.
+   * @param {string|number|null} params.categoryValue - The category value associated with the bar item.
+   * @param {string} params.formattedCategoryValue - The formatted category value, as it appears in tooltips or labels.
+   * @param {string} [params.seriesLabel] - An optional label for the series.
+   * @returns {string} The localized description for the bar item.
+   */
+  barDescription: (params: {
+    value: number | null;
+    formattedValue: string;
+    categoryValue: string | number | null;
+    formattedCategoryValue: string;
+    seriesLabel?: string;
+  }) => string;
+  /**
+   * The description of a line series item for accessibility purpose.
+   * @param {object} params - The parameters for the description getter.
+   * @param {number|null} params.x - The x value of the line item.
+   * @param {number|null} params.y - The y value of the line item.
+   * @param {string} params.formattedXValue - The formatted x value of the line item, as it appears in tooltips.
+   * @param {string} params.formattedYValue - The formatted y value of the line item, as it appears in tooltips.
+   * @param {string} [params.seriesLabel] - An optional label for the series.
+   * @returns {string} The localized description for the line item.
+   */
+  lineDescription: (params: {
+    x: number | null;
+    y: number | null;
+    formattedXValue: string;
+    formattedYValue: string;
+    seriesLabel?: string;
+  }) => string;
+  /**
+   * The description of a scatter series item for accessibility purpose.
+   * @param {object} params - The parameters for the description getter.
+   * @param {number|null} params.x - The x value of the scatter item.
+   * @param {number|null} params.y - The y value of the scatter item.
+   * @param {string} params.formattedXValue - The formatted x value of the scatter item, as it appears in tooltips.
+   * @param {string} params.formattedYValue - The formatted y value of the scatter item, as it appears in tooltips.
+   * @param {string} params.seriesLabel - The series label.
+   * @returns {string} The localized description for the scatter item.
+   */
+  scatterDescription: (params: {
+    x: number | null;
+    y: number | null;
+    formattedXValue: string;
+    formattedYValue: string;
+    seriesLabel?: string;
+  }) => string;
+  /**
+   * The description of a pie series item for accessibility purpose.
+   * @param {object} params - The parameters for the description getter.
+   * @param {number|null} params.value - The value of the pie item.
+   * @param {number} params.totalValue - The total value of all pie items.
+   * @param {string} params.formattedValue - The formatted value of the pie item, as it appears in tooltips or labels.
+   * @param {string} [params.seriesLabel] - An optional label for the pie item.
+   * @returns {string} The localized description for the pie item.
+   */
+  pieDescription: (params: {
+    value: number | null;
+    totalValue: number;
+    formattedValue: string;
+    seriesLabel?: string;
+  }) => string;
+  /**
+   * The description of a radar series item for accessibility purpose.
+   * @param {object} params - The parameters for the description getter.
+   * @param {number|null} params.value - The value of the radar item.
+   * @param {string} params.formattedValue - The formatted value of the radar item.
+   * @param {string|number|null} params.categoryValue - The category value associated with the radar item.
+   * @param {string} params.formattedCategoryValue - The formatted category value.
+   * @param {string} [params.seriesLabel] - An optional label for the series.
+   * @returns {string} The localized description for the radar item.
+   */
+  radarDescription: (params: {
+    value: number | null;
+    formattedValue: string;
+    categoryValue: string | number | null;
+    formattedCategoryValue: string;
+    seriesLabel?: string;
+  }) => string;
+  /**
+   * The description of a funnel series item for accessibility purpose.
+   * @param {object} params - The parameters for the description getter.
+   * @param {number|null} params.value - The value of the funnel item.
+   * @param {string} params.formattedValue - The formatted value of the funnel item.
+   * @param {string} [params.seriesLabel] - An optional label for the funnel item.
+   * @returns {string} The localized description for the funnel item.
+   */
+  funnelDescription: (params: {
+    value: number | null;
+    formattedValue: string;
+    seriesLabel?: string;
+  }) => string;
+  /**
+   * The description of a heatmap cell for accessibility purpose.
+   * @param {object} params - The parameters for the description getter.
+   * @param {number|null} params.value - The value of the heatmap cell.
+   * @param {number|string|null} params.x - The x value of the heatmap cell.
+   * @param {number|string|null} params.y - The y value of the heatmap cell.
+   * @param {string} params.formattedValue - The formatted value of the heatmap cell.
+   * @param {string} params.formattedXValue - The formatted x axis value.
+   * @param {string} params.formattedYValue - The formatted y axis value.
+   * @returns {string} The localized description for the heatmap cell.
+   */
+  heatmapDescription: (params: {
+    x: number | string | null;
+    y: number | string | null;
+    value: number | null;
+    formattedValue: string;
+    formattedXValue: string;
+    formattedYValue: string;
+  }) => string;
+  /**
+   * The description of a sankey node for accessibility purpose.
+   * @param {object} params - The parameters for the description getter.
+   * @param {number|null} params.value - The value of the sankey node. Corresponds to the sum of the incoming links values.
+   * @param {string} params.formattedValue - The formatted value of the sankey node.
+   * @param {string} params.nodeLabel - The label for the node.
+   * @returns {string} The localized description for the sankey node.
+   */
+  sankeyNodeDescription: (params: {
+    value: number | null;
+    formattedValue: string;
+    nodeLabel: string;
+  }) => string;
+  /**
+   * The description of a sankey link for accessibility purpose.
+   * @param {object} params - The parameters for the description getter.
+   * @param {number|null} params.value - The value of the sankey link.
+   * @param {string} params.formattedValue - The formatted value of the sankey link.
+   * @param {string} params.sourceLabel - The label for the source node.
+   * @param {string} params.targetLabel - The label for the target node.
+   * @returns {string} The localized description for the sankey link.
+   */
+  sankeyLinkDescription: (params: {
+    value: number | null;
+    formattedValue: string;
+    sourceLabel: string;
+    targetLabel: string;
+  }) => string;
+  /**
+   * The description of a range bar series item for accessibility purpose.
+   * @param {object} params - The parameters for the description getter.
+   * @param {[number, number]|null} params.value - The value of the range bar item.
+   * @param {string} params.formattedValue - The formatted value of the range bar item.
+   * @param {string|number|null} params.categoryValue - The category value associated with the range bar item.
+   * @param {string} params.formattedCategoryValue - The formatted category value.
+   * @param {string} [params.seriesLabel] - An optional label for the series.
+   * @returns {string} The localized description for the range bar item.
+   */
+  rangeBarDescription: (params: {
+    value: [number, number] | null;
+    formattedValue: string;
+    categoryValue: string | number | null;
+    formattedCategoryValue: string;
+    seriesLabel?: string;
+  }) => string;
+  /**
+   * The description of an OHLC/Candlestick series item for accessibility purpose.
+   * @param {object} params - The parameters for the description getter.
+   * @param {number|null} params.open - The open value.
+   * @param {number|null} params.high - The high value.
+   * @param {number|null} params.low - The low value.
+   * @param {number|null} params.close - The close value.
+   * @param {string|null} params.formattedOpen - The formatted open value.
+   * @param {string|null} params.formattedHigh - The formatted high value.
+   * @param {string|null} params.formattedLow - The formatted low value.
+   * @param {string|null} params.formattedClose - The formatted close value.
+   * @param {Date|null} params.date - The date associated to the candle value.
+   * @param {string} params.formattedDate - The formatted date value.
+   * @param {string} [params.seriesLabel] - An optional label for the series.
+   * @returns {string} The localized description for the OHLC item.
+   */
+  ohlcDescription: (params: {
+    open: number | null;
+    high: number | null;
+    low: number | null;
+    close: number | null;
+    formattedOpen: string | null;
+    formattedHigh: string | null;
+    formattedLow: string | null;
+    formattedClose: string | null;
+    date: Date | null;
+    formattedDate: string;
+    seriesLabel?: string;
+  }) => string;
+}
+
+export type ChartsTranslationKeys = keyof ChartsLocaleText;

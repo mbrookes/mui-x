@@ -1,0 +1,178 @@
+'use client';
+import * as React from 'react';
+import PropTypes from 'prop-types';
+import clsx from 'clsx';
+import { styled } from '@mui/material/styles';
+import { type BarElementSlotProps, type BarElementSlots } from './BarElement';
+import { type BarItemIdentifier } from '../models';
+import { useDrawingArea, useXAxes, useYAxes } from '../hooks';
+import { type BarLabelSlotProps, type BarLabelSlots } from './BarLabel/BarLabelItem';
+import { BarLabelPlot } from './BarLabel/BarLabelPlot';
+import { useSkipAnimation } from '../hooks/useSkipAnimation';
+import { useInternalIsZoomInteracting } from '../internals/plugins/featurePlugins/useChartCartesianAxis/useInternalIsZoomInteracting';
+import { useBarPlotData } from './useBarPlotData';
+import { barClasses, useUtilityClasses } from './barClasses';
+import { ANIMATION_DURATION_MS, ANIMATION_TIMING_FUNCTION } from '../internals/animation/animation';
+import { IndividualBarPlot } from './IndividualBarPlot';
+import { BatchBarPlot } from './BatchBarPlot';
+import { type RendererType } from '../ScatterChart';
+
+export interface BarPlotSlots extends BarElementSlots, BarLabelSlots {}
+
+export interface BarPlotSlotProps extends BarElementSlotProps, BarLabelSlotProps {}
+
+export interface BarPlotProps {
+  /**
+   * A CSS class name applied to the root element.
+   */
+  className?: string;
+  /**
+   * If `true`, animations are skipped.
+   * @default undefined
+   */
+  skipAnimation?: boolean;
+  /**
+   * Callback fired when a bar item is clicked.
+   * @param {MouseEvent} event The event source of the callback.
+   * @param {BarItemIdentifier} barItemIdentifier The bar item identifier.
+   */
+  onItemClick?(event: MouseEvent, barItemIdentifier: BarItemIdentifier): void;
+  /**
+   * Defines the border radius of the bar element.
+   */
+  borderRadius?: number;
+  /**
+   * The type of renderer to use for the bar plot.
+   * - `svg-single`: Renders every bar in a `<rect />` element.
+   * - `svg-batch`: Batch renders bars in `<path />` elements for better performance with large datasets, at the cost of some limitations.
+   *                Read more: https://mui.com/x/react-charts/bars/#performance
+   *
+   * @default 'svg-single'
+   */
+  renderer?: RendererType;
+  /**
+   * The props used for each component slot.
+   * @default {}
+   */
+  slotProps?: BarPlotSlotProps;
+  /**
+   * Overridable component slots.
+   * @default {}
+   */
+  slots?: BarPlotSlots;
+}
+
+const BarPlotRoot = styled('g', {
+  name: 'MuiBarPlot',
+  slot: 'Root',
+})({
+  [`& .${barClasses.element}`]: {
+    transitionProperty: 'opacity, fill',
+    transitionDuration: `${ANIMATION_DURATION_MS}ms`,
+    transitionTimingFunction: ANIMATION_TIMING_FUNCTION,
+  },
+});
+
+/**
+ * Demos:
+ *
+ * - [Bars](https://mui.com/x/react-charts/bars/)
+ * - [Bar demonstration](https://mui.com/x/react-charts/bar-demo/)
+ * - [Stacking](https://mui.com/x/react-charts/stacking/)
+ *
+ * API:
+ *
+ * - [BarPlot API](https://mui.com/x/api/charts/bar-plot/)
+ */
+function BarPlot(props: BarPlotProps): React.JSX.Element {
+  const {
+    className,
+    skipAnimation: inSkipAnimation,
+    onItemClick,
+    borderRadius,
+    renderer,
+    ...other
+  } = props;
+  const isZoomInteracting = useInternalIsZoomInteracting();
+  const skipAnimation = useSkipAnimation(isZoomInteracting || inSkipAnimation);
+  const batchSkipAnimation = useSkipAnimation(inSkipAnimation);
+  const { xAxis: xAxes } = useXAxes();
+  const { yAxis: yAxes } = useYAxes();
+  const { completedData, masksData } = useBarPlotData(useDrawingArea(), xAxes, yAxes);
+
+  const classes = useUtilityClasses();
+
+  const BarElementPlot = renderer === 'svg-batch' ? BatchBarPlot : IndividualBarPlot;
+
+  return (
+    <BarPlotRoot className={clsx(classes.root, className)}>
+      <BarElementPlot
+        completedData={completedData}
+        masksData={masksData}
+        /* The batch renderer doesn't animate bars after the initial mount. Providing skipAnimation was causing an issue
+         * where bars would animate again after a zoom interaction because skipAnimation would change from true to false. */
+        skipAnimation={renderer === 'svg-batch' ? batchSkipAnimation : skipAnimation}
+        onItemClick={onItemClick}
+        borderRadius={borderRadius}
+        {...other}
+      />
+      {completedData.map((processedSeries) => (
+        <BarLabelPlot
+          key={processedSeries.seriesId}
+          className={classes.seriesLabels}
+          processedSeries={processedSeries}
+          skipAnimation={skipAnimation}
+          {...other}
+        />
+      ))}
+    </BarPlotRoot>
+  );
+}
+
+BarPlot.propTypes = {
+  // ----------------------------- Warning --------------------------------
+  // | These PropTypes are generated from the TypeScript type definitions |
+  // | To update them edit the TypeScript types and run "pnpm proptypes"  |
+  // ----------------------------------------------------------------------
+  /**
+   * Defines the border radius of the bar element.
+   */
+  borderRadius: PropTypes.number,
+  /**
+   * A CSS class name applied to the root element.
+   */
+  className: PropTypes.string,
+  /**
+   * Callback fired when a bar item is clicked.
+   * @param {MouseEvent | React.MouseEvent<SVGElement, MouseEvent>} event The event source of the callback.
+   *        It is a native MouseEvent for `svg-batch` renderer and a React MouseEvent for `svg-single` renderer.
+   * @param {BarItemIdentifier} barItemIdentifier The bar item identifier.
+   */
+  onItemClick: PropTypes.func,
+  /**
+   * The type of renderer to use for the bar plot.
+   * - `svg-single`: Renders every bar in a `<rect />` element.
+   * - `svg-batch`: Batch renders bars in `<path />` elements for better performance with large datasets, at the cost of some limitations.
+   *                Read more: https://mui.com/x/react-charts/bars/#performance
+   *
+   * @default 'svg-single'
+   */
+  renderer: PropTypes.oneOf(['svg-batch', 'svg-single']),
+  /**
+   * If `true`, animations are skipped.
+   * @default undefined
+   */
+  skipAnimation: PropTypes.bool,
+  /**
+   * The props used for each component slot.
+   * @default {}
+   */
+  slotProps: PropTypes.object,
+  /**
+   * Overridable component slots.
+   * @default {}
+   */
+  slots: PropTypes.object,
+} as any;
+
+export { BarPlot };

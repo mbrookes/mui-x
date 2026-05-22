@@ -1,0 +1,187 @@
+'use client';
+import * as React from 'react';
+import PropTypes from 'prop-types';
+import clsx from 'clsx';
+import { styled, useTheme, type SxProps, type Theme } from '@mui/material/styles';
+import { symbol as d3Symbol, symbolsFill as d3SymbolsFill } from '@mui/x-charts-vendor/d3-shape';
+import {
+  type ChartsLabelMarkClasses,
+  labelMarkClasses,
+  useUtilityClasses,
+} from './labelMarkClasses';
+import type { MarkShape } from '../models/seriesType/line';
+import { consumeThemeProps } from '../internals/consumeThemeProps';
+import { getSymbol } from '../internals/getSymbol';
+
+export interface ChartsLabelCustomMarkProps {
+  className?: string;
+  /** Color of the series this mark refers to. */
+  color?: string;
+}
+
+export type ChartsLabelMarkType =
+  | 'square'
+  | 'circle'
+  | 'line'
+  | 'line+mark'
+  | React.ComponentType<ChartsLabelCustomMarkProps>;
+
+export interface ChartsLabelMarkProps {
+  /**
+   * The type of the mark.
+   * @default 'square'
+   */
+  type?: ChartsLabelMarkType;
+  /**
+   * The mark will be rendered as a combination of a line and the specified mark type.
+   * The line will be rendered first, followed by the mark.
+   * Only used if `type='line+mark'`.
+   */
+  markShape?: MarkShape;
+  /**
+   * The color of the mark.
+   */
+  color?: string;
+  /**
+   * Override or extend the styles applied to the component.
+   */
+  classes?: Partial<ChartsLabelMarkClasses>;
+  className?: string;
+  sx?: SxProps<Theme>;
+}
+
+const Root = styled('div', {
+  name: 'MuiChartsLabelMark',
+  slot: 'Root',
+})<{ ownerState: ChartsLabelMarkProps }>(() => {
+  return {
+    display: 'flex',
+    width: 14,
+    height: 14,
+    ['& > *']: {
+      width: '100%',
+      height: '100%',
+    },
+    [`&.${labelMarkClasses.line}`]: {
+      width: 16,
+      height: 8,
+      alignItems: 'center',
+    },
+    [`&.${labelMarkClasses.lineAndMark}`]: {
+      alignItems: 'center',
+    },
+    [`&.${labelMarkClasses.square}`]: {
+      height: 13,
+      width: 13,
+      borderRadius: 2,
+      overflow: 'hidden',
+    },
+    [`&.${labelMarkClasses.circle}`]: {
+      height: 15,
+      width: 15,
+    },
+    svg: {
+      display: 'block',
+    },
+  };
+});
+
+/**
+ * Generates the label mark for the tooltip and legend.
+ * @ignore - internal component.
+ */
+const ChartsLabelMark = consumeThemeProps(
+  'MuiChartsLabelMark',
+  {
+    defaultProps: { type: 'square' },
+    classesResolver: useUtilityClasses,
+  },
+  function ChartsLabelMark(props: ChartsLabelMarkProps, ref: React.Ref<HTMLDivElement>) {
+    const { type, markShape, color, className, classes, ...other } = props;
+    const Component = type;
+
+    const theme = useTheme();
+
+    return (
+      <Root
+        className={clsx(classes?.root, className)}
+        ownerState={props}
+        aria-hidden="true"
+        ref={ref}
+        {...other}
+      >
+        {typeof Component === 'function' ? (
+          <Component className={classes?.fill} color={color} />
+        ) : (
+          <React.Fragment>
+            {type === 'circle' && (
+              <svg viewBox="0 0 15 15">
+                <circle className={classes?.fill} r="7.5" cx="7.5" cy="7.5" fill={color} />
+              </svg>
+            )}
+            {type === 'line' && (
+              <svg viewBox="0 0 16 8" preserveAspectRatio="none">
+                <path
+                  className={classes?.fill}
+                  d="M 2 4 L 14 4"
+                  stroke={color}
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </svg>
+            )}
+            {type === 'line+mark' && (
+              <svg viewBox="0 0 16 16" preserveAspectRatio="none">
+                <path
+                  className={classes?.fill}
+                  d="M 1 8 L 15 8"
+                  stroke={color}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+                {markShape && (
+                  <path
+                    d={d3Symbol(d3SymbolsFill[getSymbol(markShape)], 32)()!}
+                    transform="translate(8, 8) "
+                    stroke={color}
+                    strokeWidth={2}
+                    fill={(theme.vars || theme).palette.background.paper}
+                  />
+                )}
+              </svg>
+            )}
+            {type !== 'line' && type !== 'circle' && type !== 'line+mark' && (
+              <svg viewBox="0 0 13 13">
+                <rect className={classes?.fill} width="13" height="13" fill={color} />
+              </svg>
+            )}
+          </React.Fragment>
+        )}
+      </Root>
+    );
+  },
+);
+
+ChartsLabelMark.propTypes = {
+  // ----------------------------- Warning --------------------------------
+  // | These PropTypes are generated from the TypeScript type definitions |
+  // | To update them edit the TypeScript types and run "pnpm proptypes"  |
+  // ----------------------------------------------------------------------
+  /**
+   * Override or extend the styles applied to the component.
+   */
+  classes: PropTypes.object,
+  /**
+   * The color of the mark.
+   */
+  color: PropTypes.string,
+  /**
+   * The type of the mark.
+   * @default 'square'
+   */
+  type: PropTypes.oneOf(['circle', 'line', 'square']),
+} as any;
+
+export { ChartsLabelMark };

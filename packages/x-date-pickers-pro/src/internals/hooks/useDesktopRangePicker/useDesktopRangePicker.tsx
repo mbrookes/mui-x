@@ -1,0 +1,107 @@
+import useSlotProps from '@mui/utils/useSlotProps';
+import useEventCallback from '@mui/utils/useEventCallback';
+import { useLicenseVerifier } from '@mui/x-license/internals';
+import { PickersLayout } from '@mui/x-date-pickers/PickersLayout';
+import {
+  usePicker,
+  PickerPopper,
+  DateOrTimeViewWithMeridiem,
+  PickerProvider,
+  PickerRangeValue,
+  extractRootForwardedProps,
+} from '@mui/x-date-pickers/internals';
+import {
+  UseDesktopRangePickerParams,
+  UseDesktopRangePickerProps,
+} from './useDesktopRangePicker.types';
+import { useRangePosition } from '../useRangePosition';
+import { PickerRangePositionContext } from '../../../hooks/usePickerRangePositionContext';
+import { getRangeFieldType } from '../../utils/date-fields-utils';
+import { createRangePickerStepNavigation } from '../../utils/createRangePickerStepNavigation';
+
+export const useDesktopRangePicker = <
+  TView extends DateOrTimeViewWithMeridiem,
+  TExternalProps extends UseDesktopRangePickerProps<TView, any, TExternalProps>,
+>({
+  props,
+  steps,
+  ...pickerParams
+}: UseDesktopRangePickerParams<TView, TExternalProps>) => {
+  useLicenseVerifier({
+    releaseDate: '__RELEASE_INFO__',
+    version: process.env.MUI_VERSION!,
+    name: 'x-date-pickers-pro',
+  });
+
+  const { slots, slotProps, inputRef, localeText } = props;
+
+  const fieldType = getRangeFieldType(slots.field);
+  const isSingleInput = fieldType === 'single-input';
+  // When keepOpenDuringFieldFocus is enabled, we want the popper to behave like a tooltip
+  // so focus is not trapped inside the views and the user can click back into the field.
+  // Dialog only when focus trapping is desired (single input without the keep-open behavior).
+  const viewContainerRole = props.keepOpenDuringFieldFocus || !isSingleInput ? 'tooltip' : 'dialog';
+  const rangePositionResponse = useRangePosition(props);
+
+  const getStepNavigation = createRangePickerStepNavigation({
+    steps,
+    rangePositionResponse,
+  });
+
+  const { providerProps, renderCurrentView, ownerState } = usePicker<
+    PickerRangeValue,
+    TView,
+    TExternalProps
+  >({
+    ...pickerParams,
+    props,
+    variant: 'desktop',
+    autoFocusView: viewContainerRole === 'dialog',
+    viewContainerRole,
+    localeText,
+    getStepNavigation,
+    onPopperExited: useEventCallback(() =>
+      rangePositionResponse.setRangePosition(props.defaultRangePosition ?? 'start'),
+    ),
+  });
+
+  const Field = slots.field;
+
+  const { ownerState: fieldOwnerState, ...fieldProps } = useSlotProps({
+    elementType: Field,
+    externalSlotProps: slotProps?.field,
+    externalForwardedProps: extractRootForwardedProps(props),
+    ownerState,
+    additionalProps: {
+      'data-active-range-position': providerProps.contextValue.open
+        ? rangePositionResponse.rangePosition
+        : undefined,
+    },
+  });
+
+  const Layout = slots?.layout ?? PickersLayout;
+
+  const renderPicker = () => (
+    <PickerProvider {...providerProps}>
+      <PickerRangePositionContext.Provider value={rangePositionResponse}>
+        <Field
+          {...fieldProps}
+          slots={{ ...slots, ...(fieldProps as any).slots }}
+          slotProps={{ ...slotProps, ...(fieldProps as any).slotProps }}
+          {...(isSingleInput && {
+            inputRef,
+          })}
+        />
+        <PickerPopper slots={slots} slotProps={slotProps}>
+          <Layout {...slotProps?.layout} slots={slots} slotProps={slotProps}>
+            {renderCurrentView()}
+          </Layout>
+        </PickerPopper>
+      </PickerRangePositionContext.Provider>
+    </PickerProvider>
+  );
+
+  return {
+    renderPicker,
+  };
+};

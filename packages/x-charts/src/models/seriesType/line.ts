@@ -1,0 +1,144 @@
+import { type DefaultizedProps } from '@mui/x-internals/types';
+import type { StackOffsetType } from '../stacking';
+import type {
+  CartesianSeriesType,
+  CommonDefaultizedProps,
+  CommonSeriesType,
+  SeriesId,
+  StackableSeriesType,
+} from './common';
+import { type DatasetElementType } from './config';
+import { type CurveType } from '../curve';
+
+export interface ShowMarkParams<AxisValue = number | Date> {
+  /**
+   * The item index.
+   */
+  index: number;
+  /**
+   * The x coordinate in the SVG.
+   */
+  x: number;
+  /**
+   * The y coordinate in the SVG.
+   */
+  y: number;
+  /**
+   * The item position value. It likely comes from the axis `data` property.
+   */
+  position: AxisValue;
+  /**
+   * The item value. It comes from the series `data` property.
+   */
+  value: number;
+}
+
+export type MarkShape = 'circle' | 'cross' | 'diamond' | 'square' | 'star' | 'triangle' | 'wye';
+
+/**
+ * @internal The series type shared by the line and radialLine charts
+ */
+export interface CommonLineSeriesType {
+  /**
+   * Data associated to the line.
+   */
+  data?: readonly (number | null)[];
+  /**
+   * The key used to retrieve data from the dataset.
+   */
+  dataKey?: string;
+  /**
+   * A function to extract and transform the value from the `dataset` item.
+   * It receives the full dataset item and should return the series value.
+   * Can be used as an alternative to `dataKey`.
+   * @param {DatasetElementType<unknown>} item The full dataset item.
+   * @returns {number | null} The transformed value.
+   */
+  valueGetter?: (item: DatasetElementType<unknown>) => number | null;
+  /**
+   * If `true`, the series is rendered as an area instead of a line.
+   */
+  area?: boolean;
+  /**
+   * The label to display on the tooltip or the legend. It can be a string or a function.
+   */
+  label?: string | ((location: 'tooltip' | 'legend') => string);
+  /**
+   * If `true`, step curve starts and end at the first and last point.
+   * By default the line is extended to fill the space before and after.
+   */
+  strictStepCurve?: boolean;
+  /**
+   * Define which items of the series should display a mark.
+   * If can be a boolean that applies to all items.
+   * Or a callback that gets some item properties and returns true if the item should be displayed.
+   */
+  showMark?: boolean | ((params: ShowMarkParams) => boolean);
+  /**
+   * The shape of the mark elements.
+   * Using 'circle' renders a `<circle />` element, while all other options render a `<path />` instead. The path causes a small decrease in performance.
+   * By default, each series has a different shape, cycling through `'circle'`, `'square'`, `'diamond'`, `'cross'`, `'star'`, `'triangle'`, `'wye'`.
+   * If there are more than 7 series, the shapes will repeat.
+   */
+  shape?: MarkShape;
+  /**
+   * Do not render the line highlight item if set to `true`.
+   * @default false
+   */
+  disableHighlight?: boolean;
+  /**
+   * If `true`, line and area connect points separated by `null` values.
+   * @default false
+   */
+  connectNulls?: boolean;
+  /**
+   * The value of the line at the base of the series area.
+   *
+   * - `'min'` the area will fill the space **under** the line.
+   * - `'max'` the area will fill the space **above** the line.
+   * - `number` the area will fill the space between this value and the line
+   *
+   * @default 0
+   */
+  baseline?: number | 'min' | 'max';
+}
+
+export interface LineSeriesType
+  extends
+    CommonSeriesType<number | null, 'line'>,
+    CartesianSeriesType,
+    StackableSeriesType,
+    CommonLineSeriesType {
+  type: 'line';
+  /**
+   * Defines how stacked series handle negative values.
+   * @default 'none'
+   */
+  stackOffset?: StackOffsetType;
+  /**
+   * The type of curve to use for the line.
+   * Read more about curves at [line interpolation](https://mui.com/x/react-charts/lines/#interpolation).
+   * @default 'monotoneX'
+   */
+  curve?: CurveType;
+}
+
+/**
+ * An object that allows to identify a single line.
+ * Used for item interaction
+ */
+export type LineItemIdentifier = {
+  type: 'line';
+  seriesId: SeriesId;
+  /**
+   * `dataIndex` can be `undefined` if the mouse is over the area and not a specific item.
+   */
+  dataIndex?: number;
+};
+
+export interface DefaultizedLineSeriesType extends DefaultizedProps<
+  LineSeriesType,
+  CommonDefaultizedProps | 'color'
+> {
+  hidden: boolean;
+}

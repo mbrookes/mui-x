@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "@mui/internal-test-utils/initMatchers",
+      "@mui/material/themeCssVarsAugmentation",
+      "vitest/globals",
+      "node"
+    ],
+    "noImplicitAny": false,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/**/*",
+    "../../test/utils/addChaiAssertions.ts",
+    "../x-charts-premium/src/typeOverloads/index.ts"
+  ]
+}

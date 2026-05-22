@@ -1,0 +1,390 @@
+import { spy } from 'sinon';
+import {
+  adapter,
+  createSchedulerRenderer,
+  DEFAULT_TESTING_VISIBLE_DATE,
+  EventBuilder,
+} from 'test/utils/scheduler';
+import { screen, within } from '@mui/internal-test-utils';
+import { WeekView } from '@mui/x-scheduler/week-view';
+import { EventCalendar, eventCalendarClasses } from '@mui/x-scheduler/event-calendar';
+import { EventDialogProvider } from '../../internals/components/event-dialog';
+import { EventCalendarProvider } from '../../internals/components/EventCalendarProvider';
+
+const multiDayEvent = EventBuilder.new()
+  .span('2025-05-05T00:00:00Z', '2025-05-07T23:59:59Z')
+  .allDay()
+  .build();
+const longEvent = EventBuilder.new()
+  .span('2025-04-28T00:00:00Z', '2025-05-06T23:59:59Z') // Previous - current week
+  .allDay()
+  .build();
+const fourDayEvent = EventBuilder.new()
+  .span('2025-05-04T00:00:00Z', '2025-05-07T23:59:59Z')
+  .allDay()
+  .build();
+const allDayEvents = [multiDayEvent, longEvent, fourDayEvent];
+
+describe('<WeekView />', () => {
+  const { render } = createSchedulerRenderer({ clockConfig: new Date('2025-05-04Z') });
+
+  describe('All day events', () => {
+    it('should render all-day events correctly with main event in start date cell', () => {
+      render(
+        <EventCalendarProvider
+          events={[EventBuilder.new().span('2025-05-05Z', '2025-05-07Z', { allDay: true }).build()]}
+          resources={[]}
+        >
+          <EventDialogProvider>
+            <WeekView />
+          </EventDialogProvider>
+        </EventCalendarProvider>,
+      );
+
+      const getEventsFromDate = (date: number) => {
+        const header = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="columnheader"][aria-label]'),
+        ).find((h) => h.getAttribute('aria-label')?.endsWith(` ${date}`));
+
+        return screen
+          .getAllByRole('gridcell')
+          .find((cell) => cell.getAttribute('aria-labelledby')?.includes(header!.id))!
+          .querySelectorAll(`.${eventCalendarClasses.dayGridEvent}`);
+      };
+
+      // Main event should render in the start date cell
+      expect(getEventsFromDate(5)).toHaveLength(1);
+
+      // Invisible events should exist in the spanned cells
+      // Also check that invisible events have aria-hidden attribute
+      expect(getEventsFromDate(6)).toHaveLength(1);
+      expect(getEventsFromDate(6)[0]).to.have.attribute('aria-hidden', 'true');
+      expect(getEventsFromDate(7)).toHaveLength(1);
+      expect(getEventsFromDate(7)[0]).to.have.attribute('aria-hidden', 'true');
+    });
+
+    it('should render all-day event in first cell of week when event starts before the week', () => {
+      render(
+        <EventCalendarProvider events={allDayEvents} resources={[]}>
+          <EventDialogProvider>
+            <WeekView />
+          </EventDialogProvider>
+        </EventCalendarProvider>,
+      );
+
+      const allDayGridContainer = document.querySelector(
+        `.${eventCalendarClasses.dayTimeGridAllDayEventsGrid}`,
+      ) as HTMLElement;
+      const allDayRow = within(allDayGridContainer).getByRole('row');
+      const gridCells = within(allDayRow).getAllByRole('gridcell');
+      const firstCell = gridCells[0];
+
+      expect(within(firstCell!).getByText(longEvent.title)).not.to.equal(null);
+    });
+
+    it('should place invisible events on the same grid row as the main event', () => {
+      render(
+        <EventCalendarProvider events={allDayEvents} resources={[]}>
+          <EventDialogProvider>
+            <WeekView />
+          </EventDialogProvider>
+        </EventCalendarProvider>,
+      );
+
+      const allEvents = screen.getAllByLabelText(multiDayEvent.title);
+      const mainEvent = allEvents.find((event) => event.getAttribute('aria-hidden') !== 'true');
+      const invisibleEvents = allEvents.filter(
+        (event) => event.getAttribute('aria-hidden') === 'true',
+      );
+
+      // Extract grid row from style attribute
+      const mainEventStyle = mainEvent?.getAttribute('style') || '';
+      const mainGridRow = mainEventStyle.match(/--grid-row:\s*(\d+)/)?.[1];
+
+      invisibleEvents.forEach((invisibleEvent) => {
+        const invisibleStyle = invisibleEvent.getAttribute('style') || '';
+        const invisibleGridRow = invisibleStyle.match(/--grid-row:\s*(\d+)/)?.[1];
+        expect(invisibleGridRow).to.equal(mainGridRow);
+      });
+    });
+
+    it('should handle multiple overlapping all-day events with different grid rows', () => {
+      const event1 = EventBuilder.new()
+        .span('2025-05-04T00:00:00Z', '2025-05-06T23:59:59Z')
+        .allDay()
+        .build();
+      const event2 = EventBuilder.new()
+        .span('2025-05-05T00:00:00Z', '2025-05-07T23:59:59Z')
+        .allDay()
+        .build();
+      const event3 = EventBuilder.new()
+        .span('2025-05-08T00:00:00Z', '2025-05-09T23:59:59Z')
+        .allDay()
+        .build();
+      const overlappingEvents = [event1, event2, event3];
+
+      render(
+        <EventCalendarProvider events={overlappingEvents} resources={[]}>
+          <EventDialogProvider>
+            <WeekView />
+          </EventDialogProvider>
+        </EventCalendarProvider>,
+      );
+
+      const event1Elements = screen.getAllByLabelText(event1.title);
+      const event2Elements = screen.getAllByLabelText(event2.title);
+      const event3Elements = screen.getAllByLabelText(event3.title);
+
+      const event1Main = event1Elements.find((el) => el.getAttribute('aria-hidden') !== 'true');
+      const event2Main = event2Elements.find((el) => el.getAttribute('aria-hidden') !== 'true');
+      const event3Main = event3Elements.find((el) => el.getAttribute('aria-hidden') !== 'true');
+
+      // Extract grid rows
+      const event1Style = event1Main?.getAttribute('style') || '';
+      const event2Style = event2Main?.getAttribute('style') || '';
+      const event3Style = event3Main?.getAttribute('style') || '';
+      const event1GridRow = event1Style.match(/--grid-row:\s*(\d+)/)?.[1];
+      const event2GridRow = event2Style.match(/--grid-row:\s*(\d+)/)?.[1];
+      const event3GridRow = event3Style.match(/--grid-row:\s*(\d+)/)?.[1];
+
+      expect(event1GridRow).to.equal('1');
+      expect(event2GridRow).to.equal('2');
+      expect(event3GridRow).to.equal('1');
+    });
+
+    it('should render all-day events with correct grid column span', () => {
+      render(
+        <EventCalendarProvider events={allDayEvents} resources={[]}>
+          <EventDialogProvider>
+            <WeekView />
+          </EventDialogProvider>
+        </EventCalendarProvider>,
+      );
+
+      const allDayGridContainer = document.querySelector(
+        `.${eventCalendarClasses.dayTimeGridAllDayEventsGrid}`,
+      ) as HTMLElement;
+      const allDayRow = within(allDayGridContainer).getByRole('row');
+
+      const mainEvent = within(allDayRow)
+        .getAllByLabelText(fourDayEvent.title)
+        .find((el) => el.getAttribute('aria-hidden') !== 'true');
+      const eventStyle = mainEvent?.getAttribute('style') || '';
+      const gridColumnSpan = eventStyle.match(/--grid-column-span:\s*(\d+)/)?.[1];
+
+      // Should span 4 columns (4 days)
+      expect(gridColumnSpan).to.equal('4');
+    });
+  });
+
+  describe('time navigation', () => {
+    it('should go to start of previous week when clicking on the Previous Week button', async () => {
+      const onVisibleDateChange = spy();
+
+      const { user } = render(
+        <EventCalendar
+          events={[]}
+          visibleDate={DEFAULT_TESTING_VISIBLE_DATE} // Thursday
+          onVisibleDateChange={onVisibleDateChange}
+          view="week"
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: /previous week/i }));
+      expect(onVisibleDateChange.lastCall.firstArg).toEqualDateTime(
+        adapter.addWeeks(adapter.startOfWeek(DEFAULT_TESTING_VISIBLE_DATE), -1),
+      );
+    });
+
+    it('should go to start of next week when clicking on the Next Week button', async () => {
+      const onVisibleDateChange = spy();
+
+      const { user } = render(
+        <EventCalendar
+          events={[]}
+          visibleDate={DEFAULT_TESTING_VISIBLE_DATE} // Thursday
+          onVisibleDateChange={onVisibleDateChange}
+          view="week"
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: /next week/i }));
+      expect(onVisibleDateChange.lastCall.firstArg).toEqualDateTime(
+        adapter.addWeeks(adapter.startOfWeek(DEFAULT_TESTING_VISIBLE_DATE), 1),
+      );
+    });
+  });
+
+  describe('aria semantics', () => {
+    it('should declare 7 navigable columns and index every cell from 1 to 7', () => {
+      const visibleDate = adapter.date('2025-05-04T00:00:00Z', 'default');
+      render(<EventCalendar events={[]} visibleDate={visibleDate} view="week" />);
+
+      const grids = screen.getAllByRole('grid');
+      const dayTimeGrid = grids.find(
+        (grid) => grid.getAttribute('aria-rowcount') === '3',
+      ) as HTMLElement;
+      expect(dayTimeGrid).not.to.equal(undefined);
+      expect(dayTimeGrid.getAttribute('aria-colcount')).to.equal('7');
+
+      const headerCells = within(dayTimeGrid).getAllByRole('columnheader');
+      expect(headerCells.length).to.equal(7);
+      headerCells.forEach((cell, i) => {
+        expect(cell.getAttribute('aria-colindex')).to.equal(String(i + 1));
+      });
+
+      const rows = within(dayTimeGrid).getAllByRole('row');
+      const headerRow = rows.find((row) => row.getAttribute('aria-rowindex') === '1');
+      const allDayRow = rows.find((row) => row.getAttribute('aria-rowindex') === '2');
+      const timeRow = rows.find((row) => row.getAttribute('aria-rowindex') === '3');
+      expect(headerRow).not.to.equal(undefined);
+      expect(allDayRow).not.to.equal(undefined);
+      expect(timeRow).not.to.equal(undefined);
+
+      const allDayCells = within(allDayRow!).getAllByRole('gridcell');
+      expect(allDayCells.length).to.equal(7);
+      allDayCells.forEach((cell, i) => {
+        expect(cell.getAttribute('aria-colindex')).to.equal(String(i + 1));
+      });
+
+      const timeCells = within(timeRow!).getAllByRole('gridcell');
+      expect(timeCells.length).to.equal(7);
+      timeCells.forEach((cell, i) => {
+        expect(cell.getAttribute('aria-colindex')).to.equal(String(i + 1));
+      });
+    });
+
+    it('should hide the All day label from AT and reference it via aria-labelledby on each cell', () => {
+      const visibleDate = adapter.date('2025-05-04T00:00:00Z', 'default');
+      render(<EventCalendar events={[]} visibleDate={visibleDate} view="week" />);
+
+      const allDayLabel = document.querySelector<HTMLElement>(
+        `.${eventCalendarClasses.dayTimeGridAllDayEventsHeaderCell}`,
+      );
+      expect(allDayLabel).not.to.equal(null);
+      expect(allDayLabel!.getAttribute('aria-hidden')).to.equal('true');
+      expect(allDayLabel!.getAttribute('role')).to.equal(null);
+
+      const labelId = allDayLabel!.id;
+      expect(labelId.length).to.be.greaterThan(0);
+
+      const allDayGridContainer = document.querySelector(
+        `.${eventCalendarClasses.dayTimeGridAllDayEventsGrid}`,
+      ) as HTMLElement;
+      const allDayRow = within(allDayGridContainer).getByRole('row');
+      const allDayCells = within(allDayRow).getAllByRole('gridcell');
+      allDayCells.forEach((cell) => {
+        const labelledBy = cell.getAttribute('aria-labelledby') ?? '';
+        expect(labelledBy.split(' ')).to.include(labelId);
+      });
+    });
+  });
+
+  describe('current time indicator', () => {
+    it('renders one indicator per day when today is in view', () => {
+      const visibleDate = adapter.date('2025-05-04T00:00:00Z', 'default');
+      render(<EventCalendar events={[]} visibleDate={visibleDate} view="week" />);
+
+      // The current time indicator is rendered once per day column when today is in view
+      // Check that the data-current attribute is on the today column
+      const todayColumn = document.querySelector('[data-current]');
+      expect(todayColumn).not.to.equal(null);
+    });
+
+    it("doesn't render the current time indicator if today is not in view", () => {
+      const visibleDate = adapter.date('2025-05-18T00:00:00Z', 'default');
+      render(<EventCalendar events={[]} visibleDate={visibleDate} view="week" />);
+
+      const indicators = document.querySelectorAll('[data-current-time]');
+      expect(indicators.length).to.equal(0);
+
+      const todayColumn = document.querySelector('[data-current]');
+      expect(todayColumn).to.equal(null);
+    });
+
+    it('respects flag: hides indicator when showCurrentTimeIndicator is false', () => {
+      const visibleDate = adapter.date('2025-05-04T00:00:00Z', 'default');
+
+      render(
+        <EventCalendar
+          events={[]}
+          visibleDate={visibleDate}
+          showCurrentTimeIndicator={false}
+          view="week"
+        />,
+      );
+
+      const indicators = document.querySelectorAll('[data-current-time]');
+      expect(indicators.length).to.equal(0);
+    });
+  });
+
+  describe('weekStartsOn preference', () => {
+    const visibleDate = adapter.date('2025-01-08T00:00:00Z', 'default');
+
+    function getFirstDayColumnHeader() {
+      const grids = screen.getAllByRole('grid');
+      const dayTimeGrid = grids.find(
+        (grid) => grid.getAttribute('aria-rowcount') === '3',
+      ) as HTMLElement;
+      return within(dayTimeGrid).getAllByRole('columnheader')[0];
+    }
+
+    it('shows Sunday as the first column when weekStartsOn is 0', () => {
+      render(
+        <EventCalendar
+          events={[]}
+          visibleDate={visibleDate}
+          view="week"
+          defaultPreferences={{ weekStartsOn: 0 }}
+        />,
+      );
+
+      expect(getFirstDayColumnHeader().getAttribute('aria-label')).to.match(/sunday/i);
+    });
+
+    it('shows Monday as the first column when weekStartsOn is 1', () => {
+      render(
+        <EventCalendar
+          events={[]}
+          visibleDate={visibleDate}
+          view="week"
+          defaultPreferences={{ weekStartsOn: 1 }}
+        />,
+      );
+
+      expect(getFirstDayColumnHeader().getAttribute('aria-label')).to.match(/monday/i);
+    });
+
+    it('shows Saturday as the first column when weekStartsOn is 6', () => {
+      render(
+        <EventCalendar
+          events={[]}
+          visibleDate={visibleDate}
+          view="week"
+          defaultPreferences={{ weekStartsOn: 6 }}
+        />,
+      );
+
+      expect(getFirstDayColumnHeader().getAttribute('aria-label')).to.match(/saturday/i);
+    });
+
+    it('renders exactly 7 day columns regardless of weekStartsOn', () => {
+      render(
+        <EventCalendar
+          events={[]}
+          visibleDate={visibleDate}
+          view="week"
+          defaultPreferences={{ weekStartsOn: 1 }}
+        />,
+      );
+
+      const grids = screen.getAllByRole('grid');
+      const dayTimeGrid = grids.find(
+        (grid) => grid.getAttribute('aria-rowcount') === '3',
+      ) as HTMLElement;
+      const headerCells = within(dayTimeGrid).getAllByRole('columnheader');
+      expect(headerCells.length).to.equal(7);
+    });
+  });
+});

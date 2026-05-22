@@ -1,0 +1,31 @@
+{
+  "props": {
+    "dataIndex": { "type": { "name": "number" }, "required": true },
+    "shape": {
+      "type": {
+        "name": "enum",
+        "description": "'circle'<br>&#124;&nbsp;'cross'<br>&#124;&nbsp;'diamond'<br>&#124;&nbsp;'square'<br>&#124;&nbsp;'star'<br>&#124;&nbsp;'triangle'<br>&#124;&nbsp;'wye'"
+      },
+      "required": true
+    },
+    "hidden": { "type": { "name": "bool" }, "default": "false" },
+    "isFaded": { "type": { "name": "bool" }, "default": "false" },
+    "isHighlighted": { "type": { "name": "bool" }, "default": "false" },
+    "skipAnimation": { "type": { "name": "bool" } }
+  },
+  "name": "MarkElement",
+  "imports": [
+    "import { MarkElement } from '@mui/x-charts/LineChart';",
+    "import { MarkElement } from '@mui/x-charts';",
+    "import { MarkElement } from '@mui/x-charts-pro';",
+    "import { MarkElement } from '@mui/x-charts-premium';"
+  ],
+  "classes": [],
+  "spread": true,
+  "themeDefaultProps": null,
+  "muiName": "MuiMarkElement",
+  "filename": "/packages/x-charts/src/LineChart/MarkElement.tsx",
+  "inheritance": null,
+  "demos": "<ul><li><a href=\"/x/react-charts/areas-demo/\">Charts - Areas demos</a></li>\n<li><a href=\"/x/react-charts/line-demo/\">Charts - Line demos</a></li>\n<li><a href=\"/x/react-charts/lines/\">Charts - Lines</a></li></ul>",
+  "cssComponent": false
+}

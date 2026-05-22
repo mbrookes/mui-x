@@ -1,0 +1,8 @@
+<SingleInputTimeRangeField label="From - To" />
+<MultiInputTimeRangeField
+  slotProps={{
+    textField: ({ position }) => ({
+      label: position === 'start' ? 'From' : 'To',
+    }),
+  }}
+/>

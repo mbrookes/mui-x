@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": ["api/buildApi.ts"],
+  "compilerOptions": {
+    "allowJs": true,
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "types": ["node"],
+    "noImplicitAny": false
+  },
+  "exclude": ["node_modules"]
+}

@@ -1,0 +1,227 @@
+import type { ContinuousScaleName, ScaleName } from '../../../../models';
+import {
+  type ChartsAxisProps,
+  isBandScaleConfig,
+  isPointScaleConfig,
+  isContinuousScaleConfig,
+  type ChartsRotationAxisProps,
+  type ChartsRadiusAxisProps,
+  type PolarAxisConfig,
+  type ComputedAxis,
+} from '../../../../models/axis';
+import {
+  type ChartSeriesType,
+  type PolarChartSeriesType,
+} from '../../../../models/seriesType/config';
+import { getColorScale, getOrdinalColorScale } from '../../../colorScale';
+import { getDefaultTickNumber, getTickNumber } from '../../../ticks';
+import { getScale } from '../../../getScale';
+import { isDateData, createDateFormatter } from '../../../dateHelpers';
+import { getAxisExtremum } from './getAxisExtremum';
+import type { ChartDrawingArea } from '../../../../hooks';
+import { type ChartSeriesConfig } from '../../corePlugins/useChartSeriesConfig';
+import { type ProcessedSeries } from '../../corePlugins/useChartSeries/useChartSeries.types';
+import { deg2rad } from '../../../angleConversion';
+import { getAxisTriggerTooltip } from './getAxisTriggerTooltip';
+import { scaleBand, scalePoint } from '../../../scales';
+import { type ComputedAxisConfig } from '../useChartCartesianAxis';
+import { EPSILON } from '../../../../utils/epsilon';
+
+type RotationConfig = PolarAxisConfig<ScaleName, any, ChartsRotationAxisProps>;
+type RadiusConfig = PolarAxisConfig<ScaleName, any, ChartsRadiusAxisProps>;
+
+function getRange(
+  drawingArea: ChartDrawingArea,
+  axisDirection: 'rotation' | 'radius',
+  axis: PolarAxisConfig<ScaleName, any>,
+): { range: number[]; isFullCircle: boolean } {
+  if (axisDirection === 'rotation') {
+    const angles = [
+      deg2rad((axis as RotationConfig).startAngle, 0),
+      deg2rad((axis as RotationConfig).endAngle, 2 * Math.PI),
+    ];
+    const diff = angles[1] - angles[0];
+    const isFullCircle = diff >= Math.PI * 2 - EPSILON;
+    if (axis.scaleType === 'point' && isFullCircle) {
+      // For point scale, remove a slice to avoid overlapping first and last points.
+      angles[1] -= diff / axis.data!.length;
+    }
+    return { range: angles, isFullCircle };
+  }
+  const availableRadius = Math.min(drawingArea.height, drawingArea.width) / 2;
+  return {
+    range: [
+      (axis as RadiusConfig).minRadius ?? 0,
+      (axis as RadiusConfig).maxRadius ?? availableRadius,
+    ],
+    isFullCircle: false,
+  };
+}
+
+const DEFAULT_CATEGORY_GAP_RATIO = 0.2;
+const DEFAULT_BAR_GAP_RATIO = 0.1;
+
+export type ComputeResult<T extends ChartsAxisProps> = {
+  axis: ComputedAxisConfig<T>;
+  axisIds: string[];
+};
+
+type ComputeCommonParams<SeriesType extends ChartSeriesType = ChartSeriesType> = {
+  drawingArea: ChartDrawingArea;
+  formattedSeries: ProcessedSeries<SeriesType>;
+  seriesConfig: ChartSeriesConfig<SeriesType>;
+};
+
+export function computeAxisValue<SeriesType extends ChartSeriesType>(
+  options: ComputeCommonParams<SeriesType> & {
+    axis?: PolarAxisConfig<ScaleName, any, ChartsRadiusAxisProps>[];
+    axisDirection: 'radius';
+  },
+): ComputeResult<ChartsRadiusAxisProps>;
+export function computeAxisValue<SeriesType extends ChartSeriesType>(
+  options: ComputeCommonParams<SeriesType> & {
+    axis?: PolarAxisConfig<ScaleName, any, ChartsRotationAxisProps>[];
+    axisDirection: 'rotation';
+  },
+): ComputeResult<ChartsRotationAxisProps>;
+export function computeAxisValue<SeriesType extends ChartSeriesType>({
+  drawingArea,
+  formattedSeries,
+  axis: allAxis,
+  seriesConfig,
+  axisDirection,
+}: ComputeCommonParams<SeriesType> & {
+  axis?: PolarAxisConfig[];
+  axisDirection: 'radius' | 'rotation';
+}) {
+  if (allAxis === undefined) {
+    return {
+      axis: {},
+      axisIds: [],
+    };
+  }
+
+  const axisIdsTriggeringTooltip = getAxisTriggerTooltip(
+    axisDirection,
+    seriesConfig as ChartSeriesConfig<PolarChartSeriesType>,
+    formattedSeries,
+    allAxis[0].id,
+  );
+
+  const completeAxis: ComputedAxisConfig<ChartsAxisProps> = {};
+  allAxis.forEach((eachAxis, axisIndex) => {
+    const axis = eachAxis as Readonly<PolarAxisConfig>;
+    const { range, isFullCircle } = getRange(drawingArea, axisDirection, axis);
+
+    const [minData, maxData] = getAxisExtremum(
+      axis,
+      axisDirection,
+      seriesConfig as ChartSeriesConfig<PolarChartSeriesType>,
+      axisIndex,
+      formattedSeries,
+    );
+
+    const triggerTooltip = !axis.ignoreTooltip && axisIdsTriggeringTooltip.has(axis.id);
+
+    const data = axis.data ?? [];
+
+    if (isBandScaleConfig(axis)) {
+      const categoryGapRatio = axis.categoryGapRatio ?? DEFAULT_CATEGORY_GAP_RATIO;
+      const barGapRatio = axis.barGapRatio ?? DEFAULT_BAR_GAP_RATIO;
+
+      completeAxis[axis.id] = {
+        offset: 0,
+        categoryGapRatio,
+        barGapRatio,
+        triggerTooltip,
+        ...axis,
+        data,
+        scale: scaleBand(axis.data!, range)
+          .paddingInner(categoryGapRatio)
+          .paddingOuter(categoryGapRatio / 2),
+        tickNumber: axis.data!.length,
+        colorScale:
+          axis.colorMap &&
+          (axis.colorMap.type === 'ordinal'
+            ? getOrdinalColorScale({ values: axis.data, ...axis.colorMap })
+            : getColorScale(axis.colorMap)),
+        isFullCircle,
+      } as ComputedAxis<'band', any, ChartsAxisProps>;
+
+      if (isDateData(axis.data)) {
+        const dateFormatter = createDateFormatter(axis.data, range, axis.tickNumber);
+        completeAxis[axis.id].valueFormatter = axis.valueFormatter ?? dateFormatter;
+      }
+    }
+    if (isPointScaleConfig(axis)) {
+      completeAxis[axis.id] = {
+        offset: 0,
+        triggerTooltip,
+        ...axis,
+        data,
+        scale: scalePoint(axis.data!, range),
+        tickNumber: axis.data!.length,
+        colorScale:
+          axis.colorMap &&
+          (axis.colorMap.type === 'ordinal'
+            ? getOrdinalColorScale({ values: axis.data, ...axis.colorMap })
+            : getColorScale(axis.colorMap)),
+        isFullCircle,
+      } as ComputedAxis<'point', any, ChartsAxisProps>;
+
+      if (isDateData(axis.data)) {
+        const dateFormatter = createDateFormatter(axis.data, range, axis.tickNumber);
+        completeAxis[axis.id].valueFormatter = axis.valueFormatter ?? dateFormatter;
+      }
+    }
+
+    if (!isContinuousScaleConfig(axis)) {
+      // Could be merged with the two previous "if conditions" but then TS does not get that `axis.scaleType` can't be `band` or `point`.
+      return;
+    }
+
+    const scaleType = axis.scaleType ?? ('linear' as const);
+
+    const domainLimit = axis.domainLimit ?? 'nice';
+
+    const axisExtremums = [axis.min ?? minData, axis.max ?? maxData];
+
+    if (typeof domainLimit === 'function') {
+      const { min, max } = domainLimit(minData, maxData);
+      axisExtremums[0] = min;
+      axisExtremums[1] = max;
+    }
+
+    // Use degrees to display more ticks by default
+    const ratio = axisDirection === 'rotation' ? 180 / 3 : 1;
+
+    const tickNumber =
+      axis.tickNumber ??
+      getTickNumber(
+        axis,
+        axisExtremums,
+        getDefaultTickNumber(ratio * Math.abs(range[1] - range[0])),
+      );
+
+    const scale = getScale(scaleType, axisExtremums, range);
+    const finalScale = domainLimit === 'nice' ? scale.nice(tickNumber) : scale;
+    const [minDomain, maxDomain] = finalScale.domain();
+    const domain = [axis.min ?? minDomain, axis.max ?? maxDomain];
+
+    completeAxis[axis.id] = {
+      offset: 0,
+      triggerTooltip,
+      ...axis,
+      data,
+      scaleType: scaleType as any,
+      scale: finalScale.domain(domain) as any,
+      tickNumber,
+      colorScale: axis.colorMap && getColorScale(axis.colorMap),
+      isFullCircle,
+    } as ComputedAxis<ContinuousScaleName, any, ChartsAxisProps>;
+  });
+  return {
+    axis: completeAxis,
+    axisIds: allAxis.map(({ id }) => id),
+  };
+}

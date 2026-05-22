@@ -1,0 +1,163 @@
+{
+  "props": {
+    "apiRef": {
+      "type": {
+        "name": "shape",
+        "description": "{ current?: { focusItem?: func, getItem?: func, getItemDOMElement?: func, getItemOrderedChildrenIds?: func, getItemTree?: func, getParentId?: func, isItemExpanded?: func, setIsItemDisabled?: func, setItemExpansion?: func, setItemSelection?: func } }"
+      }
+    },
+    "checkboxSelection": { "type": { "name": "bool" }, "default": "false" },
+    "children": { "type": { "name": "node" } },
+    "classes": { "type": { "name": "object" }, "additionalInfo": { "cssApi": true } },
+    "defaultExpandedItems": {
+      "type": { "name": "arrayOf", "description": "Array&lt;string&gt;" },
+      "default": "[]"
+    },
+    "defaultSelectedItems": { "type": { "name": "any" }, "default": "[]" },
+    "disabledItemsFocusable": { "type": { "name": "bool" }, "default": "false" },
+    "disableSelection": { "type": { "name": "bool" }, "default": "false" },
+    "expandedItems": { "type": { "name": "arrayOf", "description": "Array&lt;string&gt;" } },
+    "expansionTrigger": {
+      "type": { "name": "enum", "description": "'content'<br>&#124;&nbsp;'iconContainer'" },
+      "default": "'content'"
+    },
+    "id": { "type": { "name": "string" } },
+    "itemChildrenIndentation": {
+      "type": { "name": "union", "description": "number<br>&#124;&nbsp;string" },
+      "default": "12px"
+    },
+    "itemHeight": { "type": { "name": "number" }, "default": "null" },
+    "multiSelect": { "type": { "name": "bool" }, "default": "false" },
+    "onExpandedItemsChange": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(event: React.SyntheticEvent, itemIds: Array<TreeViewItemId>) => void",
+        "describedArgs": ["event", "itemIds"]
+      }
+    },
+    "onItemClick": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(event: React.MouseEvent, itemId: TreeViewItemId) => void",
+        "describedArgs": ["event", "itemId"]
+      }
+    },
+    "onItemExpansionToggle": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(event: React.SyntheticEvent | null, itemId: TreeViewItemId, isExpanded: boolean) => void",
+        "describedArgs": ["event", "itemId", "isExpanded"]
+      }
+    },
+    "onItemFocus": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(event: React.SyntheticEvent | null, itemId: TreeViewItemId) => void",
+        "describedArgs": ["event", "itemId"]
+      }
+    },
+    "onItemSelectionToggle": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(event: React.SyntheticEvent, itemId: TreeViewItemId, isSelected: boolean) => void",
+        "describedArgs": ["event", "itemId", "isSelected"]
+      }
+    },
+    "onSelectedItemsChange": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(event: React.SyntheticEvent, itemIds: Array<TreeViewItemId> | TreeViewItemId) => void",
+        "describedArgs": ["event", "itemIds"]
+      }
+    },
+    "selectedItems": { "type": { "name": "any" } },
+    "selectionPropagation": {
+      "type": { "name": "shape", "description": "{ descendants?: bool, parents?: bool }" },
+      "default": "{ parents: false, descendants: false }"
+    },
+    "slotProps": { "type": { "name": "object" } },
+    "slots": { "type": { "name": "object" }, "additionalInfo": { "slotsApi": true } },
+    "sx": {
+      "type": {
+        "name": "union",
+        "description": "Array&lt;func<br>&#124;&nbsp;object<br>&#124;&nbsp;bool&gt;<br>&#124;&nbsp;func<br>&#124;&nbsp;object"
+      },
+      "additionalInfo": { "sx": true }
+    }
+  },
+  "name": "SimpleTreeView",
+  "imports": [
+    "import { SimpleTreeView } from '@mui/x-tree-view/SimpleTreeView';",
+    "import { SimpleTreeView } from '@mui/x-tree-view';",
+    "import { SimpleTreeView } from '@mui/x-tree-view-pro';"
+  ],
+  "slots": [
+    {
+      "name": "root",
+      "description": "Element rendered at the root.",
+      "default": "SimpleTreeViewRoot",
+      "class": "MuiSimpleTreeView-root"
+    },
+    {
+      "name": "collapseIcon",
+      "description": "The default icon used to collapse the item.",
+      "class": null
+    },
+    {
+      "name": "expandIcon",
+      "description": "The default icon used to expand the item.",
+      "class": null
+    },
+    {
+      "name": "endIcon",
+      "description": "The default icon displayed next to an end item.\nThis is applied to all Tree Items and can be overridden by the TreeItem `icon` slot prop.",
+      "class": null
+    }
+  ],
+  "classes": [
+    {
+      "key": "item",
+      "className": "MuiSimpleTreeView-item",
+      "description": "Styles applied to the item's root element.",
+      "isGlobal": false
+    },
+    {
+      "key": "itemCheckbox",
+      "className": "MuiSimpleTreeView-itemCheckbox",
+      "description": "Styles applied to the item's checkbox element.",
+      "isGlobal": false
+    },
+    {
+      "key": "itemContent",
+      "className": "MuiSimpleTreeView-itemContent",
+      "description": "Styles applied to the item's content element.",
+      "isGlobal": false
+    },
+    {
+      "key": "itemGroupTransition",
+      "className": "MuiSimpleTreeView-itemGroupTransition",
+      "description": "Styles applied to the item's transition element.",
+      "isGlobal": false
+    },
+    {
+      "key": "itemIconContainer",
+      "className": "MuiSimpleTreeView-itemIconContainer",
+      "description": "Styles applied to the item's icon container element icon.",
+      "isGlobal": false
+    },
+    {
+      "key": "itemLabel",
+      "className": "MuiSimpleTreeView-itemLabel",
+      "description": "Styles applied to the item's label element.",
+      "isGlobal": false
+    }
+  ],
+  "spread": true,
+  "themeDefaultProps": true,
+  "muiName": "MuiSimpleTreeView",
+  "forwardsRefTo": "HTMLUListElement",
+  "filename": "/packages/x-tree-view/src/SimpleTreeView/SimpleTreeView.tsx",
+  "inheritance": null,
+  "demos": "<ul><li><a href=\"/x/react-tree-view/quickstart/\">Tree View - Quickstart</a></li>\n<li><a href=\"/x/react-tree-view/simple-tree-view/customization/\">Simple Tree View - Customization</a></li>\n<li><a href=\"/x/react-tree-view/simple-tree-view/expansion/\">Simple Tree View - Expansion</a></li>\n<li><a href=\"/x/react-tree-view/simple-tree-view/focus/\">Simple Tree View - Focus</a></li>\n<li><a href=\"/x/react-tree-view/simple-tree-view/items/\">Simple Tree View - Items</a></li>\n<li><a href=\"/x/react-tree-view/simple-tree-view/selection/\">Simple Tree View - Selection</a></li>\n<li><a href=\"/x/react-tree-view/tree-item-customization/\">Tree Item customization</a></li></ul>",
+  "cssComponent": false
+}

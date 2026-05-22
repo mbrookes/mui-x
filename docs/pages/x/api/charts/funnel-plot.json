@@ -1,0 +1,44 @@
+{
+  "props": {
+    "onItemClick": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(event: React.MouseEvent<SVGElement, MouseEvent>, funnelItemIdentifier: FunnelItemIdentifier) => void",
+        "describedArgs": ["event", "funnelItemIdentifier"]
+      }
+    },
+    "slotProps": { "type": { "name": "object" }, "default": "{}" },
+    "slots": {
+      "type": { "name": "object" },
+      "default": "{}",
+      "additionalInfo": { "slotsApi": true }
+    }
+  },
+  "name": "FunnelPlot",
+  "imports": [
+    "import { FunnelPlot } from '@mui/x-charts-pro/FunnelChart';",
+    "import { FunnelPlot } from '@mui/x-charts-pro';"
+  ],
+  "slots": [
+    {
+      "name": "funnelSection",
+      "description": "Custom component for funnel section.",
+      "default": "FunnelSection",
+      "class": null
+    },
+    {
+      "name": "funnelSectionLabel",
+      "description": "Custom component for funnel section label.",
+      "default": "FunnelSectionLabel",
+      "class": null
+    }
+  ],
+  "classes": [],
+  "spread": true,
+  "themeDefaultProps": null,
+  "muiName": "MuiFunnelPlot",
+  "filename": "/packages/x-charts-pro/src/FunnelChart/FunnelPlot.tsx",
+  "inheritance": null,
+  "demos": "<ul><li><a href=\"/x/react-charts/funnel/\">Charts - Funnel <a href=\"/x/introduction/licensing/#pro-plan\" title=\"Pro plan\"><span class=\"plan-pro\"></span></a></a></li>\n<li><a href=\"/x/react-charts/pyramid/\">Charts - Pyramid <a href=\"/x/introduction/licensing/#pro-plan\" title=\"Pro plan\"><span class=\"plan-pro\"></span></a></a></li></ul>",
+  "cssComponent": false
+}

@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "@mui/internal-test-utils/initMatchers",
+      "@mui/material/themeCssVarsAugmentation",
+      "dayjs/plugin/timezone.d.ts",
+      "dayjs/plugin/utc.d.ts",
+      "vitest/globals",
+      "moment-timezone",
+      "node"
+    ],
+    "noImplicitAny": false,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*", "../../test/utils/addChaiAssertions.ts"],
+  "exclude": ["src/**/actual*.ts*"]
+}

@@ -1,0 +1,7 @@
+{
+  "componentDescription": "Component that renders visual feedback during brush interaction",
+  "propDescriptions": {
+    "className": { "description": "A CSS class name applied to the root element." }
+  },
+  "classDescriptions": {}
+}

@@ -1,0 +1,51 @@
+import { createSelector, createRootSelector } from '../../../utils/createSelector';
+import type { GridStateCommunity } from '../../../models/gridStateCommunity';
+import type { GridFocusState, GridTabIndexState } from './gridFocusState';
+
+export const gridFocusStateSelector = createRootSelector(
+  (state: GridStateCommunity) => state.focus,
+);
+
+export const gridFocusCellSelector = createSelector(
+  gridFocusStateSelector,
+  (focusState: GridFocusState) => focusState.cell,
+);
+
+export const gridFocusColumnHeaderSelector = createSelector(
+  gridFocusStateSelector,
+  (focusState: GridFocusState) => focusState.columnHeader,
+);
+
+export const gridFocusColumnHeaderFilterSelector = createSelector(
+  gridFocusStateSelector,
+  (focusState: GridFocusState) => focusState.columnHeaderFilter,
+);
+
+export const gridFocusColumnGroupHeaderSelector = createSelector(
+  gridFocusStateSelector,
+  (focusState: GridFocusState) => focusState.columnGroupHeader,
+);
+
+export const gridTabIndexStateSelector = createRootSelector(
+  (state: GridStateCommunity) => state.tabIndex,
+);
+
+export const gridTabIndexCellSelector = createSelector(
+  gridTabIndexStateSelector,
+  (state: GridTabIndexState) => state.cell,
+);
+
+export const gridTabIndexColumnHeaderSelector = createSelector(
+  gridTabIndexStateSelector,
+  (state: GridTabIndexState) => state.columnHeader,
+);
+
+export const gridTabIndexColumnHeaderFilterSelector = createSelector(
+  gridTabIndexStateSelector,
+  (state: GridTabIndexState) => state.columnHeaderFilter,
+);
+
+export const gridTabIndexColumnGroupHeaderSelector = createSelector(
+  gridTabIndexStateSelector,
+  (state: GridTabIndexState) => state.columnGroupHeader,
+);

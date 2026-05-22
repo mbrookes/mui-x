@@ -1,0 +1,129 @@
+{
+  "props": {
+    "areAllSectionsEmpty": { "type": { "name": "bool" }, "required": true },
+    "contentEditable": { "type": { "name": "bool" }, "required": true },
+    "elements": {
+      "type": {
+        "name": "arrayOf",
+        "description": "Array&lt;{ after: object, before: object, container: object, content: object }&gt;"
+      },
+      "required": true
+    },
+    "color": {
+      "type": {
+        "name": "enum",
+        "description": "'error'<br>&#124;&nbsp;'info'<br>&#124;&nbsp;'primary'<br>&#124;&nbsp;'secondary'<br>&#124;&nbsp;'success'<br>&#124;&nbsp;'warning'"
+      },
+      "default": "'primary'"
+    },
+    "endAdornment": { "type": { "name": "node" } },
+    "error": { "type": { "name": "bool" }, "default": "false" },
+    "focused": { "type": { "name": "bool" } },
+    "fullWidth": { "type": { "name": "bool" }, "default": "false" },
+    "helperText": { "type": { "name": "node" } },
+    "hiddenLabel": { "type": { "name": "bool" }, "default": "false" },
+    "id": { "type": { "name": "string" } },
+    "inputRef": { "type": { "name": "custom", "description": "ref" } },
+    "label": { "type": { "name": "node" } },
+    "margin": {
+      "type": {
+        "name": "enum",
+        "description": "'dense'<br>&#124;&nbsp;'none'<br>&#124;&nbsp;'normal'"
+      },
+      "default": "'none'"
+    },
+    "name": { "type": { "name": "string" } },
+    "required": { "type": { "name": "bool" }, "default": "false" },
+    "size": {
+      "type": { "name": "enum", "description": "'medium'<br>&#124;&nbsp;'small'" },
+      "default": "'medium'"
+    },
+    "slotProps": { "type": { "name": "object" }, "default": "{}" },
+    "slots": {
+      "type": { "name": "object" },
+      "default": "{}",
+      "additionalInfo": { "slotsApi": true }
+    },
+    "startAdornment": { "type": { "name": "node" } },
+    "sx": {
+      "type": {
+        "name": "union",
+        "description": "Array&lt;func<br>&#124;&nbsp;object<br>&#124;&nbsp;bool&gt;<br>&#124;&nbsp;func<br>&#124;&nbsp;object"
+      },
+      "additionalInfo": { "sx": true }
+    },
+    "variant": {
+      "type": {
+        "name": "enum",
+        "description": "'filled'<br>&#124;&nbsp;'outlined'<br>&#124;&nbsp;'standard'"
+      },
+      "default": "'outlined'"
+    }
+  },
+  "name": "PickersTextField",
+  "imports": [
+    "import { PickersTextField } from '@mui/x-date-pickers/PickersTextField';",
+    "import { PickersTextField } from '@mui/x-date-pickers';",
+    "import { PickersTextField } from '@mui/x-date-pickers-pro';"
+  ],
+  "slots": [
+    {
+      "name": "formHelperText",
+      "description": "The component used for the form helper text slot.",
+      "default": "FormHelperText",
+      "class": null
+    },
+    {
+      "name": "htmlInput",
+      "description": "The component rendered as the underlying hidden `<input>` element.",
+      "default": "PickersInputBaseInput",
+      "class": null
+    },
+    {
+      "name": "input",
+      "description": "The component used for the input slot.\nDefaults to one of `PickersInput`, `PickersFilledInput`, `PickersOutlinedInput` based on `variant`.",
+      "default": "PickersOutlinedInput",
+      "class": null
+    },
+    {
+      "name": "inputLabel",
+      "description": "The component used for the input label slot.",
+      "default": "InputLabel",
+      "class": null
+    },
+    {
+      "name": "root",
+      "description": "The component used for the root slot.",
+      "default": "FormControl",
+      "class": "MuiPickersTextField-root"
+    }
+  ],
+  "classes": [
+    {
+      "key": "fullWidth",
+      "className": "MuiPickersTextField-fullWidth",
+      "description": "Styles applied to the root element if `fullWidth={true}`.",
+      "isGlobal": false
+    },
+    {
+      "key": "marginDense",
+      "className": "MuiPickersTextField-marginDense",
+      "description": "Styles applied to the root element if `margin=\"dense\"`.",
+      "isGlobal": false
+    },
+    {
+      "key": "marginNormal",
+      "className": "MuiPickersTextField-marginNormal",
+      "description": "Styles applied to the root element if `margin=\"normal\"`.",
+      "isGlobal": false
+    }
+  ],
+  "spread": true,
+  "themeDefaultProps": true,
+  "muiName": "MuiPickersTextField",
+  "forwardsRefTo": "HTMLDivElement",
+  "filename": "/packages/x-date-pickers/src/PickersTextField/PickersTextField.tsx",
+  "inheritance": null,
+  "demos": "<ul><li><a href=\"/x/react-date-pickers/custom-field/\">Custom field</a></li></ul>",
+  "cssComponent": false
+}

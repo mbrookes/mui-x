@@ -1,0 +1,13 @@
+<DataGridPro
+  rows={initialRows}
+  {...data}
+  apiRef={apiRef}
+  hideFooterPagination
+  rowCount={rowCount}
+  sortingMode="server"
+  filterMode="server"
+  rowsLoadingMode="server"
+  onFetchRows={debouncedHandleFetchRows}
+  onSortModelChange={handleModelChange}
+  onFilterModelChange={handleModelChange}
+/>

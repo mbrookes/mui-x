@@ -1,0 +1,42 @@
+'use client';
+import { type ChartSeriesType } from '../models/seriesType/config';
+import {
+  type ProcessedSeries,
+  type UseChartSeriesSignature,
+} from '../internals/plugins/corePlugins/useChartSeries';
+import { selectorChartSeriesConfig } from '../internals/plugins/corePlugins/useChartSeriesConfig';
+import { useSeries } from './useSeries';
+import type { SeriesLegendItemParams } from '../ChartsLegend';
+import { useStore } from '../internals/store/useStore';
+import { type ChartSeriesConfig } from '../internals/plugins/corePlugins/useChartSeriesConfig';
+
+function getSeriesToDisplay(
+  series: ProcessedSeries,
+  seriesConfig: ChartSeriesConfig<ChartSeriesType>,
+) {
+  return (Object.keys(series) as ChartSeriesType[]).flatMap(
+    <SeriesType extends ChartSeriesType>(seriesType: SeriesType) => {
+      const getter = seriesConfig[seriesType as SeriesType].legendGetter;
+      return getter === undefined ? [] : getter(series[seriesType as SeriesType]!);
+    },
+  );
+}
+
+/**
+ * Get the legend items to display.
+ *
+ * This hook is used by the `ChartsLegend` component. And will return the legend items formatted for display.
+ *
+ * An alternative is to use the `useSeries` hook and format the legend items yourself.
+ *
+ * @returns legend data
+ */
+export function useLegend(): { items: SeriesLegendItemParams[] } {
+  const series = useSeries();
+  const store = useStore<[UseChartSeriesSignature]>();
+  const seriesConfig = store.use(selectorChartSeriesConfig);
+
+  return {
+    items: getSeriesToDisplay(series, seriesConfig),
+  };
+}

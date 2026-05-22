@@ -1,0 +1,75 @@
+name: Bug report 🐛
+description: Create a bug report for MUI X.
+labels: ['status: waiting for maintainer']
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for contributing by creating an issue! ❤️ Please provide a searchable summary of the issue in the title above ⬆️.
+  - type: input
+    attributes:
+      label: Search keywords
+      description: |
+        Your issue may have already been reported! First search for duplicates among the [existing issues](https://github.com/mui/mui-x/issues?q=is%3Aissue).
+        If your issue isn't a duplicate, great! Please list the keywords you used so people in the future can find this one more easily:
+    validations:
+      required: true
+  - type: checkboxes
+    attributes:
+      label: Latest version
+      description: We roll bug fixes, performance enhancements, and other improvements into new releases.
+      options:
+        - label: I have tested the latest version
+          required: true
+  - type: dropdown
+    attributes:
+      label: Affected products
+      description: Which products are affected by this issue? If you're not sure, leave this blank.
+      multiple: true
+      options:
+        - Data Grid
+        - Date and Time Pickers
+        - Charts
+        - Tree View
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      description: |
+        **⚠️ Issues that we can't reproduce can't be fixed.**
+
+        Please provide a link to a live example and an unambiguous set of steps to reproduce this bug. See our [documentation](https://mui.com/x/introduction/support/#bug-reproductions) on how to build a reproduction case.
+      value: |
+        Steps:
+        1. Open this link to live example: (required)
+        2.
+        3.
+  - type: textarea
+    attributes:
+      label: Current behavior
+      description: Describe what happens instead of the expected behavior.
+  - type: textarea
+    attributes:
+      label: Expected behavior
+      description: Describe what should happen.
+  - type: textarea
+    attributes:
+      label: Context
+      description: What are you trying to accomplish? Providing context helps us come up with a solution that is more useful in the real world.
+  - type: textarea
+    attributes:
+      label: Your environment
+      description: Run `npx @mui/envinfo` and post the results. If you encounter issues with TypeScript please include the used tsconfig.
+      value: |
+        <details>
+          <summary><code>npx @mui/envinfo</code></summary>
+
+        ```
+          Don't forget to mention which browser you used.
+          Output from `npx @mui/envinfo` goes here.
+        ```
+        </details>
+  - type: input
+    id: contact
+    attributes:
+      label: Order ID or Support key 💳 (optional)
+      description: The [Pro plan](https://mui.com/pricing/) comes with priority over the Community plan. Providing your order ID (or support key) gives your problem more attention.
+      placeholder: 'e.g. 11111'

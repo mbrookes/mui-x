@@ -1,0 +1,32 @@
+{
+  "props": {
+    "skipAnimation": { "type": { "name": "bool" }, "default": "false" },
+    "slotProps": { "type": { "name": "object" }, "default": "{}" },
+    "slots": {
+      "type": { "name": "object" },
+      "default": "{}",
+      "additionalInfo": { "slotsApi": true }
+    }
+  },
+  "name": "AreaElement",
+  "imports": [
+    "import { AreaElement } from '@mui/x-charts/LineChart';",
+    "import { AreaElement } from '@mui/x-charts';",
+    "import { AreaElement } from '@mui/x-charts-pro';",
+    "import { AreaElement } from '@mui/x-charts-premium';"
+  ],
+  "slots": [
+    {
+      "name": "area",
+      "description": "The component that renders the area.",
+      "default": "AnimatedArea",
+      "class": null
+    }
+  ],
+  "classes": [],
+  "muiName": "MuiAreaElement",
+  "filename": "/packages/x-charts/src/LineChart/AreaElement.tsx",
+  "inheritance": null,
+  "demos": "<ul><li><a href=\"/x/react-charts/areas-demo/\">Charts - Areas demos</a></li>\n<li><a href=\"/x/react-charts/lines/\">Charts - Lines</a></li></ul>",
+  "cssComponent": false
+}

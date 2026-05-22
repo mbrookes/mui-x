@@ -1,0 +1,10 @@
+<DataGrid
+  {...data}
+  loading={loading}
+  slotProps={{
+    toolbar: {
+      printOptions: { disableToolbarButton: true },
+    },
+  }}
+  showToolbar
+/>

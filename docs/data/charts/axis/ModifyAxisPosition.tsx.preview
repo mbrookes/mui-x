@@ -1,0 +1,5 @@
+<ScatterChart
+  {...params}
+  xAxis={[{ position: 'top' }]}
+  yAxis={[{ position: 'right' }]}
+/>

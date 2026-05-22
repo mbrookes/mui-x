@@ -1,0 +1,8 @@
+<DataGrid
+  {...data}
+  loading={loading}
+  columns={columns}
+  showToolbar
+  filterModel={filterModel}
+  onFilterModelChange={(newFilterModel) => setFilterModel(newFilterModel)}
+/>

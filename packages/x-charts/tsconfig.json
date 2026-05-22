@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "@mui/internal-test-utils/initMatchers",
+      "@mui/material/themeCssVarsAugmentation",
+      "vitest/globals",
+      "node"
+    ],
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/**/*",
+    "../../test/utils/addChaiAssertions.ts",
+    // We include this file in development so to ensure the type overloads don't cause issues.
+    "../x-charts-pro/src/typeOverloads/index.ts",
+    "../x-charts-premium/src/typeOverloads/index.ts"
+  ]
+}

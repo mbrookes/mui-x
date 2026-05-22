@@ -1,0 +1,6 @@
+[
+  { "name": "LicenseInfo", "kind": "Class" },
+  { "name": "muiXTelemetrySettings", "kind": "Variable" },
+  { "name": "Unstable_LicenseInfoProvider", "kind": "Function" },
+  { "name": "Unstable_LicenseInfoProviderProps", "kind": "Interface" }
+]

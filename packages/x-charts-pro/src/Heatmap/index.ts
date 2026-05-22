@@ -1,0 +1,11 @@
+export { Heatmap } from './Heatmap';
+export type { HeatmapSeries, HeatmapProps, HeatmapSlots, HeatmapSlotProps } from './Heatmap';
+export { HeatmapPlot, type HeatmapPlotProps } from './HeatmapPlot';
+export type { HeatmapPlotSlots, HeatmapPlotSlotProps } from './Heatmap.types';
+export * from './FocusedHeatmapCell';
+export { HeatmapCell } from './HeatmapCell';
+export type { HeatmapCellProps, HeatmapCellOwnerState } from './HeatmapCell';
+export * from './HeatmapTooltip';
+export * from './Heatmap.plugins';
+export { heatmapClasses } from './heatmapClasses';
+export type { HeatmapClasses, HeatmapClassKey } from './heatmapClasses';

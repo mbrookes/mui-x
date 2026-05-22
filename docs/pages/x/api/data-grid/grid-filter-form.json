@@ -1,0 +1,65 @@
+{
+  "props": {
+    "applyFilterChanges": {
+      "type": { "name": "func" },
+      "required": true,
+      "signature": { "type": "function(item: GridFilterItem) => void", "describedArgs": ["item"] }
+    },
+    "applyMultiFilterOperatorChanges": {
+      "type": { "name": "func" },
+      "required": true,
+      "signature": {
+        "type": "function(operator: GridLogicOperator) => void",
+        "describedArgs": ["operator"]
+      }
+    },
+    "deleteFilter": {
+      "type": { "name": "func" },
+      "required": true,
+      "signature": { "type": "function(item: GridFilterItem) => void", "describedArgs": ["item"] }
+    },
+    "hasMultipleFilters": { "type": { "name": "bool" }, "required": true },
+    "item": {
+      "type": {
+        "name": "shape",
+        "description": "{ field: string, id?: number<br>&#124;&nbsp;string, operator: string, value?: any }"
+      },
+      "required": true
+    },
+    "columnInputProps": { "type": { "name": "any" }, "default": "{}" },
+    "columnsSort": { "type": { "name": "enum", "description": "'asc'<br>&#124;&nbsp;'desc'" } },
+    "deleteIconProps": { "type": { "name": "any" }, "default": "{}" },
+    "disableMultiFilterOperator": { "type": { "name": "bool" } },
+    "filterColumns": {
+      "type": { "name": "func" },
+      "signature": {
+        "type": "function(args: FilterColumnsArgs) => void",
+        "describedArgs": ["args"]
+      }
+    },
+    "focusElementRef": { "type": { "name": "union", "description": "func<br>&#124;&nbsp;object" } },
+    "logicOperatorInputProps": { "type": { "name": "any" }, "default": "{}" },
+    "logicOperators": {
+      "type": { "name": "arrayOf", "description": "Array&lt;'and'<br>&#124;&nbsp;'or'&gt;" },
+      "default": "[GridLogicOperator.And, GridLogicOperator.Or]"
+    },
+    "operatorInputProps": { "type": { "name": "any" }, "default": "{}" },
+    "readOnly": { "type": { "name": "bool" }, "default": "false" },
+    "showMultiFilterOperators": { "type": { "name": "bool" } },
+    "valueInputProps": { "type": { "name": "any" }, "default": "{}" }
+  },
+  "name": "GridFilterForm",
+  "imports": [
+    "import { GridFilterForm } from '@mui/x-data-grid/components';",
+    "import { GridFilterForm } from '@mui/x-data-grid';",
+    "import { GridFilterForm } from '@mui/x-data-grid-pro';",
+    "import { GridFilterForm } from '@mui/x-data-grid-premium';"
+  ],
+  "classes": [],
+  "muiName": "MuiGridFilterForm",
+  "forwardsRefTo": "GridRoot",
+  "filename": "/packages/x-data-grid/src/components/panel/filterPanel/GridFilterForm.tsx",
+  "inheritance": null,
+  "demos": "<ul><li><a href=\"/x/react-data-grid/#community-version-free-forever\">DataGrid</a></li>\n<li><a href=\"/x/react-data-grid/#pro-version\">DataGridPro</a></li>\n<li><a href=\"/x/react-data-grid/#premium-version\">DataGridPremium</a></li></ul>",
+  "cssComponent": false
+}

@@ -1,0 +1,289 @@
+'use client';
+import * as React from 'react';
+import PropTypes from 'prop-types';
+import { styled, useThemeProps } from '@mui/material/styles';
+import { shouldForwardProp } from '@mui/system/createStyled';
+import refType from '@mui/utils/refType';
+import composeClasses from '@mui/utils/composeClasses';
+import {
+  pickersInputClasses,
+  getPickersInputUtilityClass,
+  PickersInputClasses,
+} from './pickersInputClasses';
+import { PickersInputBase, PickersInputBaseProps } from '../PickersInputBase';
+import { PickersInputBaseRoot } from '../PickersInputBase/PickersInputBase';
+import { PickerTextFieldOwnerState } from '../../models/fields';
+import { usePickerTextFieldOwnerState } from '../usePickerTextFieldOwnerState';
+
+export interface PickersInputProps extends PickersInputBaseProps {
+  disableUnderline?: boolean;
+}
+
+export interface PickerInputOwnerState extends PickerTextFieldOwnerState {
+  /**
+   * `true` if the input has an underline, `false` otherwise.
+   */
+  inputHasUnderline: boolean;
+}
+
+const PickersInputRoot = styled(PickersInputBaseRoot, {
+  name: 'MuiPickersInput',
+  slot: 'Root',
+  shouldForwardProp: (prop) => shouldForwardProp(prop) && prop !== 'disableUnderline',
+})<{ ownerState: PickerInputOwnerState }>(({ theme }) => {
+  const light = theme.palette.mode === 'light';
+  let bottomLineColor = light ? 'rgba(0, 0, 0, 0.42)' : 'rgba(255, 255, 255, 0.7)';
+  if (theme.vars) {
+    bottomLineColor = theme.alpha(
+      theme.vars.palette.common.onBackground,
+      theme.vars.opacity.inputUnderline,
+    );
+  }
+  return {
+    'label + &': {
+      marginTop: 16,
+    },
+    variants: [
+      ...Object.keys((theme.vars ?? theme).palette)
+        // @ts-ignore
+        .filter((key) => (theme.vars ?? theme).palette[key].main)
+        .map((color) => ({
+          props: {
+            inputColor: color as PickerTextFieldOwnerState['inputColor'],
+            inputHasUnderline: true,
+          },
+          style: {
+            '&::after': {
+              // @ts-ignore
+              borderBottom: `2px solid ${(theme.vars || theme).palette[color].main}`,
+            },
+          },
+        })),
+      {
+        props: { inputHasUnderline: true },
+        style: {
+          '&::after': {
+            background: 'red',
+            left: 0,
+            bottom: 0,
+            // Doing the other way around crash on IE 11 "''" https://github.com/cssinjs/jss/issues/242
+            content: '""',
+            position: 'absolute',
+            right: 0,
+            transform: 'scaleX(0)',
+            transition: theme.transitions.create('transform', {
+              duration: theme.transitions.duration.shorter,
+              easing: theme.transitions.easing.easeOut,
+            }),
+            pointerEvents: 'none', // Transparent to the hover style.
+          },
+          [`&.${pickersInputClasses.focused}:after`]: {
+            // translateX(0) is a workaround for Safari transform scale bug
+            // See https://github.com/mui/material-ui/issues/31766
+            transform: 'scaleX(1) translateX(0)',
+          },
+          [`&.${pickersInputClasses.error}`]: {
+            '&:before, &:after': {
+              borderBottomColor: (theme.vars || theme).palette.error.main,
+            },
+          },
+          '&::before': {
+            borderBottom: `1px solid ${bottomLineColor}`,
+            left: 0,
+            bottom: 0,
+            // Doing the other way around crash on IE 11 "''" https://github.com/cssinjs/jss/issues/242
+            content: '"\\00a0"',
+            position: 'absolute',
+            right: 0,
+            transition: theme.transitions.create('border-bottom-color', {
+              duration: theme.transitions.duration.shorter,
+            }),
+            pointerEvents: 'none', // Transparent to the hover style.
+          },
+          [`&:hover:not(.${pickersInputClasses.disabled}, .${pickersInputClasses.error}):before`]: {
+            borderBottom: `2px solid ${(theme.vars || theme).palette.text.primary}`,
+            // Reset on touch devices, it doesn't add specificity
+            '@media (hover: none)': {
+              borderBottom: `1px solid ${bottomLineColor}`,
+            },
+          },
+          [`&.${pickersInputClasses.disabled}:before`]: {
+            borderBottomStyle: 'dotted',
+          },
+        },
+      },
+    ],
+  };
+});
+
+const useUtilityClasses = (
+  classes: Partial<PickersInputClasses> | undefined,
+  ownerState: PickerInputOwnerState,
+) => {
+  const { inputHasUnderline } = ownerState;
+
+  const slots = {
+    root: ['root', !inputHasUnderline && 'underline'],
+    input: ['input'],
+  };
+
+  const composedClasses = composeClasses(slots, getPickersInputUtilityClass, classes);
+
+  return {
+    ...classes, // forward classes to the PickersInputBase
+    ...composedClasses,
+  };
+};
+
+/**
+ * @ignore - internal component.
+ */
+const PickersInput = React.forwardRef(function PickersInput(
+  inProps: PickersInputProps,
+  ref: React.Ref<HTMLDivElement>,
+) {
+  const props = useThemeProps({
+    props: inProps,
+    name: 'MuiPickersInput',
+  });
+
+  const {
+    label,
+    autoFocus,
+    disableUnderline = false,
+    ownerState: ownerStateProp,
+    classes: classesProp,
+    slots: inSlots,
+    slotProps: inSlotProps,
+    ...other
+  } = props;
+
+  const pickerTextFieldOwnerState = usePickerTextFieldOwnerState();
+  const ownerState: PickerInputOwnerState = {
+    ...pickerTextFieldOwnerState,
+    inputHasUnderline: !disableUnderline,
+  };
+  const classes = useUtilityClasses(classesProp, ownerState);
+
+  return (
+    <PickersInputBase
+      {...other}
+      slots={{ root: PickersInputRoot, ...inSlots }}
+      slotProps={{
+        ...inSlotProps,
+        root: { disableUnderline, ...inSlotProps?.root },
+      }}
+      ownerState={ownerState}
+      label={label}
+      classes={classes}
+      ref={ref as any}
+    />
+  );
+});
+
+PickersInput.propTypes = {
+  // ----------------------------- Warning --------------------------------
+  // | These PropTypes are generated from the TypeScript type definitions |
+  // | To update them edit the TypeScript types and run "pnpm proptypes"  |
+  // ----------------------------------------------------------------------
+  /**
+   * Is `true` if the current values equals the empty value.
+   * For a single item value, it means that `value === null`
+   * For a range value, it means that `value === [null, null]`
+   */
+  areAllSectionsEmpty: PropTypes.bool.isRequired,
+  classes: PropTypes.object,
+  className: PropTypes.string,
+  /**
+   * If true, the whole element is editable.
+   * Useful when all the sections are selected.
+   */
+  contentEditable: PropTypes.bool.isRequired,
+  'data-multi-input': PropTypes.string,
+  disableUnderline: PropTypes.bool,
+  /**
+   * The elements to render.
+   * Each element contains the prop to edit a section of the value.
+   */
+  elements: PropTypes.arrayOf(
+    PropTypes.shape({
+      after: PropTypes.object.isRequired,
+      before: PropTypes.object.isRequired,
+      container: PropTypes.object.isRequired,
+      content: PropTypes.object.isRequired,
+    }),
+  ).isRequired,
+  /**
+   * End `InputAdornment` for this component.
+   */
+  endAdornment: PropTypes.node,
+  /**
+   * If `true`, the input will take up the full width of its container.
+   * @default false
+   */
+  fullWidth: PropTypes.bool,
+  /**
+   * The id of the `input` element.
+   */
+  id: PropTypes.string,
+  /**
+   * Pass a ref to the `input` element.
+   */
+  inputRef: refType,
+  /**
+   * The label content.
+   */
+  label: PropTypes.node,
+  margin: PropTypes.oneOf(['dense', 'none', 'normal']),
+  /**
+   * Name attribute of the `input` element.
+   */
+  name: PropTypes.string,
+  onChange: PropTypes.func.isRequired,
+  onClick: PropTypes.func.isRequired,
+  onInput: PropTypes.func.isRequired,
+  onKeyDown: PropTypes.func.isRequired,
+  onPaste: PropTypes.func.isRequired,
+  ownerState: PropTypes /* @typescript-to-proptypes-ignore */.any,
+  readOnly: PropTypes.bool,
+  renderSuffix: PropTypes.func,
+  sectionListRef: PropTypes.oneOfType([
+    PropTypes.func,
+    PropTypes.shape({
+      current: PropTypes.shape({
+        getRoot: PropTypes.func.isRequired,
+        getSectionContainer: PropTypes.func.isRequired,
+        getSectionContent: PropTypes.func.isRequired,
+        getSectionIndexFromDOMElement: PropTypes.func.isRequired,
+      }),
+    }),
+  ]),
+  /**
+   * The props used for each component slot.
+   * @default {}
+   */
+  slotProps: PropTypes.object,
+  /**
+   * The components used for each slot inside.
+   *
+   * @default {}
+   */
+  slots: PropTypes.object,
+  /**
+   * Start `InputAdornment` for this component.
+   */
+  startAdornment: PropTypes.node,
+  /**
+   * The system prop that allows defining system overrides as well as additional CSS styles.
+   */
+  sx: PropTypes.oneOfType([
+    PropTypes.arrayOf(PropTypes.oneOfType([PropTypes.func, PropTypes.object, PropTypes.bool])),
+    PropTypes.func,
+    PropTypes.object,
+  ]),
+  value: PropTypes.string.isRequired,
+} as any;
+
+export { PickersInput };
+
+(PickersInput as any).muiName = 'Input';

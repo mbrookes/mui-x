@@ -1,0 +1,39 @@
+import composeClasses from '@mui/utils/composeClasses';
+import generateUtilityClass from '@mui/utils/generateUtilityClass';
+import generateUtilityClasses from '@mui/utils/generateUtilityClasses';
+import type { ChartsLabelMarkProps } from './ChartsLabelMark';
+
+export interface ChartsLabelMarkClasses {
+  /** Styles applied to the root element. */
+  root: string;
+  /** Styles applied to the mark type "line". */
+  line: string;
+  /** Styles applied to the mark type "line+mark". */
+  lineAndMark: string;
+  /** Styles applied to the mark type "square". */
+  square: string;
+  /** Styles applied to the mark type "circle". */
+  circle: string;
+  /** Styles applied to the element with fill={color} attribute. */
+  fill: string;
+}
+
+function getLabelMarkUtilityClass(slot: string) {
+  return generateUtilityClass('MuiChartsLabelMark', slot);
+}
+
+export const labelMarkClasses: ChartsLabelMarkClasses = generateUtilityClasses(
+  'MuiChartsLabelMark',
+  ['root', 'line', 'lineAndMark', 'square', 'circle', 'fill'],
+);
+
+export const useUtilityClasses = (props: ChartsLabelMarkProps) => {
+  const { type } = props;
+  const slots = {
+    root:
+      typeof type === 'function' ? ['root'] : ['root', type === 'line+mark' ? 'lineAndMark' : type],
+    fill: ['fill'],
+  };
+
+  return composeClasses(slots, getLabelMarkUtilityClass, props.classes);
+};

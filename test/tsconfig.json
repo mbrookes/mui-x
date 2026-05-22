@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "@mui/internal-test-utils/initMatchers",
+      "@mui/material/themeCssVarsAugmentation",
+      "dayjs/plugin/timezone.d.ts",
+      "dayjs/plugin/utc.d.ts",
+      "vite/client",
+      "vitest/globals",
+      "moment-timezone"
+    ],
+    "skipLibCheck": true
+  },
+  "include": ["utils/**/*", "setupVite.ts", "vite-plugin-filter-replace.mts"]
+}

@@ -1,0 +1,113 @@
+'use client';
+import * as React from 'react';
+import useSlotProps from '@mui/utils/useSlotProps';
+import composeClasses from '@mui/utils/composeClasses';
+import { useRtl } from '@mui/system/RtlProvider';
+import { PickersActionBar } from '../PickersActionBar';
+import { PickerLayoutOwnerState, PickersLayoutProps, SubComponents } from './PickersLayout.types';
+import { getPickersLayoutUtilityClass, PickersLayoutClasses } from './pickersLayoutClasses';
+import { PickersShortcuts, PickersShortcutsProps } from '../PickersShortcuts';
+import { BaseToolbarProps } from '../internals/models/props/toolbar';
+import { PickerValidValue } from '../internals/models';
+import { usePickerPrivateContext } from '../internals/hooks/usePickerPrivateContext';
+import { usePickerContext } from '../hooks';
+
+function toolbarHasView(toolbarProps: BaseToolbarProps | any): toolbarProps is BaseToolbarProps {
+  return toolbarProps.view !== null;
+}
+
+const useUtilityClasses = (
+  classes: Partial<PickersLayoutClasses> | undefined,
+  ownerState: PickerLayoutOwnerState,
+) => {
+  const { pickerOrientation } = ownerState;
+  const slots = {
+    root: ['root', pickerOrientation === 'landscape' && 'landscape'],
+    contentWrapper: ['contentWrapper'],
+    toolbar: ['toolbar'],
+    actionBar: ['actionBar'],
+    tabs: ['tabs'],
+    landscape: ['landscape'],
+    shortcuts: ['shortcuts'],
+  };
+
+  return composeClasses(slots, getPickersLayoutUtilityClass, classes);
+};
+
+interface UsePickerLayoutResponse<TValue extends PickerValidValue> extends SubComponents<TValue> {
+  ownerState: PickerLayoutOwnerState;
+}
+
+const usePickerLayout = <TValue extends PickerValidValue>(
+  props: PickersLayoutProps<TValue>,
+): UsePickerLayoutResponse<TValue> => {
+  const { ownerState: pickerOwnerState, defaultActionBarActions } = usePickerPrivateContext();
+  const { view } = usePickerContext();
+  const isRtl = useRtl();
+
+  const { children, slots, slotProps, classes: classesProp } = props;
+
+  const ownerState = React.useMemo<PickerLayoutOwnerState>(
+    () => ({ ...pickerOwnerState, layoutDirection: isRtl ? 'rtl' : 'ltr', hasShortcuts: false }),
+    [pickerOwnerState, isRtl],
+  );
+  const classes = useUtilityClasses(classesProp, ownerState);
+
+  // Action bar
+  const ActionBar = slots?.actionBar ?? PickersActionBar;
+  const {
+    // PickersActionBar does not use it and providing it breaks memoization
+    ownerState: destructuredOwnerState,
+    ...actionBarProps
+  } = useSlotProps({
+    elementType: ActionBar,
+    externalSlotProps: slotProps?.actionBar,
+    additionalProps: {
+      actions: defaultActionBarActions,
+    },
+    className: classes.actionBar,
+    ownerState,
+  });
+  const actionBar = <ActionBar {...actionBarProps} />;
+
+  // Toolbar
+  const Toolbar = slots?.toolbar;
+  const toolbarProps = useSlotProps({
+    elementType: Toolbar!,
+    externalSlotProps: slotProps?.toolbar,
+    className: classes.toolbar,
+    ownerState,
+  });
+  const toolbar = toolbarHasView(toolbarProps) && !!Toolbar ? <Toolbar {...toolbarProps} /> : null;
+
+  // Content
+  const content = children;
+
+  // Tabs
+  const Tabs = slots?.tabs;
+  const tabs = view && Tabs ? <Tabs className={classes.tabs} {...slotProps?.tabs} /> : null;
+
+  // Shortcuts
+  const Shortcuts = slots?.shortcuts ?? PickersShortcuts;
+  const shortcutsProps = useSlotProps({
+    elementType: Shortcuts!,
+    externalSlotProps: slotProps?.shortcuts,
+    className: classes.shortcuts,
+    ownerState,
+  }) as PickersShortcutsProps<TValue>;
+
+  const hasShortcuts = Array.isArray(shortcutsProps?.items) && shortcutsProps.items.length > 0;
+
+  const shortcuts = view && !!Shortcuts ? <Shortcuts {...shortcutsProps} /> : null;
+
+  return {
+    toolbar,
+    content,
+    tabs,
+    actionBar,
+    shortcuts,
+    ownerState: { ...ownerState, hasShortcuts },
+  };
+};
+
+export default usePickerLayout;

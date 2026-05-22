@@ -1,0 +1,594 @@
+'use client';
+import * as React from 'react';
+import * as ReactDOM from 'react-dom';
+import PropTypes from 'prop-types';
+import HTMLElementType from '@mui/utils/HTMLElementType';
+import useLazyRef from '@mui/utils/useLazyRef';
+import { styled, useThemeProps } from '@mui/material/styles';
+import Popper, { type PopperProps } from '@mui/material/Popper';
+import NoSsr from '@mui/material/NoSsr';
+import { rafThrottle } from '@mui/x-internals/rafThrottle';
+import { warnOnce } from '@mui/x-internals/warning';
+import { type TriggerOptions, useIsFineMainPointer } from './utils';
+import { type ChartsTooltipClasses, useUtilityClasses } from './chartsTooltipClasses';
+import { useStore } from '../internals/store/useStore';
+import {
+  selectorChartsLastInteraction,
+  selectorChartsPointerType,
+} from '../internals/plugins/featurePlugins/useChartInteraction';
+import {
+  selectorChartsTooltipItemIsDefined,
+  selectorChartsTooltipItemPosition,
+  type UseChartTooltipSignature,
+} from '../internals/plugins/featurePlugins/useChartTooltip';
+import { type UseChartCartesianAxisSignature } from '../internals/plugins/featurePlugins/useChartCartesianAxis';
+import {
+  selectorChartsInteractionAxisTooltip,
+  selectorChartsTooltipAxisPosition,
+} from '../internals/plugins/featurePlugins/useChartCartesianAxis/useChartCartesianTooltip.selectors';
+import { selectorChartsInteractionPolarAxisTooltip } from '../internals/plugins/featurePlugins/useChartPolarAxis/useChartPolarInteraction.selectors';
+import { useAxisSystem } from '../hooks/useAxisSystem';
+import { useChartsLayerContainerRef } from '../hooks';
+import { selectorBrushShouldPreventTooltip } from '../internals/plugins/featurePlugins/useChartBrush';
+import type { UseChartInteractionSignature } from '../internals/plugins/featurePlugins/useChartInteraction/useChartInteraction.types';
+
+const selectorReturnFalse = () => false;
+const selectorReturnNull = () => null;
+
+function getIsOpenSelector(
+  trigger: TriggerOptions,
+  axisSystem: 'none' | 'polar' | 'cartesian',
+  shouldPreventBecauseOfBrush?: boolean,
+) {
+  if (shouldPreventBecauseOfBrush) {
+    return selectorReturnFalse;
+  }
+  if (trigger === 'item') {
+    return selectorChartsTooltipItemIsDefined;
+  }
+  if (axisSystem === 'polar') {
+    return selectorChartsInteractionPolarAxisTooltip;
+  }
+  if (axisSystem === 'cartesian') {
+    return selectorChartsInteractionAxisTooltip;
+  }
+  return selectorReturnFalse;
+}
+
+const defaultAnchorByTrigger = {
+  item: 'node',
+  axis: 'chart',
+  none: 'pointer',
+} as const;
+
+const getPositionSelectorByAnchor = (anchor: 'pointer' | 'node' | 'chart') => {
+  switch (anchor) {
+    case 'node':
+      return selectorChartsTooltipItemPosition;
+    case 'chart':
+      return selectorChartsTooltipAxisPosition;
+    default:
+      return selectorReturnNull;
+  }
+};
+
+type PopperSlots = NonNullable<PopperProps['slots']>;
+
+type PopperSlotProps = NonNullable<PopperProps['slotProps']>;
+
+export interface ChartsTooltipContainerSlots extends PopperSlots {}
+
+export interface ChartsTooltipContainerSlotProps extends PopperSlotProps {}
+
+export interface ChartsTooltipContainerClasses extends ChartsTooltipClasses {}
+
+export interface ChartsTooltipContainerProps<
+  T extends TriggerOptions = TriggerOptions,
+> extends Partial<PopperProps> {
+  /**
+   * Select the kind of tooltip to display
+   * - 'item': Shows data about the item below the mouse;
+   * - 'axis': Shows values associated with the hovered x value;
+   * - 'none': Does not display tooltip.
+   * @default 'axis'
+   */
+  trigger?: T;
+  /**
+   * Override or extend the styles applied to the component.
+   */
+  classes?: Partial<ChartsTooltipContainerClasses>;
+  /**
+   * Overridable component slots.
+   * @default {}
+   */
+  slots?: ChartsTooltipContainerSlots;
+  /**
+   * The props used for each component slot.
+   * @default {}
+   */
+  slotProps?: ChartsTooltipContainerSlotProps;
+  /**
+   * Determine if the tooltip should be placed on the pointer location or on the node.
+   * @default 'pointer'
+   */
+  anchor?: T extends 'item'
+    ? 'pointer' | 'node'
+    : T extends 'axis'
+      ? 'pointer' | 'chart'
+      : 'pointer';
+  /**
+   * Determines the tooltip position relatively to the anchor.
+   */
+  position?: 'top' | 'bottom' | 'left' | 'right';
+  children?: React.ReactNode;
+}
+
+const ChartsTooltipRoot = styled(Popper, {
+  name: 'MuiChartsTooltip',
+  slot: 'Root',
+})(({ theme }) => ({
+  pointerEvents: 'none',
+  zIndex: theme.zIndex.modal,
+}));
+
+/**
+ * Demos:
+ *
+ * - [ChartsTooltip](https://mui.com/x/react-charts/tooltip/)
+ *
+ * API:
+ *
+ * - [ChartsTooltip API](https://mui.com/x/api/charts/charts-tool-tip/)
+ */
+function ChartsTooltipContainer(inProps: ChartsTooltipContainerProps) {
+  const props = useThemeProps({
+    props: inProps,
+    name: 'MuiChartsTooltipContainer',
+  });
+  const {
+    trigger = 'axis',
+    position,
+    anchor = 'pointer',
+    classes: propClasses,
+    children,
+    ...other
+  } = props;
+
+  const store =
+    useStore<
+      [UseChartCartesianAxisSignature, UseChartInteractionSignature, UseChartTooltipSignature]
+    >();
+
+  if (process.env.NODE_ENV !== 'production') {
+    const isItemControlled = store.state.tooltip?.itemIsControlled ?? false;
+    const isAxisControlled = store.state.controlledCartesianAxisTooltip !== undefined;
+
+    if (trigger !== 'item' && isItemControlled) {
+      warnOnce(
+        [
+          `MUI X Charts: The \`tooltipItem\` prop is provided, but the tooltip trigger is set to '${trigger}'.`,
+          "The `tooltipItem` prop only has an effect when the tooltip trigger is 'item'.",
+        ],
+        'error',
+      );
+    }
+    if (trigger !== 'axis' && isAxisControlled) {
+      warnOnce(
+        [
+          `MUI X Charts: The \`tooltipAxis\` prop is provided, but the tooltip trigger is set to '${trigger}'.`,
+          "The `tooltipAxis` prop only has an effect when the tooltip trigger is 'axis'.",
+        ],
+        'error',
+      );
+    }
+  }
+
+  const chartsLayerContainerRef = useChartsLayerContainerRef();
+  const anchorRef = React.useRef<HTMLDivElement | null>(null);
+
+  const classes = useUtilityClasses(propClasses);
+
+  const pointerType = store.use(selectorChartsPointerType);
+  const isFineMainPointer = useIsFineMainPointer();
+
+  const popperRef: PopperProps['popperRef'] = React.useRef(null);
+  const positionRef = useLazyRef(() => ({ x: 0, y: 0 }));
+
+  const axisSystem = useAxisSystem();
+
+  const shouldPreventBecauseOfBrush = store.use(selectorBrushShouldPreventTooltip);
+  const isOpen = store.use(getIsOpenSelector(trigger, axisSystem, shouldPreventBecauseOfBrush));
+
+  const lastInteraction = store.use(selectorChartsLastInteraction);
+
+  const pointerAnchorUnavailable = lastInteraction === 'keyboard' || pointerType === null;
+  const computedAnchor = pointerAnchorUnavailable ? defaultAnchorByTrigger[trigger] : anchor;
+
+  const itemPosition = store.use(getPositionSelectorByAnchor(computedAnchor), props.position);
+
+  const isTooltipNodeAnchored = itemPosition !== null;
+
+  React.useEffect(() => {
+    const svgElement = chartsLayerContainerRef.current;
+    if (svgElement === null) {
+      return () => {};
+    }
+
+    if (isTooltipNodeAnchored) {
+      // Tooltip position is already handled by the anchor element
+      return undefined;
+    }
+
+    const pointerUpdate = rafThrottle((x: number, y: number) => {
+      // eslint-disable-next-line react-compiler/react-compiler
+      positionRef.current = { x, y };
+      popperRef.current?.update();
+    });
+
+    const handlePointerEvent = (event: PointerEvent) => {
+      pointerUpdate(event.clientX, event.clientY);
+    };
+
+    svgElement.addEventListener('pointermove', handlePointerEvent);
+    svgElement.addEventListener('pointerenter', handlePointerEvent);
+
+    return () => {
+      svgElement.removeEventListener('pointermove', handlePointerEvent);
+      svgElement.removeEventListener('pointerenter', handlePointerEvent);
+      pointerUpdate.clear();
+    };
+  }, [chartsLayerContainerRef, positionRef, isTooltipNodeAnchored]);
+
+  const pointerAnchorEl = React.useMemo(
+    () => ({
+      getBoundingClientRect: () => ({
+        x: positionRef.current.x,
+        y: positionRef.current.y,
+        top: positionRef.current.y,
+        left: positionRef.current.x,
+        right: positionRef.current.x,
+        bottom: positionRef.current.y,
+        width: 0,
+        height: 0,
+        toJSON: () => '',
+      }),
+    }),
+    [positionRef],
+  );
+
+  const isMouse = pointerType === 'mouse' || isFineMainPointer;
+  const isTouch = pointerType === 'touch' || !isFineMainPointer;
+
+  const modifiers = React.useMemo(
+    () => [
+      {
+        name: 'offset',
+        options: {
+          offset: () => {
+            if (isTouch && !isTooltipNodeAnchored) {
+              return [0, 64];
+            }
+            // The popper offset: [skidding, distance]
+            return [0, 8];
+          },
+        },
+      },
+      ...(!isMouse
+        ? [
+            {
+              name: 'flip',
+              options: {
+                fallbackPlacements: ['top-end', 'top-start', 'bottom-end', 'bottom'],
+              },
+            },
+          ]
+        : []), // Keep default behavior
+      { name: 'preventOverflow', options: { altAxis: true } },
+    ],
+    [isMouse, isTooltipNodeAnchored, isTouch],
+  );
+
+  if (trigger === 'none') {
+    return null;
+  }
+
+  return (
+    <React.Fragment>
+      {chartsLayerContainerRef.current &&
+        ReactDOM.createPortal(
+          <div
+            ref={anchorRef}
+            style={{
+              position: 'absolute',
+              display: 'hidden',
+              left: itemPosition?.x ?? 0,
+              top: itemPosition?.y ?? 0,
+              pointerEvents: 'none',
+              opacity: 0,
+              // TODO: Is this true for a div as well?
+              // On ios a rect with no width/height is not detectable by the popper.js
+              width: 1,
+              height: 1,
+            }}
+          />,
+          chartsLayerContainerRef.current,
+        )}
+      <NoSsr>
+        {isOpen && (
+          <ChartsTooltipRoot
+            {...other}
+            // The key is here to make sure the tooltip uses the new anchor immediately.
+            key={itemPosition ? 'charts-anchored' : 'charts-pointer'}
+            className={classes?.root}
+            open={isOpen}
+            placement={
+              other.placement ??
+              position ??
+              (!isTooltipNodeAnchored && isMouse ? 'right-start' : 'top')
+            }
+            popperRef={popperRef}
+            anchorEl={itemPosition ? anchorRef.current : pointerAnchorEl}
+            modifiers={modifiers}
+            container={chartsLayerContainerRef.current}
+            popperOptions={{ ...other.popperOptions, strategy: 'fixed' }}
+          >
+            {children}
+          </ChartsTooltipRoot>
+        )}
+      </NoSsr>
+    </React.Fragment>
+  );
+}
+
+ChartsTooltipContainer.propTypes = {
+  // ----------------------------- Warning --------------------------------
+  // | These PropTypes are generated from the TypeScript type definitions |
+  // | To update them edit the TypeScript types and run "pnpm proptypes"  |
+  // ----------------------------------------------------------------------
+  /**
+   * Determine if the tooltip should be placed on the pointer location or on the node.
+   * @default 'pointer'
+   */
+  anchor: PropTypes.oneOf(['node', 'pointer']),
+  /**
+   * An HTML element, [virtualElement](https://popper.js.org/docs/v2/virtual-elements/),
+   * or a function that returns either.
+   * It's used to set the position of the popper.
+   * The return value will passed as the reference object of the Popper instance.
+   */
+  anchorEl: PropTypes /* @typescript-to-proptypes-ignore */.oneOfType([
+    HTMLElementType,
+    PropTypes.object,
+    PropTypes.func,
+  ]),
+  /**
+   * Popper render function or node.
+   */
+  children: PropTypes.node,
+  /**
+   * Override or extend the styles applied to the component.
+   */
+  classes: PropTypes.object,
+  /**
+   * The component used for the root node.
+   * Either a string to use a HTML element or a component.
+   */
+  component: PropTypes.elementType,
+  /**
+   * The components used for each slot inside the Popper.
+   * Either a string to use a HTML element or a component.
+   *
+   * @deprecated use the `slots` prop instead. This prop will be removed in a future major release. [How to migrate](/material-ui/migration/migrating-from-deprecated-apis/).
+   * @default {}
+   */
+  components: PropTypes.shape({
+    Root: PropTypes.elementType,
+  }),
+  /**
+   * The props used for each slot inside the Popper.
+   *
+   * @deprecated use the `slotProps` prop instead. This prop will be removed in a future major release. [How to migrate](/material-ui/migration/migrating-from-deprecated-apis/).
+   * @default {}
+   */
+  componentsProps: PropTypes.shape({
+    root: PropTypes.oneOfType([PropTypes.func, PropTypes.object]),
+  }),
+  /**
+   * An HTML element or function that returns one.
+   * The `container` will have the portal children appended to it.
+   *
+   * You can also provide a callback, which is called in a React layout effect.
+   * This lets you set the container from a ref, and also makes server-side rendering possible.
+   *
+   * By default, it uses the body of the top-level document object,
+   * so it's simply `document.body` most of the time.
+   */
+  container: PropTypes.oneOfType([
+    (props, propName) => {
+      if (props[propName] == null) {
+        return new Error(`MUI X: Prop '${propName}' is required but wasn't specified`);
+      }
+      if (typeof props[propName] !== 'object' || props[propName].nodeType !== 1) {
+        return new Error(`MUI X: Expected prop '${propName}' to be of type Element`);
+      }
+      return null;
+    },
+    PropTypes.func,
+  ]),
+  /**
+   * The `children` will be under the DOM hierarchy of the parent component.
+   * @default false
+   */
+  disablePortal: PropTypes.bool,
+  /**
+   * Always keep the children in the DOM.
+   * This prop can be useful in SEO situation or
+   * when you want to maximize the responsiveness of the Popper.
+   * @default false
+   */
+  keepMounted: PropTypes.bool,
+  /**
+   * Popper.js is based on a "plugin-like" architecture,
+   * most of its features are fully encapsulated "modifiers".
+   *
+   * A modifier is a function that is called each time Popper.js needs to
+   * compute the position of the popper.
+   * For this reason, modifiers should be very performant to avoid bottlenecks.
+   * To learn how to create a modifier, [read the modifiers documentation](https://popper.js.org/docs/v2/modifiers/).
+   */
+  modifiers: PropTypes.arrayOf(
+    PropTypes.shape({
+      data: PropTypes.object,
+      effect: PropTypes.func,
+      enabled: PropTypes.bool,
+      fn: PropTypes.func,
+      name: PropTypes.any,
+      options: PropTypes.object,
+      phase: PropTypes.oneOf([
+        'afterMain',
+        'afterRead',
+        'afterWrite',
+        'beforeMain',
+        'beforeRead',
+        'beforeWrite',
+        'main',
+        'read',
+        'write',
+      ]),
+      requires: PropTypes.arrayOf(PropTypes.string),
+      requiresIfExists: PropTypes.arrayOf(PropTypes.string),
+    }),
+  ),
+  /**
+   * If `true`, the component is shown.
+   */
+  open: PropTypes.bool,
+  /**
+   * Popper placement.
+   * @default 'bottom'
+   */
+  placement: PropTypes.oneOf([
+    'auto-end',
+    'auto-start',
+    'auto',
+    'bottom-end',
+    'bottom-start',
+    'bottom',
+    'left-end',
+    'left-start',
+    'left',
+    'right-end',
+    'right-start',
+    'right',
+    'top-end',
+    'top-start',
+    'top',
+  ]),
+  /**
+   * Options provided to the [`Popper.js`](https://popper.js.org/docs/v2/constructors/#options) instance.
+   * @default {}
+   */
+  popperOptions: PropTypes.shape({
+    modifiers: PropTypes.array,
+    onFirstUpdate: PropTypes.func,
+    placement: PropTypes.oneOf([
+      'auto-end',
+      'auto-start',
+      'auto',
+      'bottom-end',
+      'bottom-start',
+      'bottom',
+      'left-end',
+      'left-start',
+      'left',
+      'right-end',
+      'right-start',
+      'right',
+      'top-end',
+      'top-start',
+      'top',
+    ]),
+    strategy: PropTypes.oneOf(['absolute', 'fixed']),
+  }),
+  /**
+   * A ref that points to the used popper instance.
+   */
+  popperRef: PropTypes.oneOfType([
+    PropTypes.func,
+    PropTypes.shape({
+      current: PropTypes.shape({
+        destroy: PropTypes.func.isRequired,
+        forceUpdate: PropTypes.func.isRequired,
+        setOptions: PropTypes.func.isRequired,
+        state: PropTypes.shape({
+          attributes: PropTypes.object.isRequired,
+          elements: PropTypes.object.isRequired,
+          modifiersData: PropTypes.object.isRequired,
+          options: PropTypes.object.isRequired,
+          orderedModifiers: PropTypes.arrayOf(PropTypes.object).isRequired,
+          placement: PropTypes.oneOf([
+            'auto-end',
+            'auto-start',
+            'auto',
+            'bottom-end',
+            'bottom-start',
+            'bottom',
+            'left-end',
+            'left-start',
+            'left',
+            'right-end',
+            'right-start',
+            'right',
+            'top-end',
+            'top-start',
+            'top',
+          ]).isRequired,
+          rects: PropTypes.object.isRequired,
+          reset: PropTypes.bool.isRequired,
+          scrollParents: PropTypes.object.isRequired,
+          strategy: PropTypes.oneOf(['absolute', 'fixed']).isRequired,
+          styles: PropTypes.object.isRequired,
+        }).isRequired,
+        update: PropTypes.func.isRequired,
+      }),
+    }),
+  ]),
+  /**
+   * Determines the tooltip position relatively to the anchor.
+   */
+  position: PropTypes.oneOf(['bottom', 'left', 'right', 'top']),
+  /**
+   * The props used for each slot inside the Popper.
+   * @default {}
+   */
+  slotProps: PropTypes.object,
+  /**
+   * The components used for each slot inside the Popper.
+   * Either a string to use a HTML element or a component.
+   * @default {}
+   */
+  slots: PropTypes.object,
+  /**
+   * The system prop that allows defining system overrides as well as additional CSS styles.
+   */
+  sx: PropTypes.oneOfType([
+    PropTypes.arrayOf(PropTypes.oneOfType([PropTypes.func, PropTypes.object, PropTypes.bool])),
+    PropTypes.func,
+    PropTypes.object,
+  ]),
+  /**
+   * Help supporting a react-transition-group/Transition component.
+   * @default false
+   */
+  transition: PropTypes.bool,
+  /**
+   * Select the kind of tooltip to display
+   * - 'item': Shows data about the item below the mouse;
+   * - 'axis': Shows values associated with the hovered x value;
+   * - 'none': Does not display tooltip.
+   * @default 'axis'
+   */
+  trigger: PropTypes.oneOf(['axis', 'item', 'none']),
+} as any;
+
+export { ChartsTooltipContainer };

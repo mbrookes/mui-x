@@ -1,0 +1,60 @@
+import { useRotationScale } from '../../hooks/useScale';
+import { useRadarSeries } from '../../hooks/useRadarSeries';
+import { useRadiusAxes } from '../../hooks/useAxis';
+import { useItemHighlightStateGetter } from '../../hooks/useItemHighlightStateGetter';
+import { type SeriesId } from '../../models/seriesType/common';
+import { type UseChartPolarAxisSignature } from '../../internals/plugins/featurePlugins/useChartPolarAxis';
+import { useChartsContext } from '../../context/ChartsProvider/useChartsContext';
+import { getSeriesColorFn } from '../../internals/getSeriesColorFn';
+
+/**
+ * This hook provides all the data needed to display radar series.
+ * @param querySeriesId The id of the series to display
+ * @returns
+ */
+export function useRadarSeriesData(querySeriesId?: SeriesId) {
+  const { instance } = useChartsContext<[UseChartPolarAxisSignature]>();
+  const rotationScale = useRotationScale<'point'>();
+  const { radiusAxis } = useRadiusAxes();
+
+  const radarSeries = useRadarSeries(querySeriesId === undefined ? undefined : [querySeriesId]);
+
+  const getHighlightState = useItemHighlightStateGetter();
+
+  const metrics = (rotationScale?.domain() as (string | number)[]) ?? [];
+
+  const angles = metrics.map((key) => rotationScale!(key)!);
+
+  return radarSeries.map((series) => {
+    const seriesId = series.id;
+    const seriesHighlightState = getHighlightState({ type: 'radar', seriesId });
+    const isSeriesHighlighted = seriesHighlightState === 'highlighted';
+    const isSeriesFaded = seriesHighlightState === 'faded';
+    const getColor = getSeriesColorFn(series);
+
+    return {
+      ...series,
+      seriesId: series.id,
+      isSeriesHighlighted,
+      isSeriesFaded,
+      points: series.data.map((value, dataIndex) => {
+        const pointHighlightState = getHighlightState({ type: 'radar', seriesId, dataIndex });
+        const highlighted = pointHighlightState === 'highlighted';
+        const faded = pointHighlightState === 'faded';
+
+        const r = radiusAxis[metrics[dataIndex]].scale(value)!;
+        const angle = angles[dataIndex];
+        const [x, y] = instance.polar2svg(r, angle);
+        return {
+          x,
+          y,
+          isItemHighlighted: highlighted,
+          isItemFaded: faded,
+          dataIndex,
+          value,
+          color: getColor({ value, dataIndex }),
+        };
+      }),
+    };
+  });
+}

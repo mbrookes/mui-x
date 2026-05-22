@@ -1,0 +1,33 @@
+{
+  "props": {
+    "hidden": { "type": { "name": "bool" } },
+    "skipAnimation": { "type": { "name": "bool" }, "default": "false" },
+    "slotProps": { "type": { "name": "object" }, "default": "{}" },
+    "slots": {
+      "type": { "name": "object" },
+      "default": "{}",
+      "additionalInfo": { "slotsApi": true }
+    }
+  },
+  "name": "LineElement",
+  "imports": [
+    "import { LineElement } from '@mui/x-charts/LineChart';",
+    "import { LineElement } from '@mui/x-charts';",
+    "import { LineElement } from '@mui/x-charts-pro';",
+    "import { LineElement } from '@mui/x-charts-premium';"
+  ],
+  "slots": [
+    {
+      "name": "line",
+      "description": "The component that renders the line.",
+      "default": "LineElementPath",
+      "class": null
+    }
+  ],
+  "classes": [],
+  "muiName": "MuiLineElement",
+  "filename": "/packages/x-charts/src/LineChart/LineElement.tsx",
+  "inheritance": null,
+  "demos": "<ul><li><a href=\"/x/react-charts/areas-demo/\">Charts - Areas demos</a></li>\n<li><a href=\"/x/react-charts/line-demo/\">Charts - Line demos</a></li>\n<li><a href=\"/x/react-charts/lines/\">Charts - Lines</a></li></ul>",
+  "cssComponent": false
+}

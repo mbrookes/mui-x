@@ -1,0 +1,96 @@
+'use client';
+import * as React from 'react';
+import { styled } from '@mui/material/styles';
+import { useStore } from '@base-ui/utils/store';
+import { useAdapterContext } from '@mui/x-scheduler-internals/use-adapter-context';
+import { CalendarGrid } from '@mui/x-scheduler-internals/calendar-grid';
+import { useEventCalendarStoreContext } from '@mui/x-scheduler-internals/use-event-calendar-store-context';
+import { useEventOccurrencesWithDayGridPosition } from '@mui/x-scheduler-internals/use-event-occurrences-with-day-grid-position';
+import { eventCalendarPreferenceSelectors } from '@mui/x-scheduler-internals/event-calendar-selectors';
+import { getWeekNumber } from '@mui/x-scheduler-internals/internals';
+import { MonthViewWeekRowProps } from './MonthViewWeekRow.types';
+import { MonthViewCell } from './MonthViewCell';
+import { useEventCalendarStyledContext } from '../../event-calendar/EventCalendarStyledContext';
+
+const FIXED_CELL_WIDTH = 28;
+
+const MonthViewRow = styled(CalendarGrid.DayRow, {
+  name: 'MuiEventCalendar',
+  slot: 'MonthViewRow',
+})(({ theme }) => ({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(0, 1fr))',
+  '&[data-show-week-number]': {
+    gridTemplateColumns: `${FIXED_CELL_WIDTH}px repeat(auto-fit, minmax(0, 1fr))`,
+  },
+  '&:not(:last-child)': {
+    borderBlockEnd: `1px solid ${(theme.vars || theme).palette.divider}`,
+  },
+}));
+
+const MonthViewWeekNumberCell = styled('div', {
+  name: 'MuiEventCalendar',
+  slot: 'MonthViewWeekNumberCell',
+})(({ theme }) => ({
+  padding: theme.spacing(1, 0),
+  textAlign: 'center',
+  fontSize: theme.typography.caption.fontSize,
+  lineHeight: '18px',
+  color: (theme.vars || theme).palette.text.secondary,
+}));
+
+export default function MonthViewWeekRow(props: MonthViewWeekRowProps) {
+  const { rowIndex, maxEvents, days, occurrencesMap, firstDayRef } = props;
+
+  const adapter = useAdapterContext();
+  const store = useEventCalendarStoreContext();
+  const showWeekNumber = useStore(store, eventCalendarPreferenceSelectors.showWeekNumber);
+  const weekStartsOn = useStore(store, eventCalendarPreferenceSelectors.weekStartsOn);
+  const { schedulerId, classes, localeText } = useEventCalendarStyledContext();
+  const occurrences = useEventOccurrencesWithDayGridPosition({ days, occurrencesMap });
+  const weekNumber = getWeekNumber(adapter, days[0].value, weekStartsOn);
+
+  const { start, end } = React.useMemo(
+    () => ({
+      start: days[0].value,
+      end: adapter.endOfDay(days[days.length - 1].value),
+    }),
+    [adapter, days],
+  );
+
+  const weekNumberId = showWeekNumber
+    ? `${schedulerId}-MonthViewWeekNumber-${weekNumber}`
+    : undefined;
+
+  return (
+    <MonthViewRow
+      className={classes.monthViewRow}
+      start={start}
+      end={end}
+      rowIndex={rowIndex}
+      data-show-week-number={showWeekNumber || undefined}
+    >
+      {showWeekNumber && (
+        <MonthViewWeekNumberCell
+          className={classes.monthViewWeekNumberCell}
+          id={weekNumberId}
+          aria-label={localeText.weekNumberAriaLabel(weekNumber)}
+          aria-hidden="true"
+        >
+          {weekNumber}
+        </MonthViewWeekNumberCell>
+      )}
+      {occurrences.days.map((day, dayIdx) => (
+        <MonthViewCell
+          ref={dayIdx === 0 ? firstDayRef : undefined}
+          key={day.key}
+          day={day}
+          maxEvents={maxEvents}
+          row={occurrences}
+          colIndex={dayIdx + 1}
+          ariaLabelledBy={weekNumberId}
+        />
+      ))}
+    </MonthViewRow>
+  );
+}

@@ -1,0 +1,21 @@
+import { createPickerRenderer } from 'test/utils/pickers';
+import { describeConformance } from 'test/utils/describeConformance';
+import { DateTimeRangePicker } from '../DateTimeRangePicker';
+
+describe('<DateTimeRangePicker /> - Describe Conformance', () => {
+  const { render } = createPickerRenderer();
+
+  describeConformance(<DateTimeRangePicker />, () => ({
+    classes: {} as any,
+    render,
+    muiName: 'MuiDateTimeRangePicker',
+    refInstanceof: window.HTMLDivElement,
+    skip: [
+      'componentProp',
+      'themeDefaultProps',
+      'themeStyleOverrides',
+      'themeVariants',
+      'mergeClassName',
+    ],
+  }));
+});

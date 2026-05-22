@@ -1,0 +1,16 @@
+<DataGrid
+  loading={loading}
+  pagination
+  slotProps={{
+    basePagination: {
+      material: {
+        ActionsComponent: Pagination,
+      },
+    },
+  }}
+  {...data}
+  initialState={{
+    ...data.initialState,
+    pagination: { paginationModel: { pageSize: 25 } },
+  }}
+/>

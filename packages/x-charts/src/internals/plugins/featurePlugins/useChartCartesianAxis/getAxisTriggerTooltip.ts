@@ -1,0 +1,39 @@
+import { type CartesianChartSeriesType } from '../../../../models/seriesType/config';
+import {
+  type ChartSeriesConfig,
+  type AxisTooltipGetter,
+} from '../../corePlugins/useChartSeriesConfig';
+import { type ProcessedSeries } from '../../corePlugins/useChartSeries/useChartSeries.types';
+import { isCartesianSeriesType } from '../../../isCartesian';
+import { type AxisId } from '../../../../models/axis';
+
+export const getAxisTriggerTooltip = <SeriesType extends CartesianChartSeriesType>(
+  axisDirection: 'x' | 'y',
+  seriesConfig: ChartSeriesConfig<SeriesType>,
+  formattedSeries: ProcessedSeries<SeriesType>,
+  defaultAxisId: AxisId,
+) => {
+  const tooltipAxesIds = new Set<AxisId>();
+
+  const chartTypes = Object.keys(seriesConfig).filter(isCartesianSeriesType) as SeriesType[];
+
+  chartTypes.forEach((chartType) => {
+    const series = formattedSeries[chartType]?.series ?? {};
+    const tooltipAxes = (
+      seriesConfig[chartType].axisTooltipGetter as
+        | AxisTooltipGetter<SeriesType, 'x' | 'y'>
+        | undefined
+    )?.(series);
+
+    if (tooltipAxes === undefined) {
+      return;
+    }
+
+    tooltipAxes.forEach(({ axisId, direction }) => {
+      if (direction === axisDirection) {
+        tooltipAxesIds.add(axisId ?? defaultAxisId);
+      }
+    });
+  });
+  return tooltipAxesIds;
+};

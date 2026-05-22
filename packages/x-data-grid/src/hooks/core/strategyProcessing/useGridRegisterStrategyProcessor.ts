@@ -1,0 +1,33 @@
+'use client';
+import * as React from 'react';
+import type { RefObject } from '@mui/x-internals/types';
+import { useFirstRender } from '../../utils/useFirstRender';
+import type { GridPrivateApiCommon } from '../../../models/api/gridApiCommon';
+import type { GridStrategyProcessorName, GridStrategyProcessor } from './gridStrategyProcessingApi';
+
+export const useGridRegisterStrategyProcessor = <
+  Api extends GridPrivateApiCommon,
+  G extends GridStrategyProcessorName,
+>(
+  apiRef: RefObject<Api>,
+  strategyName: string,
+  group: G,
+  processor: GridStrategyProcessor<G>,
+) => {
+  const registerPreProcessor = React.useCallback(() => {
+    apiRef.current.registerStrategyProcessor(strategyName, group, processor);
+  }, [apiRef, processor, group, strategyName]);
+
+  useFirstRender(() => {
+    registerPreProcessor();
+  });
+
+  const isFirstRender = React.useRef(true);
+  React.useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+    } else {
+      registerPreProcessor();
+    }
+  }, [registerPreProcessor]);
+};

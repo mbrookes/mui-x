@@ -1,0 +1,97 @@
+import useSlotProps from '@mui/utils/useSlotProps';
+import { PickersModalDialog } from '../../components/PickersModalDialog';
+import { UseMobilePickerParams, UseMobilePickerProps } from './useMobilePicker.types';
+import { usePicker } from '../usePicker';
+import { PickersLayout } from '../../../PickersLayout';
+import { DateOrTimeViewWithMeridiem, PickerValue } from '../../models';
+import { PickerProvider } from '../../components/PickerProvider';
+import { createNonRangePickerStepNavigation } from '../../utils/createNonRangePickerStepNavigation';
+import { extractRootForwardedProps } from '../../utils/utils';
+
+/**
+ * Hook managing all the single-date mobile pickers:
+ * - MobileDatePicker
+ * - MobileDateTimePicker
+ * - MobileTimePicker
+ */
+export const useMobilePicker = <
+  TView extends DateOrTimeViewWithMeridiem,
+  TExternalProps extends UseMobilePickerProps<TView, any, TExternalProps>,
+>({
+  props,
+  steps,
+  ...pickerParams
+}: UseMobilePickerParams<TView, TExternalProps>) => {
+  const { slots, slotProps: innerSlotProps, label, inputRef, localeText } = props;
+
+  const getStepNavigation = createNonRangePickerStepNavigation({ steps });
+
+  const { providerProps, renderCurrentView, ownerState } = usePicker<
+    PickerValue,
+    TView,
+    TExternalProps
+  >({
+    ...pickerParams,
+    props,
+    localeText,
+    autoFocusView: true,
+    viewContainerRole: 'dialog',
+    variant: 'mobile',
+    getStepNavigation,
+  });
+
+  const labelId = providerProps.privateContextValue.labelId;
+  const isToolbarHidden = innerSlotProps?.toolbar?.hidden ?? false;
+
+  const Field = slots.field;
+  const { ownerState: fieldOwnerState, ...fieldProps } = useSlotProps({
+    elementType: Field,
+    externalSlotProps: innerSlotProps?.field,
+    externalForwardedProps: extractRootForwardedProps(props),
+    additionalProps: {
+      // Forwarded props
+      ...(isToolbarHidden && { id: labelId }),
+    },
+    ownerState,
+  });
+
+  const Layout = slots.layout ?? PickersLayout;
+
+  let labelledById = labelId;
+  if (isToolbarHidden) {
+    if (label) {
+      labelledById = `${labelId}-label`;
+    } else {
+      labelledById = undefined;
+    }
+  }
+  const slotProps = {
+    ...innerSlotProps,
+    toolbar: {
+      ...innerSlotProps?.toolbar,
+      titleId: labelId,
+    },
+    mobilePaper: {
+      'aria-labelledby': labelledById,
+      ...innerSlotProps?.mobilePaper,
+    },
+  };
+
+  const renderPicker = () => (
+    <PickerProvider {...providerProps}>
+      <Field
+        {...fieldProps}
+        slots={{ ...slots, ...(fieldProps as any).slots }}
+        slotProps={{ ...slotProps, ...(fieldProps as any).slotProps }}
+        inputRef={inputRef}
+      />
+      <PickersModalDialog slots={slots} slotProps={slotProps}>
+        <Layout {...slotProps?.layout} slots={slots} slotProps={slotProps}>
+          {renderCurrentView()}
+        </Layout>
+      </PickersModalDialog>
+    </PickerProvider>
+  );
+
+  return { renderPicker };
+};

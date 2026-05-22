@@ -1,0 +1,74 @@
+import { createRenderer } from '@mui/internal-test-utils';
+import { vi } from 'vitest';
+import { PieChart, pieClasses } from '@mui/x-charts/PieChart';
+
+const config = {
+  width: 400,
+  height: 400,
+  xAxis: [{ position: 'none' }],
+  yAxis: [{ position: 'none' }],
+} as const;
+
+describe('PieChart - click event', () => {
+  const { render } = createRenderer();
+
+  describe('onItemClick', () => {
+    it('should add cursor="pointer" to arc elements', () => {
+      const { container } = render(
+        <PieChart
+          {...config}
+          series={[
+            {
+              id: 's1',
+              data: [
+                { id: 'p1', value: 5 },
+                { id: 'p2', value: 2 },
+              ],
+            },
+          ]}
+          onItemClick={() => {}}
+        />,
+      );
+      const slices = container.querySelectorAll<HTMLElement>(`path.${pieClasses.arc}`);
+
+      expect(Array.from(slices).map((slice) => slice.getAttribute('cursor'))).to.deep.equal([
+        'pointer',
+        'pointer',
+      ]);
+    });
+
+    it('should provide the right context as second argument', async () => {
+      const onItemClick = vi.fn();
+      const { user } = render(
+        <PieChart
+          {...config}
+          series={[
+            {
+              id: 's1',
+              data: [
+                { id: 'p1', value: 5 },
+                { id: 'p2', value: 2 },
+              ],
+            },
+          ]}
+          onItemClick={onItemClick}
+        />,
+      );
+      const slices = document.querySelectorAll<HTMLElement>(`path.${pieClasses.arc}`);
+
+      await user.click(slices[0]);
+      expect(onItemClick.mock.lastCall?.[1]).to.deep.equal({
+        type: 'pie',
+        seriesId: 's1',
+        dataIndex: 0,
+      });
+
+      await user.click(slices[1]);
+      expect(onItemClick.mock.lastCall?.[1]).to.deep.equal({
+        type: 'pie',
+        seriesId: 's1',
+        dataIndex: 1,
+      });
+    });
+  });
+});

@@ -1,0 +1,28 @@
+import { type SeriesLegendItemParams } from '@mui/x-charts/ChartsLegend';
+import { type LegendGetter, getLabel } from '@mui/x-charts/internals';
+
+const legendGetter: LegendGetter<'funnel'> = (params) => {
+  const { seriesOrder, series } = params;
+  return seriesOrder.reduce((acc, seriesId) => {
+    series[seriesId].data.forEach((item, dataIndex) => {
+      const formattedLabel = getLabel(item.label, 'legend');
+
+      if (formattedLabel === undefined) {
+        return;
+      }
+
+      acc.push({
+        type: 'funnel',
+        markType: item.labelMarkType ?? series[seriesId].labelMarkType,
+        seriesId,
+        dataIndex,
+        color: item.color,
+        label: formattedLabel,
+      });
+    });
+
+    return acc;
+  }, [] as SeriesLegendItemParams[]);
+};
+
+export default legendGetter;

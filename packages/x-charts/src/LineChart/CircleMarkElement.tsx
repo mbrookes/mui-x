@@ -1,0 +1,140 @@
+'use client';
+import * as React from 'react';
+import PropTypes from 'prop-types';
+import { styled, useTheme } from '@mui/material/styles';
+import { useInteractionItemProps } from '../hooks/useInteractionItemProps';
+import { selectorChartExperimentalFeaturesState } from '../internals/plugins/corePlugins/useChartExperimentalFeature';
+import { useStore } from '../internals/store/useStore';
+import { ANIMATION_DURATION_MS, ANIMATION_TIMING_FUNCTION } from '../internals/animation/animation';
+import {
+  lineClasses,
+  type MarkElementOwnerState,
+  useUtilityClasses as useLineUtilityClasses,
+} from './lineClasses';
+
+export type CircleMarkElementProps = Omit<MarkElementOwnerState, 'isFaded' | 'isHighlighted'> &
+  Omit<React.SVGProps<SVGPathElement>, 'ref'> & {
+    /**
+     * If `true`, the marker is hidden.
+     * @default false
+     */
+    hidden?: boolean;
+    /**
+     * If `true`, animations are skipped.
+     * @default false
+     */
+    skipAnimation?: boolean;
+    /**
+     * The index to the element in the series' data array.
+     */
+    dataIndex: number;
+    /**
+     * If `true`, the marker is faded.
+     * @default false
+     */
+    isFaded?: boolean;
+    /**
+     * If `true`, the marker is highlighted.
+     * @default false
+     */
+    isHighlighted?: boolean;
+  };
+
+const Circle = styled('circle', {
+  slot: 'internal',
+  shouldForwardProp: undefined,
+})({
+  [`&.${lineClasses.markAnimate}`]: {
+    transitionDuration: `${ANIMATION_DURATION_MS}ms`,
+    transitionProperty: 'cx, cy, opacity',
+    transitionTimingFunction: ANIMATION_TIMING_FUNCTION,
+  },
+});
+
+/**
+ * The line mark element that only render circle for performance improvement.
+ *
+ * Demos:
+ *
+ * - [Lines](https://mui.com/x/react-charts/lines/)
+ * - [Line demonstration](https://mui.com/x/react-charts/line-demo/)
+ *
+ * API:
+ *
+ * - [CircleMarkElement API](https://mui.com/x/api/charts/circle-mark-element/)
+ */
+function CircleMarkElement(props: CircleMarkElementProps) {
+  const {
+    x,
+    y,
+    seriesId,
+    classes: innerClasses,
+    color,
+    dataIndex,
+    onClick,
+    skipAnimation,
+    isFaded = false,
+    isHighlighted = false,
+    // @ts-expect-error, prevents it from being passed to the svg element
+    shape,
+    hidden,
+    ...other
+  } = props;
+
+  const store = useStore();
+  const enablePositionBasedPointerInteraction = store.use(
+    selectorChartExperimentalFeaturesState,
+  )?.enablePositionBasedPointerInteraction;
+  const interactionProps = useInteractionItemProps({ type: 'line', seriesId, dataIndex });
+  const theme = useTheme();
+
+  const classes = useLineUtilityClasses({ skipAnimation, classes: innerClasses });
+
+  return (
+    <Circle
+      {...other}
+      {...(enablePositionBasedPointerInteraction ? {} : interactionProps)}
+      cx={x}
+      cy={y}
+      r={5}
+      fill={(theme.vars || theme).palette.background.paper}
+      stroke={color}
+      strokeWidth={2}
+      className={classes.mark}
+      onClick={onClick}
+      cursor={onClick ? 'pointer' : 'unset'}
+      pointerEvents={hidden ? 'none' : undefined}
+      data-highlighted={isHighlighted || undefined}
+      data-faded={isFaded || undefined}
+      data-series-id={seriesId}
+      data-series={seriesId}
+      data-index={dataIndex}
+      opacity={hidden ? 0 : 1}
+    />
+  );
+}
+
+CircleMarkElement.propTypes = {
+  // ----------------------------- Warning --------------------------------
+  // | These PropTypes are generated from the TypeScript type definitions |
+  // | To update them edit the TypeScript types and run "pnpm proptypes"  |
+  // ----------------------------------------------------------------------
+  classes: PropTypes.object,
+  /**
+   * The index to the element in the series' data array.
+   */
+  dataIndex: PropTypes.number.isRequired,
+  seriesId: PropTypes.string.isRequired,
+  /**
+   * The shape of the marker.
+   */
+  shape: PropTypes.oneOf(['circle', 'cross', 'diamond', 'square', 'star', 'triangle', 'wye'])
+    .isRequired,
+  /**
+   * If `true`, animations are skipped.
+   * @default false
+   */
+  skipAnimation: PropTypes.bool,
+} as any;
+
+export { CircleMarkElement };

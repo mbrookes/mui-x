@@ -1,4 +1,10 @@
-import type { StudioExpressionField, StudioFilterState, StudioState } from '../models';
+import type {
+  StudioExpressionField,
+  StudioFilterState,
+  StudioState,
+  StudioWidget,
+  StudioDataSource,
+} from '../models';
 
 /**
  * Module-level stable selector functions for use with useStudioSelector.
@@ -303,5 +309,121 @@ export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string)
     lastInput = filters;
     lastResult = filtered;
     return filtered;
+  };
+}
+
+// ── Per-widget selectors ──────────────────────────────────────────────────────
+// These factory functions return stable selector functions that depend only on
+// widgetId. Use with React.useMemo in components that render once per widget
+// (e.g. StudioWidgetCard) so the selector identity is stable across renders,
+// preventing React 19's useSyncExternalStore from recreating getSelection on
+// every render.
+
+/**
+ * Returns the widget config for the given widgetId, or undefined if not found.
+ */
+export function makeSelectWidget(widgetId: string): (state: StudioState) => StudioWidget | undefined {
+  return (state) => state.widgets[widgetId];
+}
+
+/**
+ * Returns true when this widget is the currently selected widget.
+ */
+export function makeSelectIsWidgetSelected(widgetId: string): (state: StudioState) => boolean {
+  return (state) => state.shell.selectedWidgetId === widgetId;
+}
+
+/**
+ * Returns true when another widget is selected (this widget should be dimmed).
+ * Subscribing only to the selected-widget ID means that when selection moves
+ * from A→B, only cards A and B re-render rather than all N cards.
+ */
+export function makeSelectIsWidgetDimmed(widgetId: string): (state: StudioState) => boolean {
+  return (state) =>
+    state.shell.selectedWidgetId !== null && state.shell.selectedWidgetId !== widgetId;
+}
+
+/**
+ * Returns the data source for the given widgetId's configured sourceId,
+ * or undefined if the widget has no source or the source doesn't exist.
+ */
+export function makeSelectWidgetSource(
+  widgetId: string,
+): (state: StudioState) => StudioDataSource | undefined {
+  return (state) => {
+    const w = state.widgets[widgetId];
+    return w?.sourceId ? state.dataSources[w.sourceId] : undefined;
+  };
+}
+
+/**
+ * Returns the active rank filter for a chart widget (scope=widget, filterMode=rank,
+ * value > 0), or null if the widget is not a chart or has no active rank filter.
+ */
+export function makeSelectWidgetRankFilter(
+  widgetId: string,
+): (state: StudioState) => StudioFilterState | null {
+  return (state) => {
+    const w = state.widgets[widgetId];
+    if (w?.kind !== 'chart') {
+      return null;
+    }
+    return (
+      state.filters.find(
+        (f) =>
+          f.scope === 'widget' &&
+          f.widgetId === widgetId &&
+          f.filterMode === 'rank' &&
+          typeof f.value === 'number' &&
+          f.value > 0,
+      ) ?? null
+    );
+  };
+}
+
+/**
+ * Returns the active interactive (slider) filter emitted by this widget on the
+ * current page, or null if the widget is not a slider or has no active filter.
+ */
+export function makeSelectWidgetSliderFilter(
+  widgetId: string,
+): (state: StudioState) => StudioFilterState | null {
+  return (state) => {
+    const w = state.widgets[widgetId];
+    if (w?.kind !== 'filter' || w?.config?.filterWidgetType !== 'slider') {
+      return null;
+    }
+    const activePageId = state.dashboard.activePageId;
+    return (
+      state.filters.find(
+        (f) =>
+          f.scope === 'interactive' && f.sourceWidgetId === widgetId && f.pageId === activePageId,
+      ) ?? null
+    );
+  };
+}
+
+/**
+ * Returns the active cross-filter emitted by this chart/grid widget on the
+ * current page, or null if the widget kind doesn't emit cross-filters or has
+ * none active.
+ */
+export function makeSelectWidgetActiveCrossFilter(
+  widgetId: string,
+): (state: StudioState) => StudioFilterState | null {
+  return (state) => {
+    const w = state.widgets[widgetId];
+    if (w?.kind !== 'chart' && w?.kind !== 'grid') {
+      return null;
+    }
+    const activePageId = state.dashboard.activePageId;
+    return (
+      state.filters.find(
+        (f) =>
+          f.scope === 'cross-filter' &&
+          f.sourceWidgetId === widgetId &&
+          f.pageId === activePageId,
+      ) ?? null
+    );
   };
 }

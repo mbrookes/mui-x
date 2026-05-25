@@ -160,88 +160,202 @@ function toComparable(
   return Number(val);
 }
 
-function matchesFilter(row: Row, filter: StudioFilterState): boolean {
-  const rowVal = row[filter.field];
-  const filterVal = filter.value;
-  const { fieldType } = filter;
+/**
+ * Compiles a filter into a fast row-test function.
+ *
+ * Per-row work in matchesFilter was calling toComparable(filterVal, fieldType) on
+ * every row even though the filter value never changes during a dataset scan.
+ * compileRowTest pre-computes all filter-side constants (comparable values,
+ * lower-cased strings, range bounds, candidate Sets) once and returns a closure
+ * that only touches the row value per call. At 100k rows this reduces repeated
+ * normalizeToDate / Number() / regex work by ~100 000×.
+ */
+function compileRowTest(filter: StudioFilterState): (row: Row) => boolean {
+  const { field, operator, value: filterVal, fieldType, value2, operator2, conjunction } = filter;
+  const mode = filter.filterMode ?? 'condition';
 
-  switch (filter.operator) {
+  if (mode === 'selection') {
+    const selected = Array.isArray(filterVal) ? (filterVal as string[]) : [];
+    if (selected.length === 0) {
+      return () => true;
+    }
+    const selectedSet = new Set(selected.map((v) => String(v)));
+    return (row) => selectedSet.has(String(row[field] ?? ''));
+  }
+
+  if (mode === 'rank') {
+    return () => true;
+  }
+
+  const primary = compileSingleCondition(field, operator, filterVal, fieldType);
+  if (!operator2 || !isConditionComplete(operator2, value2)) {
+    return primary;
+  }
+  const secondary = compileSingleCondition(field, operator2, value2, fieldType);
+  if (conjunction === 'or') {
+    return (row) => primary(row) || secondary(row);
+  }
+  return (row) => primary(row) && secondary(row);
+}
+
+function compileSingleCondition(
+  field: string,
+  operator: StudioFilterState['operator'],
+  filterVal: unknown,
+  fieldType: StudioFilterState['fieldType'],
+): (row: Row) => boolean {
+  switch (operator) {
     case 'equals':
       if (fieldType === 'boolean') {
-        return String(rowVal) === String(filterVal);
+        const fStr = String(filterVal);
+        return (row) => String(row[field]) === fStr;
       }
       // eslint-disable-next-line eqeqeq
-      return rowVal == filterVal;
-    case 'in':
-      return Array.isArray(filterVal)
-        ? filterVal.some(
-            (candidate) =>
-              // eslint-disable-next-line eqeqeq
-              rowVal == candidate,
-          )
-        : true;
+      return (row) => row[field] == filterVal;
+    case 'in': {
+      if (!Array.isArray(filterVal)) {
+        return () => true;
+      }
+      // eslint-disable-next-line eqeqeq
+      return (row) => filterVal.some((candidate) => row[field] == candidate);
+    }
     case 'not_equals':
       if (fieldType === 'boolean') {
-        return String(rowVal) !== String(filterVal);
+        const fStr = String(filterVal);
+        return (row) => String(row[field]) !== fStr;
       }
       // eslint-disable-next-line eqeqeq
-      return rowVal != filterVal;
-    case 'contains':
-      return String(rowVal ?? '')
-        .toLowerCase()
-        .includes(String(filterVal ?? '').toLowerCase());
-    case 'does_not_contain':
-      return !String(rowVal ?? '')
-        .toLowerCase()
-        .includes(String(filterVal ?? '').toLowerCase());
-    case 'starts_with':
-      return String(rowVal ?? '')
-        .toLowerCase()
-        .startsWith(String(filterVal ?? '').toLowerCase());
-    case 'not_starts_with':
-      return !String(rowVal ?? '')
-        .toLowerCase()
-        .startsWith(String(filterVal ?? '').toLowerCase());
-    case 'ends_with':
-      return String(rowVal ?? '')
-        .toLowerCase()
-        .endsWith(String(filterVal ?? '').toLowerCase());
-    case 'not_ends_with':
-      return !String(rowVal ?? '')
-        .toLowerCase()
-        .endsWith(String(filterVal ?? '').toLowerCase());
+      return (row) => row[field] != filterVal;
+    case 'contains': {
+      const needle = String(filterVal ?? '').toLowerCase();
+      return (row) => String(row[field] ?? '').toLowerCase().includes(needle);
+    }
+    case 'does_not_contain': {
+      const needle = String(filterVal ?? '').toLowerCase();
+      return (row) => !String(row[field] ?? '').toLowerCase().includes(needle);
+    }
+    case 'starts_with': {
+      const needle = String(filterVal ?? '').toLowerCase();
+      return (row) => String(row[field] ?? '').toLowerCase().startsWith(needle);
+    }
+    case 'not_starts_with': {
+      const needle = String(filterVal ?? '').toLowerCase();
+      return (row) => !String(row[field] ?? '').toLowerCase().startsWith(needle);
+    }
+    case 'ends_with': {
+      const needle = String(filterVal ?? '').toLowerCase();
+      return (row) => String(row[field] ?? '').toLowerCase().endsWith(needle);
+    }
+    case 'not_ends_with': {
+      const needle = String(filterVal ?? '').toLowerCase();
+      return (row) => !String(row[field] ?? '').toLowerCase().endsWith(needle);
+    }
     case 'is_empty':
-      return rowVal == null || String(rowVal) === '';
+      return (row) => row[field] == null || String(row[field]) === '';
     case 'is_not_empty':
-      return rowVal != null && String(rowVal) !== '';
-    case 'greater_than':
-      return toComparable(rowVal, fieldType) > toComparable(filterVal, fieldType);
-    case 'less_than':
-      return toComparable(rowVal, fieldType) < toComparable(filterVal, fieldType);
-    case 'greater_than_or_equal':
-      return toComparable(rowVal, fieldType) >= toComparable(filterVal, fieldType);
-    case 'less_than_or_equal':
-      return toComparable(rowVal, fieldType) <= toComparable(filterVal, fieldType);
+      return (row) => row[field] != null && String(row[field]) !== '';
+    case 'greater_than': {
+      const cmpVal = toComparable(filterVal, fieldType);
+      if (fieldType === 'date' || fieldType === 'datetime') {
+        // Row values are already normalized ISO strings from normalizeDataSourceRows.
+        // Direct string comparison is correct (ISO sorts lexicographically) and avoids
+        // new Date() per row.
+        return (row) => {
+          const rv = row[field];
+          return rv != null && String(rv) > cmpVal;
+        };
+      }
+      if (fieldType === 'number') {
+        const n = cmpVal as number;
+        return (row) => Number(row[field]) > n;
+      }
+      return (row) => toComparable(row[field], fieldType) > cmpVal;
+    }
+    case 'less_than': {
+      const cmpVal = toComparable(filterVal, fieldType);
+      if (fieldType === 'date' || fieldType === 'datetime') {
+        return (row) => {
+          const rv = row[field];
+          return rv != null && String(rv) < cmpVal;
+        };
+      }
+      if (fieldType === 'number') {
+        const n = cmpVal as number;
+        return (row) => Number(row[field]) < n;
+      }
+      return (row) => toComparable(row[field], fieldType) < cmpVal;
+    }
+    case 'greater_than_or_equal': {
+      const cmpVal = toComparable(filterVal, fieldType);
+      if (fieldType === 'date' || fieldType === 'datetime') {
+        return (row) => {
+          const rv = row[field];
+          return rv != null && String(rv) >= cmpVal;
+        };
+      }
+      if (fieldType === 'number') {
+        const n = cmpVal as number;
+        return (row) => Number(row[field]) >= n;
+      }
+      return (row) => toComparable(row[field], fieldType) >= cmpVal;
+    }
+    case 'less_than_or_equal': {
+      const cmpVal = toComparable(filterVal, fieldType);
+      if (fieldType === 'date' || fieldType === 'datetime') {
+        return (row) => {
+          const rv = row[field];
+          return rv != null && String(rv) <= cmpVal;
+        };
+      }
+      if (fieldType === 'number') {
+        const n = cmpVal as number;
+        return (row) => Number(row[field]) <= n;
+      }
+      return (row) => toComparable(row[field], fieldType) <= cmpVal;
+    }
     case 'between': {
       const range = filterVal as { from?: string; to?: string } | null;
       if (!range || typeof range !== 'object') {
-        return true;
+        return () => true;
       }
-      const cmp = toComparable(rowVal, fieldType);
       const from = range.from ? toComparable(range.from, fieldType) : null;
       const to = range.to ? toComparable(range.to, fieldType) : null;
-      if (from !== null && cmp < from) {
-        return false;
+      if (fieldType === 'date' || fieldType === 'datetime') {
+        return (row) => {
+          const rv = row[field];
+          if (rv == null) return false;
+          const s = String(rv);
+          if (from !== null && s < from) return false;
+          if (to !== null && s > to) return false;
+          return true;
+        };
       }
-      if (to !== null && cmp > to) {
-        return false;
+      if (fieldType === 'number') {
+        const numFrom = from as number | null;
+        const numTo = to as number | null;
+        return (row) => {
+          const cmp = Number(row[field]);
+          if (numFrom !== null && cmp < numFrom) return false;
+          if (numTo !== null && cmp > numTo) return false;
+          return true;
+        };
       }
-      return true;
+      return (row) => {
+        const cmp = toComparable(row[field], fieldType);
+        if (from !== null && cmp < from) {
+          return false;
+        }
+        if (to !== null && cmp > to) {
+          return false;
+        }
+        return true;
+      };
     }
     default:
-      return true;
+      return () => true;
   }
 }
+
 
 function isConditionComplete(operator: StudioFilterState['operator'], value: unknown): boolean {
   if (operator === 'is_empty' || operator === 'is_not_empty') {
@@ -270,35 +384,6 @@ function isFilterComplete(filter: StudioFilterState): boolean {
     return Number.isFinite(n) && n > 0;
   }
   return isConditionComplete(filter.operator, filter.value);
-}
-
-function matchesFilterState(row: Row, filter: StudioFilterState): boolean {
-  const mode = filter.filterMode ?? 'condition';
-
-  if (mode === 'selection') {
-    const selected = Array.isArray(filter.value) ? (filter.value as string[]) : [];
-    if (selected.length === 0) {
-      return true;
-    }
-    const rowVal = String(row[filter.field] ?? '');
-    return selected.some((v) => String(v) === rowVal);
-  }
-
-  // rank is handled at the dataset level in applyFilters — rows here have already been sliced
-  if (mode === 'rank') {
-    return true;
-  }
-
-  const primary = matchesFilter(row, filter);
-  if (!filter.operator2 || !isConditionComplete(filter.operator2, filter.value2)) {
-    return primary;
-  }
-  const secondary = matchesFilter(row, {
-    ...filter,
-    operator: filter.operator2,
-    value: filter.value2,
-  });
-  return filter.conjunction === 'or' ? primary || secondary : primary && secondary;
 }
 
 export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
@@ -338,12 +423,18 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
     }
   }
 
-  // Apply condition and selection filters row-by-row
+  // Apply condition and selection filters row-by-row using pre-compiled test functions.
+  // Compiling once per filter (not per row) avoids redundant toComparable() /
+  // normalizeToDate() / toLowerCase() work on filter-side constants.
   const rowFilters = active.filter((f) => (f.filterMode ?? 'condition') !== 'rank');
   if (rowFilters.length === 0) {
     return result;
   }
-  return result.filter((row) => rowFilters.every((f) => matchesFilterState(row, f)));
+  const tests = rowFilters.map(compileRowTest);
+  if (tests.length === 1) {
+    return result.filter(tests[0]);
+  }
+  return result.filter((row) => tests.every((test) => test(row)));
 }
 
 /**
@@ -954,19 +1045,35 @@ function isoWeek(d: Date): { year: number; week: number } {
  *   'year'    → '2024'
  */
 export function truncateToGranularity(value: unknown, granularity: XGroupBy): string | null {
-  const d = normalizeToDate(value);
-  if (!d) {
-    return null;
+  let y: number;
+  let m: number; // 0-indexed
+  let day: number;
+
+  // Fast path: parse canonical ISO strings (YYYY-MM-DD or YYYY-MM-DDTHH:…) directly
+  // without allocating a Date. This is the common case after normalizeDataSourceRows.
+  if (typeof value === 'string' && value.length >= 10 && value[4] === '-' && value[7] === '-') {
+    y = Number(value.slice(0, 4));
+    m = Number(value.slice(5, 7)) - 1; // convert to 0-indexed
+    day = Number(value.slice(8, 10));
+  } else {
+    const d = normalizeToDate(value);
+    if (!d) {
+      return null;
+    }
+    y = d.getUTCFullYear();
+    m = d.getUTCMonth(); // 0-indexed
+    day = d.getUTCDate();
   }
-  const y = d.getUTCFullYear();
-  const m = d.getUTCMonth(); // 0-indexed
+
   switch (granularity) {
     case 'day': {
       const mm = String(m + 1).padStart(2, '0');
-      const dd = String(d.getUTCDate()).padStart(2, '0');
+      const dd = String(day).padStart(2, '0');
       return `${y}-${mm}-${dd}`;
     }
     case 'week': {
+      // isoWeek requires a Date — construct one only for this case.
+      const d = new Date(Date.UTC(y, m, day));
       const { year, week } = isoWeek(d);
       return `${year}-W${String(week).padStart(2, '0')}`;
     }

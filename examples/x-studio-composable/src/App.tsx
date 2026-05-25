@@ -24,8 +24,7 @@ import { ComposeDialog } from './components/ComposeDialog';
 import { DataDialog } from './components/DataDialog';
 import { FiltersDialog } from './components/FiltersDialog';
 import { AddWidgetFab } from './components/AddWidgetFab';
-import { uploadJson } from './utils/fileUtils';
-import { downloadJson } from './utils/fileUtils';
+import { uploadJson, downloadJson } from './utils/fileUtils';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
@@ -248,7 +247,7 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
 
   const handleSave = React.useCallback(() => {
     const serialized = controller.serializeState();
-    if (!serialized) return;
+    if (!serialized) { return; }
     const title = (controller.getState().dashboard.title ?? 'dashboard').replace(/[^a-z0-9]/gi, '_');
     downloadJson(serialized, `${title}_dashboard.json`);
     onSnackbar('Dashboard saved successfully', 'success');

@@ -323,10 +323,16 @@ function compileSingleCondition(
       if (fieldType === 'date' || fieldType === 'datetime') {
         return (row) => {
           const rv = row[field];
-          if (rv == null) return false;
+          if (rv == null) {
+            return false;
+          }
           const s = String(rv);
-          if (from !== null && s < from) return false;
-          if (to !== null && s > to) return false;
+          if (from !== null && s < from) {
+            return false;
+          }
+          if (to !== null && s > to) {
+            return false;
+          }
           return true;
         };
       }
@@ -335,8 +341,12 @@ function compileSingleCondition(
         const numTo = to as number | null;
         return (row) => {
           const cmp = Number(row[field]);
-          if (numFrom !== null && cmp < numFrom) return false;
-          if (numTo !== null && cmp > numTo) return false;
+          if (numFrom !== null && cmp < numFrom) {
+            return false;
+          }
+          if (numTo !== null && cmp > numTo) {
+            return false;
+          }
           return true;
         };
       }

@@ -394,16 +394,19 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     }
     node.addEventListener('dragover', onDragOver);
     node.addEventListener('drop', stopScroll);
-    node.addEventListener('dragleave', (evt: DragEvent) => {
+    // Must store a reference to the dragleave handler so it can be removed in cleanup.
+    function handleDragLeave(evt: DragEvent) {
       // Only stop if leaving the canvas entirely (not moving between children)
-      if (!node.contains(evt.relatedTarget as Node)) {
+      if (!node!.contains(evt.relatedTarget as Node)) {
         stopScroll();
       }
-    });
+    }
+    node.addEventListener('dragleave', handleDragLeave);
 
     return () => {
       node.removeEventListener('dragover', onDragOver);
       node.removeEventListener('drop', stopScroll);
+      node.removeEventListener('dragleave', handleDragLeave);
       stopScroll();
     };
   }, [mode]);

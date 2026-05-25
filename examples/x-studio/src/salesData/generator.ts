@@ -48,18 +48,24 @@ function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Random date between two ISO date strings, inclusive. */
-function randomDate(rng: Rng, from: string, to: string): string {
+/**
+ * Returns a bound random-date sampler for a fixed [from, to] range.
+ * Pre-parses the boundary strings once so repeated calls inside a generation
+ * loop don't incur repeated `new Date(string)` parsing costs.
+ */
+function makeDateSampler(from: string, to: string): (rng: Rng) => string {
   const a = new Date(from).getTime();
-  const b = new Date(to).getTime();
-  return isoDate(new Date(a + rng() * (b - a)));
+  const span = new Date(to).getTime() - a;
+  return (rng) => isoDate(new Date(a + rng() * span));
 }
 
 /** Add a number of days to an ISO date string. */
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr);
-  d.setUTCDate(d.getUTCDate() + days);
-  return isoDate(d);
+  // Use Date.UTC to avoid the string-parsing overhead of new Date(string).
+  const y = Number(dateStr.slice(0, 4));
+  const m = Number(dateStr.slice(5, 7)) - 1; // 0-indexed month
+  const d = Number(dateStr.slice(8, 10));
+  return isoDate(new Date(Date.UTC(y, m, d + days)));
 }
 
 function zeroPad(n: number, width: number): string {
@@ -289,6 +295,7 @@ export interface GeneratorOptions {
 
 function generateCustomers(rng: Rng, count: number): StudioDataSource {
   const rows: Record<string, unknown>[] = [];
+  const sampleSinceDate = makeDateSampler('2015-01-01', '2022-12-31');
   for (let i = 0; i < count; i++) {
     const id = `CUS-${zeroPad(i + 1, 3)}`;
     const country = pick(rng, COUNTRIES);
@@ -303,7 +310,7 @@ function generateCustomers(rng: Rng, count: number): StudioDataSource {
       email: `${firstName.toLowerCase().charAt(0)}.${lastName.toLowerCase()}@${prefix.toLowerCase()}.com`,
       country,
       segment: pick(rng, SEGMENTS),
-      since: randomDate(rng, '2015-01-01', '2022-12-31'),
+      since: sampleSinceDate(rng),
     });
   }
 
@@ -381,12 +388,13 @@ function generateOrders(
   const weightSum = customerWeights.reduce((s, w) => s + w, 0);
   const customerWeightsNorm = customerWeights.map((w) => w / weightSum);
 
+  const sampleOrderDate = makeDateSampler('2023-01-01', '2026-04-25');
   for (let i = 0; i < count; i++) {
     const customer = pickWeighted(rng, customerRows, customerWeightsNorm);
     const country = customer.country as string;
     rows.push({
       id: `ORD-${zeroPad(i + 1, 4)}`,
-      date: randomDate(rng, '2023-01-01', '2026-04-25'),
+      date: sampleOrderDate(rng),
       customerId: customer.id as string,
       status: pickWeighted(rng, ORDER_STATUSES, ORDER_STATUS_WEIGHTS),
       total: 0, // derived later

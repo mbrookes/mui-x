@@ -33,6 +33,12 @@ export default defineConfig({
   build: {
     sourcemap: !!process.env.ANALYZE,
   },
+  // Never pre-bundle opt-in dev tools — they are 685 KB (react-scan) and
+  // 400+ KB (wdyr) and should only be loaded when explicitly activated via
+  // the dev:scan / dev:wdyr scripts or by setting localStorage flags.
+  optimizeDeps: {
+    exclude: ['react-scan', '@welldone-software/why-did-you-render'],
+  },
   resolve: {
     dedupe: ['react', 'react-dom', '@emotion/react', '@emotion/styled'],
     alias: [
@@ -112,7 +118,10 @@ export default defineConfig({
       },
     ],
   },
-  envPrefix: 'LLM_',
+  // Expose VITE_* vars (opt-in tool flags) and LLM_* vars (AI config) to client.
+  // Note: setting envPrefix to an array replaces Vite's default 'VITE_' prefix,
+  // so both must be listed explicitly.
+  envPrefix: ['VITE_', 'LLM_'],
   server: {
     port: 3004,
   },

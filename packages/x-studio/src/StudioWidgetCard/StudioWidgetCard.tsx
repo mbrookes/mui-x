@@ -10,6 +10,7 @@ import {
   DialogTitle,
   IconButton,
   Paper,
+  Skeleton,
   Stack,
   Tooltip,
   Typography,
@@ -18,7 +19,19 @@ import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
 import dayjs from 'dayjs';
 
-import { useStudioController, useStudioSelector, selectPartitionedBaseFilters } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectMode,
+  selectPartitionedBaseFilters,
+  makeSelectWidget,
+  makeSelectIsWidgetSelected,
+  makeSelectIsWidgetDimmed,
+  makeSelectWidgetSource,
+  makeSelectWidgetRankFilter,
+  makeSelectWidgetSliderFilter,
+  makeSelectWidgetActiveCrossFilter,
+} from '../context';
 import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import type { StudioPageTheme } from '../models';
@@ -127,68 +140,31 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const [hovered, setHovered] = React.useState(false);
   const { widgetId, isFirstRow = false, pageTheme, slots, slotProps } = props;
   const controller = useStudioController();
-  const mode = useStudioSelector((state) => state.mode);
-  const widget = useStudioSelector((state) => state.widgets[widgetId]);
-  // Narrow selector: only re-render when THIS widget's selection state changes
-  const isSelected = useStudioSelector((state) => state.shell.selectedWidgetId === widgetId);
-  // Narrow selector: true when another widget is selected (hides hover actions on this card).
-  // Using `widgetId !== selectedId` avoids global "nothing selected" subscription — when
-  // selection moves from A→B only cards A and B re-render rather than all N cards.
-  const dimmed = useStudioSelector(
-    (state) => state.shell.selectedWidgetId !== null && state.shell.selectedWidgetId !== widgetId,
+  // Create stable selector functions scoped to this widgetId.
+  // Using React.useMemo ensures the selector identity is preserved across renders
+  // so React 19's useSyncExternalStore doesn't recreate getSelection each render.
+  const selectWidgetFn = React.useMemo(() => makeSelectWidget(widgetId), [widgetId]);
+  const selectIsSelectedFn = React.useMemo(() => makeSelectIsWidgetSelected(widgetId), [widgetId]);
+  const selectIsDimmedFn = React.useMemo(() => makeSelectIsWidgetDimmed(widgetId), [widgetId]);
+  const selectSourceFn = React.useMemo(() => makeSelectWidgetSource(widgetId), [widgetId]);
+  const selectRankFilterFn = React.useMemo(() => makeSelectWidgetRankFilter(widgetId), [widgetId]);
+  const selectSliderFilterFn = React.useMemo(
+    () => makeSelectWidgetSliderFilter(widgetId),
+    [widgetId],
   );
-  const source = useStudioSelector((state) =>
-    widget?.sourceId ? state.dataSources[widget.sourceId] : undefined,
+  const selectCrossFilterFn = React.useMemo(
+    () => makeSelectWidgetActiveCrossFilter(widgetId),
+    [widgetId],
   );
-  // Narrow selector: only extract the rank filter for this widget to avoid
-  // re-rendering all cards whenever any filter changes
-  const activeRankFilter = useStudioSelector((state) => {
-    if (widget?.kind !== 'chart') {
-      return null;
-    }
-    return (
-      state.filters.find(
-        (f) =>
-          f.scope === 'widget' &&
-          f.widgetId === widgetId &&
-          f.filterMode === 'rank' &&
-          typeof f.value === 'number' &&
-          f.value > 0,
-      ) ?? null
-    );
-  });
 
-  // Narrow selector: active interactive filter for filter widgets (e.g. slider range)
-  const activeSliderFilter = useStudioSelector((state) => {
-    if (widget?.kind !== 'filter' || widget?.config?.filterWidgetType !== 'slider') {
-      return null;
-    }
-    const activePageId = state.dashboard.activePageId;
-    return (
-      state.filters.find(
-        (f) =>
-          f.scope === 'interactive' &&
-          f.sourceWidgetId === widgetId &&
-          f.pageId === activePageId,
-      ) ?? null
-    );
-  });
-
-  // Narrow selector: only extract the active cross-filter emitted by this widget
-  const activeCrossFilter = useStudioSelector((state) => {
-    if (widget?.kind !== 'chart' && widget?.kind !== 'grid') {
-      return null;
-    }
-    const activePageId = state.dashboard.activePageId;
-    return (
-      state.filters.find(
-        (f) =>
-          f.scope === 'cross-filter' &&
-          f.sourceWidgetId === widgetId &&
-          f.pageId === activePageId,
-      ) ?? null
-    );
-  });
+  const mode = useStudioSelector(selectMode);
+  const widget = useStudioSelector(selectWidgetFn);
+  const isSelected = useStudioSelector(selectIsSelectedFn);
+  const dimmed = useStudioSelector(selectIsDimmedFn);
+  const source = useStudioSelector(selectSourceFn);
+  const activeRankFilter = useStudioSelector(selectRankFilterFn);
+  const activeSliderFilter = useStudioSelector(selectSliderFilterFn);
+  const activeCrossFilter = useStudioSelector(selectCrossFilterFn);
 
   const ref = React.useRef<HTMLDivElement>(null);
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
@@ -447,27 +423,45 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
               </Typography>
             )}
           </Box>
-        {/* Widget content — deferred to after first paint to avoid blocking initial render */}
-        {showContent && widget.kind === 'grid' && (
-          <Box sx={{ position: 'relative' }}>
-            <StudioGridWidget widget={widget} dataSource={source} {...slotProps?.grid} />
-            {isRecomputing && <LoadingOverlay />}
-          </Box>
-        )}
-        {showContent && widget.kind === 'chart' && (
-          <Box sx={{ position: 'relative' }}>
-            <Box ref={chartContainerRef} sx={{ minHeight: CHART_MIN_HEIGHT }}>
-              <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} {...slotProps?.chart} />
+        {/* Widget content — deferred to after first paint to avoid blocking initial render.
+            A Skeleton placeholder preserves the card's height so the layout does not
+            shift when real content arrives (avoids CLS). */}
+        {widget.kind === 'grid' && (
+          showContent ? (
+            <Box sx={{ position: 'relative' }}>
+              <StudioGridWidget widget={widget} dataSource={source} {...slotProps?.grid} />
+              {isRecomputing && <LoadingOverlay />}
             </Box>
-            {isRecomputing && <LoadingOverlay />}
-          </Box>
+          ) : (
+            <Skeleton variant="rectangular" height={200} sx={{ borderRadius: 1 }} />
+          )
         )}
-        {showContent && widget.kind === 'kpi' && (
-          <StudioKpiWidget widget={widget} dataSource={source} {...slotProps?.kpi} />
+        {widget.kind === 'chart' && (
+          showContent ? (
+            <Box sx={{ position: 'relative' }}>
+              <Box ref={chartContainerRef} sx={{ minHeight: CHART_MIN_HEIGHT }}>
+                <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} {...slotProps?.chart} />
+              </Box>
+              {isRecomputing && <LoadingOverlay />}
+            </Box>
+          ) : (
+            <Skeleton variant="rectangular" height={CHART_MIN_HEIGHT} sx={{ borderRadius: 1 }} />
+          )
         )}
-        {showContent && widget.kind === 'text' && <StudioTextWidget widget={widget} {...slotProps?.text} />}
-        {showContent && widget.kind === 'filter' && (
-          <StudioFilterWidget widget={widget} dataSource={source} {...slotProps?.filter} />
+        {widget.kind === 'kpi' && (
+          showContent ? (
+            <StudioKpiWidget widget={widget} dataSource={source} {...slotProps?.kpi} />
+          ) : (
+            <Skeleton variant="rectangular" height={KPI_WIDGET_MIN_HEIGHT - 48} sx={{ borderRadius: 1 }} />
+          )
+        )}
+        {widget.kind === 'text' && (showContent ? <StudioTextWidget widget={widget} {...slotProps?.text} /> : <Skeleton variant="rectangular" height={60} sx={{ borderRadius: 1 }} />)}
+        {widget.kind === 'filter' && (
+          showContent ? (
+            <StudioFilterWidget widget={widget} dataSource={source} {...slotProps?.filter} />
+          ) : (
+            <Skeleton variant="rectangular" height={FILTER_WIDGET_MIN_HEIGHT - 48} sx={{ borderRadius: 1 }} />
+          )
         )}
       </Stack>
       {/* Chart full-screen overlay dialog */}

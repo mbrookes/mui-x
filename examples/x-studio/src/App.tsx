@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Alert, Box, Chip, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { Studio } from '@mui/x-studio';
+import { Studio, createBatchingAdapter } from '@mui/x-studio';
 import type {
   StudioHandle,
   StudioMode,
@@ -18,7 +18,6 @@ import { downloadJson, uploadJson } from './utils/fileUtils';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
-import { createBatchingAdapter } from '@mui/x-studio';
 
 function slugifyPageTitle(title: string) {
   return title
@@ -102,13 +101,44 @@ function setUrlPageId(pageId: string, pages: Record<string, StudioPage> | undefi
 
 export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);
-  const initialState = React.useMemo<Partial<StudioState>>(() => {
-    const urlPageId = resolvePageIdFromQuery(getUrlPageParam(), INITIAL_STATE.pages);
-    const rowCount = getUrlRowsParam();
 
-    let base = INITIAL_STATE;
+  // Compute URL params once — stable across renders.
+  const rowCount = React.useMemo(() => getUrlRowsParam(), []);
+  const urlPageId = React.useMemo(
+    () => resolvePageIdFromQuery(getUrlPageParam(), INITIAL_STATE.pages),
+    [],
+  );
 
-    if (rowCount !== undefined) {
+  // Phase 1: render the shell immediately with the static demo data so FCP
+  // is not blocked by data generation.
+  const baseInitialState = React.useMemo<Partial<StudioState>>(() => {
+    if (!urlPageId) {
+      return INITIAL_STATE;
+    }
+    return {
+      ...INITIAL_STATE,
+      dashboard: {
+        ...INITIAL_STATE.dashboard,
+        activePageId: urlPageId,
+      },
+    } as Partial<StudioState>;
+  }, [urlPageId]);
+
+  // Phase 2: if ?rows=N is in the URL, generate the large dataset after first
+  // paint so the main thread is not blocked during initial render.
+  const [generatedState, setGeneratedState] = React.useState<Partial<StudioState> | null>(null);
+
+  React.useEffect(() => {
+    if (rowCount === undefined) {
+      return undefined;
+    }
+    let cancelled = false;
+    // Use setTimeout(0) to defer generation until after the first paint.
+    // requestIdleCallback would be ideal but is not supported in Safari.
+    const id = setTimeout(() => {
+      if (cancelled) {
+        return;
+      }
       const {
         customersSource,
         productsSource,
@@ -117,12 +147,15 @@ export default function App() {
         shipmentsSource,
         shipmentItemsSource,
       } = generateSalesData({ seed: 42, orderCount: rowCount });
+      if (cancelled) {
+        return;
+      }
       // eslint-disable-next-line no-console
       console.info(
         `[x-studio] Generated data: ${rowCount} orders, ${ordersSource.rows?.length} order rows`,
       );
-      base = {
-        ...INITIAL_STATE,
+      const newState: Partial<StudioState> = {
+        ...baseInitialState,
         dataSources: {
           ...INITIAL_STATE.dataSources,
           [customersSource.id]: customersSource,
@@ -133,20 +166,20 @@ export default function App() {
           [shipmentItemsSource.id]: shipmentItemsSource,
         },
       };
-    }
+      React.startTransition(() => {
+        setGeneratedState(newState);
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
+  }, [rowCount, baseInitialState]);
 
-    if (!urlPageId) {
-      return base;
-    }
-
-    return {
-      ...base,
-      dashboard: {
-        ...base.dashboard,
-        activePageId: urlPageId,
-      },
-    } as Partial<StudioState>;
-  }, []);
+  // Use the generated state once ready; fall back to static data for FCP.
+  // Re-key Studio when switching from static → generated so initialState is re-applied.
+  const initialState = generatedState ?? baseInitialState;
+  const studioKey = generatedState ? `generated-${rowCount}` : 'static';
   const [mode, setMode] = React.useState<StudioMode>('edit');
   const [title, setTitle] = React.useState('');
   const [pages, setPages] = React.useState<Record<string, StudioPage>>({});
@@ -201,8 +234,8 @@ export default function App() {
     }
     // eslint-disable-next-line no-console
     console.info('[x-studio] Adapter mode enabled — all sources routed through simulatedServer');
-    // Only run once on mount (studioRef.current is stable after mount)
-  }, [adapterMode]);
+    // Re-run after Studio remounts (studioKey changes when generated data arrives).
+  }, [adapterMode, studioKey]);
 
   // Server mode: route all widget queries through a real server endpoint.
   // Activate with ?server=http://localhost:3001/api/studio-data
@@ -225,8 +258,8 @@ export default function App() {
     }
     // eslint-disable-next-line no-console
     console.info(`[x-studio] Server mode enabled — queries routed to ${serverEndpoint}`);
-    // Only run once on mount
-  }, [serverEndpoint, adapterMode]);
+    // Re-run after Studio remounts (studioKey changes when generated data arrives).
+  }, [serverEndpoint, adapterMode, studioKey]);
 
   const handleStateChange = React.useCallback((state: StudioState) => {
     // Use functional updates so React can skip if the value is unchanged,
@@ -318,7 +351,9 @@ export default function App() {
   }, []);
 
   const handlePageChange = React.useCallback((_event: React.SyntheticEvent, pageId: string) => {
-    studioRef.current?.setActivePage(pageId);
+    React.startTransition(() => {
+      studioRef.current?.setActivePage(pageId);
+    });
   }, []);
 
   const pageList = Object.values(pages);
@@ -382,6 +417,7 @@ export default function App() {
               />
             )}
             <Studio
+              key={studioKey}
               ref={studioRef}
               initialState={initialState}
               onStateChange={handleStateChange}

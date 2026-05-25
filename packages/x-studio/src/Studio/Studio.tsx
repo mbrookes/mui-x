@@ -27,11 +27,16 @@ import { StudioCanvas } from '../StudioCanvas';
 import { StudioDataDrawer } from '../StudioDataDrawer';
 import { StudioComposeDrawer } from '../StudioComposeDrawer';
 import { StudioFiltersDrawer } from '../StudioFiltersDrawer';
-import { StudioChatPanel } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
 import { StudioUIConfigContext } from '../internals/StudioUIConfigContext';
+
+// Lazy-load the chat panel so @base-ui/react/menu (and the full @mui/x-chat
+// bundle) are not downloaded until the user opens the AI panel for the first time.
+const StudioChatPanel = React.lazy(
+  () => import('../StudioChatPanel/StudioChatPanel'),
+);
 
 const MIN_CANVAS_WIDTH = 480;
 
@@ -347,7 +352,9 @@ const StudioContent = React.memo(function StudioContent(
               <AutoAwesomeIcon />
             </IconButton>
           </Tooltip>
-          <StudioChatPanel {...slotProps?.chatPanel} aiConfig={aiConfig} open={chatOpen} onClose={() => setChatOpen(false)} overlay />
+          <React.Suspense fallback={null}>
+            <StudioChatPanel {...slotProps?.chatPanel} aiConfig={aiConfig} open={chatOpen} onClose={() => setChatOpen(false)} overlay />
+          </React.Suspense>
         </React.Fragment>
       )}
     </Box>

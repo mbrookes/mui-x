@@ -35,7 +35,10 @@ import { StudioUIConfigContext } from '../internals/StudioUIConfigContext';
 // Lazy-load the chat panel so @base-ui/react/menu (and the full @mui/x-chat
 // bundle) are not downloaded until the user opens the AI panel for the first time.
 const StudioChatPanel = React.lazy(
-  () => import('../StudioChatPanel/StudioChatPanel'),
+  () =>
+    import('../StudioChatPanel/StudioChatPanel').then((m) => ({
+      default: m.StudioChatPanel,
+    })),
 );
 
 const MIN_CANVAS_WIDTH = 480;

@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:wdyr": "VITE_WDYR=true vite",
+    "dev:scan": "VITE_REACT_SCAN=true vite",
+    "dev:profile": "PROFILING=true vite",
+    "analyze": "ANALYZE=true pnpm build",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "server": "NODE_OPTIONS='--experimental-sqlite --no-warnings' pnpm tsx src/server/index.ts"

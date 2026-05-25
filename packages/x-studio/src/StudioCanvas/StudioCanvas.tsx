@@ -274,7 +274,11 @@ function RowResizeHandle({
 export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvasProps) {
   const { slotProps, stackBreakpoint: stackBreakpointProp = 600 } = props;
   const mode = useStudioSelector(selectMode);
-  const activePage = useStudioSelector(selectActivePage);
+  // Defer page transitions so the browser stays responsive while new page widgets mount.
+  // useSyncExternalStore updates are synchronous, so startTransition alone doesn't help;
+  // useDeferredValue explicitly schedules the expensive new-page render at low priority.
+  const liveActivePage = useStudioSelector(selectActivePage);
+  const activePage = React.useDeferredValue(liveActivePage);
   const widgetRows = activePage?.widgetRows;
   const widgetColSpans = activePage?.widgetColSpans;
   const pageTheme = activePage?.theme;

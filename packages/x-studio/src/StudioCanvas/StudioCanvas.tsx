@@ -473,8 +473,8 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         let nextColSpans = widgetColSpansRef.current;
         if (isNewSingleton) {
           if (nextColSpans?.[widgetId] != null) {
-            const { [widgetId]: _removed, ...rest } = nextColSpans;
-            void _removed;
+            const { [widgetId]: removedSpan, ...rest } = nextColSpans;
+            void removedSpan;
             nextColSpans = Object.keys(rest).length > 0 ? rest : undefined;
           }
         } else if (nextColSpans?.[widgetId] != null) {
@@ -484,8 +484,8 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
             return sum + (s ?? 0);
           }, 0);
           if (destSpanTotal > 12) {
-            const { [widgetId]: _removed, ...rest } = nextColSpans;
-            void _removed;
+            const { [widgetId]: removedSpan, ...rest } = nextColSpans;
+            void removedSpan;
             nextColSpans = Object.keys(rest).length > 0 ? rest : undefined;
           }
         }
@@ -606,18 +606,22 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
               // View mode: use percentage flex-basis (no insertion points present).
               // Stacked mode: force full width regardless of stored span.
               const defaultFlexGrow = Math.round(12 / row.length);
-              const flexValue = isStacked
-                ? '0 0 100%'
-                : mode === 'edit'
-                  ? `${span ?? defaultFlexGrow} 0 0`
-                  : span != null
-                    ? `0 0 ${(span / 12) * 100}%`
-                    : 1;
-              const maxWidth = isStacked
-                ? '100%'
-                : mode !== 'edit' && span != null
-                  ? `${(span / 12) * 100}%`
-                  : undefined;
+              let flexValue: string | number;
+              if (isStacked) {
+                flexValue = '0 0 100%';
+              } else if (mode === 'edit') {
+                flexValue = `${span ?? defaultFlexGrow} 0 0`;
+              } else if (span != null) {
+                flexValue = `0 0 ${(span / 12) * 100}%`;
+              } else {
+                flexValue = 1;
+              }
+              let maxWidth: string | undefined;
+              if (isStacked) {
+                maxWidth = '100%';
+              } else if (mode !== 'edit' && span != null) {
+                maxWidth = `${(span / 12) * 100}%`;
+              }
 
               // Spans for the resize handle on the right of this widget
               const nextId = row[colIndex + 1];

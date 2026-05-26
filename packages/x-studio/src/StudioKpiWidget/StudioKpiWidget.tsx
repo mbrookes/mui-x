@@ -4,7 +4,7 @@ import { Box, Tooltip } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget, StudioFilterState } from '../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
-import { resolveRows, resolveMetricRefs } from '../internals/chartUtils';
+import { resolveRows, resolveMetricRefs, resolveChartRowsForAggregation, analyzeChartSupport } from '../internals/chartUtils';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { collectSelectFields } from '../internals/queryDescriptor';
 import { usePageChartColors } from '../internals/usePageChartColors';
@@ -83,6 +83,56 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const { filteredRowsNoCross, effectiveRows } = useWidgetRows(widget, dataSource);
   const currentRows = crossFilterMode === 'none' ? filteredRowsNoCross : effectiveRows;
 
+  // Grain-aware rows for KPI value and sparkline computation.
+  //
+  // When kpiValueField belongs to a related (parent) source — e.g. a KPI on order_items
+  // using orders.revenue — calling computeAggregate over the widget's own rows inflates
+  // the result because each parent-level value is repeated once per child row.
+  // resolveChartRowsForAggregation re-anchors to the correct aggregation grain (the parent
+  // source rows, filtered to those that have at least one matching child row).
+  //
+  // Measure expression fields handle their own aggregation via evaluateMeasure and are
+  // excluded from re-anchoring.
+  //
+  // isGrainAnchored is true when the value field is on a different (parent) source and the
+  // re-anchoring actually changed the row grain. Used to skip the redundant time-field join
+  // in the sparkline path when the time field is also on the anchor source rows natively.
+  const kpiValueField = config.kpiValueField;
+  const { grainAnchoredRows, isGrainAnchored } = React.useMemo(() => {
+    const isMeasure = kpiValueField
+      ? expressionFields.some((ef) => ef.id === kpiValueField && ef.isMeasure)
+      : false;
+    if (!kpiValueField || !widget.sourceId || isMeasure) {
+      return { grainAnchoredRows: currentRows, isGrainAnchored: false };
+    }
+    const support = analyzeChartSupport(
+      widget.sourceId,
+      undefined,
+      [kpiValueField],
+      undefined,
+      undefined,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    if (!support.supported || !support.anchorSourceId || support.anchorSourceId === widget.sourceId) {
+      return { grainAnchoredRows: currentRows, isGrainAnchored: false };
+    }
+    return {
+      grainAnchoredRows: resolveChartRowsForAggregation(
+        currentRows,
+        widget.sourceId,
+        undefined,
+        [kpiValueField],
+        undefined,
+        dataSources,
+        relationships,
+        expressionFields,
+      ),
+      isGrainAnchored: true,
+    };
+  }, [currentRows, kpiValueField, widget.sourceId, expressionFields, dataSources, relationships]);
+
   const {
     displayValue,
     hasData,
@@ -109,10 +159,13 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       (ef) => ef.id === config.kpiValueField && ef.isMeasure,
     );
     const measureKey = measureExprField ? `measure:${measureExprField.id}` : `agg:${aggregation}`;
-    const value = cachedCompute(rows, `kpi-value:${config.kpiValueField}:${measureKey}`, () =>
+    // Use grain-anchored rows for the value so cross-source fields (e.g. orders.revenue on an
+    // order_items widget) are aggregated once per parent row, not once per child row.
+    const valueRows = measureExprField ? rows : grainAnchoredRows;
+    const value = cachedCompute(valueRows, `kpi-value:${config.kpiValueField}:${measureKey}`, () =>
       measureExprField
-        ? evaluateMeasure(measureExprField, rows, expressionFields)
-        : computeAggregate(rows, config.kpiValueField!, aggregation),
+        ? evaluateMeasure(measureExprField, valueRows, expressionFields)
+        : computeAggregate(valueRows, config.kpiValueField!, aggregation),
     );
 
     const fieldDef =
@@ -149,7 +202,18 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
 
         let sparklineRows = rows;
         const timeFieldSourceId = config.kpiSparklineSourceId;
-        if (timeFieldSourceId && timeFieldSourceId !== widget.sourceId) {
+        if (isGrainAnchored) {
+          // The value field is on a related (parent) source. The grain-anchored rows are
+          // at the parent grain and natively contain the value field.
+          // If the time field is also from that parent source (timeFieldSourceId set to a
+          // related source, or auto-detected date filter), it is already present on the
+          // anchor rows — use grainAnchoredRows directly, no join needed.
+          // If the time field is from the widget's own source (unusual mixed config),
+          // fall back to unanchored rows; sparkline values will remain inflated in that
+          // edge case (TODO: handle mixed grain+time-source sparkline).
+          const timeOnAnchorSource = !timeFieldSourceId || timeFieldSourceId !== widget.sourceId;
+          sparklineRows = timeOnAnchorSource ? grainAnchoredRows : rows;
+        } else if (timeFieldSourceId && timeFieldSourceId !== widget.sourceId) {
           const relSource = dataSources[timeFieldSourceId];
           if (relSource?.rows) {
             const joinKeyMap = new Map<unknown, unknown>();
@@ -267,7 +331,12 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             () =>
               measureExprField
                 ? evaluateMeasure(measureExprField, prevRows, expressionFields)
-                : computeAggregate(prevRows, kpiValueField, aggregation),
+                : // TODO: Apply grain anchoring to prevRows when kpiValueField is cross-source
+                  // (same treatment as grainAnchoredRows for the current period). Deferred
+                  // because the previous-period filter pipeline requires running
+                  // resolveChartRowsForAggregation over the already-filtered prevRows, which
+                  // needs the anchor source rows pre-filtered to the previous-period date range.
+                  computeAggregate(prevRows, kpiValueField, aggregation),
           );
 
           if (previousValue !== 0) {
@@ -299,6 +368,8 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     };
   }, [
     currentRows,
+    grainAnchoredRows,
+    isGrainAnchored,
     dataSource,
     filters,
     dataSources,

@@ -188,15 +188,21 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [controller, widget.id, widget.sourceId, activeCrossFilter, widget.config.crossFilterField],
   );
 
-  // Compute summary values over ALL filtered rows (not just the current page).
+  // Compute summary values over the relevant filtered rows.
   // Only shown when grouping is not active (DataGridPremium aggregation handles it otherwise).
+  //
+  // In cross-highlight mode the grid body shows ALL baseline rows but dims non-matching ones.
+  // The summary should reflect only the highlighted (cross-filter-inclusive) subset so the
+  // totals agree with what the user is focusing on. In all other modes use `rows` directly.
   const summaryConfig = widget.config.gridGroupByField ? undefined : widget.config.gridSummaryFields;
+  const summaryBasisRows =
+    hasChartCrossFilters && crossFilterMode === 'cross-highlight' ? filteredRows : rows;
   const summaryValues = React.useMemo(() => {
     if (!summaryConfig || Object.keys(summaryConfig).length === 0 || !dataSource) {
       return null;
     }
-    return computeGridSummary(rows, dataSource.fields, { fields: summaryConfig });
-  }, [rows, dataSource, summaryConfig]);
+    return computeGridSummary(summaryBasisRows, dataSource.fields, { fields: summaryConfig });
+  }, [summaryBasisRows, dataSource, summaryConfig]);
 
   // Build a pinned bottom row for DataGridPremium using the summary values.
   const pinnedRows = React.useMemo(() => {

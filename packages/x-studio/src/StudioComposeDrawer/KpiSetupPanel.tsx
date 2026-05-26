@@ -3,12 +3,15 @@ import * as React from 'react';
 import {
   Box,
   Collapse,
+  Divider,
   FormControl,
   InputLabel,
   MenuItem,
   Select,
   Stack,
   Switch,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -24,7 +27,7 @@ import {
 } from '../context';
 import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
-import type { StudioKpiAggregation, StudioWidgetConfig } from '../models';
+import type { StudioKpiAggregation, StudioWidgetConfig, StudioCrossFilterMode } from '../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 
 /**
@@ -490,6 +493,38 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           />
         </Box>
       </CollapsibleFeatureSection>
+
+      {/* Interactions — cross-filter mode */}
+      <div>
+        <Divider sx={{ mb: 1.5 }} />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+          Interactions
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+          When other widgets are clicked, this KPI…
+        </Typography>
+        <ToggleButtonGroup
+          value={(config.crossFilterMode ?? 'none') as StudioCrossFilterMode}
+          exclusive
+          onChange={(_e, value: StudioCrossFilterMode | null) => {
+            controller.updateWidgetConfig(widgetId, {
+              crossFilterMode: value ?? 'none',
+            });
+          }}
+          size="small"
+          fullWidth
+        >
+          <ToggleButton value="cross-highlight" sx={{ fontSize: 11, textTransform: 'none' }}>
+            Highlight
+          </ToggleButton>
+          <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
+            Filter
+          </ToggleButton>
+          <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
+            None
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </div>
     </Stack>
   );
 }

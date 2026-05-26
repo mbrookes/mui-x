@@ -71,10 +71,17 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const expressionFields = useStudioSelector(selectExpressionFields);
   const chartColors = usePageChartColors();
 
+  // KPI cross-filter mode: 'none' (default) keeps the grand-total behaviour users expect
+  // from summary cards; 'cross-filter' / 'cross-highlight' opt in to context-sensitivity.
+  const crossFilterMode = config.crossFilterMode ?? 'none';
+
   // Current-period rows via the shared pipeline hook.
-  // KPI widgets intentionally ignore cross-filters (they show absolute totals), so we
-  // use filteredRowsNoCross, which excludes cross-filter and interactive-filter constraints.
-  const { filteredRowsNoCross: currentRows } = useWidgetRows(widget, dataSource);
+  // When crossFilterMode is 'none' (default) we deliberately use filteredRowsNoCross so
+  // the KPI always shows the absolute total, ignoring chart-click selections.
+  // In 'cross-filter' or 'cross-highlight' mode we use effectiveRows, which respects
+  // the active cross-filter (same as the chart widget does).
+  const { filteredRowsNoCross, effectiveRows } = useWidgetRows(widget, dataSource);
+  const currentRows = crossFilterMode === 'none' ? filteredRowsNoCross : effectiveRows;
 
   const {
     displayValue,

@@ -15,6 +15,7 @@ import type {
  */
 
 export const selectFilters = (state: StudioState) => state.filters;
+export const selectFilterPresets = (state: StudioState) => state.filterPresets ?? [];
 export const selectDataSources = (state: StudioState) => state.dataSources;
 export const selectRelationships = (state: StudioState) => state.relationships;
 export const selectExpressionFields = (state: StudioState) => state.expressionFields;

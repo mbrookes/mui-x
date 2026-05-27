@@ -843,6 +843,54 @@ export class StudioController {
   };
 
   /**
+   * Saves the current page-level filters as a named preset.
+   */
+  saveFilterPreset = (name: string): string => {
+    const state = this.store.state;
+    const pageFilters = state.filters.filter((f) => f.scope === 'page');
+    const id = `preset-${Date.now()}`;
+    const preset: import('../models').StudioFilterPreset = {
+      id,
+      name,
+      filters: pageFilters.map((f) => ({ ...f, id: `${id}-${f.id}` })),
+    };
+    this.commitState({
+      ...state,
+      filterPresets: [...(state.filterPresets ?? []), preset],
+    });
+    return id;
+  };
+
+  /**
+   * Applies a saved filter preset by replacing all page-level filters with the preset's filters.
+   */
+  applyFilterPreset = (presetId: string) => {
+    const state = this.store.state;
+    const preset = (state.filterPresets ?? []).find((p) => p.id === presetId);
+    if (!preset) {
+      return;
+    }
+    this.commitState({
+      ...state,
+      filters: [
+        ...state.filters.filter((f) => f.scope !== 'page'),
+        ...preset.filters,
+      ],
+    });
+  };
+
+  /**
+   * Deletes a saved filter preset by ID.
+   */
+  deleteFilterPreset = (presetId: string) => {
+    const state = this.store.state;
+    this.commitState({
+      ...state,
+      filterPresets: (state.filterPresets ?? []).filter((p) => p.id !== presetId),
+    });
+  };
+
+  /**
    * Clears all cross-filters.
    */
   clearAllCrossFilters = () => {

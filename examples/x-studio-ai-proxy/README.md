@@ -29,7 +29,7 @@ npm run dev        # starts on http://localhost:3010 with hot-reload
 
 ### 4. Configure the x-studio example app
 
-In `examples/x-studio` (or `examples/x-studio-composable`), edit `.env.local`:
+In `examples/x-studio` (or `examples/x-studio-composed`), edit `.env.local`:
 
 ```env
 # Point the app at your local proxy (no API key in the browser!)

@@ -85,6 +85,7 @@ export function normalizeGridColumn(col: string | StudioGridColumn): StudioGridC
 export type StudioFilterOperator =
   | 'equals'
   | 'in'
+  | 'not_in'
   | 'not_equals'
   | 'contains'
   | 'does_not_contain'

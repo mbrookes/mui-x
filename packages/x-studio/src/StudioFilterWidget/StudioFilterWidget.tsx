@@ -48,6 +48,10 @@ export interface StudioFilterMultiSelectControlProps {
   selected: string[];
   onApply: (v: string[]) => void;
   onClear: () => void;
+  /** Whether the filter is in exclude (NOT IN) mode. @default false */
+  exclude?: boolean;
+  /** Called when the user toggles include/exclude mode. */
+  onExcludeChange?: (exclude: boolean) => void;
 }
 
 export interface StudioFilterToggleControlProps {
@@ -201,7 +205,7 @@ function DateRangeControl(props: StudioFilterDateRangeControlProps) {
 // ─── Multi-select control ─────────────────────────────────────────────────────
 
 function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
-  const { label, values, selected, onApply, onClear } = props;
+  const { label, values, selected, onApply, onClear, exclude = false, onExcludeChange } = props;
   const [search, setSearch] = React.useState('');
   const isActive = selected.length > 0;
 
@@ -328,6 +332,32 @@ function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                 Clear all
               </Box>
             </Stack>
+            {onExcludeChange && (
+              <Box
+                component="span"
+                role="button"
+                tabIndex={0}
+                aria-label={exclude ? 'Switch to include mode' : 'Switch to exclude mode'}
+                aria-pressed={exclude}
+                onClick={(evt) => {
+                  evt.stopPropagation();
+                  onExcludeChange(!exclude);
+                }}
+                onKeyDown={(evt) => {
+                  if (evt.key === 'Enter' || evt.key === ' ') {
+                    onExcludeChange(!exclude);
+                  }
+                }}
+                sx={{
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  color: exclude ? 'error.main' : 'text.secondary',
+                  mt: 0.5,
+                }}
+              >
+                {exclude ? '⊘ Excluding selected' : 'Exclude selected'}
+              </Box>
+            )}
           </Stack>
         </MenuItem>
         {filtered.map((v) => (
@@ -659,22 +689,31 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
 
   if (filterWidgetType === 'multi-select') {
     const selected = (activeFilter?.value as string[] | undefined) ?? [];
-    const managedOnApply = (v: string[]) => {
+    const exclude = activeFilter?.operator === 'not_in';
+    const managedOnApply = (v: string[], op: 'in' | 'not_in' = exclude ? 'not_in' : 'in') => {
       if (v.length === 0) {
         handleClear();
         return;
       }
-      controller.applyInteractiveFilter(widget.id, fieldId, 'in', v, {
+      controller.applyInteractiveFilter(widget.id, fieldId, op, v, {
         filterMode: 'selection',
         fieldType: field?.type ?? 'string',
         filterSourceId,
       });
+    };
+    const managedOnExcludeChange = (nextExclude: boolean) => {
+      const op = nextExclude ? 'not_in' : 'in';
+      if (selected.length > 0) {
+        managedOnApply(selected, op);
+      }
     };
     return (
       <MultiSelectControlComponent
         label={label}
         values={distinctValues}
         selected={selected}
+        exclude={exclude}
+        onExcludeChange={managedOnExcludeChange}
         {...slotProps?.multiSelectControl}
         onApply={managedOnApply}
         onClear={handleClear}

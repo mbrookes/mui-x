@@ -334,15 +334,29 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           const previousValue = cachedCompute(
             prevRows,
             `kpi-value:${kpiValueField}:${measureKey}`,
-            () =>
-              measureExprField
-                ? evaluateMeasure(measureExprField, prevRows, expressionFields)
-                : // TODO: Apply grain anchoring to prevRows when kpiValueField is cross-source
-                  // (same treatment as grainAnchoredRows for the current period). Deferred
-                  // because the previous-period filter pipeline requires running
-                  // resolveChartRowsForAggregation over the already-filtered prevRows, which
-                  // needs the anchor source rows pre-filtered to the previous-period date range.
-                  computeAggregate(prevRows, kpiValueField, aggregation),
+            () => {
+              if (measureExprField) {
+                return evaluateMeasure(measureExprField, prevRows, expressionFields);
+              }
+              if (isGrainAnchored) {
+                // Apply the same grain anchoring to prevRows as we do for the current period.
+                // prevRows are already filtered to the previous date range via prevFilters, so
+                // resolveChartRowsForAggregation will re-anchor to the correct parent-source
+                // grain while respecting that pre-filtered row set.
+                const prevGrainRows = resolveChartRowsForAggregation(
+                  prevRows,
+                  widget.sourceId,
+                  undefined,
+                  [kpiValueField],
+                  undefined,
+                  dataSources,
+                  relationships,
+                  expressionFields,
+                );
+                return computeAggregate(prevGrainRows, kpiValueField, aggregation);
+              }
+              return computeAggregate(prevRows, kpiValueField, aggregation);
+            },
           );
 
           if (previousValue !== 0) {

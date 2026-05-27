@@ -204,6 +204,12 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         return;
       }
 
+      // Drilldown: if configured, open the detail panel with the full row data
+      if (widget.config.drilldownWidgetId) {
+        controller.openDrilldown(widget.id, widget.config.drilldownWidgetId, params.row as Record<string, unknown>);
+        return;
+      }
+
       const fieldId = widget.config.crossFilterField ?? params.field;
       const value = params.value;
 
@@ -218,7 +224,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         controller.applyCrossFilter(widget.id, fieldId, value, widget.sourceId);
       }
     },
-    [controller, widget.id, widget.sourceId, activeCrossFilter, widget.config.crossFilterField],
+    [controller, widget.id, widget.sourceId, activeCrossFilter, widget.config.crossFilterField, widget.config.drilldownWidgetId],
   );
 
   // Conditional formatting: build an index of CSS class name → style for injection.

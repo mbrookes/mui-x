@@ -9,6 +9,8 @@ import { PieChart, PieArc, type PieArcProps } from '@mui/x-charts/PieChart';
 import type { PieChartProps } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { ScatterChartProps } from '@mui/x-charts/ScatterChart';
+import { Gauge } from '@mui/x-charts/Gauge';
+import type { GaugeProps } from '@mui/x-charts/Gauge';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, Typography } from '@mui/material';
 
@@ -33,6 +35,7 @@ import {
 } from '../context';
 import { formatNumber } from '../internals/numberFormat';
 import type { StudioNumberFormat } from '../models/studio';
+import { computeAggregate } from '../StudioKpiWidget/kpiUtils';
 import { useChartWidgetData } from './useChartWidgetData';
 import { buildMultiYLineSeries } from './lineSeries';
 import { CrossFilterBarContext, CrossFilterGhostBar } from './CrossFilterGhostBar';
@@ -53,6 +56,8 @@ export interface StudioChartWidgetSlotProps {
   pieChart?: Partial<PieChartProps>;
   /** Spread onto ScatterChart. */
   scatterChart?: Partial<ScatterChartProps>;
+  /** Spread onto Gauge (gauge chart type). */
+  gaugeChart?: Omit<Partial<GaugeProps>, 'ref' | 'value' | 'valueMin' | 'valueMax' | 'width' | 'height'>;
 }
 
 export interface StudioChartWidgetProps {
@@ -827,7 +832,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   );
 
   // Guard: return placeholder if chart isn't configured yet (must be after all hooks)
-  if (!dataSource || !config.xField) {
+  // Gauge chart handles its own unconfigured state separately below.
+  if (!dataSource || (!config.xField && normalizedChartType !== 'gauge')) {
     return (
       <Box
         sx={{
@@ -839,6 +845,51 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         }}
       >
         <Typography variant="body2">Use the Setup tab to configure this chart.</Typography>
+      </Box>
+    );
+  }
+
+  // ── Gauge chart ──────────────────────────────────────────────────────────────
+  if (normalizedChartType === 'gauge') {
+    const gaugeValueField = config.yField;
+    if (!gaugeValueField) {
+      return (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: chartHeight,
+            color: 'text.disabled',
+          }}
+        >
+          <Typography variant="body2">Use the Setup tab to choose a gauge value field.</Typography>
+        </Box>
+      );
+    }
+    const gaugeAggregation = config.yAggregation ?? 'sum';
+    const gaugeValue = computeAggregate(filteredRows, gaugeValueField, gaugeAggregation);
+    const gaugeMin = config.gaugeMin ?? 0;
+    const gaugeMax = config.gaugeMax ?? 100;
+    const clampedValue = Math.min(Math.max(gaugeValue, gaugeMin), gaugeMax);
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: chartHeight,
+          width: '100%',
+        }}
+      >
+        <Gauge
+          {...slotProps?.gaugeChart}
+          value={clampedValue}
+          valueMin={gaugeMin}
+          valueMax={gaugeMax}
+          width={Math.min(chartHeight * 1.2, 320)}
+          height={chartHeight * 0.85}
+        />
       </Box>
     );
   }

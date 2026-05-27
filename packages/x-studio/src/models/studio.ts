@@ -29,6 +29,7 @@ export type StudioChartType =
   | 'pie'
   | 'donut'
   | 'scatter'
+  | 'gauge'
   // Legacy aliases kept for backwards compatibility
   | 'bar-grouped';
 
@@ -171,6 +172,10 @@ export interface StudioWidgetConfig {
   seriesField?: string;
   /** Granularity to truncate the x-axis date/datetime field before grouping. */
   xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
+  /** Minimum value for gauge chart. @default 0 */
+  gaugeMin?: number;
+  /** Maximum value for gauge chart. @default 100 */
+  gaugeMax?: number;
   // KPI config
   kpiValueField?: string;
   kpiAggregation?: StudioKpiAggregation;

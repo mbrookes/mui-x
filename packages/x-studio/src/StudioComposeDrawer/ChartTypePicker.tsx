@@ -12,6 +12,7 @@ import { BarHorizontalIcon } from '../icons/charts/BarHorizontalIcon';
 import { BarStackedHorizontalIcon } from '../icons/charts/BarStackedHorizontalIcon';
 import { Bar100HorizontalIcon } from '../icons/charts/Bar100HorizontalIcon';
 import { DonutIcon } from '../icons/charts/DonutIcon';
+import { GaugeIcon } from '../icons/charts/GaugeIcon';
 import { LineIcon } from '../icons/charts/LineIcon';
 import { PieIcon } from '../icons/charts/PieIcon';
 import { ScatterIcon } from '../icons/charts/ScatterIcon';
@@ -47,6 +48,7 @@ const CHART_TYPE_OPTIONS: ChartTypeOption[] = [
   { chartType: 'scatter', label: 'Scatter', Icon: ScatterIcon },
   { chartType: 'pie', label: 'Pie', Icon: PieIcon },
   { chartType: 'donut', label: 'Donut', Icon: DonutIcon },
+  { chartType: 'gauge', label: 'Gauge', Icon: GaugeIcon },
 ];
 
 export function ChartTypePicker({

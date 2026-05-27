@@ -377,7 +377,11 @@ export function exportGridToCsv(
 /**
  * Export chart as PNG image
  */
-export function exportChartToPng(widget: StudioWidget, chartContainer: HTMLElement | null): void {
+export function exportChartToPng(
+  widget: StudioWidget,
+  chartContainer: HTMLElement | null,
+  backgroundColor?: string,
+): void {
   if (!chartContainer) {
     return;
   }
@@ -411,7 +415,9 @@ export function exportChartToPng(widget: StudioWidget, chartContainer: HTMLEleme
   }
 
   ctx.scale(scale, scale);
-  ctx.fillStyle = 'white';
+  // Use the provided background color (e.g. theme.palette.background.default) so
+  // dark-mode dashboards export correctly. Fall back to white for light mode.
+  ctx.fillStyle = backgroundColor ?? 'white';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // Convert SVG to image

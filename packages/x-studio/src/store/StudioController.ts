@@ -658,6 +658,12 @@ export class StudioController {
           filter.filterMode !== 'rank' &&
           hasExistingRankFilter
         ) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              'MUI X Studio: Only one rank filter is allowed per page at a time. ' +
+                'The rank filter change was rejected.',
+            );
+          }
           return filter;
         }
 

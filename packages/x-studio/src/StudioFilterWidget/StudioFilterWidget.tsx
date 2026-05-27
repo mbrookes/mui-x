@@ -109,9 +109,33 @@ function DateRangeControl(props: StudioFilterDateRangeControlProps) {
     setTo(currentValue?.to ? dayjs(currentValue.to) : null);
   }, [currentValue?.from, currentValue?.to]);
 
+  // Debounce onApply so that typing a date character-by-character (e.g. in the text field
+  // inside DatePicker) doesn't trigger a full pipeline re-render on every keystroke.
+  const pendingApply = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleApply = React.useCallback(
+    (value: { from?: string; to?: string }) => {
+      if (pendingApply.current !== null) {
+        clearTimeout(pendingApply.current);
+      }
+      pendingApply.current = setTimeout(() => {
+        pendingApply.current = null;
+        onApply(value);
+      }, 300);
+    },
+    [onApply],
+  );
+  React.useEffect(
+    () => () => {
+      if (pendingApply.current !== null) {
+        clearTimeout(pendingApply.current);
+      }
+    },
+    [],
+  );
+
   const handleFromChange = (val: Dayjs | null) => {
     setFrom(val);
-    onApply({
+    scheduleApply({
       from: val?.isValid() ? val.format('YYYY-MM-DD') : undefined,
       to: to?.isValid() ? to.format('YYYY-MM-DD') : undefined,
     });
@@ -119,7 +143,7 @@ function DateRangeControl(props: StudioFilterDateRangeControlProps) {
 
   const handleToChange = (val: Dayjs | null) => {
     setTo(val);
-    onApply({
+    scheduleApply({
       from: from?.isValid() ? from.format('YYYY-MM-DD') : undefined,
       to: val?.isValid() ? val.format('YYYY-MM-DD') : undefined,
     });
@@ -239,29 +263,72 @@ function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
           autoFocus: false,
         }}
       >
-        {/* Search inside the dropdown */}
+        {/* Search + bulk actions inside the dropdown */}
         <MenuItem
           disableRipple
           onKeyDown={(evt) => evt.stopPropagation()}
           sx={{ position: 'sticky', top: 0, zIndex: 1, bgcolor: 'background.paper', pb: 0.5 }}
         >
-          <TextField
-            size="small"
-            fullWidth
-            placeholder="Search…"
-            value={search}
-            onChange={(evt) => setSearch(evt.target.value)}
-            onClick={(evt) => evt.stopPropagation()}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon sx={{ fontSize: 16 }} />
-                  </InputAdornment>
-                ),
-              },
-            }}
-          />
+          <Stack spacing={0.5} sx={{ width: '100%' }}>
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="Search…"
+              value={search}
+              onChange={(evt) => setSearch(evt.target.value)}
+              onClick={(evt) => evt.stopPropagation()}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon sx={{ fontSize: 16 }} />
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+            <Stack direction="row" spacing={1}>
+              <Box
+                component="span"
+                role="button"
+                tabIndex={0}
+                aria-label="Select all options"
+                onClick={(evt) => {
+                  evt.stopPropagation();
+                  handleSelectionChange(values);
+                }}
+                onKeyDown={(evt) => {
+                  if (evt.key === 'Enter' || evt.key === ' ') {
+                    handleSelectionChange(values);
+                  }
+                }}
+                sx={{ cursor: 'pointer', color: 'primary.main', fontSize: 12 }}
+              >
+                Select all
+              </Box>
+              <Typography variant="caption" color="text.disabled">
+                ·
+              </Typography>
+              <Box
+                component="span"
+                role="button"
+                tabIndex={0}
+                aria-label="Clear all selections"
+                onClick={(evt) => {
+                  evt.stopPropagation();
+                  onClear();
+                }}
+                onKeyDown={(evt) => {
+                  if (evt.key === 'Enter' || evt.key === ' ') {
+                    onClear();
+                  }
+                }}
+                sx={{ cursor: 'pointer', color: 'text.secondary', fontSize: 12 }}
+              >
+                Clear all
+              </Box>
+            </Stack>
+          </Stack>
         </MenuItem>
         {filtered.map((v) => (
           <MenuItem key={v} value={v} dense>

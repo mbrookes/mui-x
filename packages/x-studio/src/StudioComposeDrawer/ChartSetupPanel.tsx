@@ -11,6 +11,7 @@ import {
   MenuItem,
   Select,
   Stack,
+  TextField,
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
@@ -226,6 +227,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   };
 
   const isPieOrDonut = chartType === 'pie' || chartType === 'donut';
+  const isGauge = chartType === 'gauge';
 
   if (allFields.length === 0) {
     return (
@@ -278,6 +280,69 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
       <Divider />
 
+      {/* Gauge chart setup */}
+      {isGauge && (
+        <Stack spacing={2}>
+          <DataSourceFieldSelect
+            value={config.yField ?? ''}
+            onChange={(fieldId, sourceId) => {
+              controller.updateWidgetConfig(widgetId, { yField: fieldId });
+              if (sourceId && sourceId !== widget?.sourceId) {
+                controller.updateWidget(widgetId, { sourceId });
+              }
+            }}
+            fields={fieldsForCapability(allFields, 'numeric')}
+            label="Value field"
+            helperText="Numeric field to aggregate"
+          />
+
+          <FormControl size="small" fullWidth>
+            <InputLabel>Aggregation</InputLabel>
+            <Select
+              label="Aggregation"
+              value={config.yAggregation ?? 'sum'}
+              onChange={(evt) =>
+                controller.updateWidgetConfig(widgetId, {
+                  yAggregation: evt.target.value as 'sum' | 'count' | 'avg' | 'min' | 'max',
+                })
+              }
+            >
+              <MenuItem value="sum">Sum</MenuItem>
+              <MenuItem value="count">Count</MenuItem>
+              <MenuItem value="avg">Average</MenuItem>
+              <MenuItem value="min">Min</MenuItem>
+              <MenuItem value="max">Max</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Stack direction="row" spacing={1}>
+            <TextField
+              size="small"
+              label="Min"
+              type="number"
+              value={config.gaugeMin ?? 0}
+              onChange={(evt) =>
+                controller.updateWidgetConfig(widgetId, { gaugeMin: Number(evt.target.value) })
+              }
+              sx={{ flex: 1 }}
+            />
+            <TextField
+              size="small"
+              label="Max"
+              type="number"
+              value={config.gaugeMax ?? 100}
+              onChange={(evt) =>
+                controller.updateWidgetConfig(widgetId, { gaugeMax: Number(evt.target.value) })
+              }
+              sx={{ flex: 1 }}
+            />
+          </Stack>
+        </Stack>
+      )}
+
+      {/* Standard (non-gauge) fields */}
+      {!isGauge && (
+        <Stack spacing={2}>
       {/* X field */}
       <DataSourceFieldSelect
         value={config.xField ?? ''}
@@ -448,6 +513,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             </span>
           </Tooltip>
         </div>
+      )}
+        </Stack>
       )}
       {/* Interactions — cross-filter mode */}
       <div>

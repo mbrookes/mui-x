@@ -37,17 +37,32 @@ export interface MigrationResult {
 type MigrationFn = (state: Record<string, unknown>) => Record<string, unknown>;
 
 /**
- * Registry of migrations from version N to N+1
+ * Registry of migrations from version N to N+1.
+ *
+ * HOW TO ADD A MIGRATION
+ * ─────────────────────
+ * 1. Increment CURRENT_SCHEMA_VERSION above.
+ * 2. Add an entry here for the OLD version number (e.g. if bumping 1→2, add key `1`).
+ * 3. The function receives the raw persisted object and must return a new object
+ *    with `schemaVersion` set to N+1. Mutating the input is fine — it is already a spread copy.
+ * 4. Write a test in statePersistence.test.ts that calls migrateState() with a v(N) fixture
+ *    and asserts the output matches the v(N+1) shape.
+ *
+ * Example — bumping 1→2 (add a required `layout` field to every widget):
+ *
+ *   1: (state) => {
+ *     const widgets = state['widgets'] as Record<string, Record<string, unknown>>;
+ *     for (const w of Object.values(widgets)) {
+ *       if (!w['layout']) {
+ *         w['layout'] = { x: 0, y: 0, w: 4, h: 3 };
+ *       }
+ *     }
+ *     return { ...state, schemaVersion: 2 };
+ *   },
  */
 const migrations: Record<number, MigrationFn> = {
-  // Example: migration from v0 to v1 (if we had a v0)
-  // 0: (state) => {
-  //   return {
-  //     ...state,
-  //     schemaVersion: 1,
-  //     // Add new fields, transform existing ones
-  //   };
-  // },
+  // v0 → v1: first versioned schema. No structural changes needed; just stamp version.
+  0: (state) => ({ ...state, schemaVersion: 1 }),
 };
 
 /**

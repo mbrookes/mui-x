@@ -157,7 +157,11 @@ export function computeAggregate(
     return rows.length;
   }
 
-  const values = rows.map((row) => Number(row[field] ?? 0)).filter((v) => !Number.isNaN(v));
+  // Exclude null/undefined values so they don't inflate the denominator for avg/min/max.
+  // This aligns with gridSummary.ts which filters to typeof v === 'number'.
+  const values = rows
+    .map((row) => row[field])
+    .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
 
   if (values.length === 0) {
     return 0;

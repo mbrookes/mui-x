@@ -26,8 +26,11 @@ export function computeGridSummary(
     const isNumeric = fieldDef?.type === 'number';
 
     // For non-numeric fields, numeric aggregations aren't meaningful — fall back to count.
+    // count_distinct is meaningful for any field type so it is exempt from the fallback.
     const effectiveAgg: StudioGridSummaryAggregation =
-      !isNumeric && aggregation !== 'count' ? 'count' : aggregation;
+      !isNumeric && aggregation !== 'count' && aggregation !== 'count_distinct'
+        ? 'count'
+        : aggregation;
 
     const numericValues = rows
       .map((row) => row[fieldId])
@@ -39,6 +42,11 @@ export function computeGridSummary(
       case 'count':
         raw = rows.length;
         break;
+      case 'count_distinct': {
+        const seen = new Set(rows.map((row) => row[fieldId]).filter((v) => v != null));
+        raw = seen.size;
+        break;
+      }
       case 'sum':
         raw = numericValues.reduce((acc, v) => acc + v, 0);
         break;
@@ -66,7 +74,7 @@ export function computeGridSummary(
 
     const label = aggregationLabel(effectiveAgg);
 
-    if (effectiveAgg === 'count') {
+    if (effectiveAgg === 'count' || effectiveAgg === 'count_distinct') {
       result[fieldId] = `${label} ${raw.toLocaleString()}`;
     } else {
       const formatted = formatFieldValue(raw, fieldDef);
@@ -86,6 +94,8 @@ export function aggregationLabel(agg: StudioGridSummaryAggregation): string {
       return 'Avg:';
     case 'count':
       return 'Count:';
+    case 'count_distinct':
+      return 'Unique:';
     case 'min':
       return 'Min:';
     case 'max':

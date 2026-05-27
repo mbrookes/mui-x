@@ -40,13 +40,14 @@ import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
-const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = ['sum', 'avg', 'min', 'max', 'count'];
-const STRING_AGGREGATIONS: StudioGridSummaryAggregation[] = ['count'];
+const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = ['sum', 'avg', 'min', 'max', 'count', 'count_distinct'];
+const STRING_AGGREGATIONS: StudioGridSummaryAggregation[] = ['count', 'count_distinct'];
 
 const AGG_LABELS: Record<StudioGridSummaryAggregation, string> = {
   sum: 'Sum',
   avg: 'Average',
   count: 'Count',
+  count_distinct: 'Unique',
   min: 'Min',
   max: 'Max',
 };
@@ -264,6 +265,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
     widget?.config?.gridAggregations ?? {};
   const sortField = widget?.config?.gridSortField ?? '';
   const sortDirection = widget?.config?.gridSortDirection ?? 'asc';
+  const gridHeight = widget?.config?.gridHeight ?? 400;
 
   const availableSources = React.useMemo(
     () => Object.values(dataSources).filter((s) => !s.hidden),
@@ -632,6 +634,22 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   </ToggleButton>
                 </ToggleButtonGroup>
               </Box>
+
+              {/* Grid height */}
+              <TextField
+                label="Height (px)"
+                type="number"
+                size="small"
+                value={gridHeight}
+                slotProps={{ htmlInput: { min: 200, step: 50 } }}
+                onChange={(e) => {
+                  const parsed = parseInt(e.target.value, 10);
+                  if (!Number.isNaN(parsed) && parsed >= 200) {
+                    controller.updateWidgetConfig(widgetId, { gridHeight: parsed });
+                  }
+                }}
+                fullWidth
+              />
             </React.Fragment>
           )}
         </React.Fragment>

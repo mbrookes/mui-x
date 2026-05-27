@@ -79,8 +79,10 @@ export interface StudioGridColumn {
   /**
    * Source ID for this column. When set and different from `widget.sourceId`,
    * the column's data is pulled from a related source via the declared
-   * `StudioRelationship`. Only `many-to-one` relationships are supported
-   * (the widget's primary source must be the "many" side).
+   * `StudioRelationship`. Both `many-to-one` and `many-to-many` relationships
+   * are supported. For `many-to-one`, the widget's primary source must be the
+   * "many" side. For `many-to-many`, the widget source is one of the two endpoint
+   * sources; data is fetched through the junction table.
    */
   sourceId?: string;
   /**
@@ -524,15 +526,46 @@ export interface StudioExpressionField {
 
 export interface StudioRelationship {
   id: string;
-  /** The "many" side source ID (e.g. orders) */
+  /**
+   * For `many-to-one` / `one-to-one`: the "many" (or first) side source ID (e.g. `order_items`).
+   * For `many-to-many`: one of the two endpoint source IDs (e.g. `products`).
+   */
   sourceId: string;
-  /** The FK field in sourceId (e.g. 'customerId') */
+  /**
+   * For `many-to-one` / `one-to-one`: FK field in `sourceId` joining to `targetId`.
+   * For `many-to-many`: PK/FK field in `sourceId` that the junction table references
+   * (e.g. `id` on products, matched by `junctionSourceField`).
+   */
   sourceField: string;
-  /** The "one" side source ID (e.g. customers) */
+  /**
+   * For `many-to-one` / `one-to-one`: the "one" side source ID (e.g. `customers`).
+   * For `many-to-many`: the other endpoint source ID (e.g. `orders`).
+   */
   targetId: string;
-  /** The PK field in targetId (e.g. 'id') */
+  /**
+   * For `many-to-one` / `one-to-one`: PK field in `targetId`.
+   * For `many-to-many`: PK/FK field in `targetId` that the junction table references
+   * (e.g. `id` on orders, matched by `junctionTargetField`).
+   */
   targetField: string;
-  type: 'many-to-one' | 'one-to-one';
+  type: 'many-to-one' | 'one-to-one' | 'many-to-many';
+  /**
+   * **Required when `type === 'many-to-many'`.**
+   * The ID of the junction (bridge) `StudioDataSource` (e.g. `order_items`).
+   */
+  junctionSourceId?: string;
+  /**
+   * **Required when `type === 'many-to-many'`.**
+   * The field in the junction source that references `sourceId.sourceField`
+   * (e.g. `product_id` on `order_items`).
+   */
+  junctionSourceField?: string;
+  /**
+   * **Required when `type === 'many-to-many'`.**
+   * The field in the junction source that references `targetId.targetField`
+   * (e.g. `order_id` on `order_items`).
+   */
+  junctionTargetField?: string;
 }
 
 export interface StudioFilterState {

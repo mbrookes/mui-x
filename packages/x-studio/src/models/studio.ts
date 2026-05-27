@@ -604,6 +604,13 @@ export interface StudioDashboardState {
   defaultTheme?: StudioPageTheme;
 }
 
+export interface StudioFilterPreset {
+  id: string;
+  name: string;
+  /** Snapshot of page-scoped filters at the time of saving. */
+  filters: StudioFilterState[];
+}
+
 export interface StudioState {
   schemaVersion: 1;
   mode: StudioMode;
@@ -615,6 +622,8 @@ export interface StudioState {
   filters: StudioFilterState[];
   /** User-authored expression fields (calculated columns and measures). Persisted. */
   expressionFields: StudioExpressionField[];
+  /** Saved filter presets (named snapshots of page-level filters). */
+  filterPresets?: StudioFilterPreset[];
   shell: StudioShellState;
 }
 

@@ -60,6 +60,10 @@ export type { StudioComposeDrawerProps } from './StudioComposeDrawer/StudioCompo
 // ─── StudioFiltersDrawer ──────────────────────────────────────────────────────
 export { StudioFiltersDrawer } from './StudioFiltersDrawer/StudioFiltersDrawer';
 
+// ─── StudioDrilldownDrawer ────────────────────────────────────────────────────
+export { StudioDrilldownDrawer } from './StudioDrilldownDrawer/StudioDrilldownDrawer';
+export type { StudioDrilldownDrawerProps } from './StudioDrilldownDrawer/StudioDrilldownDrawer';
+
 // ─── StudioExpressionFieldDialog ──────────────────────────────────────────────
 export { StudioExpressionFieldDialog } from './StudioExpressionFieldDialog/StudioExpressionFieldDialog';
 export type { StudioExpressionFieldDialogProps } from './StudioExpressionFieldDialog/StudioExpressionFieldDialog';

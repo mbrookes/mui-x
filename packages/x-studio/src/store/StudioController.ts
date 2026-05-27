@@ -787,6 +787,62 @@ export class StudioController {
   };
 
   /**
+   * Opens a drilldown panel showing `drilldownWidgetId` filtered to the fields in `rowData`.
+   * Any field in `rowData` that exists in the drilldown widget's source is added as a
+   * temporary widget-scoped filter.
+   */
+  openDrilldown = (
+    sourceWidgetId: string,
+    drilldownWidgetId: string,
+    rowData: Record<string, unknown>,
+  ) => {
+    const state = this.store.state;
+    const drillWidget = state.widgets[drilldownWidgetId];
+    const drillSource = drillWidget?.sourceId ? state.dataSources[drillWidget.sourceId] : undefined;
+
+    const drilldownFilters: import('../models').StudioFilterState[] = drillSource
+      ? Object.entries(rowData)
+          .filter(([field]) => drillSource.fields.some((f) => f.id === field))
+          .map(([field, value]) => {
+            const fieldMeta = drillSource.fields.find((f) => f.id === field);
+            return {
+              id: `drilldown-${drilldownWidgetId}-${field}`,
+              scope: 'widget' as const,
+              widgetId: drilldownWidgetId,
+              field,
+              fieldType: fieldMeta?.type,
+              operator: 'equals' as const,
+              value,
+            };
+          })
+      : [];
+
+    this.commitState({
+      ...state,
+      filters: [
+        ...state.filters.filter((f) => !f.id.startsWith('drilldown-')),
+        ...drilldownFilters,
+      ],
+      shell: {
+        ...state.shell,
+        activeDrilldown: { sourceWidgetId, drilldownWidgetId, rowData },
+      },
+    });
+  };
+
+  /**
+   * Closes the active drilldown panel and removes all drilldown-scoped filters.
+   */
+  closeDrilldown = () => {
+    const state = this.store.state;
+    this.commitState({
+      ...state,
+      filters: state.filters.filter((f) => !f.id.startsWith('drilldown-')),
+      shell: { ...state.shell, activeDrilldown: null },
+    });
+  };
+
+  /**
    * Clears all cross-filters.
    */
   clearAllCrossFilters = () => {

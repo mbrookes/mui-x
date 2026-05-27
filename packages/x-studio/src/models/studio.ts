@@ -176,6 +176,12 @@ export interface StudioWidgetConfig {
   gaugeMin?: number;
   /** Maximum value for gauge chart. @default 100 */
   gaugeMax?: number;
+  /**
+   * ID of a widget to display in a drilldown panel when a row or data point is clicked.
+   * When set, clicking a row (grid) or chart item opens a side panel showing the
+   * target widget filtered to the clicked context.
+   */
+  drilldownWidgetId?: string;
   // KPI config
   kpiValueField?: string;
   kpiAggregation?: StudioKpiAggregation;
@@ -579,6 +585,15 @@ export interface StudioShellState {
   selectedWidgetId: string | null;
   selectedFieldId: string | null;
   selectedSourceId: string | null;
+  /**
+   * Active drilldown context. When set, a drilldown drawer is shown displaying
+   * `drilldownWidgetId` filtered to `rowData` from the clicked row/item.
+   */
+  activeDrilldown: {
+    sourceWidgetId: string;
+    drilldownWidgetId: string;
+    rowData: Record<string, unknown>;
+  } | null;
 }
 
 export interface StudioDashboardState {
@@ -635,6 +650,7 @@ export function createDefaultStudioState(overrides?: Partial<StudioState>): Stud
       selectedWidgetId: null,
       selectedFieldId: null,
       selectedSourceId: null,
+      activeDrilldown: null,
     },
   };
 

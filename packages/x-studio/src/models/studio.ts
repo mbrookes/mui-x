@@ -38,7 +38,26 @@ export type StudioNumberFormat = 'integer' | 'decimal' | 'percent' | 'currency';
 
 export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
-/** Aggregation function to show in the grid summary (totals) row. */
+/** A visual style applied to cells matching a conditional format rule. */
+export interface StudioConditionalFormatStyle {
+  backgroundColor?: string;
+  color?: string;
+  fontWeight?: 'bold' | 'normal';
+}
+
+/** A single conditional formatting rule for a grid column. */
+export interface StudioConditionalFormat {
+  /** The column field this rule applies to. */
+  fieldId: string;
+  /** Comparison operator. Only single-value operators are supported (no 'between'). */
+  operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'greater_than_or_equal' | 'less_than_or_equal' | 'contains' | 'is_empty' | 'is_not_empty';
+  /** The value to compare against (not used for is_empty / is_not_empty). */
+  value?: unknown;
+  /** Style to apply to the cell when the rule matches. */
+  style: StudioConditionalFormatStyle;
+}
+
+
 export type StudioGridSummaryAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
 
 /**
@@ -135,6 +154,8 @@ export interface StudioWidgetConfig {
   gridSortDirection?: 'asc' | 'desc';
   /** Height of the grid in pixels. @default 400 */
   gridHeight?: number;
+  /** Conditional formatting rules applied to grid cells. */
+  gridConditionalFormats?: StudioConditionalFormat[];
   // Chart config
   chartType?: StudioChartType;
   barLayout?: StudioBarLayout;

@@ -7,7 +7,7 @@ import {
   type GridAggregationModel,
 } from '@mui/x-data-grid-premium';
 
-import type { StudioDataSource, StudioWidget } from '../models';
+import type { StudioConditionalFormat, StudioDataSource, StudioWidget } from '../models';
 import {
   useStudioController,
   useStudioSelector,
@@ -24,6 +24,39 @@ import { StudioNoDataOverlay } from '../internals/StudioNoDataOverlay';
 /** Maps our model's aggregation names to DataGridPremium built-in function names. */
 function toGridAggFn(fn: string): string {
   return fn === 'count' ? 'size' : fn;
+}
+
+function evalConditionalFormat(rule: StudioConditionalFormat, cellValue: unknown): boolean {
+  const { operator, value } = rule;
+  if (operator === 'is_empty') {
+    return cellValue === null || cellValue === undefined || cellValue === '';
+  }
+  if (operator === 'is_not_empty') {
+    return cellValue !== null && cellValue !== undefined && cellValue !== '';
+  }
+  if (value === undefined || value === null) {
+    return false;
+  }
+  switch (operator) {
+    case 'equals':
+      // eslint-disable-next-line eqeqeq
+      return cellValue == value;
+    case 'not_equals':
+      // eslint-disable-next-line eqeqeq
+      return cellValue != value;
+    case 'greater_than':
+      return Number(cellValue) > Number(value);
+    case 'less_than':
+      return Number(cellValue) < Number(value);
+    case 'greater_than_or_equal':
+      return Number(cellValue) >= Number(value);
+    case 'less_than_or_equal':
+      return Number(cellValue) <= Number(value);
+    case 'contains':
+      return String(cellValue ?? '').toLowerCase().includes(String(value).toLowerCase());
+    default:
+      return false;
+  }
 }
 
 export interface StudioGridWidgetProps {
@@ -188,7 +221,42 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [controller, widget.id, widget.sourceId, activeCrossFilter, widget.config.crossFilterField],
   );
 
-  // Compute summary values over the relevant filtered rows.
+  // Conditional formatting: build an index of CSS class name → style for injection.
+  // Each rule gets a deterministic CSS class name based on its index.
+  const conditionalFormats = widget.config.gridConditionalFormats ?? [];
+  const conditionalFormatSx = React.useMemo(() => {
+    const sx: Record<string, Record<string, unknown>> = {};
+    conditionalFormats.forEach((rule, i) => {
+      const cls = `.StudioGrid-cf-${widget.id}-${i}`;
+      sx[`& ${cls}`] = {
+        ...(rule.style.backgroundColor ? { bgcolor: rule.style.backgroundColor } : {}),
+        ...(rule.style.color ? { color: rule.style.color } : {}),
+        ...(rule.style.fontWeight ? { fontWeight: rule.style.fontWeight } : {}),
+      };
+    });
+    return sx;
+  }, [conditionalFormats, widget.id]);
+
+  const getCellClassName = React.useCallback(
+    (params: GridCellParams) => {
+      if (params.id === '__summary__' || conditionalFormats.length === 0) {
+        return '';
+      }
+      const classes: string[] = [];
+      conditionalFormats.forEach((rule, i) => {
+        if (rule.fieldId !== params.field) {
+          return;
+        }
+        if (evalConditionalFormat(rule, params.value)) {
+          classes.push(`StudioGrid-cf-${widget.id}-${i}`);
+        }
+      });
+      return classes.join(' ');
+    },
+    [conditionalFormats, widget.id],
+  );
+
+
   // Only shown when grouping is not active (DataGridPremium aggregation handles it otherwise).
   //
   // In cross-highlight mode the grid body shows ALL baseline rows but dims non-matching ones.
@@ -243,7 +311,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
           '& .MuiDataGrid-pinnedRows .StudioGrid-dimmed': {
             opacity: 1,
           },
+          ...conditionalFormatSx,
         }}
+        getCellClassName={getCellClassName}
         getRowClassName={(params) => {
           if (params.id === '__summary__') {
             return '';

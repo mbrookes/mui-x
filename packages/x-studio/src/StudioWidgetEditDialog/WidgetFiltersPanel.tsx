@@ -183,15 +183,9 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
 
   const handleUpdate = React.useCallback(
     (filterId: string, patch: Partial<StudioFilterState>) => {
-      const filter = allFilters.find((f) => f.id === filterId);
-      if (!filter) {
-        return;
-      }
-      // Remove old and re-add with merged patch
-      controller.removeFilter(filterId);
-      controller.addFilter({ ...filter, ...patch });
+      controller.updateFilter(filterId, patch);
     },
-    [controller, allFilters],
+    [controller],
   );
 
   if (!widget || !sourceId) {

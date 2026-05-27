@@ -14,6 +14,7 @@ import {
   Stack,
   Tooltip,
   Typography,
+  useTheme,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -158,6 +159,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   );
 
   const mode = useStudioSelector(selectMode);
+  const theme = useTheme();
   const widget = useStudioSelector(selectWidgetFn);
   const isSelected = useStudioSelector(selectIsSelectedFn);
   const dimmed = useStudioSelector(selectIsDimmedFn);
@@ -276,7 +278,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             : [];
         exportGridToCsv(widget, source, rows);
       } else if (widget.kind === 'chart') {
-        exportChartToPng(widget, chartContainerRef.current);
+        exportChartToPng(widget, chartContainerRef.current, theme.palette.background.default);
       }
     },
     [widget, source, controller],

@@ -403,7 +403,26 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
               {activeCrossFilter && (
                 <Chip
                   size="small"
-                  label={`${source?.fields.find((f) => f.id === activeCrossFilter.field)?.label ?? activeCrossFilter.field} = ${activeCrossFilter.value}`}
+                  label={(() => {
+                    const fieldLabel =
+                      source?.fields.find((f) => f.id === activeCrossFilter.field)?.label ??
+                      activeCrossFilter.field;
+                    const val = activeCrossFilter.value;
+                    let valueLabel: string;
+                    if (val !== null && typeof val === 'object' && 'from' in val && 'to' in val) {
+                      // between filter (e.g. date range emitted by a period-grouped bar click)
+                      const r = val as { from?: string; to?: string };
+                      const fmtDate = (s?: string) =>
+                        s ? dayjs(s).format('D MMM YYYY') : '';
+                      valueLabel =
+                        r.from && r.to && r.from !== r.to
+                          ? `${fmtDate(r.from)} – ${fmtDate(r.to)}`
+                          : fmtDate(r.from ?? r.to) || '';
+                    } else {
+                      valueLabel = String(val ?? '');
+                    }
+                    return `${fieldLabel}: ${valueLabel}`;
+                  })()}
                   onDelete={() => controller.clearCrossFilter(widgetId)}
                   color="primary"
                   variant="outlined"

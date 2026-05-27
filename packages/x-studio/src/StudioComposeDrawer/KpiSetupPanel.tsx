@@ -494,7 +494,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         </Box>
       </CollapsibleFeatureSection>
 
-      {/* Interactions — cross-filter mode */}
+      {/* Interactions — cross-filter mode. KPIs are summary metrics with no visual row
+          representation, so "cross-highlight" (dim non-matching rows) does not apply.
+          Only "Filter" (re-aggregate over the selection) and "None" (grand total) make sense. */}
       <div>
         <Divider sx={{ mb: 1.5 }} />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
@@ -504,7 +506,10 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           When other widgets are clicked, this KPI…
         </Typography>
         <ToggleButtonGroup
-          value={(config.crossFilterMode ?? 'none') as StudioCrossFilterMode}
+          value={
+            ((config.crossFilterMode === 'cross-highlight' ? 'cross-filter' : config.crossFilterMode) ??
+              'none') as StudioCrossFilterMode
+          }
           exclusive
           onChange={(_e, value: StudioCrossFilterMode | null) => {
             controller.updateWidgetConfig(widgetId, {
@@ -514,9 +519,6 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           size="small"
           fullWidth
         >
-          <ToggleButton value="cross-highlight" sx={{ fontSize: 11, textTransform: 'none' }}>
-            Highlight
-          </ToggleButton>
           <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
             Filter
           </ToggleButton>

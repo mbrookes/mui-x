@@ -72,8 +72,10 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const chartColors = usePageChartColors();
 
   // KPI cross-filter mode: 'none' (default) keeps the grand-total behaviour users expect
-  // from summary cards; 'cross-filter' / 'cross-highlight' opt in to context-sensitivity.
-  const crossFilterMode = config.crossFilterMode ?? 'none';
+  // from summary cards; 'cross-filter' opts in to context-sensitivity.
+  // 'cross-highlight' is not applicable to KPIs (no visual row representation), but treat
+  // it as 'cross-filter' for backward compatibility with any saved dashboard configs.
+  const crossFilterMode = config.crossFilterMode === 'cross-highlight' ? 'cross-filter' : (config.crossFilterMode ?? 'none');
 
   // Current-period rows via the shared pipeline hook.
   // When crossFilterMode is 'none' (default) we deliberately use filteredRowsNoCross so

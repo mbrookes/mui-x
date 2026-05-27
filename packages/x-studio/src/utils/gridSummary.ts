@@ -33,7 +33,7 @@ export function computeGridSummary(
       .map((row) => row[fieldId])
       .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
 
-    let raw: number;
+    let raw: number | null;
 
     switch (effectiveAgg) {
       case 'count':
@@ -43,19 +43,25 @@ export function computeGridSummary(
         raw = numericValues.reduce((acc, v) => acc + v, 0);
         break;
       case 'avg':
+        // Exclude nulls from denominator — matches gridGrouping and KPI behaviour.
         raw =
           numericValues.length > 0
             ? numericValues.reduce((a, v) => a + v, 0) / numericValues.length
-            : 0;
+            : null;
         break;
       case 'min':
-        raw = numericValues.length > 0 ? Math.min(...numericValues) : 0;
+        raw = numericValues.length > 0 ? Math.min(...numericValues) : null;
         break;
       case 'max':
-        raw = numericValues.length > 0 ? Math.max(...numericValues) : 0;
+        raw = numericValues.length > 0 ? Math.max(...numericValues) : null;
         break;
       default:
-        raw = 0;
+        raw = null;
+    }
+
+    // When there are no numeric values, omit the summary cell rather than show a misleading zero.
+    if (raw === null) {
+      continue;
     }
 
     const label = aggregationLabel(effectiveAgg);

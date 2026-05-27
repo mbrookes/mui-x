@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, Tooltip } from '@mui/material';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import type { StudioDataSource, StudioWidget, StudioFilterState } from '../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
@@ -295,15 +296,18 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             kpiUsedFieldIds,
           );
 
-          // Build allFilters for the previous period (page + widget + interactive only;
-          // cross-filters are intentionally excluded for KPI trend comparisons).
+          // Build allFilters for the previous period using the same scope as currentRows.
+          // When crossFilterMode is 'none', currentRows = filteredRowsNoCross which excludes
+          // interactive and cross-filter scopes. Including interactive filters here would cause
+          // the trend delta to reflect different filter states for current vs previous period.
           const pageFilters = filters.filter((f) => f.scope === 'page');
           const widgetFilters = filters.filter(
             (f) => f.scope === 'widget' && f.widgetId === widget.id,
           );
-          const interactiveFilters = filters.filter(
-            (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id,
-          );
+          const interactiveFilters =
+            crossFilterMode !== 'none'
+              ? filters.filter((f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id)
+              : [];
           const allFilters = resolveMetricRefs(
             [...pageFilters, ...widgetFilters, ...interactiveFilters],
             dataSources,
@@ -416,6 +420,12 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
 
   const showSparkline = config.kpiSparkline ?? false;
 
+  // Show an indicator when crossFilterMode is 'none' and there are active interactive
+  // filters from other widgets that this KPI is intentionally ignoring.
+  const hasIgnoredInteractiveFilters =
+    crossFilterMode === 'none' &&
+    filters.some((f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id);
+
   return (
     <Box
       sx={{
@@ -458,6 +468,16 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             colors={chartColors}
             {...slotProps?.sparkline}
           />
+        )}
+        {hasIgnoredInteractiveFilters && (
+          <Tooltip
+            title="Grand total — active filter widgets are not applied to this KPI. Enable Cross-filter mode in KPI settings to respect them."
+            placement="top"
+          >
+            <InfoOutlinedIcon
+              sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0, ml: 'auto' }}
+            />
+          </Tooltip>
         )}
       </Box>
       <TrendComponent

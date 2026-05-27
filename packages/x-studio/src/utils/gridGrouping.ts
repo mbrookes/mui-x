@@ -14,6 +14,11 @@ function aggregateGridValue(
     return rows.length;
   }
 
+  if (aggregation === 'count_distinct') {
+    const seen = new Set(rows.map((row) => row[fieldId]).filter((v) => v != null));
+    return seen.size;
+  }
+
   const numericValues = rows
     .map((row) => row[fieldId])
     .filter((value): value is number => typeof value === 'number' && !Number.isNaN(value));

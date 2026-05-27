@@ -151,12 +151,14 @@ export function summarizeFilter(filter: StudioFilterState): string {
     if (selected.length === 0) {
       return 'any value';
     }
+    const isExclude = filter.operator === 'not_in';
     const MAX_SHOWN = 3;
     const MAX_LEN = 20;
     const truncate = (v: string) => (v.length > MAX_LEN ? `${v.slice(0, MAX_LEN)}…` : v);
     const shown = selected.slice(0, MAX_SHOWN).map(truncate).join(', ');
     const rest = selected.length - MAX_SHOWN;
-    return rest > 0 ? `is one of: ${shown} and ${rest} more` : `is one of: ${shown}`;
+    const prefix = isExclude ? 'is not:' : 'is one of:';
+    return rest > 0 ? `${prefix} ${shown} and ${rest} more` : `${prefix} ${shown}`;
   }
 
   if (mode === 'rank') {

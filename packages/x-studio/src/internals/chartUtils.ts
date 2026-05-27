@@ -219,6 +219,13 @@ function compileSingleCondition(
       // eslint-disable-next-line eqeqeq
       return (row) => filterVal.some((candidate) => row[field] == candidate);
     }
+    case 'not_in': {
+      if (!Array.isArray(filterVal)) {
+        return () => true;
+      }
+      // eslint-disable-next-line eqeqeq
+      return (row) => !filterVal.some((candidate) => row[field] == candidate);
+    }
     case 'not_equals':
       if (fieldType === 'boolean') {
         const fStr = String(filterVal);

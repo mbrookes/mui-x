@@ -217,28 +217,20 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           const timeOnAnchorSource = !timeFieldSourceId || timeFieldSourceId !== widget.sourceId;
           sparklineRows = timeOnAnchorSource ? grainAnchoredRows : rows;
         } else if (timeFieldSourceId && timeFieldSourceId !== widget.sourceId) {
-          const relSource = dataSources[timeFieldSourceId];
-          if (relSource?.rows) {
-            const joinKeyMap = new Map<unknown, unknown>();
-            const rel = relationships.find(
-              (r) =>
-                (r.sourceId === widget.sourceId && r.targetId === timeFieldSourceId) ||
-                (r.targetId === widget.sourceId && r.sourceId === timeFieldSourceId),
-            );
-            if (rel) {
-              const widgetJoinField =
-                rel.sourceId === widget.sourceId ? rel.sourceField : rel.targetField;
-              const foreignJoinField =
-                rel.sourceId === widget.sourceId ? rel.targetField : rel.sourceField;
-              for (const foreignRow of relSource.rows) {
-                joinKeyMap.set(foreignRow[foreignJoinField], foreignRow[timeField]);
-              }
-              sparklineRows = rows.map((r) => ({
-                ...r,
-                [timeField]: joinKeyMap.get(r[widgetJoinField]),
-              }));
-            }
-          }
+          // Time field is from a related source. Use resolveChartRowsForAggregation to
+          // join the time field onto widget rows via the relationship graph. This avoids
+          // double-counting that a naive many-to-one lookup join can cause when widget
+          // rows expand after enrichment (DC-05).
+          sparklineRows = resolveChartRowsForAggregation(
+            rows,
+            widget.sourceId,
+            timeField,
+            config.kpiValueField ? [config.kpiValueField] : [],
+            undefined,
+            dataSources,
+            relationships,
+            expressionFields,
+          );
         }
 
         kpiSparklineData = cachedCompute(

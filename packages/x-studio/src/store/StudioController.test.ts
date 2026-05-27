@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { StudioController } from './StudioController';
 import type { StudioFilterState, StudioWidget } from '../models';
 
@@ -15,6 +15,7 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
 
 describe('StudioController.updateFilter', () => {
   it('does not allow a second rank filter', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const controller = new StudioController({
       filters: [
         makeFilter({ id: 'rank-filter', filterMode: 'rank', rankDirection: 'top', value: 10 }),
@@ -27,6 +28,9 @@ describe('StudioController.updateFilter', () => {
       value: 5,
       rankDirection: 'top',
     });
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
 
     const updatedFilters = controller.getState().filters;
     expect(updatedFilters.find((filter) => filter.id === 'condition-filter')).toMatchObject({

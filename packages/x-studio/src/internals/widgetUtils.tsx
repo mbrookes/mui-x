@@ -7,6 +7,7 @@ import type {
   StudioWidget,
   StudioWidgetKind,
 } from '../models';
+import { formatFieldValue } from './numberFormat';
 import { TextWidgetIcon } from '../icons/TextWidgetIcon';
 import { KpiWidgetIcon } from '../icons/KpiWidgetIcon';
 import { TableWidgetIcon } from '../icons/TableWidgetIcon';
@@ -339,7 +340,7 @@ export function buildCsvContent(
     visibleColumns
       .map((col) => {
         const value = row[col];
-        const strVal = String(value ?? '');
+        const strVal = formatFieldValue(value, fieldMap.get(col));
         if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n')) {
           return `"${strVal.replace(/"/g, '""')}"`;
         }

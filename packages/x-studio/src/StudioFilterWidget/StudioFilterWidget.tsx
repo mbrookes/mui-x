@@ -385,9 +385,17 @@ function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
 
 // ─── Toggle (chip) control ────────────────────────────────────────────────────
 
+const TOGGLE_SEARCH_THRESHOLD = 12;
+
 function ToggleControl(props: StudioFilterToggleControlProps) {
   const { label, values, selected, onApply, onClear } = props;
   const isActive = selected.length > 0;
+  const showSearch = values.length > TOGGLE_SEARCH_THRESHOLD;
+  const [search, setSearch] = React.useState('');
+
+  const filtered = search
+    ? values.filter((v) => v.toLowerCase().includes(search.toLowerCase()))
+    : values;
 
   const toggle = (v: string) => {
     const next = selected.includes(v) ? selected.filter((s) => s !== v) : [...selected, v];
@@ -426,18 +434,42 @@ function ToggleControl(props: StudioFilterToggleControlProps) {
           </Tooltip>
         </Box>
       )}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-        {values.map((v) => (
-          <Chip
-            key={v}
-            label={v}
-            size="small"
-            color={selected.includes(v) ? 'primary' : 'default'}
-            onClick={() => toggle(v)}
-            aria-pressed={selected.includes(v)}
-          />
-        ))}
-      </Box>
+      {showSearch && (
+        <TextField
+          size="small"
+          fullWidth
+          placeholder="Search…"
+          value={search}
+          onChange={(evt) => setSearch(evt.target.value)}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 16 }} />
+                </InputAdornment>
+              ),
+            },
+          }}
+        />
+      )}
+      {filtered.length > 0 ? (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+          {filtered.map((v) => (
+            <Chip
+              key={v}
+              label={v}
+              size="small"
+              color={selected.includes(v) ? 'primary' : 'default'}
+              onClick={() => toggle(v)}
+              aria-pressed={selected.includes(v)}
+            />
+          ))}
+        </Box>
+      ) : (
+        <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+          No options found
+        </Typography>
+      )}
     </Stack>
   );
 }

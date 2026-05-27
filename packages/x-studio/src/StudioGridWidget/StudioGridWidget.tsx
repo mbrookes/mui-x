@@ -122,12 +122,18 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         type: fieldType === 'number' ? 'number' : 'string',
         valueFormatter:
           fieldType === 'number' && fieldFormat
-            ? (value: unknown) =>
-                formatFieldValue(value, {
+            ? (value: unknown) => {
+                // Summary row cells contain pre-formatted strings (e.g. "Total: $1,234").
+                // Pass them through as-is; only apply numeric formatting to actual numbers.
+                if (typeof value === 'string') {
+                  return value;
+                }
+                return formatFieldValue(value, {
                   type: 'number',
                   format: fieldFormat,
                   currencyCode: field?.currencyCode,
-                })
+                });
+              }
             : undefined,
       };
     });
@@ -283,7 +289,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     if (!summaryValues) {
       return undefined;
     }
-    return { bottom: [{ id: '__summary__', ...summaryValues }] };
+    return { bottom: [{ ...summaryValues, id: '__summary__' }] };
   }, [summaryValues]);
 
   return (

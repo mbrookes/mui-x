@@ -3087,3 +3087,198 @@ describe('normalizeDataSourceRows — fieldDistinctValues', () => {
     expect(result.fieldDistinctValues?.region).toEqual(['EU', 'US']);
   });
 });
+
+// ─── Many-to-many relationship tests ─────────────────────────────────────────
+
+describe('many-to-many relationships', () => {
+  // Schema: products ↔ orders via order_items
+  const products: StudioDataSource = {
+    id: 'products',
+    label: 'Products',
+    fields: [
+      { id: 'id', label: 'ID', type: 'number' },
+      { id: 'name', label: 'Name', type: 'string' },
+      { id: 'price', label: 'Price', type: 'number' },
+    ],
+    rows: [
+      { id: 1, name: 'Widget', price: 10 },
+      { id: 2, name: 'Gadget', price: 25 },
+      { id: 3, name: 'Doohickey', price: 5 },
+    ],
+  };
+
+  const orders: StudioDataSource = {
+    id: 'orders',
+    label: 'Orders',
+    fields: [
+      { id: 'id', label: 'ID', type: 'number' },
+      { id: 'customer', label: 'Customer', type: 'string' },
+    ],
+    rows: [
+      { id: 10, customer: 'Alice' },
+      { id: 11, customer: 'Bob' },
+      { id: 12, customer: 'Carol' },
+    ],
+  };
+
+  const orderItems: StudioDataSource = {
+    id: 'order_items',
+    label: 'Order Items',
+    fields: [
+      { id: 'product_id', label: 'Product ID', type: 'number' },
+      { id: 'order_id', label: 'Order ID', type: 'number' },
+      { id: 'qty', label: 'Quantity', type: 'number' },
+    ],
+    rows: [
+      { product_id: 1, order_id: 10, qty: 2 }, // Widget in Alice's order
+      { product_id: 2, order_id: 10, qty: 1 }, // Gadget in Alice's order
+      { product_id: 1, order_id: 11, qty: 3 }, // Widget in Bob's order
+      { product_id: 3, order_id: 12, qty: 1 }, // Doohickey in Carol's order
+    ],
+  };
+
+  const dataSources: Record<string, StudioDataSource> = { products, orders, order_items: orderItems };
+
+  const manyToManyRel: StudioRelationship = {
+    id: 'rel-p-o',
+    type: 'many-to-many',
+    sourceId: 'products',
+    sourceField: 'id',
+    targetId: 'orders',
+    targetField: 'id',
+    junctionSourceId: 'order_items',
+    junctionSourceField: 'product_id',
+    junctionTargetField: 'order_id',
+  };
+
+  const relationships = [manyToManyRel];
+
+  describe('getReachableSourceIds', () => {
+    it('includes junction and target as reachable from source', () => {
+      const reachable = getReachableSourceIds('products', relationships);
+      expect(reachable.has('products')).toBe(true);
+      expect(reachable.has('orders')).toBe(true);
+      expect(reachable.has('order_items')).toBe(true);
+    });
+
+    it('includes junction and source as reachable from target', () => {
+      const reachable = getReachableSourceIds('orders', relationships);
+      expect(reachable.has('products')).toBe(true);
+      expect(reachable.has('order_items')).toBe(true);
+    });
+  });
+
+  describe('resolveRows — M:N cross-filter semi-join', () => {
+    it('filters products to those in Alice orders (order id 10)', () => {
+      const filter: StudioFilterState = {
+        id: 'f1',
+        scope: 'page',
+        field: 'customer',
+        fieldType: 'string',
+        operator: 'equals',
+        value: 'Alice',
+        filterSourceId: 'orders',
+      };
+
+      const result = resolveRows(products.rows!, 'products', [filter], dataSources, relationships);
+      // Alice ordered Widget (1) and Gadget (2)
+      expect(result.map((r) => r.id).sort()).toEqual([1, 2]);
+    });
+
+    it('returns empty when no matching cross-source rows', () => {
+      const filter: StudioFilterState = {
+        id: 'f1',
+        scope: 'page',
+        field: 'customer',
+        fieldType: 'string',
+        operator: 'equals',
+        value: 'Nobody',
+        filterSourceId: 'orders',
+      };
+
+      const result = resolveRows(products.rows!, 'products', [filter], dataSources, relationships);
+      expect(result).toEqual([]);
+    });
+
+    it('filters in reverse direction: orders filtered by product name', () => {
+      const filter: StudioFilterState = {
+        id: 'f1',
+        scope: 'page',
+        field: 'name',
+        fieldType: 'string',
+        operator: 'equals',
+        value: 'Widget',
+        filterSourceId: 'products',
+      };
+
+      const result = resolveRows(orders.rows!, 'orders', [filter], dataSources, relationships);
+      // Widget was ordered by Alice (10) and Bob (11)
+      expect(result.map((r) => r.id).sort()).toEqual([10, 11]);
+    });
+  });
+
+  describe('enrichRowsWithRelatedFields — M:N two-hop', () => {
+    it('enriches product rows with the customer field via junction (first match)', () => {
+      const enriched = enrichRowsWithRelatedFields(
+        products.rows!,
+        'products',
+        ['customer'],
+        dataSources,
+        relationships,
+      );
+      // Product 1 (Widget) first appears in order 10 (Alice)
+      expect(enriched[0].customer).toBe('Alice');
+      // Product 2 (Gadget) first appears in order 10 (Alice)
+      expect(enriched[1].customer).toBe('Alice');
+      // Product 3 (Doohickey) first appears in order 12 (Carol)
+      expect(enriched[2].customer).toBe('Carol');
+    });
+
+    it('does not overwrite existing fields on widget rows', () => {
+      const rowsWithCustomer = products.rows!.map((r) => ({ ...r, customer: 'Existing' }));
+      const enriched = enrichRowsWithRelatedFields(
+        rowsWithCustomer,
+        'products',
+        ['customer'],
+        dataSources,
+        relationships,
+      );
+      expect(enriched[0].customer).toBe('Existing');
+    });
+  });
+
+  describe('analyzeChartSupport — M:N anchor', () => {
+    it('sets anchorSourceId to junction when y-field is on the remote endpoint', () => {
+      const result = analyzeChartSupport(
+        'products',
+        'customer', // x-field from orders
+        ['qty'],    // y-field from junction (order_items)
+        undefined,
+        undefined,
+        dataSources,
+        relationships,
+      );
+      // qty is on order_items (the junction), so anchor = junction
+      expect(result.supported).toBe(true);
+      expect(result.anchorSourceId).toBe('order_items');
+    });
+  });
+
+  describe('resolveChartRowsForAggregation — M:N junction anchor', () => {
+    it('returns junction rows enriched with widget and remote fields', () => {
+      const result = resolveChartRowsForAggregation(
+        products.rows!,
+        'products',
+        'customer',
+        ['qty'],
+        undefined,
+        dataSources,
+        relationships,
+      );
+      // Junction has 4 rows; each should carry qty from junction, customer from orders, name from products
+      expect(result).toHaveLength(4);
+      const aliceWidget = result.find((r) => r.customer === 'Alice' && r.name === 'Widget');
+      expect(aliceWidget?.qty).toBe(2);
+    });
+  });
+});

@@ -456,6 +456,7 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
 
 /**
  * Returns the set of source IDs reachable from `sourceId` in one hop via declared relationships.
+ * For many-to-many relationships, also includes the junction source and the remote endpoint.
  * Always includes `sourceId` itself.
  */
 export function getReachableSourceIds(
@@ -466,32 +467,94 @@ export function getReachableSourceIds(
   for (const rel of relationships) {
     if (rel.sourceId === sourceId) {
       reachable.add(rel.targetId);
+      if (rel.type === 'many-to-many' && rel.junctionSourceId) {
+        reachable.add(rel.junctionSourceId);
+      }
     }
     if (rel.targetId === sourceId) {
       reachable.add(rel.sourceId);
+      if (rel.type === 'many-to-many' && rel.junctionSourceId) {
+        reachable.add(rel.junctionSourceId);
+      }
     }
   }
   return reachable;
 }
 
 /**
- * Returns { widgetJoinField, filterJoinField } or null if no path exists.
+ * Describes how to join widgetSource to filterSource:
+ * - hops:1 — direct relationship (many-to-one or one-to-one)
+ * - hops:2 — many-to-many via a junction source
+ */
+type JoinPath =
+  | { hops: 1; widgetJoinField: string; filterJoinField: string }
+  | {
+      hops: 2;
+      /** Field on widget rows to match into the junction. */
+      widgetJoinField: string;
+      junctionSourceId: string;
+      /** Field in the junction source that references widgetSource. */
+      junctionWidgetField: string;
+      /** Field in the junction source that references filterSource. */
+      junctionFilterField: string;
+      /** Field on filter source rows that the junction references. */
+      filterJoinField: string;
+    };
+
+/**
+ * Returns a JoinPath describing how to link widgetSource to filterSource,
+ * or null if no relationship path exists.
+ * Checks direct relationships first, then many-to-many two-hop paths.
  */
 function findJoinPath(
   widgetSourceId: string,
   filterSourceId: string,
   relationships: StudioRelationship[],
-): { widgetJoinField: string; filterJoinField: string } | null {
+): JoinPath | null {
+  // Direct (one-hop) relationship
   for (const rel of relationships) {
+    if (rel.type === 'many-to-many') {
+      continue; // handled below
+    }
     if (rel.sourceId === widgetSourceId && rel.targetId === filterSourceId) {
-      // widget is the "many" side; filter source is the "one" side
-      return { widgetJoinField: rel.sourceField, filterJoinField: rel.targetField };
+      return { hops: 1, widgetJoinField: rel.sourceField, filterJoinField: rel.targetField };
     }
     if (rel.targetId === widgetSourceId && rel.sourceId === filterSourceId) {
-      // widget is the "one" side; filter source is the "many" side
-      return { widgetJoinField: rel.targetField, filterJoinField: rel.sourceField };
+      return { hops: 1, widgetJoinField: rel.targetField, filterJoinField: rel.sourceField };
     }
   }
+
+  // Two-hop (many-to-many) relationship
+  for (const rel of relationships) {
+    if (rel.type !== 'many-to-many') {
+      continue;
+    }
+    if (!rel.junctionSourceId || !rel.junctionSourceField || !rel.junctionTargetField) {
+      continue; // incomplete M:N config — skip
+    }
+
+    if (rel.sourceId === widgetSourceId && rel.targetId === filterSourceId) {
+      return {
+        hops: 2,
+        widgetJoinField: rel.sourceField,
+        junctionSourceId: rel.junctionSourceId,
+        junctionWidgetField: rel.junctionSourceField,
+        junctionFilterField: rel.junctionTargetField,
+        filterJoinField: rel.targetField,
+      };
+    }
+    if (rel.targetId === widgetSourceId && rel.sourceId === filterSourceId) {
+      return {
+        hops: 2,
+        widgetJoinField: rel.targetField,
+        junctionSourceId: rel.junctionSourceId,
+        junctionWidgetField: rel.junctionTargetField,
+        junctionFilterField: rel.junctionSourceField,
+        filterJoinField: rel.sourceField,
+      };
+    }
+  }
+
   return null;
 }
 
@@ -599,28 +662,42 @@ export function resolveRows(
     const enrichedForeignRows = foreignEnrichedCache.get(f.filterSourceId)!;
     const matchingForeignRows = applyFilters(enrichedForeignRows, [baseFilter]);
 
-    // Build the allowed set from the join field in the foreign source
-    const allowedValues = new Set(matchingForeignRows.map((r) => r[joinPath.filterJoinField]));
-
-    // Semi-join: keep widget rows whose join field is in the allowed set
-    rows = rows.filter((r) => allowedValues.has(r[joinPath.widgetJoinField]));
+    if (joinPath.hops === 1) {
+      // One-hop (direct) semi-join: keep widget rows whose join field is in the allowed set
+      const allowedValues = new Set(matchingForeignRows.map((r) => r[joinPath.filterJoinField]));
+      rows = rows.filter((r) => allowedValues.has(r[joinPath.widgetJoinField]));
+    } else {
+      // Two-hop (M:N) semi-join via junction source:
+      // 1. Collect the filter-side join values from matching foreign rows
+      // 2. Walk the junction to find widget-side join values that link to those
+      // 3. Keep widget rows in the resulting allowed set
+      const matchingFilterValues = new Set(
+        matchingForeignRows.map((r) => r[joinPath.filterJoinField]),
+      );
+      const junctionRows = dataSources[joinPath.junctionSourceId]?.rows ?? [];
+      const allowedWidgetValues = new Set<unknown>(
+        junctionRows
+          .filter((r) => matchingFilterValues.has(r[joinPath.junctionFilterField]))
+          .map((r) => r[joinPath.junctionWidgetField]),
+      );
+      rows = rows.filter((r) => allowedWidgetValues.has(r[joinPath.widgetJoinField]));
+    }
   }
 
   return applyFilters(rows, nativeFilters);
 }
 
 /**
- * Enriches widget rows with fields that exist on directly related sources but
- * not on the widget's own source. For each requested field not found on the
- * widget source, the function walks the relationship graph one hop, finds the
- * related source that has the field, builds a lookup map (relatedId → fieldValue),
- * and copies the value onto each widget row.
+ * Enriches widget rows with fields from directly related sources (one-hop) or
+ * many-to-many related sources (two-hop via junction).
  *
- * This eliminates the need to denormalize fields (e.g. date from orders onto
- * orderItems) just to make them available in chart aggregations.
+ * For one-hop joins: builds a lookup map (relatedJoinValue → fieldValue) and
+ * copies the value onto each widget row.
  *
- * Only direct (single-hop) relationships are resolved. Multi-hop joins are
- * not supported.
+ * For many-to-many two-hop joins: builds a lookup
+ * (widgetJoinValue → firstMatchingTargetFieldValue) via the junction table.
+ * Uses the **first** matching junction row per widget row — suitable for display
+ * columns; aggregate queries should use `resolveChartRowsForAggregation`.
  */
 export function enrichRowsWithRelatedFields(
   rows: Row[],
@@ -636,21 +713,38 @@ export function enrichRowsWithRelatedFields(
   const widgetSource = dataSources[widgetSourceId];
   const nativeFieldIds = new Set(widgetSource?.fields.map((f) => f.id) ?? []);
 
-  // Determine which fields need to be resolved from a related source
-  const foreignFieldNeeds: Array<{
+  type DirectNeed = {
+    kind: 'direct';
     fieldId: string;
     widgetJoinField: string;
     relatedJoinField: string;
     relatedRows: Row[];
-  }> = [];
+  };
+  type ManyToManyNeed = {
+    kind: 'many-to-many';
+    fieldId: string;
+    widgetJoinField: string;
+    junctionSourceId: string;
+    junctionWidgetField: string;
+    junctionTargetField: string;
+    targetJoinField: string;
+    targetRows: Row[];
+  };
+
+  const foreignFieldNeeds: Array<DirectNeed | ManyToManyNeed> = [];
 
   for (const fieldId of fieldIds) {
     if (nativeFieldIds.has(fieldId)) {
-      continue; // already on the widget source
+      continue;
     }
 
-    // Find a directly related source that has this field
+    let resolved = false;
+
+    // Try direct (one-hop) relationships first
     for (const rel of relationships) {
+      if (rel.type === 'many-to-many') {
+        continue;
+      }
       let relatedSourceId: string | null = null;
       let widgetJoinField: string | null = null;
       let relatedJoinField: string | null = null;
@@ -669,37 +763,113 @@ export function enrichRowsWithRelatedFields(
 
       const relatedSource = dataSources[relatedSourceId];
       if (!relatedSource?.fields.some((f) => f.id === fieldId)) {
-        continue; // this related source doesn't have the field
+        continue;
       }
 
       foreignFieldNeeds.push({
+        kind: 'direct',
         fieldId,
         widgetJoinField,
         relatedJoinField,
         relatedRows: relatedSource.rows ?? [],
       });
-      break; // first matching relationship wins
+      resolved = true;
+      break;
+    }
+
+    if (resolved) {
+      continue;
+    }
+
+    // Try many-to-many two-hop relationships
+    for (const rel of relationships) {
+      if (rel.type !== 'many-to-many') {
+        continue;
+      }
+      if (!rel.junctionSourceId || !rel.junctionSourceField || !rel.junctionTargetField) {
+        continue;
+      }
+
+      let targetSourceId: string | null = null;
+      let widgetJoinField: string | null = null;
+      let junctionWidgetField: string | null = null;
+      let junctionTargetField: string | null = null;
+      let targetJoinField: string | null = null;
+
+      if (rel.sourceId === widgetSourceId) {
+        targetSourceId = rel.targetId;
+        widgetJoinField = rel.sourceField;
+        junctionWidgetField = rel.junctionSourceField;
+        junctionTargetField = rel.junctionTargetField;
+        targetJoinField = rel.targetField;
+      } else if (rel.targetId === widgetSourceId) {
+        targetSourceId = rel.sourceId;
+        widgetJoinField = rel.targetField;
+        junctionWidgetField = rel.junctionTargetField;
+        junctionTargetField = rel.junctionSourceField;
+        targetJoinField = rel.sourceField;
+      } else {
+        continue;
+      }
+
+      const targetSource = dataSources[targetSourceId];
+      if (!targetSource?.fields.some((f) => f.id === fieldId)) {
+        continue;
+      }
+
+      foreignFieldNeeds.push({
+        kind: 'many-to-many',
+        fieldId,
+        widgetJoinField,
+        junctionSourceId: rel.junctionSourceId,
+        junctionWidgetField,
+        junctionTargetField,
+        targetJoinField,
+        targetRows: targetSource.rows ?? [],
+      });
+      break;
     }
   }
 
   if (foreignFieldNeeds.length === 0) {
-    return rows; // nothing to enrich
+    return rows;
   }
 
-  // Build lookup maps: relatedJoinValue → fieldValue  (one per foreign field)
-  const lookups = foreignFieldNeeds.map(({ fieldId, relatedJoinField, relatedRows }) => {
-    const map = new Map<unknown, unknown>();
-    for (const row of relatedRows) {
-      map.set(row[relatedJoinField], row[fieldId]);
-    }
-    return {
-      fieldId,
-      widgetJoinField: foreignFieldNeeds.find((n) => n.fieldId === fieldId)!.widgetJoinField,
-      map,
-    };
-  });
+  // Build lookup maps
+  const lookups: Array<{
+    fieldId: string;
+    widgetJoinField: string;
+    map: Map<unknown, unknown>;
+  }> = [];
 
-  // Enrich rows (non-mutating — spread each row)
+  for (const need of foreignFieldNeeds) {
+    if (need.kind === 'direct') {
+      const map = new Map<unknown, unknown>();
+      for (const row of need.relatedRows) {
+        map.set(row[need.relatedJoinField], row[need.fieldId]);
+      }
+      lookups.push({ fieldId: need.fieldId, widgetJoinField: need.widgetJoinField, map });
+    } else {
+      // Build: widgetJoinValue → first matching target field value via junction
+      const junctionRows = dataSources[need.junctionSourceId]?.rows ?? [];
+      // targetJoinValue → fieldValue
+      const targetLookup = new Map<unknown, unknown>();
+      for (const row of need.targetRows) {
+        targetLookup.set(row[need.targetJoinField], row[need.fieldId]);
+      }
+      // widgetJoinValue → first target field value
+      const map = new Map<unknown, unknown>();
+      for (const jRow of junctionRows) {
+        const widgetKey = jRow[need.junctionWidgetField];
+        if (!map.has(widgetKey)) {
+          map.set(widgetKey, targetLookup.get(jRow[need.junctionTargetField]));
+        }
+      }
+      lookups.push({ fieldId: need.fieldId, widgetJoinField: need.widgetJoinField, map });
+    }
+  }
+
+  // Enrich rows (non-mutating)
   return rows.map((row) => {
     const extras: Row = {};
     for (const { fieldId, widgetJoinField, map } of lookups) {
@@ -1409,15 +1579,24 @@ function isSafeWidgetBridgeOwner(
   }
 
   const relationship = findDirectRelationship(widgetSourceId, ownerSourceId, relationships);
-  if (!relationship) {
-    return false;
+  if (relationship) {
+    if (relationship.type === 'one-to-one') {
+      return true;
+    }
+    if (relationship.type === 'many-to-many') {
+      return true;
+    }
+    return relationship.sourceId === widgetSourceId;
   }
 
-  if (relationship.type === 'one-to-one') {
-    return true;
-  }
-
-  return relationship.sourceId === widgetSourceId;
+  // Also allow the junction source of a M:N relationship involving widgetSourceId
+  const viaJunction = relationships.some(
+    (rel) =>
+      rel.type === 'many-to-many' &&
+      rel.junctionSourceId === ownerSourceId &&
+      (rel.sourceId === widgetSourceId || rel.targetId === widgetSourceId),
+  );
+  return viaJunction;
 }
 
 function findDirectFieldOwner(
@@ -1431,7 +1610,11 @@ function findDirectFieldOwner(
     return widgetSourceId;
   }
 
+  // Check direct (one-hop) relationships first
   for (const relationship of relationships) {
+    if (relationship.type === 'many-to-many') {
+      continue;
+    }
     let relatedSourceId: string | null = null;
 
     if (relationship.sourceId === widgetSourceId) {
@@ -1445,6 +1628,41 @@ function findDirectFieldOwner(
       hasRowLevelField(relatedSourceId, fieldId, dataSources, expressionFields)
     ) {
       return relatedSourceId;
+    }
+  }
+
+  // Check many-to-many two-hop (field on the remote endpoint source or the junction source itself)
+  for (const relationship of relationships) {
+    if (relationship.type !== 'many-to-many') {
+      continue;
+    }
+    if (!relationship.junctionSourceId) {
+      continue;
+    }
+
+    // Check junction source itself
+    if (hasRowLevelField(relationship.junctionSourceId, fieldId, dataSources, expressionFields)) {
+      if (
+        relationship.sourceId === widgetSourceId ||
+        relationship.targetId === widgetSourceId
+      ) {
+        return relationship.junctionSourceId;
+      }
+    }
+
+    // Check remote endpoint
+    let remoteSourceId: string | null = null;
+    if (relationship.sourceId === widgetSourceId) {
+      remoteSourceId = relationship.targetId;
+    } else if (relationship.targetId === widgetSourceId) {
+      remoteSourceId = relationship.sourceId;
+    }
+
+    if (
+      remoteSourceId &&
+      hasRowLevelField(remoteSourceId, fieldId, dataSources, expressionFields)
+    ) {
+      return remoteSourceId;
     }
   }
 
@@ -1546,13 +1764,35 @@ export function analyzeChartSupport(
 
   let anchorSourceId = widgetSourceId;
   if (ySourceIds.length === 1 && ySourceIds[0] !== widgetSourceId) {
-    const anchorRelationship = findDirectRelationship(widgetSourceId, ySourceIds[0], relationships);
-    if (
-      anchorRelationship &&
-      anchorRelationship.sourceId === ySourceIds[0] &&
-      anchorRelationship.targetId === widgetSourceId
-    ) {
-      anchorSourceId = ySourceIds[0];
+    const ySourceId = ySourceIds[0];
+    const anchorRelationship = findDirectRelationship(widgetSourceId, ySourceId, relationships);
+    if (anchorRelationship) {
+      if (
+        anchorRelationship.type !== 'many-to-many' &&
+        anchorRelationship.sourceId === ySourceId &&
+        anchorRelationship.targetId === widgetSourceId
+      ) {
+        // many-to-one: widget is the "one" side → anchor on the "many" (ySource)
+        anchorSourceId = ySourceId;
+      } else if (
+        anchorRelationship.type === 'many-to-many' &&
+        anchorRelationship.junctionSourceId
+      ) {
+        // many-to-many: anchor on the junction table — one row per (widget, target) pair
+        anchorSourceId = anchorRelationship.junctionSourceId;
+      }
+    } else {
+      // No direct relationship — check if ySourceId IS the junction source of a M:N rel
+      const viaJunctionRel = relationships.find(
+        (rel) =>
+          rel.type === 'many-to-many' &&
+          rel.junctionSourceId === ySourceId &&
+          (rel.sourceId === widgetSourceId || rel.targetId === widgetSourceId),
+      );
+      if (viaJunctionRel) {
+        // y-field lives directly in the junction table; anchor on the junction itself
+        anchorSourceId = ySourceId;
+      }
     }
   }
 
@@ -1687,8 +1927,60 @@ export function resolveChartRowsForAggregation(
       anchorSourceId,
       relationships,
     );
-    if (
+
+    // ── Many-to-many anchor: anchorSourceId is the junction source ──────────────
+    const manyToManyRel = relationships.find(
+      (rel) =>
+        rel.type === 'many-to-many' &&
+        rel.junctionSourceId === anchorSourceId &&
+        (rel.sourceId === widgetSourceId || rel.targetId === widgetSourceId),
+    );
+
+    if (manyToManyRel && manyToManyRel.junctionSourceField && manyToManyRel.junctionTargetField) {
+      // Determine which junction field links back to widgetSource
+      const junctionWidgetField =
+        manyToManyRel.sourceId === widgetSourceId
+          ? manyToManyRel.junctionSourceField
+          : manyToManyRel.junctionTargetField;
+      const junctionTargetField =
+        manyToManyRel.sourceId === widgetSourceId
+          ? manyToManyRel.junctionTargetField
+          : manyToManyRel.junctionSourceField;
+      const widgetJoinField =
+        manyToManyRel.sourceId === widgetSourceId
+          ? manyToManyRel.sourceField
+          : manyToManyRel.targetField;
+      const remoteSourceId =
+        manyToManyRel.sourceId === widgetSourceId
+          ? manyToManyRel.targetId
+          : manyToManyRel.sourceId;
+      const remoteJoinField =
+        manyToManyRel.sourceId === widgetSourceId
+          ? manyToManyRel.targetField
+          : manyToManyRel.sourceField;
+
+      // Build lookup maps for widget and remote source
+      const allowedWidgetKeys = new Set(widgetRows.map((row) => row[widgetJoinField]));
+      const widgetRowLookup = new Map<unknown, Row>();
+      for (const row of widgetRows) {
+        widgetRowLookup.set(row[widgetJoinField], row);
+      }
+      const remoteRowLookup = new Map<unknown, Row>();
+      for (const row of dataSources[remoteSourceId]?.rows ?? []) {
+        remoteRowLookup.set(row[remoteJoinField], row);
+      }
+
+      const junctionRows = dataSources[anchorSourceId]?.rows ?? [];
+      result = junctionRows
+        .filter((jRow) => allowedWidgetKeys.has(jRow[junctionWidgetField]))
+        .map((jRow) => {
+          const widgetRow = widgetRowLookup.get(jRow[junctionWidgetField]) ?? {};
+          const remoteRow = remoteRowLookup.get(jRow[junctionTargetField]) ?? {};
+          return { ...widgetRow, ...remoteRow, ...jRow };
+        });
+    } else if (
       !anchorRelationship ||
+      anchorRelationship.type === 'many-to-many' ||
       anchorRelationship.sourceId !== anchorSourceId ||
       anchorRelationship.targetId !== widgetSourceId
     ) {

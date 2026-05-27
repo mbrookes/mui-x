@@ -27,6 +27,7 @@ import { StudioCanvas } from '../StudioCanvas';
 import { StudioDataDrawer } from '../StudioDataDrawer';
 import { StudioComposeDrawer } from '../StudioComposeDrawer';
 import { StudioFiltersDrawer } from '../StudioFiltersDrawer';
+import { StudioDrilldownDrawer } from '../StudioDrilldownDrawer';
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
@@ -360,6 +361,8 @@ const StudioContent = React.memo(function StudioContent(
           </React.Suspense>
         </React.Fragment>
       )}
+      {/* Drilldown drawer */}
+      <StudioDrilldownDrawer />
     </Box>
     </StudioUIConfigContext.Provider>
   );

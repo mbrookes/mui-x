@@ -58,10 +58,10 @@ export function computeGridSummary(
             : null;
         break;
       case 'min':
-        raw = numericValues.length > 0 ? Math.min(...numericValues) : null;
+        raw = numericValues.length > 0 ? numericValues.reduce((a, v) => (v < a ? v : a)) : null;
         break;
       case 'max':
-        raw = numericValues.length > 0 ? Math.max(...numericValues) : null;
+        raw = numericValues.length > 0 ? numericValues.reduce((a, v) => (v > a ? v : a)) : null;
         break;
       default:
         raw = null;

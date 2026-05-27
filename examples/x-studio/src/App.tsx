@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Alert, Box, Chip, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
+import { Alert, Box, Chip, CircularProgress, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { Studio, createBatchingAdapter } from '@mui/x-studio';
@@ -180,6 +180,10 @@ export default function App() {
   // Re-key Studio when switching from static → generated so initialState is re-applied.
   const initialState = generatedState ?? baseInitialState;
   const studioKey = generatedState ? `generated-${rowCount}` : 'static';
+  // When a large dataset is being generated (?rows=N), suppress the static demo
+  // render entirely so users don't see a flash of built-in data before the
+  // generated rows appear.
+  const isGenerating = rowCount !== undefined && generatedState === null;
   const [mode, setMode] = React.useState<StudioMode>('edit');
   const [title, setTitle] = React.useState('');
   const [pages, setPages] = React.useState<Record<string, StudioPage>>({});
@@ -416,17 +420,30 @@ export default function App() {
                 }}
               />
             )}
-            <Studio
-              key={studioKey}
-              ref={studioRef}
-              initialState={initialState}
-              onStateChange={handleStateChange}
-              sidebarLayout={sidebarLayout}
-              sidebarSide={sidebarSide}
-              tableSourceMode={tableSourceMode}
-              stackBreakpoint={stackBreakpoint}
-              aiConfig={aiConfig}
-            />
+            {isGenerating ? (
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: '100%',
+                }}
+              >
+                <CircularProgress />
+              </Box>
+            ) : (
+              <Studio
+                key={studioKey}
+                ref={studioRef}
+                initialState={initialState}
+                onStateChange={handleStateChange}
+                sidebarLayout={sidebarLayout}
+                sidebarSide={sidebarSide}
+                tableSourceMode={tableSourceMode}
+                stackBreakpoint={stackBreakpoint}
+                aiConfig={aiConfig}
+              />
+            )}
           </Box>
         </Box>
         <Snackbar

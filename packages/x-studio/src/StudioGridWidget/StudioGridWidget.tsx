@@ -285,11 +285,13 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   }, [summaryBasisRows, dataSource, summaryConfig]);
 
   // Build a pinned bottom row for DataGridPremium using the summary values.
+  // We use a separate `__rowId` field for the row identity so that the `id`
+  // data column still shows the summary count (e.g. "Count: 460,000").
   const pinnedRows = React.useMemo(() => {
     if (!summaryValues) {
       return undefined;
     }
-    return { bottom: [{ ...summaryValues, id: '__summary__' }] };
+    return { bottom: [{ ...summaryValues, __rowId: '__summary__' }] };
   }, [summaryValues]);
 
   return (
@@ -300,6 +302,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         disableColumnMenu
         rows={rows}
         pinnedRows={pinnedRows}
+        getRowId={(row) =>
+          String((row as Record<string, unknown>).__rowId ?? (row as Record<string, unknown>).id)
+        }
         hideFooter
         loading={isLoading}
         disableRowSelectionOnClick
@@ -355,6 +360,11 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
             },
           }),
         }}
+        // Use controlled layout mode so the pinned summary row uses `position: absolute`
+        // rather than `position: sticky`. At very large row counts (~470k+), the total
+        // content height can exceed CSS height limits in some browsers, causing sticky
+        // positioning to fail and the summary row to disappear.
+        experimentalFeatures={{ virtualizerLayoutMode: 'controlled' }}
         onCellClick={handleCellClick}
         {...slotProps?.dataGrid}
       />

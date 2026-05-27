@@ -638,6 +638,32 @@ export class StudioController {
     });
   };
 
+  addRelationship = (relationship: import('../models').StudioRelationship) => {
+    const state = this.store.state;
+    this.commitState({
+      ...state,
+      relationships: [...state.relationships, relationship],
+    });
+  };
+
+  updateRelationship = (id: string, patch: Partial<import('../models').StudioRelationship>) => {
+    const state = this.store.state;
+    this.commitState({
+      ...state,
+      relationships: state.relationships.map((rel) =>
+        rel.id === id ? { ...rel, ...patch } : rel,
+      ),
+    });
+  };
+
+  removeRelationship = (id: string) => {
+    const state = this.store.state;
+    this.commitState({
+      ...state,
+      relationships: state.relationships.filter((rel) => rel.id !== id),
+    });
+  };
+
   updateFilter = (filterId: string, changes: Partial<import('../models').StudioFilterState>) => {
     const state = this.store.state;
     const hasExistingRankFilter = state.filters.some(

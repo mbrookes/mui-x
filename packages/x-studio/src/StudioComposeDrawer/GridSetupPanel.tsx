@@ -11,6 +11,7 @@ import {
   ListSubheader,
   Menu,
   MenuItem,
+  Select,
   Stack,
   TextField,
   ToggleButton,
@@ -25,7 +26,12 @@ import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import FunctionsIcon from '@mui/icons-material/Functions';
-import type { StudioCrossFilterMode, StudioGridColumn, StudioGridSummaryAggregation } from '../models';
+import type {
+  StudioConditionalFormat,
+  StudioCrossFilterMode,
+  StudioGridColumn,
+  StudioGridSummaryAggregation,
+} from '../models';
 import {
   useStudioController,
   useStudioSelector,
@@ -51,6 +57,26 @@ const AGG_LABELS: Record<StudioGridSummaryAggregation, string> = {
   min: 'Min',
   max: 'Max',
 };
+
+const CF_OPERATORS: { value: StudioConditionalFormat['operator']; label: string }[] = [
+  { value: 'equals', label: '=' },
+  { value: 'not_equals', label: '≠' },
+  { value: 'greater_than', label: '>' },
+  { value: 'greater_than_or_equal', label: '≥' },
+  { value: 'less_than', label: '<' },
+  { value: 'less_than_or_equal', label: '≤' },
+  { value: 'contains', label: 'contains' },
+  { value: 'is_empty', label: 'is empty' },
+  { value: 'is_not_empty', label: 'not empty' },
+];
+
+const CF_STYLE_PRESETS: { label: string; style: StudioConditionalFormat['style'] }[] = [
+  { label: 'Red', style: { backgroundColor: '#ffcdd2', color: '#b71c1c' } },
+  { label: 'Green', style: { backgroundColor: '#c8e6c9', color: '#1b5e20' } },
+  { label: 'Yellow', style: { backgroundColor: '#fff9c4', color: '#f57f17' } },
+  { label: 'Blue', style: { backgroundColor: '#bbdefb', color: '#0d47a1' } },
+  { label: 'Bold', style: { fontWeight: 'bold' } },
+];
 
 /** A selectable field entry with its source context */
 interface SelectableField {
@@ -266,6 +292,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const sortField = widget?.config?.gridSortField ?? '';
   const sortDirection = widget?.config?.gridSortDirection ?? 'asc';
   const gridHeight = widget?.config?.gridHeight ?? 400;
+  const conditionalFormats: StudioConditionalFormat[] = widget?.config?.gridConditionalFormats ?? [];
 
   const availableSources = React.useMemo(
     () => Object.values(dataSources).filter((s) => !s.hidden),
@@ -652,6 +679,128 @@ export function GridSetupPanel(props: { widgetId: string }) {
               />
             </React.Fragment>
           )}
+        </React.Fragment>
+      )}
+
+      {source && (
+        <React.Fragment>
+          {/* Conditional formatting rules */}
+          <Divider />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+            Conditional formatting
+          </Typography>
+          <Stack spacing={1}>
+            {conditionalFormats.map((rule, i) => {
+              const noValueOp = rule.operator === 'is_empty' || rule.operator === 'is_not_empty';
+              const fieldEntry = source.fields.find((f) => f.id === rule.fieldId);
+              const preset = CF_STYLE_PRESETS.find(
+                (p) =>
+                  p.style.backgroundColor === rule.style.backgroundColor &&
+                  p.style.color === rule.style.color &&
+                  p.style.fontWeight === rule.style.fontWeight,
+              );
+              return (
+                <Box key={i} sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Select
+                    size="small"
+                    value={rule.fieldId}
+                    onChange={(e) => {
+                      const next = [...conditionalFormats];
+                      next[i] = { ...rule, fieldId: e.target.value };
+                      controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
+                    }}
+                    sx={{ fontSize: 12, flex: '1 1 80px', minWidth: 60 }}
+                  >
+                    {source.fields.map((f) => (
+                      <MenuItem key={f.id} value={f.id} dense sx={{ fontSize: 12 }}>
+                        {f.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  <Select
+                    size="small"
+                    value={rule.operator}
+                    onChange={(e) => {
+                      const next = [...conditionalFormats];
+                      next[i] = { ...rule, operator: e.target.value as StudioConditionalFormat['operator'] };
+                      controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
+                    }}
+                    sx={{ fontSize: 12, flex: '0 0 auto', minWidth: 60 }}
+                  >
+                    {CF_OPERATORS.map((op) => (
+                      <MenuItem key={op.value} value={op.value} dense sx={{ fontSize: 12 }}>
+                        {op.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  {!noValueOp && (
+                    <TextField
+                      size="small"
+                      value={rule.value !== undefined && rule.value !== null ? String(rule.value) : ''}
+                      placeholder={fieldEntry?.type === 'number' ? '0' : 'value'}
+                      onChange={(e) => {
+                        const next = [...conditionalFormats];
+                        const v = fieldEntry?.type === 'number' ? Number(e.target.value) : e.target.value;
+                        next[i] = { ...rule, value: v };
+                        controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
+                      }}
+                      sx={{ flex: '1 1 60px', minWidth: 48, '& input': { fontSize: 12 } }}
+                    />
+                  )}
+                  <Select
+                    size="small"
+                    value={preset?.label ?? '__custom__'}
+                    onChange={(e) => {
+                      const selected = CF_STYLE_PRESETS.find((p) => p.label === e.target.value);
+                      if (selected) {
+                        const next = [...conditionalFormats];
+                        next[i] = { ...rule, style: selected.style };
+                        controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
+                      }
+                    }}
+                    sx={{ fontSize: 12, flex: '0 0 auto', minWidth: 64 }}
+                  >
+                    {CF_STYLE_PRESETS.map((p) => (
+                      <MenuItem key={p.label} value={p.label} dense sx={{ fontSize: 12 }}>
+                        {p.label}
+                      </MenuItem>
+                    ))}
+                    {!preset && <MenuItem value="__custom__" dense sx={{ fontSize: 12 }}>Custom</MenuItem>}
+                  </Select>
+                  <IconButton
+                    size="small"
+                    aria-label="Remove rule"
+                    onClick={() => {
+                      const next = conditionalFormats.filter((_, j) => j !== i);
+                      controller.updateWidgetConfig(widgetId, {
+                        gridConditionalFormats: next.length > 0 ? next : undefined,
+                      });
+                    }}
+                  >
+                    <DeleteIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Box>
+              );
+            })}
+            <Button
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={() => {
+                const firstField = source.fields[0];
+                if (!firstField) {
+                  return;
+                }
+                const next: StudioConditionalFormat[] = [
+                  ...conditionalFormats,
+                  { fieldId: firstField.id, operator: 'greater_than', value: 0, style: CF_STYLE_PRESETS[0].style },
+                ];
+                controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
+              }}
+              sx={{ alignSelf: 'flex-start', fontSize: 12 }}
+            >
+              Add rule
+            </Button>
+          </Stack>
         </React.Fragment>
       )}
 

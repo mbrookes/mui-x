@@ -393,7 +393,7 @@ function generateOrders(
     const customer = pickWeighted(rng, customerRows, customerWeightsNorm);
     const country = customer.country as string;
     rows.push({
-      id: `ORD-${zeroPad(i + 1, 4)}`,
+      id: `ORD-${zeroPad(i + 1, 7)}`,
       date: sampleOrderDate(rng),
       customerId: customer.id as string,
       status: pickWeighted(rng, ORDER_STATUSES, ORDER_STATUS_WEIGHTS),

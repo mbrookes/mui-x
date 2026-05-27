@@ -431,6 +431,87 @@ describe('buildCsvContent', () => {
   });
 });
 
+describe('buildCsvContent — number formatting', () => {
+  it('formats currency fields with symbol and no decimals', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'rev', label: 'Revenue', type: 'number', format: 'currency', currencyCode: 'USD' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ rev: 1234.5 }]);
+    const value = csv.split('\n')[1];
+    // Currency format: $1,235 (integer display, narrowSymbol)
+    expect(value).toMatch(/\$1[,.]?23[45]/);
+  });
+
+  it('formats decimal fields with two decimal places', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'val', label: 'Value', type: 'number', format: 'decimal' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ val: 1234.5 }]);
+    const value = csv.split('\n')[1];
+    expect(value).toContain('1,234.50');
+  });
+
+  it('formats integer fields with no decimal places', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'qty', label: 'Qty', type: 'number', format: 'integer' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ qty: 42.9 }]);
+    const value = csv.split('\n')[1];
+    expect(value).toBe('43');
+  });
+
+  it('formats percent fields', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'pct', label: 'Pct', type: 'number', format: 'percent' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ pct: 75 }]);
+    const value = csv.split('\n')[1];
+    expect(value).toContain('%');
+  });
+
+  it('outputs empty string for null/undefined number values', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'rev', label: 'Revenue', type: 'number', format: 'currency' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ rev: null }, { rev: undefined }]);
+    const dataLines = csv.split('\n').slice(1);
+    expect(dataLines[0]).toBe('');
+    expect(dataLines[1]).toBe('');
+  });
+
+  it('does not alter string field values', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'name', label: 'Name', type: 'string' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ name: 'Alice' }]);
+    expect(csv.split('\n')[1]).toBe('Alice');
+  });
+});
+
 describe('exportGridToCsv', () => {
   const source: StudioDataSource = {
     id: 'orders',

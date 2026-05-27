@@ -377,6 +377,47 @@ export function exportGridToCsv(
 /**
  * Export chart as PNG image
  */
+/**
+ * Walk all elements in an SVG and inline their computed styles.
+ * This ensures fonts, colors, and other CSS-driven properties survive serialization
+ * into a standalone SVG/PNG (where stylesheets and CSS variables are unavailable).
+ */
+function inlineComputedStyles(svgElement: SVGElement): void {
+  // Properties that need to be inlined for a faithful export
+  const STYLE_PROPS = [
+    'fill',
+    'fill-opacity',
+    'stroke',
+    'stroke-opacity',
+    'stroke-width',
+    'stroke-dasharray',
+    'opacity',
+    'font-family',
+    'font-size',
+    'font-weight',
+    'font-style',
+    'text-anchor',
+    'dominant-baseline',
+    'color',
+    'letter-spacing',
+  ];
+
+  const elements = svgElement.querySelectorAll('*');
+  elements.forEach((el) => {
+    if (!(el instanceof Element)) {
+      return;
+    }
+    const computed = window.getComputedStyle(el);
+    const existing = (el as SVGElement).style;
+    for (const prop of STYLE_PROPS) {
+      const value = computed.getPropertyValue(prop);
+      if (value && !existing.getPropertyValue(prop)) {
+        existing.setProperty(prop, value);
+      }
+    }
+  });
+}
+
 export function exportChartToPng(
   widget: StudioWidget,
   chartContainer: HTMLElement | null,
@@ -391,10 +432,13 @@ export function exportChartToPng(
     return;
   }
 
+  // Inline computed styles on the live SVG elements before cloning so that
+  // theme fonts and MUI CSS variables are captured in the serialized output.
+  inlineComputedStyles(svg);
+
   // Clone the SVG to avoid modifying the original
   const clonedSvg = svg.cloneNode(true) as SVGElement;
 
-  // Get computed styles and inline them
   const svgRect = svg.getBoundingClientRect();
   clonedSvg.setAttribute('width', String(svgRect.width));
   clonedSvg.setAttribute('height', String(svgRect.height));

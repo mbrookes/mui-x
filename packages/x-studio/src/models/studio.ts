@@ -39,13 +39,13 @@ export type StudioNumberFormat = 'integer' | 'decimal' | 'percent' | 'currency';
 export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
 /** Aggregation function to show in the grid summary (totals) row. */
-export type StudioGridSummaryAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
+export type StudioGridSummaryAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
 
 /**
- * Aggregation function for a grid column — extends `StudioGridSummaryAggregation`
- * with `count_distinct` for deduplication use-cases.
+ * Aggregation function for a grid column — a superset of `StudioGridSummaryAggregation`.
+ * @deprecated Prefer `StudioGridSummaryAggregation` directly; this alias is kept for compatibility.
  */
-export type StudioGridColumnAggFn = StudioGridSummaryAggregation | 'count_distinct';
+export type StudioGridColumnAggFn = StudioGridSummaryAggregation;
 
 /**
  * A column definition for a grid widget.
@@ -132,6 +132,8 @@ export interface StudioWidgetConfig {
   gridSortField?: string;
   /** Default sort direction for the grid. @default 'asc' */
   gridSortDirection?: 'asc' | 'desc';
+  /** Height of the grid in pixels. @default 400 */
+  gridHeight?: number;
   // Chart config
   chartType?: StudioChartType;
   barLayout?: StudioBarLayout;

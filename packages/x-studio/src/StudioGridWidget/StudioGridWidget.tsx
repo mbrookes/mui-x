@@ -239,6 +239,10 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
           '& .StudioGrid-dimmed': {
             opacity: 0.3,
           },
+          // Pinned rows (summary) must never be dimmed — they are always visible.
+          '& .MuiDataGrid-pinnedRows .StudioGrid-dimmed': {
+            opacity: 1,
+          },
         }}
         getRowClassName={(params) => {
           if (params.id === '__summary__') {

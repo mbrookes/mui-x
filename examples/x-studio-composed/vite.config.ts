@@ -29,6 +29,10 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/x-charts-vendor/build/$1.mjs'),
       },
       {
+        find: '@mui/x-data-grid-premium',
+        replacement: path.resolve(__dirname, '../../packages/x-data-grid-premium/src'),
+      },
+      {
         find: '@mui/x-data-grid-pro',
         replacement: path.resolve(__dirname, '../../packages/x-data-grid-pro/src'),
       },

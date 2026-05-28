@@ -1723,8 +1723,9 @@ export function analyzeChartSupport(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[] = [],
+  scatterColorField?: string,
 ): ChartSupportResult {
-  const requestedFields = [xField, ...yFields, seriesField].filter((field): field is string =>
+  const requestedFields = [xField, ...yFields, seriesField, scatterColorField].filter((field): field is string =>
     Boolean(field),
   );
 
@@ -2207,4 +2208,41 @@ export function prepareScatterData(
     y: Number(row[yField] ?? 0),
     id: index,
   }));
+}
+
+export interface ScatterSeriesData {
+  id: string;
+  label: string;
+  data: ScatterDataPoint[];
+}
+
+/**
+ * Prepare data for scatter charts with a color-by categorical field.
+ * Returns one series per unique category value for color-coded rendering.
+ * Uses `stableCategories` (from all/unfiltered rows) to ensure consistent
+ * color assignment even when some categories disappear after filtering.
+ */
+export function prepareScatterDataGrouped(
+  rows: Row[],
+  xField: string,
+  yField: string,
+  colorField: string,
+  stableCategories: string[],
+): ScatterSeriesData[] {
+  // Build a map from category → points for the current (filtered) rows
+  const grouped = new Map<string, ScatterDataPoint[]>(
+    stableCategories.map((cat) => [cat, []]),
+  );
+  rows.forEach((row, index) => {
+    const raw = row[colorField];
+    const cat = raw == null || raw === '' ? '(blank)' : String(raw);
+    if (!grouped.has(cat)) {
+      grouped.set(cat, []);
+    }
+    grouped.get(cat)!.push({ x: Number(row[xField] ?? 0), y: Number(row[yField] ?? 0), id: index });
+  });
+  // Only include categories that have data (skip empty series)
+  return stableCategories
+    .map((cat) => ({ id: cat, label: cat, data: grouped.get(cat) ?? [] }))
+    .filter((s) => s.data.length > 0);
 }

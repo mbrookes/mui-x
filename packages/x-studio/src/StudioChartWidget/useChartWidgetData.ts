@@ -10,6 +10,8 @@ import {
   aggregateMultipleSeries,
   analyzeChartSupport,
   prepareScatterData,
+  prepareScatterDataGrouped,
+  type ScatterSeriesData,
   applyRankToAggregated,
   applyRankToMultiSeries,
   applyRankToSeriesFieldData,
@@ -74,6 +76,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
         dataSources,
         relationships,
         expressionFields,
+        config.scatterColorField,
       ),
     [
       widget.sourceId,
@@ -84,6 +87,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
       dataSources,
       relationships,
       expressionFields,
+      config.scatterColorField,
     ],
   );
 
@@ -304,6 +308,49 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     );
   }, [enrichedRows, config.xField, config.yField]);
 
+  // Stable category order for scatter color-by field (from unfiltered rows)
+  const scatterColorCategories = React.useMemo(() => {
+    const colorField = config.scatterColorField;
+    if (!colorField) {
+      return null;
+    }
+    const seen = new Set<string>();
+    const cats: string[] = [];
+    for (const row of allEnrichedRows) {
+      const raw = row[colorField];
+      const cat = raw == null || raw === '' ? '(blank)' : String(raw);
+      if (!seen.has(cat)) {
+        seen.add(cat);
+        cats.push(cat);
+      }
+    }
+    return cats.sort();
+  }, [allEnrichedRows, config.scatterColorField]);
+
+  // Multiple scatter series, one per color category
+  const scatterSeries: ScatterSeriesData[] | null = React.useMemo(() => {
+    const xField = config.xField;
+    const yField = config.yField;
+    const colorField = config.scatterColorField;
+
+    if (!xField || !yField || !colorField || !scatterColorCategories || enrichedRows.length === 0) {
+      return null;
+    }
+
+    return cachedCompute(
+      enrichedRows,
+      `scatc:${xField}:${yField}:${colorField}:${scatterColorCategories.join(',')}`,
+      () =>
+        prepareScatterDataGrouped(
+          enrichedRows,
+          xField,
+          yField,
+          colorField,
+          scatterColorCategories,
+        ),
+    );
+  }, [enrichedRows, config.xField, config.yField, config.scatterColorField, scatterColorCategories]);
+
   return {
     chartColors,
     resolvedChartColors,
@@ -318,6 +365,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     chartData,
     multiYData,
     scatterData,
+    scatterSeries,
     hasCrossFilters,
     shouldShowGhost,
     allChartData,

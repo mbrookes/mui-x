@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
+import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { StudioNumberFormat } from '../models';
 import { formatNumber } from '../internals/numberFormat';
 
@@ -17,6 +18,8 @@ export interface KpiSparklineProps {
   fieldCurrencyCode?: string;
   /** Chart palette from the active page theme. Used to pick the sparkline color. */
   colors?: string[];
+  /** When set, renders a horizontal reference line at this y-value. */
+  targetValue?: number;
 }
 
 export function KpiSparkline(props: KpiSparklineProps) {
@@ -29,6 +32,7 @@ export function KpiSparkline(props: KpiSparklineProps) {
     fieldFormat,
     fieldCurrencyCode,
     colors,
+    targetValue,
   } = props;
 
   const hasEnoughData = data !== null && data.length > 1;
@@ -50,7 +54,11 @@ export function KpiSparkline(props: KpiSparklineProps) {
           color={colors?.[0]}
           sx={{ height: '100%' }}
           margin={{ top: 4, bottom: 4, left: 4, right: 4 }}
-        />
+        >
+          {targetValue !== undefined && (
+            <ChartsReferenceLine y={targetValue} label="Target" labelAlign="end" />
+          )}
+        </SparkLineChart>
       </Box>
     );
   }

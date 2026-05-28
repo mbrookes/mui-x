@@ -5,7 +5,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import type { StudioDataSource, StudioWidget, StudioFilterState } from '../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
-import { resolveRows, resolveMetricRefs, resolveChartRowsForAggregation, analyzeChartSupport } from '../internals/chartUtils';
+import { resolveRows, resolveMetricRefs, resolveMetricRef, resolveChartRowsForAggregation, analyzeChartSupport } from '../internals/chartUtils';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { collectSelectFields } from '../internals/queryDescriptor';
 import { usePageChartColors } from '../internals/usePageChartColors';
@@ -136,6 +136,14 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     };
   }, [currentRows, kpiValueField, widget.sourceId, expressionFields, dataSources, relationships]);
 
+  const resolvedTargetValue = React.useMemo(() => {
+    if (!config.kpiTarget || !config.kpiTargetRef) {
+      return null;
+    }
+    const val = resolveMetricRef(config.kpiTargetRef, dataSources);
+    return typeof val === 'number' ? val : null;
+  }, [config.kpiTarget, config.kpiTargetRef, dataSources]);
+
   const {
     displayValue,
     hasData,
@@ -254,117 +262,131 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
 
     const needsDateFilter =
       !!(config.kpiTrend && config.kpiValueField) &&
+      !config.kpiTarget &&
       !findDateFilter(filters, widget.id, dataSource);
 
     if (config.kpiTrend && config.kpiValueField) {
-      const kpiValueField = config.kpiValueField;
-      const dateFilter = findDateFilter(filters, widget.id, dataSource);
-      if (dateFilter) {
-        const currentRange = extractDateRange(dateFilter);
-        if (currentRange) {
-          const comparisonMode = config.kpiTrendComparison ?? 'previous-period';
-          const prevRange = computePreviousPeriodRange(
-            currentRange.start,
-            currentRange.end,
-            comparisonMode,
-          );
-
-          // Pre-enrich once here so the previous-period resolveRows call can skip
-          // enrichment. Pass usedFieldIds matching what useWidgetRows computed so this
-          // hits the already-populated cache slot rather than the all-fields slot.
-          const kpiUsedFieldIds = new Set(collectSelectFields(widget));
-          kpiUsedFieldIds.add(dateFilter.field);
-          for (const f of filters) {
-            if (f.field) {
-              kpiUsedFieldIds.add(f.field);
-            }
-          }
-          const preEnrichedRows = getCachedEnrichedRows(
-            dataSource.rows,
-            widget.sourceId,
-            expressionFields,
-            dataSources,
-            relationships,
-            kpiUsedFieldIds,
-          );
-
-          // Build allFilters for the previous period using the same scope as currentRows.
-          // When crossFilterMode is 'none', currentRows = filteredRowsNoCross which excludes
-          // interactive and cross-filter scopes. Including interactive filters here would cause
-          // the trend delta to reflect different filter states for current vs previous period.
-          const pageFilters = filters.filter((f) => f.scope === 'page');
-          const widgetFilters = filters.filter(
-            (f) => f.scope === 'widget' && f.widgetId === widget.id,
-          );
-          const interactiveFilters =
-            crossFilterMode !== 'none'
-              ? filters.filter((f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id)
-              : [];
-          const allFilters = resolveMetricRefs(
-            [...pageFilters, ...widgetFilters, ...interactiveFilters],
-            dataSources,
-          );
-
-          const prevDateFilter: StudioFilterState = {
-            ...dateFilter,
-            operator: 'greater_than_or_equal',
-            value: prevRange.start.toISOString().slice(0, 10),
-            operator2: 'less_than_or_equal',
-            value2: prevRange.end.toISOString().slice(0, 10),
-            conjunction: 'and',
+      if (config.kpiTarget && resolvedTargetValue !== null) {
+        // Target-based comparison: compare current value against the configured target
+        if (resolvedTargetValue !== 0) {
+          kpiTrend = {
+            delta: (value - resolvedTargetValue) / Math.abs(resolvedTargetValue),
+            previousValue: resolvedTargetValue,
+            comparisonLabel: 'target',
           };
-          const prevFilters = allFilters.map((f) => (f.id === dateFilter.id ? prevDateFilter : f));
-          const prevRows = resolveRows(
-            preEnrichedRows,
-            widget.sourceId,
-            prevFilters,
-            dataSources,
-            relationships,
-            expressionFields,
-            { skipEnrichment: true },
-          );
-          const previousValue = cachedCompute(
-            prevRows,
-            `kpi-value:${kpiValueField}:${measureKey}`,
-            () => {
-              if (measureExprField) {
-                return evaluateMeasure(measureExprField, prevRows, expressionFields);
-              }
-              if (isGrainAnchored) {
-                // Apply the same grain anchoring to prevRows as we do for the current period.
-                // prevRows are already filtered to the previous date range via prevFilters, so
-                // resolveChartRowsForAggregation will re-anchor to the correct parent-source
-                // grain while respecting that pre-filtered row set.
-                const prevGrainRows = resolveChartRowsForAggregation(
-                  prevRows,
-                  widget.sourceId,
-                  undefined,
-                  [kpiValueField],
-                  undefined,
-                  dataSources,
-                  relationships,
-                  expressionFields,
-                );
-                return computeAggregate(prevGrainRows, kpiValueField, aggregation);
-              }
-              return computeAggregate(prevRows, kpiValueField, aggregation);
-            },
-          );
+        } else if (value !== 0) {
+          kpiTrend = { delta: Infinity, previousValue: resolvedTargetValue, comparisonLabel: 'target' };
+        }
+      } else {
+        const kpiValueField = config.kpiValueField;
+        const dateFilter = findDateFilter(filters, widget.id, dataSource);
+        if (dateFilter) {
+          const currentRange = extractDateRange(dateFilter);
+          if (currentRange) {
+            const comparisonMode = config.kpiTrendComparison ?? 'previous-period';
+            const prevRange = computePreviousPeriodRange(
+              currentRange.start,
+              currentRange.end,
+              comparisonMode,
+            );
 
-          if (previousValue !== 0) {
-            kpiTrend = {
-              delta: (value - previousValue) / Math.abs(previousValue),
-              previousValue,
-              previousStart: prevRange.start,
-              previousEnd: prevRange.end,
+            // Pre-enrich once here so the previous-period resolveRows call can skip
+            // enrichment. Pass usedFieldIds matching what useWidgetRows computed so this
+            // hits the already-populated cache slot rather than the all-fields slot.
+            const kpiUsedFieldIds = new Set(collectSelectFields(widget));
+            kpiUsedFieldIds.add(dateFilter.field);
+            for (const f of filters) {
+              if (f.field) {
+                kpiUsedFieldIds.add(f.field);
+              }
+            }
+            const preEnrichedRows = getCachedEnrichedRows(
+              dataSource.rows,
+              widget.sourceId,
+              expressionFields,
+              dataSources,
+              relationships,
+              kpiUsedFieldIds,
+            );
+
+            // Build allFilters for the previous period using the same scope as currentRows.
+            // When crossFilterMode is 'none', currentRows = filteredRowsNoCross which excludes
+            // interactive and cross-filter scopes. Including interactive filters here would cause
+            // the trend delta to reflect different filter states for current vs previous period.
+            const pageFilters = filters.filter((f) => f.scope === 'page');
+            const widgetFilters = filters.filter(
+              (f) => f.scope === 'widget' && f.widgetId === widget.id,
+            );
+            const interactiveFilters =
+              crossFilterMode !== 'none'
+                ? filters.filter((f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id)
+                : [];
+            const allFilters = resolveMetricRefs(
+              [...pageFilters, ...widgetFilters, ...interactiveFilters],
+              dataSources,
+            );
+
+            const prevDateFilter: StudioFilterState = {
+              ...dateFilter,
+              operator: 'greater_than_or_equal',
+              value: prevRange.start.toISOString().slice(0, 10),
+              operator2: 'less_than_or_equal',
+              value2: prevRange.end.toISOString().slice(0, 10),
+              conjunction: 'and',
             };
-          } else if (value !== 0) {
-            kpiTrend = {
-              delta: Infinity,
-              previousValue,
-              previousStart: prevRange.start,
-              previousEnd: prevRange.end,
-            };
+            const prevFilters = allFilters.map((f) => (f.id === dateFilter.id ? prevDateFilter : f));
+            const prevRows = resolveRows(
+              preEnrichedRows,
+              widget.sourceId,
+              prevFilters,
+              dataSources,
+              relationships,
+              expressionFields,
+              { skipEnrichment: true },
+            );
+            const previousValue = cachedCompute(
+              prevRows,
+              `kpi-value:${kpiValueField}:${measureKey}`,
+              () => {
+                if (measureExprField) {
+                  return evaluateMeasure(measureExprField, prevRows, expressionFields);
+                }
+                if (isGrainAnchored) {
+                  // Apply the same grain anchoring to prevRows as we do for the current period.
+                  // prevRows are already filtered to the previous date range via prevFilters, so
+                  // resolveChartRowsForAggregation will re-anchor to the correct parent-source
+                  // grain while respecting that pre-filtered row set.
+                  const prevGrainRows = resolveChartRowsForAggregation(
+                    prevRows,
+                    widget.sourceId,
+                    undefined,
+                    [kpiValueField],
+                    undefined,
+                    dataSources,
+                    relationships,
+                    expressionFields,
+                  );
+                  return computeAggregate(prevGrainRows, kpiValueField, aggregation);
+                }
+                return computeAggregate(prevRows, kpiValueField, aggregation);
+              },
+            );
+
+            if (previousValue !== 0) {
+              kpiTrend = {
+                delta: (value - previousValue) / Math.abs(previousValue),
+                previousValue,
+                previousStart: prevRange.start,
+                previousEnd: prevRange.end,
+              };
+            } else if (value !== 0) {
+              kpiTrend = {
+                delta: Infinity,
+                previousValue,
+                previousStart: prevRange.start,
+                previousEnd: prevRange.end,
+              };
+            }
           }
         }
       }
@@ -389,6 +411,8 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     expressionFields,
     config,
     widget,
+    resolvedTargetValue,
+    crossFilterMode,
   ]);
 
   const fieldDef = dataSource?.fields.find((f) => f.id === config.kpiValueField);
@@ -472,6 +496,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             fieldFormat={fieldDef?.format}
             fieldCurrencyCode={fieldDef?.currencyCode}
             colors={chartColors}
+            targetValue={resolvedTargetValue ?? undefined}
             {...slotProps?.sparkline}
           />
         )}

@@ -29,6 +29,7 @@ import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioKpiAggregation, StudioWidgetConfig, StudioCrossFilterMode } from '../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
+import { MetricRefInput } from '../StudioFiltersDrawer/MetricRefInput';
 
 /**
  * A collapsible section with a labeled header row containing a switch toggle on the
@@ -456,6 +457,21 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiSparkline: next })}
       >
         <KpiSparklineOptions widgetId={widgetId} config={config} />
+      </CollapsibleFeatureSection>
+
+      <CollapsibleFeatureSection
+        label="Target"
+        enabled={config.kpiTarget ?? false}
+        onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTarget: next })}
+      >
+        <Typography variant="caption" color="text.secondary">
+          Reference value for the target line on the sparkline. When Trend is also enabled, the
+          delta badge compares the current value against this target.
+        </Typography>
+        <MetricRefInput
+          value={config.kpiTargetRef}
+          onChange={(ref) => controller.updateWidgetConfig(widgetId, { kpiTargetRef: ref })}
+        />
       </CollapsibleFeatureSection>
 
       <CollapsibleFeatureSection

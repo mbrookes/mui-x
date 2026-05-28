@@ -6,6 +6,7 @@ import { useStudioController, useStudioSelector, selectMode, selectActivePage } 
 import { StudioWidgetCard } from '../StudioWidgetCard';
 import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../internals/widgetUtils';
+import { StudioQuickFilterBar } from './StudioQuickFilterBar';
 
 export interface StudioCanvasProps {
   /**
@@ -553,6 +554,9 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         }
       }}
     >
+      {/* Quick filter bar — view mode only, shown when page filters are active */}
+      {mode !== 'edit' && <StudioQuickFilterBar />}
+
       {/* Insertion point above the first row — inset by the vertical drop zone width (16px) on each side */}
       {mode === 'edit' && (
         <InsertionPoint

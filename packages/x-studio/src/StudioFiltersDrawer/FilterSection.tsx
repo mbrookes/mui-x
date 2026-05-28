@@ -25,10 +25,12 @@ export interface FilterSectionProps {
   fieldOptions: FieldOption[];
   onAddFilter: () => void;
   onRemoveFilter: (id: string) => void;
+  /** Overrides the default "No filters applied." empty message. Use when search is active. */
+  emptyMessage?: string;
 }
 
 export function FilterSection(props: FilterSectionProps) {
-  const { fields, fieldOptions, filters, onAddFilter, onRemoveFilter, title } = props;
+  const { fields, fieldOptions, filters, onAddFilter, onRemoveFilter, title, emptyMessage } = props;
 
   return (
     <CollapsibleSection
@@ -36,10 +38,11 @@ export function FilterSection(props: FilterSectionProps) {
       onAdd={onAddFilter}
       addDisabled={fields.length === 0}
       addTooltip="Add filter"
+      count={filters.length}
     >
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 0.5 }}>
-          No filters applied.
+          {emptyMessage ?? 'No filters applied.'}
         </Typography>
       ) : (
         <Stack spacing={1} sx={{ pt: 0.5 }}>
@@ -72,6 +75,8 @@ export interface WidgetFilterSectionProps {
   chartYFieldLabel?: string;
   /** Available series for multi-series charts — enables "Rank by" selector in rank mode. */
   chartAvailableSeries?: AvailableSeries[];
+  /** Overrides the default "No filters applied." empty message. Use when search is active. */
+  emptyMessage?: string;
 }
 
 export function WidgetFilterSection(props: WidgetFilterSectionProps) {
@@ -86,6 +91,7 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
     chartXField,
     chartYFieldLabel,
     chartAvailableSeries,
+    emptyMessage,
   } = props;
   const hasAnySources = Object.keys(dataSources).length > 0;
 
@@ -95,10 +101,11 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
       onAdd={onAddFilter}
       addDisabled={!hasAnySources}
       addTooltip="Add filter"
+      count={filters.length}
     >
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 0.5 }}>
-          No filters applied.
+          {emptyMessage ?? 'No filters applied.'}
         </Typography>
       ) : (
         <Stack spacing={1} sx={{ pt: 0.5 }}>

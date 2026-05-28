@@ -155,4 +155,11 @@ BL-60: Multi-user / permissions — view-only mode (no compose/filter drawers); 
 
 BL-61: I18n support for all Studio component text, with a Brazilian Portuguese translation.
 
-BL-61: From docs x/react-studio/resources/selectors/ #memoising-expensive-selectors "For selectors that perform non-trivial computation, use a memoisation utility like createSelector from the reselect package to avoid unnecessary recalculations:". Are we using this in x-studio? If not should we?
+**Mine**
+~~BL-62: From docs x/react-studio/resources/selectors/ #memoising-expensive-selectors "For selectors that perform non-trivial computation, use a memoisation utility like createSelector from the reselect package to avoid unnecessary recalculations:". Are we using this in x-studio? If not should we?~~ **Fixed** (added `reselect` dependency; `selectPartitionedFilters` converted to `createSelector([selectFilters, selectActivePageId], fn)` replacing hand-rolled module-level cache vars; `selectPartitionedBaseFilters` kept hand-rolled due to its deep-equality result optimisation)
+
+~~BL-63: Widget filters should show a summary of the filter when collapsed, the same as the the same as page filters. Filters should stay collapsed when selecting a saved page filter. Filter panel section titles should show the number of filters under it when collapsed.~~ **Fixed** (`FilterCard` now takes `initialExpanded` prop — defaults `false`; rows pass `true` only when filter is fresh/unconfigured so preset-applied filters appear collapsed; `CollapsibleSection` shows a count badge next to the title when collapsed; filter search in the drawer shows "No matching filters." instead of "No filters applied." when a search query is active)
+
+~~BL-43: Quick filter bar~~ wait, that is BL-43: Global filter search. **Fixed** (search TextField at top of filters drawer; narrows visible filter cards by field name or summary match; clear button; only shown when filters exist)
+
+~~BL-42: Quick filter bar~~ **Fixed** (`StudioQuickFilterBar` rendered above canvas in view mode when page filters are active; one chip per filter showing field + summary; individual delete; "Clear all" button; clicking opens the filters drawer)

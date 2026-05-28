@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:wdyr": "VITE_WDYR=true vite",
 
+    "dev:scan": "VITE_REACT_SCAN=true vite",
     "dev:profile": "PROFILING=true vite",
     "analyze": "ANALYZE=true pnpm build",
     "build": "tsc && vite build",
@@ -36,6 +37,7 @@
     "@vitejs/plugin-react": "catalog:",
     "@welldone-software/why-did-you-render": "^10.0.1",
 
+    "react-scan": "0.5.6",
     "rollup-plugin-visualizer": "^7.0.1",
     "typescript": "^5.9.3",
     "vite": "catalog:"

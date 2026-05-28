@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Checkbox, InputAdornment, Stack, TextField, Typography } from '@mui/material';
+import { Box, Checkbox, Divider, InputAdornment, Stack, TextField, Typography } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 
 export function SelectionFilterInput({
@@ -20,6 +20,26 @@ export function SelectionFilterInput({
       onChange(selected.filter((s) => s !== v));
     } else {
       onChange([...selected, v]);
+    }
+  };
+
+  const selectedSet = new Set(selected);
+  const filteredSelectedCount = filtered.filter((v) => selectedSet.has(v)).length;
+  const allFilteredSelected = filtered.length > 0 && filteredSelectedCount === filtered.length;
+  const someFilteredSelected = filteredSelectedCount > 0 && !allFilteredSelected;
+
+  const handleSelectAll = () => {
+    if (allFilteredSelected || someFilteredSelected) {
+      // Deselect all currently visible values
+      const filteredSet = new Set(filtered);
+      onChange(selected.filter((s) => !filteredSet.has(s)));
+    } else {
+      // Select all visible values (merge with already-selected)
+      const next = new Set(selected);
+      for (const v of filtered) {
+        next.add(v);
+      }
+      onChange(Array.from(next));
     }
   };
 
@@ -54,24 +74,51 @@ export function SelectionFilterInput({
             No values found.
           </Typography>
         ) : (
-          filtered.map((v) => (
+          <React.Fragment>
+            {/* Select All row */}
             <Box
-              key={v}
-              sx={{ display: 'flex', alignItems: 'center', px: 0.5, cursor: 'pointer' }}
-              onClick={() => toggle(v)}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                px: 0.5,
+                cursor: 'pointer',
+                borderBottom: 1,
+                borderColor: 'divider',
+              }}
+              onClick={handleSelectAll}
             >
               <Checkbox
                 size="small"
-                checked={selected.includes(v)}
-                onChange={() => toggle(v)}
+                checked={allFilteredSelected}
+                indeterminate={someFilteredSelected}
+                onChange={handleSelectAll}
                 onClick={(event) => event.stopPropagation()}
                 sx={{ p: 0.5 }}
               />
-              <Typography variant="body2" noWrap sx={{ flexGrow: 1, minWidth: 0, ml: 0.5 }}>
-                {v}
+              <Typography variant="body2" sx={{ ml: 0.5, color: 'text.secondary', fontStyle: 'italic' }}>
+                All
               </Typography>
             </Box>
-          ))
+            <Divider />
+            {filtered.map((v) => (
+              <Box
+                key={v}
+                sx={{ display: 'flex', alignItems: 'center', px: 0.5, cursor: 'pointer' }}
+                onClick={() => toggle(v)}
+              >
+                <Checkbox
+                  size="small"
+                  checked={selectedSet.has(v)}
+                  onChange={() => toggle(v)}
+                  onClick={(event) => event.stopPropagation()}
+                  sx={{ p: 0.5 }}
+                />
+                <Typography variant="body2" noWrap sx={{ flexGrow: 1, minWidth: 0, ml: 0.5 }}>
+                  {v}
+                </Typography>
+              </Box>
+            ))}
+          </React.Fragment>
         )}
       </Box>
       {selected.length > 0 && (

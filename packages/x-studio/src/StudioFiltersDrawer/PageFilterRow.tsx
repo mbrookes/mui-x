@@ -100,6 +100,10 @@ export function PageFilterRow(props: PageFilterRowProps) {
                   handleFilterChange({
                     field: opt.id,
                     fieldType: opt.fieldType,
+                    // Track which source owns this field so cross-source filtering
+                    // can do a proper semi-join instead of looking up a missing field
+                    // natively (which would produce no matching rows).
+                    filterSourceId: opt.sourceId,
                     value: defaultValueForMode(currentMode),
                     operator: 'equals',
                   });

@@ -13,9 +13,11 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import ClearIcon from '@mui/icons-material/Clear';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
+import SearchIcon from '@mui/icons-material/Search';
 import {
   useStudioController,
   useStudioSelector,
@@ -30,7 +32,7 @@ import {
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioDataSource, StudioFilterState } from '../models';
 import type { SimpleField } from './filterDrawerTypes';
-import { buildFieldOptions, generateId } from './filterDrawerUtils';
+import { buildFieldOptions, generateId, summarizeFilter } from './filterDrawerUtils';
 import {
   FilterSection,
   WidgetFilterSection,
@@ -48,6 +50,9 @@ export function StudioFiltersDrawer() {
   const widgets = useStudioSelector(selectWidgets);
   const relationships = useStudioSelector(selectRelationships);
   const activePageId = useStudioSelector(selectActivePageId);
+
+  const [filterSearch, setFilterSearch] = React.useState('');
+
 
   const [savingPreset, setSavingPreset] = React.useState(false);
   const [presetName, setPresetName] = React.useState('');
@@ -134,6 +139,32 @@ export function StudioFiltersDrawer() {
     (f: StudioFilterState) => f.scope === 'interactive',
   );
 
+  // Build a map of field id → label for search matching
+  const fieldLabelMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const f of allFields) {
+      map.set(f.id, f.label);
+    }
+    return map;
+  }, [allFields]);
+
+  const searchLower = filterSearch.toLowerCase();
+
+  function matchesSearch(filter: StudioFilterState): boolean {
+    if (!searchLower) {
+      return true;
+    }
+    const fieldLabel = fieldLabelMap.get(filter.field) ?? filter.field ?? '';
+    const summary = summarizeFilter(filter);
+    return (
+      fieldLabel.toLowerCase().includes(searchLower) ||
+      summary.toLowerCase().includes(searchLower)
+    );
+  }
+
+  const visiblePageFilters = pageFilters.filter(matchesSearch);
+  const visibleWidgetFilters = widgetFilters.filter(matchesSearch);
+
   const handleAddPageFilter = () => {
     if (allFields.length === 0) {
       return;
@@ -167,13 +198,39 @@ export function StudioFiltersDrawer() {
         <Alert severity="info">Add a data source and widgets first.</Alert>
       )}
 
+      {(pageFilters.length > 0 || widgetFilters.length > 0) && (
+        <TextField
+          size="small"
+          placeholder="Search filters…"
+          value={filterSearch}
+          onChange={(e) => setFilterSearch(e.target.value)}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+              endAdornment: filterSearch ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setFilterSearch('')} edge="end">
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
+            },
+          }}
+        />
+      )}
+
       <FilterSection
         title="Page filters"
-        filters={pageFilters}
+        filters={visiblePageFilters}
         fields={allFields}
         fieldOptions={fieldOptions}
         onAddFilter={handleAddPageFilter}
         onRemoveFilter={(id) => controller.removeFilter(id)}
+        emptyMessage={searchLower ? 'No matching filters.' : undefined}
       />
 
       <Divider />
@@ -181,7 +238,7 @@ export function StudioFiltersDrawer() {
       {selectedWidgetId && selectedWidget?.kind !== 'filter' ? (
         <WidgetFilterSection
           title={`Widget: ${selectedWidget?.title ?? selectedWidgetId}`}
-          filters={widgetFilters}
+          filters={visibleWidgetFilters}
           widgetSourceId={selectedWidget?.sourceId}
           fieldOptions={widgetFieldOptions}
           dataSources={dataSources}
@@ -190,6 +247,7 @@ export function StudioFiltersDrawer() {
           chartXField={chartXField}
           chartYFieldLabel={chartYFieldLabel}
           chartAvailableSeries={chartAvailableSeries}
+          emptyMessage={searchLower ? 'No matching filters.' : undefined}
         />
       ) : null}
 

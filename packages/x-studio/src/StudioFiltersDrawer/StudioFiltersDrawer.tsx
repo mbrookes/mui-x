@@ -25,6 +25,7 @@ import {
   selectDataSources,
   selectRelationships,
   selectWidgets,
+  selectActivePageId,
 } from '../context';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioDataSource, StudioFilterState } from '../models';
@@ -46,6 +47,7 @@ export function StudioFiltersDrawer() {
   const dataSources = useStudioSelector(selectDataSources);
   const widgets = useStudioSelector(selectWidgets);
   const relationships = useStudioSelector(selectRelationships);
+  const activePageId = useStudioSelector(selectActivePageId);
 
   const [savingPreset, setSavingPreset] = React.useState(false);
   const [presetName, setPresetName] = React.useState('');
@@ -119,7 +121,8 @@ export function StudioFiltersDrawer() {
   }, [selectedWidget, dataSources]);
 
   const pageFilters = (filters as StudioFilterState[]).filter(
-    (f: StudioFilterState) => f.scope === 'page',
+    (f: StudioFilterState) =>
+      f.scope === 'page' && (!f.pageId || f.pageId === activePageId),
   );
   const widgetFilters = (filters as StudioFilterState[]).filter(
     (f: StudioFilterState) => f.scope === 'widget' && f.widgetId === selectedWidgetId,

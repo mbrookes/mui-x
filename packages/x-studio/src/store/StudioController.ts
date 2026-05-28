@@ -631,10 +631,15 @@ export class StudioController {
 
   addFilter = (filter: import('../models').StudioFilterState) => {
     const state = this.store.state;
-
+    // Stamp page filters with the current active page so they don't bleed
+    // across pages when the user switches pages.
+    const stampedFilter =
+      filter.scope === 'page'
+        ? { ...filter, pageId: state.dashboard.activePageId }
+        : filter;
     this.commitState({
       ...state,
-      filters: [...state.filters, filter],
+      filters: [...state.filters, stampedFilter],
     });
   };
 
@@ -873,7 +878,11 @@ export class StudioController {
    */
   saveFilterPreset = (name: string): string => {
     const state = this.store.state;
-    const pageFilters = state.filters.filter((f) => f.scope === 'page');
+    const activePageId = state.dashboard.activePageId;
+    // Only save filters for the current active page.
+    const pageFilters = state.filters.filter(
+      (f) => f.scope === 'page' && (!f.pageId || f.pageId === activePageId),
+    );
     const id = `preset-${Date.now()}`;
     const preset: import('../models').StudioFilterPreset = {
       id,
@@ -896,11 +905,16 @@ export class StudioController {
     if (!preset) {
       return;
     }
+    const activePageId = state.dashboard.activePageId;
     this.commitState({
       ...state,
       filters: [
-        ...state.filters.filter((f) => f.scope !== 'page'),
-        ...preset.filters,
+        // Keep all non-page filters, and keep page filters for OTHER pages.
+        ...state.filters.filter(
+          (f) => f.scope !== 'page' || (f.pageId && f.pageId !== activePageId),
+        ),
+        // Apply preset filters scoped to the current page.
+        ...preset.filters.map((f) => ({ ...f, pageId: activePageId })),
       ],
     });
   };

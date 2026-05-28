@@ -283,6 +283,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     chartData,
     multiYData,
     scatterData,
+    scatterSeries,
     hasCrossFilters,
     shouldShowGhost,
     allChartData,
@@ -924,7 +925,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   // Scatter chart
   if (normalizedChartType === 'scatter') {
-    if (!scatterData || scatterData.length === 0) {
+    const hasColorBy = Boolean(config.scatterColorField) && scatterSeries !== null;
+    const hasData = hasColorBy
+      ? scatterSeries!.some((s) => s.data.length > 0)
+      : scatterData != null && scatterData.length > 0;
+
+    if (!hasData) {
       return (
         <Box
           sx={{
@@ -933,24 +939,23 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             justifyContent: 'center',
             height: chartHeight,
           }}
-        ></Box>
+        />
       );
     }
+
+    const resolvedSeries = hasColorBy
+      ? scatterSeries!.map((s) => ({ id: s.id, label: s.label, data: s.data }))
+      : [{ data: scatterData! }];
 
     return (
       <div style={{ height: chartHeight }}>
         <ScatterChart
           {...slotProps?.scatterChart}
           skipAnimation={skipAnimation}
-          series={[
-            {
-              data: scatterData,
-              // label removed per requirements
-            },
-          ]}
+          series={resolvedSeries}
           colors={chartColors}
-          hideLegend
-          margin={{ top: 16, right: 16, bottom: 8, left: 40 }}
+          hideLegend={!hasColorBy}
+          margin={{ top: 16, right: hasColorBy ? 8 : 16, bottom: 8, left: 40 }}
           slotProps={{
             legend: {
               sx: {
@@ -1152,6 +1157,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const maxRadius = Math.round(chartHeight * 0.38);
     const ringGap = 6;
 
+    // Arc label configuration for single-series pie/donut
+    const pieArcLabelCfg = config.pieArcLabel;
+    const pieArcLabelMinAngle = config.pieArcLabelMinAngle ?? 20;
+
     // ── Grouped rings: one ring per xField category, slices by seriesField ──
     if (config.seriesField && twoRingData) {
       const { rings, filteredCategories, filteredSlicesByCategory } = twoRingData;
@@ -1170,12 +1179,22 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         const isCatDimmed =
           filteredCategories != null && !filteredCategories.has(ring.label);
         const filteredSlices = filteredSlicesByCategory?.get(ring.label) ?? null;
+        const ringTotal = ring.slices.values.reduce((sum, v) => sum + (v ?? 0), 0);
+
+        // For multi-ring, compute per-ring arc label props
+        let ringArcLabel: 'value' | ((item: { value: number }) => string) | undefined;
+        if (pieArcLabelCfg === 'value') {
+          ringArcLabel = 'value';
+        } else if (pieArcLabelCfg === 'percent' && ringTotal > 0) {
+          ringArcLabel = (item) => `${((item.value / ringTotal) * 100).toFixed(1)}%`;
+        }
 
         return {
           id: ring.id,
           label: ring.label,
           innerRadius,
           outerRadius,
+          ...(ringArcLabel ? { arcLabel: ringArcLabel, arcLabelMinAngle: pieArcLabelMinAngle } : {}),
           data: ring.slices.labels.map((label, i) => {
             const isDimmed =
               isCatDimmed || (filteredSlices != null && !filteredSlices.has(String(label)));
@@ -1226,6 +1245,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // Use stable baseline data (isPieHighlightActive / pieRatioByIndex computed at top level)
     const pieBaseData = isPieHighlightActive ? allChartData! : chartData;
 
+    // Compute arc label props for single-series pie/donut
+    const singlePieTotal = pieBaseData.values.reduce((sum, v) => sum + (v ?? 0), 0);
+    let singleArcLabel: 'value' | ((item: { value: number }) => string) | undefined;
+    if (pieArcLabelCfg === 'value') {
+      singleArcLabel = 'value';
+    } else if (pieArcLabelCfg === 'percent' && singlePieTotal > 0) {
+      singleArcLabel = (item) => `${((item.value / singlePieTotal) * 100).toFixed(1)}%`;
+    }
+
     return (
       <div style={{ height: chartHeight }}>
         {/* PieHighlightContext always wraps PieChart — never conditionally — so PieChart
@@ -1239,6 +1267,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               {
                 id: CROSS_FILTER_SERIES_ID,
                 innerRadius,
+                ...(singleArcLabel
+                  ? { arcLabel: singleArcLabel, arcLabelMinAngle: pieArcLabelMinAngle }
+                  : {}),
                 data: pieBaseData.labels.map((label, i) => ({
                   id: i,
                   label: formatLabel(label),

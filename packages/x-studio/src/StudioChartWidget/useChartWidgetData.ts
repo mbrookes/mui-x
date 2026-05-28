@@ -351,6 +351,51 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     );
   }, [enrichedRows, config.xField, config.yField, config.scatterColorField, scatterColorCategories]);
 
+  // Ghost scatter data (all rows, pre-cross-filter) for cross-highlight mode
+  const allScatterData = React.useMemo(() => {
+    if (!shouldShowGhost) {
+      return null;
+    }
+    const xField = config.xField;
+    const yField = config.yField;
+    if (!xField || !yField || allEnrichedRows.length === 0) {
+      return null;
+    }
+    return cachedCompute(allEnrichedRows, `scat-all:${xField}:${yField}`, () =>
+      prepareScatterData(allEnrichedRows, xField, yField),
+    );
+  }, [shouldShowGhost, allEnrichedRows, config.xField, config.yField]);
+
+  const allScatterSeries: ScatterSeriesData[] | null = React.useMemo(() => {
+    if (!shouldShowGhost || !config.scatterColorField || !scatterColorCategories) {
+      return null;
+    }
+    const xField = config.xField;
+    const yField = config.yField;
+    if (!xField || !yField || allEnrichedRows.length === 0) {
+      return null;
+    }
+    return cachedCompute(
+      allEnrichedRows,
+      `scatc-all:${xField}:${yField}:${config.scatterColorField}:${scatterColorCategories.join(',')}`,
+      () =>
+        prepareScatterDataGrouped(
+          allEnrichedRows,
+          xField,
+          yField,
+          config.scatterColorField!,
+          scatterColorCategories,
+        ),
+    );
+  }, [
+    shouldShowGhost,
+    allEnrichedRows,
+    config.xField,
+    config.yField,
+    config.scatterColorField,
+    scatterColorCategories,
+  ]);
+
   return {
     chartColors,
     resolvedChartColors,
@@ -366,6 +411,8 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     multiYData,
     scatterData,
     scatterSeries,
+    allScatterData,
+    allScatterSeries,
     hasCrossFilters,
     shouldShowGhost,
     allChartData,

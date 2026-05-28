@@ -230,6 +230,11 @@ export interface StudioWidgetConfig {
    * decrease shows as green. Use for cost, error-rate, or other "lower is better" metrics.
    */
   kpiTrendInvert?: boolean;
+  // KPI target line
+  /** When true, shows a horizontal reference line on the sparkline and (when kpiTrend is also enabled) compares the headline value against the target instead of the previous period. */
+  kpiTarget?: boolean;
+  /** Reference to the metric row/field that provides the target value. */
+  kpiTargetRef?: StudioMetricRef;
   // Grid summary (totals) row
   /**
    * Aggregation to show in the pinned summary footer for each field.

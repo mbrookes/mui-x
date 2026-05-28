@@ -10,6 +10,8 @@ import {
   summarizeFilter,
   buildModeReset,
   defaultValueForMode,
+  isFilterEffective,
+  isFilterFresh,
 } from './filterDrawerUtils';
 import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
@@ -151,6 +153,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
       title={cardTitle}
       summary={summarizeFilter(filter)}
       onRemove={() => onRemove(filter.id)}
+      initialExpanded={isFilterFresh(filter) || !isFilterEffective(filter)}
     >
       <FilterBody
         filter={filter}

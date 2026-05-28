@@ -1,3 +1,4 @@
+import { createSelector } from 'reselect';
 import type {
   StudioExpressionField,
   StudioFilterState,
@@ -147,54 +148,42 @@ export interface PartitionedFilters {
  * included in the `page` bucket.
  *
  * Use this instead of N independent `.filter()` calls in each widget hook.
+ *
+ * Implemented with reselect's createSelector so the memoization strategy is
+ * standard and explicit: re-computes only when `filters` or `activePageId`
+ * change by reference.
  */
-let lastFiltersInput: StudioFilterState[] | undefined;
-let lastActivePageIdForPartition: string | undefined;
-let lastPartitionResult: PartitionedFilters | undefined;
+export const selectPartitionedFilters = createSelector(
+  [selectFilters, selectActivePageId],
+  (filters, activePageId): PartitionedFilters => {
+    const page: StudioFilterState[] = [];
+    const byWidgetId = new Map<string, StudioFilterState[]>();
+    const cross: StudioFilterState[] = [];
+    const interactive: StudioFilterState[] = [];
 
-export const selectPartitionedFilters = (state: StudioState): PartitionedFilters => {
-  const filters = state.filters;
-  const activePageId = state.dashboard.activePageId;
-  if (
-    filters === lastFiltersInput &&
-    activePageId === lastActivePageIdForPartition &&
-    lastPartitionResult !== undefined
-  ) {
-    return lastPartitionResult;
-  }
-  const page: StudioFilterState[] = [];
-  const byWidgetId = new Map<string, StudioFilterState[]>();
-  const cross: StudioFilterState[] = [];
-  const interactive: StudioFilterState[] = [];
-
-  for (const f of filters) {
-    if (f.scope === 'page') {
-      // Only include page filters for the active page.
-      // Filters without a pageId are legacy data — include them on all pages.
-      if (!f.pageId || f.pageId === activePageId) {
-        page.push(f);
+    for (const f of filters) {
+      if (f.scope === 'page') {
+        if (!f.pageId || f.pageId === activePageId) {
+          page.push(f);
+        }
+      } else if (f.scope === 'widget') {
+        const key = f.widgetId ?? '';
+        let bucket = byWidgetId.get(key);
+        if (!bucket) {
+          bucket = [];
+          byWidgetId.set(key, bucket);
+        }
+        bucket.push(f);
+      } else if (f.scope === 'cross-filter') {
+        cross.push(f);
+      } else if (f.scope === 'interactive') {
+        interactive.push(f);
       }
-    } else if (f.scope === 'widget') {
-      const key = f.widgetId ?? '';
-      let bucket = byWidgetId.get(key);
-      if (!bucket) {
-        bucket = [];
-        byWidgetId.set(key, bucket);
-      }
-      bucket.push(f);
-    } else if (f.scope === 'cross-filter') {
-      cross.push(f);
-    } else if (f.scope === 'interactive') {
-      interactive.push(f);
     }
-  }
 
-  const result: PartitionedFilters = { page, byWidgetId, cross, interactive };
-  lastFiltersInput = filters;
-  lastActivePageIdForPartition = activePageId;
-  lastPartitionResult = result;
-  return result;
-};
+    return { page, byWidgetId, cross, interactive };
+  },
+);
 
 /**
  * Like selectPartitionedFilters but only includes page-scoped and widget-scoped

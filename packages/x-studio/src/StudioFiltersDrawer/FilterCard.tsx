@@ -12,13 +12,20 @@ export interface FilterCardProps {
   summary: string;
   onRemove: () => void;
   children: React.ReactNode;
+  /**
+   * Whether the card starts expanded. Defaults to `false` (collapsed).
+   * Pass `true` for freshly-created filters so the user can immediately
+   * configure them; pass `false` (or omit) for filters loaded from a preset
+   * or persisted state so the summary is shown by default.
+   */
+  initialExpanded?: boolean;
 }
 
 /**
  * Collapsible card used by both PageFilterRow and WidgetFilterRow.
  */
-export function FilterCard({ title, summary, onRemove, children }: FilterCardProps) {
-  const [expanded, setExpanded] = React.useState(true);
+export function FilterCard({ title, summary, onRemove, children, initialExpanded = false }: FilterCardProps) {
+  const [expanded, setExpanded] = React.useState(initialExpanded);
 
   return (
     <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>

@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Collapse, IconButton, Tooltip, Typography } from '@mui/material';
+import { Box, Chip, Collapse, IconButton, Tooltip, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -15,6 +15,11 @@ export interface CollapsibleSectionProps {
   /** Optional secondary action shown to the left of the "+" button. */
   secondaryAction?: React.ReactNode;
   defaultExpanded?: boolean;
+  /**
+   * Number of items in this section. When the section is collapsed and count > 0,
+   * a small badge is shown next to the title so the user knows filters are active.
+   */
+  count?: number;
 }
 
 export function CollapsibleSection(props: CollapsibleSectionProps) {
@@ -26,6 +31,7 @@ export function CollapsibleSection(props: CollapsibleSectionProps) {
     addTooltip = 'Add',
     secondaryAction,
     defaultExpanded = true,
+    count,
   } = props;
   const [expanded, setExpanded] = React.useState(defaultExpanded);
 
@@ -40,6 +46,13 @@ export function CollapsibleSection(props: CollapsibleSectionProps) {
         </IconButton>
         <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
           {title}
+          {!expanded && count != null && count > 0 && (
+            <Chip
+              label={count}
+              size="small"
+              sx={{ ml: 0.75, height: 16, fontSize: 10, '& .MuiChip-label': { px: 0.75 } }}
+            />
+          )}
         </Typography>
         {secondaryAction}
         {onAdd != null && (

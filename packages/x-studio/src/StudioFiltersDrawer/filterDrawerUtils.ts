@@ -129,6 +129,41 @@ export function relativeToAbsolute(rel: RelativeDateValue): string {
   return result.format('YYYY-MM-DD');
 }
 
+// ─── Filter effectiveness check ───────────────────────────────────────────────
+
+/**
+ * Returns true when a filter has a meaningful value configured.
+ * Used to decide whether a FilterCard should start expanded (freshly added,
+ * no value yet) or collapsed (pre-configured, loaded from preset or state).
+ */
+export function isFilterEffective(filter: StudioFilterState): boolean {
+  const mode = filter.filterMode ?? 'condition';
+  if (mode === 'selection') {
+    return Array.isArray(filter.value) && (filter.value as unknown[]).length > 0;
+  }
+  if (mode === 'rank') {
+    return typeof filter.value === 'number' && filter.value > 0;
+  }
+  return filter.value !== '' && filter.value !== null && filter.value !== undefined;
+}
+
+/**
+ * Returns true when a filter is in its fresh default state (just added, not yet configured).
+ * Rank filters default to "Top 10" — we consider them fresh until the user changes
+ * the value/direction/byField, so the card starts expanded for immediate configuration.
+ */
+export function isFilterFresh(filter: StudioFilterState): boolean {
+  if (filter.filterMode === 'rank') {
+    return (
+      filter.value === 10 &&
+      (filter.rankDirection === 'top' || filter.rankDirection === undefined) &&
+      !filter.rankByField &&
+      !filter.rankMultiSeriesBy
+    );
+  }
+  return false;
+}
+
 // ─── Filter summary ───────────────────────────────────────────────────────────
 
 function formatFilterValue(value: unknown, _fieldType: FieldType | undefined): string {

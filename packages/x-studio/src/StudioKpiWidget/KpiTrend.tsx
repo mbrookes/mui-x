@@ -9,8 +9,10 @@ import { formatPeriodShort, formatDateRangeLong } from './kpiUtils';
 export interface KpiTrendResult {
   delta: number;
   previousValue: number;
-  previousStart: Date;
-  previousEnd: Date;
+  previousStart?: Date;
+  previousEnd?: Date;
+  /** When set, shown as the "vs." label in place of the auto-formatted date range. */
+  comparisonLabel?: string;
 }
 
 export interface KpiTrendProps {
@@ -44,8 +46,12 @@ export function KpiTrend(props: KpiTrendProps) {
     const pct = Number.isFinite(trendResult.delta)
       ? `${trendResult.delta >= 0 ? '+' : ''}${(trendResult.delta * 100).toFixed(1)}%`
       : 'New';
-    const periodShort = formatPeriodShort(trendResult.previousStart, trendResult.previousEnd);
-    const trendTooltip = formatDateRangeLong(trendResult.previousStart, trendResult.previousEnd);
+    const periodShort = trendResult.comparisonLabel
+      ? trendResult.comparisonLabel
+      : formatPeriodShort(trendResult.previousStart!, trendResult.previousEnd!);
+    const trendTooltip = trendResult.comparisonLabel
+      ? `Target: ${trendResult.previousValue}`
+      : formatDateRangeLong(trendResult.previousStart!, trendResult.previousEnd!);
 
     return (
       <Tooltip title={`Previous period: ${trendTooltip}`} placement="bottom-start">

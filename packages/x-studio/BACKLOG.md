@@ -89,7 +89,7 @@ BL-31: Drill-down / detail panel — click a chart segment or grid row → slide
 
 **KPI widget**
 
-BL-36: KPI target line — optional reference value (from a businessMetrics data source) shown on the sparkline; delta badge compares to target rather than prior period; configurable source field + row ID
+~~BL-36: KPI target line — optional reference value (from a businessMetrics data source) shown on the sparkline; delta badge compares to target rather than prior period; configurable source field + row ID~~
 
 ~~BL-37: WONTFIX: Per-widget chart palette override — override the page-level chart palette on individual chart widgets using the same colour-picker UI~~
 
@@ -162,4 +162,8 @@ BL-61: I18n support for all Studio component text, with a Brazilian Portuguese t
 
 ~~BL-63: Widget filters should show a summary of the filter when collapsed, the same as the the same as page filters. Filters should stay collapsed when selecting a saved page filter. Filter panel section titles should show the number of filters under it when collapsed.~~ **Fixed** (`FilterCard` now takes `initialExpanded` prop — defaults `false`; rows pass `true` only when filter is fresh/unconfigured so preset-applied filters appear collapsed; `CollapsibleSection` shows a count badge next to the title when collapsed; filter search in the drawer shows "No matching filters." instead of "No filters applied." when a search query is active)
 
+BL-64: There is double-line (hr) between page filters and Saved views. Saved views should remain below page filters when other filter types are present.
 
+BL-64: Chart rank filtering should be applied after cross-filters, so that it still shows the ranked number of items.
+
+BL-65: 

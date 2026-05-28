@@ -284,6 +284,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     multiYData,
     scatterData,
     scatterSeries,
+    allScatterData,
+    allScatterSeries,
     hasCrossFilters,
     shouldShowGhost,
     allChartData,
@@ -943,9 +945,30 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       );
     }
 
-    const resolvedSeries = hasColorBy
+    // When cross-highlight is active, render ghost (all data, dim) + highlighted (filtered) series
+    const ghostSeries = shouldShowGhost
+      ? hasColorBy && allScatterSeries
+        ? allScatterSeries.map((s) => ({
+            id: `${s.id}${GHOST_SERIES_SUFFIX}`,
+            label: s.label,
+            data: s.data,
+            markerSize: 3,
+          }))
+        : allScatterData
+          ? [{ id: `__all${GHOST_SERIES_SUFFIX}`, data: allScatterData, markerSize: 3 }]
+          : null
+      : null;
+
+    const highlightedSeries = hasColorBy
       ? scatterSeries!.map((s) => ({ id: s.id, label: s.label, data: s.data }))
       : [{ data: scatterData! }];
+
+    const resolvedSeries = ghostSeries
+      ? [...ghostSeries, ...highlightedSeries]
+      : highlightedSeries;
+
+    // Ghost series are identified by suffix; we render them at reduced opacity via sx
+    const ghostIds = new Set(ghostSeries?.map((s) => s.id) ?? []);
 
     return (
       <div style={{ height: chartHeight }}>
@@ -955,7 +978,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           series={resolvedSeries}
           colors={chartColors}
           hideLegend={!hasColorBy}
-          margin={{ top: 16, right: hasColorBy ? 8 : 16, bottom: 8, left: 40 }}
+          margin={{ top: 16, right: hasColorBy ? 8 : 16, bottom: 30, left: 40 }}
           slotProps={{
             legend: {
               sx: {
@@ -965,7 +988,17 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               },
             },
           }}
-          sx={{ cursor: 'pointer' }}
+          sx={{
+            cursor: 'pointer',
+            ...(ghostIds.size > 0 && {
+              // Dim ghost series dots using CSS targeting — each ghost series
+              // gets a lower-opacity fill. Ghost series are interleaved before
+              // the highlighted series so they render behind them.
+              [`& .MuiScatter-root:nth-of-type(-n+${ghostIds.size}) circle`]: {
+                opacity: 0.2,
+              },
+            }),
+          }}
         />
       </div>
     );

@@ -33,11 +33,10 @@ export default defineConfig({
   build: {
     sourcemap: !!process.env.ANALYZE,
   },
-  // Never pre-bundle opt-in dev tools — they are 685 KB (react-scan) and
-  // 400+ KB (wdyr) and should only be loaded when explicitly activated via
-  // the dev:scan / dev:wdyr scripts or by setting localStorage flags.
+  // Never pre-bundle opt-in dev tools — wdyr is 400+ KB and should only be
+  // loaded when explicitly activated via the dev:wdyr script or localStorage.
   optimizeDeps: {
-    exclude: ['react-scan', '@welldone-software/why-did-you-render'],
+    exclude: ['@welldone-software/why-did-you-render'],
   },
   resolve: {
     dedupe: ['react', 'react-dom', '@emotion/react', '@emotion/styled'],

@@ -174,6 +174,20 @@ export interface StudioWidgetConfig {
   seriesField?: string;
   /** Granularity to truncate the x-axis date/datetime field before grouping. */
   xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
+  /** Scatter chart: categorical field used to split points into colour-coded series. */
+  scatterColorField?: string;
+  /**
+   * Pie/donut chart: label shown on each arc.
+   * - 'value': the formatted numeric value
+   * - 'percent': percentage of the total (per ring for multi-ring charts)
+   * - 'none': no arc labels (default)
+   */
+  pieArcLabel?: 'value' | 'percent' | 'none';
+  /**
+   * Pie/donut chart: minimum arc angle in degrees required to show an arc label.
+   * Slices smaller than this will not be labelled. @default 20
+   */
+  pieArcLabelMinAngle?: number;
   /** Minimum value for gauge chart. @default 0 */
   gaugeMin?: number;
   /** Maximum value for gauge chart. @default 100 */

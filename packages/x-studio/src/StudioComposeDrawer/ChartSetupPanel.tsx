@@ -387,7 +387,34 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         </FormControl>
       )}
 
-      {/* Y series */}
+      {/* Scatter: single Y field + optional color-by */}
+      {isScatter && (
+        <React.Fragment>
+          <DataSourceFieldSelect
+            value={config.yField ?? ySeries[0]?.fieldId ?? ''}
+            onChange={(fieldId) => {
+              controller.updateWidgetConfig(widgetId, { yField: fieldId, ySeries: [{ fieldId }] });
+            }}
+            fields={numericFields}
+            label="Y field (numeric)"
+            helperText="Numeric field plotted on the vertical axis"
+          />
+          <DataSourceFieldSelect
+            value={config.scatterColorField ?? ''}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, {
+                scatterColorField: fieldId || undefined,
+              })
+            }
+            fields={categoryFields}
+            label="Color by (optional)"
+            helperText="Splits points into colour-coded series per category"
+          />
+        </React.Fragment>
+      )}
+
+      {/* Y series — for non-scatter, non-gauge charts */}
+      {!isScatter && (
       <div>
         <Stack direction="row" sx={{ alignItems: 'center', mb: 0.5 }}>
           <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
@@ -474,6 +501,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           )}
         </Stack>
       </div>
+      )}
       {/* Split by / series field */}
       {supportsSeriesField && (
         <div>
@@ -513,6 +541,46 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             </span>
           </Tooltip>
         </div>
+      )}
+      {/* Pie / donut: arc label options */}
+      {isPieOrDonut && (
+        <React.Fragment>
+          <Divider />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+            Arc labels
+          </Typography>
+          <FormControl size="small" fullWidth>
+            <InputLabel>Arc label</InputLabel>
+            <Select
+              label="Arc label"
+              value={config.pieArcLabel ?? 'none'}
+              onChange={(evt) =>
+                controller.updateWidgetConfig(widgetId, {
+                  pieArcLabel: evt.target.value as 'value' | 'percent' | 'none',
+                })
+              }
+            >
+              <MenuItem value="none">None</MenuItem>
+              <MenuItem value="value">Value</MenuItem>
+              <MenuItem value="percent">Percent</MenuItem>
+            </Select>
+          </FormControl>
+          {(config.pieArcLabel ?? 'none') !== 'none' && (
+            <TextField
+              size="small"
+              label="Minimum angle (°)"
+              type="number"
+              value={config.pieArcLabelMinAngle ?? 20}
+              helperText="Slices smaller than this angle (degrees) won't show a label"
+              onChange={(evt) =>
+                controller.updateWidgetConfig(widgetId, {
+                  pieArcLabelMinAngle: Math.max(0, Number(evt.target.value)),
+                })
+              }
+              slotProps={{ htmlInput: { min: 0, max: 180 } }}
+            />
+          )}
+        </React.Fragment>
       )}
         </Stack>
       )}

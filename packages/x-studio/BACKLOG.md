@@ -77,37 +77,39 @@ BL-31: Drill-down / detail panel — click a chart segment or grid row → slide
 
 **Grid widget**
 
-BL-32: Grid conditional formatting — rule-based cell colour (e.g. negative margin → red); configurable in the Format tab; multiple rules per column, first-match wins
+~~BL-32: Grid conditional formatting — rule-based cell colour (e.g. negative margin → red); configurable in the Format tab; multiple rules per column, first-match wins~~
 
-BL-33: Grid totals / summary row — pinned footer showing sum/avg/count per configured column; toggle per column in the compose drawer
+~~BL-33: Grid totals / summary row — pinned footer showing sum/avg/count per configured column; toggle per column in the compose drawer~~
 
 **Chart widget**
 
-BL-34: Scatter chart configuration — expose X field, Y field, size field, and colour-by field in the compose drawer (currently hardcoded in the demo config)
+~~BL-34: Scatter chart configuration — expose X field, Y field, size field, and colour-by field in the compose drawer (currently hardcoded in the demo config)~~ **Fixed** (added `scatterColorField` config; dedicated single Y-field picker for scatter in compose panel; optional categorical color-by field splits points into colour-coded series with legend; `prepareScatterDataGrouped` in `chartUtils`; stable category ordering from unfiltered rows)
 
-BL-35: Pie/donut label formatting — label position (inside/outside/legend-only), label content (value/percent/both), minimum-slice threshold to suppress tiny-slice labels
+~~BL-35: Pie/donut label formatting — label position (inside/outside/legend-only), label content (value/percent/both), minimum-slice threshold to suppress tiny-slice labels~~ **Fixed** (added `pieArcLabel` ('value'/'percent'/'none') and `pieArcLabelMinAngle` config fields; arc label Select + min-angle input in compose panel; per-ring percent totals for multi-ring charts; zero-total guard)
 
 **KPI widget**
 
 BL-36: KPI target line — optional reference value (from a businessMetrics data source) shown on the sparkline; delta badge compares to target rather than prior period; configurable source field + row ID
 
-BL-37: Per-widget chart palette override — override the page-level chart palette on individual chart widgets using the same colour-picker UI
+~~BL-37: WONTFIX: Per-widget chart palette override — override the page-level chart palette on individual chart widgets using the same colour-picker UI~~
 
 **Canvas authoring**
 
-BL-38: Widget resize — drag handle on the card edge to change column span within a row; snaps to MUI Grid breakpoints (1–12); persisted in `widgetRows` layout config
+~~BL-38: Widget resize — drag handle on the card edge to change column span within a row; snaps to MUI Grid breakpoints (1–12); persisted in `widgetRows` layout config~~
 
-BL-39: Row management + layout picker — "Add row" / "Remove row" buttons; preset layout picker (1-col, 2-equal, 3-equal, sidebar-left, sidebar-right)
+~~BL-39: WONTFIX: Row management + layout picker — "Add row" / "Remove row" buttons; preset layout picker (1-col, 2-equal, 3-equal, sidebar-left, sidebar-right)~~
 
-BL-40: Widget reorder within a row — drag-and-drop to swap positions within a row; also allow moving a widget to a different row
+~~BL-40: Widget reorder within a row — drag-and-drop to swap positions within a row; also allow moving a widget to a different row~~
 
 **Filters**
 
-BL-41: Saved views / filter presets — name and save the current filter state; recall from a dropdown above the canvas; presets serialized with the dashboard state
+~~BL-41: Saved views / filter presets — name and save the current filter state; recall from a dropdown above the canvas; presets serialized with the dashboard state~~
 
-BL-42: Quick filter bar — compact row of active-filter chips pinned above the canvas; click to jump to the filter in the drawer; "Clear all" shortcut
+~~BL-42: Quick filter bar — compact row of active-filter chips pinned above the canvas; click to jump to the filter in the drawer; "Clear all" shortcut~~
+**Fixed** (`StudioQuickFilterBar` rendered above canvas in view mode when page filters are active; one chip per filter showing field + summary; individual delete; "Clear all" button; clicking opens the filters drawer)
 
-BL-43: Global filter search — search box at the top of the filters drawer; narrows the filter card list by field name or current value
+~~BL-43: Global filter search — search box at the top of the filters drawer; narrows the filter card list by field name or current value~~
+**Fixed** (search TextField at top of filters drawer; narrows visible filter cards by field name or summary match; clear button; only shown when filters exist)
 
 BL-44: Filter dependency (cascading) — when a parent filter is set (e.g. Country), child filter options (e.g. State) narrow automatically; dependency declared in filter setup
 
@@ -160,6 +162,4 @@ BL-61: I18n support for all Studio component text, with a Brazilian Portuguese t
 
 ~~BL-63: Widget filters should show a summary of the filter when collapsed, the same as the the same as page filters. Filters should stay collapsed when selecting a saved page filter. Filter panel section titles should show the number of filters under it when collapsed.~~ **Fixed** (`FilterCard` now takes `initialExpanded` prop — defaults `false`; rows pass `true` only when filter is fresh/unconfigured so preset-applied filters appear collapsed; `CollapsibleSection` shows a count badge next to the title when collapsed; filter search in the drawer shows "No matching filters." instead of "No filters applied." when a search query is active)
 
-~~BL-43: Quick filter bar~~ wait, that is BL-43: Global filter search. **Fixed** (search TextField at top of filters drawer; narrows visible filter cards by field name or summary match; clear button; only shown when filters exist)
 
-~~BL-42: Quick filter bar~~ **Fixed** (`StudioQuickFilterBar` rendered above canvas in view mode when page filters are active; one chip per filter showing field + summary; individual delete; "Clear all" button; clicking opens the filters drawer)

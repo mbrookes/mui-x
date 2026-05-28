@@ -233,22 +233,23 @@ export function StudioFiltersDrawer() {
         emptyMessage={searchLower ? 'No matching filters.' : undefined}
       />
 
-      <Divider />
-
       {selectedWidgetId && selectedWidget?.kind !== 'filter' ? (
-        <WidgetFilterSection
-          title={`Widget: ${selectedWidget?.title ?? selectedWidgetId}`}
-          filters={visibleWidgetFilters}
-          widgetSourceId={selectedWidget?.sourceId}
-          fieldOptions={widgetFieldOptions}
-          dataSources={dataSources}
-          onAddFilter={handleAddWidgetFilter}
-          onRemoveFilter={(id) => controller.removeFilter(id)}
-          chartXField={chartXField}
-          chartYFieldLabel={chartYFieldLabel}
-          chartAvailableSeries={chartAvailableSeries}
-          emptyMessage={searchLower ? 'No matching filters.' : undefined}
-        />
+        <React.Fragment>
+          <Divider />
+          <WidgetFilterSection
+            title={`Widget: ${selectedWidget?.title ?? selectedWidgetId}`}
+            filters={visibleWidgetFilters}
+            widgetSourceId={selectedWidget?.sourceId}
+            fieldOptions={widgetFieldOptions}
+            dataSources={dataSources}
+            onAddFilter={handleAddWidgetFilter}
+            onRemoveFilter={(id) => controller.removeFilter(id)}
+            chartXField={chartXField}
+            chartYFieldLabel={chartYFieldLabel}
+            chartAvailableSeries={chartAvailableSeries}
+            emptyMessage={searchLower ? 'No matching filters.' : undefined}
+          />
+        </React.Fragment>
       ) : null}
 
       {interactiveFilters.length > 0 && (

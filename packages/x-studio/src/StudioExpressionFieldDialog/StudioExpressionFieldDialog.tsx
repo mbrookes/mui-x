@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Chip,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
@@ -24,6 +25,8 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FunctionsIcon from '@mui/icons-material/Functions';
 
 import type {
@@ -144,6 +147,29 @@ function makeDefaultExpr(): StudioExpression {
   return { type: 'number', value: 0 } satisfies StudioValueExpression;
 }
 
+function makeDefaultFunctionExpr(): StudioFunctionExpression {
+  return { operator: 'add', inputs: [makeDefaultExpr(), makeDefaultExpr()] };
+}
+
+// Type guards for clear, maintainable expression classification
+function isFieldExpr(expr: StudioExpression): expr is StudioFieldExpression {
+  return 'id' in expr && !('operator' in expr);
+}
+function isValueExpr(expr: StudioExpression): expr is StudioValueExpression {
+  return 'type' in expr && 'value' in expr;
+}
+function isFunctionExpr(expr: StudioExpression): expr is StudioFunctionExpression {
+  return 'operator' in expr;
+}
+
+type InputKind = 'field' | 'literal' | 'function';
+
+function getInputKind(expr: StudioExpression): InputKind {
+  if (isFunctionExpr(expr)) return 'function';
+  if (isFieldExpr(expr)) return 'field';
+  return 'literal';
+}
+
 function InputNode({
   expr,
   label,
@@ -152,10 +178,8 @@ function InputNode({
   isMeasure,
   onChange,
 }: InputNodeProps) {
-  const isField = 'id' in expr && !('operator' in expr) && !('type' in expr && 'value' in expr);
-  const isValue = 'type' in expr && 'value' in expr;
-
-  const inputKind: 'field' | 'literal' = isField ? 'field' : 'literal';
+  const inputKind = getInputKind(expr);
+  const [functionCollapsed, setFunctionCollapsed] = React.useState(false);
 
   const allFieldOptions = [
     ...sourceFields.map((f) => ({ id: f.id, label: f.label, isExpr: false })),
@@ -167,126 +191,160 @@ function InputNode({
     }),
   ];
 
+  const handleKindChange = (next: InputKind) => {
+    if (next === 'field') {
+      const firstField = allFieldOptions[0];
+      onChange(firstField ? { id: firstField.id } : makeDefaultExpr());
+    } else if (next === 'literal') {
+      onChange({ type: 'number', value: 0 });
+    } else {
+      onChange(makeDefaultFunctionExpr());
+    }
+  };
+
   return (
     <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1, mb: 0.5 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
-        {label}
-      </Typography>
-      <Stack direction="row" spacing={1}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: inputKind === 'function' ? 0.5 : 0 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+          {label}
+        </Typography>
         <Select
           size="small"
           value={inputKind}
-          onChange={(event) => {
-            if (event.target.value === 'field') {
-              const firstField = allFieldOptions[0];
-              onChange(firstField ? { id: firstField.id } : makeDefaultExpr());
-            } else {
-              onChange({ type: 'number', value: 0 });
-            }
-          }}
+          onChange={(event) => handleKindChange(event.target.value as InputKind)}
           sx={{ minWidth: 90, fontSize: '0.75rem' }}
         >
           <MenuItem value="field">Field</MenuItem>
           <MenuItem value="literal">Literal</MenuItem>
+          <MenuItem value="function">Function</MenuItem>
         </Select>
-
-        {inputKind === 'field' && isField && (
-          <Stack direction="row" spacing={0.5} sx={{ flexGrow: 1 }}>
-            <Select
+        {inputKind === 'function' && (
+          <Tooltip title={functionCollapsed ? 'Expand' : 'Collapse'}>
+            <IconButton
               size="small"
-              value={(expr as StudioFieldExpression).id}
-              onChange={(event) => {
-                onChange({ ...(expr as StudioFieldExpression), id: event.target.value });
-              }}
-              sx={{ flexGrow: 1, fontSize: '0.75rem' }}
+              onClick={() => setFunctionCollapsed((c) => !c)}
+              aria-label={functionCollapsed ? 'Expand nested expression' : 'Collapse nested expression'}
             >
-              {allFieldOptions.map((opt) => (
-                <MenuItem key={opt.id} value={opt.id}>
-                  {opt.label}
-                  {opt.isExpr && (
-                    <Chip
-                      label="fx"
-                      size="small"
-                      sx={{ ml: 0.5, height: 16, fontSize: '0.6rem' }}
-                    />
-                  )}
-                </MenuItem>
-              ))}
-            </Select>
-            {isMeasure && (
-              <Select
-                size="small"
-                value={(expr as StudioFieldExpression).aggregation ?? 'sum'}
-                onChange={(event) => {
-                  onChange({
-                    ...(expr as StudioFieldExpression),
-                    aggregation: event.target.value as StudioKpiAggregation,
-                  });
-                }}
-                sx={{ minWidth: 80, fontSize: '0.75rem' }}
-              >
-                {AGGREGATION_OPTIONS.map((opt) => (
-                  <MenuItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            )}
-          </Stack>
+              {functionCollapsed ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
         )}
+      </Stack>
 
-        {inputKind === 'literal' && isValue && (
-          <Stack direction="row" spacing={0.5} sx={{ flexGrow: 1 }}>
+      {inputKind === 'field' && isFieldExpr(expr) && (
+        <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }}>
+          <Select
+            size="small"
+            value={expr.id}
+            onChange={(event) => {
+              onChange({ ...expr, id: event.target.value });
+            }}
+            sx={{ flexGrow: 1, fontSize: '0.75rem' }}
+          >
+            {allFieldOptions.map((opt) => (
+              <MenuItem key={opt.id} value={opt.id}>
+                {opt.label}
+                {opt.isExpr && (
+                  <Chip
+                    label="fx"
+                    size="small"
+                    sx={{ ml: 0.5, height: 16, fontSize: '0.6rem' }}
+                  />
+                )}
+              </MenuItem>
+            ))}
+          </Select>
+          {isMeasure && (
             <Select
               size="small"
-              value={(expr as StudioValueExpression).type}
+              value={expr.aggregation ?? 'sum'}
               onChange={(event) => {
-                const type = event.target.value as StudioValueExpression['type'];
-                let defaultValue: string | number | boolean = '';
-                if (type === 'number') {
-                  defaultValue = 0;
-                } else if (type === 'boolean') {
-                  defaultValue = false;
-                }
-                onChange({ type, value: defaultValue });
+                onChange({
+                  ...expr,
+                  aggregation: event.target.value as StudioKpiAggregation,
+                });
               }}
               sx={{ minWidth: 80, fontSize: '0.75rem' }}
             >
-              <MenuItem value="number">Number</MenuItem>
-              <MenuItem value="string">Text</MenuItem>
-              <MenuItem value="boolean">Boolean</MenuItem>
+              {AGGREGATION_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
             </Select>
-            {(expr as StudioValueExpression).type === 'boolean' ? (
-              <Select
-                size="small"
-                value={String((expr as StudioValueExpression).value)}
-                onChange={(event) => {
-                  onChange({
-                    ...(expr as StudioValueExpression),
-                    value: event.target.value === 'true',
-                  });
-                }}
-                sx={{ flexGrow: 1, fontSize: '0.75rem' }}
-              >
-                <MenuItem value="true">True</MenuItem>
-                <MenuItem value="false">False</MenuItem>
-              </Select>
-            ) : (
-              <TextField
-                size="small"
-                type={(expr as StudioValueExpression).type === 'number' ? 'number' : 'text'}
-                value={String((expr as StudioValueExpression).value ?? '')}
-                onChange={(event) => {
-                  const raw = event.target.value;
-                  const val = (expr as StudioValueExpression).type === 'number' ? Number(raw) : raw;
-                  onChange({ ...(expr as StudioValueExpression), value: val });
-                }}
-                sx={{ flexGrow: 1, '& input': { fontSize: '0.75rem' } }}
-              />
-            )}
-          </Stack>
-        )}
-      </Stack>
+          )}
+        </Stack>
+      )}
+
+      {inputKind === 'literal' && isValueExpr(expr) && (
+        <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }}>
+          <Select
+            size="small"
+            value={expr.type}
+            onChange={(event) => {
+              const type = event.target.value as StudioValueExpression['type'];
+              let defaultValue: string | number | boolean = '';
+              if (type === 'number') {
+                defaultValue = 0;
+              } else if (type === 'boolean') {
+                defaultValue = false;
+              }
+              onChange({ type, value: defaultValue });
+            }}
+            sx={{ minWidth: 80, fontSize: '0.75rem' }}
+          >
+            <MenuItem value="number">Number</MenuItem>
+            <MenuItem value="string">Text</MenuItem>
+            <MenuItem value="boolean">Boolean</MenuItem>
+          </Select>
+          {expr.type === 'boolean' ? (
+            <Select
+              size="small"
+              value={String(expr.value)}
+              onChange={(event) => {
+                onChange({ ...expr, value: event.target.value === 'true' });
+              }}
+              sx={{ flexGrow: 1, fontSize: '0.75rem' }}
+            >
+              <MenuItem value="true">True</MenuItem>
+              <MenuItem value="false">False</MenuItem>
+            </Select>
+          ) : (
+            <TextField
+              size="small"
+              type={expr.type === 'number' ? 'number' : 'text'}
+              value={String(expr.value ?? '')}
+              onChange={(event) => {
+                const raw = event.target.value;
+                const val = expr.type === 'number' ? Number(raw) : raw;
+                onChange({ ...expr, value: val });
+              }}
+              sx={{ flexGrow: 1, '& input': { fontSize: '0.75rem' } }}
+            />
+          )}
+        </Stack>
+      )}
+
+      {inputKind === 'function' && isFunctionExpr(expr) && (
+        <Collapse in={!functionCollapsed}>
+          <Box
+            sx={{
+              mt: 1,
+              pl: 1,
+              borderLeft: '2px solid',
+              borderColor: 'primary.light',
+            }}
+          >
+            <ExpressionBuilder
+              expression={expr}
+              sourceFields={sourceFields}
+              expressionFields={expressionFields}
+              isMeasure={isMeasure}
+              onChange={onChange}
+            />
+          </Box>
+        </Collapse>
+      )}
     </Box>
   );
 }
@@ -582,7 +640,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
   const hasErrors = validationErrors.length > 0;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <FunctionsIcon color="primary" />

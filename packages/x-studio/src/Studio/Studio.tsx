@@ -422,6 +422,7 @@ export const Studio = React.memo(
   // react-doctor-disable-next-line react-doctor/no-react19-deprecated-apis
   React.forwardRef<StudioHandle, StudioProps>(function Studio(props, ref) {
     const { initialState, onStateChange, tableSourceMode, featureFlags, localeText, ...slots } = props;
+    const aiConfig = (slots as { aiConfig?: StudioAIConfig | null }).aiConfig;
 
     // Controller is created once at mount and never replaced.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -466,6 +467,7 @@ export const Studio = React.memo(
         tableSourceMode={tableSourceMode}
         featureFlags={featureFlags}
         localeText={localeText}
+        aiConfig={aiConfig}
       >
         <StudioContent {...slots} />
       </StudioProvider>

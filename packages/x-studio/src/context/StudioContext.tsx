@@ -11,6 +11,7 @@ import {
   DEFAULT_STUDIO_LOCALE_TEXT,
 } from '../internals/StudioUIConfigContext';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
+import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
 
 /** Ref to the canvas scroll container, used to scroll to bottom after adding a widget. */
 export const CanvasScrollContext =
@@ -37,10 +38,15 @@ export interface StudioProviderProps {
    * override to customise individual strings.
    */
   localeText?: Partial<StudioLocaleText>;
+  /**
+   * AI/LLM configuration. When provided and `featureFlags.aiChat` is not `false`,
+   * the "Describe a widget" prompt appears in the compose drawer and the AI assistant panel is available.
+   */
+  aiConfig?: StudioAIConfig | null;
 }
 
 export function StudioProvider(props: StudioProviderProps) {
-  const { children, controller, tableSourceMode = 'explicit', featureFlags = {}, localeText } = props;
+  const { children, controller, tableSourceMode = 'explicit', featureFlags = {}, localeText, aiConfig } = props;
 
   const uiConfig = React.useMemo(
     () => ({
@@ -49,9 +55,10 @@ export function StudioProvider(props: StudioProviderProps) {
       localeText: localeText
         ? { ...DEFAULT_STUDIO_LOCALE_TEXT, ...localeText }
         : DEFAULT_STUDIO_LOCALE_TEXT,
+      aiConfig: aiConfig ?? null,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tableSourceMode, JSON.stringify(featureFlags), JSON.stringify(localeText)],
+    [tableSourceMode, JSON.stringify(featureFlags), JSON.stringify(localeText), aiConfig],
   );
 
   return (

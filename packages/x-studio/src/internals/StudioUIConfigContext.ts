@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { StudioFeatureFlags } from '../models/studio';
+import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
 
 // ── Locale text ─────────────────────────────────────────────────────────────
 
@@ -58,6 +59,13 @@ export interface StudioLocaleText {
   // ── AI assistant ───────────────────────────────────────────────────────────
   aiAssistantOpenTooltip: string;
   aiAssistantCloseTooltip: string;
+
+  // ── Natural language widget creation ──────────────────────────────────────
+  aiCreateWidgetLabel: string;
+  aiCreateWidgetPlaceholder: string;
+  aiCreateWidgetButton: string;
+  aiCreateWidgetLoading: string;
+  aiCreateWidgetError: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -110,6 +118,14 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // AI assistant
   aiAssistantOpenTooltip: 'Open AI assistant',
   aiAssistantCloseTooltip: 'Close AI assistant',
+
+  // Natural language widget creation
+  aiCreateWidgetLabel: 'Describe a widget',
+  aiCreateWidgetPlaceholder:
+    'e.g. Bar chart showing revenue by country, KPI for total orders\u2026',
+  aiCreateWidgetButton: 'Create',
+  aiCreateWidgetLoading: 'Creating\u2026',
+  aiCreateWidgetError: 'Failed to create widget',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────
@@ -132,6 +148,12 @@ export interface StudioUIConfig {
    * override to change individual strings.
    */
   localeText: StudioLocaleText;
+  /**
+   * AI/LLM configuration for the natural language widget creator and AI chat assistant.
+   * When provided, the "Describe a widget" prompt appears in the compose drawer.
+   * Set to `null` to disable AI features even if the config object exists.
+   */
+  aiConfig?: StudioAIConfig | null;
 }
 
 export const StudioUIConfigContext = React.createContext<StudioUIConfig>({

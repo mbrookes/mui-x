@@ -114,6 +114,17 @@ export function collectSelectFields(widget: StudioWidget): string[] {
     fields.add(config.kpiSparklineField);
   }
 
+  // Pivot fields
+  if (config.pivotRowField) {
+    fields.add(config.pivotRowField);
+  }
+  if (config.pivotColField) {
+    fields.add(config.pivotColField);
+  }
+  if (config.pivotValueField) {
+    fields.add(config.pivotValueField);
+  }
+
   return [...fields].filter(Boolean);
 }
 

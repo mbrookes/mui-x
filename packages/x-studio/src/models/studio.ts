@@ -4,7 +4,7 @@ export type StudioMode = 'edit' | 'view';
 
 export type StudioDrawer = 'data' | 'compose' | 'filters';
 
-export type StudioWidgetKind = 'grid' | 'chart' | 'kpi' | 'text' | 'filter';
+export type StudioWidgetKind = 'grid' | 'chart' | 'kpi' | 'text' | 'filter' | 'pivot';
 
 export type StudioFilterWidgetType = 'date-range' | 'multi-select' | 'toggle' | 'slider';
 
@@ -387,6 +387,23 @@ export interface StudioWidgetConfig {
   filterWidgetMax?: number;
   /** Step increment for slider filter widgets */
   filterWidgetStep?: number;
+  // Pivot table config
+  /** Field used as row groups (vertical axis of the pivot table). */
+  pivotRowField?: string;
+  /** Field used as column headers (horizontal axis of the pivot table). */
+  pivotColField?: string;
+  /**
+   * Numeric field to aggregate into each cell.
+   * Optional when `pivotAggregation` is `'count'` (which counts rows, not values).
+   */
+  pivotValueField?: string;
+  /**
+   * Aggregation function applied to `pivotValueField` per (row, column) cell.
+   * @default 'sum'
+   */
+  pivotAggregation?: 'sum' | 'avg' | 'count' | 'min' | 'max';
+  /** When true, a Totals row and Totals column are shown. @default true */
+  pivotShowTotals?: boolean;
   // Chart annotations
   /**
    * Reference lines drawn on chart widgets.

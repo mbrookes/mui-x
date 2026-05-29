@@ -8,6 +8,7 @@ const WIDGET_KIND_DESCRIPTIONS: Record<StudioWidgetKind, string> = {
   kpi: 'KPI card (single metric with optional sparkline and trend)',
   text: 'Text / markdown card',
   filter: 'Interactive filter widget (date range, multi-select, toggle, slider)',
+  pivot: 'Pivot table (cross-tabulation with row/column dimensions and value aggregation)',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

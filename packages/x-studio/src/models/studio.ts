@@ -9,6 +9,44 @@ export type StudioWidgetKind = 'grid' | 'chart' | 'kpi' | 'text' | 'filter';
 export type StudioFilterWidgetType = 'date-range' | 'multi-select' | 'toggle' | 'slider';
 
 /**
+ * Runtime feature flags for the Studio dashboard.
+ * All flags default to `true` (feature enabled) when not specified.
+ *
+ * Pass via the `featureFlags` prop on `<Studio>` or `<StudioProvider>`.
+ */
+export interface StudioFeatureFlags {
+  /**
+   * Show the compose (edit) panel and data drawer, and allow switching to edit mode.
+   * Set to `false` to lock the dashboard in a view-only, non-editable state.
+   * @default true
+   */
+  compose?: boolean;
+  /**
+   * Show the filters sidebar panel and quick filter bar.
+   * Set to `false` to hide all filter UI from end users.
+   * @default true
+   */
+  filters?: boolean;
+  /**
+   * Allow saving and loading named filter presets ("Saved Views") in the filters panel.
+   * @default true
+   */
+  savedFilterViews?: boolean;
+  /**
+   * Show the data drawer for managing data sources, fields, expression fields,
+   * and relationships.
+   * @default true
+   */
+  dataManagement?: boolean;
+  /**
+   * Enable the AI chat assistant panel.
+   * Requires `aiConfig` to also be provided — this flag only controls visibility.
+   * @default true
+   */
+  aiChat?: boolean;
+}
+
+/**
  * Controls how a chart widget responds to incoming cross-filters from other widgets.
  * - `'cross-highlight'` (default): shows the full dataset as a faded ghost behind the
  *   filtered subset — communicates proportion ("what share does this selection represent?").

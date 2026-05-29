@@ -128,8 +128,8 @@ export function StudioComposeDrawer(props: StudioComposeDrawerProps = {}) {
   const resolvedTableSourceMode = tableSourceMode ?? parentConfig.tableSourceMode;
 
   const configValue = React.useMemo(
-    () => ({ tableSourceMode: resolvedTableSourceMode }),
-    [resolvedTableSourceMode],
+    () => ({ ...parentConfig, tableSourceMode: resolvedTableSourceMode }),
+    [parentConfig, resolvedTableSourceMode],
   );
 
   const content = selectedWidgetId ? (

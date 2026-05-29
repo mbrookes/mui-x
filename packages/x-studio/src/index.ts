@@ -74,6 +74,8 @@ export {
   useStudioController,
   useStudioSelector,
   useStudioState,
+  useStudioFeatures,
+  useStudioUIConfig,
   CanvasScrollContext,
 } from './context/StudioContext';
 export type { StudioProviderProps } from './context/StudioContext';
@@ -172,6 +174,7 @@ export type {
   StudioQueryDescriptor,
   StudioQueryResult,
   StudioDataSourceAdapter,
+  StudioFeatureFlags,
 } from './models/studio';
 
 // ─── Utility types ────────────────────────────────────────────────────────────

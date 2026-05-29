@@ -12,12 +12,13 @@ import {
   CanvasScrollContext,
   useStudioController,
   useStudioSelector,
+  useStudioFeatures,
   selectMode,
   selectShell,
   selectWidgets,
   selectDataSources,
 } from '../context';
-import type { StudioDataSourceAdapter, StudioMode, StudioState } from '../models';
+import type { StudioDataSourceAdapter, StudioFeatureFlags, StudioMode, StudioState } from '../models';
 import { StudioController } from '../store';
 import type { SerializedStudioState, MigrationResult } from '../store/statePersistence';
 import { DrawerPanel } from './DrawerPanel';
@@ -31,7 +32,6 @@ import { StudioDrilldownDrawer } from '../StudioDrilldownDrawer';
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
-import { StudioUIConfigContext } from '../internals/StudioUIConfigContext';
 
 // Lazy-load the chat panel so @base-ui/react/menu (and the full @mui/x-chat
 // bundle) are not downloaded until the user opens the AI panel for the first time.
@@ -144,6 +144,16 @@ export interface StudioProps extends StudioSlots {
    */
   tableSourceMode?: 'explicit' | 'implicit';
   /**
+   * Runtime feature flags controlling which UI features are available to end users.
+   * All flags default to `true` when not specified.
+   * @example
+   * ```tsx
+   * // Embed in view-only mode with no AI or edit UI:
+   * <Studio featureFlags={{ compose: false, aiChat: false }} />
+   * ```
+   */
+  featureFlags?: StudioFeatureFlags;
+  /**
    * Canvas width (in px) below which all widgets stack to full width in view mode.
    * Individual pages can override this via `StudioPage.stackBreakpoint`.
    * Set to `0` to disable responsive stacking entirely.
@@ -174,7 +184,6 @@ const StudioContent = React.memo(function StudioContent(
   props: StudioSlots & {
     sidebarLayout?: 'stacked' | 'tabbed';
     sidebarSide?: 'left' | 'right';
-    tableSourceMode?: 'explicit' | 'implicit';
     stackBreakpoint?: number;
     aiConfig?: StudioAIConfig | null;
     slotProps?: {
@@ -190,7 +199,6 @@ const StudioContent = React.memo(function StudioContent(
     filtersDrawer,
     sidebarLayout = 'stacked',
     sidebarSide = 'left',
-    tableSourceMode = 'explicit',
     stackBreakpoint,
     aiConfig,
     slotProps,
@@ -198,6 +206,7 @@ const StudioContent = React.memo(function StudioContent(
   const mode = useStudioSelector(selectMode);
   const controller = useStudioController();
   const canvasScrollRef = React.useRef<HTMLDivElement>(null);
+  const features = useStudioFeatures();
 
   const shell = useStudioSelector(selectShell);
   const widgets = useStudioSelector(selectWidgets);
@@ -221,12 +230,15 @@ const StudioContent = React.memo(function StudioContent(
 
   const [chatOpen, setChatOpen] = React.useState(false);
 
+  const showCompose = features.compose;
+  const showFilters = features.filters;
+
   const sidebar =
     sidebarLayout === 'tabbed' ? (
       <TabbedSidebar
         side={sidebarSide}
         panels={[
-          ...(mode === 'edit'
+          ...(mode === 'edit' && showCompose
             ? [
                 {
                   drawer: 'data' as const,
@@ -244,22 +256,28 @@ const StudioContent = React.memo(function StudioContent(
                 },
               ]
             : []),
-          {
-            drawer: 'filters' as const,
-            label: 'Filters',
-            icon: <FilterListIcon fontSize="small" />,
-            children: filtersDrawer ?? <StudioFiltersDrawer />,
-          },
+          ...(showFilters
+            ? [
+                {
+                  drawer: 'filters' as const,
+                  label: 'Filters',
+                  icon: <FilterListIcon fontSize="small" />,
+                  children: filtersDrawer ?? <StudioFiltersDrawer />,
+                },
+              ]
+            : []),
         ]}
       />
     ) : sidebarSide === 'right' ? (
       // Right side: render panels in reverse order so they read Data → Compose → Filters
       // from right to left (Data closest to the screen edge, Filters adjacent to the canvas).
       <React.Fragment>
-        <DrawerPanel side={sidebarSide} drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
-          {filtersDrawer ?? <StudioFiltersDrawer />}
-        </DrawerPanel>
-        {mode === 'edit' && (
+        {showFilters && (
+          <DrawerPanel side={sidebarSide} drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
+            {filtersDrawer ?? <StudioFiltersDrawer />}
+          </DrawerPanel>
+        )}
+        {mode === 'edit' && showCompose && (
           <DrawerPanel
             side={sidebarSide}
             drawer="compose"
@@ -270,7 +288,7 @@ const StudioContent = React.memo(function StudioContent(
             {composeDrawer ?? <StudioComposeDrawer />}
           </DrawerPanel>
         )}
-        {mode === 'edit' && (
+        {mode === 'edit' && showCompose && (
           <DrawerPanel side={sidebarSide} drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
             {dataDrawer ?? <StudioDataDrawer />}
           </DrawerPanel>
@@ -278,12 +296,12 @@ const StudioContent = React.memo(function StudioContent(
       </React.Fragment>
     ) : (
       <React.Fragment>
-        {mode === 'edit' && (
+        {mode === 'edit' && showCompose && (
           <DrawerPanel side={sidebarSide} drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
             {dataDrawer ?? <StudioDataDrawer />}
           </DrawerPanel>
         )}
-        {mode === 'edit' && (
+        {mode === 'edit' && showCompose && (
           <DrawerPanel
             side={sidebarSide}
             drawer="compose"
@@ -294,14 +312,15 @@ const StudioContent = React.memo(function StudioContent(
             {composeDrawer ?? <StudioComposeDrawer />}
           </DrawerPanel>
         )}
-        <DrawerPanel side={sidebarSide} drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
-          {filtersDrawer ?? <StudioFiltersDrawer />}
-        </DrawerPanel>
+        {showFilters && (
+          <DrawerPanel side={sidebarSide} drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
+            {filtersDrawer ?? <StudioFiltersDrawer />}
+          </DrawerPanel>
+        )}
       </React.Fragment>
     );
 
   return (
-    <StudioUIConfigContext.Provider value={{ tableSourceMode }}>
     <Box
       sx={{
         display: 'flex',
@@ -334,7 +353,7 @@ const StudioContent = React.memo(function StudioContent(
       </Box>
 
       {/* AI chat button + panel */}
-      {aiConfig?.endpoint && (
+      {features.aiChat && aiConfig?.endpoint && (
         <React.Fragment>
           <Tooltip title={chatOpen ? 'Close AI assistant' : 'Open AI assistant'} placement="left">
             <IconButton
@@ -364,7 +383,6 @@ const StudioContent = React.memo(function StudioContent(
       {/* Drilldown drawer */}
       <StudioDrilldownDrawer />
     </Box>
-    </StudioUIConfigContext.Provider>
   );
 });
 
@@ -390,7 +408,7 @@ const StudioContent = React.memo(function StudioContent(
 export const Studio = React.memo(
   // react-doctor-disable-next-line react-doctor/no-react19-deprecated-apis
   React.forwardRef<StudioHandle, StudioProps>(function Studio(props, ref) {
-    const { initialState, onStateChange, ...slots } = props;
+    const { initialState, onStateChange, tableSourceMode, featureFlags, ...slots } = props;
 
     // Controller is created once at mount and never replaced.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -430,7 +448,11 @@ export const Studio = React.memo(
     );
 
     return (
-      <StudioProvider controller={controller}>
+      <StudioProvider
+        controller={controller}
+        tableSourceMode={tableSourceMode}
+        featureFlags={featureFlags}
+      >
         <StudioContent {...slots} />
       </StudioProvider>
     );

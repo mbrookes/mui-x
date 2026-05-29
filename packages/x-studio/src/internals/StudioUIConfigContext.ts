@@ -1,4 +1,5 @@
 import * as React from 'react';
+import type { StudioFeatureFlags } from '../models/studio';
 
 export interface StudioUIConfig {
   /**
@@ -10,8 +11,28 @@ export interface StudioUIConfig {
    *   columns resets the source so a different one can be chosen.
    */
   tableSourceMode: 'explicit' | 'implicit';
+  /** Runtime feature flags controlling which UI features are available. */
+  featureFlags: StudioFeatureFlags;
 }
 
 export const StudioUIConfigContext = React.createContext<StudioUIConfig>({
   tableSourceMode: 'explicit',
+  featureFlags: {},
 });
+
+/** Returns the resolved UI config including feature flags. */
+export function useStudioUIConfig(): StudioUIConfig {
+  return React.useContext(StudioUIConfigContext);
+}
+
+/** Returns the active feature flags. All flags default to `true` when not explicitly set. */
+export function useStudioFeatures(): Required<StudioFeatureFlags> {
+  const { featureFlags } = useStudioUIConfig();
+  return {
+    compose: featureFlags.compose ?? true,
+    filters: featureFlags.filters ?? true,
+    savedFilterViews: featureFlags.savedFilterViews ?? true,
+    dataManagement: featureFlags.dataManagement ?? true,
+    aiChat: featureFlags.aiChat ?? true,
+  };
+}

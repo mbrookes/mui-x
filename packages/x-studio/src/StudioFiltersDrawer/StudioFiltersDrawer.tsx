@@ -21,6 +21,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import {
   useStudioController,
   useStudioSelector,
+  useStudioFeatures,
   selectShell,
   selectFilters,
   selectFilterPresets,
@@ -50,6 +51,7 @@ export function StudioFiltersDrawer() {
   const widgets = useStudioSelector(selectWidgets);
   const relationships = useStudioSelector(selectRelationships);
   const activePageId = useStudioSelector(selectActivePageId);
+  const features = useStudioFeatures();
 
   const [filterSearch, setFilterSearch] = React.useState('');
 
@@ -267,102 +269,106 @@ export function StudioFiltersDrawer() {
       )}
 
       {/* Saved views */}
-      <Divider />
-      <div>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1, fontWeight: 600 }}>
-            Saved views
-          </Typography>
-          {!savingPreset && (
-            <Tooltip title="Save current page filters as a named view">
-              <Button
-                size="small"
-                startIcon={<BookmarkBorderIcon fontSize="small" />}
-                onClick={() => {
-                  setSavingPreset(true);
-                  setPresetName('');
-                }}
-                disabled={pageFilters.length === 0}
-                sx={{ fontSize: 11 }}
-              >
-                Save
-              </Button>
-            </Tooltip>
-          )}
-        </Stack>
-
-        {savingPreset && (
-          <Box sx={{ mb: 1 }}>
-            <TextField
-              size="small"
-              fullWidth
-              autoFocus
-              placeholder="View name"
-              value={presetName}
-              onChange={(e) => setPresetName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && presetName.trim()) {
-                  controller.saveFilterPreset(presetName.trim());
-                  setSavingPreset(false);
-                }
-                if (e.key === 'Escape') {
-                  setSavingPreset(false);
-                }
-              }}
-              slotProps={{
-                input: {
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <Button
-                        size="small"
-                        disabled={!presetName.trim()}
-                        onClick={() => {
-                          if (presetName.trim()) {
-                            controller.saveFilterPreset(presetName.trim());
-                            setSavingPreset(false);
-                          }
-                        }}
-                      >
-                        Save
-                      </Button>
-                    </InputAdornment>
-                  ),
-                },
-              }}
-            />
-          </Box>
-        )}
-
-        {filterPresets.length === 0 && !savingPreset && (
-          <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
-            No saved views. Apply page filters and save them here.
-          </Typography>
-        )}
-
-        <Stack spacing={0.5}>
-          {filterPresets.map((preset) => (
-            <Stack key={preset.id} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-              <Chip
-                icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
-                label={preset.name}
-                size="small"
-                clickable
-                onClick={() => controller.applyFilterPreset(preset.id)}
-                sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
-              />
-              <Tooltip title="Delete view">
-                <IconButton
+      {features.savedFilterViews && (
+        <React.Fragment>
+        <Divider />
+        <div>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1, fontWeight: 600 }}>
+              Saved views
+            </Typography>
+            {!savingPreset && (
+              <Tooltip title="Save current page filters as a named view">
+                <Button
                   size="small"
-                  onClick={() => controller.deleteFilterPreset(preset.id)}
-                  aria-label={`Delete view "${preset.name}"`}
+                  startIcon={<BookmarkBorderIcon fontSize="small" />}
+                  onClick={() => {
+                    setSavingPreset(true);
+                    setPresetName('');
+                  }}
+                  disabled={pageFilters.length === 0}
+                  sx={{ fontSize: 11 }}
                 >
-                  <DeleteOutlineOutlinedIcon fontSize="small" />
-                </IconButton>
+                  Save
+                </Button>
               </Tooltip>
-            </Stack>
-          ))}
-        </Stack>
-      </div>
+            )}
+          </Stack>
+
+          {savingPreset && (
+            <Box sx={{ mb: 1 }}>
+              <TextField
+                size="small"
+                fullWidth
+                autoFocus
+                placeholder="View name"
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && presetName.trim()) {
+                    controller.saveFilterPreset(presetName.trim());
+                    setSavingPreset(false);
+                  }
+                  if (e.key === 'Escape') {
+                    setSavingPreset(false);
+                  }
+                }}
+                slotProps={{
+                  input: {
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Button
+                          size="small"
+                          disabled={!presetName.trim()}
+                          onClick={() => {
+                            if (presetName.trim()) {
+                              controller.saveFilterPreset(presetName.trim());
+                              setSavingPreset(false);
+                            }
+                          }}
+                        >
+                          Save
+                        </Button>
+                      </InputAdornment>
+                    ),
+                  },
+                }}
+              />
+            </Box>
+          )}
+
+          {filterPresets.length === 0 && !savingPreset && (
+            <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+              No saved views. Apply page filters and save them here.
+            </Typography>
+          )}
+
+          <Stack spacing={0.5}>
+            {filterPresets.map((preset) => (
+              <Stack key={preset.id} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Chip
+                  icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
+                  label={preset.name}
+                  size="small"
+                  clickable
+                  onClick={() => controller.applyFilterPreset(preset.id)}
+                  sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
+                />
+                <Tooltip title="Delete view">
+                  <IconButton
+                    size="small"
+                    onClick={() => controller.deleteFilterPreset(preset.id)}
+                    aria-label={`Delete view "${preset.name}"`}
+                  >
+                    <DeleteOutlineOutlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            ))}
+          </Stack>
+        </div>
+        </React.Fragment>
+      )}
     </Stack>
   );
 }

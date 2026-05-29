@@ -1,10 +1,11 @@
 'use client';
 import * as React from 'react';
-import { IconButton, Stack, Tooltip } from '@mui/material';
+import { IconButton, Menu, MenuItem, Stack, Tooltip } from '@mui/material';
 import type { SxProps } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
+import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined';
 import EditIcon from '@mui/icons-material/Edit';
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 
@@ -17,11 +18,14 @@ export interface StudioWidgetCardActionsOverlayProps {
   showViewExport: boolean;
   showViewExpand: boolean;
   overlayTopSx: SxProps;
+  /** Pages the widget can be moved to (excludes the current page). */
+  moveToPageOptions: Array<{ id: string; title: string }>;
   onExport: (event: React.MouseEvent) => void;
   onExpand: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onMoveToPage: (pageId: string) => void;
 }
 
 const actionButtonSx = { width: 24, height: 24, padding: 0, '& svg': { fontSize: 16 } } as const;
@@ -36,12 +40,16 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
     showViewExport,
     showViewExpand,
     overlayTopSx,
+    moveToPageOptions,
     onExport,
     onExpand,
     onEdit,
     onDuplicate,
     onDelete,
+    onMoveToPage,
   } = props;
+
+  const [moveMenuAnchor, setMoveMenuAnchor] = React.useState<HTMLElement | null>(null);
 
   if (mode === 'edit') {
     return (
@@ -122,6 +130,43 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
             <ContentCopyIcon />
           </IconButton>
         </Tooltip>
+        {moveToPageOptions.length > 0 && (
+          <React.Fragment>
+            <Tooltip title="Move to page">
+              <IconButton
+                size="small"
+                sx={actionButtonSx}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setMoveMenuAnchor(event.currentTarget);
+                }}
+                aria-label="Move to page"
+                tabIndex={showEditActions ? 0 : -1}
+              >
+                <DriveFileMoveOutlinedIcon />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={moveMenuAnchor}
+              open={Boolean(moveMenuAnchor)}
+              onClose={() => setMoveMenuAnchor(null)}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {moveToPageOptions.map((page) => (
+                <MenuItem
+                  key={page.id}
+                  dense
+                  onClick={() => {
+                    onMoveToPage(page.id);
+                    setMoveMenuAnchor(null);
+                  }}
+                >
+                  {page.title}
+                </MenuItem>
+              ))}
+            </Menu>
+          </React.Fragment>
+        )}
         <Tooltip title="Delete widget">
           <IconButton
             size="small"

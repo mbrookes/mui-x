@@ -175,6 +175,7 @@ export type {
   StudioQueryResult,
   StudioDataSourceAdapter,
   StudioFeatureFlags,
+  StudioChartAnnotation,
 } from './models/studio';
 
 // ─── Utility types ────────────────────────────────────────────────────────────

@@ -137,7 +137,8 @@ BL-50: Map / choropleth — country or region data on a world map; colour scale 
 
 BL-51: Gantt / timeline chart — start/end date fields; optional colour-by status field; useful for shipment delivery windows
 
-BL-52: Heatmap — two categorical axes + numeric value → colour intensity grid (e.g. day-of-week × hour revenue)
+~~BL-52: Heatmap — two categorical axes + numeric value → colour intensity grid (e.g. day-of-week × hour revenue)~~
+**Fixed** (new 'Heatmap' chart type; column-axis field (xField), row-axis field (heatYField), and value/colour field (yField) pickers in setup panel; four colour schemes; `aggregateHeatmap()` sums value per (x, y) cell; `StudioHeatmapChart` renders a colour-intensity CSS grid with per-cell tooltips showing exact values)
 
 BL-53: Funnel chart — ordered stages with value and drop-off percentage
 
@@ -178,6 +179,7 @@ BL-61: I18n support for all Studio component text, with a Brazilian Portuguese t
 
 BL-68: Update the documentation for every new feature added since the last significant docs update, and any other changes.
 
-BL-69: run the data-pipeline performance tests, and fix any performance regressions
+~~BL-69: run the data-pipeline performance tests, and fix any performance regressions~~
+**Done** (benchmarks ran; all pipeline layers are within expected ranges; no regressions detected)
 
 BL70: run the UI performance tests and compare with the baseline

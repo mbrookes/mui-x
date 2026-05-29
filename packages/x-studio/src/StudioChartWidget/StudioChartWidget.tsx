@@ -51,7 +51,9 @@ import { computeAggregate } from '../StudioKpiWidget/kpiUtils';
 import { useChartWidgetData } from './useChartWidgetData';
 import { buildMultiYLineSeries } from './lineSeries';
 import { CrossFilterBarContext, CrossFilterGhostBar } from './CrossFilterGhostBar';
+import { StudioHeatmapChart } from './StudioHeatmapChart';
 import { StudioNoDataOverlay } from '../internals/StudioNoDataOverlay';
+import { aggregateHeatmap } from '../internals/chartUtils';
 
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
@@ -565,6 +567,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   // Normalise legacy type alias
   const normalizedChartType = chartType === 'bar-grouped' ? 'bar' : chartType;
   const isMixed = normalizedChartType === 'mixed';
+  const isHeatmap = normalizedChartType === 'heatmap';
   const barLayout = config.barLayout ?? 'grouped';
   const isHorizontalBarLayout = barLayout === 'horizontal';
 
@@ -960,6 +963,45 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   // No data after filtering — show overlay instead of an empty chart canvas
   if (!isLoading && filteredRows.length === 0) {
     return <StudioNoDataOverlay height={chartHeight} />;
+  }
+
+  // Heatmap chart
+  if (isHeatmap) {
+    const heatXField = config.xField ?? '';
+    const heatYField = config.heatYField ?? '';
+    const heatValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
+    if (!heatXField || !heatYField || !heatValueField) {
+      return (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: chartHeight,
+            color: 'text.disabled',
+          }}
+        >
+          <Typography variant="body2">
+            Heatmap requires column axis, row axis, and value fields.
+          </Typography>
+        </Box>
+      );
+    }
+    const xFieldDef = dataSource?.fields.find((f) => f.id === heatXField);
+    const yFieldDef = dataSource?.fields.find((f) => f.id === heatYField);
+    const valueFieldDef = dataSource?.fields.find((f) => f.id === heatValueField);
+    const heatData = aggregateHeatmap(filteredRows, heatXField, heatYField, heatValueField);
+    return (
+      <StudioHeatmapChart
+        data={heatData}
+        height={chartHeight}
+        colorScheme={config.heatColorScheme}
+        valueFormat={valueFieldDef?.format}
+        currencyCode={valueFieldDef?.currencyCode}
+        xLabel={xFieldDef?.label}
+        yLabel={yFieldDef?.label}
+      />
+    );
   }
 
   // Scatter chart

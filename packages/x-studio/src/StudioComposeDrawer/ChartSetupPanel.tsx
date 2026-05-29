@@ -242,6 +242,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const isPieOrDonut = chartType === 'pie' || chartType === 'donut';
   const isGauge = chartType === 'gauge';
   const isMixed = chartType === 'mixed';
+  const isHeatmap = chartType === 'heatmap';
 
   if (allFields.length === 0) {
     return (
@@ -427,8 +428,49 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         </React.Fragment>
       )}
 
-      {/* Y series — for non-scatter, non-gauge charts */}
-      {!isScatter && (
+      {/* Heatmap: row axis field + colour-value measure */}
+      {isHeatmap && (
+        <React.Fragment>
+          <DataSourceFieldSelect
+            value={config.heatYField ?? ''}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, { heatYField: fieldId || undefined })
+            }
+            fields={categoryFields}
+            label="Row axis field"
+            helperText="Categorical field for the vertical (row) axis, e.g. hour of day"
+          />
+          <DataSourceFieldSelect
+            value={config.yField ?? ySeries[0]?.fieldId ?? ''}
+            onChange={(fieldId) => {
+              controller.updateWidgetConfig(widgetId, { yField: fieldId, ySeries: [{ fieldId }] });
+            }}
+            fields={numericFields}
+            label="Value / colour field"
+            helperText="Numeric field summed per cell to determine colour intensity"
+          />
+          <FormControl size="small" fullWidth>
+            <InputLabel>Colour scheme</InputLabel>
+            <Select
+              label="Colour scheme"
+              value={config.heatColorScheme ?? 'primary'}
+              onChange={(evt) =>
+                controller.updateWidgetConfig(widgetId, {
+                  heatColorScheme: evt.target.value as 'primary' | 'success' | 'warning' | 'error',
+                })
+              }
+            >
+              <MenuItem value="primary">Primary (blue)</MenuItem>
+              <MenuItem value="success">Success (green)</MenuItem>
+              <MenuItem value="warning">Warning (orange)</MenuItem>
+              <MenuItem value="error">Error (red)</MenuItem>
+            </Select>
+          </FormControl>
+        </React.Fragment>
+      )}
+
+      {/* Y series — for non-scatter, non-gauge, non-heatmap charts */}
+      {!isScatter && !isHeatmap && (
       <div>
         <Stack direction="row" sx={{ alignItems: 'center', mb: 0.5 }}>
           <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
@@ -530,7 +572,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       </div>
       )}
       {/* Ad-hoc formula bar — lets users create a simple calculated series without the full expression dialog */}
-      {!isScatter && !isPieOrDonut && !isGauge && widget?.sourceId && (
+      {!isScatter && !isPieOrDonut && !isGauge && !isHeatmap && widget?.sourceId && (
         <InlineFormulaBar
           sourceId={widget.sourceId}
           fields={numericFields}

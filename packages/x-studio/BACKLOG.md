@@ -152,7 +152,8 @@ BL-51: Gantt / timeline chart — start/end date fields; optional colour-by stat
 ~~BL-55: Move widgets across pages — drag a widget card onto another page tab; or right-click → "Move to page" context menu~~
 **Fixed** (`moveWidgetToPage` action added to `StudioController`; "Move to page" icon button with dropdown menu added to edit-mode widget card overlay — only shown when multiple pages exist; re-scopes widget filters to the target page)
 
-BL-56: Widget template library — panel of pre-built chart/KPI configs the user can drag onto the canvas; Studio auto-maps fields from the active data source
+~~BL-56: Widget template library — panel of pre-built chart/KPI configs the user can drag onto the canvas; Studio auto-maps fields from the active data source~~
+**Fixed** (`WIDGET_TEMPLATES` array in `widgetTemplates.ts` with 13 pre-built configs (KPI sum/count/avg, bar/horizontal bar/trend/area/stacked bar/multi-measure bar/donut/scatter/funnel chart, and data table); field placeholders auto-mapped to numeric/category/date fields from primary source; templates section added to compose panel with collapsible list; disabled with reduced opacity when source lacks required field types)
 
 BL-57: Visual expression builder — node-graph editor for building expression trees; replaces the JSON-based dialog; includes live value preview
 

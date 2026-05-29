@@ -127,7 +127,8 @@ BL-46: Pivot table widget — row/column/value field pickers; collapsible row gr
 ~~BL-47: Ad-hoc formula bar — lightweight single-expression input in chart/KPI setup; creates a one-off expression field without opening the full expression dialog~~
 **Fixed** (`InlineFormulaBar` component added to `ChartSetupPanel` (after Y-series) and `KpiSetupPanel` (below value field); pick two operands (fields or numeric constants), an operator (+/−/×/÷), and a label; on confirm calls `addExpressionField` so the expression field is immediately available in all pickers)
 
-BL-48: Data lineage view — graph view in the data drawer showing sources as nodes and declared relationships as edges; click an edge to inspect join key fields
+~~BL-48: Data lineage view — graph view in the data drawer showing sources as nodes and declared relationships as edges; click an edge to inspect join key fields~~
+**Fixed** (`DataLineageGraph` SVG component in the data drawer; sources rendered as rounded-rect nodes in a responsive grid layout; relationships drawn as cubic bezier edges with directional arrowheads; edge label badge shows cardinality (N:1, 1:1, N:M); clicking an edge label opens a popover showing source/target, relationship type, and join key fields; "Data lineage" collapsible section shown when 2+ sources exist)
 
 **New chart types**
 

@@ -122,14 +122,15 @@ export {
 export type { PartitionedFilters } from './context/selectors';
 
 // ─── DrawerPanel (composable sidebar panel) ───────────────────────────────────
+export { DrawerPanel } from './Studio/DrawerPanel';
+export type { DrawerPanelProps } from './Studio/DrawerPanel';
 export {
-  DrawerPanel,
   useDrawerSubheader,
   DrawerSubheaderContext,
   DRAWER_WIDTH,
   COLLAPSED_WIDTH,
-} from './Studio/DrawerPanel';
-export type { DrawerPanelProps, DrawerSubheaderContextValue } from './Studio/DrawerPanel';
+} from './Studio/DrawerPanelContext';
+export type { DrawerSubheaderContextValue } from './Studio/DrawerPanelContext';
 
 // ─── TabbedSidebar (alternative tabbed sidebar layout) ────────────────────────
 export { TabbedSidebar } from './Studio/TabbedSidebar';

@@ -104,7 +104,7 @@ export function resolveRowsCached(
           .map((f) => `${f.id}:${JSON.stringify(f.value ?? '')}`)
           .sort()
           .join('|');
-  const fieldSetSegment = usedFieldIds ? [...usedFieldIds].sort().join(',') : '';
+  const fieldSetSegment = usedFieldIds ? [...usedFieldIds].toSorted().join(',') : '';
   const cacheKey = `${widgetSourceId}::${filterKey}::${fieldSetSegment}`;
 
   let byKey = rowCache.get(widgetRows);

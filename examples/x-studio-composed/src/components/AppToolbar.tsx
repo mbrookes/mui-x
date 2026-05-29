@@ -6,7 +6,9 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import FilterListIcon from '@mui/icons-material/FilterList';
+import LinkIcon from '@mui/icons-material/Link';
 import RedoIcon from '@mui/icons-material/Redo';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import SettingsIcon from '@mui/icons-material/Settings';
 import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';
@@ -34,6 +36,8 @@ export interface AppToolbarProps {
   onChatToggle?: () => void;
   onAddPage?: () => void;
   hasEmptyPage?: boolean;
+  onRefresh?: () => void;
+  onCopyLink?: () => void;
   onSettingsOpen?: () => void;
 }
 
@@ -58,8 +62,20 @@ export function AppToolbar(props: AppToolbarProps) {
     onChatToggle,
     onAddPage,
     hasEmptyPage,
+    onRefresh,
+    onCopyLink,
     onSettingsOpen,
   } = props;
+
+  const [linkCopied, setLinkCopied] = React.useState(false);
+
+  const handleCopyLink = React.useCallback(() => {
+    if (onCopyLink) {
+      onCopyLink();
+    }
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  }, [onCopyLink]);
 
   return (
     <Box
@@ -172,6 +188,18 @@ export function AppToolbar(props: AppToolbarProps) {
           </IconButton>
         </Tooltip>
       )}
+      {onRefresh && (
+        <Tooltip title="Refresh data">
+          <IconButton size="small" onClick={onRefresh} aria-label="Refresh data">
+            <RefreshIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
+      <Tooltip title={linkCopied ? 'Copied!' : 'Copy link'}>
+        <IconButton size="small" onClick={handleCopyLink} aria-label="Copy link">
+          <LinkIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
       <Tooltip title="Download dashboard">
         <IconButton size="small" onClick={onSave} aria-label="Download dashboard">
           <FileDownloadIcon fontSize="small" />

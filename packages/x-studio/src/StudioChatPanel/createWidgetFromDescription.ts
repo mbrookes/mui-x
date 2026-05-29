@@ -14,8 +14,7 @@ function buildWidgetCreationPrompt(controller: StudioController): string {
   const sourceLines = sources
     .map((s) => {
       const fields = s.fields
-        .filter((f) => !f.hidden)
-        .map((f) => `${f.id} (${f.type}, "${f.label}")`)
+        .flatMap((f) => f.hidden ? [] : [`${f.id} (${f.type}, "${f.label}")`])
         .join(', ');
       return `  - ${s.label} [id: ${s.id}]: ${fields}`;
     })

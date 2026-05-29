@@ -180,9 +180,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // Pages the user can move this widget to (all pages except the current one)
   const moveToPageOptions = React.useMemo(
     () =>
-      Object.values(pages)
-        .filter((p) => p.id !== activePageId)
-        .map((p) => ({ id: p.id, title: p.title })),
+      Object.values(pages).flatMap((p) =>
+        p.id !== activePageId ? [{ id: p.id, title: p.title }] : [],
+      ),
     [pages, activePageId],
   );
 

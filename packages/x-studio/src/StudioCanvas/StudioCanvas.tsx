@@ -572,7 +572,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         />
       )}
       {widgetRows.map((row, rowIndex) => (
-        <Box key={rowIndex} sx={rowIndex > 0 && mode !== 'edit' ? { mt: 1 } : undefined}>
+        <Box key={row.join('-')} sx={rowIndex > 0 && mode !== 'edit' ? { mt: 1 } : undefined}>
           <Box
             sx={{
               display: 'flex',

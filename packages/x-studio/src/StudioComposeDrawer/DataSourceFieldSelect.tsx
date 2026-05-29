@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Autocomplete, TextField } from '@mui/material';
-import { renderFieldOption } from './FieldOption';
+import { FieldOption } from './FieldOption';
 import type { StudioDataSource, StudioDataField } from '../models';
 import { fieldHasCapability, type FieldCapability } from '../utils/fieldCapabilities';
 
@@ -114,7 +114,14 @@ export function DataSourceFieldSelect({
       options={computedFields}
       groupBy={(option) => option.sourceLabel}
       getOptionLabel={getOptionLabel}
-      renderOption={renderFieldOption}
+      renderOption={(liProps, option) => {
+        const { key, ...rest } = liProps;
+        return (
+          <li key={key} {...rest}>
+            <FieldOption label={option.label} type={option.type} generated={option.generated} />
+          </li>
+        );
+      }}
       getOptionDisabled={getOptionDisabled}
       disabled={disabled}
       value={selectedOption}

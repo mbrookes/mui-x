@@ -3,7 +3,7 @@ import * as React from 'react';
 import { Box, Dialog, DialogTitle, IconButton, Stack, Tab, Tabs, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { useStudioSelector, selectWidgets } from '../context';
-import { KIND_LABEL } from '../StudioComposeDrawer/StudioComposeDrawer';
+import { KIND_LABEL } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
 import { ChartSetupPanel } from '../StudioComposeDrawer/ChartSetupPanel';
 import { FilterSetupPanel } from '../StudioComposeDrawer/FilterSetupPanel';
 import { FormatPanel } from '../StudioComposeDrawer/FormatPanel';

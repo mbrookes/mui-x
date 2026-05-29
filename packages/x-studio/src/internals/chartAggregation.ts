@@ -419,8 +419,9 @@ export function analyzeChartSupport(
     return { supported: false, reason: 'mixed_cross_source_fields' };
   }
 
+  const yFieldSet = new Set(yFields);
   for (const [fieldId, owner] of fieldOwners.entries()) {
-    if (yFields.includes(fieldId)) {
+    if (yFieldSet.has(fieldId)) {
       if (owner !== anchorSourceId) {
         return { supported: false, reason: 'mixed_cross_source_fields' };
       }
@@ -585,13 +586,12 @@ export function resolveChartRowsForAggregation(
       }
 
       const junctionRows = dataSources[anchorSourceId]?.rows ?? [];
-      result = junctionRows
-        .filter((jRow) => allowedWidgetKeys.has(jRow[junctionWidgetField]))
-        .map((jRow) => {
-          const widgetRow = widgetRowLookup.get(jRow[junctionWidgetField]) ?? {};
-          const remoteRow = remoteRowLookup.get(jRow[junctionTargetField]) ?? {};
-          return { ...widgetRow, ...remoteRow, ...jRow };
-        });
+      result = junctionRows.flatMap((jRow) => {
+        if (!allowedWidgetKeys.has(jRow[junctionWidgetField])) return [];
+        const widgetRow = widgetRowLookup.get(jRow[junctionWidgetField]) ?? {};
+        const remoteRow = remoteRowLookup.get(jRow[junctionTargetField]) ?? {};
+        return [{ ...widgetRow, ...remoteRow, ...jRow }];
+      });
     } else if (
       !anchorRelationship ||
       anchorRelationship.type === 'many-to-many' ||
@@ -853,9 +853,10 @@ export function prepareScatterDataGrouped(
     grouped.get(cat)!.push({ x: Number(row[xField] ?? 0), y: Number(row[yField] ?? 0), id: index });
   });
   // Only include categories that have data (skip empty series)
-  return stableCategories
-    .map((cat) => ({ id: cat, label: cat, data: grouped.get(cat) ?? [] }))
-    .filter((s) => s.data.length > 0);
+  return stableCategories.flatMap((cat) => {
+    const data = grouped.get(cat) ?? [];
+    return data.length > 0 ? [{ id: cat, label: cat, data }] : [];
+  });
 }
 
 // ─── Heatmap aggregation ──────────────────────────────────────────────────────

@@ -498,9 +498,10 @@ export class StudioController {
     void removedWidget;
     const widgetRows = activePage.widgetRows || [];
     // Remove widgetId from all rows, and filter out empty rows
-    const newWidgetRows = widgetRows
-      .map((row) => row.filter((id) => id !== widgetId))
-      .filter((row) => row.length > 0);
+    const newWidgetRows = widgetRows.flatMap((row) => {
+      const r = row.filter((id) => id !== widgetId);
+      return r.length > 0 ? [r] : [];
+    });
     // Clean up the removed widget's span, and also clear spans for any widgets that are
     // now the sole occupant of their row (orphaned singleton — span no longer meaningful).
     const { [widgetId]: _span, ...remainingSpans } = activePage.widgetColSpans ?? {};
@@ -881,62 +882,6 @@ export class StudioController {
   };
 
   /**
-   * Opens a drilldown panel showing `drilldownWidgetId` filtered to the fields in `rowData`.
-   * Any field in `rowData` that exists in the drilldown widget's source is added as a
-   * temporary widget-scoped filter.
-   */
-  openDrilldown = (
-    sourceWidgetId: string,
-    drilldownWidgetId: string,
-    rowData: Record<string, unknown>,
-  ) => {
-    const state = this.store.state;
-    const drillWidget = state.widgets[drilldownWidgetId];
-    const drillSource = drillWidget?.sourceId ? state.dataSources[drillWidget.sourceId] : undefined;
-
-    const drilldownFilters: import('../models').StudioFilterState[] = drillSource
-      ? Object.entries(rowData)
-          .filter(([field]) => drillSource.fields.some((f) => f.id === field))
-          .map(([field, value]) => {
-            const fieldMeta = drillSource.fields.find((f) => f.id === field);
-            return {
-              id: `drilldown-${drilldownWidgetId}-${field}`,
-              scope: 'widget' as const,
-              widgetId: drilldownWidgetId,
-              field,
-              fieldType: fieldMeta?.type,
-              operator: 'equals' as const,
-              value,
-            };
-          })
-      : [];
-
-    this.commitState({
-      ...state,
-      filters: [
-        ...state.filters.filter((f) => !f.id.startsWith('drilldown-')),
-        ...drilldownFilters,
-      ],
-      shell: {
-        ...state.shell,
-        activeDrilldown: { sourceWidgetId, drilldownWidgetId, rowData },
-      },
-    });
-  };
-
-  /**
-   * Closes the active drilldown panel and removes all drilldown-scoped filters.
-   */
-  closeDrilldown = () => {
-    const state = this.store.state;
-    this.commitState({
-      ...state,
-      filters: state.filters.filter((f) => !f.id.startsWith('drilldown-')),
-      shell: { ...state.shell, activeDrilldown: null },
-    });
-  };
-
-  /**
    * Saves the current page-level filters as a named preset.
    */
   saveFilterPreset = (name: string): string => {
@@ -1111,9 +1056,10 @@ export class StudioController {
     }
 
     // Remove from source page rows
-    const sourceRows = (sourcePage.widgetRows ?? [])
-      .map((row) => row.filter((id) => id !== widgetId))
-      .filter((row) => row.length > 0);
+    const sourceRows = (sourcePage.widgetRows ?? []).flatMap((row) => {
+      const r = row.filter((id) => id !== widgetId);
+      return r.length > 0 ? [r] : [];
+    });
     const { [widgetId]: _span, ...sourceSpans } = sourcePage.widgetColSpans ?? {};
     void _span;
 

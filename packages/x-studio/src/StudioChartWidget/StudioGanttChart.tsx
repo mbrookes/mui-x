@@ -18,6 +18,7 @@ export interface StudioGanttChartProps {
 }
 
 const ROW_H = 32;
+const EMPTY_CATEGORIES: string[] = [];
 const ROW_GAP = 6;
 const LABEL_W = 140;
 const AXIS_H = 24;
@@ -55,7 +56,7 @@ function shortDate(ms: number): string {
  * Renders a Gantt / timeline chart with horizontal bars per row.
  * Each bar is positioned by start/end timestamps; optional colour coding by category.
  */
-export function StudioGanttChart({ items, height, categories = [] }: StudioGanttChartProps) {
+export function StudioGanttChart({ items, height, categories = EMPTY_CATEGORIES }: StudioGanttChartProps) {
   const theme = useTheme();
 
   // Build a stable colour map from the theme palette series
@@ -112,11 +113,11 @@ export function StudioGanttChart({ items, height, categories = [] }: StudioGantt
           borderBottom: `1px solid ${theme.palette.divider}`,
         }}
       >
-        {ticks.map((tick, i) => {
+        {ticks.map((tick) => {
           const pct = ((tick - minMs) / rangeMs) * 100;
           return (
             <Box
-              key={i}
+              key={tick}
               sx={{
                 position: 'absolute',
                 left: `${pct}%`,
@@ -134,11 +135,11 @@ export function StudioGanttChart({ items, height, categories = [] }: StudioGantt
 
       {/* Grid lines */}
       <Box sx={{ position: 'absolute', top: AXIS_H, left: LABEL_W, right: 0, bottom: 0 }}>
-        {ticks.map((tick, i) => {
+        {ticks.map((tick) => {
           const pct = ((tick - minMs) / rangeMs) * 100;
           return (
             <Box
-              key={i}
+              key={tick}
               sx={{
                 position: 'absolute',
                 left: `${pct}%`,
@@ -183,7 +184,7 @@ export function StudioGanttChart({ items, height, categories = [] }: StudioGantt
           );
 
           return (
-            <Box key={idx} sx={{ position: 'absolute', top, left: 0, right: 0, height: ROW_H }}>
+            <Box key={`${item.label}-${item.startMs}`} sx={{ position: 'absolute', top, left: 0, right: 0, height: ROW_H }}>
               {/* Row label */}
               <Box
                 sx={{
@@ -238,7 +239,7 @@ export function StudioGanttChart({ items, height, categories = [] }: StudioGantt
             }}
           >
             <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
-              +{hiddenCount} more rows not shown — increase widget height to see all
+              +{hiddenCount} more rows not shown: increase widget height to see all
             </Typography>
           </Box>
         )}

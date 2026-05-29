@@ -50,10 +50,12 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
     const reachableIds = getReachableSourceIds(widget.sourceId, relationships);
     const entries: DataSourceFieldEntry[] = [];
 
-    source.fields.filter((f) => !f.hidden).forEach((f) => {
+    source.fields.forEach((f) => {
+      if (f.hidden) return;
       entries.push({ id: f.id, label: f.label, type: f.type, sourceId: source.id, sourceLabel: source.label });
     });
-    expressionFields.filter((ef) => ef.sourceId === widget.sourceId && !ef.hidden).forEach((ef) => {
+    expressionFields.forEach((ef) => {
+      if (ef.sourceId !== widget.sourceId || ef.hidden) return;
       entries.push({ id: ef.id, label: ef.label, type: 'number' as const, sourceId: source.id, sourceLabel: source.label, generated: true });
     });
 
@@ -68,7 +70,8 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
       if (!relSource) {
         return;
       }
-      relSource.fields.filter((f) => !f.hidden).forEach((f) => {
+      relSource.fields.forEach((f) => {
+        if (f.hidden) return;
         entries.push({ id: f.id, label: f.label, type: f.type, sourceId: rel.targetId, sourceLabel: relSource.label });
       });
     });

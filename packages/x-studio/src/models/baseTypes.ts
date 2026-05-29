@@ -51,37 +51,37 @@ export interface StudioFeatureFlags {
    * Allow adding table/grid widgets. Set to `false` to hide grid from the widget picker.
    * @default true
    */
-  allowGrid?: boolean;
+  grid?: boolean;
   /**
    * Allow adding chart widgets. Set to `false` to hide chart from the widget picker.
    * @default true
    */
-  allowChart?: boolean;
+  chart?: boolean;
   /**
    * Allow adding KPI widgets. Set to `false` to hide KPI from the widget picker.
    * @default true
    */
-  allowKpi?: boolean;
+  kpi?: boolean;
   /**
    * Allow adding text/markdown widgets. Set to `false` to hide text from the widget picker.
    * @default true
    */
-  allowText?: boolean;
+  text?: boolean;
   /**
    * Allow adding interactive filter widgets. Set to `false` to hide filter widgets from the picker.
    * @default true
    */
-  allowFilter?: boolean;
+  filter?: boolean;
   /**
    * Allow adding pivot table widgets. Set to `false` to hide pivot from the widget picker.
    * @default true
    */
-  allowPivot?: boolean;
+  pivot?: boolean;
   /**
    * Allow adding choropleth map widgets. Set to `false` to hide map from the widget picker.
    * @default true
    */
-  allowMap?: boolean;
+  map?: boolean;
 
   // ── KPI widget features ────────────────────────────────────────────────────
 
@@ -135,15 +135,6 @@ export interface StudioFeatureFlags {
    * @default true
    */
   gridConditionalFormats?: boolean;
-
-  // ── Cross-widget features ──────────────────────────────────────────────────
-
-  /**
-   * Enable drilldown — clicking a data point or row to open a secondary widget panel.
-   * Set to `false` to hide drilldown configuration and suppress drilldown panel rendering.
-   * @default true
-   */
-  drilldown?: boolean;
 }
 
 /**

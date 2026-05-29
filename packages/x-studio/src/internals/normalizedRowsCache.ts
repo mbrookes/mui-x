@@ -52,7 +52,7 @@ export function getCachedNormalizedDataSource(
     return dataSource;
   }
 
-  const fieldSetKey = usedFieldIds ? [...usedFieldIds].sort().join(',') : '*';
+  const fieldSetKey = usedFieldIds ? [...usedFieldIds].toSorted().join(',') : '*';
 
   let byFieldSet = cache.get(rows);
   if (!byFieldSet) {

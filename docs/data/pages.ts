@@ -1156,6 +1156,7 @@ const pages: MuiPage[] = [
           { pathname: '/x/react-studio/widgets/chart', title: 'Chart' },
           { pathname: '/x/react-studio/widgets/kpi', title: 'KPI' },
           { pathname: '/x/react-studio/widgets/grid', title: 'Grid' },
+          { pathname: '/x/react-studio/widgets/pivot', title: 'Pivot table' },
           { pathname: '/x/react-studio/widgets/filter', title: 'Filter' },
           { pathname: '/x/react-studio/widgets/text', title: 'Text' },
         ],
@@ -1176,6 +1177,7 @@ const pages: MuiPage[] = [
           { pathname: '/x/react-studio/data/data-sources', title: 'Inline data sources' },
           { pathname: '/x/react-studio/data/async-adapters', title: 'Async adapters' },
           { pathname: '/x/react-studio/data/relationships', title: 'Relationships' },
+          { pathname: '/x/react-studio/data/server-middleware', title: 'Server middleware' },
         ],
       },
       {
@@ -1210,6 +1212,7 @@ const pages: MuiPage[] = [
         children: [
           { pathname: '/x/react-studio/customization/slot-props', title: 'Slot props' },
           { pathname: '/x/react-studio/customization/theming', title: 'Theming' },
+          { pathname: '/x/react-studio/customization/localization', title: 'Localization' },
         ],
       },
       {
@@ -1226,6 +1229,7 @@ const pages: MuiPage[] = [
         children: [
           { pathname: '/x/react-studio/resources/selectors', title: 'Selectors' },
           { pathname: '/x/react-studio/resources/controller-api', title: 'Controller API' },
+          { pathname: '/x/react-studio/resources/pipeline', title: 'Data pipeline' },
         ],
       },
     ],

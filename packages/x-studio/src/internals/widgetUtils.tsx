@@ -27,6 +27,7 @@ import { DonutIcon } from '../icons/charts/DonutIcon';
 import { ListFilterWidgetIcon } from '../icons/ListFilterWidgetIcon';
 import { ButtonFilterWidgetIcon } from '../icons/ButtonFilterWidgetIcon';
 import { DateFilterWidgetIcon } from '../icons/DateFilterWidgetIcon';
+import { PivotWidgetIcon } from '../icons/PivotWidgetIcon';
 
 export const WIDGET_TYPES: {
   kind: StudioWidgetKind;
@@ -63,6 +64,12 @@ export const WIDGET_TYPES: {
     label: 'Filter',
     description: 'Interactive filter control for view mode',
     icon: <ListFilterWidgetIcon size={28} />,
+  },
+  {
+    kind: 'pivot',
+    label: 'Pivot Table',
+    description: 'Cross-tabulation with row/column dimensions',
+    icon: <PivotWidgetIcon size={28} />,
   },
 ];
 
@@ -130,6 +137,9 @@ export function getWidgetSubtypeIcon(widget: StudioWidget, size = 16): React.Rea
   if (widget.kind === 'text') {
     return <TextWidgetIcon size={size} />;
   }
+  if (widget.kind === 'pivot') {
+    return <PivotWidgetIcon size={size} />;
+  }
   return null;
 }
 
@@ -177,6 +187,16 @@ export function createDefaultWidget(
       kind,
       title: 'Filter',
       config: { filterWidgetType: 'multi-select' as const },
+      ...(source ? { sourceId: source.id } : {}),
+    };
+  }
+
+  if (kind === 'pivot') {
+    return {
+      id,
+      kind,
+      title: '',
+      config: { pivotAggregation: 'sum' as const },
       ...(source ? { sourceId: source.id } : {}),
     };
   }
@@ -307,6 +327,18 @@ export function inferWidgetTitles(
       const fieldLabel = findFieldLabel(config.filterWidgetField, config.filterWidgetSourceId);
       const title = fieldLabel ? `Filter: ${fieldLabel}` : 'Filter';
       return { title, subtitle: '' };
+    }
+
+    case 'pivot': {
+      const rowLabel = findFieldLabel(config.pivotRowField);
+      const colLabel = findFieldLabel(config.pivotColField);
+      const title =
+        rowLabel && colLabel
+          ? `${rowLabel} by ${colLabel}`
+          : source
+            ? `${source.label} pivot`
+            : 'Pivot Table';
+      return { title, subtitle: source?.label ?? '' };
     }
 
     case 'text':

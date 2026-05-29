@@ -5,6 +5,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import {
   useStudioController,
   useStudioSelector,
+  useStudioLocaleText,
   selectWidgets,
   selectExpressionFields,
   selectDataSources,
@@ -33,18 +34,19 @@ export interface FilterSectionProps {
 
 export function FilterSection(props: FilterSectionProps) {
   const { fields, fieldOptions, filters, allFilters, onAddFilter, onRemoveFilter, title, emptyMessage } = props;
+  const localeText = useStudioLocaleText();
 
   return (
     <CollapsibleSection
       title={title}
       onAdd={onAddFilter}
       addDisabled={fields.length === 0}
-      addTooltip="Add filter"
+      addTooltip={localeText.filtersAddFilterTooltip}
       count={filters.length}
     >
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 0.5 }}>
-          {emptyMessage ?? 'No filters applied.'}
+          {emptyMessage ?? localeText.filtersSectionNoFilters}
         </Typography>
       ) : (
         <Stack spacing={1} sx={{ pt: 0.5 }}>
@@ -97,18 +99,19 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
     emptyMessage,
   } = props;
   const hasAnySources = Object.keys(dataSources).length > 0;
+  const localeText = useStudioLocaleText();
 
   return (
     <CollapsibleSection
       title={title}
       onAdd={onAddFilter}
       addDisabled={!hasAnySources}
-      addTooltip="Add filter"
+      addTooltip={localeText.filtersAddFilterTooltip}
       count={filters.length}
     >
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 0.5 }}>
-          {emptyMessage ?? 'No filters applied.'}
+          {emptyMessage ?? localeText.filtersSectionNoFilters}
         </Typography>
       ) : (
         <Stack spacing={1} sx={{ pt: 0.5 }}>

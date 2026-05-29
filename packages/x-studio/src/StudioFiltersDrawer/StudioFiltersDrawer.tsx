@@ -22,6 +22,7 @@ import {
   useStudioController,
   useStudioSelector,
   useStudioFeatures,
+  useStudioLocaleText,
   selectShell,
   selectFilters,
   selectFilterPresets,
@@ -52,6 +53,7 @@ export function StudioFiltersDrawer() {
   const relationships = useStudioSelector(selectRelationships);
   const activePageId = useStudioSelector(selectActivePageId);
   const features = useStudioFeatures();
+  const localeText = useStudioLocaleText();
 
   const [filterSearch, setFilterSearch] = React.useState('');
 
@@ -197,13 +199,13 @@ export function StudioFiltersDrawer() {
   return (
     <Stack spacing={2}>
       {allFields.length === 0 && (
-        <Alert severity="info">Add a data source and widgets first.</Alert>
+        <Alert severity="info">{localeText.filtersAddDataSourceHint}</Alert>
       )}
 
       {(pageFilters.length > 0 || widgetFilters.length > 0) && (
         <TextField
           size="small"
-          placeholder="Search filters…"
+          placeholder={localeText.filterSearchPlaceholder}
           value={filterSearch}
           onChange={(e) => setFilterSearch(e.target.value)}
           slotProps={{
@@ -226,14 +228,14 @@ export function StudioFiltersDrawer() {
       )}
 
       <FilterSection
-        title="Page filters"
+        title={localeText.filtersSectionPageFiltersTitle}
         filters={visiblePageFilters}
         allFilters={pageFilters}
         fields={allFields}
         fieldOptions={fieldOptions}
         onAddFilter={handleAddPageFilter}
         onRemoveFilter={(id) => controller.removeFilter(id)}
-        emptyMessage={searchLower ? 'No matching filters.' : undefined}
+        emptyMessage={searchLower ? localeText.filtersSectionNoMatchingFilters : undefined}
       />
 
       {selectedWidgetId && selectedWidget?.kind !== 'filter' ? (
@@ -250,7 +252,7 @@ export function StudioFiltersDrawer() {
             chartXField={chartXField}
             chartYFieldLabel={chartYFieldLabel}
             chartAvailableSeries={chartAvailableSeries}
-            emptyMessage={searchLower ? 'No matching filters.' : undefined}
+            emptyMessage={searchLower ? localeText.filtersSectionNoMatchingFilters : undefined}
           />
         </React.Fragment>
       ) : null}
@@ -276,10 +278,10 @@ export function StudioFiltersDrawer() {
         <div>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
             <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1, fontWeight: 600 }}>
-              Saved views
+              {localeText.filtersSavedViewsTitle}
             </Typography>
             {!savingPreset && (
-              <Tooltip title="Save current page filters as a named view">
+              <Tooltip title={localeText.filtersSaveViewTooltip}>
                 <Button
                   size="small"
                   startIcon={<BookmarkBorderIcon fontSize="small" />}
@@ -290,7 +292,7 @@ export function StudioFiltersDrawer() {
                   disabled={pageFilters.length === 0}
                   sx={{ fontSize: 11 }}
                 >
-                  Save
+                  {localeText.filtersSaveViewButton}
                 </Button>
               </Tooltip>
             )}
@@ -302,7 +304,7 @@ export function StudioFiltersDrawer() {
                 size="small"
                 fullWidth
                 autoFocus
-                placeholder="View name"
+                placeholder={localeText.filtersSaveViewPlaceholder}
                 value={presetName}
                 onChange={(e) => setPresetName(e.target.value)}
                 onKeyDown={(e) => {
@@ -328,7 +330,7 @@ export function StudioFiltersDrawer() {
                             }
                           }}
                         >
-                          Save
+                          {localeText.filtersSaveViewButton}
                         </Button>
                       </InputAdornment>
                     ),
@@ -340,7 +342,7 @@ export function StudioFiltersDrawer() {
 
           {filterPresets.length === 0 && !savingPreset && (
             <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
-              No saved views. Apply page filters and save them here.
+              {localeText.filtersNoSavedViews}
             </Typography>
           )}
 
@@ -355,7 +357,7 @@ export function StudioFiltersDrawer() {
                   onClick={() => controller.applyFilterPreset(preset.id)}
                   sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
                 />
-                <Tooltip title="Delete view">
+                <Tooltip title={localeText.filtersDeleteViewTooltip}>
                   <IconButton
                     size="small"
                     onClick={() => controller.deleteFilterPreset(preset.id)}

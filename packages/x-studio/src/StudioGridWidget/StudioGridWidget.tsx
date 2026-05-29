@@ -11,6 +11,7 @@ import type { StudioConditionalFormat, StudioDataSource, StudioWidget } from '..
 import {
   useStudioController,
   useStudioSelector,
+  useStudioLocaleText,
   selectFilters,
   makeSelectExpressionFieldsForSource,
   selectActivePageId,
@@ -73,6 +74,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const { dataSource, widget, slotProps } = props;
   const controller = useStudioController();
   const filters = useStudioSelector(selectFilters);
+  const localeText = useStudioLocaleText();
   const selectExpressionFields = React.useMemo(
     () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
     [widget.sourceId],
@@ -299,7 +301,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     <div>
       {isError && (
         <Box sx={{ p: 1, color: 'error.main' }}>
-          <Typography variant="caption">{errorMessage || 'Failed to load data'}</Typography>
+          <Typography variant="caption">{errorMessage || localeText.widgetLoadError}</Typography>
         </Box>
       )}
       <DataGridPremium

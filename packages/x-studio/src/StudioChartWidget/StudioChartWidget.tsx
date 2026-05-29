@@ -40,6 +40,7 @@ import {
 import {
   useStudioController,
   useStudioSelector,
+  useStudioLocaleText,
   selectActivePageId,
   makeSelectExpressionFieldsForSource,
   makeSelectActiveCrossFilter,
@@ -267,6 +268,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const xGroupBy = config.xGroupBy;
   const controller = useStudioController();
   const activePageId = useStudioSelector(selectActivePageId);
+  const localeText = useStudioLocaleText();
   const selectExpressionFields = React.useMemo(
     () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
     [widget.sourceId],
@@ -902,7 +904,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           gap: 1,
         }}
       >
-        <Typography variant="body2">{errorMessage || 'Failed to load data'}</Typography>
+        <Typography variant="body2">{errorMessage || localeText.widgetLoadError}</Typography>
       </Box>
     );
   }
@@ -918,7 +920,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           color: 'text.disabled',
         }}
       >
-        <Typography variant="body2">Use the Setup tab to configure this chart.</Typography>
+        <Typography variant="body2">{localeText.widgetConfigureChartHint}</Typography>
       </Box>
     );
   }
@@ -937,7 +939,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             color: 'text.disabled',
           }}
         >
-          <Typography variant="body2">Use the Setup tab to choose a gauge value field.</Typography>
+          <Typography variant="body2">{localeText.widgetConfigureGaugeHint}</Typography>
         </Box>
       );
     }

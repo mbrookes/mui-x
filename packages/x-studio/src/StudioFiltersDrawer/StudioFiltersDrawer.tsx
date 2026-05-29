@@ -129,7 +129,7 @@ export function StudioFiltersDrawer() {
 
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f: StudioFilterState) =>
-      f.scope === 'page' && (!f.pageId || f.pageId === activePageId),
+      f.scope === 'page' && !f.isDashboardDateRange && (!f.pageId || f.pageId === activePageId),
   );
   const widgetFilters = (filters as StudioFilterState[]).filter(
     (f: StudioFilterState) => f.scope === 'widget' && f.widgetId === selectedWidgetId,

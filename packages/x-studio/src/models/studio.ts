@@ -645,6 +645,16 @@ export interface StudioRelationship {
   junctionTargetField?: string;
 }
 
+/**
+ * Preset options for the dashboard-level date range bar.
+ * - `'this_month'` — first day of the current month through today
+ * - `'last_3_months'` — three months ago through today
+ * - `'last_12_months'` — twelve months ago through today
+ * - `'ytd'` — January 1 of the current year through today
+ * - `'custom'` — user-supplied start/end dates
+ */
+export type StudioDateRangePreset = 'this_month' | 'last_3_months' | 'last_12_months' | 'ytd' | 'custom';
+
 export interface StudioFilterState {
   id: string;
   field: string;
@@ -688,6 +698,17 @@ export interface StudioFilterState {
    * automatically via the declared relationships in StudioState.
    */
   filterSourceId?: string;
+  /**
+   * When `true`, this filter was created by the dashboard date-range bar and is
+   * managed exclusively by that component — it is hidden from the filters drawer
+   * and quick-filter bar.
+   */
+  isDashboardDateRange?: true;
+  /**
+   * The preset that was used to compute the date range when `isDashboardDateRange` is true.
+   * Stored for display purposes so the bar can show the active preset.
+   */
+  dateRangePreset?: StudioDateRangePreset;
 }
 
 export interface StudioShellState {

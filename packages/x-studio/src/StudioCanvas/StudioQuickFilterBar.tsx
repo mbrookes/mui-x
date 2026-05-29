@@ -28,7 +28,7 @@ export function StudioQuickFilterBar() {
   const activePageId = useStudioSelector(selectActivePageId);
 
   const pageFilters = (filters as StudioFilterState[]).filter(
-    (f) => f.scope === 'page' && (!f.pageId || f.pageId === activePageId),
+    (f) => f.scope === 'page' && !f.isDashboardDateRange && (!f.pageId || f.pageId === activePageId),
   );
 
   if (pageFilters.length === 0) {

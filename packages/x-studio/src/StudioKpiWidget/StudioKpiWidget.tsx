@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Tooltip } from '@mui/material';
+import { Box, Tooltip, Typography } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import type { StudioDataSource, StudioWidget, StudioFilterState } from '../models';
@@ -83,7 +83,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   // the KPI always shows the absolute total, ignoring chart-click selections.
   // In 'cross-filter' or 'cross-highlight' mode we use effectiveRows, which respects
   // the active cross-filter (same as the chart widget does).
-  const { filteredRowsNoCross, effectiveRows } = useWidgetRows(widget, dataSource);
+  const { filteredRowsNoCross, effectiveRows, isError, errorMessage } = useWidgetRows(widget, dataSource);
   const currentRows = crossFilterMode === 'none' ? filteredRowsNoCross : effectiveRows;
 
   // Grain-aware rows for KPI value and sparkline computation.
@@ -466,6 +466,11 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         overflow: 'hidden',
       }}
     >
+      {isError && (
+        <Typography variant="caption" color="error.main" sx={{ px: 1, pt: 0.5 }}>
+          {errorMessage || 'Failed to load data'}
+        </Typography>
+      )}
       <Box
         sx={{
           display: 'flex',

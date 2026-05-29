@@ -71,6 +71,17 @@ export interface UseWidgetRowsResult {
   isLoading: boolean;
   /** True while cross-filter or page-filter changes are being applied via React's deferred rendering. Always false for adapter-based sources (use isLoading instead). */
   isRecomputing: boolean;
+  /**
+   * True when the last async adapter fetch failed.
+   * Cleared when a subsequent fetch succeeds.
+   * Always false for sources without an adapter (sync path).
+   */
+  isError: boolean;
+  /**
+   * Human-readable error message from the last failed adapter fetch.
+   * Empty string when there is no error.
+   */
+  errorMessage: string;
 }
 
 /**
@@ -153,6 +164,8 @@ export function useWidgetRows(
     return cached ? cached.rows : [];
   });
   const [isLoading, setIsLoading] = React.useState(false);
+  const [isError, setIsError] = React.useState(false);
+  const [errorMessage, setErrorMessage] = React.useState('');
 
   React.useEffect(() => {
     if (!descriptor || !dataSource?.adapter) {
@@ -165,6 +178,8 @@ export function useWidgetRows(
     if (cached) {
       // Cache hit — serve synchronously, no loading state.
       setAdapterRows(cached.rows);
+      setIsError(false);
+      setErrorMessage('');
       return;
     }
 
@@ -182,11 +197,17 @@ export function useWidgetRows(
         if (!cancelled) {
           setAdapterRows(result.rows);
           setIsLoading(false);
+          setIsError(false);
+          setErrorMessage('');
         }
       },
-      () => {
+      (err: unknown) => {
         if (!cancelled) {
           setIsLoading(false);
+          setIsError(true);
+          setErrorMessage(
+            err instanceof Error ? err.message : 'Failed to load data',
+          );
         }
       },
     );
@@ -461,5 +482,7 @@ export function useWidgetRows(
     effectiveRows: enrichedEffectiveRows,
     isLoading,
     isRecomputing,
+    isError,
+    errorMessage,
   };
 }

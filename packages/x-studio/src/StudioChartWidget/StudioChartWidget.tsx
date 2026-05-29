@@ -52,6 +52,7 @@ import { useChartWidgetData } from './useChartWidgetData';
 import { buildMultiYLineSeries } from './lineSeries';
 import { CrossFilterBarContext, CrossFilterGhostBar } from './CrossFilterGhostBar';
 import { StudioHeatmapChart } from './StudioHeatmapChart';
+import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioNoDataOverlay } from '../internals/StudioNoDataOverlay';
 import { aggregateHeatmap } from '../internals/chartUtils';
 
@@ -576,6 +577,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const normalizedChartType = chartType === 'bar-grouped' ? 'bar' : chartType;
   const isMixed = normalizedChartType === 'mixed';
   const isHeatmap = normalizedChartType === 'heatmap';
+  const isFunnel = normalizedChartType === 'funnel';
   const barLayout = config.barLayout ?? 'grouped';
   const isHorizontalBarLayout = barLayout === 'horizontal';
 
@@ -1008,6 +1010,52 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         currencyCode={valueFieldDef?.currencyCode}
         xLabel={xFieldDef?.label}
         yLabel={yFieldDef?.label}
+      />
+    );
+  }
+
+  // Funnel chart
+  if (isFunnel) {
+    const funnelXField = config.xField ?? '';
+    const funnelValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
+    if (!funnelXField || !funnelValueField) {
+      return (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: chartHeight,
+            color: 'text.disabled',
+          }}
+        >
+          <Typography variant="body2">
+            Funnel chart requires a stage field and a value field.
+          </Typography>
+        </Box>
+      );
+    }
+    const valueFieldDef = dataSource?.fields.find((f) => f.id === funnelValueField);
+    // Aggregate: sum value per stage category
+    const stageMap = new Map<string, number>();
+    for (const row of filteredRows) {
+      const label = String(row[funnelXField] ?? '');
+      if (!label) {
+        continue;
+      }
+      stageMap.set(label, (stageMap.get(label) ?? 0) + Number(row[funnelValueField] ?? 0));
+    }
+    // Sort by value descending (widest stage first)
+    const stages = [...stageMap.entries()]
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value);
+
+    return (
+      <StudioFunnelChart
+        stages={stages}
+        height={chartHeight}
+        valueFormat={valueFieldDef?.format}
+        currencyCode={valueFieldDef?.currencyCode}
       />
     );
   }

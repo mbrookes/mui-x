@@ -46,7 +46,8 @@ function generateAnnotationId() {
 export function ChartSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
-  const widget = useStudioSelector(selectWidgets)[widgetId];
+  const allWidgets = useStudioSelector(selectWidgets);
+  const widget = allWidgets[widgetId];
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
 
@@ -813,6 +814,38 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             None
           </ToggleButton>
         </ToggleButtonGroup>
+
+        {/* Drilldown widget picker */}
+        {!isGauge && !isPieOrDonut && !isHeatmap && (
+          <React.Fragment>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              When a chart item is clicked, open drilldown…
+            </Typography>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Drilldown widget</InputLabel>
+              <Select
+                label="Drilldown widget"
+                value={config.drilldownWidgetId ?? ''}
+                onChange={(evt) =>
+                  controller.updateWidgetConfig(widgetId, {
+                    drilldownWidgetId: (evt.target.value as string) || undefined,
+                  })
+                }
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {Object.values(allWidgets)
+                  .filter((w) => w.id !== widgetId)
+                  .map((w) => (
+                    <MenuItem key={w.id} value={w.id}>
+                      {w.title || w.id}
+                    </MenuItem>
+                  ))}
+              </Select>
+            </FormControl>
+          </React.Fragment>
+        )}
       </div>
     </Stack>
   );

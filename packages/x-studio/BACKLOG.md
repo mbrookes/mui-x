@@ -74,7 +74,8 @@ Items migrated from `examples/x-studio/REQUIREMENTS.md` — these are features o
 ~~BL-30: Dashboard-level date range filter — single date range picker driving all KPI/chart/grid widgets as a page-level filter; pre-sets: This month, Last 3 months, Last 12 months, Year-to-date, All time~~
 **Fixed** (`StudioDateRangeBar` rendered above canvas; date/datetime field selector; preset toggle group (All time / YTD / This month / Last 3 months / Last 12 months); creates a page-level `isDashboardDateRange` filter with the `between` operator; hidden from the filters drawer and quick-filter bar; field selection is preserved in local state when "All time" is chosen; `computeDateRangePreset` exported for custom integrations)
 
-BL-31: Drill-down / detail panel — click a chart segment or grid row → slide-in panel showing related child rows; resolves relationship paths from the data model automatically; breadcrumb trail for multi-level drill
+~~BL-31: Drill-down / detail panel — click a chart segment or grid row → slide-in panel showing related child rows; resolves relationship paths from the data model automatically; breadcrumb trail for multi-level drill~~
+**Fixed** (`StudioDrilldownDrawer` slide-in panel; `drilldownWidgetId` config on grid and chart widgets; clicking a chart item or grid row opens the drilldown with the clicked value added as a filter to the drilldown widget; drilldown picker added to Interactions section in both `ChartSetupPanel` and `GridSetupPanel`; context chips show the active filter; multi-level breadcrumb deferred)
 
 **Grid widget**
 

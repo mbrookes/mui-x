@@ -17,6 +17,8 @@ export interface DataSourceFieldEntry {
 export interface DataSourceFieldSelectProps {
   /** Selected field ID (empty string = none). */
   value: string;
+  /** Source ID of the selected field — used to disambiguate when multiple sources share the same field ID. */
+  valueSourceId?: string;
   onChange: (fieldId: string, sourceId: string) => void;
   /**
    * Pre-computed field list. Use when the caller controls filtering, ordering,
@@ -51,6 +53,7 @@ export interface DataSourceFieldSelectProps {
  */
 export function DataSourceFieldSelect({
   value,
+  valueSourceId,
   onChange,
   fields: fieldsProp,
   dataSources,
@@ -94,7 +97,16 @@ export function DataSourceFieldSelect({
     });
   }, [fieldsProp, dataSources, filterCapability]);
 
-  const selectedOption = computedFields.find((f) => f.id === value) ?? null;
+  const selectedOption = React.useMemo(() => {
+    if (!value) return null;
+    return (
+      (valueSourceId
+        ? computedFields.find((f) => f.id === value && f.sourceId === valueSourceId)
+        : undefined) ??
+      computedFields.find((f) => f.id === value) ??
+      null
+    );
+  }, [computedFields, value, valueSourceId]);
 
   const hasMultipleSources = React.useMemo(() => {
     const sourceIds = new Set(computedFields.map((f) => f.sourceId));

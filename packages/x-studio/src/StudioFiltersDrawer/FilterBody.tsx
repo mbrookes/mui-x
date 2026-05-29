@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import {
+  Autocomplete,
   Box,
   Button,
   FormControl,
@@ -12,7 +13,9 @@ import {
   RadioGroup,
   Select,
   Stack,
+  TextField,
   Tooltip,
+  Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
@@ -127,6 +130,15 @@ export interface FilterBodyProps {
   fieldValues: string[];
   /** Available series for multi-series charts — enables the "Rank by" selector in rank mode. */
   availableSeries?: AvailableSeries[];
+  /**
+   * Other page filters that can be declared as parents for cascading.
+   * When provided (page filters only), shows a "Depends on" picker in selection mode.
+   */
+  dependencyOptions?: { id: string; label: string }[];
+  /** Current set of dependency filter IDs for this filter. */
+  dependsOn?: string[];
+  /** Called when the user adds or removes a dependency. */
+  onDependencyChange?: (ids: string[]) => void;
   onModeChange: (mode: FilterMode) => void;
   onChange: (changes: Partial<StudioFilterState>) => void;
   disableRankMode?: boolean;
@@ -144,6 +156,9 @@ export function FilterBody({
   activeOperator2,
   fieldValues,
   availableSeries,
+  dependencyOptions,
+  dependsOn,
+  onDependencyChange,
   onModeChange,
   onChange,
   disableRankMode = false,
@@ -193,11 +208,33 @@ export function FilterBody({
       )}
 
       {mode === 'selection' && (
-        <SelectionFilterInput
-          values={fieldValues}
-          selected={Array.isArray(filter.value) ? (filter.value as string[]) : []}
-          onChange={(v) => onChange({ value: v })}
-        />
+        <React.Fragment>
+          <SelectionFilterInput
+            values={fieldValues}
+            selected={Array.isArray(filter.value) ? (filter.value as string[]) : []}
+            onChange={(v) => onChange({ value: v })}
+          />
+          {dependencyOptions && dependencyOptions.length > 0 && onDependencyChange && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                Narrow options based on:
+              </Typography>
+              <Autocomplete
+                multiple
+                size="small"
+                options={dependencyOptions}
+                getOptionLabel={(opt) => opt.label}
+                value={dependencyOptions.filter((opt) => (dependsOn ?? []).includes(opt.id))}
+                onChange={(_, next) => onDependencyChange(next.map((opt) => opt.id))}
+                renderInput={(params) => (
+                  <TextField {...params} placeholder="Select parent filter…" />
+                )}
+                isOptionEqualToValue={(opt, val) => opt.id === val.id}
+                disableCloseOnSelect
+              />
+            </Box>
+          )}
+        </React.Fragment>
       )}
 
       {mode === 'rank' && (

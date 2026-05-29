@@ -237,8 +237,12 @@ export interface StudioWidgetConfig {
    * Rows are grouped by this field before applying mapAggregation.
    */
   mapCountryField?: string;
+  /** Source ID for mapCountryField — required when the field comes from a related source. */
+  mapCountrySourceId?: string;
   /** Numeric field to aggregate per country. Required unless mapAggregation is 'count'. */
   mapValueField?: string;
+  /** Source ID for mapValueField — required when the field comes from a related source. */
+  mapValueSourceId?: string;
   /** Aggregation applied to mapValueField per country group. @default 'sum' */
   mapAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
   /**

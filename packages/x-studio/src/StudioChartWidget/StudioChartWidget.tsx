@@ -53,6 +53,7 @@ import { buildMultiYLineSeries } from './lineSeries';
 import { CrossFilterBarContext, CrossFilterGhostBar } from './CrossFilterGhostBar';
 import { StudioHeatmapChart } from './StudioHeatmapChart';
 import { StudioFunnelChart } from './StudioFunnelChart';
+import { StudioGanttChart } from './StudioGanttChart';
 import { StudioNoDataOverlay } from '../internals/StudioNoDataOverlay';
 import { aggregateHeatmap } from '../internals/chartUtils';
 
@@ -578,6 +579,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const isMixed = normalizedChartType === 'mixed';
   const isHeatmap = normalizedChartType === 'heatmap';
   const isFunnel = normalizedChartType === 'funnel';
+  const isGantt = normalizedChartType === 'gantt';
   const barLayout = config.barLayout ?? 'grouped';
   const isHorizontalBarLayout = barLayout === 'horizontal';
 
@@ -885,8 +887,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   );
 
   // Guard: return placeholder if chart isn't configured yet (must be after all hooks)
-  // Gauge chart handles its own unconfigured state separately below.
-  if (!dataSource || (!config.xField && normalizedChartType !== 'gauge')) {
+  // Gauge and Gantt chart handle their own unconfigured state separately below.
+  if (!dataSource || (!config.xField && normalizedChartType !== 'gauge' && normalizedChartType !== 'gantt')) {
     return (
       <Box
         sx={{
@@ -1056,6 +1058,65 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         height={chartHeight}
         valueFormat={valueFieldDef?.format}
         currencyCode={valueFieldDef?.currencyCode}
+      />
+    );
+  }
+
+  // Gantt / timeline chart
+  if (isGantt) {
+    const labelField = config.ganttLabelField ?? '';
+    const startField = config.ganttStartField ?? '';
+    const endField = config.ganttEndField ?? '';
+    const colorField = config.ganttColorField;
+
+    if (!labelField || !startField || !endField) {
+      return (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: chartHeight,
+            color: 'text.disabled',
+          }}
+        >
+          <Typography variant="body2">
+            Gantt chart requires a label field, start date field, and end date field.
+          </Typography>
+        </Box>
+      );
+    }
+
+    // Build items from filtered rows
+    const ganttItems: import('./StudioGanttChart').GanttItem[] = [];
+    const categorySet = new Set<string>();
+
+    for (const row of filteredRows) {
+      const label = String(row[labelField] ?? '');
+      const startRaw = row[startField];
+      const endRaw = row[endField];
+      if (!label || startRaw == null || endRaw == null) {
+        continue;
+      }
+      const startMs = new Date(startRaw as string).getTime();
+      const endMs = new Date(endRaw as string).getTime();
+      if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs < startMs) {
+        continue;
+      }
+      const colorCategory = colorField ? String(row[colorField] ?? '') : undefined;
+      if (colorCategory) {
+        categorySet.add(colorCategory);
+      }
+      ganttItems.push({ label, startMs, endMs, colorCategory });
+    }
+
+    const categories = [...categorySet];
+
+    return (
+      <StudioGanttChart
+        items={ganttItems}
+        height={chartHeight}
+        categories={categories}
       />
     );
   }

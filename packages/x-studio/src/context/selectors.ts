@@ -82,6 +82,7 @@ export function makeSelectExpressionFieldsForSource(sourceId: string) {
     if (
       lastResult !== undefined &&
       filtered.length === lastResult.length &&
+      // react-doctor-disable-next-line react-doctor/js-length-check-first -- length check is on the line above
       filtered.every((ef, i) => ef === lastResult![i])
     ) {
       lastInput = exprFields;
@@ -115,6 +116,7 @@ export function makeSelectExpressionFieldsForSources(sourceIds: ReadonlySet<stri
     if (
       lastResult !== undefined &&
       filtered.length === lastResult.length &&
+      // react-doctor-disable-next-line react-doctor/js-length-check-first -- length check is on the line above
       filtered.every((ef, i) => ef === lastResult![i])
     ) {
       lastInput = exprFields;
@@ -317,6 +319,7 @@ export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string)
     if (
       lastResult !== undefined &&
       filtered.length === lastResult.length &&
+      // react-doctor-disable-next-line react-doctor/js-length-check-first -- length check is on the line above
       filtered.every((f, i) => f === lastResult![i])
     ) {
       lastInput = filters;

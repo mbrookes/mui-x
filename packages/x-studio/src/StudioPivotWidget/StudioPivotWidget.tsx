@@ -120,8 +120,8 @@ function buildPivotMatrix(
   }
 
   return {
-    rowValues: [...rowSet].sort(),
-    colValues: [...colSet].sort(),
+    rowValues: [...rowSet].toSorted(),
+    colValues: [...colSet].toSorted(),
     cells,
     rowTotals,
     colTotals,
@@ -252,7 +252,7 @@ function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProps) {
       >
         <thead>
           <tr>
-            <th style={cornerStyle} />
+            <th style={cornerStyle} aria-label="Row / column header" />
             {matrix.colValues.map((cv) => (
               <th key={cv} style={headerStyle}>
                 {cv || '(blank)'}

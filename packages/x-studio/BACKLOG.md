@@ -201,3 +201,5 @@ BL-72: Map widget country field picker doesn't include country fields from relat
 
 BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget features, with full UI in demo settings dialogs.
 ~~**Done**~~ (14 new flags added: `allowGrid/Chart/Kpi/Text/Filter/Pivot/Map`, `kpiSparkline/Trend/Target`, `chartAnnotations`, `gridGroupBy/Summary/ConditionalFormats`, `drilldown`; wired into `KpiSetupPanel`, `ChartSetupPanel`, `GridSetupPanel`; both demo apps — `x-studio` and `x-studio-composed` — now have Settings dialogs with "Widget types" and "Features" sections exposing all flags as live switches)
+
+BL-74: 

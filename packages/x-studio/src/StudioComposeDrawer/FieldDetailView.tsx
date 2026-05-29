@@ -12,7 +12,7 @@ import {
 } from '@mui/material';
 import { useStudioController, useStudioSelector, selectShell, selectDataSources } from '../context';
 import type { StudioNumberFormat } from '../models';
-import { TYPE_FORMAT_LABEL } from './StudioComposeDrawer';
+import { TYPE_FORMAT_LABEL } from './StudioComposeDrawerLabels';
 
 const NUMBER_FORMAT_OPTIONS: { value: StudioNumberFormat; label: string }[] = [
   { value: 'integer', label: 'Integer' },

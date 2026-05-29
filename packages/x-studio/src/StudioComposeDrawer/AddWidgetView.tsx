@@ -539,13 +539,13 @@ export function AddWidgetView() {
     () =>
       WIDGET_TYPES.filter((wt) => {
         switch (wt.kind) {
-          case 'grid': return features.allowGrid !== false;
-          case 'chart': return features.allowChart !== false;
-          case 'kpi': return features.allowKpi !== false;
-          case 'text': return features.allowText !== false;
-          case 'filter': return features.allowFilter !== false;
-          case 'pivot': return features.allowPivot !== false;
-          case 'map': return features.allowMap !== false;
+          case 'grid': return features.grid !== false;
+          case 'chart': return features.chart !== false;
+          case 'kpi': return features.kpi !== false;
+          case 'text': return features.text !== false;
+          case 'filter': return features.filter !== false;
+          case 'pivot': return features.pivot !== false;
+          case 'map': return features.map !== false;
           default: return true;
         }
       }),

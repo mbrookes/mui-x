@@ -149,9 +149,7 @@ function RelationshipDialog(props: {
                 value={form.targetId}
                 onChange={(e) => { field('targetId')(e.target.value); field('targetField')(''); }}
               >
-                {sourceList.filter((s) => s.id !== form.sourceId).map((s) => (
-                  <MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>
-                ))}
+                {sourceList.flatMap((s) => s.id !== form.sourceId ? [<MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>] : [])}
               </Select>
             </FormControl>
             <FormControl size="small" sx={{ flex: 1 }}>
@@ -186,11 +184,11 @@ function RelationshipDialog(props: {
                     field('junctionTargetField')('');
                   }}
                 >
-                  {sourceList
-                    .filter((s) => s.id !== form.sourceId && s.id !== form.targetId)
-                    .map((s) => (
-                      <MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>
-                    ))}
+                  {sourceList.flatMap((s) =>
+                    s.id !== form.sourceId && s.id !== form.targetId
+                      ? [<MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>]
+                      : [],
+                  )}
                 </Select>
               </FormControl>
               <Stack direction="row" spacing={1}>

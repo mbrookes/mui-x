@@ -442,7 +442,7 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
       result = result.filter((row) => topKeys.has(row[fieldId]));
     } else {
       // Numeric rank: sort rows by the field value directly
-      const sorted = [...result].sort((a, b) => {
+      const sorted = result.toSorted((a, b) => {
         const av = Number(a[fieldId] ?? 0);
         const bv = Number(b[fieldId] ?? 0);
         return dir === 'top' ? bv - av : av - bv;

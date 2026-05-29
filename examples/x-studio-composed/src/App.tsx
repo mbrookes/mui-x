@@ -10,13 +10,22 @@ import {
   createStudioController,
   selectDashboard,
   selectDataSources,
+  selectFilters,
   selectMode,
   selectPages,
   useStudioController,
   useStudioKeyboardShortcuts,
   useStudioSelector,
 } from '@mui/x-studio';
-import type { StudioAIConfig, StudioFeatureFlags, StudioMode, StudioPage, StudioState } from '@mui/x-studio';
+import type {
+  StudioAIConfig,
+  StudioFeatureFlags,
+  StudioFilterOperator,
+  StudioFilterState,
+  StudioMode,
+  StudioPage,
+  StudioState,
+} from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { AppToolbar } from './components/AppToolbar';
 import { ComposeDialog } from './components/ComposeDialog';
@@ -97,6 +106,48 @@ function setUrlPageId(pageId: string, pages: Record<string, StudioPage> | undefi
   window.history.replaceState(window.history.state, '', url);
 }
 
+// ── Filter URL helpers ────────────────────────────────────────────────────────
+
+type EncodedFilterValues = Record<
+  string,
+  { operator: string; value: unknown; operator2?: string; value2?: unknown }
+>;
+
+function encodeFilterValues(filters: StudioFilterState[]): string | null {
+  const map: EncodedFilterValues = {};
+  for (const f of filters) {
+    if (f.scope === 'page' && f.value != null) {
+      const entry: EncodedFilterValues[string] = { operator: f.operator, value: f.value };
+      if (f.operator2 != null) {
+        entry.operator2 = f.operator2;
+      }
+      if (f.value2 != null) {
+        entry.value2 = f.value2;
+      }
+      map[f.id] = entry;
+    }
+  }
+  if (Object.keys(map).length === 0) {
+    return null;
+  }
+  return btoa(JSON.stringify(map));
+}
+
+function decodeFilterValues(encoded: string): EncodedFilterValues | null {
+  try {
+    return JSON.parse(atob(encoded)) as EncodedFilterValues;
+  } catch {
+    return null;
+  }
+}
+
+function getUrlFilterValuesParam(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  return new URL(window.location.href).searchParams.get('fv');
+}
+
 // ── Build initial state ───────────────────────────────────────────────────────
 
 function buildInitialState(): Partial<StudioState> {
@@ -130,6 +181,32 @@ function buildInitialState(): Partial<StudioState> {
         [shipmentItemsSource.id]: shipmentItemsSource,
       },
     };
+  }
+
+  // Apply ?fv= filter value overrides from URL
+  const fvParam = getUrlFilterValuesParam();
+  if (fvParam) {
+    const filterValues = decodeFilterValues(fvParam);
+    if (filterValues && base.filters) {
+      base = {
+        ...base,
+        filters: base.filters.map((f) => {
+          const patch = filterValues[f.id];
+          if (!patch) {
+            return f;
+          }
+          return {
+            ...f,
+            operator: patch.operator as StudioFilterOperator,
+            value: patch.value,
+            ...(patch.operator2 != null && {
+              operator2: patch.operator2 as StudioFilterOperator,
+            }),
+            ...(patch.value2 != null && { value2: patch.value2 }),
+          };
+        }),
+      };
+    }
   }
 
   if (!urlPageId) {
@@ -179,6 +256,7 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar, featureFlags, onFe
   const dataSources = useStudioSelector(selectDataSources);
   const dashboard = useStudioSelector(selectDashboard);
   const pages = useStudioSelector(selectPages);
+  const filters = useStudioSelector(selectFilters);
 
   // canUndo / canRedo are not part of the reactive store state; subscribe manually
   const [canUndo, setCanUndo] = React.useState(() => controller.canUndo());
@@ -246,6 +324,32 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar, featureFlags, onFe
     setUrlPageId(activePageId, pages);
   }, [activePageId, pages]);
 
+  // Sync page-filter values to the URL ?fv= query param (debounced 300 ms)
+  const filterSyncTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  React.useEffect(() => {
+    if (filterSyncTimer.current) {
+      clearTimeout(filterSyncTimer.current);
+    }
+    filterSyncTimer.current = setTimeout(() => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+      const url = new URL(window.location.href);
+      const encoded = encodeFilterValues(filters);
+      if (encoded) {
+        url.searchParams.set('fv', encoded);
+      } else {
+        url.searchParams.delete('fv');
+      }
+      window.history.replaceState(window.history.state, '', url);
+    }, 300);
+    return () => {
+      if (filterSyncTimer.current) {
+        clearTimeout(filterSyncTimer.current);
+      }
+    };
+  }, [filters]);
+
   // Toolbar handlers
   const handleModeChange = React.useCallback(
     (_event: React.ChangeEvent<HTMLInputElement>, checked: boolean) => {
@@ -256,6 +360,34 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar, featureFlags, onFe
 
   const handleUndo = React.useCallback(() => controller.undo(), [controller]);
   const handleRedo = React.useCallback(() => controller.redo(), [controller]);
+
+  const handleRefresh = React.useCallback(() => {
+    const {
+      customersSource,
+      productsSource,
+      ordersSource,
+      orderItemsSource,
+      shipmentsSource,
+      shipmentItemsSource,
+    } = generateSalesData({ seed: Date.now() });
+    for (const source of [
+      customersSource,
+      productsSource,
+      ordersSource,
+      orderItemsSource,
+      shipmentsSource,
+      shipmentItemsSource,
+    ]) {
+      if (source.rows) {
+        controller.setDataSourceAdapter(source.id, createAdapter(source.rows));
+      }
+    }
+    onSnackbar('Data refreshed', 'success');
+  }, [controller, onSnackbar]);
+
+  const handleCopyLink = React.useCallback(() => {
+    navigator.clipboard.writeText(window.location.href).catch(() => {});
+  }, []);
 
   const handleSave = React.useCallback(() => {
     const serialized = controller.serializeState();
@@ -324,6 +456,8 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar, featureFlags, onFe
         onChatToggle={aiConfig && mode === 'edit' ? handleChatToggle : undefined}
         onAddPage={mode === 'edit' ? handleAddPage : undefined}
         hasEmptyPage={hasEmptyPage}
+        onRefresh={handleRefresh}
+        onCopyLink={handleCopyLink}
         onSettingsOpen={handleSettingsOpen}
       />
 

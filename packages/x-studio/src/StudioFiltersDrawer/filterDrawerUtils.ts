@@ -66,15 +66,13 @@ export function generateId() {
 /** Build a flat list of field options across all sources, annotated with source and type info. */
 export function buildFieldOptions(dataSources: Record<string, StudioDataSource>): FieldOption[] {
   return Object.values(dataSources as Record<string, StudioDataSource>).flatMap((ds) =>
-    ds.fields
-      .filter((f) => !f.hidden)
-      .map((f) => ({
-        id: f.id,
-        label: f.label,
-        fieldType: f.type,
-        sourceId: ds.id,
-        sourceLabel: ds.label,
-      })),
+    ds.fields.flatMap((f) => f.hidden ? [] : [{
+      id: f.id,
+      label: f.label,
+      fieldType: f.type,
+      sourceId: ds.id,
+      sourceLabel: ds.label,
+    }]),
   );
 }
 

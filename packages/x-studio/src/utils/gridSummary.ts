@@ -21,8 +21,10 @@ export function computeGridSummary(
 ): Record<string, string> {
   const result: Record<string, string> = {};
 
+  const fieldIndex = new Map(fields.map((f) => [f.id, f]));
+
   for (const [fieldId, aggregation] of Object.entries(config.fields)) {
-    const fieldDef = fields.find((f) => f.id === fieldId);
+    const fieldDef = fieldIndex.get(fieldId);
     const isNumeric = fieldDef?.type === 'number';
 
     // For non-numeric fields, numeric aggregations aren't meaningful — fall back to count.

@@ -51,14 +51,17 @@ export function enrichWithCrossSourceColumns(
 
   const colMeta: ColMeta[] = [];
 
+  // Pre-build relationship index: targetId → relationship (many-to-one from widgetSourceId)
+  const relIndex = new Map<string, (typeof relationships)[number]>();
+  for (const r of relationships) {
+    if (r.type === 'many-to-one' && r.sourceId === widgetSourceId) {
+      relIndex.set(r.targetId, r);
+    }
+  }
+
   for (const col of crossCols) {
     const relatedSourceId = col.sourceId!;
-    const rel = relationships.find(
-      (r) =>
-        r.type === 'many-to-one' &&
-        r.sourceId === widgetSourceId &&
-        r.targetId === relatedSourceId,
-    );
+    const rel = relIndex.get(relatedSourceId);
     if (!rel) {
       continue;
     }

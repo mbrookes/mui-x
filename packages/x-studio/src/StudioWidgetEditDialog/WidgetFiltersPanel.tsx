@@ -108,7 +108,9 @@ function FilterRow(props: {
 
   // Group field options by source label
   const ownFields = fieldOptions.filter((f) => !f.sourceId);
-  const relatedSources = Array.from(new Set(fieldOptions.filter((f) => f.sourceId).map((f) => f.sourceId)));
+  const relatedSources = Array.from(
+    fieldOptions.reduce((set, f) => { if (f.sourceId) set.add(f.sourceId); return set; }, new Set<string>()),
+  );
 
   return (
     <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>

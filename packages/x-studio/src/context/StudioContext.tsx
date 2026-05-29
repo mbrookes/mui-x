@@ -7,7 +7,10 @@ import {
   StudioUIConfigContext,
   useStudioFeatures,
   useStudioUIConfig,
+  useStudioLocaleText,
+  DEFAULT_STUDIO_LOCALE_TEXT,
 } from '../internals/StudioUIConfigContext';
+import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
 
 /** Ref to the canvas scroll container, used to scroll to bottom after adding a widget. */
 export const CanvasScrollContext =
@@ -28,15 +31,27 @@ export interface StudioProviderProps {
    * All flags default to `true` when not specified.
    */
   featureFlags?: StudioFeatureFlags;
+  /**
+   * Locale text overrides. Merge any subset of tokens over the English defaults.
+   * Use a pre-built translation object (e.g. `ptBRLocaleText`) or a partial
+   * override to customise individual strings.
+   */
+  localeText?: Partial<StudioLocaleText>;
 }
 
 export function StudioProvider(props: StudioProviderProps) {
-  const { children, controller, tableSourceMode = 'explicit', featureFlags = {} } = props;
+  const { children, controller, tableSourceMode = 'explicit', featureFlags = {}, localeText } = props;
 
   const uiConfig = React.useMemo(
-    () => ({ tableSourceMode, featureFlags }),
+    () => ({
+      tableSourceMode,
+      featureFlags,
+      localeText: localeText
+        ? { ...DEFAULT_STUDIO_LOCALE_TEXT, ...localeText }
+        : DEFAULT_STUDIO_LOCALE_TEXT,
+    }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tableSourceMode, JSON.stringify(featureFlags)],
+    [tableSourceMode, JSON.stringify(featureFlags), JSON.stringify(localeText)],
   );
 
   return (
@@ -66,4 +81,4 @@ export function useStudioSelector<Value>(selector: (state: StudioState) => Value
   return controller.store.use(selector) as Value;
 }
 
-export { useStudioFeatures, useStudioUIConfig };
+export { useStudioFeatures, useStudioUIConfig, useStudioLocaleText };

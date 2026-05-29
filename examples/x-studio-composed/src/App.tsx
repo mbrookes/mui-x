@@ -5,7 +5,6 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import {
   CanvasScrollContext,
   StudioCanvas,
-  StudioChatPanel,
   StudioController,
   StudioProvider,
   createStudioController,
@@ -24,6 +23,8 @@ import { ComposeDialog } from './components/ComposeDialog';
 import { DataDialog } from './components/DataDialog';
 import { FiltersDialog } from './components/FiltersDialog';
 import { AddWidgetFab } from './components/AddWidgetFab';
+import { ChatSidePanel } from './components/ChatSidePanel';
+import { EmptyPagePrompt } from './components/EmptyPagePrompt';
 import { uploadJson, downloadJson } from './utils/fileUtils';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
@@ -202,6 +203,11 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
   const handleFiltersClose = React.useCallback(() => setFiltersOpen(false), []);
   const handleChatToggle = React.useCallback(() => setChatOpen((prev) => !prev), []);
 
+  const handleAddPage = React.useCallback(() => {
+    const newId = controller.addPage('New Page');
+    controller.setActivePage(newId);
+  }, [controller]);
+
   // Close chat when switching to view mode
   React.useEffect(() => {
     if (mode !== 'edit') {
@@ -285,6 +291,11 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
   const pageList = Object.values(pages);
   const canvasScrollRef = React.useRef<HTMLDivElement>(null);
 
+  const hasEmptyPage = React.useMemo(
+    () => pageList.some((p) => (p.widgetRows ?? []).length === 0),
+    [pageList],
+  );
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <AppToolbar
@@ -305,6 +316,8 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
         onFiltersOpen={handleFiltersOpen}
         chatOpen={chatOpen}
         onChatToggle={aiConfig && mode === 'edit' ? handleChatToggle : undefined}
+        onAddPage={mode === 'edit' ? handleAddPage : undefined}
+        hasEmptyPage={hasEmptyPage}
       />
 
       {/* Dialogs — rendered outside the canvas so they overlay everything */}
@@ -313,7 +326,7 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
       <FiltersDialog open={filtersOpen} onClose={handleFiltersClose} />
 
       <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-        {/* Canvas takes full width — no sidebar in the composable shell */}
+        {/* Canvas takes full width — side panel slides in alongside it */}
         <Box sx={{ flexGrow: 1, minWidth: 0, position: 'relative' }}>
           {adapterMode && (
             <Chip
@@ -341,16 +354,23 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
               }}
             >
               <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
-                <StudioCanvas />
+                {aiConfig && mode === 'edit' && (pages[activePageId]?.widgetRows ?? []).length === 0 ? (
+                  <EmptyPagePrompt aiConfig={aiConfig} />
+                ) : (
+                  <StudioCanvas />
+                )}
               </Box>
             </Box>
-            {mode === 'edit' && <AddWidgetFab onWidgetAdded={handleComposeOpen} />}
+            {/* Show FAB when in edit mode and the active page already has content */}
+            {mode === 'edit' && (pages[activePageId]?.widgetRows ?? []).length > 0 && (
+              <AddWidgetFab onWidgetAdded={handleComposeOpen} />
+            )}
           </CanvasScrollContext.Provider>
         </Box>
 
-        {/* Overlay AI chat panel — edit mode only, toggled from toolbar */}
+        {/* Slideout AI chat side panel — edit mode only, toggled from toolbar */}
         {aiConfig && (
-          <StudioChatPanel aiConfig={aiConfig} open={chatOpen} onClose={handleChatToggle} overlay />
+          <ChatSidePanel aiConfig={aiConfig} open={chatOpen} onClose={handleChatToggle} />
         )}
       </Box>
     </Box>

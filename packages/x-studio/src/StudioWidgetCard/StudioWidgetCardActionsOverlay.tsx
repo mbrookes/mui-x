@@ -8,6 +8,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined';
 import EditIcon from '@mui/icons-material/Edit';
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
+import { useStudioLocaleText } from '../context';
 
 export interface StudioWidgetCardActionsOverlayProps {
   mode: 'edit' | 'view';
@@ -50,6 +51,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
   } = props;
 
   const [moveMenuAnchor, setMoveMenuAnchor] = React.useState<HTMLElement | null>(null);
+  const localeText = useStudioLocaleText();
 
   if (mode === 'edit') {
     return (
@@ -95,14 +97,14 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 event.stopPropagation();
                 onExpand();
               }}
-              aria-label="Expand chart"
+              aria-label={localeText.widgetExpandTooltip}
               tabIndex={showEditActions ? 0 : -1}
             >
               <OpenInFullIcon />
             </IconButton>
           </Tooltip>
         )}
-        <Tooltip title="Edit widget">
+        <Tooltip title={localeText.widgetEditTooltip}>
           <IconButton
             size="small"
             sx={actionButtonSx}
@@ -110,7 +112,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               event.stopPropagation();
               onEdit();
             }}
-            aria-label="Edit widget"
+            aria-label={localeText.widgetEditTooltip}
             tabIndex={showEditActions ? 0 : -1}
           >
             <EditIcon />
@@ -132,7 +134,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
         </Tooltip>
         {moveToPageOptions.length > 0 && (
           <React.Fragment>
-            <Tooltip title="Move to page">
+            <Tooltip title={localeText.widgetMoveToPageLabel}>
               <IconButton
                 size="small"
                 sx={actionButtonSx}
@@ -140,7 +142,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                   event.stopPropagation();
                   setMoveMenuAnchor(event.currentTarget);
                 }}
-                aria-label="Move to page"
+                aria-label={localeText.widgetMoveToPageLabel}
                 tabIndex={showEditActions ? 0 : -1}
               >
                 <DriveFileMoveOutlinedIcon />
@@ -225,7 +227,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 event.stopPropagation();
                 onExpand();
               }}
-              aria-label="Expand chart"
+              aria-label={localeText.widgetExpandTooltip}
               tabIndex={showViewExpand ? 0 : -1}
             >
               <OpenInFullIcon />

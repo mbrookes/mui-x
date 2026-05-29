@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Studio } from './Studio';
 import type { StudioHandle, StudioProps } from './Studio';
 import type { StudioDataSourceAdapter, StudioFeatureFlags, StudioState } from '../models';
+import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
 
 /**
  * Props for `StudioDashboard` — the embed-first entry point to Studio.
@@ -68,6 +69,10 @@ export interface StudioDashboardProps {
    */
   featureFlags?: StudioFeatureFlags;
   /**
+   * Locale text overrides. Pass a full translation object or a partial override.
+   */
+  localeText?: Partial<StudioLocaleText>;
+  /**
    * Canvas width (in px) below which all widgets stack to full width.
    * @default 600
    */
@@ -100,6 +105,7 @@ export const StudioDashboard = React.memo(
       dataAdapters,
       onStateChange,
       featureFlags,
+      localeText,
       stackBreakpoint,
       sidebarSide,
     } = props;
@@ -142,6 +148,7 @@ export const StudioDashboard = React.memo(
         initialState={config}
         onStateChange={onStateChange}
         featureFlags={mergedFlags}
+        localeText={localeText}
         stackBreakpoint={stackBreakpoint}
         sidebarSide={sidebarSide}
       />

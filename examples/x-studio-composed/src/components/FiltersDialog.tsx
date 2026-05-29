@@ -30,7 +30,7 @@ export function FiltersDialog({ open, onClose }: FiltersDialogProps) {
           <CloseIcon fontSize="small" />
         </IconButton>
       </DialogTitle>
-      <DialogContent dividers sx={{ p: 3, overflow: 'hidden' }}>
+      <DialogContent dividers sx={{ p: 3, overflow: 'auto' }}>
         <StudioFiltersDrawer />
       </DialogContent>
     </Dialog>

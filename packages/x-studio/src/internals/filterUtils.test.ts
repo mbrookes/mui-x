@@ -1,0 +1,793 @@
+import { describe, expect, it } from 'vitest';
+import dayjs from 'dayjs';
+import { applyFilters, resolveMetricRef, resolveMetricRefs } from './filterUtils';
+import type { StudioDataSource, StudioFilterState } from '../models';
+
+function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
+  return {
+    id: 'f1',
+    field: 'value',
+    operator: 'equals',
+    value: '',
+    scope: 'widget',
+    ...overrides,
+  };
+}
+
+// ─── String operators ─────────────────────────────────────────────────────────
+
+describe('applyFilters — string operators', () => {
+  const rows = [
+    { id: 1, name: 'Apple' },
+    { id: 2, name: 'Banana' },
+    { id: 3, name: 'Cherry' },
+    { id: 4, name: '' },
+    { id: 5, name: null },
+  ];
+
+  it('equals', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'equals', value: 'Banana' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2]);
+  });
+
+  it('not_equals', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'not_equals', value: 'Apple' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3, 4, 5]);
+  });
+
+  it('contains — case insensitive', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'contains', value: 'an' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2]); // Banana
+  });
+
+  it('does_not_contain', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'does_not_contain', value: 'a' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([3, 4, 5]); // Cherry, '', null
+  });
+
+  it('starts_with', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'starts_with', value: 'ba' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2]);
+  });
+
+  it('not_starts_with', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'not_starts_with', value: 'A' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3, 4, 5]);
+  });
+
+  it('ends_with', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'ends_with', value: 'ry' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([3]);
+  });
+
+  it('not_ends_with', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'not_ends_with', value: 'e' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3, 4, 5]);
+  });
+
+  it('is_empty — matches empty string and null', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'is_empty', value: '' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([4, 5]);
+  });
+
+  it('is_not_empty', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'is_not_empty', value: '' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1, 2, 3]);
+  });
+
+  it('in — matches any of the array values', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'in', value: ['Apple', 'Cherry'] }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1, 3]);
+  });
+});
+
+// ─── Numeric operators ────────────────────────────────────────────────────────
+
+describe('applyFilters — numeric operators', () => {
+  const rows = [
+    { id: 1, score: 10 },
+    { id: 2, score: 20 },
+    { id: 3, score: 30 },
+    { id: 4, score: 20 },
+  ];
+
+  it('equals', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'score', operator: 'equals', value: 20, fieldType: 'number' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 4]);
+  });
+
+  it('not_equals', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'score', operator: 'not_equals', value: 20, fieldType: 'number' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1, 3]);
+  });
+
+  it('greater_than', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'score', operator: 'greater_than', value: 20, fieldType: 'number' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([3]);
+  });
+
+  it('less_than', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'score', operator: 'less_than', value: 20, fieldType: 'number' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1]);
+  });
+
+  it('greater_than_or_equal', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'score',
+        operator: 'greater_than_or_equal',
+        value: 20,
+        fieldType: 'number',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3, 4]);
+  });
+
+  it('less_than_or_equal', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'score',
+        operator: 'less_than_or_equal',
+        value: 20,
+        fieldType: 'number',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1, 2, 4]);
+  });
+
+  it('between — inclusive', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'score',
+        operator: 'between',
+        value: { from: 15, to: 25 },
+        fieldType: 'number',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 4]);
+  });
+
+  it('between — from only', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'score', operator: 'between', value: { from: 25 }, fieldType: 'number' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([3]);
+  });
+
+  it('between — to only', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'score', operator: 'between', value: { to: 15 }, fieldType: 'number' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1]);
+  });
+
+  it('between — null range passes all', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'score', operator: 'between', value: null, fieldType: 'number' }),
+    ]);
+    expect(result).toHaveLength(4);
+  });
+
+  it('string "20" coerces to number for comparison', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'score', operator: 'equals', value: '20', fieldType: 'number' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 4]);
+  });
+});
+
+// ─── Boolean operators ────────────────────────────────────────────────────────
+
+describe('applyFilters — boolean operators', () => {
+  const rows = [
+    { id: 1, active: true },
+    { id: 2, active: false },
+    { id: 3, active: true },
+  ];
+
+  it('equals true', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'active', operator: 'equals', value: 'true', fieldType: 'boolean' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1, 3]);
+  });
+
+  it('equals false', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'active', operator: 'equals', value: 'false', fieldType: 'boolean' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2]);
+  });
+
+  it('not_equals', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'active', operator: 'not_equals', value: 'true', fieldType: 'boolean' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2]);
+  });
+});
+
+// ─── Date operators ───────────────────────────────────────────────────────────
+
+describe('applyFilters — date operators', () => {
+  const rows = [
+    { id: 1, date: '2024-01-01' },
+    { id: 2, date: '2024-06-15' },
+    { id: 3, date: '2024-12-31' },
+  ];
+
+  it('equals', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'date', operator: 'equals', value: '2024-06-15', fieldType: 'date' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2]);
+  });
+
+  it('greater_than', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'date',
+        operator: 'greater_than',
+        value: '2024-06-15',
+        fieldType: 'date',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([3]);
+  });
+
+  it('less_than', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'date', operator: 'less_than', value: '2024-06-15', fieldType: 'date' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1]);
+  });
+
+  it('greater_than_or_equal', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'date',
+        operator: 'greater_than_or_equal',
+        value: '2024-06-15',
+        fieldType: 'date',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3]);
+  });
+
+  it('less_than_or_equal', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'date',
+        operator: 'less_than_or_equal',
+        value: '2024-06-15',
+        fieldType: 'date',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1, 2]);
+  });
+
+  it('between dates', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'date',
+        operator: 'between',
+        value: { from: '2024-01-02', to: '2024-12-30' },
+        fieldType: 'date',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2]);
+  });
+});
+
+// ─── Relative date values ─────────────────────────────────────────────────────
+
+describe('applyFilters — relative date values', () => {
+  it('greater_than relative past: old rows are excluded', () => {
+    // "date must be after 10 years ago" — 1990 row should be excluded, this year should pass
+    const rows = [
+      { id: 'old', date: '1990-01-01' },
+      { id: 'recent', date: dayjs().subtract(1, 'month').format('YYYY-MM-DD') },
+    ];
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'date',
+        operator: 'greater_than',
+        value: { relative: true, amount: 10, unit: 'year', direction: 'past' },
+        fieldType: 'date',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['recent']);
+  });
+
+  it('less_than relative future: far-future row excluded, nearby row passes', () => {
+    const rows = [
+      { id: 'near', date: dayjs().add(1, 'month').format('YYYY-MM-DD') },
+      { id: 'far', date: '2099-12-31' },
+    ];
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'date',
+        operator: 'less_than',
+        value: { relative: true, amount: 1, unit: 'year', direction: 'next' },
+        fieldType: 'date',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['near']);
+  });
+});
+
+// ─── Selection mode ───────────────────────────────────────────────────────────
+
+describe('applyFilters — selection mode', () => {
+  const rows = [
+    { id: 1, status: 'active' },
+    { id: 2, status: 'inactive' },
+    { id: 3, status: 'pending' },
+    { id: 4, status: 'active' },
+  ];
+
+  it('matches rows in the selected set', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'status',
+        filterMode: 'selection',
+        operator: 'equals',
+        value: ['active', 'pending'],
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1, 3, 4]);
+  });
+
+  it('empty selection passes all rows (filter considered incomplete)', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'status', filterMode: 'selection', operator: 'equals', value: [] }),
+    ]);
+    expect(result).toHaveLength(4);
+  });
+});
+
+// ─── Rank mode ────────────────────────────────────────────────────────────────
+
+describe('applyFilters — rank mode', () => {
+  const rows = [
+    { id: 'a', revenue: 100, category: 'X' },
+    { id: 'b', revenue: 300, category: 'Y' },
+    { id: 'c', revenue: 200, category: 'X' },
+    { id: 'd', revenue: 50, category: 'Z' },
+    { id: 'e', revenue: 400, category: 'Y' },
+  ];
+
+  it('top N by numeric field (direct)', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'revenue',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 3,
+        rankDirection: 'top',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['e', 'b', 'c']);
+  });
+
+  it('bottom N by numeric field (direct)', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'revenue',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 2,
+        rankDirection: 'bottom',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['d', 'a']);
+  });
+
+  it('top N by aggregate rankByField — keeps all rows belonging to top groups', () => {
+    // Top 1 category by total revenue: Y = 700, X = 300, Z = 50 → only Y rows kept
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'category',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 1,
+        rankDirection: 'top',
+        rankByField: 'revenue',
+      }),
+    ]);
+    expect(result.map((r) => r.id).sort()).toEqual(['b', 'e']);
+  });
+
+  it('bottom N by aggregate rankByField', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'category',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 2,
+        rankDirection: 'bottom',
+        rankByField: 'revenue',
+      }),
+    ]);
+    // Bottom 2 categories: Z (50) and X (300)
+    expect(result.map((r) => r.id).sort()).toEqual(['a', 'c', 'd']);
+  });
+
+  it('rank N=0 is treated as incomplete and skipped', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'revenue',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 0,
+        rankDirection: 'top',
+      }),
+    ]);
+    expect(result).toHaveLength(5);
+  });
+});
+
+// ─── Compound conditions (AND / OR) ───────────────────────────────────────────
+
+describe('applyFilters — compound conditions', () => {
+  const rows = [
+    { id: 1, score: 10, tag: 'alpha' },
+    { id: 2, score: 25, tag: 'beta' },
+    { id: 3, score: 50, tag: 'alpha' },
+    { id: 4, score: 75, tag: 'beta' },
+  ];
+
+  it('AND: both conditions must match', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'score',
+        operator: 'greater_than',
+        value: 20,
+        fieldType: 'number',
+        operator2: 'less_than',
+        value2: 60,
+        conjunction: 'and',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3]);
+  });
+
+  it('OR: either condition matches', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'score',
+        operator: 'less_than',
+        value: 15,
+        fieldType: 'number',
+        operator2: 'greater_than',
+        value2: 60,
+        conjunction: 'or',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1, 4]);
+  });
+
+  it('incomplete second condition is ignored', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'score',
+        operator: 'greater_than',
+        value: 40,
+        fieldType: 'number',
+        operator2: 'less_than',
+        value2: '', // incomplete
+        conjunction: 'and',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([3, 4]);
+  });
+});
+
+// ─── Multiple filters (all must pass) ─────────────────────────────────────────
+
+describe('applyFilters — multiple simultaneous filters', () => {
+  const rows = [
+    { id: 1, score: 50, tag: 'alpha' },
+    { id: 2, score: 50, tag: 'beta' },
+    { id: 3, score: 10, tag: 'alpha' },
+  ];
+
+  it('all filters must pass (implicit AND across filters)', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'score', operator: 'equals', value: 50, fieldType: 'number' }),
+      makeFilter({ id: 'f2', field: 'tag', operator: 'equals', value: 'alpha' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1]);
+  });
+});
+
+// ─── Incomplete filter handling ───────────────────────────────────────────────
+
+describe('applyFilters — incomplete filters are skipped', () => {
+  const rows = [
+    { id: 1, name: 'test' },
+    { id: 2, name: 'other' },
+  ];
+
+  it('filter with empty value is skipped', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'equals', value: '' }),
+    ]);
+    expect(result).toHaveLength(2);
+  });
+
+  it('filter with null value is skipped', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'equals', value: null }),
+    ]);
+    expect(result).toHaveLength(2);
+  });
+
+  it('filter with no field is skipped', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: '', operator: 'equals', value: 'test' }),
+    ]);
+    expect(result).toHaveLength(2);
+  });
+
+  it('is_empty and is_not_empty are always complete (no value needed)', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'is_empty', value: '' }),
+    ]);
+    expect(result).toHaveLength(0);
+  });
+
+  it('empty filter array returns all rows', () => {
+    const result = applyFilters(rows, []);
+    expect(result).toHaveLength(2);
+  });
+});
+
+// ─── resolveMetricRef ─────────────────────────────────────────────────────────
+
+describe('resolveMetricRef', () => {
+  const dataSources: Record<string, StudioDataSource> = {
+    metrics: {
+      id: 'metrics',
+      label: 'Business Metrics',
+      fields: [{ id: 'value', label: 'Value', type: 'number' }],
+      rows: [
+        { id: 'BM-001', name: 'Threshold', value: 6 },
+        { id: 'BM-002', name: 'Limit', value: 100 },
+      ],
+    },
+  };
+
+  it('resolves to the field value of the matching row', () => {
+    expect(
+      resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-001', field: 'value' }, dataSources),
+    ).toBe(6);
+  });
+
+  it('returns undefined for unknown source', () => {
+    expect(
+      resolveMetricRef({ sourceId: 'unknown', rowId: 'BM-001', field: 'value' }, dataSources),
+    ).toBeUndefined();
+  });
+
+  it('returns undefined for unknown row ID', () => {
+    expect(
+      resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-999', field: 'value' }, dataSources),
+    ).toBeUndefined();
+  });
+
+  it('returns undefined for unknown field', () => {
+    expect(
+      resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-001', field: 'nonexistent' }, dataSources),
+    ).toBeUndefined();
+  });
+
+  it('returns undefined when source has no rows', () => {
+    const emptySources = { metrics: { ...dataSources.metrics, rows: undefined } };
+    expect(
+      resolveMetricRef(
+        { sourceId: 'metrics', rowId: 'BM-001', field: 'value' },
+        emptySources as any,
+      ),
+    ).toBeUndefined();
+  });
+});
+
+// ─── resolveMetricRefs ────────────────────────────────────────────────────────
+
+describe('resolveMetricRefs', () => {
+  const dataSources: Record<string, StudioDataSource> = {
+    metrics: {
+      id: 'metrics',
+      label: 'Business Metrics',
+      fields: [{ id: 'value', label: 'Value', type: 'number' }],
+      rows: [{ id: 'BM-012', name: 'Active Months', value: 6 }],
+    },
+  };
+
+  it('returns filters unchanged when no refs present', () => {
+    const filters = [makeFilter({ value: 42 })];
+    const result = resolveMetricRefs(filters, dataSources);
+    expect(result[0]).toBe(filters[0]); // same reference
+  });
+
+  it('replaces value with resolved metric ref', () => {
+    const filters = [
+      makeFilter({
+        value: '',
+        valueRef: { sourceId: 'metrics', rowId: 'BM-012', field: 'value' },
+      }),
+    ];
+    const result = resolveMetricRefs(filters, dataSources);
+    expect(result[0].value).toBe(6);
+    expect(result[0].valueRef).toEqual({ sourceId: 'metrics', rowId: 'BM-012', field: 'value' });
+  });
+
+  it('replaces value2 with resolved metric ref', () => {
+    const filters = [
+      makeFilter({
+        value: 0,
+        operator2: 'less_than',
+        value2: '',
+        value2Ref: { sourceId: 'metrics', rowId: 'BM-012', field: 'value' },
+      }),
+    ];
+    const result = resolveMetricRefs(filters, dataSources);
+    expect(result[0].value2).toBe(6);
+  });
+
+  it('falls back to original value if ref resolves to undefined', () => {
+    const filters = [
+      makeFilter({
+        value: 99,
+        valueRef: { sourceId: 'metrics', rowId: 'BM-MISSING', field: 'value' },
+      }),
+    ];
+    const result = resolveMetricRefs(filters, dataSources);
+    expect(result[0].value).toBe(99);
+  });
+
+  it('resolved value is used in applyFilters', () => {
+    const rows = [
+      { id: 1, months: 3 },
+      { id: 2, months: 7 },
+      { id: 3, months: 6 },
+    ];
+    const filters = resolveMetricRefs(
+      [
+        makeFilter({
+          field: 'months',
+          operator: 'greater_than',
+          value: '',
+          fieldType: 'number',
+          valueRef: { sourceId: 'metrics', rowId: 'BM-012', field: 'value' },
+        }),
+      ],
+      dataSources,
+    );
+    const result = applyFilters(rows, filters);
+    expect(result.map((r) => r.id)).toEqual([2]); // only months > 6
+  });
+
+  it('resolves relative date metric refs into the amount while preserving the relative value object', () => {
+    const filters = [
+      makeFilter({
+        field: 'lastOrderDate',
+        fieldType: 'date',
+        operator: 'greater_than',
+        value: { relative: true, amount: 1, unit: 'month', direction: 'past' },
+        valueRef: { sourceId: 'metrics', rowId: 'BM-012', field: 'value' },
+      }),
+    ];
+
+    const result = resolveMetricRefs(filters, dataSources);
+
+    expect(result[0].value).toEqual({
+      relative: true,
+      amount: 6,
+      unit: 'month',
+      direction: 'past',
+    });
+    expect(result[0].valueRef).toEqual({ sourceId: 'metrics', rowId: 'BM-012', field: 'value' });
+  });
+});
+
+// ─── Performance: Batch 2 — resolveMetricRefs row index ──────────────────────
+
+describe('resolveMetricRefs — perf: row index', () => {
+  const dataSources: Record<string, StudioDataSource> = {
+    kpis: {
+      id: 'kpis',
+      label: 'KPIs',
+      fields: [],
+      rows: [
+        { id: 'metric-1', value: 42 },
+        { id: 'metric-2', value: 99 },
+      ],
+    },
+  };
+
+  it('returns the input array unchanged when no filter has a ref (short-circuit)', () => {
+    const filters = [makeFilter({ field: 'x', value: '10' })];
+    const result = resolveMetricRefs(filters, dataSources);
+    expect(result).toBe(filters); // exact same reference — no work done
+  });
+
+  it('resolves valueRef via row index to the correct scalar value', () => {
+    const filters = [
+      makeFilter({
+        field: 'threshold',
+        valueRef: { sourceId: 'kpis', rowId: 'metric-1', field: 'value' },
+      }),
+    ];
+    const result = resolveMetricRefs(filters, dataSources);
+    expect(result[0].value).toBe(42);
+  });
+
+  it('resolves value2Ref via row index', () => {
+    const filters = [
+      makeFilter({
+        field: 'threshold',
+        value: '0',
+        value2Ref: { sourceId: 'kpis', rowId: 'metric-2', field: 'value' },
+      }),
+    ];
+    const result = resolveMetricRefs(filters, dataSources);
+    expect(result[0].value2).toBe(99);
+  });
+
+  it('falls back to original value for a ref pointing to a missing row', () => {
+    const filters = [
+      makeFilter({
+        field: 'threshold',
+        value: 'fallback',
+        valueRef: { sourceId: 'kpis', rowId: 'does-not-exist', field: 'value' },
+      }),
+    ];
+    const result = resolveMetricRefs(filters, dataSources);
+    // Row not found → resolveRef returns undefined → original value is preserved
+    expect(result[0].value).toBe('fallback');
+  });
+
+  it('does not mutate filters without refs when mixed with ref filters', () => {
+    const plain = makeFilter({ id: 'plain', field: 'x', value: '5' });
+    const withRef = makeFilter({
+      id: 'with-ref',
+      field: 'threshold',
+      valueRef: { sourceId: 'kpis', rowId: 'metric-1', field: 'value' },
+    });
+    const result = resolveMetricRefs([plain, withRef], dataSources);
+    expect(result[0]).toBe(plain); // plain filter returned by reference
+    expect(result[1].value).toBe(42);
+  });
+});

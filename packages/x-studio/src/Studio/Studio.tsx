@@ -13,12 +13,14 @@ import {
   useStudioController,
   useStudioSelector,
   useStudioFeatures,
+  useStudioLocaleText,
   selectMode,
   selectShell,
   selectWidgets,
   selectDataSources,
 } from '../context';
 import type { StudioDataSourceAdapter, StudioFeatureFlags, StudioMode, StudioState } from '../models';
+import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
 import { StudioController } from '../store';
 import type { SerializedStudioState, MigrationResult } from '../store/statePersistence';
 import { DrawerPanel } from './DrawerPanel';
@@ -154,6 +156,16 @@ export interface StudioProps extends StudioSlots {
    */
   featureFlags?: StudioFeatureFlags;
   /**
+   * Locale text overrides. Pass a full translation object or a partial override
+   * to customise individual strings.
+   * @example
+   * ```tsx
+   * import { ptBRLocaleText } from '@mui/x-studio/locales/pt-BR';
+   * <Studio localeText={ptBRLocaleText} />
+   * ```
+   */
+  localeText?: Partial<StudioLocaleText>;
+  /**
    * Canvas width (in px) below which all widgets stack to full width in view mode.
    * Individual pages can override this via `StudioPage.stackBreakpoint`.
    * Set to `0` to disable responsive stacking entirely.
@@ -207,6 +219,7 @@ const StudioContent = React.memo(function StudioContent(
   const controller = useStudioController();
   const canvasScrollRef = React.useRef<HTMLDivElement>(null);
   const features = useStudioFeatures();
+  const localeText = useStudioLocaleText();
 
   const shell = useStudioSelector(selectShell);
   const widgets = useStudioSelector(selectWidgets);
@@ -222,7 +235,7 @@ const StudioContent = React.memo(function StudioContent(
     return dataSources[selectedSourceId]?.fields.find((f) => f.id === selectedFieldId) ?? null;
   }, [dataSources, selectedSourceId, selectedFieldId]);
 
-  const composePanelTitle = selectedWidget?.title ?? selectedField?.label ?? 'Compose';
+  const composePanelTitle = selectedWidget?.title ?? selectedField?.label ?? localeText.composeDrawerTitle;
   const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
   const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
 
@@ -242,13 +255,13 @@ const StudioContent = React.memo(function StudioContent(
             ? [
                 {
                   drawer: 'data' as const,
-                  label: 'Data',
+                  label: localeText.dataDrawerTitle,
                   icon: <StorageIcon fontSize="small" />,
                   children: dataDrawer ?? <StudioDataDrawer />,
                 },
                 {
                   drawer: 'compose' as const,
-                  label: 'Compose',
+                  label: localeText.composeDrawerTitle,
                   title: composePanelTitle,
                   icon: <TuneIcon fontSize="small" />,
                   onBack: composeOnBack,
@@ -260,7 +273,7 @@ const StudioContent = React.memo(function StudioContent(
             ? [
                 {
                   drawer: 'filters' as const,
-                  label: 'Filters',
+                  label: localeText.filtersDrawerTitle,
                   icon: <FilterListIcon fontSize="small" />,
                   children: filtersDrawer ?? <StudioFiltersDrawer />,
                 },
@@ -273,7 +286,7 @@ const StudioContent = React.memo(function StudioContent(
       // from right to left (Data closest to the screen edge, Filters adjacent to the canvas).
       <React.Fragment>
         {showFilters && (
-          <DrawerPanel side={sidebarSide} drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
+          <DrawerPanel side={sidebarSide} drawer="filters" title={localeText.filtersDrawerTitle} icon={<FilterListIcon fontSize="small" />}>
             {filtersDrawer ?? <StudioFiltersDrawer />}
           </DrawerPanel>
         )}
@@ -289,7 +302,7 @@ const StudioContent = React.memo(function StudioContent(
           </DrawerPanel>
         )}
         {mode === 'edit' && showCompose && (
-          <DrawerPanel side={sidebarSide} drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
+          <DrawerPanel side={sidebarSide} drawer="data" title={localeText.dataDrawerTitle} icon={<StorageIcon fontSize="small" />}>
             {dataDrawer ?? <StudioDataDrawer />}
           </DrawerPanel>
         )}
@@ -297,7 +310,7 @@ const StudioContent = React.memo(function StudioContent(
     ) : (
       <React.Fragment>
         {mode === 'edit' && showCompose && (
-          <DrawerPanel side={sidebarSide} drawer="data" title="Data" icon={<StorageIcon fontSize="small" />}>
+          <DrawerPanel side={sidebarSide} drawer="data" title={localeText.dataDrawerTitle} icon={<StorageIcon fontSize="small" />}>
             {dataDrawer ?? <StudioDataDrawer />}
           </DrawerPanel>
         )}
@@ -313,7 +326,7 @@ const StudioContent = React.memo(function StudioContent(
           </DrawerPanel>
         )}
         {showFilters && (
-          <DrawerPanel side={sidebarSide} drawer="filters" title="Filters" icon={<FilterListIcon fontSize="small" />}>
+          <DrawerPanel side={sidebarSide} drawer="filters" title={localeText.filtersDrawerTitle} icon={<FilterListIcon fontSize="small" />}>
             {filtersDrawer ?? <StudioFiltersDrawer />}
           </DrawerPanel>
         )}
@@ -355,11 +368,11 @@ const StudioContent = React.memo(function StudioContent(
       {/* AI chat button + panel */}
       {features.aiChat && aiConfig?.endpoint && (
         <React.Fragment>
-          <Tooltip title={chatOpen ? 'Close AI assistant' : 'Open AI assistant'} placement="left">
+          <Tooltip title={chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip} placement="left">
             <IconButton
               onClick={() => setChatOpen((prev) => !prev)}
               color={chatOpen ? 'primary' : 'default'}
-              aria-label={chatOpen ? 'Close AI assistant' : 'Open AI assistant'}
+              aria-label={chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip}
               sx={{
                 position: 'absolute',
                 bottom: 20,
@@ -408,7 +421,7 @@ const StudioContent = React.memo(function StudioContent(
 export const Studio = React.memo(
   // react-doctor-disable-next-line react-doctor/no-react19-deprecated-apis
   React.forwardRef<StudioHandle, StudioProps>(function Studio(props, ref) {
-    const { initialState, onStateChange, tableSourceMode, featureFlags, ...slots } = props;
+    const { initialState, onStateChange, tableSourceMode, featureFlags, localeText, ...slots } = props;
 
     // Controller is created once at mount and never replaced.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -452,6 +465,7 @@ export const Studio = React.memo(
         controller={controller}
         tableSourceMode={tableSourceMode}
         featureFlags={featureFlags}
+        localeText={localeText}
       >
         <StudioContent {...slots} />
       </StudioProvider>

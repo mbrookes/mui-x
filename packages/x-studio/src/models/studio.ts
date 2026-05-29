@@ -65,6 +65,7 @@ export type StudioChartType =
   | 'area-stacked'
   | 'area-100'
   | 'mixed'
+  | 'heatmap'
   | 'pie'
   | 'donut'
   | 'scatter'
@@ -243,6 +244,16 @@ export interface StudioWidgetConfig {
    * @default false
    */
   dualYAxis?: boolean;
+  /**
+   * Heatmap chart: the field used as the row (Y) axis. `xField` is the column axis,
+   * `yField` is the colour-intensity value.
+   */
+  heatYField?: string;
+  /**
+   * Heatmap chart: colour scheme for the intensity scale.
+   * @default 'primary'
+   */
+  heatColorScheme?: 'primary' | 'success' | 'warning' | 'error';
   /**
    * Pie/donut chart: label shown on each arc.
    * - 'value': the formatted numeric value

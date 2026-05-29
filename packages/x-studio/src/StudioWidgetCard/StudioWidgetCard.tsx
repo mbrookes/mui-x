@@ -48,6 +48,7 @@ import { StudioTextWidget } from '../StudioTextWidget';
 import type { StudioTextWidgetProps } from '../StudioTextWidget/StudioTextWidget';
 import { StudioFilterWidget } from '../StudioFilterWidget';
 import type { StudioFilterWidgetProps } from '../StudioFilterWidget/StudioFilterWidget';
+import { StudioPivotWidget } from '../StudioPivotWidget/StudioPivotWidget';
 import { exportGridToCsv, exportChartToPng } from '../internals/widgetUtils';
 import { createStudioPipeline } from '../internals/StudioPipeline';
 
@@ -190,7 +191,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const partitioned = useStudioSelector(selectPartitionedBaseFilters);
   const deferredPartitioned = React.useDeferredValue(partitioned);
   const isRecomputing =
-    (widget?.kind === 'chart' || widget?.kind === 'grid') &&
+    (widget?.kind === 'chart' || widget?.kind === 'grid' || widget?.kind === 'pivot') &&
     deferredPartitioned !== partitioned;
 
   const LoadingOverlay = slots?.loadingOverlay ?? DefaultLoadingOverlay;
@@ -499,6 +500,16 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             <Skeleton variant="rectangular" height={FILTER_WIDGET_MIN_HEIGHT - 48} sx={{ borderRadius: 1 }} />
           )
         )}
+        {widget.kind === 'pivot' && (
+          showContent ? (
+            <Box sx={{ position: 'relative' }}>
+              <StudioPivotWidget widget={widget} dataSource={source} />
+              {isRecomputing && <LoadingOverlay />}
+            </Box>
+          ) : (
+            <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 1 }} />
+          )
+        )}
       </Stack>
       {/* Chart full-screen overlay dialog */}
       {isChart && expanded && (
@@ -573,6 +584,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
           {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
           {widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
+          {widget.kind === 'pivot' && <StudioPivotWidget widget={widget} dataSource={source} />}
         </StudioWidgetEditDialog>
       )}
     </Paper>

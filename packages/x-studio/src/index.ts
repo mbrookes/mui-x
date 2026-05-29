@@ -55,6 +55,10 @@ export type {
   StudioFilterSliderControlProps,
 } from './StudioFilterWidget/StudioFilterWidget';
 
+// ─── StudioPivotWidget ────────────────────────────────────────────────────────
+export { StudioPivotWidget } from './StudioPivotWidget/StudioPivotWidget';
+export type { StudioPivotWidgetProps } from './StudioPivotWidget/StudioPivotWidget';
+
 // ─── StudioDataDrawer ─────────────────────────────────────────────────────────
 export { StudioDataDrawer } from './StudioDataDrawer/StudioDataDrawer';
 

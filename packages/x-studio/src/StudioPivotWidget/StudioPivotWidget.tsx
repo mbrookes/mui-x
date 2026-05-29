@@ -312,7 +312,7 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
   const { config } = widget;
   const { pivotRowField, pivotColField, pivotValueField, pivotAggregation = 'sum', pivotShowTotals = true } = config;
 
-  const { filteredRows, isLoading } = useWidgetRows(widget, dataSource);
+  const { filteredRows, isLoading, isError, errorMessage } = useWidgetRows(widget, dataSource);
 
   const matrix = React.useMemo(() => {
     if (!pivotRowField || !pivotColField || filteredRows.length === 0) {
@@ -331,6 +331,22 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
 
   if (isLoading) {
     return <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 1 }} />;
+  }
+
+  if (isError) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: 200,
+          color: 'error.main',
+        }}
+      >
+        <Typography variant="body2">{errorMessage || 'Failed to load data'}</Typography>
+      </Box>
+    );
   }
 
   if (!pivotRowField || !pivotColField) {

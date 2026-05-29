@@ -311,6 +311,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     allEnrichedRows,
     filteredRows,
     isLoading,
+    isError,
+    errorMessage,
   } = useChartWidgetData(widget, dataSource);
 
   // Skip chart animations during cross-filter transitions so bars/lines/pies
@@ -888,6 +890,23 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   // Guard: return placeholder if chart isn't configured yet (must be after all hooks)
   // Gauge and Gantt chart handle their own unconfigured state separately below.
+  if (isError) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: chartHeight,
+          color: 'error.main',
+          gap: 1,
+        }}
+      >
+        <Typography variant="body2">{errorMessage || 'Failed to load data'}</Typography>
+      </Box>
+    );
+  }
+
   if (!dataSource || (!config.xField && normalizedChartType !== 'gauge' && normalizedChartType !== 'gantt')) {
     return (
       <Box

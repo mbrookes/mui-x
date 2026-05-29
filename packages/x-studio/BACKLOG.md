@@ -120,7 +120,7 @@ Items migrated from `examples/x-studio/REQUIREMENTS.md` — these are features o
 
 **Data**
 
-BL-45: Real data connector — pluggable `DataLoader` interface (`async fetchRows(sourceId, filters)`); adapters for REST, GraphQL, SQL via thin server proxy; loading states and error handling in widget cards
+~~BL-45~~: **Fixed** Real data connector — pluggable `DataLoader` interface (`async fetchRows(sourceId, filters)`); adapters for REST, GraphQL, SQL via thin server proxy; loading states and error handling in widget cards (`isError`/`errorMessage` exposed from `useWidgetRows`; error UI shown in all widget types; `createSimpleAdapter` added alongside existing `createBatchingAdapter`)
 
 ~~BL-46~~: **Fixed** Pivot table widget — row/column/value field pickers; collapsible row groups; export to CSV
 

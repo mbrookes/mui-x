@@ -153,6 +153,14 @@ export function resolveRows(
   const nativeFilters: StudioFilterState[] = [];
   const crossFilters: (StudioFilterState & { filterSourceId: string })[] = [];
 
+  // Pre-build index for O(1) expression field lookups (avoid repeated .find() in loop)
+  const exprFieldIndex = new Map<string, (typeof expressionFields)[number]>();
+  for (const ef of expressionFields) {
+    if (ef.sourceId !== widgetSourceId && !ef.isMeasure) {
+      exprFieldIndex.set(ef.id, ef);
+    }
+  }
+
   for (const f of filters) {
     if (f.filterSourceId && f.filterSourceId !== widgetSourceId) {
       crossFilters.push(f as StudioFilterState & { filterSourceId: string });
@@ -162,9 +170,7 @@ export function resolveRows(
       // cross-filter so the semi-join path enriches the foreign source correctly.
       // Without this, the field is undefined on the widget's own rows and every
       // row is silently filtered out.
-      const exprOwner = expressionFields.find(
-        (ef) => ef.id === f.field && ef.sourceId !== widgetSourceId && !ef.isMeasure,
-      );
+      const exprOwner = f.field ? exprFieldIndex.get(f.field) : undefined;
       if (exprOwner) {
         crossFilters.push({ ...f, filterSourceId: exprOwner.sourceId } as StudioFilterState & {
           filterSourceId: string;
@@ -231,9 +237,12 @@ export function resolveRows(
       );
       const junctionRows = dataSources[joinPath.junctionSourceId]?.rows ?? [];
       const allowedWidgetValues = new Set<unknown>(
-        junctionRows
-          .filter((r) => matchingFilterValues.has(r[joinPath.junctionFilterField]))
-          .map((r) => r[joinPath.junctionWidgetField]),
+        junctionRows.reduce<unknown[]>((acc, r) => {
+          if (matchingFilterValues.has(r[joinPath.junctionFilterField])) {
+            acc.push(r[joinPath.junctionWidgetField]);
+          }
+          return acc;
+        }, []),
       );
       rows = rows.filter((r) => allowedWidgetValues.has(r[joinPath.widgetJoinField]));
     }

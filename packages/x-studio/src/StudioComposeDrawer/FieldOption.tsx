@@ -19,16 +19,3 @@ export function FieldOption({ label, type, generated }: FieldOptionProps) {
     </Box>
   );
 }
-
-/** Produces the renderOption prop for MUI Autocomplete field pickers. */
-export function renderFieldOption(
-  liProps: React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
-  option: { label: string; type?: string; generated?: boolean },
-) {
-  const { key, ...rest } = liProps;
-  return (
-    <li key={key} {...rest}>
-      <FieldOption label={option.label} type={option.type} generated={option.generated} />
-    </li>
-  );
-}

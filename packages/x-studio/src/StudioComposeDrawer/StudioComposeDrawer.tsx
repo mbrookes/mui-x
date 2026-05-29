@@ -1,8 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, Tab, Tabs } from '@mui/material';
-import { useDrawerSubheader } from '../Studio/DrawerPanel';
-import type { StudioWidgetKind } from '../models';
+import { useDrawerSubheader } from '../Studio/DrawerPanelContext';
 import { useStudioSelector, selectWidgets, selectShell } from '../context';
 import { StudioUIConfigContext } from '../internals/StudioUIConfigContext';
 import { AddWidgetView } from './AddWidgetView';
@@ -34,24 +33,6 @@ function TabPanel(props: TabPanelProps) {
     </Box>
   );
 }
-
-export const KIND_LABEL: Record<StudioWidgetKind, string> = {
-  grid: 'Table',
-  chart: 'Chart',
-  kpi: 'KPI',
-  text: 'Text',
-  filter: 'Filter',
-  pivot: 'Pivot Table',
-  map: 'Map',
-};
-
-export const TYPE_FORMAT_LABEL: Record<string, string> = {
-  string: 'Text',
-  number: 'Number',
-  boolean: 'Boolean',
-  date: 'Date',
-  datetime: 'Date & Time',
-};
 
 // ── Widget config view (widget selected) ─────────────────────────────────────
 

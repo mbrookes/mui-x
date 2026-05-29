@@ -93,7 +93,6 @@ function createState(overrides?: Partial<StudioState>): StudioState {
       selectedWidgetId: null,
       selectedFieldId: null,
       selectedSourceId: null,
-      activeDrilldown: null,
       ...overrides?.shell,
     },
   };

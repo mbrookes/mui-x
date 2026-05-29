@@ -30,7 +30,7 @@ import { StudioCanvas } from '../StudioCanvas';
 import { StudioDataDrawer } from '../StudioDataDrawer';
 import { StudioComposeDrawer } from '../StudioComposeDrawer';
 import { StudioFiltersDrawer } from '../StudioFiltersDrawer';
-import { StudioDrilldownDrawer } from '../StudioDrilldownDrawer';
+// StudioDrilldownDrawer is kept as an exported composable component but no longer mounted by default.
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
@@ -245,6 +245,7 @@ const StudioContent = React.memo(function StudioContent(
 
   const showCompose = features.compose;
   const showFilters = features.filters;
+  const showDataManagement = features.dataManagement;
 
   const sidebar =
     sidebarLayout === 'tabbed' ? (
@@ -253,12 +254,16 @@ const StudioContent = React.memo(function StudioContent(
         panels={[
           ...(mode === 'edit' && showCompose
             ? [
-                {
-                  drawer: 'data' as const,
-                  label: localeText.dataDrawerTitle,
-                  icon: <StorageIcon fontSize="small" />,
-                  children: dataDrawer ?? <StudioDataDrawer />,
-                },
+                ...(showDataManagement
+                  ? [
+                      {
+                        drawer: 'data' as const,
+                        label: localeText.dataDrawerTitle,
+                        icon: <StorageIcon fontSize="small" />,
+                        children: dataDrawer ?? <StudioDataDrawer />,
+                      },
+                    ]
+                  : []),
                 {
                   drawer: 'compose' as const,
                   label: localeText.composeDrawerTitle,
@@ -301,7 +306,7 @@ const StudioContent = React.memo(function StudioContent(
             {composeDrawer ?? <StudioComposeDrawer />}
           </DrawerPanel>
         )}
-        {mode === 'edit' && showCompose && (
+        {mode === 'edit' && showCompose && showDataManagement && (
           <DrawerPanel side={sidebarSide} drawer="data" title={localeText.dataDrawerTitle} icon={<StorageIcon fontSize="small" />}>
             {dataDrawer ?? <StudioDataDrawer />}
           </DrawerPanel>
@@ -309,7 +314,7 @@ const StudioContent = React.memo(function StudioContent(
       </React.Fragment>
     ) : (
       <React.Fragment>
-        {mode === 'edit' && showCompose && (
+        {mode === 'edit' && showCompose && showDataManagement && (
           <DrawerPanel side={sidebarSide} drawer="data" title={localeText.dataDrawerTitle} icon={<StorageIcon fontSize="small" />}>
             {dataDrawer ?? <StudioDataDrawer />}
           </DrawerPanel>
@@ -393,8 +398,6 @@ const StudioContent = React.memo(function StudioContent(
           </React.Suspense>
         </React.Fragment>
       )}
-      {/* Drilldown drawer */}
-      <StudioDrilldownDrawer />
     </Box>
   );
 });

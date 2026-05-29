@@ -96,17 +96,20 @@ export function buildGroupedGridRows(
   >();
 
   if (columns && dataSources && relationships && widgetSourceId) {
+    // Pre-build relationship index: targetId → relationship (many-to-one from widgetSourceId)
+    const relIndex = new Map<string, (typeof relationships)[number]>();
+    for (const r of relationships) {
+      if (r.type === 'many-to-one' && r.sourceId === widgetSourceId) {
+        relIndex.set(r.targetId, r);
+      }
+    }
+
     for (const col of columns) {
       if (!col.sourceId || col.sourceId === widgetSourceId) {
         continue;
       }
       // Find a many-to-one relationship from widgetSourceId → col.sourceId
-      const rel = relationships.find(
-        (r) =>
-          r.type === 'many-to-one' &&
-          r.sourceId === widgetSourceId &&
-          r.targetId === col.sourceId,
-      );
+      const rel = relIndex.get(col.sourceId);
       if (!rel) {
         continue;
       }

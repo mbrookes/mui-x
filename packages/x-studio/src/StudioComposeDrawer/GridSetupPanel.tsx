@@ -842,36 +842,6 @@ export function GridSetupPanel(props: { widgetId: string }) {
               None
             </ToggleButton>
           </ToggleButtonGroup>
-
-          {/* Drilldown widget picker */}
-          {features.drilldown !== false && (
-          <React.Fragment>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-            When a row is clicked, open drilldown…
-          </Typography>
-          <FormControl size="small" fullWidth>
-            <InputLabel>Drilldown widget</InputLabel>
-            <Select
-              label="Drilldown widget"
-              value={widget.config?.drilldownWidgetId ?? ''}
-              onChange={(evt) =>
-                controller.updateWidgetConfig(widgetId, {
-                  drilldownWidgetId: (evt.target.value as string) || undefined,
-                })
-              }
-            >
-              <MenuItem value="">
-                <em>None</em>
-              </MenuItem>
-              {Object.values(allWidgets).flatMap((w) =>
-                w.id !== widgetId
-                  ? [<MenuItem key={w.id} value={w.id}>{w.title || w.id}</MenuItem>]
-                  : [],
-              )}
-            </Select>
-          </FormControl>
-          </React.Fragment>
-          )}
         </React.Fragment>
       )}
 

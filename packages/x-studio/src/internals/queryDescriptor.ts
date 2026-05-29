@@ -225,7 +225,7 @@ export function buildQueryDescriptor(
   // share one cache entry and one server request.
   const cacheKeySource = {
     sourceId: widget.sourceId,
-    select: [...select].sort(),
+    select: select.toSorted(),
     filter,
     groupBy,
     xGroupBy,

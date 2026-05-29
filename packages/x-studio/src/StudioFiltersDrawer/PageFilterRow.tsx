@@ -65,8 +65,9 @@ export function PageFilterRow(props: PageFilterRowProps) {
   const dependencyOptions = React.useMemo(
     () =>
       allPageFilters
-        .filter((f) => f.id !== filter.id && !!f.field)
-        .map((f) => ({ id: f.id, label: fields.find((sf) => sf.id === f.field)?.label ?? f.field })),
+        .flatMap((f) => (f.id !== filter.id && !!f.field)
+          ? [{ id: f.id, label: fields.find((sf) => sf.id === f.field)?.label ?? f.field }]
+          : []),
     [allPageFilters, filter.id, fields],
   );
 

@@ -59,7 +59,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {
     if (config.ySeries && config.ySeries.length > 0) {
-      const ids = config.ySeries.map((s) => s.fieldId).filter(Boolean);
+      const ids = config.ySeries.flatMap((s) => (s.fieldId ? [s.fieldId] : []));
       return [...new Set(ids)]; // deduplicate, preserving order
     }
     return config.yField ? [config.yField] : [];

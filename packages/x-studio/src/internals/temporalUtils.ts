@@ -106,10 +106,9 @@ export function normalizeDataSourceRows(
     return dataSource;
   }
 
-  const allDateFieldIds = dataSource.fields.filter((f) => f.type === 'date').map((f) => f.id);
+  const allDateFieldIds = dataSource.fields.flatMap((f) => f.type === 'date' ? [f.id] : []);
   const allDatetimeFieldIds = dataSource.fields
-    .filter((f) => f.type === 'datetime')
-    .map((f) => f.id);
+    .flatMap((f) => f.type === 'datetime' ? [f.id] : []);
 
   // When usedFieldIds is provided, scope to only the requested date fields.
   const dateFieldIds = usedFieldIds
@@ -495,14 +494,14 @@ export function sortLabels(labels: (string | number)[]): (string | number)[] {
     return labels;
   }
   if (labels.every((l) => typeof l === 'number')) {
-    return [...labels].sort((a, b) => (a as number) - (b as number));
+    return labels.toSorted((a, b) => (a as number) - (b as number));
   }
   const allDates = labels.every((l) => {
     const s = String(l);
     return s.length >= 4 && !Number.isNaN(Date.parse(s));
   });
   if (allDates) {
-    return [...labels].sort((a, b) => Date.parse(String(a)) - Date.parse(String(b)));
+    return labels.toSorted((a, b) => Date.parse(String(a)) - Date.parse(String(b)));
   }
-  return [...labels].sort((a, b) => String(a).localeCompare(String(b)));
+  return labels.toSorted((a, b) => String(a).localeCompare(String(b)));
 }

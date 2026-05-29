@@ -1,15 +1,7 @@
 'use client';
 import * as React from 'react';
 import type { BarProps } from '@mui/x-charts/BarChart';
-
-export interface CrossFilterBarData {
-  /** filteredValues[seriesId][dataIndex] = cross-filter value (null if category is filtered out) */
-  filteredValuesBySeriesId: Record<string, (number | null)[]>;
-  /** allValues[seriesId][dataIndex] = baseline (no cross-filter) value */
-  allValuesBySeriesId: Record<string, number[]>;
-}
-
-export const CrossFilterBarContext = React.createContext<CrossFilterBarData | null>(null);
+import { CrossFilterBarContext } from './CrossFilterBarContext';
 
 /**
  * Custom bar slot for BarChart that renders a ghost bar (faded, full-data height) with a

@@ -19,6 +19,7 @@ import { MixedIcon } from '../icons/charts/MixedIcon';
 import { ScatterIcon } from '../icons/charts/ScatterIcon';
 import { HeatmapIcon } from '../icons/charts/HeatmapIcon';
 import { FunnelIcon } from '../icons/charts/FunnelIcon';
+import { GanttIcon } from '../icons/charts/GanttIcon';
 
 interface ChartTypeOption {
   chartType: StudioChartType;
@@ -52,6 +53,7 @@ const CHART_TYPE_OPTIONS: ChartTypeOption[] = [
   { chartType: 'mixed', label: 'Mixed (bar + line)', Icon: MixedIcon },
   { chartType: 'heatmap', label: 'Heatmap', Icon: HeatmapIcon },
   { chartType: 'funnel', label: 'Funnel', Icon: FunnelIcon },
+  { chartType: 'gantt', label: 'Gantt / Timeline', Icon: GanttIcon },
   { chartType: 'pie', label: 'Pie', Icon: PieIcon },
   { chartType: 'donut', label: 'Donut', Icon: DonutIcon },
   { chartType: 'gauge', label: 'Gauge', Icon: GaugeIcon },

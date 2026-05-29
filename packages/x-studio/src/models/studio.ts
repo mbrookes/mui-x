@@ -67,6 +67,7 @@ export type StudioChartType =
   | 'mixed'
   | 'heatmap'
   | 'funnel'
+  | 'gantt'
   | 'pie'
   | 'donut'
   | 'scatter'
@@ -255,6 +256,22 @@ export interface StudioWidgetConfig {
    * @default 'primary'
    */
   heatColorScheme?: 'primary' | 'success' | 'warning' | 'error';
+  /**
+   * Gantt / timeline chart: field providing the row label (Y axis).
+   */
+  ganttLabelField?: string;
+  /**
+   * Gantt / timeline chart: date or datetime field marking the start of each bar.
+   */
+  ganttStartField?: string;
+  /**
+   * Gantt / timeline chart: date or datetime field marking the end of each bar.
+   */
+  ganttEndField?: string;
+  /**
+   * Gantt / timeline chart: optional categorical field used to colour-code bars.
+   */
+  ganttColorField?: string;
   /**
    * Pie/donut chart: label shown on each arc.
    * - 'value': the formatted numeric value

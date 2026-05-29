@@ -57,6 +57,8 @@ export { StudioDataDrawer } from './StudioDataDrawer/StudioDataDrawer';
 // ─── StudioComposeDrawer ──────────────────────────────────────────────────────
 export { StudioComposeDrawer } from './StudioComposeDrawer/StudioComposeDrawer';
 export type { StudioComposeDrawerProps } from './StudioComposeDrawer/StudioComposeDrawer';
+export { InlineFormulaBar } from './StudioComposeDrawer/InlineFormulaBar';
+export type { InlineFormulaBarProps } from './StudioComposeDrawer/InlineFormulaBar';
 
 // ─── StudioFiltersDrawer ──────────────────────────────────────────────────────
 export { StudioFiltersDrawer } from './StudioFiltersDrawer/StudioFiltersDrawer';

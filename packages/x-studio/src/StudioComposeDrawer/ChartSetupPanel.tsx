@@ -31,9 +31,13 @@ import {
   getChartSupportMessage,
   getReachableSourceIds,
 } from '../internals/chartUtils';
-import type { StudioChartType, StudioBarLayout, StudioCrossFilterMode } from '../models';
+import type { StudioChartAnnotation, StudioChartType, StudioBarLayout, StudioCrossFilterMode } from '../models';
 import { ChartTypePicker } from './ChartTypePicker';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
+
+function generateAnnotationId() {
+  return `ann-${Math.random().toString(36).slice(2, 9)}`;
+}
 
 // react-doctor-disable-next-line react-doctor/no-giant-component
 export function ChartSetupPanel(props: { widgetId: string }) {
@@ -584,6 +588,105 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       )}
         </Stack>
       )}
+      {/* Annotations — reference lines (not for pie/donut/gauge) */}
+      {chartType !== 'pie' &&
+        chartType !== 'donut' &&
+        chartType !== 'gauge' && (
+          <div>
+            <Divider sx={{ mb: 1.5 }} />
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1, fontWeight: 600 }}>
+                Annotations
+              </Typography>
+              <Tooltip title="Add reference line">
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    const newAnn: StudioChartAnnotation = {
+                      id: generateAnnotationId(),
+                      axis: 'y',
+                      value: 0,
+                      label: '',
+                    };
+                    controller.updateWidgetConfig(widgetId, {
+                      annotations: [...(config.annotations ?? []), newAnn],
+                    });
+                  }}
+                >
+                  <AddIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+            {(config.annotations ?? []).length === 0 && (
+              <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+                No reference lines. Click + to add one.
+              </Typography>
+            )}
+            <Stack spacing={1}>
+              {(config.annotations ?? []).map((ann) => (
+                <Stack key={ann.id} direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+                  <FormControl size="small" sx={{ width: 56 }}>
+                    <Select
+                      value={ann.axis}
+                      onChange={(e) => {
+                        controller.updateWidgetConfig(widgetId, {
+                          annotations: (config.annotations ?? []).map((a) =>
+                            a.id === ann.id ? { ...a, axis: e.target.value as 'y' | 'x' } : a,
+                          ),
+                        });
+                      }}
+                    >
+                      <MenuItem value="y">Y</MenuItem>
+                      <MenuItem value="x">X</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <TextField
+                    size="small"
+                    label="Value"
+                    value={ann.value}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const num = Number(raw);
+                      controller.updateWidgetConfig(widgetId, {
+                        annotations: (config.annotations ?? []).map((a) =>
+                          a.id === ann.id
+                            ? { ...a, value: Number.isNaN(num) ? raw : num }
+                            : a,
+                        ),
+                      });
+                    }}
+                    sx={{ flexGrow: 1 }}
+                  />
+                  <TextField
+                    size="small"
+                    label="Label"
+                    value={ann.label ?? ''}
+                    onChange={(e) => {
+                      controller.updateWidgetConfig(widgetId, {
+                        annotations: (config.annotations ?? []).map((a) =>
+                          a.id === ann.id ? { ...a, label: e.target.value } : a,
+                        ),
+                      });
+                    }}
+                    sx={{ flexGrow: 1 }}
+                  />
+                  <Tooltip title="Remove annotation">
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        controller.updateWidgetConfig(widgetId, {
+                          annotations: (config.annotations ?? []).filter((a) => a.id !== ann.id),
+                        });
+                      }}
+                    >
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              ))}
+            </Stack>
+          </div>
+        )}
       {/* Interactions — cross-filter mode */}
       <div>
         <Divider sx={{ mb: 1.5 }} />

@@ -6,6 +6,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import {
   useStudioController,
   useStudioSelector,
+  useStudioLocaleText,
   selectFilters,
   selectDataSources,
   selectActivePageId,
@@ -26,6 +27,7 @@ export function StudioQuickFilterBar() {
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const activePageId = useStudioSelector(selectActivePageId);
+  const localeText = useStudioLocaleText();
 
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f) => f.scope === 'page' && !f.isDashboardDateRange && (!f.pageId || f.pageId === activePageId),
@@ -72,7 +74,7 @@ export function StudioQuickFilterBar() {
       }}
       onClick={openFiltersDrawer}
     >
-      <Tooltip title="Open filters panel">
+      <Tooltip title={localeText.quickFilterBarOpenFilters}>
         <FilterListIcon fontSize="small" color="action" sx={{ flexShrink: 0 }} />
       </Tooltip>
 
@@ -96,11 +98,11 @@ export function StudioQuickFilterBar() {
       })}
 
       {pageFilters.length > 1 && (
-        <Tooltip title="Clear all page filters">
+        <Tooltip title={localeText.quickFilterBarClearAll}>
           <IconButton
             size="small"
             onClick={handleClearAll}
-            aria-label="Clear all page filters"
+            aria-label={localeText.quickFilterBarClearAll}
             sx={{ ml: 'auto', flexShrink: 0 }}
           >
             <CloseIcon fontSize="small" />

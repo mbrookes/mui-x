@@ -87,9 +87,15 @@ export {
   useStudioState,
   useStudioFeatures,
   useStudioUIConfig,
+  useStudioLocaleText,
   CanvasScrollContext,
 } from './context/StudioContext';
 export type { StudioProviderProps } from './context/StudioContext';
+export type { StudioLocaleText } from './internals/StudioUIConfigContext';
+export { DEFAULT_STUDIO_LOCALE_TEXT } from './internals/StudioUIConfigContext';
+
+// ─── Locales ─────────────────────────────────────────────────────────────────
+export { ptBRLocaleText } from './locales/ptBR';
 
 // ─── Selectors ────────────────────────────────────────────────────────────────
 export {

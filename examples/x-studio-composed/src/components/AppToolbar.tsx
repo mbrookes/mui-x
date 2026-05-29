@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Box, Divider, IconButton, Switch, Tab, Tabs, Tooltip, Typography } from '@mui/material';
 import type { SwitchProps } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
@@ -30,6 +31,8 @@ export interface AppToolbarProps {
   onFiltersOpen?: () => void;
   chatOpen?: boolean;
   onChatToggle?: () => void;
+  onAddPage?: () => void;
+  hasEmptyPage?: boolean;
 }
 
 export function AppToolbar(props: AppToolbarProps) {
@@ -51,6 +54,8 @@ export function AppToolbar(props: AppToolbarProps) {
     onFiltersOpen,
     chatOpen,
     onChatToggle,
+    onAddPage,
+    hasEmptyPage,
   } = props;
 
   return (
@@ -87,21 +92,30 @@ export function AppToolbar(props: AppToolbarProps) {
           </React.Fragment>
         )}
       </Box>
-      {pages.length > 1 && (
-        <Tabs
-          value={activePageId}
-          onChange={onPageChange}
-          variant="scrollable"
-          scrollButtons="auto"
-          allowScrollButtonsMobile
-          sx={{ flexGrow: 1, minWidth: 0 }}
-        >
-          {pages.map((page) => (
-            <Tab key={page.id} label={page.title} value={page.id} sx={{ minHeight: 48 }} />
-          ))}
-        </Tabs>
+      {(pages.length > 1 || mode === 'edit') && (
+        <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, minWidth: 0 }}>
+          <Tabs
+            value={activePageId}
+            onChange={onPageChange}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+            sx={{ minWidth: 0 }}
+          >
+            {pages.map((page) => (
+              <Tab key={page.id} label={page.title} value={page.id} sx={{ minHeight: 48 }} />
+            ))}
+          </Tabs>
+          {mode === 'edit' && onAddPage && !hasEmptyPage && (
+            <Tooltip title="Add page">
+              <IconButton size="small" onClick={onAddPage} aria-label="Add page" sx={{ ml: 0.5 }}>
+                <AddIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
       )}
-      {pages.length <= 1 && <Box sx={{ flexGrow: 1 }} />}
+      {pages.length <= 1 && mode !== 'edit' && <Box sx={{ flexGrow: 1 }} />}
       {mode === 'edit' && (
         <React.Fragment>
           <Tooltip title="Undo (⌘Z)">

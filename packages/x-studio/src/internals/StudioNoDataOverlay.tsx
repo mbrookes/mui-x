@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
 import InboxOutlinedIcon from '@mui/icons-material/InboxOutlined';
+import { useStudioLocaleText } from '../context';
 
 export interface StudioNoDataOverlayProps extends React.HTMLAttributes<HTMLDivElement> {
   /** Override the default message. */
@@ -15,11 +16,12 @@ export interface StudioNoDataOverlayProps extends React.HTMLAttributes<HTMLDivEl
  * Used by chart, grid, and KPI widgets.
  */
 export function StudioNoDataOverlay({
-  message = 'No data',
+  message,
   height,
   style,
   ...rest
 }: StudioNoDataOverlayProps) {
+  const localeText = useStudioLocaleText();
   return (
     <Box
       {...rest}
@@ -35,7 +37,7 @@ export function StudioNoDataOverlay({
       }}
     >
       <InboxOutlinedIcon sx={{ fontSize: 32, opacity: 0.5 }} />
-      <Typography variant="body2">{message}</Typography>
+      <Typography variant="body2">{message ?? localeText.widgetNoData}</Typography>
     </Box>
   );
 }

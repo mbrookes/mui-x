@@ -14,6 +14,7 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import {
   useStudioController,
   useStudioSelector,
+  useStudioLocaleText,
   selectFilters,
   selectDataSources,
   selectActivePageId,
@@ -21,14 +22,6 @@ import {
 import type { StudioDateRangePreset, StudioFilterState } from '../models';
 
 // ─── Preset configuration ────────────────────────────────────────────────────
-
-const DATE_RANGE_PRESETS: Array<{ value: StudioDateRangePreset | 'all_time'; label: string }> = [
-  { value: 'all_time', label: 'All time' },
-  { value: 'ytd', label: 'YTD' },
-  { value: 'this_month', label: 'This month' },
-  { value: 'last_3_months', label: 'Last 3 months' },
-  { value: 'last_12_months', label: 'Last 12 months' },
-];
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -53,6 +46,18 @@ export function StudioDateRangeBar() {
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const activePageId = useStudioSelector(selectActivePageId);
+  const localeText = useStudioLocaleText();
+
+  const dateRangePresets = React.useMemo(
+    () => [
+      { value: 'all_time' as const, label: localeText.dateRangePresetAllTime },
+      { value: 'ytd' as const, label: localeText.dateRangePresetYTD },
+      { value: 'this_month' as const, label: localeText.dateRangePresetThisMonth },
+      { value: 'last_3_months' as const, label: localeText.dateRangePresetLast3Months },
+      { value: 'last_12_months' as const, label: localeText.dateRangePresetLast12Months },
+    ],
+    [localeText],
+  );
 
   // ── Derive the active date-range filter for this page ─────────────────────
   const dateRangeFilter = React.useMemo(
@@ -207,7 +212,7 @@ export function StudioDateRangeBar() {
         aria-label="Date range preset"
         sx={{ flexShrink: 0 }}
       >
-        {DATE_RANGE_PRESETS.map((p) => (
+        {dateRangePresets.map((p) => (
           <ToggleButton
             key={p.value}
             value={p.value}

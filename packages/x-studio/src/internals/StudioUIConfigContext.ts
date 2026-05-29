@@ -1,6 +1,117 @@
 import * as React from 'react';
 import type { StudioFeatureFlags } from '../models/studio';
 
+// ── Locale text ─────────────────────────────────────────────────────────────
+
+/**
+ * All translatable string tokens used by the Studio UI.
+ * Pass a `Partial<StudioLocaleText>` to `<Studio localeText={…} />` to override
+ * any subset of strings. Tokens not included in the partial fall back to
+ * `DEFAULT_STUDIO_LOCALE_TEXT`.
+ */
+export interface StudioLocaleText {
+  // ── Drawer titles ──────────────────────────────────────────────────────────
+  dataDrawerTitle: string;
+  composeDrawerTitle: string;
+  filtersDrawerTitle: string;
+
+  // ── Date range presets ─────────────────────────────────────────────────────
+  dateRangePresetAllTime: string;
+  dateRangePresetYTD: string;
+  dateRangePresetThisMonth: string;
+  dateRangePresetLast3Months: string;
+  dateRangePresetLast12Months: string;
+
+  // ── Filters drawer ─────────────────────────────────────────────────────────
+  filterSearchPlaceholder: string;
+  filtersSectionPageFiltersTitle: string;
+  filtersSectionNoFilters: string;
+  filtersSectionNoMatchingFilters: string;
+  filtersAddFilterTooltip: string;
+  filtersSavedViewsTitle: string;
+  filtersSaveViewTooltip: string;
+  filtersSaveViewButton: string;
+  filtersSaveViewPlaceholder: string;
+  filtersDeleteViewTooltip: string;
+  filtersNoSavedViews: string;
+  filtersAddDataSourceHint: string;
+
+  // ── Widget empty / error states ────────────────────────────────────────────
+  widgetConfigureChartHint: string;
+  widgetConfigureGaugeHint: string;
+  widgetConfigurePivotHint: string;
+  widgetNoData: string;
+  widgetLoadError: string;
+
+  // ── Quick filter bar ───────────────────────────────────────────────────────
+  quickFilterBarOpenFilters: string;
+  quickFilterBarClearAll: string;
+
+  // ── Widget card actions ────────────────────────────────────────────────────
+  widgetEditTooltip: string;
+  widgetExportCsvTooltip: string;
+  widgetExportPngTooltip: string;
+  widgetExpandTooltip: string;
+  widgetMoveToPageLabel: string;
+
+  // ── AI assistant ───────────────────────────────────────────────────────────
+  aiAssistantOpenTooltip: string;
+  aiAssistantCloseTooltip: string;
+}
+
+/** Default English locale text for all Studio UI strings. */
+export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
+  // Drawer titles
+  dataDrawerTitle: 'Data',
+  composeDrawerTitle: 'Compose',
+  filtersDrawerTitle: 'Filters',
+
+  // Date range presets
+  dateRangePresetAllTime: 'All time',
+  dateRangePresetYTD: 'YTD',
+  dateRangePresetThisMonth: 'This month',
+  dateRangePresetLast3Months: 'Last 3 months',
+  dateRangePresetLast12Months: 'Last 12 months',
+
+  // Filters drawer
+  filterSearchPlaceholder: 'Search filters\u2026',
+  filtersSectionPageFiltersTitle: 'Page filters',
+  filtersSectionNoFilters: 'No filters applied.',
+  filtersSectionNoMatchingFilters: 'No matching filters.',
+  filtersAddFilterTooltip: 'Add filter',
+  filtersSavedViewsTitle: 'Saved views',
+  filtersSaveViewTooltip: 'Save current page filters as a named view',
+  filtersSaveViewButton: 'Save',
+  filtersSaveViewPlaceholder: 'View name',
+  filtersDeleteViewTooltip: 'Delete view',
+  filtersNoSavedViews: 'No saved views. Apply page filters and save them here.',
+  filtersAddDataSourceHint: 'Add a data source and widgets first.',
+
+  // Widget states
+  widgetConfigureChartHint: 'Use the Setup tab to configure this chart.',
+  widgetConfigureGaugeHint: 'Use the Setup tab to choose a gauge value field.',
+  widgetConfigurePivotHint: 'Use the Setup tab to configure row, column, and value fields.',
+  widgetNoData: 'No data to display.',
+  widgetLoadError: 'Failed to load data',
+
+  // Quick filter bar
+  quickFilterBarOpenFilters: 'Open filters panel',
+  quickFilterBarClearAll: 'Clear all page filters',
+
+  // Widget card actions
+  widgetEditTooltip: 'Edit widget',
+  widgetExportCsvTooltip: 'Export as CSV',
+  widgetExportPngTooltip: 'Export as PNG',
+  widgetExpandTooltip: 'Expand chart',
+  widgetMoveToPageLabel: 'Move to page',
+
+  // AI assistant
+  aiAssistantOpenTooltip: 'Open AI assistant',
+  aiAssistantCloseTooltip: 'Close AI assistant',
+};
+
+// ── Config context ──────────────────────────────────────────────────────────
+
 export interface StudioUIConfig {
   /**
    * Controls how the table widget's data source is determined.
@@ -13,16 +124,32 @@ export interface StudioUIConfig {
   tableSourceMode: 'explicit' | 'implicit';
   /** Runtime feature flags controlling which UI features are available. */
   featureFlags: StudioFeatureFlags;
+  /**
+   * Locale text overrides. Any tokens not provided fall back to the English defaults.
+   * Pass the full `StudioLocaleText` object (e.g. `ptBRLocaleText`) or a partial
+   * override to change individual strings.
+   */
+  localeText: StudioLocaleText;
 }
 
 export const StudioUIConfigContext = React.createContext<StudioUIConfig>({
   tableSourceMode: 'explicit',
   featureFlags: {},
+  localeText: DEFAULT_STUDIO_LOCALE_TEXT,
 });
 
 /** Returns the resolved UI config including feature flags. */
 export function useStudioUIConfig(): StudioUIConfig {
   return React.useContext(StudioUIConfigContext);
+}
+
+/**
+ * Returns the resolved locale text with consumer overrides merged over defaults.
+ * Use this hook in any component that renders user-visible strings.
+ */
+export function useStudioLocaleText(): StudioLocaleText {
+  const { localeText } = useStudioUIConfig();
+  return localeText;
 }
 
 /** Returns the active feature flags. All flags default to `true` when not explicitly set. */

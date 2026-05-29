@@ -10,6 +10,7 @@ import {
 import DownloadIcon from '@mui/icons-material/Download';
 import { useWidgetRows } from '../internals/useWidgetRows';
 import { formatNumber } from '../internals/numberFormat';
+import { useStudioLocaleText } from '../context';
 import type { StudioDataSource, StudioWidget } from '../models';
 
 // ── Aggregation ───────────────────────────────────────────────────────────────
@@ -313,6 +314,7 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
   const { pivotRowField, pivotColField, pivotValueField, pivotAggregation = 'sum', pivotShowTotals = true } = config;
 
   const { filteredRows, isLoading, isError, errorMessage } = useWidgetRows(widget, dataSource);
+  const localeText = useStudioLocaleText();
 
   const matrix = React.useMemo(() => {
     if (!pivotRowField || !pivotColField || filteredRows.length === 0) {
@@ -344,7 +346,7 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
           color: 'error.main',
         }}
       >
-        <Typography variant="body2">{errorMessage || 'Failed to load data'}</Typography>
+        <Typography variant="body2">{errorMessage || localeText.widgetLoadError}</Typography>
       </Box>
     );
   }
@@ -360,7 +362,7 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
           color: 'text.disabled',
         }}
       >
-        <Typography variant="body2">Use the Setup tab to configure row, column, and value fields.</Typography>
+        <Typography variant="body2">{localeText.widgetConfigurePivotHint}</Typography>
       </Box>
     );
   }
@@ -376,7 +378,7 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
           color: 'text.disabled',
         }}
       >
-        <Typography variant="body2">No data to display.</Typography>
+        <Typography variant="body2">{localeText.widgetNoData}</Typography>
       </Box>
     );
   }

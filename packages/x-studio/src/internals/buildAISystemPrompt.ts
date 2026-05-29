@@ -9,6 +9,7 @@ const WIDGET_KIND_DESCRIPTIONS: Record<StudioWidgetKind, string> = {
   text: 'Text / markdown card',
   filter: 'Interactive filter widget (date range, multi-select, toggle, slider)',
   pivot: 'Pivot table (cross-tabulation with row/column dimensions and value aggregation)',
+  map: 'Choropleth world map (country-level data visualisation)',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

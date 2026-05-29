@@ -4,7 +4,7 @@ export type StudioMode = 'edit' | 'view';
 
 export type StudioDrawer = 'data' | 'compose' | 'filters';
 
-export type StudioWidgetKind = 'grid' | 'chart' | 'kpi' | 'text' | 'filter' | 'pivot';
+export type StudioWidgetKind = 'grid' | 'chart' | 'kpi' | 'text' | 'filter' | 'pivot' | 'map';
 
 export type StudioFilterWidgetType = 'date-range' | 'multi-select' | 'toggle' | 'slider';
 
@@ -411,6 +411,21 @@ export interface StudioWidgetConfig {
    * Not supported for pie / donut / gauge chart types.
    */
   annotations?: StudioChartAnnotation[];
+  // Map / choropleth widget config
+  /**
+   * Field providing the country identifier (ISO alpha-2, alpha-3, or full English name).
+   * Rows are grouped by this field before applying mapAggregation.
+   */
+  mapCountryField?: string;
+  /** Numeric field to aggregate per country. Required unless mapAggregation is 'count'. */
+  mapValueField?: string;
+  /** Aggregation applied to mapValueField per country group. @default 'sum' */
+  mapAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  /**
+   * Sequential colour ramp applied to the value scale.
+   * @default 'blues'
+   */
+  mapColorScheme?: 'blues' | 'reds' | 'greens' | 'oranges' | 'purples';
   // Shared
   measures?: string[];
   dimensions?: string[];

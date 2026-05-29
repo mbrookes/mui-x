@@ -66,16 +66,14 @@ function buildInitialState(): Partial<StudioState> {
         kind: 'kpi',
         title: 'Total Amount',
         sourceId: 'source-1',
-        pageId: 'page-1',
-        config: { valueField: 'amount', valueAggregation: 'sum' },
+        config: { kpiValueField: 'amount', kpiAggregation: 'sum' },
       },
       'w-kpi-2': {
         id: 'w-kpi-2',
         kind: 'kpi',
         title: 'Count',
         sourceId: 'source-1',
-        pageId: 'page-1',
-        config: { valueField: 'id', valueAggregation: 'count' },
+        config: { kpiValueField: 'id', kpiAggregation: 'count' },
       },
     },
     pages: {

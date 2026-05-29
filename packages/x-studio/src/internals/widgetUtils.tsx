@@ -28,6 +28,7 @@ import { ListFilterWidgetIcon } from '../icons/ListFilterWidgetIcon';
 import { ButtonFilterWidgetIcon } from '../icons/ButtonFilterWidgetIcon';
 import { DateFilterWidgetIcon } from '../icons/DateFilterWidgetIcon';
 import { PivotWidgetIcon } from '../icons/PivotWidgetIcon';
+import { MapWidgetIcon } from '../icons/MapWidgetIcon';
 
 export const WIDGET_TYPES: {
   kind: StudioWidgetKind;
@@ -70,6 +71,12 @@ export const WIDGET_TYPES: {
     label: 'Pivot Table',
     description: 'Cross-tabulation with row/column dimensions',
     icon: <PivotWidgetIcon size={28} />,
+  },
+  {
+    kind: 'map',
+    label: 'Map',
+    description: 'Choropleth world map by country',
+    icon: <MapWidgetIcon size={28} />,
   },
 ];
 
@@ -140,6 +147,9 @@ export function getWidgetSubtypeIcon(widget: StudioWidget, size = 16): React.Rea
   if (widget.kind === 'pivot') {
     return <PivotWidgetIcon size={size} />;
   }
+  if (widget.kind === 'map') {
+    return <MapWidgetIcon size={size} />;
+  }
   return null;
 }
 
@@ -197,6 +207,16 @@ export function createDefaultWidget(
       kind,
       title: '',
       config: { pivotAggregation: 'sum' as const },
+      ...(source ? { sourceId: source.id } : {}),
+    };
+  }
+
+  if (kind === 'map') {
+    return {
+      id,
+      kind,
+      title: '',
+      config: { mapAggregation: 'sum' as const },
       ...(source ? { sourceId: source.id } : {}),
     };
   }
@@ -338,6 +358,17 @@ export function inferWidgetTitles(
           : source
             ? `${source.label} pivot`
             : 'Pivot Table';
+      return { title, subtitle: source?.label ?? '' };
+    }
+
+    case 'map': {
+      const valueLabel = findFieldLabel(config.mapValueField);
+      const aggPrefix = KPI_AGG_PREFIXES[config.mapAggregation ?? 'sum'] ?? '';
+      const title = valueLabel
+        ? `${aggPrefix} ${valueLabel} by Country`.trim()
+        : source
+          ? `${source.label} map`
+          : 'Map';
       return { title, subtitle: source?.label ?? '' };
     }
 

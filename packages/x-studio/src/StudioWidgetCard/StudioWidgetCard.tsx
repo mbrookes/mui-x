@@ -50,6 +50,7 @@ import type { StudioTextWidgetProps } from '../StudioTextWidget/StudioTextWidget
 import { StudioFilterWidget } from '../StudioFilterWidget';
 import type { StudioFilterWidgetProps } from '../StudioFilterWidget/StudioFilterWidget';
 import { StudioPivotWidget } from '../StudioPivotWidget/StudioPivotWidget';
+import { StudioMapWidget } from '../StudioMapWidget';
 import { exportGridToCsv, exportChartToPng } from '../internals/widgetUtils';
 import { createStudioPipeline } from '../internals/StudioPipeline';
 
@@ -120,6 +121,7 @@ function SliderFilterPill({
 }
 const KPI_WIDGET_MIN_HEIGHT = 160;
 const FILTER_WIDGET_MIN_HEIGHT = KPI_WIDGET_MIN_HEIGHT / 2;
+const MAP_WIDGET_DEFAULT_HEIGHT = 400;
 
 function DefaultLoadingOverlay() {
   return (
@@ -512,6 +514,16 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 1 }} />
           )
         )}
+        {widget.kind === 'map' && (
+          showContent ? (
+            <Box sx={{ position: 'relative', height: MAP_WIDGET_DEFAULT_HEIGHT }}>
+              {source && <StudioMapWidget widget={widget} dataSource={source} />}
+              {isRecomputing && <LoadingOverlay />}
+            </Box>
+          ) : (
+            <Skeleton variant="rectangular" height={MAP_WIDGET_DEFAULT_HEIGHT} sx={{ borderRadius: 1 }} />
+          )
+        )}
       </Stack>
       {/* Chart full-screen overlay dialog */}
       {isChart && expanded && (
@@ -587,6 +599,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
           {widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
           {widget.kind === 'pivot' && <StudioPivotWidget widget={widget} dataSource={source} />}
+          {widget.kind === 'map' && (
+            <Box sx={{ height: MAP_WIDGET_DEFAULT_HEIGHT }}>
+              {source && <StudioMapWidget widget={widget} dataSource={source} />}
+            </Box>
+          )}
         </StudioWidgetEditDialog>
       )}
     </Paper>

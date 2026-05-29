@@ -181,6 +181,19 @@ export interface StudioMetricRef {
   field: string;
 }
 
+/**
+ * A single reference-line annotation drawn on a chart widget.
+ */
+export interface StudioChartAnnotation {
+  id: string;
+  /** 'y' = horizontal line at a numeric y-axis value; 'x' = vertical line at an x-axis label value */
+  axis: 'y' | 'x';
+  /** Numeric value for y-axis lines; for x-axis band-scale charts, a string matching the axis label */
+  value: number | string;
+  /** Short label shown at the end of the line. Omit for an unlabelled marker. */
+  label?: string;
+}
+
 export interface StudioWidgetConfig {
   // Grid config
   /** Ordered list of visible columns. Use `normalizeGridColumn()` when reading persisted state. */
@@ -329,6 +342,13 @@ export interface StudioWidgetConfig {
   filterWidgetMax?: number;
   /** Step increment for slider filter widgets */
   filterWidgetStep?: number;
+  // Chart annotations
+  /**
+   * Reference lines drawn on chart widgets.
+   * Each annotation renders as a horizontal (`axis: 'y'`) or vertical (`axis: 'x'`) line.
+   * Not supported for pie / donut / gauge chart types.
+   */
+  annotations?: StudioChartAnnotation[];
   // Shared
   measures?: string[];
   dimensions?: string[];

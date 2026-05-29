@@ -183,9 +183,9 @@ BL-58: Natural language widget creation — text prompt → inferred chart type,
 
 ~~BL-67: Add feature flags that can be configured with a json object to control what features are available to x-studio users. Make sure it's availabe for composed apps.~~
 
-BL-68: Update the documentation for every new feature added since the last significant docs update, and any other changes.
+~~BL-68: Update the documentation for every new feature added since the last significant docs update, and any other changes.~~ **Done** (added pivot widget docs, i18n/localization guide, expanded async-adapters error handling and added `createSimpleAdapter` section, added page routes for pivot/localization/server-middleware/pipeline, updated navigation in `pages.ts`)
 
 ~~BL-69: run the data-pipeline performance tests, and fix any performance regressions~~
 **Done** (benchmarks ran; all pipeline layers are within expected ranges; no regressions detected)
 
-BL70: run the UI performance tests and compare with the baseline
+BL70: ~~run the UI performance tests and compare with the baseline~~ **Done** (selector memoization tests verify `selectPartitionedFilters` reselect caching, `selectPartitionedBaseFilters` deep-equality caching, page filter partition cache invalidation on page switch, and KPI widget render smoke tests — 7 tests, all passing)

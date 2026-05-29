@@ -313,8 +313,38 @@ subsequent filter changes produce an instant render with the old data replaced s
 
 ## Error handling
 
-If `getRows` throws, Studio catches the error and leaves the widget in its previous state.
-Log errors in your adapter for debugging:
+When `getRows` throws, Studio catches the error and sets an `isError` flag on the affected widget.
+Built-in widgets (chart, grid, KPI, pivot) display an error banner automatically when an adapter fails.
+
+### Widget error banner
+
+All built-in widget types show a user-visible error message when their adapter rejects:
+
+- **Chart** — a centered red error text at the chart's configured height.
+- **Grid** — a red alert banner above the data grid.
+- **KPI** — a red caption above the KPI value.
+- **Pivot** — a centered red message replacing the table.
+
+### Custom error messages
+
+To pass a custom error message to the UI, throw an `Error` with the message you want displayed:
+
+```ts
+async getRows(descriptor) {
+  const response = await fetch('/api/data');
+  if (!response.ok) {
+    throw new Error('Service unavailable — please try again later.');
+  }
+  return response.json();
+}
+```
+
+The error message from the thrown `Error` object is displayed in the widget card.
+If you throw a non-Error value, Studio falls back to the locale text's `widgetLoadError` token.
+
+### Returning empty rows on failure
+
+If you prefer a graceful empty state instead of an error banner, catch the error and return `{ rows: [] }`:
 
 ```ts
 async getRows(descriptor) {
@@ -326,6 +356,91 @@ async getRows(descriptor) {
   }
 }
 ```
+
+### `isError` in custom widgets
+
+When building a custom widget with `useWidgetRows`, check the `isError` and `errorMessage` fields:
+
+```tsx
+import { useWidgetRows } from '@mui/x-studio';
+
+function MyCustomWidget({ widget, dataSource }) {
+  const { effectiveRows, isLoading, isError, errorMessage } = useWidgetRows(widget, dataSource);
+
+  if (isError) {
+    return <div style={{ color: 'red' }}>{errorMessage || 'Failed to load data'}</div>;
+  }
+  if (isLoading) return <Skeleton />;
+  return <MyChart rows={effectiveRows} />;
+}
+```
+
+## `createSimpleAdapter` — one endpoint per source
+
+`createSimpleAdapter` is the simplest way to connect a Studio data source to a dedicated REST endpoint.
+Each widget fires one `POST` request to your endpoint, passing the Studio `StudioQueryDescriptor` as the request body.
+
+```ts
+import { createSimpleAdapter } from '@mui/x-studio';
+
+const ordersSource: StudioDataSource = {
+  id: 'orders',
+  label: 'Orders',
+  fields: [...],
+  adapter: createSimpleAdapter('/api/studio/orders'),
+};
+```
+
+Your endpoint receives the descriptor as JSON and must return `{ rows: [...] }`:
+
+```ts
+// Next.js API route — app/api/studio/orders/route.ts
+import type { StudioQueryDescriptor } from '@mui/x-studio';
+
+export async function POST(request: Request) {
+  const descriptor: StudioQueryDescriptor = await request.json();
+
+  // Apply filters, aggregations, etc. from the descriptor.
+  const rows = await queryDatabase(descriptor);
+
+  return Response.json({ rows });
+}
+```
+
+### `SimpleAdapterOptions`
+
+```ts
+import { createSimpleAdapter, type SimpleAdapterOptions } from '@mui/x-studio';
+
+const adapter = createSimpleAdapter('/api/studio/orders', {
+  // Custom fetch (add auth headers, interceptors, etc.)
+  fetchFn: (url, init) =>
+    fetch(url, {
+      ...init,
+      headers: { ...init?.headers, Authorization: `Bearer ${token}` },
+    }),
+
+  // Transform the descriptor before sending (e.g. rename fields)
+  transformDescriptor: (descriptor) => ({
+    ...descriptor,
+    customParam: 'value',
+  }),
+});
+```
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `fetchFn` | `typeof fetch` | `globalThis.fetch` | Custom fetch implementation. Useful for auth headers, interceptors, or test mocks. |
+| `transformDescriptor` | `(descriptor) => unknown` | — | Transform the query descriptor before sending. Useful for renaming fields or adding custom query parameters. |
+
+### When to use `createSimpleAdapter` vs `createBatchingAdapter`
+
+| Scenario | Recommendation |
+| :--- | :--- |
+| Each data source has its own dedicated endpoint | `createSimpleAdapter` |
+| Multiple sources share one endpoint (batch API) | `createBatchingAdapter` |
+| Many widgets on the same page with shared sources | `createBatchingAdapter` (fewer HTTP requests) |
+| Simple setup with one or two widgets | Either — `createSimpleAdapter` is less setup |
 
 ## Batching multiple widgets into one request
 

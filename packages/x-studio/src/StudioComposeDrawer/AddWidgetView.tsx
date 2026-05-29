@@ -10,6 +10,7 @@ import {
   IconButton,
   Paper,
   Stack,
+  TextField,
   Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -39,9 +40,118 @@ import {
 } from '../internals/widgetTemplates';
 import type { StudioWidget, StudioWidgetKind } from '../models';
 import { KIND_LABEL } from './StudioComposeDrawer';
+import { useStudioUIConfig, useStudioLocaleText, useStudioFeatures } from '../internals/StudioUIConfigContext';
+import { createWidgetFromDescription } from '../StudioChatPanel/createWidgetFromDescription';
 
 function getCursor(isDragging: boolean) {
   return isDragging ? 'grabbing' : 'grab';
+}
+
+// ── Natural language widget creator (BL-58) ──────────────────────────────────
+
+function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) {
+  const { aiConfig } = useStudioUIConfig();
+  const features = useStudioFeatures();
+  const localeText = useStudioLocaleText();
+  const controller = useStudioController();
+
+  const [open, setOpen] = React.useState(false);
+  const [prompt, setPrompt] = React.useState('');
+  const [status, setStatus] = React.useState<'idle' | 'loading' | 'error'>('idle');
+  const [errorMsg, setErrorMsg] = React.useState('');
+
+  // Only show when AI is configured and the aiChat feature is enabled
+  if (!aiConfig?.endpoint || features.aiChat === false) {
+    return null;
+  }
+
+  const handleSubmit = async () => {
+    const trimmed = prompt.trim();
+    if (!trimmed || status === 'loading') {
+      return;
+    }
+    setStatus('loading');
+    setErrorMsg('');
+
+    const result = await createWidgetFromDescription(trimmed, aiConfig, controller);
+
+    if (result.success) {
+      setPrompt('');
+      setOpen(false);
+      setStatus('idle');
+      onCreated();
+    } else {
+      setStatus('error');
+      setErrorMsg(result.error ?? localeText.aiCreateWidgetError);
+    }
+  };
+
+  return (
+    <Box>
+      {!open && (
+        <Button
+          size="small"
+          startIcon={<AutoAwesomeIcon />}
+          onClick={() => setOpen(true)}
+          sx={{ width: '100%', justifyContent: 'flex-start', textTransform: 'none', color: 'text.secondary' }}
+          variant="text"
+        >
+          {localeText.aiCreateWidgetLabel}
+        </Button>
+      )}
+      {open && (
+        <Stack spacing={1}>
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            <AutoAwesomeIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+            <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+              {localeText.aiCreateWidgetLabel}
+            </Typography>
+            <IconButton size="small" onClick={() => { setOpen(false); setStatus('idle'); }} aria-label="Close">
+              <ExpandLessIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Stack>
+          <TextField
+            multiline
+            maxRows={3}
+            size="small"
+            placeholder={localeText.aiCreateWidgetPlaceholder}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+            disabled={status === 'loading'}
+            fullWidth
+          />
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="contained"
+              size="small"
+              disabled={!prompt.trim() || status === 'loading'}
+              onClick={handleSubmit}
+            >
+              {status === 'loading' ? localeText.aiCreateWidgetLoading : localeText.aiCreateWidgetButton}
+            </Button>
+            <Button
+              variant="text"
+              size="small"
+              onClick={() => { setOpen(false); setStatus('idle'); setPrompt(''); }}
+            >
+              Cancel
+            </Button>
+          </Stack>
+          {status === 'error' && (
+            <Alert severity="error" sx={{ fontSize: 12 }}>
+              {errorMsg}
+            </Alert>
+          )}
+        </Stack>
+      )}
+    </Box>
+  );
 }
 
 // ── Template library ────────────────────────────────────────────────────────
@@ -457,6 +567,7 @@ export function AddWidgetView() {
           <Divider />
         </>
       )}
+      <DescribeWidgetSection onCreated={scrollToBottom} />
       <Typography variant="caption" color="text.secondary">
         Choose a widget type
       </Typography>

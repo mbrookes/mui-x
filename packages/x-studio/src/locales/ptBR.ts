@@ -58,4 +58,11 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   // AI assistant
   aiAssistantOpenTooltip: 'Abrir assistente de IA',
   aiAssistantCloseTooltip: 'Fechar assistente de IA',
+
+  // Natural language widget creation
+  aiCreateWidgetLabel: 'Descrever um widget',
+  aiCreateWidgetPlaceholder: 'ex.: Gráfico de barras mostrando receita por país, KPI de pedidos totais\u2026',
+  aiCreateWidgetButton: 'Criar',
+  aiCreateWidgetLoading: 'Criando\u2026',
+  aiCreateWidgetError: 'Falha ao criar widget',
 };

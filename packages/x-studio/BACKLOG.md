@@ -158,9 +158,11 @@ Items migrated from `examples/x-studio/REQUIREMENTS.md` — these are features o
 ~~BL-56: Widget template library — panel of pre-built chart/KPI configs the user can drag onto the canvas; Studio auto-maps fields from the active data source~~
 **Fixed** (`WIDGET_TEMPLATES` array in `widgetTemplates.ts` with 13 pre-built configs (KPI sum/count/avg, bar/horizontal bar/trend/area/stacked bar/multi-measure bar/donut/scatter/funnel chart, and data table); field placeholders auto-mapped to numeric/category/date fields from primary source; templates section added to compose panel with collapsible list; disabled with reduced opacity when source lacks required field types)
 
-BL-57: Visual expression builder — node-graph editor for building expression trees; replaces the JSON-based dialog; includes live value preview
+~~BL-57: Visual expression builder — node-graph editor for building expression trees; replaces the JSON-based dialog; includes live value preview~~
+**Fixed** (enhanced `StudioExpressionFieldDialog`: added `'Function'` kind to input nodes enabling fully recursive nested function expressions; improved type guards (`isFieldExpr`, `isValueExpr`, `isFunctionExpr`); nested `ExpressionBuilder` rendered inline with a collapsible section and a left-border visual indicator showing nesting depth; dialog widened from `sm` → `md` to accommodate deep expression trees; existing live preview panel already present)
 
-BL-58: Natural language widget creation — text prompt → inferred chart type, fields, and filters (e.g. "Show me revenue by country as a bar chart for last year")
+~~BL-58: Natural language widget creation — text prompt → inferred chart type, fields, and filters (e.g. "Show me revenue by country as a bar chart for last year")~~
+**Fixed** (new `createWidgetFromDescription` function in `StudioChatPanel/` makes a single non-streaming AI call; `"Describe a widget"` text field appears in compose drawer `AddWidgetView` when `aiConfig` is set and `aiChat` feature flag is enabled; AI output is normalized through `createDefaultWidget` before calling `controller.addWidget`; `add_widget` tool schema updated to include pivot/map widget kinds; `aiConfig` forwarded through `StudioUIConfigContext` from `Studio` → `StudioProvider` → child components; locale tokens added)
 
 **Platform**
 

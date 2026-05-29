@@ -51,7 +51,7 @@ export const STUDIO_AI_TOOLS = [
         properties: {
           kind: {
             type: 'string',
-            enum: ['chart', 'grid', 'kpi', 'text', 'filter'],
+            enum: ['chart', 'grid', 'kpi', 'text', 'filter', 'pivot', 'map'],
             description: 'Widget type.',
           },
           title: { type: 'string', description: 'Widget title.' },
@@ -66,7 +66,9 @@ export const STUDIO_AI_TOOLS = [
               'chart: chartType (bar|line|area|pie|donut|scatter|bar-stacked|area-stacked), xField, yField, seriesField, yAggregation (sum|count|avg|min|max); ' +
               'kpi: kpiValueField, kpiAggregation (sum|avg|count|min|max), kpiSparkline; ' +
               'grid: columns (array of field IDs); ' +
-              'filter: filterWidgetType (date-range|multi-select|toggle|slider), filterWidgetField.',
+              'filter: filterWidgetType (date-range|multi-select|toggle|slider), filterWidgetField; ' +
+              'pivot: pivotRowField, pivotColField, pivotValueField, pivotAggregation (sum|count|avg|min|max); ' +
+              'map: mapCountryField, mapValueField, mapAggregation (sum|count|avg|min|max), mapColorScheme (blues|reds|greens|oranges|purples).',
           },
         },
         required: ['kind', 'title'],

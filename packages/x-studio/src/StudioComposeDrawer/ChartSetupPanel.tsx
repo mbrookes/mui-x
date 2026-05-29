@@ -244,6 +244,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const isGauge = chartType === 'gauge';
   const isMixed = chartType === 'mixed';
   const isHeatmap = chartType === 'heatmap';
+  const isFunnel = chartType === 'funnel';
 
   if (allFields.length === 0) {
     return (
@@ -429,6 +430,19 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         </React.Fragment>
       )}
 
+      {/* Funnel: single value/measure field */}
+      {isFunnel && (
+        <DataSourceFieldSelect
+          value={config.yField ?? ySeries[0]?.fieldId ?? ''}
+          onChange={(fieldId) => {
+            controller.updateWidgetConfig(widgetId, { yField: fieldId, ySeries: [{ fieldId }] });
+          }}
+          fields={numericFields}
+          label="Value field"
+          helperText="Numeric field summed per stage — stages are sorted by value (largest first)"
+        />
+      )}
+
       {/* Heatmap: row axis field + colour-value measure */}
       {isHeatmap && (
         <React.Fragment>
@@ -470,8 +484,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         </React.Fragment>
       )}
 
-      {/* Y series — for non-scatter, non-gauge, non-heatmap charts */}
-      {!isScatter && !isHeatmap && (
+      {/* Y series — for non-scatter, non-gauge, non-heatmap, non-funnel charts */}
+      {!isScatter && !isHeatmap && !isFunnel && (
       <div>
         <Stack direction="row" sx={{ alignItems: 'center', mb: 0.5 }}>
           <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
@@ -573,7 +587,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       </div>
       )}
       {/* Ad-hoc formula bar — lets users create a simple calculated series without the full expression dialog */}
-      {!isScatter && !isPieOrDonut && !isGauge && !isHeatmap && widget?.sourceId && (
+      {!isScatter && !isPieOrDonut && !isGauge && !isHeatmap && !isFunnel && widget?.sourceId && (
         <InlineFormulaBar
           sourceId={widget.sourceId}
           fields={numericFields}

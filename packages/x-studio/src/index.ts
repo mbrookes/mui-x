@@ -5,6 +5,7 @@ export type { StudioProps, StudioHandle, StudioSlots } from './Studio/Studio';
 // ─── StudioCanvas ─────────────────────────────────────────────────────────────
 export { StudioCanvas } from './StudioCanvas/StudioCanvas';
 export type { StudioCanvasProps } from './StudioCanvas/StudioCanvas';
+export { StudioDateRangeBar } from './StudioCanvas/StudioDateRangeBar';
 
 // ─── StudioWidgetCard ─────────────────────────────────────────────────────────
 export { StudioWidgetCard } from './StudioWidgetCard/StudioWidgetCard';
@@ -176,10 +177,14 @@ export type {
   StudioDataSourceAdapter,
   StudioFeatureFlags,
   StudioChartAnnotation,
+  StudioDateRangePreset,
 } from './models/studio';
 
 // ─── Utility types ────────────────────────────────────────────────────────────
 export type { RelativeDateValue, RelativeDateUnit } from './internals/filterTypes';
+
+// ─── Dashboard date range ──────────────────────────────────────────────────────
+export { computeDateRangePreset } from './store/StudioController';
 
 // ─── Schema version ───────────────────────────────────────────────────────────
 export { CURRENT_SCHEMA_VERSION } from './store/statePersistence';

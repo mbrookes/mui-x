@@ -2,8 +2,10 @@ import { Store } from '@mui/x-internals/store';
 
 import {
   createDefaultStudioState,
+  type StudioDataField,
   type StudioDataSource,
   type StudioDataSourceAdapter,
+  type StudioDateRangePreset,
   type StudioDrawer,
   type StudioExpressionField,
   type StudioMode,
@@ -713,9 +715,70 @@ export class StudioController {
   };
 
   /**
-   * Applies an interactive filter from a filter widget. Replaces any existing
-   * interactive filter from the same source widget.
+   * Sets or clears the dashboard-level date range filter for a page.
+   *
+   * - Pass `null` for `preset` (or `fieldId`) to remove the date range filter.
+   * - Pass `'custom'` as `preset` with explicit `customFrom` / `customTo` ISO strings
+   *   to apply a custom date range.
+   * - For all other presets the date boundaries are computed from the current date.
+   *
+   * The filter is stored as a special page-level `StudioFilterState` tagged with
+   * `isDashboardDateRange: true` so the filters drawer and quick-filter bar can hide it.
    */
+  setDashboardDateRange = (
+    pageId: string,
+    fieldId: string | null,
+    sourceId: string | null,
+    fieldType: StudioDataField['type'] | null,
+    preset: StudioDateRangePreset | null,
+    customFrom?: string,
+    customTo?: string,
+  ) => {
+    const state = this.store.state;
+    const withoutExisting = state.filters.filter(
+      (f) => !(f.isDashboardDateRange && (!f.pageId || f.pageId === pageId)),
+    );
+
+    if (!preset || !fieldId || !sourceId) {
+      this.commitState({ ...state, filters: withoutExisting });
+      return;
+    }
+
+    const isDatetime = fieldType === 'datetime';
+    let from: string;
+    let to: string;
+
+    if (preset === 'custom') {
+      if (!customFrom && !customTo) {
+        this.commitState({ ...state, filters: withoutExisting });
+        return;
+      }
+      from = customFrom ?? '';
+      to = customTo ?? '';
+    } else {
+      const dates = computeDateRangePreset(preset);
+      from = dates.from;
+      to = isDatetime ? `${dates.to}T23:59:59` : dates.to;
+    }
+
+    const newFilter: import('../models').StudioFilterState = {
+      id: `dashboard-date-range-${pageId}`,
+      scope: 'page',
+      pageId,
+      isDashboardDateRange: true,
+      dateRangePreset: preset,
+      field: fieldId,
+      fieldType: fieldType ?? 'date',
+      filterSourceId: sourceId,
+      filterMode: 'condition',
+      operator: 'between',
+      value: { from, to },
+    };
+
+    this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
+  };
+
+
   applyInteractiveFilter = (
     sourceWidgetId: string,
     field: string,
@@ -1167,4 +1230,39 @@ export class StudioController {
  */
 export function createStudioController(initialState?: Partial<StudioState>) {
   return new StudioController(initialState);
+}
+
+/** Computes start/end ISO date strings for a given date range preset. */
+export function computeDateRangePreset(preset: Exclude<StudioDateRangePreset, 'custom'>): {
+  from: string;
+  to: string;
+} {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const toISO = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const today = toISO(now);
+
+  switch (preset) {
+    case 'this_month': {
+      const from = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const to = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(lastDay)}`;
+      return { from, to };
+    }
+    case 'last_3_months': {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() - 3);
+      return { from: toISO(d), to: today };
+    }
+    case 'last_12_months': {
+      const d = new Date(now);
+      d.setFullYear(d.getFullYear() - 1);
+      return { from: toISO(d), to: today };
+    }
+    case 'ytd':
+      return { from: `${now.getFullYear()}-01-01`, to: today };
+    default:
+      return { from: today, to: today };
+  }
 }

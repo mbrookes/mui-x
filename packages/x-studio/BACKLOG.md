@@ -141,7 +141,8 @@ BL-51: Gantt / timeline chart — start/end date fields; optional colour-by stat
 ~~BL-52: Heatmap — two categorical axes + numeric value → colour intensity grid (e.g. day-of-week × hour revenue)~~
 **Fixed** (new 'Heatmap' chart type; column-axis field (xField), row-axis field (heatYField), and value/colour field (yField) pickers in setup panel; four colour schemes; `aggregateHeatmap()` sums value per (x, y) cell; `StudioHeatmapChart` renders a colour-intensity CSS grid with per-cell tooltips showing exact values)
 
-BL-53: Funnel chart — ordered stages with value and drop-off percentage
+~~BL-53: Funnel chart — ordered stages with value and drop-off percentage~~
+**Fixed** (new 'Funnel' chart type; stages sorted by value descending; drop-off % shown between stages; retention % on right; configurable stage field (xField) and value field (yField) in setup panel; `StudioFunnelChart` renders proportional horizontal bars with labels)
 
 ~~BL-54: Chart annotations — user-placed text callout or horizontal/vertical reference line; stored in widget config; visible in edit and view mode~~
 **Fixed** (`StudioChartAnnotation` added to model; `annotations?: StudioChartAnnotation[]` on `StudioWidgetConfig`; `ChartsReferenceLine` rendered as chart children for all non-pie/donut/gauge chart types; "Annotations" section in `ChartSetupPanel` with add/remove, axis picker (Y/X), value, and label inputs)

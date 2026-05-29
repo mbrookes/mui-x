@@ -1,8 +1,22 @@
 'use client';
 import * as React from 'react';
-import { Alert, Box, Button, Divider, IconButton, Paper, Stack, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  Collapse,
+  Divider,
+  IconButton,
+  Paper,
+  Stack,
+  Typography,
+} from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import {
   CanvasScrollContext,
   useStudioController,
@@ -18,12 +32,131 @@ import {
   widgetKindRequiresDataSource,
   getWidgetSubtypeIcon,
 } from '../internals/widgetUtils';
+import {
+  WIDGET_TEMPLATES,
+  applyWidgetTemplate,
+  templateIsSatisfied,
+} from '../internals/widgetTemplates';
 import type { StudioWidget, StudioWidgetKind } from '../models';
 import { KIND_LABEL } from './StudioComposeDrawer';
 
 function getCursor(isDragging: boolean) {
   return isDragging ? 'grabbing' : 'grab';
 }
+
+// ── Template library ────────────────────────────────────────────────────────
+
+interface TemplateSectionProps {
+  onApply: (widget: StudioWidget) => void;
+}
+
+function TemplateSection({ onApply }: TemplateSectionProps) {
+  const [open, setOpen] = React.useState(true);
+  const dataSources = useStudioSelector(selectDataSources);
+  const visibleSources = Object.values(dataSources).filter((s) => !s.hidden);
+  const primarySource = visibleSources[0];
+
+  return (
+    <Box>
+      <Box
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setOpen((o) => !o);
+          }
+        }}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.75,
+          cursor: 'pointer',
+          userSelect: 'none',
+          mb: 0.5,
+        }}
+      >
+        <AutoAwesomeIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+        <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+          Templates
+        </Typography>
+        {open ? (
+          <ExpandLessIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+        ) : (
+          <ExpandMoreIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+        )}
+      </Box>
+      <Collapse in={open}>
+        <Stack spacing={0.75}>
+          {WIDGET_TEMPLATES.map((tpl) => {
+            const canApply = templateIsSatisfied(tpl, primarySource);
+            return (
+              <Paper
+                key={tpl.id}
+                variant="outlined"
+                onClick={() => {
+                  if (canApply) {
+                    onApply(applyWidgetTemplate(tpl, primarySource));
+                  }
+                }}
+                tabIndex={canApply ? 0 : undefined}
+                role="button"
+                aria-label={`Add ${tpl.label} widget from template`}
+                aria-disabled={!canApply}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    if (canApply) {
+                      onApply(applyWidgetTemplate(tpl, primarySource));
+                    }
+                  }
+                }}
+                sx={{
+                  p: 1,
+                  px: 1.5,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  cursor: canApply ? 'pointer' : 'not-allowed',
+                  opacity: canApply ? 1 : 0.45,
+                  transition: 'border-color 0.15s, background-color 0.15s',
+                  '&:hover': canApply
+                    ? { borderColor: 'primary.main', bgcolor: 'action.hover' }
+                    : {},
+                  '&:focus-visible': {
+                    outline: 2,
+                    outlineColor: 'primary.main',
+                    outlineOffset: 2,
+                  },
+                }}
+              >
+                <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    <Typography variant="subtitle2" sx={{ fontSize: 12 }}>
+                      {tpl.label}
+                    </Typography>
+                    <Chip
+                      label={tpl.kind === 'kpi' ? 'KPI' : tpl.kind === 'grid' ? 'Table' : 'Chart'}
+                      size="small"
+                      sx={{ height: 16, fontSize: 10, px: 0.25 }}
+                    />
+                  </Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    {tpl.description}
+                  </Typography>
+                </Box>
+                <AddIcon sx={{ fontSize: 16, color: canApply ? 'primary.main' : 'text.disabled', flexShrink: 0 }} />
+              </Paper>
+            );
+          })}
+        </Stack>
+      </Collapse>
+    </Box>
+  );
+}
+
+// ── Widget type cards ────────────────────────────────────────────────────────
 
 interface WidgetTypeEntry {
   kind: StudioWidgetKind;
@@ -264,6 +397,19 @@ export function AddWidgetView() {
   const canvasScrollRef = React.use(CanvasScrollContext);
   const [selectedKind, setSelectedKind] = React.useState<StudioWidgetKind | null>(null);
 
+  const scrollToBottom = React.useCallback(() => {
+    // Double-rAF: first waits for React to commit the new card, second for the
+    // browser to complete layout — so scrollHeight reflects the new widget height.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const container = canvasScrollRef?.current;
+        if (container) {
+          smoothScrollToBottom(container);
+        }
+      });
+    });
+  }, [canvasScrollRef]);
+
   const handleAdd = React.useCallback(
     (kind: StudioWidgetKind) => {
       const sources = Object.values(dataSources).filter((s) => !s.hidden);
@@ -271,18 +417,17 @@ export function AddWidgetView() {
         return;
       }
       controller.addWidget(createDefaultWidget(kind));
-      // Double-rAF: first waits for React to commit the new card, second for the
-      // browser to complete layout — so scrollHeight reflects the new widget height.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const container = canvasScrollRef?.current;
-          if (container) {
-            smoothScrollToBottom(container);
-          }
-        });
-      });
+      scrollToBottom();
     },
-    [controller, dataSources, canvasScrollRef],
+    [controller, dataSources, scrollToBottom],
+  );
+
+  const handleApplyTemplate = React.useCallback(
+    (widget: StudioWidget) => {
+      controller.addWidget(widget);
+      scrollToBottom();
+    },
+    [controller, scrollToBottom],
   );
 
   const handleSelectKind = React.useCallback((kind: StudioWidgetKind) => {
@@ -306,6 +451,12 @@ export function AddWidgetView() {
 
   return (
     <Stack spacing={1.5}>
+      {hasSources && (
+        <>
+          <TemplateSection onApply={handleApplyTemplate} />
+          <Divider />
+        </>
+      )}
       <Typography variant="caption" color="text.secondary">
         Choose a widget type
       </Typography>

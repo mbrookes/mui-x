@@ -1,6 +1,8 @@
 'use client';
 import * as React from 'react';
-import { Alert, Divider, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Dialog, DialogContent, DialogTitle, Divider, IconButton, Stack, Typography } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import {
   useStudioSelector,
   selectDataSources,
@@ -11,7 +13,6 @@ import {
 import { DataSourceSection } from './DataSourceSection';
 import { RelationshipPanel } from './RelationshipPanel';
 import { DataLineageGraph } from './DataLineageGraph';
-import { CollapsibleSection } from '../internals/CollapsibleSection';
 
 // ─── Drawer ───────────────────────────────────────────────────────────────────
 
@@ -21,6 +22,8 @@ export function StudioDataDrawer() {
   const relationships = useStudioSelector(selectRelationships);
   const mode = useStudioSelector(selectMode);
   const sourceList = Object.values(dataSources).filter((s) => !s.hidden);
+
+  const [lineageOpen, setLineageOpen] = React.useState(false);
 
   if (sourceList.length === 0) {
     return (
@@ -51,14 +54,42 @@ export function StudioDataDrawer() {
       {sourceList.length >= 2 && (
         <React.Fragment>
           <Divider />
-          <CollapsibleSection title="Data lineage" defaultExpanded={false}>
-            <Stack spacing={0.5} sx={{ pt: 0.5 }}>
-              <Typography variant="caption" color="text.secondary">
-                Click an edge to inspect the join key fields.
+          <Box sx={{ px: 2, py: 1.5 }}>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<AccountTreeIcon fontSize="small" />}
+              onClick={() => setLineageOpen(true)}
+              fullWidth
+            >
+              View data lineage
+            </Button>
+          </Box>
+          <Dialog
+            open={lineageOpen}
+            onClose={() => setLineageOpen(false)}
+            maxWidth="lg"
+            fullWidth
+            slotProps={{ paper: { sx: { height: '80vh' } } }}
+          >
+            <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 6 }}>
+              <AccountTreeIcon fontSize="small" />
+              Data lineage
+              <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                Click an edge to inspect join key fields.
               </Typography>
+              <IconButton
+                aria-label="Close data lineage"
+                onClick={() => setLineageOpen(false)}
+                sx={{ position: 'absolute', right: 8, top: 8 }}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </DialogTitle>
+            <DialogContent dividers sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto' }}>
               <DataLineageGraph sources={dataSources} relationships={relationships} />
-            </Stack>
-          </CollapsibleSection>
+            </DialogContent>
+          </Dialog>
         </React.Fragment>
       )}
     </Stack>

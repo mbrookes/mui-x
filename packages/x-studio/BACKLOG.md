@@ -136,7 +136,8 @@ BL-48: Data lineage view — graph view in the data drawer showing sources as no
 
 BL-50: Map / choropleth — country or region data on a world map; colour scale from a numeric field; tooltip on hover
 
-BL-51: Gantt / timeline chart — start/end date fields; optional colour-by status field; useful for shipment delivery windows
+~~BL-51: Gantt / timeline chart — start/end date fields; optional colour-by status field; useful for shipment delivery windows~~
+**Fixed** (new 'Gantt / Timeline' chart type; label field, start date field, end date field, and optional colour-by category field configurable in setup panel; `StudioGanttChart` renders horizontal bars positioned by date range with date axis, grid lines, and tooltip showing label/dates/duration/category; overflows truncated with "+N more" notice)
 
 ~~BL-52: Heatmap — two categorical axes + numeric value → colour intensity grid (e.g. day-of-week × hour revenue)~~
 **Fixed** (new 'Heatmap' chart type; column-axis field (xField), row-axis field (heatYField), and value/colour field (yField) pickers in setup panel; four colour schemes; `aggregateHeatmap()` sums value per (x, y) cell; `StudioHeatmapChart` renders a colour-intensity CSS grid with per-cell tooltips showing exact values)

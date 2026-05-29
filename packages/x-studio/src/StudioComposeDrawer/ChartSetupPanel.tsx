@@ -115,6 +115,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     [reachableFields],
   );
 
+  const dateFields = React.useMemo(
+    () => reachableFields.filter((f) => f.type === 'date' || f.type === 'datetime').sort(sortBySourceLabel),
+    [reachableFields],
+  );
+
   const chartType: StudioChartType = config.chartType ?? 'bar';
   const isHorizontalBarChart =
     (chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100') &&
@@ -245,6 +250,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const isMixed = chartType === 'mixed';
   const isHeatmap = chartType === 'heatmap';
   const isFunnel = chartType === 'funnel';
+  const isGantt = chartType === 'gantt';
 
   if (allFields.length === 0) {
     return (
@@ -357,8 +363,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         </Stack>
       )}
 
-      {/* Standard (non-gauge) fields */}
-      {!isGauge && (
+      {/* Standard (non-gauge, non-gantt) fields */}
+      {!isGauge && !isGantt && (
         <Stack spacing={2}>
       {/* X field */}
       <DataSourceFieldSelect
@@ -587,7 +593,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       </div>
       )}
       {/* Ad-hoc formula bar — lets users create a simple calculated series without the full expression dialog */}
-      {!isScatter && !isPieOrDonut && !isGauge && !isHeatmap && !isFunnel && widget?.sourceId && (
+      {!isScatter && !isPieOrDonut && !isGauge && !isHeatmap && !isFunnel && !isGantt && widget?.sourceId && (
         <InlineFormulaBar
           sourceId={widget.sourceId}
           fields={numericFields}
@@ -699,10 +705,54 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       )}
         </Stack>
       )}
-      {/* Annotations — reference lines (not for pie/donut/gauge) */}
+
+      {/* Gantt / timeline chart fields */}
+      {isGantt && (
+        <Stack spacing={2}>
+          <DataSourceFieldSelect
+            value={config.ganttLabelField ?? ''}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, { ganttLabelField: fieldId || undefined })
+            }
+            fields={allFields}
+            label="Label field"
+            helperText="Field shown as the row label on the Y axis (e.g. task or order name)"
+          />
+          <DataSourceFieldSelect
+            value={config.ganttStartField ?? ''}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, { ganttStartField: fieldId || undefined })
+            }
+            fields={dateFields}
+            label="Start date field"
+            helperText="Date / datetime field for the start of each bar"
+          />
+          <DataSourceFieldSelect
+            value={config.ganttEndField ?? ''}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, { ganttEndField: fieldId || undefined })
+            }
+            fields={dateFields}
+            label="End date field"
+            helperText="Date / datetime field for the end of each bar"
+          />
+          <DataSourceFieldSelect
+            value={config.ganttColorField ?? ''}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, { ganttColorField: fieldId || undefined })
+            }
+            fields={categoryFields}
+            label="Colour by (optional)"
+            helperText="Categorical field used to colour-code bars (e.g. status or category)"
+          />
+        </Stack>
+      )}
+
+      {/* Annotations — reference lines (not for pie/donut/gauge/gantt) */}
       {chartType !== 'pie' &&
         chartType !== 'donut' &&
-        chartType !== 'gauge' && (
+        chartType !== 'gauge' &&
+        chartType !== 'gantt' && (
           <div>
             <Divider sx={{ mb: 1.5 }} />
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>

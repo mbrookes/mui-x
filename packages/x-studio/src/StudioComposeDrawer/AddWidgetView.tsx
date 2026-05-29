@@ -6,10 +6,7 @@ import {
   Button,
   Divider,
   IconButton,
-  MenuItem,
-  MenuList,
   Paper,
-  Popover,
   Stack,
   TextField,
   Typography,
@@ -17,7 +14,6 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import {
   CanvasScrollContext,
@@ -34,11 +30,6 @@ import {
   widgetKindRequiresDataSource,
   getWidgetSubtypeIcon,
 } from '../internals/widgetUtils';
-import {
-  WIDGET_TEMPLATES,
-  applyWidgetTemplate,
-  templateIsSatisfied,
-} from '../internals/widgetTemplates';
 import type { StudioWidget, StudioWidgetKind } from '../models';
 import { KIND_LABEL } from './StudioComposeDrawerLabels';
 import { useStudioUIConfig, useStudioLocaleText, useStudioFeatures } from '../internals/StudioUIConfigContext';
@@ -155,98 +146,6 @@ function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-// ── Per-widget templates dropdown ────────────────────────────────────────────
-
-interface TemplatesDropdownProps {
-  kind: StudioWidgetKind;
-  onApply: (widget: StudioWidget) => void;
-}
-
-function TemplatesDropdown({ kind, onApply }: TemplatesDropdownProps) {
-  const dataSources = useStudioSelector(selectDataSources);
-  const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
-
-  const primarySource = React.useMemo(
-    () => Object.values(dataSources).filter((s) => !s.hidden)[0],
-    [dataSources],
-  );
-
-  const kindTemplates = React.useMemo(
-    () => WIDGET_TEMPLATES.filter((t) => t.kind === kind),
-    [kind],
-  );
-
-  if (kindTemplates.length === 0) {
-    return null;
-  }
-
-  const open = Boolean(anchorEl);
-
-  return (
-    <>
-      <Button
-        size="small"
-        variant="text"
-        endIcon={<ArrowDropDownIcon sx={{ fontSize: 14 }} />}
-        onClick={(e) => {
-          e.stopPropagation();
-          setAnchorEl(e.currentTarget);
-        }}
-        sx={{
-          fontSize: 11,
-          lineHeight: 1,
-          px: 0.75,
-          py: 0.25,
-          minWidth: 0,
-          textTransform: 'none',
-          color: 'text.secondary',
-          whiteSpace: 'nowrap',
-        }}
-        aria-haspopup="true"
-        aria-expanded={open}
-        aria-label={`Templates for ${kind}`}
-      >
-        Templates
-      </Button>
-      <Popover
-        open={open}
-        anchorEl={anchorEl}
-        onClose={() => setAnchorEl(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-        onClick={(e) => e.stopPropagation()}
-        slotProps={{ paper: { sx: { minWidth: 200, maxWidth: 280 } } }}
-      >
-        <MenuList dense>
-          {kindTemplates.map((tpl) => {
-            const canApply = templateIsSatisfied(tpl, primarySource);
-            return (
-              <MenuItem
-                key={tpl.id}
-                disabled={!canApply}
-                onClick={() => {
-                  if (canApply) {
-                    onApply(applyWidgetTemplate(tpl, primarySource));
-                    setAnchorEl(null);
-                  }
-                }}
-                sx={{ flexDirection: 'column', alignItems: 'flex-start', py: 0.75 }}
-              >
-                <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                  {tpl.label}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {tpl.description}
-                </Typography>
-              </MenuItem>
-            );
-          })}
-        </MenuList>
-      </Popover>
-    </>
-  );
-}
-
 // ── Widget type cards ────────────────────────────────────────────────────────
 
 interface WidgetTypeEntry {
@@ -260,12 +159,12 @@ interface WidgetTypeCardProps {
   wt: WidgetTypeEntry;
   canAdd: boolean;
   onSelect: (kind: StudioWidgetKind) => void;
-  onApplyTemplate: (widget: StudioWidget) => void;
 }
 
-function WidgetTypeCard({ wt, canAdd, onSelect, onApplyTemplate }: WidgetTypeCardProps) {
+function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
   const ref = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
+
   React.useEffect(() => {
     if (!canAdd) {
       return undefined;
@@ -336,11 +235,6 @@ function WidgetTypeCard({ wt, canAdd, onSelect, onApplyTemplate }: WidgetTypeCar
           {wt.description}
         </Typography>
       </Box>
-      {canAdd && (
-        <Box sx={{ flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-          <TemplatesDropdown kind={wt.kind} onApply={onApplyTemplate} />
-        </Box>
-      )}
     </Paper>
   );
 }
@@ -520,14 +414,6 @@ export function AddWidgetView() {
     [controller, dataSources, scrollToBottom],
   );
 
-  const handleApplyTemplate = React.useCallback(
-    (widget: StudioWidget) => {
-      controller.addWidget(widget);
-      scrollToBottom();
-    },
-    [controller, scrollToBottom],
-  );
-
   const handleSelectKind = React.useCallback((kind: StudioWidgetKind) => {
     setSelectedKind(kind);
   }, []);
@@ -584,7 +470,6 @@ export function AddWidgetView() {
             wt={wt}
             canAdd={canAdd}
             onSelect={handleSelectKind}
-            onApplyTemplate={handleApplyTemplate}
           />
         );
       })}

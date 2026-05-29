@@ -215,3 +215,5 @@ export type { StudioAIToolName } from './StudioChatPanel/studioAITools';
 // ─── Server adapter utilities ─────────────────────────────────────────────────
 export { createBatchingAdapter } from './server/createBatchingAdapter';
 export type { BatchingAdapterOptions } from './server/createBatchingAdapter';
+export { createSimpleAdapter } from './server/createSimpleAdapter';
+export type { SimpleAdapterOptions } from './server/createSimpleAdapter';

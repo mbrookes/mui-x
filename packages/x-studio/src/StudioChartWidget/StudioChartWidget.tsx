@@ -504,6 +504,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   const handleItemClick = React.useCallback(
     (label: string | number | Date) => {
+      // Drilldown takes priority over cross-filter when configured
+      if (config.drilldownWidgetId && config.xField) {
+        const rowData: Record<string, unknown> = { [config.xField]: label instanceof Date ? label.toISOString() : label };
+        controller.openDrilldown(widget.id, config.drilldownWidgetId, rowData);
+        return;
+      }
+
       if (!config.xField) {
         return;
       }
@@ -556,6 +563,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       widget.id,
       widget.sourceId,
       config.xField,
+      config.drilldownWidgetId,
       activeCrossFilter,
       chartSupport.fieldOwners,
       xGroupBy,

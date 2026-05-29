@@ -20,13 +20,13 @@ export interface SettingsDialogProps {
 }
 
 const WIDGET_KIND_FLAGS: { key: keyof StudioFeatureFlags; label: string }[] = [
-  { key: 'allowGrid', label: 'Table' },
-  { key: 'allowChart', label: 'Chart' },
-  { key: 'allowKpi', label: 'KPI' },
-  { key: 'allowText', label: 'Text' },
-  { key: 'allowFilter', label: 'Filter widget' },
-  { key: 'allowPivot', label: 'Pivot table' },
-  { key: 'allowMap', label: 'Map' },
+  { key: 'grid', label: 'Table' },
+  { key: 'chart', label: 'Chart' },
+  { key: 'kpi', label: 'KPI' },
+  { key: 'text', label: 'Text' },
+  { key: 'filter', label: 'Filter widget' },
+  { key: 'pivot', label: 'Pivot table' },
+  { key: 'map', label: 'Map' },
 ];
 
 const WIDGET_FEATURE_FLAGS: { key: keyof StudioFeatureFlags; label: string }[] = [
@@ -42,7 +42,6 @@ const WIDGET_FEATURE_FLAGS: { key: keyof StudioFeatureFlags; label: string }[] =
   { key: 'gridGroupBy', label: 'Table group by' },
   { key: 'gridSummary', label: 'Table summary row' },
   { key: 'gridConditionalFormats', label: 'Table conditional formats' },
-  { key: 'drilldown', label: 'Drilldown' },
 ];
 
 export function SettingsDialog(props: SettingsDialogProps) {

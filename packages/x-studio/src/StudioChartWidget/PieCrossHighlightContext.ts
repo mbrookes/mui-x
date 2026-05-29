@@ -1,0 +1,13 @@
+import * as React from 'react';
+
+export interface PieHighlightContextValue {
+  ratioByIndex: Map<number, number>;
+  isActive: boolean;
+  skipAnimation: boolean;
+}
+
+export const PieHighlightContext = React.createContext<PieHighlightContextValue>({
+  ratioByIndex: new Map(),
+  isActive: false,
+  skipAnimation: false,
+});

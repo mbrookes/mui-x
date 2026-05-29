@@ -25,7 +25,7 @@ function generateSuggestions(
   activePageWidgetIds: string[],
 ): Array<{ label: string; value: string }> {
   const sourceList = Object.values(dataSources);
-  const activeWidgets = activePageWidgetIds.map((id) => widgets[id]).filter(Boolean);
+  const activeWidgets = activePageWidgetIds.flatMap((id) => (widgets[id] ? [widgets[id]] : []));
   const hasWidgets = activeWidgets.length > 0;
 
   const suggestions: Array<{ label: string; value: string }> = [];
@@ -33,10 +33,15 @@ function generateSuggestions(
   if (!hasWidgets) {
     // Empty state: suggest building first widgets from available sources
     for (const source of sourceList.slice(0, 3)) {
-      const numericField = source.fields.find((f) => f.type === 'number' && !f.hidden);
-      const catField = source.fields.find(
-        (f) => (f.type === 'string' || f.type === 'date') && !f.hidden,
-      );
+      let numericField: (typeof source.fields)[0] | undefined;
+      let catField: (typeof source.fields)[0] | undefined;
+      for (const f of source.fields) {
+        if (!f.hidden) {
+          if (!numericField && f.type === 'number') numericField = f;
+          if (!catField && (f.type === 'string' || f.type === 'date')) catField = f;
+        }
+        if (numericField && catField) break;
+      }
 
       if (numericField && catField) {
         suggestions.push({

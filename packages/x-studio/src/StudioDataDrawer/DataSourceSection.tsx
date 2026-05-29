@@ -6,7 +6,6 @@ import {
   IconButton,
   List,
   ListItemButton,
-  ListItemText,
   Stack,
   Tooltip,
   Typography,
@@ -53,7 +52,7 @@ function FieldPreviewTooltip({
         {field.label}
       </Typography>
       {values.map((v, i) => (
-        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- display-only list of enum values, ordering is stable
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- display-only list of enum values, ordering is stable
         <Typography
           key={`val-${i}`}
           variant="caption"
@@ -132,6 +131,7 @@ function DataSourcePreviewTooltip({
         </thead>
         <tbody>
           {previewRows.map((row, ri) => (
+            // react-doctor-disable-next-line react-doctor/no-array-index-key -- preview table rows have no stable IDs
             <tr key={ri}>
               {visibleFields.map((f) => {
                 const v = row[f.id];
@@ -184,6 +184,34 @@ function DataSourcePreviewTooltip({
   );
 }
 
+// ─── Physical field row ───────────────────────────────────────────────────────
+
+interface PhysicalFieldRowProps {
+  field: StudioDataSource['fields'][number];
+  rows: StudioDataSource['rows'];
+  isSelected: boolean;
+  onSelect: () => void;
+}
+
+function PhysicalFieldRow({ field, rows, isSelected, onSelect }: PhysicalFieldRowProps) {
+  return (
+    <FieldPreviewTooltip field={field} rows={rows}>
+      <ListItemButton
+        selected={isSelected}
+        onClick={onSelect}
+        sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
+      >
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexGrow: 1, minWidth: 0 }}>
+          <FieldTypeIcon type={field.type} generated={field.generated} size={15} />
+          <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
+            {field.label}
+          </Typography>
+        </Stack>
+      </ListItemButton>
+    </FieldPreviewTooltip>
+  );
+}
+
 // ─── Expression field row ─────────────────────────────────────────────────────
 
 interface ExpressionFieldRowProps {
@@ -215,6 +243,15 @@ function ExpressionFieldRow({
     previewRows = enrichedRows;
   }
 
+  const primaryContent = (
+    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+      <FieldTypeIcon type={type} generated size={15} />
+      <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
+        {field.label}
+      </Typography>
+    </Stack>
+  );
+
   return (
     <FieldPreviewTooltip field={field} rows={previewRows}>
       <ListItemButton
@@ -222,16 +259,7 @@ function ExpressionFieldRow({
         disableRipple={!isEditMode}
         onClick={isEditMode ? onEdit : undefined}
       >
-        <ListItemText
-          primary={
-            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-              <FieldTypeIcon type={type} generated size={15} />
-              <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
-                {field.label}
-              </Typography>
-            </Stack>
-          }
-        />
+        {primaryContent}
         {isEditMode && (
           <Stack direction="row" spacing={0}>
             <Tooltip title="Edit">
@@ -314,24 +342,16 @@ export function DataSourceSection(props: {
   };
 
   const visibleFieldCount = source.fields.filter((f) => !f.hidden).length + sourceExprFields.length;
+  const sectionSecondaryText = `${visibleFieldCount} field${visibleFieldCount !== 1 ? 's' : ''} · ${source.rows?.length ?? 0} rows`;
 
   return (
     <div>
       <DataSourcePreviewTooltip source={source}>
         <ListItemButton onClick={() => setOpen((prev) => !prev)} sx={{ pl: 2, pr: 1, py: 0.5 }}>
-          <ListItemText
-            primary={
-              <Typography variant="subtitle2" noWrap>
-                {source.label}
-              </Typography>
-            }
-            secondary={
-              <Typography variant="caption" color="text.secondary">
-                {visibleFieldCount} field{visibleFieldCount !== 1 ? 's' : ''} ·{' '}
-                {source.rows?.length ?? 0} rows
-              </Typography>
-            }
-          />
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Typography variant="subtitle2" noWrap>{source.label}</Typography>
+            <Typography variant="caption" color="text.secondary">{sectionSecondaryText}</Typography>
+          </Box>
           {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
         </ListItemButton>
       </DataSourcePreviewTooltip>
@@ -345,24 +365,13 @@ export function DataSourceSection(props: {
             }
             const isSelected = selectedSourceId === source.id && selectedFieldId === field.id;
             return [
-              <FieldPreviewTooltip key={field.id} field={field} rows={source.rows}>
-                <ListItemButton
-                  selected={isSelected}
-                  onClick={() => controller.selectField(source.id, field.id)}
-                  sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
-                >
-                  <ListItemText
-                    primary={
-                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                        <FieldTypeIcon type={field.type} generated={field.generated} size={15} />
-                        <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
-                          {field.label}
-                        </Typography>
-                      </Stack>
-                    }
-                  />
-                </ListItemButton>
-              </FieldPreviewTooltip>,
+              <PhysicalFieldRow
+                key={field.id}
+                field={field}
+                rows={source.rows}
+                isSelected={isSelected}
+                onSelect={() => controller.selectField(source.id, field.id)}
+              />,
             ];
           })}
 

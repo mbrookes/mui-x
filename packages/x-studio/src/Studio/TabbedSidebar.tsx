@@ -6,8 +6,8 @@ import CloseIcon from '@mui/icons-material/Close';
 
 import { useStudioController, useStudioSelector, selectShell } from '../context';
 import type { StudioDrawer } from '../models';
-import { DRAWER_WIDTH, COLLAPSED_WIDTH, DrawerSubheaderContext } from '../Studio/DrawerPanel';
-import type { DrawerSubheaderContextValue } from '../Studio/DrawerPanel';
+import { DRAWER_WIDTH, COLLAPSED_WIDTH, DrawerSubheaderContext } from './DrawerPanelContext';
+import type { DrawerSubheaderContextValue } from './DrawerPanelContext';
 
 export interface TabbedSidebarPanel {
   drawer: StudioDrawer;

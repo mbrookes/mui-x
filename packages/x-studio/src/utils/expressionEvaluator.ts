@@ -283,13 +283,18 @@ export function enrichRowsWithExpressions(
     { sourceField: string; index: Map<unknown, Record<string, unknown>> }
   >();
   if (dataSources && relationships) {
+    // Pre-build relationship index: targetId → relationship for O(1) lookup
+    const relByTargetId = new Map<string, (typeof relationships)[number]>();
+    for (const r of relationships) {
+      if (r.sourceId === sourceId) {
+        relByTargetId.set(r.targetId, r);
+      }
+    }
     for (const ef of sorted) {
       if (isJoinFieldExpression(ef.expression)) {
         const { joinSourceId } = ef.expression;
         if (!joinIndexes.has(joinSourceId)) {
-          const rel = relationships.find(
-            (r) => r.sourceId === sourceId && r.targetId === joinSourceId,
-          );
+          const rel = relByTargetId.get(joinSourceId);
           if (rel) {
             const index = new Map<unknown, Record<string, unknown>>();
             for (const r of dataSources[joinSourceId]?.rows ?? []) {
@@ -354,7 +359,7 @@ function evalMeasureExpression(
 
   if (isFieldExpression(expr)) {
     const { aggregation = 'sum' } = expr;
-    const values = rows.map((r) => toNumber(r[expr.id])).filter((v) => !Number.isNaN(v));
+    const values = rows.flatMap((r) => { const v = toNumber(r[expr.id]); return Number.isNaN(v) ? [] : [v]; });
     return aggregate(values, aggregation);
   }
 
@@ -710,6 +715,7 @@ function collectFieldRefs(expr: StudioExpression): Set<string> {
  */
 export function topoSortExpressionFields(fields: StudioExpressionField[]): StudioExpressionField[] {
   const fieldIds = new Set(fields.map((f) => f.id));
+  const fieldIndex = new Map(fields.map((f) => [f.id, f]));
   const visited = new Set<string>();
   const result: StudioExpressionField[] = [];
 
@@ -726,7 +732,7 @@ export function topoSortExpressionFields(fields: StudioExpressionField[]): Studi
     next.add(field.id);
     for (const dep of deps) {
       if (fieldIds.has(dep)) {
-        const depField = fields.find((f) => f.id === dep);
+        const depField = fieldIndex.get(dep);
         if (depField) {
           visit(depField, next);
         }

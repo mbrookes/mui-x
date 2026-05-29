@@ -51,7 +51,8 @@ import type { StudioNumberFormat } from '../models/studio';
 import { computeAggregate } from '../StudioKpiWidget/kpiUtils';
 import { useChartWidgetData } from './useChartWidgetData';
 import { buildMultiYLineSeries } from './lineSeries';
-import { CrossFilterBarContext, CrossFilterGhostBar } from './CrossFilterGhostBar';
+import { CrossFilterBarContext } from './CrossFilterBarContext';
+import { CrossFilterGhostBar } from './CrossFilterGhostBar';
 import { StudioHeatmapChart } from './StudioHeatmapChart';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
@@ -90,174 +91,16 @@ const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
 const GHOST_SERIES_SUFFIX = '-ghost';
 
-// ── Pie cross-highlight: ghost + proportional overlay arc ────────────────────
-//
-// When a cross-filter is active the custom pieArc slot renders two layered arcs
-// per slice instead of one:
-//   1. Ghost arc  — full angle (allChartData), dimmed to ~25% opacity.
-//   2. Overlay arc — same start angle, end angle shrunk to `ratio × full span`
-//      where ratio = filteredValue / allValue. Full color. Shows the share of
-//      that slice that belongs to the selected filter.
-//
-// The PieHighlightContext is always provided (non-conditional) so PieChart never
-// changes tree position, preventing entrance-animation remounts.
-//
-interface PieHighlightContextValue {
-  ratioByIndex: Map<number, number>;
-  isActive: boolean;
-  skipAnimation: boolean;
-}
-
-const PieHighlightContext = React.createContext<PieHighlightContextValue>({
-  ratioByIndex: new Map(),
-  isActive: false,
-  skipAnimation: false,
-});
-
-function CrossHighlightPieArc(props: PieArcProps) {
-  const { startAngle, endAngle, color, innerRadius, outerRadius, ...rest } = props;
-  const { ratioByIndex, isActive, skipAnimation } = React.useContext(PieHighlightContext);
-
-  const ratio = ratioByIndex.get(rest.dataIndex) ?? 1;
-  const ghostColor = isActive ? `${color}40` : color;
-  const overlayEndAngle = startAngle + ratio * (endAngle - startAngle);
-
-  return (
-    <React.Fragment>
-      {/* Ghost arc — full surface area; handles ALL pointer interaction for this slice.
-          The overlay arc sits on top but defers interaction to the ghost so that
-          hovering anywhere on the slice (ghost or overlay region) consistently
-          triggers highlighting. */}
-      <PieArc
-        {...rest}
-        startAngle={startAngle}
-        endAngle={endAngle}
-        innerRadius={innerRadius}
-        outerRadius={outerRadius}
-        color={ghostColor}
-        skipAnimation={skipAnimation}
-      />
-      {/* Overlay arc — purely visual; skipInteraction prevents duplicate/conflicting
-          pointer events with the ghost arc beneath it.
-          stroke="none" removes the radial end-line at the overlay boundary.
-          Radii are inset by 1px to match the visual footprint of the ghost arc's 1px
-          background stroke, so the curved outer/inner edges align correctly. */}
-      {isActive && ratio > 0.001 && (
-        <PieArc
-          {...rest}
-          startAngle={startAngle}
-          endAngle={overlayEndAngle}
-          innerRadius={innerRadius + 1}
-          outerRadius={outerRadius - 1}
-          color={color}
-          skipAnimation={skipAnimation}
-          isFaded={false}
-          stroke="none"
-          skipInteraction
-        />
-      )}
-    </React.Fragment>
-  );
-}
-
-// Stable slots object — defined at module scope so the reference never changes
-// between renders and PieChart never unmounts/remounts its arc elements.
-const PIE_HIGHLIGHT_SLOTS = { pieArc: CrossHighlightPieArc } as const;
-
-/**
- * Aligns filteredValues to the positions in allLabels.
- * Categories present in allLabels but absent from filteredLabels get null.
- */
-function alignFilteredToAllLabels(
-  allLabels: (string | number | Date)[],
-  filteredLabels: (string | number | Date)[],
-  filteredValues: (number | null)[],
-): (number | null)[] {
-  const filteredByLabel = new Map(filteredLabels.map((l, i) => [String(l), filteredValues[i]]));
-  return allLabels.map((l) => filteredByLabel.get(String(l)) ?? null);
-}
-
-// eslint-disable-next-line jsdoc/require-param
-/**
- * Wraps a base valueFormatter to show "filtered / total" when a cross-filter is active.
- * @param {((number | null)[]} filteredValues - Array of filtered values aligned to bar chart label indices.
- * @param {(arg: number | null) => string} baseFormatter - The chart series' original value formatter.
- * @returns {(v: number | null, ctx: { dataIndex: number }) => string} A composite formatter showing "filtered / total" for cross-filtered data.
- */
-function makeCrossFilterValueFormatter(
-  filteredValues: (number | null)[],
-  baseFormatter: (arg: number | null) => string,
-): (value: number | null, context: { dataIndex: number }) => string {
-  return (value, { dataIndex }) => {
-    const fv = filteredValues[dataIndex];
-    const base = baseFormatter(value);
-    if (fv == null) {
-      return `${base} (filtered out)`;
-    }
-    if (fv === value) {
-      return base;
-    }
-    return `${baseFormatter(fv)} / ${base}`;
-  };
-}
-
-function densifyBarLabels(labels: (string | number)[]) {
-  return fillTemporalLabelGaps(labels);
-}
-
-function createLineXAxisConfig(
-  labels: (string | number)[],
-  xGroupBy: StudioWidget['config']['xGroupBy'],
-  formatLabel: (label: string | number) => string,
-  axisId?: string,
-) {
-  const temporalData = getTemporalAxisData(labels);
-  if (temporalData) {
-    return [
-      {
-        ...(axisId ? { id: axisId } : {}),
-        data: temporalData,
-        scaleType: 'utc' as const,
-        height: 'auto' as const,
-        valueFormatter: (value: Date | number) => formatTemporalAxisLabel(value, xGroupBy),
-      },
-    ];
-  }
-
-  return [
-    {
-      ...(axisId ? { id: axisId } : {}),
-      data: labels,
-      scaleType: 'point' as const,
-      height: 'auto' as const,
-      valueFormatter: (v: string | number) => formatLabel(String(v)),
-    },
-  ];
-}
-
-function makeValueFormatter(format?: StudioNumberFormat, currencyCode?: string) {
-  return (value: number | null) => {
-    if (value === null) {
-      return '';
-    }
-    if (!format) {
-      return String(value);
-    }
-    return formatNumber(value, format, currencyCode);
-  };
-}
-
-function normalizeCrossFilterValue(value: string | number | Date | undefined) {
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-
-  if (value == null) {
-    return null;
-  }
-
-  return String(value);
-}
+import { PieHighlightContext } from './PieCrossHighlightContext';
+import { PIE_HIGHLIGHT_SLOTS } from './PieCrossHighlightSlots';
+import {
+  alignFilteredToAllLabels,
+  makeCrossFilterValueFormatter,
+  densifyBarLabels,
+  createLineXAxisConfig,
+  makeValueFormatter,
+  normalizeCrossFilterValue,
+} from './chartWidgetHelpers';
 
 export const StudioChartWidget = React.memo(function StudioChartWidget(
   props: StudioChartWidgetProps,
@@ -510,13 +353,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   const handleItemClick = React.useCallback(
     (label: string | number | Date) => {
-      // Drilldown takes priority over cross-filter when configured
-      if (config.drilldownWidgetId && config.xField) {
-        const rowData: Record<string, unknown> = { [config.xField]: label instanceof Date ? label.toISOString() : label };
-        controller.openDrilldown(widget.id, config.drilldownWidgetId, rowData);
-        return;
-      }
-
       if (!config.xField) {
         return;
       }
@@ -569,7 +405,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       widget.id,
       widget.sourceId,
       config.xField,
-      config.drilldownWidgetId,
       activeCrossFilter,
       chartSupport.fieldOwners,
       xGroupBy,

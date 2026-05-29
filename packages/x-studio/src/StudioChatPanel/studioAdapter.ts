@@ -77,8 +77,7 @@ function toOpenAIMessages(systemPrompt: string, messages: ChatMessage[]): OpenAI
 
   for (const msg of messages) {
     const textParts = msg.parts
-      .filter((p) => p.type === 'text')
-      .map((p) => (p.type === 'text' ? p.text : ''))
+      .flatMap((p) => (p.type === 'text' ? [p.text] : []))
       .join('');
 
     const toolParts = msg.parts.filter((p) => p.type === 'dynamic-tool') as Array<{
@@ -254,6 +253,7 @@ async function* parseSSE(response: Response): AsyncGenerator<Record<string, unkn
 
   while (true) {
     // eslint-disable-next-line no-await-in-loop
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential streaming read; cannot be parallelized
     const { done, value } = await reader.read();
     if (done) {
       break;
@@ -492,6 +492,7 @@ export function createStudioChatAdapter(
                 if (tc.name === 'remove_widget' && onRemoveWidgetRequest) {
                   const args = toolInput as { widgetId: string; widgetTitle?: string };
                   // eslint-disable-next-line no-await-in-loop
+                  // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential user confirmation; must await one at a time
                   const confirmed = await onRemoveWidgetRequest(
                     args.widgetId ?? '',
                     args.widgetTitle ?? args.widgetId ?? 'this widget',

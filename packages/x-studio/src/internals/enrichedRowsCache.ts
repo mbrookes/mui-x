@@ -45,7 +45,7 @@ function isEntryValid(
   entry: EnrichCacheEntry,
   rows: Row[],
   relevantFields: StudioExpressionField[],
-  joinedSourceIds: string[],
+  joinedSourceIds: Iterable<string>,
   dataSources: Record<string, StudioDataSource>,
   relevantRelationships: StudioRelationship[],
 ): boolean {
@@ -198,20 +198,18 @@ export function getCachedEnrichedRows(
     .join(',');
 
   // Collect the joined source IDs used by JoinFieldExpression fields.
-  const joinedSourceIds: string[] = [];
+  const joinedSourceIds = new Set<string>();
   for (const ef of relevantFields) {
     if (isJoinFieldExpression(ef.expression)) {
       const { joinSourceId } = ef.expression;
-      if (!joinedSourceIds.includes(joinSourceId)) {
-        joinedSourceIds.push(joinSourceId);
-      }
+      joinedSourceIds.add(joinSourceId);
     }
   }
 
   // Collect only the relationships that affect this source's enrichment
   // (those where this source is the "from" end of a join).
   const relevantRelationships = relationships.filter(
-    (r) => r.sourceId === sourceId && joinedSourceIds.includes(r.targetId),
+    (r) => r.sourceId === sourceId && joinedSourceIds.has(r.targetId),
   );
 
   // Look up the 2-level cache: sourceId → fieldSetKey → entry.

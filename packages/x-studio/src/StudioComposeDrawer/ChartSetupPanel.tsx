@@ -27,6 +27,7 @@ import {
   selectExpressionFields,
   selectRelationships,
 } from '../context';
+import { useStudioFeatures } from '../internals/StudioUIConfigContext';
 import { fieldsForCapability } from '../utils/fieldCapabilities';
 import {
   analyzeChartSupport,
@@ -46,6 +47,7 @@ function generateAnnotationId() {
 export function ChartSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
+  const features = useStudioFeatures();
   const allWidgets = useStudioSelector(selectWidgets);
   const widget = allWidgets[widgetId];
   const dataSources = useStudioSelector(selectDataSources);
@@ -749,7 +751,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       )}
 
       {/* Annotations — reference lines (not for pie/donut/gauge/gantt) */}
-      {chartType !== 'pie' &&
+      {features.chartAnnotations !== false &&
+        chartType !== 'pie' &&
         chartType !== 'donut' &&
         chartType !== 'gauge' &&
         chartType !== 'gantt' && (
@@ -899,13 +902,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 <MenuItem value="">
                   <em>None</em>
                 </MenuItem>
-                {Object.values(allWidgets)
-                  .filter((w) => w.id !== widgetId)
-                  .map((w) => (
-                    <MenuItem key={w.id} value={w.id}>
-                      {w.title || w.id}
-                    </MenuItem>
-                  ))}
+                {Object.values(allWidgets).flatMap((w) =>
+                  w.id !== widgetId
+                    ? [<MenuItem key={w.id} value={w.id}>{w.title || w.id}</MenuItem>]
+                    : [],
+                )}
               </Select>
             </FormControl>
           </React.Fragment>

@@ -4,11 +4,12 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
-  Collapse,
   Divider,
   IconButton,
+  MenuItem,
+  MenuList,
   Paper,
+  Popover,
   Stack,
   TextField,
   Typography,
@@ -16,7 +17,7 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import {
   CanvasScrollContext,
@@ -39,7 +40,7 @@ import {
   templateIsSatisfied,
 } from '../internals/widgetTemplates';
 import type { StudioWidget, StudioWidgetKind } from '../models';
-import { KIND_LABEL } from './StudioComposeDrawer';
+import { KIND_LABEL } from './StudioComposeDrawerLabels';
 import { useStudioUIConfig, useStudioLocaleText, useStudioFeatures } from '../internals/StudioUIConfigContext';
 import { createWidgetFromDescription } from '../StudioChatPanel/createWidgetFromDescription';
 
@@ -154,115 +155,95 @@ function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-// ── Template library ────────────────────────────────────────────────────────
+// ── Per-widget templates dropdown ────────────────────────────────────────────
 
-interface TemplateSectionProps {
+interface TemplatesDropdownProps {
+  kind: StudioWidgetKind;
   onApply: (widget: StudioWidget) => void;
 }
 
-function TemplateSection({ onApply }: TemplateSectionProps) {
-  const [open, setOpen] = React.useState(true);
+function TemplatesDropdown({ kind, onApply }: TemplatesDropdownProps) {
   const dataSources = useStudioSelector(selectDataSources);
-  const visibleSources = Object.values(dataSources).filter((s) => !s.hidden);
-  const primarySource = visibleSources[0];
+  const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
+
+  const primarySource = React.useMemo(
+    () => Object.values(dataSources).filter((s) => !s.hidden)[0],
+    [dataSources],
+  );
+
+  const kindTemplates = React.useMemo(
+    () => WIDGET_TEMPLATES.filter((t) => t.kind === kind),
+    [kind],
+  );
+
+  if (kindTemplates.length === 0) {
+    return null;
+  }
+
+  const open = Boolean(anchorEl);
 
   return (
-    <Box>
-      <Box
-        role="button"
-        tabIndex={0}
-        onClick={() => setOpen((o) => !o)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setOpen((o) => !o);
-          }
+    <>
+      <Button
+        size="small"
+        variant="text"
+        endIcon={<ArrowDropDownIcon sx={{ fontSize: 14 }} />}
+        onClick={(e) => {
+          e.stopPropagation();
+          setAnchorEl(e.currentTarget);
         }}
         sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.75,
-          cursor: 'pointer',
-          userSelect: 'none',
-          mb: 0.5,
+          fontSize: 11,
+          lineHeight: 1,
+          px: 0.75,
+          py: 0.25,
+          minWidth: 0,
+          textTransform: 'none',
+          color: 'text.secondary',
+          whiteSpace: 'nowrap',
         }}
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={`Templates for ${kind}`}
       >
-        <AutoAwesomeIcon sx={{ fontSize: 16, color: 'primary.main' }} />
-        <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
-          Templates
-        </Typography>
-        {open ? (
-          <ExpandLessIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-        ) : (
-          <ExpandMoreIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-        )}
-      </Box>
-      <Collapse in={open}>
-        <Stack spacing={0.75}>
-          {WIDGET_TEMPLATES.map((tpl) => {
+        Templates
+      </Button>
+      <Popover
+        open={open}
+        anchorEl={anchorEl}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        onClick={(e) => e.stopPropagation()}
+        slotProps={{ paper: { sx: { minWidth: 200, maxWidth: 280 } } }}
+      >
+        <MenuList dense>
+          {kindTemplates.map((tpl) => {
             const canApply = templateIsSatisfied(tpl, primarySource);
             return (
-              <Paper
+              <MenuItem
                 key={tpl.id}
-                variant="outlined"
+                disabled={!canApply}
                 onClick={() => {
                   if (canApply) {
                     onApply(applyWidgetTemplate(tpl, primarySource));
+                    setAnchorEl(null);
                   }
                 }}
-                tabIndex={canApply ? 0 : undefined}
-                role="button"
-                aria-label={`Add ${tpl.label} widget from template`}
-                aria-disabled={!canApply}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    if (canApply) {
-                      onApply(applyWidgetTemplate(tpl, primarySource));
-                    }
-                  }
-                }}
-                sx={{
-                  p: 1,
-                  px: 1.5,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1.5,
-                  cursor: canApply ? 'pointer' : 'not-allowed',
-                  opacity: canApply ? 1 : 0.45,
-                  transition: 'border-color 0.15s, background-color 0.15s',
-                  '&:hover': canApply
-                    ? { borderColor: 'primary.main', bgcolor: 'action.hover' }
-                    : {},
-                  '&:focus-visible': {
-                    outline: 2,
-                    outlineColor: 'primary.main',
-                    outlineOffset: 2,
-                  },
-                }}
+                sx={{ flexDirection: 'column', alignItems: 'flex-start', py: 0.75 }}
               >
-                <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                    <Typography variant="subtitle2" sx={{ fontSize: 12 }}>
-                      {tpl.label}
-                    </Typography>
-                    <Chip
-                      label={tpl.kind === 'kpi' ? 'KPI' : tpl.kind === 'grid' ? 'Table' : 'Chart'}
-                      size="small"
-                      sx={{ height: 16, fontSize: 10, px: 0.25 }}
-                    />
-                  </Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                    {tpl.description}
-                  </Typography>
-                </Box>
-                <AddIcon sx={{ fontSize: 16, color: canApply ? 'primary.main' : 'text.disabled', flexShrink: 0 }} />
-              </Paper>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                  {tpl.label}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {tpl.description}
+                </Typography>
+              </MenuItem>
             );
           })}
-        </Stack>
-      </Collapse>
-    </Box>
+        </MenuList>
+      </Popover>
+    </>
   );
 }
 
@@ -279,9 +260,10 @@ interface WidgetTypeCardProps {
   wt: WidgetTypeEntry;
   canAdd: boolean;
   onSelect: (kind: StudioWidgetKind) => void;
+  onApplyTemplate: (widget: StudioWidget) => void;
 }
 
-function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
+function WidgetTypeCard({ wt, canAdd, onSelect, onApplyTemplate }: WidgetTypeCardProps) {
   const ref = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
   React.useEffect(() => {
@@ -348,12 +330,17 @@ function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
       }}
     >
       <Box sx={{ color: 'primary.main', display: 'flex', flexShrink: 0 }}>{wt.icon}</Box>
-      <div>
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
         <Typography variant="subtitle2">{wt.label}</Typography>
         <Typography variant="caption" color="text.secondary">
           {wt.description}
         </Typography>
-      </div>
+      </Box>
+      {canAdd && (
+        <Box sx={{ flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+          <TemplatesDropdown kind={wt.kind} onApply={onApplyTemplate} />
+        </Box>
+      )}
     </Paper>
   );
 }
@@ -504,6 +491,7 @@ function smoothScrollToBottom(container: HTMLElement, duration = 420) {
 export function AddWidgetView() {
   const controller = useStudioController();
   const dataSources = useStudioSelector(selectDataSources);
+  const features = useStudioFeatures();
   const canvasScrollRef = React.use(CanvasScrollContext);
   const [selectedKind, setSelectedKind] = React.useState<StudioWidgetKind | null>(null);
 
@@ -546,6 +534,24 @@ export function AddWidgetView() {
 
   const hasSources = Object.values(dataSources).some((s) => !s.hidden);
 
+  // Filter widget types by kind feature flags
+  const visibleWidgetTypes = React.useMemo(
+    () =>
+      WIDGET_TYPES.filter((wt) => {
+        switch (wt.kind) {
+          case 'grid': return features.allowGrid !== false;
+          case 'chart': return features.allowChart !== false;
+          case 'kpi': return features.allowKpi !== false;
+          case 'text': return features.allowText !== false;
+          case 'filter': return features.allowFilter !== false;
+          case 'pivot': return features.allowPivot !== false;
+          case 'map': return features.allowMap !== false;
+          default: return true;
+        }
+      }),
+    [features],
+  );
+
   if (selectedKind) {
     return (
       <WidgetInstanceList
@@ -561,12 +567,6 @@ export function AddWidgetView() {
 
   return (
     <Stack spacing={1.5}>
-      {hasSources && (
-        <>
-          <TemplateSection onApply={handleApplyTemplate} />
-          <Divider />
-        </>
-      )}
       <DescribeWidgetSection onCreated={scrollToBottom} />
       <Typography variant="caption" color="text.secondary">
         Choose a widget type
@@ -576,9 +576,17 @@ export function AddWidgetView() {
           No data sources available yet. Only text widgets can be added until one is connected.
         </Alert>
       )}
-      {WIDGET_TYPES.map((wt) => {
+      {visibleWidgetTypes.map((wt) => {
         const canAdd = !widgetKindRequiresDataSource(wt.kind) || hasSources;
-        return <WidgetTypeCard key={wt.kind} wt={wt} canAdd={canAdd} onSelect={handleSelectKind} />;
+        return (
+          <WidgetTypeCard
+            key={wt.kind}
+            wt={wt}
+            canAdd={canAdd}
+            onSelect={handleSelectKind}
+            onApplyTemplate={handleApplyTemplate}
+          />
+        );
       })}
     </Stack>
   );

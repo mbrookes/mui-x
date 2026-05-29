@@ -16,7 +16,7 @@ import {
   useStudioKeyboardShortcuts,
   useStudioSelector,
 } from '@mui/x-studio';
-import type { StudioAIConfig, StudioMode, StudioPage, StudioState } from '@mui/x-studio';
+import type { StudioAIConfig, StudioFeatureFlags, StudioMode, StudioPage, StudioState } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { AppToolbar } from './components/AppToolbar';
 import { ComposeDialog } from './components/ComposeDialog';
@@ -25,6 +25,7 @@ import { FiltersDialog } from './components/FiltersDialog';
 import { AddWidgetFab } from './components/AddWidgetFab';
 import { ChatSidePanel } from './components/ChatSidePanel';
 import { EmptyPagePrompt } from './components/EmptyPagePrompt';
+import { SettingsDialog } from './components/SettingsDialog';
 import { uploadJson, downloadJson } from './utils/fileUtils';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
@@ -147,6 +148,8 @@ interface DashboardLayoutProps {
   adapterMode: boolean;
   aiConfig: StudioAIConfig | undefined;
   onSnackbar: (message: string, severity: 'success' | 'error' | 'info') => void;
+  featureFlags: StudioFeatureFlags;
+  onFeatureFlagsChange: (flags: StudioFeatureFlags) => void;
 }
 
 /**
@@ -165,7 +168,7 @@ interface DashboardLayoutProps {
  * - `StudioCanvas` — the widget grid
  * - `CanvasScrollContext` — scroll-to-bottom after adding widgets
  */
-function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutProps) {
+function DashboardLayout({ adapterMode, aiConfig, onSnackbar, featureFlags, onFeatureFlagsChange }: DashboardLayoutProps) {
   const controller = useStudioController();
 
   // Register Cmd+Z / Cmd+Shift+Z keyboard shortcuts
@@ -194,6 +197,7 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
   const [dataOpen, setDataOpen] = React.useState(false);
   const [filtersOpen, setFiltersOpen] = React.useState(false);
   const [chatOpen, setChatOpen] = React.useState(false);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
 
   const handleComposeOpen = React.useCallback(() => setComposeOpen(true), []);
   const handleComposeClose = React.useCallback(() => setComposeOpen(false), []);
@@ -202,6 +206,8 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
   const handleFiltersOpen = React.useCallback(() => setFiltersOpen(true), []);
   const handleFiltersClose = React.useCallback(() => setFiltersOpen(false), []);
   const handleChatToggle = React.useCallback(() => setChatOpen((prev) => !prev), []);
+  const handleSettingsOpen = React.useCallback(() => setSettingsOpen(true), []);
+  const handleSettingsClose = React.useCallback(() => setSettingsOpen(false), []);
 
   const handleAddPage = React.useCallback(() => {
     const newId = controller.addPage('New Page');
@@ -318,12 +324,19 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar }: DashboardLayoutP
         onChatToggle={aiConfig && mode === 'edit' ? handleChatToggle : undefined}
         onAddPage={mode === 'edit' ? handleAddPage : undefined}
         hasEmptyPage={hasEmptyPage}
+        onSettingsOpen={handleSettingsOpen}
       />
 
       {/* Dialogs — rendered outside the canvas so they overlay everything */}
       <ComposeDialog open={composeOpen} onClose={handleComposeClose} />
       <DataDialog open={dataOpen} onClose={handleDataClose} />
       <FiltersDialog open={filtersOpen} onClose={handleFiltersClose} />
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={handleSettingsClose}
+        featureFlags={featureFlags}
+        onFeatureFlagsChange={onFeatureFlagsChange}
+      />
 
       <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         {/* Canvas takes full width — side panel slides in alongside it */}
@@ -410,6 +423,8 @@ export default function App() {
     severity: 'success' | 'error' | 'info';
   }>({ open: false, message: '', severity: 'info' });
 
+  const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({});
+
   const handleSnackbar = React.useCallback(
     (message: string, severity: 'success' | 'error' | 'info') => {
       setSnackbar({ open: true, message, severity });
@@ -426,11 +441,13 @@ export default function App() {
       <LocalizationProvider dateAdapter={AdapterDayjs}>
         <CssBaseline />
         {/* StudioProvider makes the controller available to all descendants */}
-        <StudioProvider controller={controller}>
+        <StudioProvider controller={controller} featureFlags={featureFlags}>
           <DashboardLayout
             adapterMode={adapterMode}
             aiConfig={aiConfig}
             onSnackbar={handleSnackbar}
+            featureFlags={featureFlags}
+            onFeatureFlagsChange={setFeatureFlags}
           />
         </StudioProvider>
         <Snackbar

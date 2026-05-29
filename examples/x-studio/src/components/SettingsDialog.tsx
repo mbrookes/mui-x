@@ -17,6 +17,7 @@ import {
   Typography,
 } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import type { StudioFeatureFlags } from '@mui/x-studio';
 
 export type SidebarLayout = 'stacked' | 'tabbed';
 export type SidebarSide = 'left' | 'right';
@@ -39,10 +40,48 @@ export interface SettingsDialogProps {
   onSidebarSideChange: (side: SidebarSide) => void;
   onTableSourceModeChange: (mode: TableSourceMode) => void;
   onStackBreakpointChange: (breakpoint: number) => void;
+  featureFlags: StudioFeatureFlags;
+  onFeatureFlagsChange: (flags: StudioFeatureFlags) => void;
 }
 
+const WIDGET_KIND_FLAGS: { key: keyof StudioFeatureFlags; label: string }[] = [
+  { key: 'allowGrid', label: 'Table' },
+  { key: 'allowChart', label: 'Chart' },
+  { key: 'allowKpi', label: 'KPI' },
+  { key: 'allowText', label: 'Text' },
+  { key: 'allowFilter', label: 'Filter widget' },
+  { key: 'allowPivot', label: 'Pivot table' },
+  { key: 'allowMap', label: 'Map' },
+];
+
+const WIDGET_FEATURE_FLAGS: { key: keyof StudioFeatureFlags; label: string }[] = [
+  { key: 'compose', label: 'Compose / edit mode' },
+  { key: 'filters', label: 'Filters panel' },
+  { key: 'savedFilterViews', label: 'Saved filter views' },
+  { key: 'dataManagement', label: 'Data management drawer' },
+  { key: 'aiChat', label: 'AI chat assistant' },
+  { key: 'kpiSparkline', label: 'KPI sparkline' },
+  { key: 'kpiTrend', label: 'KPI trend indicator' },
+  { key: 'kpiTarget', label: 'KPI target line' },
+  { key: 'chartAnnotations', label: 'Chart annotations' },
+  { key: 'gridGroupBy', label: 'Table group by' },
+  { key: 'gridSummary', label: 'Table summary row' },
+  { key: 'gridConditionalFormats', label: 'Table conditional formats' },
+  { key: 'drilldown', label: 'Drilldown' },
+];
+
 export function SettingsDialog(props: SettingsDialogProps) {
-  const { open, onClose, values, onSidebarLayoutChange, onSidebarSideChange, onTableSourceModeChange, onStackBreakpointChange } = props;
+  const {
+    open,
+    onClose,
+    values,
+    onSidebarLayoutChange,
+    onSidebarSideChange,
+    onTableSourceModeChange,
+    onStackBreakpointChange,
+    featureFlags,
+    onFeatureFlagsChange,
+  } = props;
 
   const [rowInput, setRowInput] = React.useState(
     values.rowCount !== undefined ? String(values.rowCount) : '',
@@ -88,6 +127,10 @@ export function SettingsDialog(props: SettingsDialogProps) {
       url.searchParams.delete('adapter');
     }
     window.location.href = url.toString();
+  }
+
+  function handleFlagToggle(key: keyof StudioFeatureFlags, checked: boolean) {
+    onFeatureFlagsChange({ ...featureFlags, [key]: checked });
   }
 
   return (
@@ -186,6 +229,44 @@ export function SettingsDialog(props: SettingsDialogProps) {
             Row count and adapter changes take effect after reload.
           </Typography>
         )}
+
+        <Divider />
+
+        {/* Feature flags — widget kinds */}
+        <FormControl component="fieldset">
+          <FormLabel component="legend" sx={{ mb: 0.5 }}>Widget types</FormLabel>
+          {WIDGET_KIND_FLAGS.map(({ key, label }) => (
+            <FormControlLabel
+              key={key}
+              control={
+                <Switch
+                  size="small"
+                  checked={(featureFlags[key] as boolean | undefined) !== false}
+                  onChange={(_evt, checked) => handleFlagToggle(key, checked)}
+                />
+              }
+              label={label}
+            />
+          ))}
+        </FormControl>
+
+        {/* Feature flags — UI features */}
+        <FormControl component="fieldset">
+          <FormLabel component="legend" sx={{ mb: 0.5 }}>Features</FormLabel>
+          {WIDGET_FEATURE_FLAGS.map(({ key, label }) => (
+            <FormControlLabel
+              key={key}
+              control={
+                <Switch
+                  size="small"
+                  checked={(featureFlags[key] as boolean | undefined) !== false}
+                  onChange={(_evt, checked) => handleFlagToggle(key, checked)}
+                />
+              }
+              label={label}
+            />
+          ))}
+        </FormControl>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>

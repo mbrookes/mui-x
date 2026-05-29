@@ -25,6 +25,7 @@ import {
   selectRelationships,
   selectExpressionFields,
 } from '../context';
+import { useStudioFeatures } from '../internals/StudioUIConfigContext';
 import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioKpiAggregation, StudioWidgetConfig, StudioCrossFilterMode } from '../models';
@@ -320,6 +321,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
 export function KpiSetupPanel(props: { widgetId: string }) {
   const widget = useStudioSelector(selectWidgets)[props.widgetId];
   const controller = useStudioController();
+  const features = useStudioFeatures();
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const relationships = useStudioSelector(selectRelationships);
@@ -407,7 +409,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
   // Numeric fields for the formula bar (scoped to the widget's source when available)
   const numericFormulaFields = React.useMemo(
-    () => reachableFields.filter((f) => f.type === 'number').map((f) => ({ id: f.id, label: f.label })),
+    () => reachableFields.flatMap((f) => f.type === 'number' ? [{ id: f.id, label: f.label }] : []),
     [reachableFields],
   );
 
@@ -469,6 +471,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         </Select>
       </FormControl>
 
+      {features.kpiSparkline !== false && (
       <CollapsibleFeatureSection
         label="Sparkline"
         enabled={config.kpiSparkline ?? false}
@@ -476,7 +479,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
       >
         <KpiSparklineOptions widgetId={widgetId} config={config} />
       </CollapsibleFeatureSection>
+      )}
 
+      {features.kpiTarget !== false && (
       <CollapsibleFeatureSection
         label="Target"
         enabled={config.kpiTarget ?? false}
@@ -491,7 +496,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           onChange={(ref) => controller.updateWidgetConfig(widgetId, { kpiTargetRef: ref })}
         />
       </CollapsibleFeatureSection>
+      )}
 
+      {features.kpiTrend !== false && (
       <CollapsibleFeatureSection
         label="Trend"
         enabled={config.kpiTrend ?? false}
@@ -527,6 +534,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           />
         </Box>
       </CollapsibleFeatureSection>
+      )}
 
       {/* Interactions — cross-filter mode. KPIs are summary metrics with no visual row
           representation, so "cross-highlight" (dim non-matching rows) does not apply.

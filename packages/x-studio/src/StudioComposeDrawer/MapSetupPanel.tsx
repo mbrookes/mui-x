@@ -29,48 +29,72 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   const aggFn = config.mapAggregation ?? 'sum';
   const colorScheme = config.mapColorScheme ?? 'blues';
 
-  const { stringFields, numericFields } = React.useMemo<{
-    stringFields: DataSourceFieldEntry[];
-    numericFields: DataSourceFieldEntry[];
-  }>(() => {
-    if (!widget?.sourceId) return { stringFields: [], numericFields: [] };
-    const source = dataSources[widget.sourceId];
-    if (!source) return { stringFields: [], numericFields: [] };
-
-    const reachableIds = getReachableSourceIds(widget.sourceId, relationships);
-    const strings: DataSourceFieldEntry[] = [];
-    const numbers: DataSourceFieldEntry[] = [];
-
-    source.fields.forEach((f) => {
-      if (f.hidden) return;
-      const entry: DataSourceFieldEntry = { id: f.id, label: f.label, type: f.type, sourceId: source.id, sourceLabel: source.label };
-      if (f.type === 'string') strings.push(entry);
-      if (f.type === 'number') numbers.push(entry);
-    });
-    expressionFields
-      .forEach((ef) => {
-        if (ef.sourceId !== widget.sourceId || ef.hidden) return;
-        const entry: DataSourceFieldEntry = { id: ef.id, label: ef.label, type: 'number', sourceId: source.id, sourceLabel: source.label, generated: true };
-        numbers.push(entry);
-      });
-
-    relationships.forEach((rel) => {
-      if (rel.type !== 'many-to-one' || rel.sourceId !== widget.sourceId) return;
-      if (!reachableIds.has(rel.targetId)) return;
-      const relSource = dataSources[rel.targetId];
-      if (!relSource) return;
-      relSource.fields.forEach((f) => {
-        if (f.hidden) return;
-        if (f.type === 'string') strings.push({ id: f.id, label: f.label, type: f.type, sourceId: relSource.id, sourceLabel: relSource.label });
-        if (f.type === 'number') numbers.push({ id: f.id, label: f.label, type: f.type, sourceId: relSource.id, sourceLabel: relSource.label });
+  // All string fields from every visible source — country pickers show the full universe
+  // so the widget can be configured even before a sourceId is established.
+  const allStringFields = React.useMemo<DataSourceFieldEntry[]>(() => {
+    return Object.values(dataSources).flatMap((ds) => {
+      if (ds.hidden) return [];
+      return ds.fields.flatMap((f) => {
+        if (f.hidden || f.type !== 'string') return [];
+        return [{ id: f.id, label: f.label, type: f.type as DataSourceFieldEntry['type'], sourceId: ds.id, sourceLabel: ds.label }];
       });
     });
+  }, [dataSources]);
 
-    return { stringFields: strings, numericFields: numbers };
+  // Numeric fields: from the widget's primary source + reachable related sources + expression fields.
+  // Falls back to ALL numeric fields when no sourceId is set.
+  const numericFields = React.useMemo<DataSourceFieldEntry[]>(() => {
+    const all: DataSourceFieldEntry[] = [];
+    const reachableIds = widget?.sourceId
+      ? getReachableSourceIds(widget.sourceId, relationships)
+      : null;
+
+    Object.values(dataSources).forEach((ds) => {
+      if (ds.hidden) return;
+      if (reachableIds && !reachableIds.has(ds.id)) return;
+      ds.fields.forEach((f) => {
+        if (f.hidden || f.type !== 'number') return;
+        all.push({ id: f.id, label: f.label, type: f.type, sourceId: ds.id, sourceLabel: ds.label });
+      });
+    });
+    expressionFields.forEach((ef) => {
+      if (ef.hidden) return;
+      if (reachableIds && !reachableIds.has(ef.sourceId)) return;
+      const ds = dataSources[ef.sourceId];
+      if (ds?.hidden) return;
+      all.push({ id: ef.id, label: ef.label, type: 'number', sourceId: ef.sourceId, sourceLabel: ds?.label ?? ef.sourceId, generated: true });
+    });
+    return all;
   }, [widget?.sourceId, dataSources, relationships, expressionFields]);
 
   function update(changes: Partial<typeof config>) {
     controller.updateWidget(widgetId, { config: { ...config, ...changes } });
+  }
+
+  /**
+   * Handle country field selection.
+   * - If the widget has no sourceId yet, adopt the selected field's source.
+   * - If the selected field is from the widget's existing sourceId, store normally.
+   * - If it's from a related source, store as cross-source (mapCountrySourceId).
+   */
+  function handleCountryFieldChange(fieldId: string, sourceId: string) {
+    if (!fieldId) {
+      update({ mapCountryField: undefined, mapCountrySourceId: undefined });
+      return;
+    }
+    if (!widget?.sourceId) {
+      // No primary source yet — adopt the country field's source as primary
+      controller.updateWidget(widgetId, {
+        sourceId,
+        config: { ...config, mapCountryField: fieldId, mapCountrySourceId: undefined },
+      });
+      return;
+    }
+    if (sourceId === widget.sourceId) {
+      update({ mapCountryField: fieldId, mapCountrySourceId: undefined });
+    } else {
+      update({ mapCountryField: fieldId, mapCountrySourceId: sourceId });
+    }
   }
 
   if (!widget) return null;
@@ -87,12 +111,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         <DataSourceFieldSelect
           label="Country field"
           value={config.mapCountryField ?? ''}
-          valueSourceId={config.mapCountrySourceId}
-          fields={stringFields}
-          onChange={(fieldId, sourceId) => update({
-            mapCountryField: fieldId || undefined,
-            mapCountrySourceId: fieldId ? sourceId : undefined,
-          })}
+          valueSourceId={config.mapCountrySourceId ?? widget?.sourceId}
+          fields={allStringFields}
+          onChange={handleCountryFieldChange}
         />
       </div>
 
@@ -107,7 +128,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           fields={numericFields}
           onChange={(fieldId, sourceId) => update({
             mapValueField: fieldId || undefined,
-            mapValueSourceId: fieldId ? sourceId : undefined,
+            mapValueSourceId: fieldId && sourceId !== widget?.sourceId ? sourceId : undefined,
           })}
         />
       </div>

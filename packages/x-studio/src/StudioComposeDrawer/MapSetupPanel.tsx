@@ -41,14 +41,15 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
     const strings: DataSourceFieldEntry[] = [];
     const numbers: DataSourceFieldEntry[] = [];
 
-    source.fields.filter((f) => !f.hidden).forEach((f) => {
+    source.fields.forEach((f) => {
+      if (f.hidden) return;
       const entry: DataSourceFieldEntry = { id: f.id, label: f.label, type: f.type, sourceId: source.id, sourceLabel: source.label };
       if (f.type === 'string') strings.push(entry);
       if (f.type === 'number') numbers.push(entry);
     });
     expressionFields
-      .filter((ef) => ef.sourceId === widget.sourceId && !ef.hidden)
       .forEach((ef) => {
+        if (ef.sourceId !== widget.sourceId || ef.hidden) return;
         const entry: DataSourceFieldEntry = { id: ef.id, label: ef.label, type: 'number', sourceId: source.id, sourceLabel: source.label, generated: true };
         numbers.push(entry);
       });
@@ -58,8 +59,10 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       if (!reachableIds.has(rel.targetId)) return;
       const relSource = dataSources[rel.targetId];
       if (!relSource) return;
-      relSource.fields.filter((f) => !f.hidden && f.type === 'number').forEach((f) => {
-        numbers.push({ id: f.id, label: f.label, type: f.type, sourceId: relSource.id, sourceLabel: relSource.label });
+      relSource.fields.forEach((f) => {
+        if (f.hidden) return;
+        if (f.type === 'string') strings.push({ id: f.id, label: f.label, type: f.type, sourceId: relSource.id, sourceLabel: relSource.label });
+        if (f.type === 'number') numbers.push({ id: f.id, label: f.label, type: f.type, sourceId: relSource.id, sourceLabel: relSource.label });
       });
     });
 

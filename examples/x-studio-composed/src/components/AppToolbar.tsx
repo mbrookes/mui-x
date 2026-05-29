@@ -7,6 +7,7 @@ import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import RedoIcon from '@mui/icons-material/Redo';
+import SettingsIcon from '@mui/icons-material/Settings';
 import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';
 import UndoIcon from '@mui/icons-material/Undo';
@@ -33,6 +34,7 @@ export interface AppToolbarProps {
   onChatToggle?: () => void;
   onAddPage?: () => void;
   hasEmptyPage?: boolean;
+  onSettingsOpen?: () => void;
 }
 
 export function AppToolbar(props: AppToolbarProps) {
@@ -56,6 +58,7 @@ export function AppToolbar(props: AppToolbarProps) {
     onChatToggle,
     onAddPage,
     hasEmptyPage,
+    onSettingsOpen,
   } = props;
 
   return (
@@ -179,6 +182,13 @@ export function AppToolbar(props: AppToolbarProps) {
           <FileUploadIcon fontSize="small" />
         </IconButton>
       </Tooltip>
+      {onSettingsOpen && (
+        <Tooltip title="Settings">
+          <IconButton size="small" onClick={onSettingsOpen} aria-label="Settings">
+            <SettingsIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
       <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>

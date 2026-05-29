@@ -2,6 +2,10 @@
 export { Studio } from './Studio/Studio';
 export type { StudioProps, StudioHandle, StudioSlots } from './Studio/Studio';
 
+// ─── StudioDashboard (embed-first entry point) ────────────────────────────────
+export { StudioDashboard } from './Studio/StudioDashboard';
+export type { StudioDashboardProps } from './Studio/StudioDashboard';
+
 // ─── StudioCanvas ─────────────────────────────────────────────────────────────
 export { StudioCanvas } from './StudioCanvas/StudioCanvas';
 export type { StudioCanvasProps } from './StudioCanvas/StudioCanvas';

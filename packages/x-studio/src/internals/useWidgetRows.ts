@@ -17,7 +17,7 @@ import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 import { studioRequestCache } from './StudioRequestCache';
-import { enrichWithCrossSourceColumns } from './crossSourceEnrichment';
+import { enrichWithCrossSourceColumns, enrichWithCrossSourceFields } from './crossSourceEnrichment';
 
 type Row = Record<string, unknown>;
 
@@ -425,48 +425,68 @@ export function useWidgetRows(
     [widget.config?.columns, widget.sourceId],
   );
 
-  const hasCrossSourceColumns = crossSourceColumns.length > 0;
+  // For map widgets, collect cross-source field refs from mapCountryField / mapValueField.
+  const mapCrossSourceFields = React.useMemo(() => {
+    if (widget.kind !== 'map') return [];
+    const refs = [];
+    const { mapCountryField, mapCountrySourceId, mapValueField, mapValueSourceId } = widget.config ?? {};
+    if (mapCountryField && mapCountrySourceId && mapCountrySourceId !== widget.sourceId) {
+      refs.push({ fieldId: mapCountryField, sourceId: mapCountrySourceId });
+    }
+    if (mapValueField && mapValueSourceId && mapValueSourceId !== widget.sourceId) {
+      refs.push({ fieldId: mapValueField, sourceId: mapValueSourceId });
+    }
+    return refs;
+  }, [widget.kind, widget.config, widget.sourceId]);
+
+  const hasCrossSourceColumns = crossSourceColumns.length > 0 || mapCrossSourceFields.length > 0;
+
+  // Combine grid-column cross-source refs and map field refs into a single list for enrichment
+  const allCrossSourceFieldRefs = React.useMemo(() => {
+    const colRefs = crossSourceColumns.map((c) => ({ fieldId: c.fieldId, sourceId: c.sourceId! }));
+    return [...colRefs, ...mapCrossSourceFields];
+  }, [crossSourceColumns, mapCrossSourceFields]);
 
   const enrichedFilteredRows = React.useMemo(
     () =>
       hasCrossSourceColumns
-        ? enrichWithCrossSourceColumns(
+        ? enrichWithCrossSourceFields(
             filteredRows,
             widget.sourceId,
-            widget.config?.columns,
+            allCrossSourceFieldRefs,
             dataSources,
             relationships,
           )
         : filteredRows,
-    [hasCrossSourceColumns, filteredRows, widget.sourceId, widget.config?.columns, dataSources, relationships],
+    [hasCrossSourceColumns, filteredRows, widget.sourceId, allCrossSourceFieldRefs, dataSources, relationships],
   );
 
   const enrichedFilteredRowsNoCross = React.useMemo(
     () =>
       hasCrossSourceColumns
-        ? enrichWithCrossSourceColumns(
+        ? enrichWithCrossSourceFields(
             filteredRowsNoCross,
             widget.sourceId,
-            widget.config?.columns,
+            allCrossSourceFieldRefs,
             dataSources,
             relationships,
           )
         : filteredRowsNoCross,
-    [hasCrossSourceColumns, filteredRowsNoCross, widget.sourceId, widget.config?.columns, dataSources, relationships],
+    [hasCrossSourceColumns, filteredRowsNoCross, widget.sourceId, allCrossSourceFieldRefs, dataSources, relationships],
   );
 
   const enrichedFilteredRowsNoChartCross = React.useMemo(
     () =>
       hasCrossSourceColumns
-        ? enrichWithCrossSourceColumns(
+        ? enrichWithCrossSourceFields(
             filteredRowsNoChartCross,
             widget.sourceId,
-            widget.config?.columns,
+            allCrossSourceFieldRefs,
             dataSources,
             relationships,
           )
         : filteredRowsNoChartCross,
-    [hasCrossSourceColumns, filteredRowsNoChartCross, widget.sourceId, widget.config?.columns, dataSources, relationships],
+    [hasCrossSourceColumns, filteredRowsNoChartCross, widget.sourceId, allCrossSourceFieldRefs, dataSources, relationships],
   );
 
   const enrichedEffectiveRows =

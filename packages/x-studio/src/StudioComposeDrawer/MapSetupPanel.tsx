@@ -87,8 +87,12 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         <DataSourceFieldSelect
           label="Country field"
           value={config.mapCountryField ?? ''}
+          valueSourceId={config.mapCountrySourceId}
           fields={stringFields}
-          onChange={(fieldId) => update({ mapCountryField: fieldId || undefined })}
+          onChange={(fieldId, sourceId) => update({
+            mapCountryField: fieldId || undefined,
+            mapCountrySourceId: fieldId ? sourceId : undefined,
+          })}
         />
       </div>
 
@@ -99,8 +103,12 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         <DataSourceFieldSelect
           label="Value field (optional for count)"
           value={config.mapValueField ?? ''}
+          valueSourceId={config.mapValueSourceId}
           fields={numericFields}
-          onChange={(fieldId) => update({ mapValueField: fieldId || undefined })}
+          onChange={(fieldId, sourceId) => update({
+            mapValueField: fieldId || undefined,
+            mapValueSourceId: fieldId ? sourceId : undefined,
+          })}
         />
       </div>
 

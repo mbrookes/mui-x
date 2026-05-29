@@ -6,39 +6,43 @@ import type {
 
 type Row = Record<string, unknown>;
 
+/** Minimal field reference used by enrichWithCrossSourceFields. */
+export interface CrossSourceFieldRef {
+  fieldId: string;
+  sourceId: string;
+}
+
 /**
  * Enriches `rows` with field values from many-to-one related sources.
  *
- * For each column that has `sourceId !== widgetSourceId` the function:
- *  1. Locates the many-to-one relationship from `widgetSourceId` → `col.sourceId`
+ * For each field ref whose `sourceId !== widgetSourceId` the function:
+ *  1. Locates the many-to-one relationship from `widgetSourceId` → `ref.sourceId`
  *  2. Builds a Map of related rows keyed by their PK (`rel.targetField`)
- *  3. Copies `col.fieldId` from the related row onto each primary row via FK lookup
+ *  3. Copies `ref.fieldId` from the related row onto each primary row via FK lookup
  *
- * Columns whose related source has no in-memory rows (async sources) are silently
+ * Field refs whose related source has no in-memory rows (async sources) are silently
  * skipped — the field value stays `undefined` in the primary row.
  *
  * @param rows             Filtered primary-source rows
  * @param widgetSourceId   The widget's primary source ID
- * @param columns          The widget's StudioGridColumn config
+ * @param fieldRefs        Cross-source field references to enrich
  * @param dataSources      All data sources (keyed by ID)
  * @param relationships    Declared relationships
  */
-export function enrichWithCrossSourceColumns(
+export function enrichWithCrossSourceFields(
   rows: Row[],
   widgetSourceId: string | undefined,
-  columns: StudioGridColumn[] | undefined,
+  fieldRefs: CrossSourceFieldRef[],
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
 ): Row[] {
-  if (!widgetSourceId || !columns?.length) {
+  if (!widgetSourceId || !fieldRefs.length) {
     return rows;
   }
 
-  const crossCols = columns.filter(
-    (c) => c.sourceId && c.sourceId !== widgetSourceId,
-  );
+  const crossFields = fieldRefs.filter((r) => r.sourceId !== widgetSourceId);
 
-  if (crossCols.length === 0) {
+  if (crossFields.length === 0) {
     return rows;
   }
 
@@ -59,21 +63,19 @@ export function enrichWithCrossSourceColumns(
     }
   }
 
-  for (const col of crossCols) {
-    const relatedSourceId = col.sourceId!;
-    const rel = relIndex.get(relatedSourceId);
+  for (const ref of crossFields) {
+    const rel = relIndex.get(ref.sourceId);
     if (!rel) {
       continue;
     }
-    const relatedRows = dataSources[relatedSourceId]?.rows as Row[] | undefined;
+    const relatedRows = dataSources[ref.sourceId]?.rows as Row[] | undefined;
     if (!relatedRows) {
-      // No in-memory rows — skip (async sources not yet supported for cross-source columns)
       continue;
     }
     const relatedIndex = new Map<string, Row>(
       relatedRows.map((r) => [String(r[rel.targetField] ?? ''), r]),
     );
-    colMeta.push({ fieldId: col.fieldId, fkField: rel.sourceField, relatedIndex });
+    colMeta.push({ fieldId: ref.fieldId, fkField: rel.sourceField, relatedIndex });
   }
 
   if (colMeta.length === 0) {
@@ -94,4 +96,26 @@ export function enrichWithCrossSourceColumns(
     }
     return enriched ?? row;
   });
+}
+
+/**
+ * Convenience wrapper: enriches rows using StudioGridColumn config.
+ * Delegates to enrichWithCrossSourceFields after normalising column shape.
+ */
+export function enrichWithCrossSourceColumns(
+  rows: Row[],
+  widgetSourceId: string | undefined,
+  columns: StudioGridColumn[] | undefined,
+  dataSources: Record<string, StudioDataSource>,
+  relationships: StudioRelationship[],
+): Row[] {
+  if (!widgetSourceId || !columns?.length) {
+    return rows;
+  }
+
+  const fieldRefs: CrossSourceFieldRef[] = columns
+    .filter((c) => c.sourceId && c.sourceId !== widgetSourceId)
+    .map((c) => ({ fieldId: c.fieldId, sourceId: c.sourceId! }));
+
+  return enrichWithCrossSourceFields(rows, widgetSourceId, fieldRefs, dataSources, relationships);
 }

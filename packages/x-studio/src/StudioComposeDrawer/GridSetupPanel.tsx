@@ -43,7 +43,7 @@ import {
   selectExpressionFields,
 } from '../context';
 import { getReachableSourceIds } from '../internals/chartUtils';
-import { StudioUIConfigContext } from '../internals/StudioUIConfigContext';
+import { StudioUIConfigContext, useStudioFeatures } from '../internals/StudioUIConfigContext';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
@@ -94,6 +94,7 @@ interface SelectableField {
 export function GridSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
+  const features = useStudioFeatures();
   const allWidgets = useStudioSelector(selectWidgets);
   const widget = allWidgets[widgetId];
   const dataSources = useStudioSelector(selectDataSources);
@@ -612,6 +613,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
               />
 
               {/* Group-by field */}
+              {features.gridGroupBy !== false && (
               <DataSourceFieldSelect
                 value={groupByField}
                 onChange={(fieldId) =>
@@ -624,6 +626,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                 label="Group by"
                 helperText="Collapse rows into groups — set per-column aggregation below"
               />
+              )}
 
               {/* Sort field + direction */}
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
@@ -685,7 +688,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
         </React.Fragment>
       )}
 
-      {source && (
+      {source && features.gridConditionalFormats !== false && (
         <React.Fragment>
           {/* Conditional formatting rules */}
           <Divider />
@@ -703,6 +706,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   p.style.fontWeight === rule.style.fontWeight,
               );
               return (
+                // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- conditional format rules have no stable ID
                 <Box key={i} sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
                   <Select
                     size="small"
@@ -840,6 +844,8 @@ export function GridSetupPanel(props: { widgetId: string }) {
           </ToggleButtonGroup>
 
           {/* Drilldown widget picker */}
+          {features.drilldown !== false && (
+          <React.Fragment>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
             When a row is clicked, open drilldown…
           </Typography>
@@ -857,15 +863,15 @@ export function GridSetupPanel(props: { widgetId: string }) {
               <MenuItem value="">
                 <em>None</em>
               </MenuItem>
-              {Object.values(allWidgets)
-                .filter((w) => w.id !== widgetId)
-                .map((w) => (
-                  <MenuItem key={w.id} value={w.id}>
-                    {w.title || w.id}
-                  </MenuItem>
-                ))}
+              {Object.values(allWidgets).flatMap((w) =>
+                w.id !== widgetId
+                  ? [<MenuItem key={w.id} value={w.id}>{w.title || w.id}</MenuItem>]
+                  : [],
+              )}
             </Select>
           </FormControl>
+          </React.Fragment>
+          )}
         </React.Fragment>
       )}
 

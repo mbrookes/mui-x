@@ -9,6 +9,7 @@ import type {
   StudioPage,
   StudioState,
   StudioAIConfig,
+  StudioFeatureFlags,
 } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { AppToolbar } from './components/AppToolbar';
@@ -200,6 +201,7 @@ export default function App() {
   const [sidebarSide, setSidebarSide] = React.useState<SidebarSide>('left');
   const [tableSourceMode, setTableSourceMode] = React.useState<TableSourceMode>('explicit');
   const [stackBreakpoint, setStackBreakpoint] = React.useState(600);
+  const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({});
 
   // AI config — read from Vite env vars set by the developer
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
@@ -441,6 +443,7 @@ export default function App() {
                 sidebarSide={sidebarSide}
                 tableSourceMode={tableSourceMode}
                 stackBreakpoint={stackBreakpoint}
+                featureFlags={featureFlags}
                 aiConfig={aiConfig}
               />
             )}
@@ -464,6 +467,8 @@ export default function App() {
           onSidebarSideChange={setSidebarSide}
           onTableSourceModeChange={setTableSourceMode}
           onStackBreakpointChange={setStackBreakpoint}
+          featureFlags={featureFlags}
+          onFeatureFlagsChange={setFeatureFlags}
         />
       </LocalizationProvider>
     </ThemeProvider>

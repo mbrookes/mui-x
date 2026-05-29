@@ -163,7 +163,8 @@ BL-58: Natural language widget creation — text prompt → inferred chart type,
 
 **Platform**
 
-BL-59: Embeddable SDK — `<StudioDashboard config={…} dataLoader={…} />` with sensible defaults; zero-config auto-discovery mode; publishable as a standalone npm package
+~~BL-59: Embeddable SDK — `<StudioDashboard config={…} dataLoader={…} />` with sensible defaults; zero-config auto-discovery mode; publishable as a standalone npm package~~
+**Fixed** (`StudioDashboard` component wrapping `Studio`; defaults to view-only mode (`compose: false`, `dataManagement: false`); `config` prop loads initial state and reloads when the reference changes; `dataAdapters` prop auto-registers `StudioDataSourceAdapter` for each source ID on mount/change; `featureFlags` merges on top of view-only defaults; exported from `@mui/x-studio`)
 
 ~~BL-60: WONTFIX: Multi-user / permissions — view-only mode (no compose/filter drawers); per-page and per-widget visibility rules; user roles: viewer, editor, admin~~
 

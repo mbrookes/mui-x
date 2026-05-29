@@ -2,9 +2,20 @@
 
 import * as React from 'react';
 import { BarChart } from '@mui/x-charts/BarChart';
+import { BarPlot } from '@mui/x-charts/BarChart';
 import type { BarChartProps } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
+import { LinePlot, MarkPlot } from '@mui/x-charts/LineChart';
 import type { LineChartProps } from '@mui/x-charts/LineChart';
+import { ChartsDataProvider } from '@mui/x-charts/ChartsDataProvider';
+import { ChartsWrapper } from '@mui/x-charts/ChartsWrapper';
+import { ChartsSurface } from '@mui/x-charts/ChartsSurface';
+import { ChartsXAxis } from '@mui/x-charts/ChartsXAxis';
+import { ChartsYAxis } from '@mui/x-charts/ChartsYAxis';
+import { ChartsTooltip } from '@mui/x-charts/ChartsTooltip';
+import { ChartsLegend } from '@mui/x-charts/ChartsLegend';
+import { ChartsAxisHighlight } from '@mui/x-charts/ChartsAxisHighlight';
+import { ChartsGrid } from '@mui/x-charts/ChartsGrid';
 import { PieChart, PieArc, type PieArcProps } from '@mui/x-charts/PieChart';
 import type { PieChartProps } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
@@ -553,6 +564,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const chartType = config.chartType ?? 'bar';
   // Normalise legacy type alias
   const normalizedChartType = chartType === 'bar-grouped' ? 'bar' : chartType;
+  const isMixed = normalizedChartType === 'mixed';
   const barLayout = config.barLayout ?? 'grouped';
   const isHorizontalBarLayout = barLayout === 'horizontal';
 
@@ -1027,6 +1039,90 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         >
           {annotationChildren}
         </ScatterChart>
+      </div>
+    );
+  }
+
+  if (isMixed) {
+    if (!multiYData || multiYData.labels.length === 0) {
+      return (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: chartHeight,
+            color: 'text.disabled',
+          }}
+        >
+          <Typography variant="body2">
+            Mixed chart requires 2 or more measure fields.
+          </Typography>
+        </Box>
+      );
+    }
+
+    const ySeries = config.ySeries ?? [];
+    const mixedSeries = multiYData.series.map((s, index) => {
+      const seriesConfig = ySeries.find((c) => c.fieldId === s.fieldId);
+      const seriesType = seriesConfig?.seriesType ?? 'bar';
+      const seriesId = `${s.fieldId}-${index}`;
+      const color = resolvedChartColors[index % resolvedChartColors.length];
+      const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
+      const seriesLabel = fieldDef?.label ?? s.fieldId;
+      if (seriesType === 'line') {
+        return {
+          type: 'line' as const,
+          id: seriesId,
+          label: seriesLabel,
+          data: s.values,
+          color,
+          yAxisKey: config.dualYAxis ? 'right' : 'left',
+        };
+      }
+      return {
+        type: 'bar' as const,
+        id: seriesId,
+        label: seriesLabel,
+        data: s.values,
+        color,
+        yAxisKey: 'left',
+      };
+    });
+
+    const xAxisData = multiYData.labels;
+    const yAxes = config.dualYAxis
+      ? [
+          { id: 'left', scaleType: 'linear' as const, position: 'left' as const },
+          { id: 'right', scaleType: 'linear' as const, position: 'right' as const },
+        ]
+      : [{ id: 'left', scaleType: 'linear' as const }];
+
+    return (
+      <div style={{ width: '100%', height: chartHeight }}>
+        <ChartsDataProvider
+          series={mixedSeries}
+          xAxis={[{ id: 'x', data: xAxisData, scaleType: 'band' }]}
+          yAxis={yAxes}
+          height={chartHeight}
+          skipAnimation={skipAnimation}
+        >
+          <ChartsWrapper>
+            <ChartsSurface>
+              <ChartsGrid horizontal />
+              <BarPlot />
+              <LinePlot />
+              <MarkPlot />
+              <ChartsXAxis axisId="x" />
+              <ChartsYAxis axisId="left" />
+              {config.dualYAxis && <ChartsYAxis axisId="right" />}
+              <ChartsAxisHighlight x="band" />
+              {annotationChildren}
+            </ChartsSurface>
+            <ChartsTooltip trigger="axis" />
+            <ChartsLegend />
+          </ChartsWrapper>
+        </ChartsDataProvider>
       </div>
     );
   }

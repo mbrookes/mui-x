@@ -40,6 +40,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   widgetConfigureChartHint: 'Use a aba Configurar para configurar este gráfico.',
   widgetConfigureGaugeHint: 'Use a aba Configurar para escolher o campo de valor do medidor.',
   widgetConfigurePivotHint: 'Use a aba Configurar para configurar a tabela dinâmica.',
+  widgetConfigureMapHint: 'Use a aba Configurar para escolher o campo de país e o campo de valor.',
   widgetNoData: 'Sem dados',
   widgetLoadError: 'Falha ao carregar dados',
 

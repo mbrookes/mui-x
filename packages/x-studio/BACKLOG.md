@@ -135,7 +135,8 @@ Items migrated from `examples/x-studio/REQUIREMENTS.md` — these are features o
 ~~BL-49: Mixed chart (bar + line) — dual-series chart with one series as bars and another as a line overlay; secondary Y axis (e.g. revenue bars + margin % line)~~
 **Fixed** (New 'Mixed (bar + line)' chart type; per-series Bar/Line toggle in setup panel; optional 'Dual Y axis' checkbox; rendered via `ChartsDataProvider` + `ChartsWrapper` + `ChartsSurface` composition API with `BarPlot` + `LinePlot` + `MarkPlot`; requires 2+ measure fields)
 
-BL-50: Map / choropleth — country or region data on a world map; colour scale from a numeric field; tooltip on hover
+~~BL-50: Map / choropleth — country or region data on a world map; colour scale from a numeric field; tooltip on hover~~
+**Fixed** (new `StudioMapWidget` component; `'map'` added to `StudioWidgetKind`; `MapSetupPanel` with country field, value field, aggregation, and colour scheme selectors; 174-country equirectangular SVG map generated from Natural Earth 110m public-domain data; 5 colour ramps with linear interpolation; tooltip on hover; lazy-loaded path data; alpha-2/alpha-3/name normalisation via `countryUtils`)
 
 ~~BL-51: Gantt / timeline chart — start/end date fields; optional colour-by status field; useful for shipment delivery windows~~
 **Fixed** (new 'Gantt / Timeline' chart type; label field, start date field, end date field, and optional colour-by category field configurable in setup panel; `StudioGanttChart` renders horizontal bars positioned by date range with date axis, grid lines, and tooltip showing label/dates/duration/category; overflows truncated with "+N more" notice)

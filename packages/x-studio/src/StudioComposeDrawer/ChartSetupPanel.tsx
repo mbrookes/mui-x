@@ -34,6 +34,7 @@ import {
 import type { StudioChartAnnotation, StudioChartType, StudioBarLayout, StudioCrossFilterMode } from '../models';
 import { ChartTypePicker } from './ChartTypePicker';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
+import { InlineFormulaBar } from './InlineFormulaBar';
 
 function generateAnnotationId() {
   return `ann-${Math.random().toString(36).slice(2, 9)}`;
@@ -505,6 +506,19 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           )}
         </Stack>
       </div>
+      )}
+      {/* Ad-hoc formula bar — lets users create a simple calculated series without the full expression dialog */}
+      {!isScatter && !isPieOrDonut && !isGauge && widget?.sourceId && (
+        <InlineFormulaBar
+          sourceId={widget.sourceId}
+          fields={numericFields}
+          onFieldCreated={(fieldId) => {
+            controller.updateWidgetConfig(widgetId, {
+              ySeries: [...ySeries, { fieldId }],
+              yField: ySeries.length === 0 ? fieldId : ySeries[0]?.fieldId ?? fieldId,
+            });
+          }}
+        />
       )}
       {/* Split by / series field */}
       {supportsSeriesField && (

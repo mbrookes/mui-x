@@ -30,6 +30,7 @@ import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioKpiAggregation, StudioWidgetConfig, StudioCrossFilterMode } from '../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { MetricRefInput } from '../StudioFiltersDrawer/MetricRefInput';
+import { InlineFormulaBar } from './InlineFormulaBar';
 
 /**
  * A collapsible section with a labeled header row containing a switch toggle on the
@@ -404,6 +405,12 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
   const { widgetId } = props;
 
+  // Numeric fields for the formula bar (scoped to the widget's source when available)
+  const numericFormulaFields = React.useMemo(
+    () => reachableFields.filter((f) => f.type === 'number').map((f) => ({ id: f.id, label: f.label })),
+    [reachableFields],
+  );
+
   return (
     <Stack spacing={2}>
       <DataSourceFieldSelect
@@ -431,6 +438,17 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         label="Value field"
         helperText="Field to aggregate"
       />
+
+      {/* Ad-hoc formula bar — create a simple calculated value without the full expression dialog */}
+      {widget?.sourceId && (
+        <InlineFormulaBar
+          sourceId={widget.sourceId}
+          fields={numericFormulaFields}
+          onFieldCreated={(fieldId) => {
+            controller.updateWidgetConfig(widgetId, { kpiValueField: fieldId });
+          }}
+        />
+      )}
 
       <FormControl size="small" fullWidth disabled={onlyOneAgg}>
         <InputLabel>Aggregation</InputLabel>

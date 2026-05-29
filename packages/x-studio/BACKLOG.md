@@ -156,7 +156,7 @@ BL-58: Natural language widget creation — text prompt → inferred chart type,
 
 BL-59: Embeddable SDK — `<StudioDashboard config={…} dataLoader={…} />` with sensible defaults; zero-config auto-discovery mode; publishable as a standalone npm package
 
-BL-60: Multi-user / permissions — view-only mode (no compose/filter drawers); per-page and per-widget visibility rules; user roles: viewer, editor, admin
+~~BL-60: WONTFIX: Multi-user / permissions — view-only mode (no compose/filter drawers); per-page and per-widget visibility rules; user roles: viewer, editor, admin~~
 
 BL-61: I18n support for all Studio component text, with a Brazilian Portuguese translation.
 
@@ -172,3 +172,9 @@ BL-61: I18n support for all Studio component text, with a Brazilian Portuguese t
 ~~BL-66: Scatter chart has no X axis labels, and cross-highlight mode is cross-filtering instead.~~
 
 ~~BL-67: Add feature flags that can be configured with a json object to control what features are available to x-studio users. Make sure it's availabe for composed apps.~~
+
+BL-68: Update the documentation for every new feature added since the last significant docs update, and any other changes.
+
+BL-69: run the data-pipeline performance tests, and fix any performance regressions
+
+BL70: run the UI performance tests and compare with the baseline

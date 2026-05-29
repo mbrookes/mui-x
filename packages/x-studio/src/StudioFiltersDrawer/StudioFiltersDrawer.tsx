@@ -228,6 +228,7 @@ export function StudioFiltersDrawer() {
       <FilterSection
         title="Page filters"
         filters={visiblePageFilters}
+        allFilters={pageFilters}
         fields={allFields}
         fieldOptions={fieldOptions}
         onAddFilter={handleAddPageFilter}

@@ -11,6 +11,7 @@ import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { ScatterChartProps } from '@mui/x-charts/ScatterChart';
 import { Gauge } from '@mui/x-charts/Gauge';
 import type { GaugeProps } from '@mui/x-charts/Gauge';
+import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, Typography } from '@mui/material';
 
@@ -555,6 +556,30 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const barLayout = config.barLayout ?? 'grouped';
   const isHorizontalBarLayout = barLayout === 'horizontal';
 
+  // Render annotation reference lines as chart children (not supported for pie/donut/gauge).
+  const annotationChildren = React.useMemo(() => {
+    if (!config.annotations?.length) return null;
+    return config.annotations.map((ann) =>
+      ann.axis === 'y' ? (
+        <ChartsReferenceLine
+          key={ann.id}
+          y={ann.value as number}
+          label={ann.label || ''}
+          labelAlign="end"
+          lineStyle={{ strokeDasharray: '4 2' }}
+        />
+      ) : (
+        <ChartsReferenceLine
+          key={ann.id}
+          x={ann.value as string | number}
+          label={ann.label || ''}
+          labelAlign="end"
+          lineStyle={{ strokeDasharray: '4 2' }}
+        />
+      ),
+    );
+  }, [config.annotations]);
+
   const getSelectedDataIndex = React.useCallback(
     (labels: Array<string | number | Date>) => {
       // Period-grouped between filter: match by period key
@@ -999,7 +1024,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               },
             }),
           }}
-        />
+        >
+          {annotationChildren}
+        </ScatterChart>
       </div>
     );
   }
@@ -1165,7 +1192,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                   },
                 },
               }}
-            />
+            >
+              {annotationChildren}
+            </BarChart>
           </div>
         </CrossFilterBarContext.Provider>
       );
@@ -1500,7 +1529,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 },
               },
             }}
-          />
+          >
+            {annotationChildren}
+          </BarChart>
         </div>
       </CrossFilterBarContext.Provider>
     );
@@ -1629,7 +1660,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               },
             },
           }}
-        />
+        >
+          {annotationChildren}
+        </LineChart>
       </div>
     );
   }
@@ -1739,7 +1772,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               },
             },
           }}
-        />
+        >
+          {annotationChildren}
+        </LineChart>
       </div>
     );
   }
@@ -1852,7 +1887,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               },
             },
           }}
-        />
+        >
+          {annotationChildren}
+        </LineChart>
       </div>
     );
   }
@@ -1924,7 +1961,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               },
             },
           }}
-        />
+        >
+          {annotationChildren}
+        </LineChart>
       </div>
     );
   }
@@ -1980,7 +2019,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 },
               },
             }}
-          />
+          >
+            {annotationChildren}
+          </BarChart>
         </div>
       </CrossFilterBarContext.Provider>
     );
@@ -2030,7 +2071,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               },
             },
           }}
-        />
+        >
+          {annotationChildren}
+        </BarChart>
       </div>
     </CrossFilterBarContext.Provider>
   );

@@ -16,6 +16,7 @@ import {
   selectActivePageId,
 } from '../context';
 import { formatFieldValue } from '../internals/numberFormat';
+import { Box, Typography } from '@mui/material';
 
 import { computeGridSummary } from '../utils/gridSummary';
 import { useWidgetRows } from '../internals/useWidgetRows';
@@ -139,7 +140,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     });
   }, [dataSource, expressionFields, allFieldIds]);
 
-  const { filteredRows, filteredRowsNoChartCross, hasChartCrossFilters, isLoading } =
+  const { filteredRows, filteredRowsNoChartCross, hasChartCrossFilters, isLoading, isError, errorMessage } =
     useWidgetRows(widget, dataSource);
 
   const crossFilterMode = widget.config?.crossFilterMode ?? 'cross-highlight';
@@ -296,6 +297,11 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   return (
     <div>
+      {isError && (
+        <Box sx={{ p: 1, color: 'error.main' }}>
+          <Typography variant="caption">{errorMessage || 'Failed to load data'}</Typography>
+        </Box>
+      )}
       <DataGridPremium
         density="compact"
         columns={columns}

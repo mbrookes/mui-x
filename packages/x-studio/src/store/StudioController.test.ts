@@ -559,6 +559,48 @@ describe('StudioController.duplicateWidget', () => {
   });
 });
 
+// ─── StudioController.moveWidgetToPage ────────────────────────────────────────
+
+describe('StudioController.moveWidgetToPage', () => {
+  it('moves a widget from the active page to a target page', () => {
+    const controller = new StudioController();
+    const sourcePageId = controller.getState().dashboard.activePageId;
+    controller.addWidget(makeWidget('w1', { title: 'Revenue' }));
+    const targetPageId = controller.addPage('Page 2');
+    // addPage switches to the new page; switch back to move from the source
+    controller.setActivePage(sourcePageId);
+
+    controller.moveWidgetToPage('w1', targetPageId);
+    const state = controller.getState();
+    const sourcePage = state.pages[sourcePageId];
+    const targetPage = state.pages[targetPageId];
+    expect(sourcePage.widgetRows.flat()).not.toContain('w1');
+    expect(targetPage.widgetRows.flat()).toContain('w1');
+    expect(state.widgets['w1']).toBeDefined();
+  });
+
+  it('is a no-op when source and target page are the same', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    const activePageId = controller.getState().dashboard.activePageId;
+    const stateBefore = controller.getState();
+    controller.moveWidgetToPage('w1', activePageId);
+    expect(controller.getState()).toBe(stateBefore);
+  });
+
+  it('re-scopes widget filters to the target page', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    const sourcePageId = controller.getState().dashboard.activePageId;
+    const targetPageId = controller.addPage('Page 2');
+    controller.setActivePage(sourcePageId);
+    controller.addFilter(makeFilter({ id: 'f1', scope: 'widget', widgetId: 'w1', pageId: sourcePageId }));
+    controller.moveWidgetToPage('w1', targetPageId);
+    const filter = controller.getState().filters.find((f) => f.id === 'f1');
+    expect(filter?.pageId).toBe(targetPageId);
+  });
+});
+
 // ─── StudioController — filter CRUD ──────────────────────────────────────────
 
 describe('StudioController.addFilter / removeFilter', () => {

@@ -168,4 +168,4 @@ BL-61: I18n support for all Studio component text, with a Brazilian Portuguese t
 
 ~~BL-66: Scatter chart has no X axis labels, and cross-highlight mode is cross-filtering instead.~~
 
-BL-67: Add feature flags that can be configured with a json object to control what features are available to x-studio users. Make sure it's availabe for composed apps.
+~~BL-67: Add feature flags that can be configured with a json object to control what features are available to x-studio users. Make sure it's availabe for composed apps.~~

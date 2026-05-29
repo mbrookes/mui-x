@@ -4,8 +4,10 @@ import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import {
   Alert,
+  Checkbox,
   Divider,
   FormControl,
+  FormControlLabel,
   IconButton,
   InputLabel,
   MenuItem,
@@ -130,7 +132,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     chartType === 'line' ||
     chartType === 'area' ||
     chartType === 'area-stacked' ||
-    chartType === 'area-100';
+    chartType === 'area-100' ||
+    chartType === 'mixed';
 
   const supportsSeriesField =
     chartType === 'bar' ||
@@ -231,8 +234,14 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     });
   };
 
+  const handleSeriesTypeChange = (index: number, seriesType: 'bar' | 'line') => {
+    const next = ySeries.map((s, i) => (i === index ? { ...s, seriesType } : s));
+    controller.updateWidgetConfig(widgetId, { ySeries: next });
+  };
+
   const isPieOrDonut = chartType === 'pie' || chartType === 'donut';
   const isGauge = chartType === 'gauge';
+  const isMixed = chartType === 'mixed';
 
   if (allFields.length === 0) {
     return (
@@ -447,8 +456,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         </Stack>
         <Stack spacing={1}>
           {ySeries.map((s, index) => (
+            <React.Fragment key={s.fieldId || `series-${index}`}>
             <Stack
-              key={s.fieldId || `series-${index}`}
               direction="row"
               spacing={0.5}
               sx={{ alignItems: 'flex-start' }}
@@ -482,6 +491,19 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 </Tooltip>
               )}
             </Stack>
+            {isMixed && s.fieldId && (
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={s.seriesType ?? 'bar'}
+                onChange={(_, val) => { if (val) { handleSeriesTypeChange(index, val); } }}
+                sx={{ mt: 0.5, mb: 0.5 }}
+              >
+                <ToggleButton value="bar" sx={{ px: 1.5, py: 0.25, fontSize: 11 }}>Bar</ToggleButton>
+                <ToggleButton value="line" sx={{ px: 1.5, py: 0.25, fontSize: 11 }}>Line</ToggleButton>
+              </ToggleButtonGroup>
+            )}
+            </React.Fragment>
           ))}
           {ySeries.length === 0 && (
             <DataSourceFieldSelect
@@ -518,6 +540,24 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               yField: ySeries.length === 0 ? fieldId : ySeries[0]?.fieldId ?? fieldId,
             });
           }}
+        />
+      )}
+      {/* Dual Y axis toggle — only for mixed chart with 2+ series */}
+      {isMixed && ySeries.filter((s) => s.fieldId).length >= 2 && (
+        <FormControlLabel
+          control={
+            <Checkbox
+              size="small"
+              checked={config.dualYAxis ?? false}
+              onChange={(e) => controller.updateWidgetConfig(widgetId, { dualYAxis: e.target.checked })}
+            />
+          }
+          label={
+            <Typography variant="caption">
+              Dual Y axis (line series on right axis)
+            </Typography>
+          }
+          sx={{ ml: 0 }}
         />
       )}
       {/* Split by / series field */}

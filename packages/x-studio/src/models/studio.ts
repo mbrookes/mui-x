@@ -64,6 +64,7 @@ export type StudioChartType =
   | 'area'
   | 'area-stacked'
   | 'area-100'
+  | 'mixed'
   | 'pie'
   | 'donut'
   | 'scatter'
@@ -163,6 +164,14 @@ export type StudioFilterOperator =
 
 export interface StudioChartSeries {
   fieldId: string;
+  /**
+   * Series render type for mixed charts.
+   * - `'bar'` (default): renders as a bar/column
+   * - `'line'`: renders as a line (with optional markers)
+   *
+   * Only used when `chartType === 'mixed'`.
+   */
+  seriesType?: 'bar' | 'line';
 }
 
 /**
@@ -227,6 +236,13 @@ export interface StudioWidgetConfig {
   xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /** Scatter chart: categorical field used to split points into colour-coded series. */
   scatterColorField?: string;
+  /**
+   * Mixed chart (bar + line): when `true`, bar series use the left Y axis and line series
+   * use an independent right Y axis. Useful when bar and line series have different scales
+   * (e.g. revenue bars vs. margin-% line).
+   * @default false
+   */
+  dualYAxis?: boolean;
   /**
    * Pie/donut chart: label shown on each arc.
    * - 'value': the formatted numeric value

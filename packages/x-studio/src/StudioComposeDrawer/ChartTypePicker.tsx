@@ -15,6 +15,7 @@ import { DonutIcon } from '../icons/charts/DonutIcon';
 import { GaugeIcon } from '../icons/charts/GaugeIcon';
 import { LineIcon } from '../icons/charts/LineIcon';
 import { PieIcon } from '../icons/charts/PieIcon';
+import { MixedIcon } from '../icons/charts/MixedIcon';
 import { ScatterIcon } from '../icons/charts/ScatterIcon';
 
 interface ChartTypeOption {
@@ -46,6 +47,7 @@ const CHART_TYPE_OPTIONS: ChartTypeOption[] = [
   { chartType: 'area-stacked', label: 'Area (stacked)', Icon: AreaStackedIcon },
   { chartType: 'area-100', label: 'Area (100%)', Icon: Area100Icon },
   { chartType: 'scatter', label: 'Scatter', Icon: ScatterIcon },
+  { chartType: 'mixed', label: 'Mixed (bar + line)', Icon: MixedIcon },
   { chartType: 'pie', label: 'Pie', Icon: PieIcon },
   { chartType: 'donut', label: 'Donut', Icon: DonutIcon },
   { chartType: 'gauge', label: 'Gauge', Icon: GaugeIcon },

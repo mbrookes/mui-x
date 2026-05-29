@@ -1031,6 +1031,59 @@ export class StudioController {
   };
 
   /**
+   * Moves a widget from the active page to the specified target page.
+   * The widget is appended as a new row on the target page.
+   * Widget filters scoped to the current page are re-scoped to the target page.
+   */
+  moveWidgetToPage = (widgetId: string, targetPageId: string) => {
+    const state = this.store.state;
+    const sourcePageId = state.dashboard.activePageId;
+    if (sourcePageId === targetPageId) {
+      return;
+    }
+    const sourcePage = state.pages[sourcePageId];
+    const targetPage = state.pages[targetPageId];
+    if (!sourcePage || !targetPage || !state.widgets[widgetId]) {
+      return;
+    }
+
+    // Remove from source page rows
+    const sourceRows = (sourcePage.widgetRows ?? [])
+      .map((row) => row.filter((id) => id !== widgetId))
+      .filter((row) => row.length > 0);
+    const { [widgetId]: _span, ...sourceSpans } = sourcePage.widgetColSpans ?? {};
+    void _span;
+
+    // Append as a new row on the target page
+    const targetRows = [...(targetPage.widgetRows ?? []), [widgetId]];
+
+    // Re-scope widget-level filters to the target page
+    const updatedFilters = state.filters.map((f) =>
+      f.widgetId === widgetId && f.scope === 'widget' && f.pageId === sourcePageId
+        ? { ...f, pageId: targetPageId }
+        : f,
+    );
+
+    this.commitState({
+      ...state,
+      pages: {
+        ...state.pages,
+        [sourcePageId]: {
+          ...sourcePage,
+          widgetRows: sourceRows,
+          widgetColSpans:
+            Object.keys(sourceSpans).length > 0 ? sourceSpans : undefined,
+        },
+        [targetPageId]: {
+          ...targetPage,
+          widgetRows: targetRows,
+        },
+      },
+      filters: updatedFilters,
+    });
+  };
+
+  /**
    * Updates the dashboard title
    */
   setDashboardTitle = (title: string) => {

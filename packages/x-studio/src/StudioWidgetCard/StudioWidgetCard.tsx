@@ -24,6 +24,8 @@ import {
   useStudioController,
   useStudioSelector,
   selectMode,
+  selectPages,
+  selectActivePageId,
   selectPartitionedBaseFilters,
   makeSelectWidget,
   makeSelectIsWidgetSelected,
@@ -167,6 +169,17 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const activeRankFilter = useStudioSelector(selectRankFilterFn);
   const activeSliderFilter = useStudioSelector(selectSliderFilterFn);
   const activeCrossFilter = useStudioSelector(selectCrossFilterFn);
+  const pages = useStudioSelector(selectPages);
+  const activePageId = useStudioSelector(selectActivePageId);
+
+  // Pages the user can move this widget to (all pages except the current one)
+  const moveToPageOptions = React.useMemo(
+    () =>
+      Object.values(pages)
+        .filter((p) => p.id !== activePageId)
+        .map((p) => ({ id: p.id, title: p.title })),
+    [pages, activePageId],
+  );
 
   const ref = React.useRef<HTMLDivElement>(null);
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
@@ -353,11 +366,13 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         showViewExport={showViewExport}
         showViewExpand={showViewExpand}
         overlayTopSx={overlayTopSx}
+        moveToPageOptions={moveToPageOptions}
         onExport={handleExport}
         onExpand={() => setExpanded(true)}
         onEdit={() => setEditDialogOpen(true)}
         onDuplicate={() => controller.duplicateWidget(widgetId)}
         onDelete={() => controller.removeWidget(widgetId)}
+        onMoveToPage={(pageId) => controller.moveWidgetToPage(widgetId, pageId)}
       />
       <Stack spacing={widget.kind === 'grid' ? 2 : 0.5}>
         {/* Widget header */}

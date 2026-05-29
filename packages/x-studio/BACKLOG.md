@@ -142,7 +142,8 @@ BL-53: Funnel chart — ordered stages with value and drop-off percentage
 
 **Authoring**
 
-BL-55: Move widgets across pages — drag a widget card onto another page tab; or right-click → "Move to page" context menu
+~~BL-55: Move widgets across pages — drag a widget card onto another page tab; or right-click → "Move to page" context menu~~
+**Fixed** (`moveWidgetToPage` action added to `StudioController`; "Move to page" icon button with dropdown menu added to edit-mode widget card overlay — only shown when multiple pages exist; re-scopes widget filters to the target page)
 
 BL-56: Widget template library — panel of pre-built chart/KPI configs the user can drag onto the canvas; Studio auto-maps fields from the active data source
 

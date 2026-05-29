@@ -122,7 +122,7 @@ Items migrated from `examples/x-studio/REQUIREMENTS.md` — these are features o
 
 BL-45: Real data connector — pluggable `DataLoader` interface (`async fetchRows(sourceId, filters)`); adapters for REST, GraphQL, SQL via thin server proxy; loading states and error handling in widget cards
 
-BL-46: Pivot table widget — row/column/value field pickers; collapsible row groups; export to CSV
+~~BL-46~~: **Fixed** Pivot table widget — row/column/value field pickers; collapsible row groups; export to CSV
 
 ~~BL-47: Ad-hoc formula bar — lightweight single-expression input in chart/KPI setup; creates a one-off expression field without opening the full expression dialog~~
 **Fixed** (`InlineFormulaBar` component added to `ChartSetupPanel` (after Y-series) and `KpiSetupPanel` (below value field); pick two operands (fields or numeric constants), an operator (+/−/×/÷), and a label; on confirm calls `addExpressionField` so the expression field is immediately available in all pickers)

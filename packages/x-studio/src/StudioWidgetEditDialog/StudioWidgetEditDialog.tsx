@@ -9,6 +9,7 @@ import { FilterSetupPanel } from '../StudioComposeDrawer/FilterSetupPanel';
 import { FormatPanel } from '../StudioComposeDrawer/FormatPanel';
 import { GridSetupPanel } from '../StudioComposeDrawer/GridSetupPanel';
 import { KpiSetupPanel } from '../StudioComposeDrawer/KpiSetupPanel';
+import { MapSetupPanel } from '../StudioComposeDrawer/MapSetupPanel';
 import { TextFormatPanel } from '../StudioComposeDrawer/TextFormatPanel';
 import { TextSetupPanel } from '../StudioComposeDrawer/TextSetupPanel';
 import { WidgetFiltersPanel } from './WidgetFiltersPanel';
@@ -168,6 +169,7 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
           {widget.kind === 'kpi' && <KpiSetupPanel widgetId={widgetId} />}
           {widget.kind === 'text' && <TextSetupPanel widgetId={widgetId} />}
           {widget.kind === 'filter' && <FilterSetupPanel widgetId={widgetId} />}
+          {widget.kind === 'map' && <MapSetupPanel widgetId={widgetId} />}
         </TabPanel>
 
         <TabPanel value={tab} index={1}>

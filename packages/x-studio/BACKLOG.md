@@ -192,3 +192,12 @@ Items migrated from `examples/x-studio/REQUIREMENTS.md` — these are features o
 **Done** (benchmarks ran; all pipeline layers are within expected ranges; no regressions detected)
 
 BL70: ~~run the UI performance tests and compare with the baseline~~ **Done** (selector memoization tests verify `selectPartitionedFilters` reselect caching, `selectPartitionedBaseFilters` deep-equality caching, page filter partition cache invalidation on page switch, and KPI widget render smoke tests — 7 tests, all passing)
+
+BL-71: Compose panel templates too cluttered — make them a per-widget dropdown.
+~~**Done**~~ (replaced flat `TemplateSection` with per-kind `TemplatesDropdown` Popover+MenuList on each `WidgetTypeCard`; button only shown when templates exist for that kind; clicking the button prevents card-level kind selection via `stopPropagation`)
+
+BL-72: Map widget country field picker doesn't include country fields from related sources (e.g. `customers.country` via many-to-one relationship).
+~~**Done**~~ (`MapSetupPanel` now includes string fields from related sources in `stringFields` using the same `reachableIds` gate already used for numeric fields)
+
+BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget features, with full UI in demo settings dialogs.
+~~**Done**~~ (14 new flags added: `allowGrid/Chart/Kpi/Text/Filter/Pivot/Map`, `kpiSparkline/Trend/Target`, `chartAnnotations`, `gridGroupBy/Summary/ConditionalFormats`, `drilldown`; wired into `KpiSetupPanel`, `ChartSetupPanel`, `GridSetupPanel`; both demo apps — `x-studio` and `x-studio-composed` — now have Settings dialogs with "Widget types" and "Features" sections exposing all flags as live switches)

@@ -12,6 +12,7 @@ import { usePageChartColors } from '../internals/usePageChartColors';
 import { useWidgetRows } from '../internals/useWidgetRows';
 import {
   useStudioSelector,
+  useStudioLocaleText,
   selectFilters,
   selectDataSources,
   selectRelationships,
@@ -65,6 +66,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
+  const localeText = useStudioLocaleText();
   const selectExpressionFields = React.useMemo(
     () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
     [widget.sourceId],
@@ -468,7 +470,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     >
       {isError && (
         <Typography variant="caption" color="error.main" sx={{ px: 1, pt: 0.5 }}>
-          {errorMessage || 'Failed to load data'}
+          {errorMessage || localeText.widgetLoadError}
         </Typography>
       )}
       <Box

@@ -23,6 +23,7 @@ import dayjs from 'dayjs';
 import {
   useStudioController,
   useStudioSelector,
+  useStudioLocaleText,
   selectMode,
   selectPages,
   selectActivePageId,
@@ -172,6 +173,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const activeCrossFilter = useStudioSelector(selectCrossFilterFn);
   const pages = useStudioSelector(selectPages);
   const activePageId = useStudioSelector(selectActivePageId);
+  const localeText = useStudioLocaleText();
 
   // Pages the user can move this widget to (all pages except the current one)
   const moveToPageOptions = React.useMemo(
@@ -307,7 +309,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const showEditActions = mode === 'edit' && (isSelected || (!dimmed && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
   const showViewExpand = mode === 'view' && hovered && isChart;
-  const exportLabel = widget.kind === 'grid' ? 'Export as CSV' : 'Export as PNG';
+  const exportLabel = widget.kind === 'grid' ? localeText.widgetExportCsvTooltip : localeText.widgetExportPngTooltip;
 
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
   // inside the card for top-row widgets (where there's no room above to overhang).
@@ -558,7 +560,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             </Box>
           </DialogContent>
           <DialogActions sx={{ px: 2, pb: 1.5 }}>
-            <Tooltip title="Export as PNG">
+            <Tooltip title={localeText.widgetExportPngTooltip}>
               <IconButton
                 size="small"
                 onClick={() => exportChartToPng(widget, chartExpandContainerRef.current)}

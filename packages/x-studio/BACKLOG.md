@@ -112,7 +112,8 @@ BL-31: Drill-down / detail panel — click a chart segment or grid row → slide
 ~~BL-43: Global filter search — search box at the top of the filters drawer; narrows the filter card list by field name or current value~~
 **Fixed** (search TextField at top of filters drawer; narrows visible filter cards by field name or summary match; clear button; only shown when filters exist)
 
-BL-44: Filter dependency (cascading) — when a parent filter is set (e.g. Country), child filter options (e.g. State) narrow automatically; dependency declared in filter setup
+~~BL-44: Filter dependency (cascading) — when a parent filter is set (e.g. Country), child filter options (e.g. State) narrow automatically; dependency declared in filter setup~~
+**Fixed** (`dependsOn?: string[]` added to `StudioFilterState`; `useFieldValues` accepts `parentFilters` and pre-filters rows before extracting unique values; selection-mode page filters show a "Narrow options based on" multi-select Autocomplete to declare dependencies; options are limited to other page filters with configured fields)
 
 ### 🔭 Future
 
@@ -122,7 +123,8 @@ BL-45: Real data connector — pluggable `DataLoader` interface (`async fetchRow
 
 BL-46: Pivot table widget — row/column/value field pickers; collapsible row groups; export to CSV
 
-BL-47: Ad-hoc formula bar — lightweight single-expression input in chart/KPI setup; creates a one-off expression field without opening the full expression dialog
+~~BL-47: Ad-hoc formula bar — lightweight single-expression input in chart/KPI setup; creates a one-off expression field without opening the full expression dialog~~
+**Fixed** (`InlineFormulaBar` component added to `ChartSetupPanel` (after Y-series) and `KpiSetupPanel` (below value field); pick two operands (fields or numeric constants), an operator (+/−/×/÷), and a label; on confirm calls `addExpressionField` so the expression field is immediately available in all pickers)
 
 BL-48: Data lineage view — graph view in the data drawer showing sources as nodes and declared relationships as edges; click an edge to inspect join key fields
 

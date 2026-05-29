@@ -21,6 +21,8 @@ import { CollapsibleSection } from '../internals/CollapsibleSection';
 export interface FilterSectionProps {
   title: string;
   filters: StudioFilterState[];
+  /** All page filters (unfiltered by search) — used for dependency option discovery. */
+  allFilters: StudioFilterState[];
   fields: SimpleField[];
   fieldOptions: FieldOption[];
   onAddFilter: () => void;
@@ -30,7 +32,7 @@ export interface FilterSectionProps {
 }
 
 export function FilterSection(props: FilterSectionProps) {
-  const { fields, fieldOptions, filters, onAddFilter, onRemoveFilter, title, emptyMessage } = props;
+  const { fields, fieldOptions, filters, allFilters, onAddFilter, onRemoveFilter, title, emptyMessage } = props;
 
   return (
     <CollapsibleSection
@@ -53,6 +55,7 @@ export function FilterSection(props: FilterSectionProps) {
               fields={fields}
               fieldOptions={fieldOptions}
               onRemove={onRemoveFilter}
+              allPageFilters={allFilters}
             />
           ))}
         </Stack>

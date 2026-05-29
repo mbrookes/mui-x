@@ -709,6 +709,13 @@ export interface StudioFilterState {
    * Stored for display purposes so the bar can show the active preset.
    */
   dateRangePreset?: StudioDateRangePreset;
+  /**
+   * IDs of other page filters that this filter depends on for cascading.
+   * When any listed filter has an active (effective) value, this filter's available
+   * options are narrowed to only those values that exist in the filtered dataset.
+   * Purely a UX hint — does not affect how filters are evaluated against rows.
+   */
+  dependsOn?: string[];
 }
 
 export interface StudioShellState {

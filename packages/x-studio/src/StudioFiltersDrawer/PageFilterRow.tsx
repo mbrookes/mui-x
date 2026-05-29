@@ -32,10 +32,12 @@ export interface PageFilterRowProps {
   fields: SimpleField[];
   fieldOptions: FieldOption[];
   onRemove: (id: string) => void;
+  /** All page filters on the current page — used to compute cascading dependency options. */
+  allPageFilters: StudioFilterState[];
 }
 
 export function PageFilterRow(props: PageFilterRowProps) {
-  const { fields, fieldOptions, filter, onRemove } = props;
+  const { fields, fieldOptions, filter, onRemove, allPageFilters } = props;
   const controller = useStudioController();
 
   const hasField = !!filter.field;
@@ -49,7 +51,26 @@ export function PageFilterRow(props: PageFilterRowProps) {
     filter.operator2 && operators.find((o) => o.value === filter.operator2)
       ? filter.operator2
       : operators[0].value;
-  const fieldValues = useFieldValues(filter.field, fieldType);
+
+  // Dependency / cascading support for selection filters — must be computed before useFieldValues
+  const parentFilters = React.useMemo(() => {
+    if (!filter.dependsOn?.length) {
+      return undefined;
+    }
+    return allPageFilters.filter(
+      (f) => f.id !== filter.id && filter.dependsOn!.includes(f.id) && isFilterEffective(f),
+    );
+  }, [filter.dependsOn, filter.id, allPageFilters]);
+
+  const dependencyOptions = React.useMemo(
+    () =>
+      allPageFilters
+        .filter((f) => f.id !== filter.id && !!f.field)
+        .map((f) => ({ id: f.id, label: fields.find((sf) => sf.id === f.field)?.label ?? f.field })),
+    [allPageFilters, filter.id, fields],
+  );
+
+  const fieldValues = useFieldValues(filter.field, fieldType, parentFilters);
   const fieldLabel = currentField?.label ?? filter.field;
   const filters = useStudioSelector(selectFilters);
   const hasAnotherRankFilter = filters.some(
@@ -148,6 +169,9 @@ export function PageFilterRow(props: PageFilterRowProps) {
         onModeChange={handleModeChange}
         onChange={handleFilterChange}
         disableRankMode={disableRankMode}
+        dependencyOptions={dependencyOptions.length > 0 ? dependencyOptions : undefined}
+        dependsOn={filter.dependsOn}
+        onDependencyChange={(ids) => handleFilterChange({ dependsOn: ids.length > 0 ? ids : undefined })}
       />
     </FilterCard>
   );

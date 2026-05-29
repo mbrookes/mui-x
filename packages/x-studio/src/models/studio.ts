@@ -66,6 +66,7 @@ export type StudioChartType =
   | 'area-100'
   | 'mixed'
   | 'heatmap'
+  | 'funnel'
   | 'pie'
   | 'donut'
   | 'scatter'

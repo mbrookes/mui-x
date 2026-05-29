@@ -12,6 +12,7 @@ import { FilterSetupPanel } from './FilterSetupPanel';
 import { FormatPanel } from './FormatPanel';
 import { GridSetupPanel } from './GridSetupPanel';
 import { KpiSetupPanel } from './KpiSetupPanel';
+import { MapSetupPanel } from './MapSetupPanel';
 import { PivotSetupPanel } from './PivotSetupPanel';
 import { TextFormatPanel } from './TextFormatPanel';
 import { TextSetupPanel } from './TextSetupPanel';
@@ -41,6 +42,7 @@ export const KIND_LABEL: Record<StudioWidgetKind, string> = {
   text: 'Text',
   filter: 'Filter',
   pivot: 'Pivot Table',
+  map: 'Map',
 };
 
 export const TYPE_FORMAT_LABEL: Record<string, string> = {
@@ -94,6 +96,7 @@ function WidgetConfigView(props: { widgetId: string }) {
         {widget.kind === 'kpi' && <KpiSetupPanel widgetId={widgetId} />}
         {widget.kind === 'filter' && <FilterSetupPanel widgetId={widgetId} />}
         {widget.kind === 'pivot' && <PivotSetupPanel widgetId={widgetId} />}
+        {widget.kind === 'map' && <MapSetupPanel widgetId={widgetId} />}
       </TabPanel>
       <TabPanel value={tab} index={1}>
         {widget.kind === 'text' ? (

@@ -40,6 +40,7 @@ export interface StudioLocaleText {
   widgetConfigureChartHint: string;
   widgetConfigureGaugeHint: string;
   widgetConfigurePivotHint: string;
+  widgetConfigureMapHint: string;
   widgetNoData: string;
   widgetLoadError: string;
 
@@ -91,6 +92,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetConfigureChartHint: 'Use the Setup tab to configure this chart.',
   widgetConfigureGaugeHint: 'Use the Setup tab to choose a gauge value field.',
   widgetConfigurePivotHint: 'Use the Setup tab to configure row, column, and value fields.',
+  widgetConfigureMapHint: 'Use the Setup tab to choose a country field and a value field.',
   widgetNoData: 'No data to display.',
   widgetLoadError: 'Failed to load data',
 

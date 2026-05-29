@@ -59,6 +59,10 @@ export type {
 export { StudioPivotWidget } from './StudioPivotWidget/StudioPivotWidget';
 export type { StudioPivotWidgetProps } from './StudioPivotWidget/StudioPivotWidget';
 
+// ─── StudioMapWidget ──────────────────────────────────────────────────────────
+export { StudioMapWidget } from './StudioMapWidget';
+export type { StudioMapWidgetProps } from './StudioMapWidget';
+
 // ─── StudioDataDrawer ─────────────────────────────────────────────────────────
 export { StudioDataDrawer } from './StudioDataDrawer/StudioDataDrawer';
 

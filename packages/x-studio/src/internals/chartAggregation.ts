@@ -341,9 +341,13 @@ export function analyzeChartSupport(
   scatterColorField?: string,
   scatterSizeField?: string,
 ): ChartSupportResult {
-  const requestedFields = [xField, ...yFields, seriesField, scatterColorField, scatterSizeField].filter(
-    (field): field is string => Boolean(field),
-  );
+  const requestedFields = [
+    xField,
+    ...yFields,
+    seriesField,
+    scatterColorField,
+    scatterSizeField,
+  ].filter((field): field is string => Boolean(field));
 
   if (!widgetSourceId || requestedFields.length === 0) {
     return { supported: true };

@@ -55,7 +55,7 @@ const WIDGET_KIND_FLAGS: { key: keyof StudioFeatureFlags; label: string }[] = [
 ];
 
 const WIDGET_FEATURE_FLAGS: { key: keyof StudioFeatureFlags; label: string }[] = [
-  { key: 'compose', label: 'Compose / edit mode' },
+  { key: 'compose', label: 'Compose panel' },
   { key: 'filters', label: 'Filters panel' },
   { key: 'savedFilterViews', label: 'Saved filter views' },
   { key: 'dataManagement', label: 'Data management drawer' },
@@ -170,8 +170,16 @@ export function SettingsDialog(props: SettingsDialogProps) {
             value={values.tableSourceMode}
             onChange={(_evt, val) => onTableSourceModeChange(val as TableSourceMode)}
           >
-            <FormControlLabel value="explicit" control={<Radio size="small" />} label="Explicit (picker)" />
-            <FormControlLabel value="implicit" control={<Radio size="small" />} label="Implicit (inferred)" />
+            <FormControlLabel
+              value="explicit"
+              control={<Radio size="small" />}
+              label="Explicit (picker)"
+            />
+            <FormControlLabel
+              value="implicit"
+              control={<Radio size="small" />}
+              label="Implicit (inferred)"
+            />
           </RadioGroup>
         </FormControl>
 
@@ -233,7 +241,9 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
         {/* Feature flags — widget kinds */}
         <FormControl component="fieldset">
-          <FormLabel component="legend" sx={{ mb: 0.5 }}>Widget types</FormLabel>
+          <FormLabel component="legend" sx={{ mb: 0.5 }}>
+            Widget types
+          </FormLabel>
           {WIDGET_KIND_FLAGS.map(({ key, label }) => (
             <FormControlLabel
               key={key}
@@ -251,7 +261,9 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
         {/* Feature flags — UI features */}
         <FormControl component="fieldset">
-          <FormLabel component="legend" sx={{ mb: 0.5 }}>Features</FormLabel>
+          <FormLabel component="legend" sx={{ mb: 0.5 }}>
+            Features
+          </FormLabel>
           {WIDGET_FEATURE_FLAGS.map(({ key, label }) => (
             <FormControlLabel
               key={key}

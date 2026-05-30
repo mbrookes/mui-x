@@ -1,6 +1,6 @@
 # @mui/x-studio — Requirements Progress Tracker
 
-> Last updated: 2026-05-29
+> Last updated: 2026-05-30
 
 ---
 
@@ -73,6 +73,9 @@
 | A-11  | Arch      | `sidebarLayout` + `sidebarSide` props     | ✅ Completed |
 | A-12  | Arch      | I18n / localisation support               | ✅ Completed |
 | A-13  | Arch      | Feature flags                             | ✅ Completed |
+| UX-01 | UX        | Map aggregation disabled without value field | ✅ Completed |
+| UX-02 | UX        | Settings: Compose panel label             | ✅ Completed |
+| UX-03 | UX        | Data panel: right-aligned edit/delete     | ✅ Completed |
 
 ---
 
@@ -165,6 +168,7 @@
 - Context chips show the active filter
 
 **Gaps:**
+
 - Multi-level breadcrumb navigation deferred
 
 ### DB-06 · Customers page
@@ -242,6 +246,7 @@
 - Rendered via `ChartsDataProvider` + `BarPlot` + `LinePlot` + `MarkPlot` composition
 
 **Gaps:**
+
 - No secondary-axis label or scale configuration exposed in the compose drawer
 
 ### W-08 · Map / choropleth
@@ -268,6 +273,7 @@
 - Per-cell tooltips showing exact values
 
 **Gaps:**
+
 - No custom colour-scale configuration (fixed sequential palettes only)
 
 ### W-11 · Funnel chart
@@ -284,6 +290,7 @@
 - Annotations stored in `StudioWidgetConfig.annotations`; serialized with dashboard state
 
 **Gaps:**
+
 - Free-text callout annotations not yet supported (only reference lines)
 - Annotations not rendered on pie/donut, gauge, heatmap, funnel, or Gantt charts
 
@@ -464,11 +471,20 @@
 - **Copy link** toolbar button copies `window.location.href` to clipboard; shows "Copied!" tooltip for 2 seconds
 - Cross-filter and widget-scoped filters are excluded from the URL encoding
 
----
+### UX-01 · Map aggregation disabled without value field
 
-## 🔄 In Progress
+- Aggregation `Select` in `MapSetupPanel` is now `disabled` and forced to `'count'` when no value field is configured
+- Becomes enabled as soon as a value field is picked
 
-_Nothing actively in flight._
+### UX-02 · Settings: Compose panel label
+
+- Renamed "Compose / edit mode" → "Compose panel" in both `x-studio` and `x-studio-composed` `SettingsDialog.tsx`
+- Does not affect the edit-mode toggle, which is a separate feature
+
+### UX-03 · Data panel: right-aligned edit/delete
+
+- Added `flexGrow: 1; minWidth: 0` to `ExpressionFieldRow` primary-content Stack so edit/delete icon buttons are always pushed to the right
+- Added `flexShrink: 0` to relationship edit/delete `IconButton`s to prevent them overlapping long relationship names
 
 ---
 

@@ -28,6 +28,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
 
   const aggFn = config.mapAggregation ?? 'sum';
   const colorScheme = config.mapColorScheme ?? 'blues';
+  const mapGeography = config.mapGeography ?? 'world';
 
   // All string fields from every visible source — country pickers show the full universe
   // so the widget can be configured even before a sourceId is established.
@@ -36,7 +37,15 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       if (ds.hidden) return [];
       return ds.fields.flatMap((f) => {
         if (f.hidden || f.type !== 'string') return [];
-        return [{ id: f.id, label: f.label, type: f.type as DataSourceFieldEntry['type'], sourceId: ds.id, sourceLabel: ds.label }];
+        return [
+          {
+            id: f.id,
+            label: f.label,
+            type: f.type as DataSourceFieldEntry['type'],
+            sourceId: ds.id,
+            sourceLabel: ds.label,
+          },
+        ];
       });
     });
   }, [dataSources]);
@@ -54,7 +63,13 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       if (reachableIds && !reachableIds.has(ds.id)) return;
       ds.fields.forEach((f) => {
         if (f.hidden || f.type !== 'number') return;
-        all.push({ id: f.id, label: f.label, type: f.type, sourceId: ds.id, sourceLabel: ds.label });
+        all.push({
+          id: f.id,
+          label: f.label,
+          type: f.type,
+          sourceId: ds.id,
+          sourceLabel: ds.label,
+        });
       });
     });
     expressionFields.forEach((ef) => {
@@ -62,7 +77,14 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       if (reachableIds && !reachableIds.has(ef.sourceId)) return;
       const ds = dataSources[ef.sourceId];
       if (ds?.hidden) return;
-      all.push({ id: ef.id, label: ef.label, type: 'number', sourceId: ef.sourceId, sourceLabel: ds?.label ?? ef.sourceId, generated: true });
+      all.push({
+        id: ef.id,
+        label: ef.label,
+        type: 'number',
+        sourceId: ef.sourceId,
+        sourceLabel: ds?.label ?? ef.sourceId,
+        generated: true,
+      });
     });
     return all;
   }, [widget?.sourceId, dataSources, relationships, expressionFields]);
@@ -101,15 +123,30 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
 
   return (
     <Stack spacing={2} sx={{ p: 1.5 }}>
+      <FormControl size="small" fullWidth>
+        <InputLabel>Map type</InputLabel>
+        <Select
+          label="Map type"
+          value={mapGeography}
+          onChange={(e) => update({ mapGeography: e.target.value as typeof mapGeography })}
+        >
+          <MenuItem value="world">World</MenuItem>
+          <MenuItem value="usa">United States</MenuItem>
+          <MenuItem value="europe">Europe</MenuItem>
+        </Select>
+      </FormControl>
+
       <div>
         <Typography variant="subtitle2" gutterBottom>
-          Country field
+          {mapGeography === 'usa' ? 'State field' : 'Country field'}
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          A field containing ISO alpha-2 codes, alpha-3 codes, or full country names.
+          {mapGeography === 'usa'
+            ? 'A field containing US state names or 2-letter postal abbreviations.'
+            : 'A field containing ISO alpha-2 codes, alpha-3 codes, or full country names.'}
         </Typography>
         <DataSourceFieldSelect
-          label="Country field"
+          label={mapGeography === 'usa' ? 'State field' : 'Country field'}
           value={config.mapCountryField ?? ''}
           valueSourceId={config.mapCountrySourceId ?? widget?.sourceId}
           fields={allStringFields}
@@ -126,18 +163,20 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           value={config.mapValueField ?? ''}
           valueSourceId={config.mapValueSourceId}
           fields={numericFields}
-          onChange={(fieldId, sourceId) => update({
-            mapValueField: fieldId || undefined,
-            mapValueSourceId: fieldId && sourceId !== widget?.sourceId ? sourceId : undefined,
-          })}
+          onChange={(fieldId, sourceId) =>
+            update({
+              mapValueField: fieldId || undefined,
+              mapValueSourceId: fieldId && sourceId !== widget?.sourceId ? sourceId : undefined,
+            })
+          }
         />
       </div>
 
-      <FormControl size="small" fullWidth>
+      <FormControl size="small" fullWidth disabled={!config.mapValueField}>
         <InputLabel>Aggregation</InputLabel>
         <Select
           label="Aggregation"
-          value={aggFn}
+          value={config.mapValueField ? aggFn : 'count'}
           onChange={(e) => update({ mapAggregation: e.target.value as typeof aggFn })}
         >
           <MenuItem value="sum">Sum</MenuItem>

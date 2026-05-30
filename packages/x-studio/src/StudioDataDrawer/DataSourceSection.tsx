@@ -244,7 +244,7 @@ function ExpressionFieldRow({
   }
 
   const primaryContent = (
-    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexGrow: 1, minWidth: 0 }}>
       <FieldTypeIcon type={type} generated size={15} />
       <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
         {field.label}
@@ -349,8 +349,12 @@ export function DataSourceSection(props: {
       <DataSourcePreviewTooltip source={source}>
         <ListItemButton onClick={() => setOpen((prev) => !prev)} sx={{ pl: 2, pr: 1, py: 0.5 }}>
           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-            <Typography variant="subtitle2" noWrap>{source.label}</Typography>
-            <Typography variant="caption" color="text.secondary">{sectionSecondaryText}</Typography>
+            <Typography variant="subtitle2" noWrap>
+              {source.label}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {sectionSecondaryText}
+            </Typography>
           </Box>
           {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
         </ListItemButton>
@@ -420,4 +424,3 @@ export function DataSourceSection(props: {
     </div>
   );
 }
-

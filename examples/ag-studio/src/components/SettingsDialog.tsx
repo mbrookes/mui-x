@@ -19,12 +19,10 @@ import {
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 export type DatasetOption = 'sales' | 'ag-studio';
-export type SidebarLayout = 'stacked' | 'tabbed';
 export type SidebarSide = 'left' | 'right';
 
 export interface SettingsValues {
   dataSource: DatasetOption;
-  sidebarLayout: SidebarLayout;
   sidebarSide: SidebarSide;
   rowCount: number | undefined;
   adapterEnabled: boolean;
@@ -34,12 +32,11 @@ export interface SettingsDialogProps {
   open: boolean;
   onClose: () => void;
   values: SettingsValues;
-  onSidebarLayoutChange: (layout: SidebarLayout) => void;
   onSidebarSideChange: (side: SidebarSide) => void;
 }
 
 export function SettingsDialog(props: SettingsDialogProps) {
-  const { open, onClose, values, onSidebarLayoutChange, onSidebarSideChange } = props;
+  const { open, onClose, values, onSidebarSideChange } = props;
 
   const [pendingDataSource, setPendingDataSource] = React.useState<DatasetOption>(
     values.dataSource,
@@ -110,25 +107,20 @@ export function SettingsDialog(props: SettingsDialogProps) {
             value={pendingDataSource}
             onChange={(_evt, val) => setPendingDataSource(val as DatasetOption)}
           >
-            <FormControlLabel value="sales" control={<Radio size="small" />} label="Sales (default)" />
-            <FormControlLabel value="ag-studio" control={<Radio size="small" />} label="AG Studio Data" />
+            <FormControlLabel
+              value="sales"
+              control={<Radio size="small" />}
+              label="Sales (default)"
+            />
+            <FormControlLabel
+              value="ag-studio"
+              control={<Radio size="small" />}
+              label="AG Studio Data"
+            />
           </RadioGroup>
         </FormControl>
 
         <Divider />
-
-        {/* Sidebar layout — immediate */}
-        <FormControl>
-          <FormLabel>Sidebar layout</FormLabel>
-          <RadioGroup
-            row
-            value={values.sidebarLayout}
-            onChange={(_evt, val) => onSidebarLayoutChange(val as SidebarLayout)}
-          >
-            <FormControlLabel value="tabbed" control={<Radio size="small" />} label="Tabbed" />
-            <FormControlLabel value="stacked" control={<Radio size="small" />} label="Stacked" />
-          </RadioGroup>
-        </FormControl>
 
         {/* Sidebar side — immediate */}
         <FormControl>

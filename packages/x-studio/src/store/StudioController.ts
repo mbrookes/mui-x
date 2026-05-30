@@ -1,5 +1,10 @@
 import { Store } from '@mui/x-internals/store';
 
+/** Total column count for the widget resize grid — must match StudioCanvas.GRID_COLS. */
+const GRID_COLS = 24;
+/** Minimum column span any widget can be clamped to. */
+const MIN_SPAN_COLS = Math.round(GRID_COLS / 4);
+
 import {
   createDefaultStudioState,
   type StudioDataField,
@@ -476,8 +481,8 @@ export class StudioController {
     if (!activePage) {
       return;
     }
-    const clampedLeft = Math.max(3, Math.min(9, Math.round(leftSpan)));
-    const clampedRight = Math.max(3, Math.min(9, Math.round(rightSpan)));
+    const clampedLeft = Math.max(MIN_SPAN_COLS, Math.min(GRID_COLS - MIN_SPAN_COLS, Math.round(leftSpan)));
+    const clampedRight = Math.max(MIN_SPAN_COLS, Math.min(GRID_COLS - MIN_SPAN_COLS, Math.round(rightSpan)));
     const newSpans: Record<string, number> = { ...(activePage.widgetColSpans ?? {}) };
     newSpans[leftId] = clampedLeft;
     newSpans[rightId] = clampedRight;

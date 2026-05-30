@@ -412,10 +412,15 @@ export function normalizeToAlpha2(value: unknown): string | null {
   const upper = trimmed.toUpperCase();
   const lower = trimmed.toLowerCase();
 
-  // Already alpha-2?
-  if (upper.length === 2) {
-    // Basic sanity: alpha-2 codes are letters only
-    if (/^[A-Z]{2}$/.test(upper)) return upper;
+  // Full name / alias lookup first — handles non-standard codes like "UK" → "GB",
+  // "Burma" → "MM", etc. Must run before the 2-letter shortcut so that aliases
+  // like "UK" (not a valid ISO alpha-2) are resolved correctly.
+  const fromName = NAME_TO_ALPHA2[lower];
+  if (fromName) return fromName;
+
+  // Looks like a valid ISO alpha-2 code?
+  if (upper.length === 2 && /^[A-Z]{2}$/.test(upper)) {
+    return upper;
   }
 
   // Alpha-3?
@@ -423,10 +428,6 @@ export function normalizeToAlpha2(value: unknown): string | null {
     const a2 = ALPHA3_TO_ALPHA2[upper];
     if (a2) return a2;
   }
-
-  // Full name / alias lookup (case-insensitive)
-  const fromName = NAME_TO_ALPHA2[lower];
-  if (fromName) return fromName;
 
   return null;
 }

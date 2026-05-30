@@ -12,7 +12,8 @@ export function AlertBannerWidget({ widget }: StudioCustomWidgetProps) {
   const custom = (widget.config.customConfig ?? {}) as Record<string, unknown>;
   const title = (custom.title as string | undefined) ?? '';
   const message = (custom.message as string | undefined) ?? 'No message configured.';
-  const severity = (custom.severity as 'success' | 'info' | 'warning' | 'error' | undefined) ?? 'info';
+  const severity =
+    (custom.severity as 'success' | 'info' | 'warning' | 'error' | undefined) ?? 'info';
 
   return (
     <Alert severity={severity} sx={{ width: '100%' }}>

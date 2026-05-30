@@ -298,6 +298,10 @@ function DashboardLayout({
     controller.setActivePage(newId);
   }, [controller]);
 
+  const handlePageClose = React.useCallback((pageId: string) => {
+    controller.removePage(pageId);
+  }, [controller]);
+
   // Close chat when switching to view mode
   React.useEffect(() => {
     if (mode !== 'edit') {
@@ -466,6 +470,7 @@ function DashboardLayout({
         chatOpen={chatOpen}
         onChatToggle={aiConfig && mode === 'edit' ? handleChatToggle : undefined}
         onAddPage={mode === 'edit' ? handleAddPage : undefined}
+        onPageClose={mode === 'edit' ? handlePageClose : undefined}
         hasEmptyPage={hasEmptyPage}
         onRefresh={handleRefresh}
         onCopyLink={handleCopyLink}

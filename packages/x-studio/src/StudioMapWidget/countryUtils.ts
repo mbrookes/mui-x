@@ -856,3 +856,47 @@ export const EUROPEAN_ALPHA2_CODES = new Set<string>([
   'VA',
   'XK',
 ]);
+
+// ─── Display-name helpers ─────────────────────────────────────────────────────
+
+/** Cached Intl.DisplayNames instance for region (country) names. */
+let regionDisplayNames: Intl.DisplayNames | null = null;
+
+function getRegionDisplayNames(): Intl.DisplayNames | null {
+  if (regionDisplayNames) return regionDisplayNames;
+  try {
+    regionDisplayNames = new Intl.DisplayNames(['en'], { type: 'region' });
+    return regionDisplayNames;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns the English display name for an ISO 3166-1 alpha-2 country code.
+ * Uses `Intl.DisplayNames` for broad coverage; falls back to the raw code.
+ */
+export function alpha2ToName(code: string): string {
+  try {
+    return getRegionDisplayNames()?.of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+/** Full US state name map (2-letter abbreviation → display name). */
+export const STATE_ABBR_TO_NAME: Record<string, string> = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California',
+  CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', DC: 'District of Columbia',
+  FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois',
+  IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana',
+  ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota',
+  MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada',
+  NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
+  NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon',
+  PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota',
+  TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia',
+  WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
+  AS: 'American Samoa', GU: 'Guam', MP: 'Northern Mariana Islands',
+  PR: 'Puerto Rico', VI: 'U.S. Virgin Islands',
+};

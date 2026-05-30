@@ -229,7 +229,7 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 
 ~~BL-82: Is there anything we can resue from x-data-grid-pro's server-side data handling for x-studio (without creating a hard dependancy on the data-grid component? (dependancy on the package is fine)~~
 
-**Researched — not directly reusable.** The `GridGetRowsParams` / `GridDataSourcePro` interface in x-data-grid-pro is row-level (pagination, sort, filter) and grid-specific. x-studio's `StudioQueryDescriptor` / `StudioDataSourceAdapter` is designed for multi-widget dashboards with pre-aggregation, cross-filtering, and M:N join semantics. The two interfaces solve different problems. What *is* reusable conceptually: the caching and request-deduplication strategy from `DataSourceCache` could inform x-studio's adapter caching. For now no code changes are needed; x-studio's own adapter API is more appropriate for its use case. A future bridge adapter (`createDataGridProAdapter`) could be considered if users need to serve x-studio data from an existing x-data-grid-pro server endpoint.
+**Researched — not directly reusable.** The `GridGetRowsParams` / `GridDataSourcePro` interface in x-data-grid-pro is row-level (pagination, sort, filter) and grid-specific. x-studio's `StudioQueryDescriptor` / `StudioDataSourceAdapter` is designed for multi-widget dashboards with pre-aggregation, cross-filtering, and M:N join semantics. The two interfaces solve different problems. What _is_ reusable conceptually: the caching and request-deduplication strategy from `DataSourceCache` could inform x-studio's adapter caching. For now no code changes are needed; x-studio's own adapter API is more appropriate for its use case. A future bridge adapter (`createDataGridProAdapter`) could be considered if users need to serve x-studio data from an existing x-data-grid-pro server endpoint.
 
 ~~BL-83: Add support for drag-and drop reordering of columns in the table config widget. Consider whether reordering in the table itself should persist in edit mode (reflected in the UI field ordering).~~
 
@@ -248,7 +248,8 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 ~~BL:87: The filter panel seems a bit pointless as it stands, make it feature complete without bloating it with excess features (/reaserch what's typical for dashboard/BI tools), and allow it to be configured on the filters panel. It's also seems buggy - Quarterly revenue by category for shipments ship date last 12 months shows data for all time. If it's the data itself that is inconsistent, for exmaple ship dates before order dates, fix that. Put it behind a feature flag.~~
 
 **Fixed** (two-part fix):
-1. **Data relationship bug**: Added M:N relationship `rel-orderitems-shipments-mn` (ORDER\_ITEMS ↔ SHIPMENTS via SHIPMENT\_ITEMS junction) to salesDashboard.ts — `findJoinPath` now finds the path so cross-filters on `shipDate` correctly semi-join order-item widgets instead of being silently skipped.
+
+1. **Data relationship bug**: Added M:N relationship `rel-orderitems-shipments-mn` (ORDER_ITEMS ↔ SHIPMENTS via SHIPMENT_ITEMS junction) to salesDashboard.ts — `findJoinPath` now finds the path so cross-filters on `shipDate` correctly semi-join order-item widgets instead of being silently skipped.
 2. **Stale date range**: Generator date range was hardcoded to '2023-01-01'–'2026-04-25'; changed to always span 3 years ago → 90 days from now so relative-date filters like "last 12 months" always contain data regardless of when the demo runs.
 3. **Quick date presets**: Added `DATE_PRESETS` chip group (7 days / 30 days / 3 months / 12 months / 1 year) to `RelativeDateInput` in FilterValueInput.tsx; active preset highlighted; clicking any preset sets the relative date value and clears any metric ref.
 
@@ -267,9 +268,21 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 
 **Fixed** (`downloadJson` / `uploadJson` were duplicated in both example apps; moved to `x-studio-shared/src/fileUtils.ts` and re-exported from `x-studio-shared/index.ts`; both example apps now import from `x-studio-shared`; local `utils/fileUtils.ts` copies deleted; `stateToJson` / `jsonToState` removed from `packages/x-studio/src/index.ts` and `statePersistence.ts` — they were app-level convenience wrappers unused by the examples)
 
-BL-92: Add sorting to widget data field selection (All widgets). Only one sort should exist at a time, as you can't sort both X and Y axis, for example. When sorted replace the data type icon with an up/down arrow.
+~~BL-92: Add sorting to widget data field selection (All widgets).~~
 
-BL-93: For all data field selects, when a data field is selected replace the dropdown chevron with the close icon.
+**Fixed** (`DataSourceFieldSelect.tsx`: `sortFields()` sorts the unified options array by `(sourceLabel, label)` using `{ sensitivity: 'base' }` locale comparison — applies to both the `dataSources`-auto-computed path and the caller-supplied `fields` path, so all callers benefit without changes. Source grouping remains correct because MUI Autocomplete's `groupBy` groups by `sourceLabel`, and sorting by source-then-label keeps all same-source fields together.)
 
-BL-94: 
+~~BL-93: For all data field selects, when a data field is selected replace the dropdown chevron with the close icon.~~
+
+**Fixed** (`DataSourceFieldSelect.tsx`: added `clearIcon={<CloseIcon>}` + `slotProps.clearIndicator.sx = { visibility: selectedOption ? 'visible' : 'hidden' }` + `slotProps.popupIndicator.sx = { display: selectedOption ? 'none' : undefined }`. When a field is selected: the clear × button is always visible; the dropdown chevron is hidden. When no field is selected: the clear button is invisible; the chevron is shown normally.)
+
+~~BL-94: Make the widget config UI more consistent by using shared components for the same/similar functionality, rather than per widget.~~
+
+**Fixed** (extracted `SetupSection` component (`StudioComposeDrawer/SetupSection.tsx`) — renders `<Divider> + caption heading + optional description line` with consistent spacing. Updated `ChartSetupPanel`, `KpiSetupPanel`, and `GridSetupPanel` to use `SetupSection` for their "Interactions" and "Conditional formatting" sections, replacing inline `<Divider>/<Typography>` patterns. This is the primary remaining UI-consistency gap: `DataSourceFieldSelect` already handles the field-picker duplication.)
+
+~~BL-95: Canvas drag-and-drop is only allowing drop on the left end of a row, not in-between widgets or to the right as it should.~~
+
+**Fixed** (root cause: `RowResizeHandle` is `position:absolute; inset:0; z-index:20` inside the gap box, covering the `InsertionPoint` child that had the drag handlers. Drag events fired on the resize handle and could not reach the sibling insertion point. Fix: new `WidgetGap` component owns the gap box and registers `onDragOver`/`onDragLeave`/`onDrop` at the container level — bubbled events from `RowResizeHandle` propagate to the container and are captured. The `InsertionPoint` is no longer needed inside gap boxes; the visual indicator is rendered at the container level. Before-first-widget `InsertionPoint` is unchanged.)
+
+BL-96: Change the widget resize grid to 24 cols. Make sure the visual grid guidelines are correctly aligned. (We fixed this before but it seems to have regressed).
 

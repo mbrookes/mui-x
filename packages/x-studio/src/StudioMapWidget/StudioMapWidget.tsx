@@ -252,4 +252,3 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
     </Box>
   );
 }
-

@@ -24,19 +24,19 @@ Choose the composed approach when you need to:
 
 ## Building blocks
 
-| Component / hook | Role |
-| :--- | :--- |
-| `StudioController` | Owns the state machine. Create once at mount. |
-| `StudioProvider` | React context provider — wraps everything that accesses Studio state. |
-| `useStudioController` | Returns the controller inside a provider. |
-| `useStudioSelector` | Subscribes to a state slice; re-renders only when that slice changes. |
-| `StudioCanvas` | Renders the grid of widget cards. |
-| `StudioDataDrawer` | Data sources sidebar panel. |
+| Component / hook      | Role                                                                    |
+| :-------------------- | :---------------------------------------------------------------------- |
+| `StudioController`    | Owns the state machine. Create once at mount.                           |
+| `StudioProvider`      | React context provider — wraps everything that accesses Studio state.   |
+| `useStudioController` | Returns the controller inside a provider.                               |
+| `useStudioSelector`   | Subscribes to a state slice; re-renders only when that slice changes.   |
+| `StudioCanvas`        | Renders the grid of widget cards.                                       |
+| `StudioDataDrawer`    | Data sources sidebar panel.                                             |
 | `StudioComposeDrawer` | Widget configuration sidebar panel. Accepts `StudioComposeDrawerProps`. |
-| `StudioFiltersDrawer` | Page-level filter panel. |
-| `DrawerPanel` | Collapsible sidebar strip that wraps a drawer component. |
-| `TabbedSidebar` | Tabbed sidebar that shows one panel at a time. |
-| `StudioChatPanel` | Floating AI assistant overlay. |
+| `StudioFiltersDrawer` | Page-level filter panel.                                                |
+| `DrawerPanel`         | Collapsible sidebar strip that wraps a drawer component.                |
+| `TabbedSidebar`       | Tabbed sidebar that shows one panel at a time.                          |
+| `StudioChatPanel`     | Floating AI assistant overlay.                                          |
 
 ## Minimal example
 
@@ -54,7 +54,11 @@ import {
 } from '@mui/x-studio';
 import type { StudioState } from '@mui/x-studio';
 
-export default function ComposedStudio({ initialState }: { initialState?: Partial<StudioState> }) {
+export default function ComposedStudio({
+  initialState,
+}: {
+  initialState?: Partial<StudioState>;
+}) {
   // Controller is the state owner — create it once.
   const controller = React.useMemo(() => new StudioController(initialState), []);
 
@@ -150,17 +154,17 @@ const activePageId = useStudioSelector(selectActivePageId);
 
 Available selectors exported from `@mui/x-studio`:
 
-| Selector | Returns |
-| :--- | :--- |
-| `selectMode` | `'edit' \| 'view'` |
-| `selectDashboard` | `StudioDashboardState` (title, activePageId) |
-| `selectPages` | `Record<string, StudioPage>` |
-| `selectActivePage` | `StudioPage` for the active page |
-| `selectActivePageId` | `string` |
-| `selectWidgets` | `Record<string, StudioWidget>` |
-| `selectDataSources` | `Record<string, StudioDataSource>` |
-| `selectFilters` | `StudioFilterState[]` |
-| `selectShell` | UI shell state (selected widget, open drawers) |
+| Selector             | Returns                                        |
+| :------------------- | :--------------------------------------------- |
+| `selectMode`         | `'edit' \| 'view'`                             |
+| `selectDashboard`    | `StudioDashboardState` (title, activePageId)   |
+| `selectPages`        | `Record<string, StudioPage>`                   |
+| `selectActivePage`   | `StudioPage` for the active page               |
+| `selectActivePageId` | `string`                                       |
+| `selectWidgets`      | `Record<string, StudioWidget>`                 |
+| `selectDataSources`  | `Record<string, StudioDataSource>`             |
+| `selectFilters`      | `StudioFilterState[]`                          |
+| `selectShell`        | UI shell state (selected widget, open drawers) |
 
 ## DrawerPanel
 
@@ -168,7 +172,7 @@ Available selectors exported from `@mui/x-studio`:
 
 ```tsx
 <DrawerPanel
-  drawer="data"         // 'data' | 'compose' | 'filters' — controls open/close state
+  drawer="data" // 'data' | 'compose' | 'filters' — controls open/close state
   title="Data Sources"
   icon={<StorageIcon fontSize="small" />}
 >
@@ -195,7 +199,7 @@ const controller = useStudioController();
   onBack={selectedWidgetId ? () => controller.clearSelection() : undefined}
 >
   <StudioComposeDrawer />
-</DrawerPanel>
+</DrawerPanel>;
 ```
 
 ## TabbedSidebar
@@ -228,7 +232,7 @@ const panels: TabbedSidebarPanel[] = [
   },
 ];
 
-<TabbedSidebar panels={panels} />
+<TabbedSidebar panels={panels} />;
 ```
 
 ## StudioComposeDrawer props
@@ -271,7 +275,7 @@ It accepts `slotProps.widgetCard` to customize every card on the canvas:
 />
 ```
 
-See [Slot props](/x/react-studio/customization/slot-props  for the full hierarchy.
+See [Slot props](/x/react-studio/customization/slot-props for the full hierarchy.
 
 ## Hiding the sidebar in view mode
 
@@ -417,11 +421,23 @@ function StudioInner() {
           panels={[
             ...(mode === 'edit'
               ? [
-                  { drawer: 'data' as const, label: 'Data', children: <StudioDataDrawer /> },
-                  { drawer: 'compose' as const, label: 'Compose', children: <StudioComposeDrawer /> },
+                  {
+                    drawer: 'data' as const,
+                    label: 'Data',
+                    children: <StudioDataDrawer />,
+                  },
+                  {
+                    drawer: 'compose' as const,
+                    label: 'Compose',
+                    children: <StudioComposeDrawer />,
+                  },
                 ]
               : []),
-            { drawer: 'filters' as const, label: 'Filters', children: <StudioFiltersDrawer /> },
+            {
+              drawer: 'filters' as const,
+              label: 'Filters',
+              children: <StudioFiltersDrawer />,
+            },
           ]}
         />
         <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
@@ -432,7 +448,11 @@ function StudioInner() {
   );
 }
 
-export default function ComposedApp({ initialState }: { initialState?: Partial<StudioState> }) {
+export default function ComposedApp({
+  initialState,
+}: {
+  initialState?: Partial<StudioState>;
+}) {
   const controller = React.useMemo(() => new StudioController(initialState), []);
 
   return (

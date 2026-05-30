@@ -106,9 +106,10 @@ export function normalizeDataSourceRows(
     return dataSource;
   }
 
-  const allDateFieldIds = dataSource.fields.flatMap((f) => f.type === 'date' ? [f.id] : []);
-  const allDatetimeFieldIds = dataSource.fields
-    .flatMap((f) => f.type === 'datetime' ? [f.id] : []);
+  const allDateFieldIds = dataSource.fields.flatMap((f) => (f.type === 'date' ? [f.id] : []));
+  const allDatetimeFieldIds = dataSource.fields.flatMap((f) =>
+    f.type === 'datetime' ? [f.id] : [],
+  );
 
   // When usedFieldIds is provided, scope to only the requested date fields.
   const dateFieldIds = usedFieldIds

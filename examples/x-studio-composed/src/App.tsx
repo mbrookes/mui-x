@@ -219,7 +219,7 @@ function buildInitialState(): Partial<StudioState> {
   } as Partial<StudioState>;
 }
 
-// ── Dashboard layout (composable — no <Studio> wrapper) ───────────────────────
+// ── Dashboard layout (composed — no <Studio> wrapper) ───────────────────────
 
 interface DashboardLayoutProps {
   adapterMode: boolean;
@@ -245,7 +245,13 @@ interface DashboardLayoutProps {
  * - `StudioCanvas` — the widget grid
  * - `CanvasScrollContext` — scroll-to-bottom after adding widgets
  */
-function DashboardLayout({ adapterMode, aiConfig, onSnackbar, featureFlags, onFeatureFlagsChange }: DashboardLayoutProps) {
+function DashboardLayout({
+  adapterMode,
+  aiConfig,
+  onSnackbar,
+  featureFlags,
+  onFeatureFlagsChange,
+}: DashboardLayoutProps) {
   const controller = useStudioController();
 
   // Register Cmd+Z / Cmd+Shift+Z keyboard shortcuts
@@ -391,8 +397,13 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar, featureFlags, onFe
 
   const handleSave = React.useCallback(() => {
     const serialized = controller.serializeState();
-    if (!serialized) { return; }
-    const title = (controller.getState().dashboard.title ?? 'dashboard').replace(/[^a-z0-9]/gi, '_');
+    if (!serialized) {
+      return;
+    }
+    const title = (controller.getState().dashboard.title ?? 'dashboard').replace(
+      /[^a-z0-9]/gi,
+      '_',
+    );
     downloadJson(serialized, `${title}_dashboard.json`);
     onSnackbar('Dashboard saved successfully', 'success');
   }, [controller, onSnackbar]);
@@ -501,7 +512,9 @@ function DashboardLayout({ adapterMode, aiConfig, onSnackbar, featureFlags, onFe
               }}
             >
               <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
-                {aiConfig && mode === 'edit' && (pages[activePageId]?.widgetRows ?? []).length === 0 ? (
+                {aiConfig &&
+                mode === 'edit' &&
+                (pages[activePageId]?.widgetRows ?? []).length === 0 ? (
                   <EmptyPagePrompt aiConfig={aiConfig} />
                 ) : (
                   <StudioCanvas />

@@ -98,8 +98,12 @@ export async function executeForTier(
   // In a production implementation this would receive explicit aggregation specs.
   const query = buildSecureQuery(db, claims, descriptor);
   const columns = descriptor.columns ?? [];
-  const groupByColumns = columns.filter((c: string) => !c.startsWith('sum_') && !c.startsWith('avg_') && !c.startsWith('count_'));
-  const aggColumns = columns.filter((c: string) => c.startsWith('sum_') || c.startsWith('avg_') || c.startsWith('count_'));
+  const groupByColumns = columns.filter(
+    (c: string) => !c.startsWith('sum_') && !c.startsWith('avg_') && !c.startsWith('count_'),
+  );
+  const aggColumns = columns.filter(
+    (c: string) => c.startsWith('sum_') || c.startsWith('avg_') || c.startsWith('count_'),
+  );
 
   if (groupByColumns.length > 0) {
     query.select(groupByColumns);

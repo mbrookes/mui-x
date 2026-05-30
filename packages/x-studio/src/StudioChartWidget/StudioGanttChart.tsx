@@ -25,7 +25,11 @@ const AXIS_H = 24;
 const MIN_BAR_W = 4;
 
 function formatDate(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return new Date(ms).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 /** Duration in a human-readable string (days or hours). */
@@ -56,7 +60,11 @@ function shortDate(ms: number): string {
  * Renders a Gantt / timeline chart with horizontal bars per row.
  * Each bar is positioned by start/end timestamps; optional colour coding by category.
  */
-export function StudioGanttChart({ items, height, categories = EMPTY_CATEGORIES }: StudioGanttChartProps) {
+export function StudioGanttChart({
+  items,
+  height,
+  categories = EMPTY_CATEGORIES,
+}: StudioGanttChartProps) {
   const theme = useTheme();
 
   // Build a stable colour map from the theme palette series
@@ -125,7 +133,10 @@ export function StudioGanttChart({ items, height, categories = EMPTY_CATEGORIES 
                 top: 4,
               }}
             >
-              <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+              <Typography
+                variant="caption"
+                sx={{ fontSize: 10, color: 'text.secondary', whiteSpace: 'nowrap' }}
+              >
                 {shortDate(tick)}
               </Typography>
             </Box>
@@ -159,7 +170,7 @@ export function StudioGanttChart({ items, height, categories = EMPTY_CATEGORIES 
         {visibleItems.map((item, idx) => {
           const top = idx * (ROW_H + ROW_GAP);
           const leftPct = ((item.startMs - minMs) / rangeMs) * 100;
-          const widthPct = Math.max((item.endMs - item.startMs) / rangeMs * 100, 0);
+          const widthPct = Math.max(((item.endMs - item.startMs) / rangeMs) * 100, 0);
           const barColor = item.colorCategory
             ? colorForCategory(item.colorCategory)
             : paletteColors[0];
@@ -184,7 +195,10 @@ export function StudioGanttChart({ items, height, categories = EMPTY_CATEGORIES 
           );
 
           return (
-            <Box key={`${item.label}-${item.startMs}`} sx={{ position: 'absolute', top, left: 0, right: 0, height: ROW_H }}>
+            <Box
+              key={`${item.label}-${item.startMs}`}
+              sx={{ position: 'absolute', top, left: 0, right: 0, height: ROW_H }}
+            >
               {/* Row label */}
               <Box
                 sx={{
@@ -201,7 +215,13 @@ export function StudioGanttChart({ items, height, categories = EMPTY_CATEGORIES 
                 <Typography
                   variant="caption"
                   noWrap
-                  sx={{ fontSize: 11, color: 'text.secondary', display: 'block', width: '100%', textAlign: 'right' }}
+                  sx={{
+                    fontSize: 11,
+                    color: 'text.secondary',
+                    display: 'block',
+                    width: '100%',
+                    textAlign: 'right',
+                  }}
                 >
                   {item.label}
                 </Typography>

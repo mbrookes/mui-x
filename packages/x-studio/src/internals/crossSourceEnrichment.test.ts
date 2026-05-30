@@ -41,7 +41,13 @@ const orderRows = [
 describe('enrichWithCrossSourceColumns', () => {
   it('returns rows unchanged when there are no cross-source columns', () => {
     const columns = [{ fieldId: 'id' }, { fieldId: 'total' }];
-    const result = enrichWithCrossSourceColumns(orderRows, 'orders', columns, dataSources, relationships);
+    const result = enrichWithCrossSourceColumns(
+      orderRows,
+      'orders',
+      columns,
+      dataSources,
+      relationships,
+    );
     expect(result).toBe(orderRows); // same reference
   });
 
@@ -51,7 +57,13 @@ describe('enrichWithCrossSourceColumns', () => {
       { fieldId: 'total' },
       { fieldId: 'company', sourceId: 'customers' },
     ];
-    const result = enrichWithCrossSourceColumns(orderRows, 'orders', columns, dataSources, relationships);
+    const result = enrichWithCrossSourceColumns(
+      orderRows,
+      'orders',
+      columns,
+      dataSources,
+      relationships,
+    );
 
     expect(result[0]).toMatchObject({ id: 'o1', total: 100, company: 'Acme' });
     expect(result[1]).toMatchObject({ id: 'o2', total: 50, company: 'Globex' });
@@ -64,7 +76,13 @@ describe('enrichWithCrossSourceColumns', () => {
       { fieldId: 'company', sourceId: 'customers' },
       { fieldId: 'segment', sourceId: 'customers' },
     ];
-    const result = enrichWithCrossSourceColumns(orderRows, 'orders', columns, dataSources, relationships);
+    const result = enrichWithCrossSourceColumns(
+      orderRows,
+      'orders',
+      columns,
+      dataSources,
+      relationships,
+    );
 
     expect(result[0]).toMatchObject({ company: 'Acme', segment: 'Enterprise' });
     expect(result[1]).toMatchObject({ company: 'Globex', segment: 'SMB' });
@@ -74,7 +92,13 @@ describe('enrichWithCrossSourceColumns', () => {
     const columns = [
       { fieldId: 'productName', sourceId: 'products' }, // no relationship declared
     ];
-    const result = enrichWithCrossSourceColumns(orderRows, 'orders', columns, dataSources, relationships);
+    const result = enrichWithCrossSourceColumns(
+      orderRows,
+      'orders',
+      columns,
+      dataSources,
+      relationships,
+    );
     expect(result).toBe(orderRows); // returns same reference, no enrichment
     expect(result[0].productName).toBeUndefined();
   });
@@ -84,7 +108,13 @@ describe('enrichWithCrossSourceColumns', () => {
       customers: { ...customerSource, rows: undefined },
     };
     const columns = [{ fieldId: 'company', sourceId: 'customers' }];
-    const result = enrichWithCrossSourceColumns(orderRows, 'orders', columns, sourcesNoRows, relationships);
+    const result = enrichWithCrossSourceColumns(
+      orderRows,
+      'orders',
+      columns,
+      sourcesNoRows,
+      relationships,
+    );
     expect(result).toBe(orderRows);
     expect(result[0].company).toBeUndefined();
   });
@@ -92,7 +122,13 @@ describe('enrichWithCrossSourceColumns', () => {
   it('does not mutate the original rows', () => {
     const original = [{ id: 'o1', customerId: 'c1', total: 100 }];
     const columns = [{ fieldId: 'company', sourceId: 'customers' }];
-    const result = enrichWithCrossSourceColumns(original, 'orders', columns, dataSources, relationships);
+    const result = enrichWithCrossSourceColumns(
+      original,
+      'orders',
+      columns,
+      dataSources,
+      relationships,
+    );
     expect(result).not.toBe(original);
     expect((original[0] as Record<string, unknown>).company).toBeUndefined(); // original unchanged
   });
@@ -100,13 +136,25 @@ describe('enrichWithCrossSourceColumns', () => {
   it('handles a missing FK value gracefully (no match → field stays undefined)', () => {
     const rowsWithBadFk = [{ id: 'o99', customerId: 'unknown', total: 0 }];
     const columns = [{ fieldId: 'company', sourceId: 'customers' }];
-    const result = enrichWithCrossSourceColumns(rowsWithBadFk, 'orders', columns, dataSources, relationships);
+    const result = enrichWithCrossSourceColumns(
+      rowsWithBadFk,
+      'orders',
+      columns,
+      dataSources,
+      relationships,
+    );
     expect(result[0].company).toBeUndefined();
   });
 
   it('returns unchanged rows when widgetSourceId is undefined', () => {
     const columns = [{ fieldId: 'company', sourceId: 'customers' }];
-    const result = enrichWithCrossSourceColumns(orderRows, undefined, columns, dataSources, relationships);
+    const result = enrichWithCrossSourceColumns(
+      orderRows,
+      undefined,
+      columns,
+      dataSources,
+      relationships,
+    );
     expect(result).toBe(orderRows);
   });
 });

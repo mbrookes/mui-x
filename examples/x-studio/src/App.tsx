@@ -1,5 +1,13 @@
 import * as React from 'react';
-import { Alert, Box, Chip, CircularProgress, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Chip,
+  CircularProgress,
+  CssBaseline,
+  Snackbar,
+  ThemeProvider,
+} from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { Studio, createBatchingAdapter } from '@mui/x-studio';
@@ -462,7 +470,14 @@ export default function App() {
         <SettingsDialog
           open={settingsOpen}
           onClose={handleCloseSettings}
-          values={{ sidebarLayout, sidebarSide, tableSourceMode, stackBreakpoint, rowCount: getUrlRowsParam(), adapterEnabled: adapterMode }}
+          values={{
+            sidebarLayout,
+            sidebarSide,
+            tableSourceMode,
+            stackBreakpoint,
+            rowCount: getUrlRowsParam(),
+            adapterEnabled: adapterMode,
+          }}
           onSidebarLayoutChange={setSidebarLayout}
           onSidebarSideChange={setSidebarSide}
           onTableSourceModeChange={setTableSourceMode}

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import type { StudioFeatureFlags } from '../models/studio';
+import type { StudioFeatureFlags } from '../models';
 import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
 
 // ── Locale text ─────────────────────────────────────────────────────────────
@@ -199,5 +199,9 @@ export function useStudioFeatures(): Required<StudioFeatureFlags> {
     gridGroupBy: featureFlags.gridGroupBy ?? true,
     gridSummary: featureFlags.gridSummary ?? true,
     gridConditionalFormats: featureFlags.gridConditionalFormats ?? true,
+    calculatedFields: featureFlags.calculatedFields ?? true,
+    kpiCalculatedFields: featureFlags.kpiCalculatedFields ?? true,
+    chartCalculatedFields: featureFlags.chartCalculatedFields ?? true,
+    gridCalculatedFields: featureFlags.gridCalculatedFields ?? true,
   };
 }

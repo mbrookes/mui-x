@@ -225,6 +225,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- runs once on mount intentionally
   }, []);
 
   React.useEffect(() => {
@@ -299,6 +300,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         exportChartToPng(widget, chartContainerRef.current, theme.palette.background.default);
       }
     },
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- deps are correct
     [widget, source, controller],
   );
 
@@ -311,7 +313,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const showEditActions = mode === 'edit' && (isSelected || (!dimmed && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
   const showViewExpand = mode === 'view' && hovered && isChart;
-  const exportLabel = widget.kind === 'grid' ? localeText.widgetExportCsvTooltip : localeText.widgetExportPngTooltip;
+  const exportLabel =
+    widget.kind === 'grid' ? localeText.widgetExportCsvTooltip : localeText.widgetExportPngTooltip;
 
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
   // inside the card for top-row widgets (where there's no room above to overhang).
@@ -320,68 +323,69 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   return (
     <Box sx={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Paper
-      ref={ref}
-      variant="outlined"
-      {...slotProps?.paper}
-      onClick={() => controller.setSelectedWidget(widgetId)}
-      aria-selected={isSelected}
-      aria-label={`Widget: ${widget.title}`}
-      data-widget-card
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          controller.setSelectedWidget(widgetId);
-        }
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      sx={{
-        borderColor: pageTheme?.cardBorderColor ?? 'divider',
-        borderWidth: pageTheme?.cardBorderWidth ?? 1,
-        border: pageTheme?.cardBorder === false && !isSelected ? 'none' : undefined,
-        borderRadius: pageTheme?.cardRadius !== undefined ? `${pageTheme.cardRadius}px` : undefined,
-        backgroundColor: pageTheme?.cardBackground ?? undefined,
-        cursor: isDragging ? 'grabbing' : 'pointer',
-        p: pageTheme?.cardPadding ?? 2,
-        boxSizing: 'border-box',
-        height: '100%',
-        position: 'relative',
-        minHeight:
-          widget.kind === 'kpi'
-            ? KPI_WIDGET_MIN_HEIGHT
-            : widget.kind === 'filter'
-              ? FILTER_WIDGET_MIN_HEIGHT
-              : undefined,
-        outline: isSelected ? '2px solid' : undefined,
-        outlineColor: isSelected ? 'primary.main' : undefined,
-        outlineOffset: -1,
-        transition: 'outline-color 0.15s',
-        '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
-        boxShadow: isDragging ? 4 : undefined,
-        ...(slotProps?.paper?.sx ?? {}),
-      }}
-    >
-      {/* Action button overlay — floats over content so title is never truncated */}
-      <StudioWidgetCardActionsOverlay
-        mode={mode}
-        canExport={canExport}
-        isChart={isChart}
-        exportLabel={exportLabel}
-        showEditActions={showEditActions}
-        showViewExport={showViewExport}
-        showViewExpand={showViewExpand}
-        overlayTopSx={overlayTopSx}
-        moveToPageOptions={moveToPageOptions}
-        onExport={handleExport}
-        onExpand={() => setExpanded(true)}
-        onEdit={() => setEditDialogOpen(true)}
-        onDuplicate={() => controller.duplicateWidget(widgetId)}
-        onDelete={() => controller.removeWidget(widgetId)}
-        onMoveToPage={(pageId) => controller.moveWidgetToPage(widgetId, pageId)}
-      />
-      <Stack spacing={widget.kind === 'grid' ? 2 : 0.5}>
-        {/* Widget header */}
-        <Box sx={{ minWidth: 0 }}>
+        ref={ref}
+        variant="outlined"
+        {...slotProps?.paper}
+        onClick={() => controller.setSelectedWidget(widgetId)}
+        aria-selected={isSelected}
+        aria-label={`Widget: ${widget.title}`}
+        data-widget-card
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            controller.setSelectedWidget(widgetId);
+          }
+        }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        sx={{
+          borderColor: pageTheme?.cardBorderColor ?? 'divider',
+          borderWidth: pageTheme?.cardBorderWidth ?? 1,
+          border: pageTheme?.cardBorder === false && !isSelected ? 'none' : undefined,
+          borderRadius:
+            pageTheme?.cardRadius !== undefined ? `${pageTheme.cardRadius}px` : undefined,
+          backgroundColor: pageTheme?.cardBackground ?? undefined,
+          cursor: isDragging ? 'grabbing' : 'pointer',
+          p: pageTheme?.cardPadding ?? 2,
+          boxSizing: 'border-box',
+          height: '100%',
+          position: 'relative',
+          minHeight:
+            widget.kind === 'kpi'
+              ? KPI_WIDGET_MIN_HEIGHT
+              : widget.kind === 'filter'
+                ? FILTER_WIDGET_MIN_HEIGHT
+                : undefined,
+          outline: isSelected ? '2px solid' : undefined,
+          outlineColor: isSelected ? 'primary.main' : undefined,
+          outlineOffset: -1,
+          transition: 'outline-color 0.15s',
+          '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: 2 },
+          boxShadow: isDragging ? 4 : undefined,
+          ...(slotProps?.paper?.sx ?? {}),
+        }}
+      >
+        {/* Action button overlay — floats over content so title is never truncated */}
+        <StudioWidgetCardActionsOverlay
+          mode={mode}
+          canExport={canExport}
+          isChart={isChart}
+          exportLabel={exportLabel}
+          showEditActions={showEditActions}
+          showViewExport={showViewExport}
+          showViewExpand={showViewExpand}
+          overlayTopSx={overlayTopSx}
+          moveToPageOptions={moveToPageOptions}
+          onExport={handleExport}
+          onExpand={() => setExpanded(true)}
+          onEdit={() => setEditDialogOpen(true)}
+          onDuplicate={() => controller.duplicateWidget(widgetId)}
+          onDelete={() => controller.removeWidget(widgetId)}
+          onMoveToPage={(pageId) => controller.moveWidgetToPage(widgetId, pageId)}
+        />
+        <Stack spacing={widget.kind === 'grid' ? 2 : 0.5}>
+          {/* Widget header */}
+          <Box sx={{ minWidth: 0 }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
               <Typography
                 variant="h6"
@@ -434,8 +438,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                     if (val !== null && typeof val === 'object' && 'from' in val && 'to' in val) {
                       // between filter (e.g. date range emitted by a period-grouped bar click)
                       const r = val as { from?: string; to?: string };
-                      const fmtDate = (s?: string) =>
-                        s ? dayjs(s).format('D MMM YYYY') : '';
+                      const fmtDate = (s?: string) => (s ? dayjs(s).format('D MMM YYYY') : '');
                       valueLabel =
                         r.from && r.to && r.from !== r.to
                           ? `${fmtDate(r.from)} – ${fmtDate(r.to)}`
@@ -451,162 +454,179 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                   sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
                 />
               )}
-              {activeSliderFilter && <SliderFilterPill filter={activeSliderFilter} source={source} onClear={() => controller.clearInteractiveFilter(widgetId)} />}
+              {activeSliderFilter && (
+                <SliderFilterPill
+                  filter={activeSliderFilter}
+                  source={source}
+                  onClear={() => controller.clearInteractiveFilter(widgetId)}
+                />
+              )}
             </Stack>
             {widget.subtitle && (
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                noWrap
-                sx={{ display: 'block' }}
-              >
+              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
                 {widget.subtitle}
               </Typography>
             )}
           </Box>
-        {/* Widget content — deferred to after first paint to avoid blocking initial render.
+          {/* Widget content — deferred to after first paint to avoid blocking initial render.
             A Skeleton placeholder preserves the card's height so the layout does not
             shift when real content arrives (avoids CLS). */}
-        {widget.kind === 'grid' && (
-          showContent ? (
-            <Box sx={{ position: 'relative' }}>
-              <StudioGridWidget widget={widget} dataSource={source} {...slotProps?.grid} />
-              {isRecomputing && <LoadingOverlay />}
-            </Box>
-          ) : (
-            <Skeleton variant="rectangular" height={200} sx={{ borderRadius: 1 }} />
-          )
-        )}
-        {widget.kind === 'chart' && (
-          showContent ? (
-            <Box sx={{ position: 'relative' }}>
-              <Box ref={chartContainerRef} sx={{ minHeight: CHART_MIN_HEIGHT }}>
-                <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} {...slotProps?.chart} />
+          {widget.kind === 'grid' &&
+            (showContent ? (
+              <Box sx={{ position: 'relative' }}>
+                <StudioGridWidget widget={widget} dataSource={source} {...slotProps?.grid} />
+                {isRecomputing && <LoadingOverlay />}
               </Box>
-              {isRecomputing && <LoadingOverlay />}
-            </Box>
-          ) : (
-            <Skeleton variant="rectangular" height={CHART_MIN_HEIGHT} sx={{ borderRadius: 1 }} />
-          )
-        )}
-        {widget.kind === 'kpi' && (
-          showContent ? (
-            <StudioKpiWidget widget={widget} dataSource={source} {...slotProps?.kpi} />
-          ) : (
-            <Skeleton variant="rectangular" height={KPI_WIDGET_MIN_HEIGHT - 48} sx={{ borderRadius: 1 }} />
-          )
-        )}
-        {widget.kind === 'text' && (showContent ? <StudioTextWidget widget={widget} {...slotProps?.text} /> : <Skeleton variant="rectangular" height={60} sx={{ borderRadius: 1 }} />)}
-        {widget.kind === 'filter' && (
-          showContent ? (
-            <StudioFilterWidget widget={widget} dataSource={source} {...slotProps?.filter} />
-          ) : (
-            <Skeleton variant="rectangular" height={FILTER_WIDGET_MIN_HEIGHT - 48} sx={{ borderRadius: 1 }} />
-          )
-        )}
-        {widget.kind === 'pivot' && (
-          showContent ? (
-            <Box sx={{ position: 'relative' }}>
-              <StudioPivotWidget widget={widget} dataSource={source} />
-              {isRecomputing && <LoadingOverlay />}
-            </Box>
-          ) : (
-            <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 1 }} />
-          )
-        )}
-        {widget.kind === 'map' && (
-          showContent ? (
-            <Box sx={{ position: 'relative', height: MAP_WIDGET_DEFAULT_HEIGHT }}>
-              {source && <StudioMapWidget widget={widget} dataSource={source} />}
-              {isRecomputing && <LoadingOverlay />}
-            </Box>
-          ) : (
-            <Skeleton variant="rectangular" height={MAP_WIDGET_DEFAULT_HEIGHT} sx={{ borderRadius: 1 }} />
-          )
-        )}
-      </Stack>
-      {/* Chart full-screen overlay dialog */}
-      {isChart && expanded && (
-        <Dialog
-          open={expanded}
-          onClose={() => setExpanded(false)}
-          maxWidth={false}
-          slotProps={{
-            paper: {
-              sx: {
-                width: 'min(1400px, 90vw)',
-                maxWidth: 'none',
+            ) : (
+              <Skeleton variant="rectangular" height={200} sx={{ borderRadius: 1 }} />
+            ))}
+          {widget.kind === 'chart' &&
+            (showContent ? (
+              <Box sx={{ position: 'relative' }}>
+                <Box ref={chartContainerRef} sx={{ minHeight: CHART_MIN_HEIGHT }}>
+                  <StudioChartWidget
+                    widget={widget}
+                    dataSource={source}
+                    height={CHART_MIN_HEIGHT}
+                    {...slotProps?.chart}
+                  />
+                </Box>
+                {isRecomputing && <LoadingOverlay />}
+              </Box>
+            ) : (
+              <Skeleton variant="rectangular" height={CHART_MIN_HEIGHT} sx={{ borderRadius: 1 }} />
+            ))}
+          {widget.kind === 'kpi' &&
+            (showContent ? (
+              <StudioKpiWidget widget={widget} dataSource={source} {...slotProps?.kpi} />
+            ) : (
+              <Skeleton
+                variant="rectangular"
+                height={KPI_WIDGET_MIN_HEIGHT - 48}
+                sx={{ borderRadius: 1 }}
+              />
+            ))}
+          {widget.kind === 'text' &&
+            (showContent ? (
+              <StudioTextWidget widget={widget} {...slotProps?.text} />
+            ) : (
+              <Skeleton variant="rectangular" height={60} sx={{ borderRadius: 1 }} />
+            ))}
+          {widget.kind === 'filter' &&
+            (showContent ? (
+              <StudioFilterWidget widget={widget} dataSource={source} {...slotProps?.filter} />
+            ) : (
+              <Skeleton
+                variant="rectangular"
+                height={FILTER_WIDGET_MIN_HEIGHT - 48}
+                sx={{ borderRadius: 1 }}
+              />
+            ))}
+          {widget.kind === 'pivot' &&
+            (showContent ? (
+              <Box sx={{ position: 'relative' }}>
+                <StudioPivotWidget widget={widget} dataSource={source} />
+                {isRecomputing && <LoadingOverlay />}
+              </Box>
+            ) : (
+              <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 1 }} />
+            ))}
+          {widget.kind === 'map' &&
+            (showContent ? (
+              <Box sx={{ position: 'relative', height: MAP_WIDGET_DEFAULT_HEIGHT }}>
+                {source && <StudioMapWidget widget={widget} dataSource={source} />}
+                {isRecomputing && <LoadingOverlay />}
+              </Box>
+            ) : (
+              <Skeleton
+                variant="rectangular"
+                height={MAP_WIDGET_DEFAULT_HEIGHT}
+                sx={{ borderRadius: 1 }}
+              />
+            ))}
+        </Stack>
+        {/* Chart full-screen overlay dialog */}
+        {isChart && expanded && (
+          <Dialog
+            open={expanded}
+            onClose={() => setExpanded(false)}
+            maxWidth={false}
+            slotProps={{
+              paper: {
+                sx: {
+                  width: 'min(1400px, 90vw)',
+                  maxWidth: 'none',
+                },
               },
-            },
-          }}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 1 }}>
-            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Typography variant="h6" noWrap>
-                {widget.title || 'Chart'}
-              </Typography>
-              {widget.subtitle && (
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  noWrap
-                  sx={{ display: 'block' }}
-                >
-                  {widget.subtitle}
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 1 }}>
+              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                <Typography variant="h6" noWrap>
+                  {widget.title || 'Chart'}
                 </Typography>
-              )}
-            </Box>
-            <IconButton
-              size="small"
-              onClick={() => setExpanded(false)}
-              aria-label="Close expanded chart"
-              sx={{ flexShrink: 0 }}
-            >
-              <CloseIcon />
-            </IconButton>
-          </DialogTitle>
-          <DialogContent sx={{ p: 2, pt: 0 }}>
-            <Box ref={chartExpandContainerRef}>
-              <StudioChartWidget widget={widget} dataSource={source} height={500} />
-            </Box>
-          </DialogContent>
-          <DialogActions sx={{ px: 2, pb: 1.5 }}>
-            <Tooltip title={localeText.widgetExportPngTooltip}>
+                {widget.subtitle && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    noWrap
+                    sx={{ display: 'block' }}
+                  >
+                    {widget.subtitle}
+                  </Typography>
+                )}
+              </Box>
               <IconButton
                 size="small"
-                onClick={() => exportChartToPng(widget, chartExpandContainerRef.current)}
-                aria-label="Export expanded chart as PNG"
+                onClick={() => setExpanded(false)}
+                aria-label="Close expanded chart"
+                sx={{ flexShrink: 0 }}
               >
-                <DownloadIcon fontSize="small" />
+                <CloseIcon />
               </IconButton>
-            </Tooltip>
-          </DialogActions>
-        </Dialog>
-      )}
-      {/* Widget edit dialog */}
-      {editDialogOpen && (
-        <StudioWidgetEditDialog
-          open={editDialogOpen}
-          onClose={() => setEditDialogOpen(false)}
-          widgetId={widgetId}
-        >
-          {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
-          {widget.kind === 'chart' && (
-            <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} />
-          )}
-          {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
-          {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
-          {widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
-          {widget.kind === 'pivot' && <StudioPivotWidget widget={widget} dataSource={source} />}
-          {widget.kind === 'map' && (
-            <Box sx={{ height: MAP_WIDGET_DEFAULT_HEIGHT }}>
-              {source && <StudioMapWidget widget={widget} dataSource={source} />}
-            </Box>
-          )}
-        </StudioWidgetEditDialog>
-      )}
-    </Paper>
-  </Box>
+            </DialogTitle>
+            <DialogContent sx={{ p: 2, pt: 0 }}>
+              <Box ref={chartExpandContainerRef}>
+                <StudioChartWidget widget={widget} dataSource={source} height={500} />
+              </Box>
+            </DialogContent>
+            <DialogActions sx={{ px: 2, pb: 1.5 }}>
+              <Tooltip title={localeText.widgetExportPngTooltip}>
+                <IconButton
+                  size="small"
+                  onClick={() => exportChartToPng(widget, chartExpandContainerRef.current)}
+                  aria-label="Export expanded chart as PNG"
+                >
+                  <DownloadIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </DialogActions>
+          </Dialog>
+        )}
+        {/* Widget edit dialog */}
+        {editDialogOpen && (
+          <StudioWidgetEditDialog
+            open={editDialogOpen}
+            onClose={() => setEditDialogOpen(false)}
+            widgetId={widgetId}
+          >
+            {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
+            {widget.kind === 'chart' && (
+              <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} />
+            )}
+            {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
+            {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
+            {widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
+            {widget.kind === 'pivot' && <StudioPivotWidget widget={widget} dataSource={source} />}
+            {widget.kind === 'map' && (
+              <Box sx={{ height: MAP_WIDGET_DEFAULT_HEIGHT }}>
+                {source && <StudioMapWidget widget={widget} dataSource={source} />}
+              </Box>
+            )}
+          </StudioWidgetEditDialog>
+        )}
+      </Paper>
+    </Box>
   );
 });

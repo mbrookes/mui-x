@@ -57,7 +57,12 @@ function App() {
 ### With `StudioController` (composed)
 
 ```tsx
-import { StudioController, StudioProvider, useStudioSelector, selectMode } from '@mui/x-studio';
+import {
+  StudioController,
+  StudioProvider,
+  useStudioSelector,
+  selectMode,
+} from '@mui/x-studio';
 
 const controller = React.useMemo(() => new StudioController(), []);
 
@@ -89,9 +94,7 @@ function ModeIndicator() {
 Pass `initialState` with a `mode` property to start the Studio in a given mode:
 
 ```tsx
-<Studio
-  initialState={{ mode: 'view', dashboard: savedDashboard }}
-/>
+<Studio initialState={{ mode: 'view', dashboard: savedDashboard }} />
 ```
 
 :::info

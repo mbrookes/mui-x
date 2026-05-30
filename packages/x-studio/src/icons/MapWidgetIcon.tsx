@@ -8,7 +8,16 @@ export function MapWidgetIcon({ size, color = 'currentColor' }: BasicIconProps) 
       {/* Globe outline */}
       <ellipse cx={16} cy={16} rx={12} ry={11} stroke={color} strokeWidth={1.2} fill="none" />
       {/* Latitude lines */}
-      <ellipse cx={16} cy={16} rx={12} ry={4.5} stroke={color} strokeWidth={0.8} fill="none" opacity={0.4} />
+      <ellipse
+        cx={16}
+        cy={16}
+        rx={12}
+        ry={4.5}
+        stroke={color}
+        strokeWidth={0.8}
+        fill="none"
+        opacity={0.4}
+      />
       {/* Longitude lines */}
       <line x1={16} y1={5} x2={16} y2={27} stroke={color} strokeWidth={0.8} opacity={0.4} />
       <line x1={4} y1={16} x2={28} y2={16} stroke={color} strokeWidth={0.8} opacity={0.4} />

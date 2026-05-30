@@ -67,12 +67,14 @@ export async function handleBatchQuery(
   if (invalidTables.length > 0) {
     throw new Error(
       `MUI X Studio Server: Requested table(s) not in schema allowlist: ${invalidTables.join(', ')}. ` +
-      `Allowed tables: ${schemaAllowlist.join(', ')}`,
+        `Allowed tables: ${schemaAllowlist.join(', ')}`,
     );
   }
 
   const results: WidgetQueryResult[] = await Promise.all(
-    body.widgets.map((descriptor: BatchWidgetDescriptor) => processWidget(db, claims, descriptor, cacheProvider, thresholds)),
+    body.widgets.map((descriptor: BatchWidgetDescriptor) =>
+      processWidget(db, claims, descriptor, cacheProvider, thresholds),
+    ),
   );
 
   return {

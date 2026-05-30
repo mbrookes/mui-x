@@ -12,7 +12,7 @@ import {
   type StudioPage,
   type StudioState,
   type StudioWidget,
-} from '../models';
+} from '../models/index';
 
 import {
   serializeState,
@@ -377,7 +377,9 @@ export class StudioController {
     const { [widgetId]: _removed, ...restSpans } = activePage.widgetColSpans ?? {};
     void _removed;
     const newSpans =
-      span == null ? restSpans : { ...restSpans, [widgetId]: Math.max(3, Math.min(12, Math.round(span))) };
+      span == null
+        ? restSpans
+        : { ...restSpans, [widgetId]: Math.max(3, Math.min(12, Math.round(span))) };
     this.commitState({
       ...state,
       pages: {
@@ -637,9 +639,7 @@ export class StudioController {
     // Stamp page filters with the current active page so they don't bleed
     // across pages when the user switches pages.
     const stampedFilter =
-      filter.scope === 'page'
-        ? { ...filter, pageId: state.dashboard.activePageId }
-        : filter;
+      filter.scope === 'page' ? { ...filter, pageId: state.dashboard.activePageId } : filter;
     this.commitState({
       ...state,
       filters: [...state.filters, stampedFilter],
@@ -658,9 +658,7 @@ export class StudioController {
     const state = this.store.state;
     this.commitState({
       ...state,
-      relationships: state.relationships.map((rel) =>
-        rel.id === id ? { ...rel, ...patch } : rel,
-      ),
+      relationships: state.relationships.map((rel) => (rel.id === id ? { ...rel, ...patch } : rel)),
     });
   };
 
@@ -778,7 +776,6 @@ export class StudioController {
 
     this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
   };
-
 
   applyInteractiveFilter = (
     sourceWidgetId: string,
@@ -1080,8 +1077,7 @@ export class StudioController {
         [sourcePageId]: {
           ...sourcePage,
           widgetRows: sourceRows,
-          widgetColSpans:
-            Object.keys(sourceSpans).length > 0 ? sourceSpans : undefined,
+          widgetColSpans: Object.keys(sourceSpans).length > 0 ? sourceSpans : undefined,
         },
         [targetPageId]: {
           ...targetPage,
@@ -1185,8 +1181,7 @@ export function computeDateRangePreset(preset: Exclude<StudioDateRangePreset, 'c
 } {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
-  const toISO = (d: Date) =>
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const toISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const today = toISO(now);
 
   switch (preset) {

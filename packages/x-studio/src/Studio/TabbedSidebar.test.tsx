@@ -47,7 +47,6 @@ describe('TabbedSidebar', () => {
         selectedWidgetId: null,
         selectedFieldId: null,
         selectedSourceId: null,
-
       },
     });
     syncState();
@@ -85,7 +84,6 @@ describe('TabbedSidebar', () => {
         selectedWidgetId: null,
         selectedFieldId: null,
         selectedSourceId: null,
-
       },
     });
     syncState();
@@ -104,7 +102,6 @@ describe('TabbedSidebar', () => {
         selectedWidgetId: null,
         selectedFieldId: null,
         selectedSourceId: null,
-
       },
     });
     syncState();
@@ -135,7 +132,6 @@ describe('TabbedSidebar', () => {
         selectedWidgetId: null,
         selectedFieldId: null,
         selectedSourceId: null,
-
       },
     });
     syncState();

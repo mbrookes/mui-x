@@ -34,10 +34,18 @@ function applyParentFilters(rows: Row[], parentFilters: StudioFilterState[]): Ro
         result = result.filter((row) => String(row[fieldVal] ?? '') !== String(filterVal));
       } else if (f.operator === 'contains') {
         const q = String(filterVal).toLowerCase();
-        result = result.filter((row) => String(row[fieldVal] ?? '').toLowerCase().includes(q));
+        result = result.filter((row) =>
+          String(row[fieldVal] ?? '')
+            .toLowerCase()
+            .includes(q),
+        );
       } else if (f.operator === 'starts_with') {
         const q = String(filterVal).toLowerCase();
-        result = result.filter((row) => String(row[fieldVal] ?? '').toLowerCase().startsWith(q));
+        result = result.filter((row) =>
+          String(row[fieldVal] ?? '')
+            .toLowerCase()
+            .startsWith(q),
+        );
       }
       // Other operators skipped — for cascading purposes the above cover the most useful cases
     }

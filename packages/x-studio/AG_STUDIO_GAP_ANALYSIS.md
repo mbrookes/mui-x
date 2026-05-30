@@ -1,6 +1,6 @@
 # @mui/x-studio Gap Analysis vs AG Studio Clone Requirements
 
-**Date:** 2026-04-29
+**Date:** 2026-05-29 (last updated; originally 2026-04-29)
 **Reviewer:** Copilot (automated code review)
 **Scope:** `packages/x-studio/src/` vs `AG_STUDIO_CLONE_REQUIREMENTS.md`
 **AG Studio reference:** https://www.ag-grid.com/studio/react/reference/
@@ -42,22 +42,16 @@ Drawer open/closed positions are therefore lost on page reload.
 
 ### XS-LAYOUT-002 — Configurable canvas layout (resize and reposition)
 
-**Status: ⚠️ Partially implemented**
+**Status: ✅ Implemented**
+
+DnD reorder between rows and within rows is fully implemented using native HTML5 APIs in `StudioCanvas.tsx`. Widget resize is also implemented via a drag handle on the right edge of each widget card (`feat: between-widget resize handle`).
 
 **Implemented:**
 
 - Row-based layout model: `widgetRows: string[][]` per page.
-- HTML5 drag-and-drop reorder via `StudioCanvas.tsx`; horizontal insertion points between rows and vertical insertion points within a row are highlighted on drag-over.
-- Widgets auto-fill row width with `flex: 1`.
+- HTML5 drag-and-drop reorder via `StudioCanvas.tsx`.
+- **Resize handles:** A drag handle on the right edge of each widget card snaps to a 12-column grid on release. Live column-grid lines are shown during drag. `setWidgetColSpan` / `setWidgetColSpanInRow` on `StudioController`; persisted in `widgetColSpans`.
 - Layout persists in state and is serialized.
-
-**Gaps vs acceptance criteria:**
-
-- **No resize handles.** Widgets cannot be resized by dragging. There is no `widgetWidths` or similar model field. `StudioCanvas.tsx` renders widgets as plain `Box` elements with `flex: 1`; no `react-resizable` or equivalent.
-- **No minimum dimension enforcement.** The spec requires a 2×1 minimum tile but there is no guard.
-- **Fixed equal-width columns only.** A row of N widgets always divides available width equally; non-uniform column widths are unsupported.
-
-AG Studio uses a 12-column grid with pixel-level drag-resize. MUI X Studio uses a simpler "rows of equal tiles" model.
 
 ---
 
@@ -89,9 +83,18 @@ No preset selector, no preset definitions anywhere in `packages/x-studio/src/`. 
 
 ### XS-LAYOUT-005 — Responsive / mobile layout
 
-**Status: ❌ Not implemented**
+**Status: ⚠️ Partially implemented**
 
-`Studio.tsx` renders all three drawer slots unconditionally. There is no `useMediaQuery`/breakpoint logic that collapses drawers on narrow viewports or converts the layout to single-column.
+`feat(x-studio): responsive layout — stack widgets below breakpoint in view mode` added a view-mode responsive breakpoint that stacks widget rows to single-column on narrow viewports.
+
+**Implemented:**
+
+- In view mode, widgets stack to single-column below a configured breakpoint.
+
+**Gaps:**
+
+- Edit mode does not adapt to narrow viewports; all three drawers still render unconditionally.
+- No collapsible-drawer behaviour on mobile in edit mode.
 
 ---
 
@@ -101,17 +104,15 @@ No preset selector, no preset definitions anywhere in `packages/x-studio/src/`. 
 
 **Status: ✅ Implemented**
 
-`AddWidgetView` inside `StudioComposeDrawer.tsx` lists all four widget types (Text, KPI, Chart, Grid) with icons and descriptions. Both click-to-add (calls `controller.addWidget(...)`) and drag-from-palette to a canvas insertion point are supported. New widget immediately receives `selectedWidgetId` focus in the compose pane.
+`AddWidgetView` inside `StudioComposeDrawer.tsx` lists seven widget types (Text, KPI, Chart, Grid, Filter, Pivot, Map) with icons and descriptions. Both click-to-add (calls `controller.addWidget(...)`) and drag-from-palette to a canvas insertion point are supported. New widget immediately receives `selectedWidgetId` focus in the compose pane.
 
 ---
 
 ### XS-CANVAS-002 — Move and resize widgets
 
-**Status: ⚠️ Partially implemented**
+**Status: ✅ Implemented**
 
-DnD reorder between rows and within rows is fully implemented using native HTML5 APIs in `StudioCanvas.tsx`. Snap-to-grid is effectively inherent in the row/tile model.
-
-**Gap:** Resize is not implemented (see XS-LAYOUT-002).
+DnD reorder between rows and within rows is fully implemented using native HTML5 APIs in `StudioCanvas.tsx`. Widget resize via a 12-column drag handle is also implemented (see XS-LAYOUT-002).
 
 ---
 
@@ -137,7 +138,7 @@ No visual alignment snapping lines or guides during drag. The row-based model pr
 
 **Status: ✅ Implemented**
 
-Four widget types: `text`, `kpi`, `chart`, `grid`. Each shown with an icon, label, and description in `AddWidgetView`. Drag target works for canvas insertion. ≤2 interactions from gallery to placed widget.
+Seven widget types: `text`, `kpi`, `chart`, `grid`, `filter`, `pivot`, `map`. Each shown with an icon, label, and description in `AddWidgetView`. Drag target works for canvas insertion. ≤2 interactions from gallery to placed widget.
 
 ---
 
@@ -155,7 +156,7 @@ Full implementation in `StudioKpiWidget.tsx`:
 - **Auto-granularity:** When granularity is unset, the component auto-selects based on date range.
 - Participates in cross-filtering: `StudioFilterManager.applyFilters()` applies page/widget/cross-filters before aggregation.
 
-**Gap vs spec:** No delta/trend comparison (current period vs. prior period) — the spec mentions this as a stretch goal. Not in AG Studio public docs either.
+**Gap vs spec:** ~~No delta/trend comparison~~ Trend badge (W-13) and target line (W-14) are both implemented. No remaining gaps vs spec.
 
 ---
 
@@ -195,9 +196,11 @@ Full implementation in `StudioKpiWidget.tsx`:
 
 ### XS-GRID-002 — Grouping and aggregation
 
-**Status: ❌ Not implemented**
+**Status: ⚠️ Partially implemented**
 
-The free `DataGrid` does not support row grouping. No `rowGroupingModel`, `aggregationModel`, or similar is passed. The `StudioGridWidget.tsx` file has no grouping logic. This is a significant MVP gap since AG Studio's table widget prominently features grouping.
+`gridGroupByField` and `gridAggregations` config fields exist on widget state, and group-by controls have been added to `GridSetupPanel`. However, the underlying grid widget still uses the free `DataGrid` tier which does not support full DataGrid Pro row-group collapsing. Server-side group expansion is not implemented.
+
+**Gap:** No UI for end-users to expand/collapse row groups at runtime; Pro-tier row grouping not wired through.
 
 ---
 
@@ -266,9 +269,11 @@ AG Studio's reference docs do not describe multi-series or date-grouping with th
 
 ### XS-CHART-004 — Advanced chart families (histogram, treemap, gauge, heatmap)
 
-**Status: ❌ Not implemented (Parity+ scope)**
+**Status: ⚡ Substantially implemented and surpasses AG Studio**
 
-None of histogram, treemap, gauge, or heatmap are implemented. MUI X Charts does not yet ship all of these types. Correctly deferred.
+Heatmap (`StudioHeatmapWidget`), funnel (`StudioFunnelWidget`), Gantt (`StudioGanttWidget`), and gauge are all implemented — surpassing AG Studio's chart offering. Only histogram and treemap remain unimplemented.
+
+**Remaining gap:** Histogram and treemap chart types are absent. MUI X Charts does not yet ship these types; correctly deferred.
 
 ---
 
@@ -309,9 +314,9 @@ AG Studio's docs mention `expressionFields` as a config key but provide no detai
 
 ### XS-DATA-004 — Async data source loading
 
-**Status: ❌ Not implemented (Parity+ scope)**
+**Status: ✅ Implemented**
 
-All data sources are synchronous (`rows: Record<string, unknown>[]`). There is no `getData()` callback pattern, loading state, error state, or refresh lifecycle. No `AgDataEngine` equivalent. Correctly deferred to Parity+.
+`StudioDataSourceAdapter` provides a `getData()` callback pattern with loading state, error state, and refresh lifecycle (commit BL-45 / D-04). The adapter is used by the host to supply async data without blocking the UI.
 
 ---
 
@@ -562,9 +567,9 @@ Chart PNG export is implemented in `StudioChartWidget.tsx`. The chart SVG is ser
 
 ### XS-AI-001 — AI assistant
 
-**Status: ❌ Not implemented (Parity+ scope)**
+**Status: ⚡ Fully implemented and surpasses AG Studio**
 
-No AI panel, natural language chart creation, or field suggestion. AG Studio's `ai` prop and `AgStudioAiModule` have no counterpart. Correctly deferred.
+`StudioChatPanel` provides a full AI chat assistant with streaming responses, a tool suite for NL widget creation/configuration, and context-aware suggestions. NL-driven widget creation (`DescribeWidgetSection` in `AddWidgetView`) is also integrated into the compose flow (commits A-07, C-13).
 
 ---
 
@@ -573,30 +578,30 @@ No AI panel, natural language chart creation, or field suggestion. AG Studio's `
 | Requirement                       | Status | Key gap                                                 |
 | --------------------------------- | ------ | ------------------------------------------------------- |
 | XS-LAYOUT-001 Shell/drawers       | ✅     | Drawer open state not serialized (resets on reload)     |
-| XS-LAYOUT-002 Canvas layout       | ⚠️     | No widget resize handles                                |
+| XS-LAYOUT-002 Canvas layout       | ✅     | Resize via 12-col drag handle implemented               |
 | XS-LAYOUT-003 Layout presets      | ❌     | Not implemented                                         |
 | XS-LAYOUT-004 Keyboard canvas     | ⚠️     | No arrow-key move/resize                                |
-| XS-LAYOUT-005 Mobile/responsive   | ❌     | Not implemented                                         |
+| XS-LAYOUT-005 Mobile/responsive   | ⚠️     | View mode stacks; edit mode not responsive              |
 | XS-CANVAS-001 Add widgets         | ✅     | —                                                       |
-| XS-CANVAS-002 Move/resize         | ⚠️     | No resize; DnD reorder works                            |
+| XS-CANVAS-002 Move/resize         | ✅     | DnD reorder + 12-col resize both work                   |
 | XS-CANVAS-003 Focus model         | ✅     | —                                                       |
 | XS-CANVAS-004 Alignment guides    | ❌     | Not implemented                                         |
-| XS-WIDGET-001 Widget gallery      | ✅     | —                                                       |
-| XS-WIDGET-004 KPI widget          | ⚡     | Exceeds spec (sparkline, cross-source join, cumulative) |
+| XS-WIDGET-001 Widget gallery      | ✅     | 7 types (text, kpi, chart, grid, filter, pivot, map)    |
+| XS-WIDGET-004 KPI widget          | ⚡     | Exceeds spec (sparkline, trend, target, cross-source)   |
 | XS-WIDGET-002 Widget actions      | ✅     | —                                                       |
 | XS-WIDGET-003 Widget export       | ✅     | —                                                       |
 | XS-GRID-001 Grid virtualization   | ⚠️     | `autoHeight` disables row virtualization; free DataGrid |
-| XS-GRID-002 Grouping/aggregation  | ❌     | Not implemented                                         |
+| XS-GRID-002 Grouping/aggregation  | ⚠️     | Config fields exist; Pro-tier collapse not wired        |
 | XS-GRID-003 Table formatting      | ⚠️     | No date format per-column, no alignment control         |
 | XS-GRID-004 Pinned/pivot          | ❌     | Parity+ — deferred                                      |
 | XS-CHART-001 Core chart types     | ✅     | —                                                       |
 | XS-CHART-002 Additional types     | ⚡     | 10 types; date grouping; multi-series; split-by field   |
 | XS-CHART-003 Interactivity        | ✅     | —                                                       |
-| XS-CHART-004 Advanced families    | ❌     | Parity+ — deferred                                      |
+| XS-CHART-004 Advanced families    | ⚡     | Heatmap/funnel/Gantt/gauge done; histogram/treemap TBD  |
 | XS-DATA-001 Multiple sources      | ✅     | —                                                       |
 | XS-DATA-002 Relationships         | ✅     | —                                                       |
 | XS-DATA-003 Expression fields     | ⚡     | Full AST evaluator; GUI editor; measures                |
-| XS-DATA-004 Async sources         | ❌     | Parity+ — deferred                                      |
+| XS-DATA-004 Async sources         | ✅     | `StudioDataSourceAdapter` implemented                   |
 | XS-FILTER-001 Page/widget filters | ⚡     | Relative dates, MetricRef, rank mode, selection mode    |
 | XS-FILTER-002 Cross-filtering     | ✅     | —                                                       |
 | XS-FILTER-003 Filter visibility   | ✅     | —                                                       |
@@ -618,7 +623,7 @@ No AI panel, natural language chart creation, or field suggestion. AG Studio's `
 | XS-COLLAB-001 Collaboration       | ❌     | Parity+ — deferred                                      |
 | XS-EXPORT-001 CSV                 | ✅     | —                                                       |
 | XS-EXPORT-002 PNG                 | ✅     | Shipped ahead of Parity+ schedule                       |
-| XS-AI-001 AI assistant            | ❌     | Parity+ — deferred                                      |
+| XS-AI-001 AI assistant            | ⚡     | Full chat + streaming + NL widget creation              |
 
 ---
 
@@ -626,23 +631,23 @@ No AI panel, natural language chart creation, or field suggestion. AG Studio's `
 
 These items appear in the AG Studio reference docs but have no counterpart in the current implementation:
 
-| AG Studio feature                                             | AG Studio API                             | Status                                            |
-| ------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------- |
-| `panels` prop (configure which panels show and on which side) | `AgStudioPanelConfig`                     | Not implemented; drawers are hardcoded left/right |
-| `overrides` prop (restrict widget types, customise panel)     | `AgStudioOverrides`                       | Not implemented                                   |
-| `mode` prop on component                                      | `mode: 'edit' \| 'view'`                  | `setMode()` exists on controller; no prop         |
-| `initialState` prop                                           | `initialState`                            | Pattern is `new StudioController(state)` instead  |
-| `onStateUpdated` event                                        | callback prop                             | Use `controller.subscribe()` instead              |
-| `onApiReady` lifecycle                                        | callback prop                             | Not implemented                                   |
-| `onErrorRaised` lifecycle                                     | callback prop                             | Not implemented                                   |
-| Localisation / `localeText`                                   | `AgStudioLocale`                          | Not implemented                                   |
-| RTL support                                                   | `enableRtl`                               | Not implemented                                   |
-| AI panel                                                      | `ai`, `AgStudioAiModule`                  | Not implemented                                   |
-| Async data sources                                            | `getData` callback                        | Not implemented                                   |
-| Shared data engine                                            | `AgDataEngine`                            | Not implemented                                   |
-| AG Grid theme system                                          | `theme`, `studioTheme`, `withParams`      | Uses MUI theming instead                          |
-| Page dimensions                                               | `minWidth`, `maxWidth`, auto/fixed height | Not in layout model                               |
-| Multiple-page UI                                              | page tabs / navigation                    | Model supports pages; no tab bar rendered         |
+| AG Studio feature                                             | AG Studio API                             | Status                                                                 |
+| ------------------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------- |
+| `panels` prop (configure which panels show and on which side) | `AgStudioPanelConfig`                     | Not implemented; drawers are hardcoded left/right                      |
+| `overrides` prop (restrict widget types, customise panel)     | `AgStudioOverrides`                       | Not implemented                                                        |
+| `mode` prop on component                                      | `mode: 'edit' \| 'view'`                  | `setMode()` exists on controller; no prop                              |
+| `initialState` prop                                           | `initialState`                            | Pattern is `new StudioController(state)` instead                       |
+| `onStateUpdated` event                                        | callback prop                             | Use `controller.subscribe()` instead                                   |
+| `onApiReady` lifecycle                                        | callback prop                             | Not implemented                                                        |
+| `onErrorRaised` lifecycle                                     | callback prop                             | Not implemented                                                        |
+| Localisation / `localeText`                                   | `AgStudioLocale`                          | ✅ Implemented via `localeText` prop (A-12)                            |
+| RTL support                                                   | `enableRtl`                               | Not implemented                                                        |
+| AI panel                                                      | `ai`, `AgStudioAiModule`                  | ✅ Implemented — `StudioChatPanel` with streaming + NL widget creation |
+| Async data sources                                            | `getData` callback                        | ✅ Implemented — `StudioDataSourceAdapter` (D-04)                      |
+| Shared data engine                                            | `AgDataEngine`                            | ✅ Implemented — `StudioDataSourceAdapter` serves the same role        |
+| AG Grid theme system                                          | `theme`, `studioTheme`, `withParams`      | Uses MUI theming instead                                               |
+| Page dimensions                                               | `minWidth`, `maxWidth`, auto/fixed height | Not in layout model                                                    |
+| Multiple-page UI                                              | page tabs / navigation                    | ✅ Implemented — page tabs rendered, pages model fully supported       |
 
 ---
 
@@ -650,26 +655,51 @@ These items appear in the AG Studio reference docs but have no counterpart in th
 
 These are present in the MUI X Studio implementation but are absent from or not described in AG Studio's public documentation:
 
-| Feature                                  | Implementation location                                                           | Notes                                                                              |
-| ---------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| **100-step undo/redo**                   | `StudioController.ts` (`MAX_HISTORY = 100`) + `Cmd+Z`/`Ctrl+Y` keyboard shortcuts | AG Studio has no public undo API                                                   |
-| **Text/narrative widget**                | `StudioTextWidget.tsx`                                                            | AG Studio documents grid, KPI, chart only                                          |
-| **`StudioMetricRef`**                    | `models/studio.ts` + filter UI                                                    | Dynamic filter values from business metric aggregation; not in AG Studio           |
-| **Relative date filter values**          | `filterTypes.ts` (`RelativeDateValue`)                                            | `past`/`next` + unit (day/week/month/etc.)                                         |
-| **Rank filter mode**                     | `StudioFiltersDrawer/RankFilterInput.tsx`                                         | Top-N / bottom-N by measure; not in AG Studio                                      |
-| **Selection filter mode**                | `StudioFiltersDrawer`                                                             | Checkbox multi-value filter mode                                                   |
-| **Cross-source KPI sparkline**           | `StudioKpiWidget.tsx`, `kpiSparklineSourceId`                                     | Join time field from related source                                                |
-| **Auto-granularity sparkline**           | `StudioKpiWidget.tsx`                                                             | Auto-selects day/week/month based on date range                                    |
-| **Cumulative (running total) mode**      | `StudioKpiWidget.tsx`, `kpiSparklineCumulative`                                   | Not in AG Studio KPI docs                                                          |
-| **Full AST expression evaluator**        | `utils/expressionEvaluator.ts`                                                    | AG Studio mentions expressionFields as config but documents no expression language |
-| **Expression field authoring UI**        | `StudioDataDrawer.tsx`                                                            | GUI tree editor for expression fields; AG Studio has no documented authoring UI    |
-| **Field capability system**              | `utils/fieldCapabilities.ts`                                                      | Overridable per-field `numeric`/`categorical`/`temporal` capabilities              |
-| **`downloadState` / `uploadState`**      | `store/statePersistence.ts`                                                       | Built-in file I/O helpers; AG Studio exposes `getState`/`setState` only            |
-| **`schemaVersion` + migration pipeline** | `store/statePersistence.ts`                                                       | AG Studio public docs do not describe state versioning                             |
-| **Auto-inferred widget titles**          | `StudioComposeDrawer.tsx` (`inferWidgetTitles`)                                   | Titles auto-generated from field names; reset-to-auto button                       |
-| **Per-page theming**                     | `PageConfigPanel` + `StudioPageTheme` model                                       | Background, card, padding, radius, border all configurable per page                |
-| **10-type chart gallery**                | `StudioChartWidget.tsx`                                                           | bar-stacked, bar-100, area-stacked, area-100, scatter; date grouping; multi-series |
-| **Filters visible in both modes**        | `Studio.tsx`                                                                      | AG Studio defaults filters to view-mode only                                       |
+| Feature                                      | Implementation location                                                           | Notes                                                                              |
+| -------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **100-step undo/redo**                       | `StudioController.ts` (`MAX_HISTORY = 100`) + `Cmd+Z`/`Ctrl+Y` keyboard shortcuts | AG Studio has no public undo API                                                   |
+| **Text/narrative widget**                    | `StudioTextWidget.tsx`                                                            | AG Studio documents grid, KPI, chart only                                          |
+| **Pivot table widget**                       | `StudioPivotWidget.tsx`                                                           | AG Studio has no pivot table widget                                                |
+| **Heatmap, funnel, Gantt chart widgets**     | `StudioHeatmapWidget`, `StudioFunnelWidget`, `StudioGanttWidget`                  | Surpasses AG Studio chart gallery                                                  |
+| **Chart annotations / reference lines**      | Chart widget config (W-12)                                                        | Threshold and reference line overlays on charts                                    |
+| **Mixed bar + line chart**                   | `StudioChartWidget.tsx` (W-07)                                                    | Dual-axis or overlaid bar+line; not in AG Studio                                   |
+| **`StudioMetricRef`**                        | `models/studio.ts` + filter UI                                                    | Dynamic filter values from business metric aggregation; not in AG Studio           |
+| **Relative date filter values**              | `filterTypes.ts` (`RelativeDateValue`)                                            | `past`/`next` + unit (day/week/month/etc.)                                         |
+| **Rank filter mode**                         | `StudioFiltersDrawer/RankFilterInput.tsx`                                         | Top-N / bottom-N by measure; not in AG Studio                                      |
+| **Selection filter mode**                    | `StudioFiltersDrawer`                                                             | Checkbox multi-value filter mode                                                   |
+| **Filter dependency / cascading**            | F-06                                                                              | Cascading filter options driven by upstream selections                             |
+| **Quick filter bar**                         | F-04                                                                              | Inline filter bar widget for end-user self-service filtering                       |
+| **Global filter search**                     | F-05                                                                              | Cross-widget global search filter                                                  |
+| **Saved filter presets**                     | `filterPresets` in `StudioState` (C-09)                                           | Named saved filter configurations; not in AG Studio                                |
+| **Shareable filter links / URL encoding**    | DB-09                                                                             | Filter state encoded into URL for sharing; not in AG Studio                        |
+| **Dashboard date range filter bar**          | DB-04                                                                             | Dedicated date range bar applying to all widgets on a page                         |
+| **Drill-down / detail panel**                | DB-05                                                                             | Row/item click opens a detail panel; not in AG Studio                              |
+| **Data refresh simulation**                  | DB-07                                                                             | Simulated live data refresh via adapter; not in AG Studio                          |
+| **Data lineage graph**                       | D-07, BL-48                                                                       | Visual graph showing source-to-widget data flow; not in AG Studio                  |
+| **Visual expression builder**                | C-12                                                                              | Drag-and-drop expression builder UI; AG Studio has no documented equivalent        |
+| **Move widgets across pages**                | C-10                                                                              | Cut/paste a widget to a different dashboard page; not in AG Studio                 |
+| **Cross-source KPI sparkline**               | `StudioKpiWidget.tsx`, `kpiSparklineSourceId`                                     | Join time field from related source                                                |
+| **Auto-granularity sparkline**               | `StudioKpiWidget.tsx`                                                             | Auto-selects day/week/month based on date range                                    |
+| **Cumulative (running total) mode**          | `StudioKpiWidget.tsx`, `kpiSparklineCumulative`                                   | Not in AG Studio KPI docs                                                          |
+| **KPI trend badge + target line**            | W-13, W-14                                                                        | Period-over-period trend badge and configurable target reference line              |
+| **`crossFilterMode` per widget**             | W-04a                                                                             | Per-widget opt-out or mode override for cross-filtering                            |
+| **Full AST expression evaluator**            | `utils/expressionEvaluator.ts`                                                    | AG Studio mentions expressionFields as config but documents no expression language |
+| **Expression field authoring UI**            | `StudioDataDrawer.tsx`                                                            | GUI tree editor for expression fields; AG Studio has no documented authoring UI    |
+| **Field capability system**                  | `utils/fieldCapabilities.ts`                                                      | Overridable per-field `numeric`/`categorical`/`temporal` capabilities              |
+| **`downloadState` / `uploadState`**          | `store/statePersistence.ts`                                                       | Built-in file I/O helpers; AG Studio exposes `getState`/`setState` only            |
+| **`schemaVersion` + migration pipeline**     | `store/statePersistence.ts`                                                       | AG Studio public docs do not describe state versioning                             |
+| **Auto-inferred widget titles**              | `StudioComposeDrawer.tsx` (`inferWidgetTitles`)                                   | Titles auto-generated from field names; reset-to-auto button                       |
+| **Per-page theming**                         | `PageConfigPanel` + `StudioPageTheme` model                                       | Background, card, padding, radius, border all configurable per page                |
+| **10-type chart gallery**                    | `StudioChartWidget.tsx`                                                           | bar-stacked, bar-100, area-stacked, area-100, scatter; date grouping; multi-series |
+| **Filters visible in both modes**            | `Studio.tsx`                                                                      | AG Studio defaults filters to view-mode only                                       |
+| **Embeddable SDK `StudioDashboard`**         | A-05                                                                              | Consumer-facing read-only embed component; not in AG Studio                        |
+| **Slot props chain**                         | A-08                                                                              | Host can override inner component slots; AG Studio has no equivalent API           |
+| **Server middleware `@mui/x-studio-server`** | A-10                                                                              | Companion server package for data adapters; not in AG Studio                       |
+| **`sidebarLayout` / `sidebarSide` props**    | A-11                                                                              | Configurable sidebar position; AG Studio hardcodes panel positions                 |
+| **Localisation / `localeText` prop**         | A-12                                                                              | Full i18n string table; AG Studio's `localeText` is limited                        |
+| **Feature flags**                            | A-13                                                                              | Runtime feature toggles for gradual rollout; not in AG Studio                      |
+| **AI chat assistant with streaming**         | `StudioChatPanel` (A-07)                                                          | Full AI assistant; AG Studio's `AgStudioAiModule` is more limited                  |
+| **Multi-source table columns**               | `StudioGridWidget.tsx`                                                            | Grid columns from multiple joined sources in one table                             |
 
 ---
 
@@ -677,8 +707,8 @@ These are present in the MUI X Studio implementation but are absent from or not 
 
 Based on the MVP definition in section 9 of the requirements, these gaps should be addressed before the MVP can be considered complete:
 
-1. **XS-LAYOUT-002 / XS-CANVAS-002: Widget resize handles** — Row/tile layout with no resize is the most visible divergence from AG Studio.
-2. **XS-GRID-002: Grid grouping** — AG Studio's grid widget prominently features row grouping; the MVP spec calls it out.
+1. ~~**XS-LAYOUT-002 / XS-CANVAS-002: Widget resize handles**~~ ✅ Done — 12-column resize handle implemented.
+2. **XS-GRID-002: Grid grouping** — AG Studio's grid widget prominently features row grouping; config fields exist but Pro-tier collapse is not wired through.
 3. **XS-GRID-001: Virtualization** — `autoHeight` + pagination is adequate for demos but degrades at scale. Consider removing `autoHeight` and using a fixed-height grid with proper row virtualization.
 4. **XS-LAYOUT-001 (partial): Drawer state persistence** — Shell state should be included in serialization or stored separately in `localStorage`.
 5. **XS-A11Y-001 / XS-A11Y-002: ARIA live regions and keyboard delete** — Needed for WCAG 2.1 AA compliance stated in the requirements.

@@ -69,7 +69,12 @@ const INITIAL_STATE: StudioState = {
       kind: 'kpi',
       title: 'Total revenue',
       sourceId: 'src-orders',
-      config: { valueField: 'revenue', aggregation: 'sum', prefix: '$', trend: true },
+      config: {
+        valueField: 'revenue',
+        aggregation: 'sum',
+        prefix: '$',
+        trend: true,
+      },
     },
     'kpi-orders': {
       id: 'kpi-orders',
@@ -83,14 +88,24 @@ const INITIAL_STATE: StudioState = {
       kind: 'kpi',
       title: 'Avg order value',
       sourceId: 'src-orders',
-      config: { valueField: 'revenue', aggregation: 'avg', prefix: '$', decimals: 2 },
+      config: {
+        valueField: 'revenue',
+        aggregation: 'avg',
+        prefix: '$',
+        decimals: 2,
+      },
     },
     'chart-revenue': {
       id: 'chart-revenue',
       kind: 'chart',
       title: 'Revenue over time',
       sourceId: 'src-orders',
-      config: { chartType: 'line', xField: 'date', yField: 'revenue', aggregation: 'sum' },
+      config: {
+        chartType: 'line',
+        xField: 'date',
+        yField: 'revenue',
+        aggregation: 'sum',
+      },
     },
     'grid-orders': {
       id: 'grid-orders',
@@ -113,12 +128,54 @@ const INITIAL_STATE: StudioState = {
         { id: 'status', label: 'Status', type: 'string' },
       ],
       rows: [
-        { id: 'ord-1', date: '2025-01-05', customer: 'Acme Corp', region: 'North', revenue: 4200, status: 'completed' },
-        { id: 'ord-2', date: '2025-01-12', customer: 'Globex', region: 'South', revenue: 1850, status: 'completed' },
-        { id: 'ord-3', date: '2025-02-03', customer: 'Initech', region: 'East', revenue: 3100, status: 'pending' },
-        { id: 'ord-4', date: '2025-02-18', customer: 'Umbrella', region: 'West', revenue: 7600, status: 'completed' },
-        { id: 'ord-5', date: '2025-03-07', customer: 'Acme Corp', region: 'North', revenue: 5300, status: 'completed' },
-        { id: 'ord-6', date: '2025-03-22', customer: 'Hooli', region: 'South', revenue: 2900, status: 'cancelled' },
+        {
+          id: 'ord-1',
+          date: '2025-01-05',
+          customer: 'Acme Corp',
+          region: 'North',
+          revenue: 4200,
+          status: 'completed',
+        },
+        {
+          id: 'ord-2',
+          date: '2025-01-12',
+          customer: 'Globex',
+          region: 'South',
+          revenue: 1850,
+          status: 'completed',
+        },
+        {
+          id: 'ord-3',
+          date: '2025-02-03',
+          customer: 'Initech',
+          region: 'East',
+          revenue: 3100,
+          status: 'pending',
+        },
+        {
+          id: 'ord-4',
+          date: '2025-02-18',
+          customer: 'Umbrella',
+          region: 'West',
+          revenue: 7600,
+          status: 'completed',
+        },
+        {
+          id: 'ord-5',
+          date: '2025-03-07',
+          customer: 'Acme Corp',
+          region: 'North',
+          revenue: 5300,
+          status: 'completed',
+        },
+        {
+          id: 'ord-6',
+          date: '2025-03-22',
+          customer: 'Hooli',
+          region: 'South',
+          revenue: 2900,
+          status: 'cancelled',
+        },
       ],
     },
   },
@@ -196,14 +253,14 @@ export default function SalesDashboard() {
 
 ## What this demonstrates
 
-| Feature | Where |
-| :--- | :--- |
-| KPI widgets with trend lines | `kpi-revenue`, `kpi-orders`, `kpi-aov` |
-| 12-column span layout | `widgetColSpans` — three 4-col KPIs on row 1 |
-| Line chart aggregated over time | `chart-revenue` |
-| Data grid with export | `grid-orders` |
-| localStorage persistence | `loadState` / `saveState` |
-| AI chat panel | `StudioChatPanel` with FAB toggle |
+| Feature                         | Where                                        |
+| :------------------------------ | :------------------------------------------- |
+| KPI widgets with trend lines    | `kpi-revenue`, `kpi-orders`, `kpi-aov`       |
+| 12-column span layout           | `widgetColSpans` — three 4-col KPIs on row 1 |
+| Line chart aggregated over time | `chart-revenue`                              |
+| Data grid with export           | `grid-orders`                                |
+| localStorage persistence        | `loadState` / `saveState`                    |
+| AI chat panel                   | `StudioChatPanel` with FAB toggle            |
 
 ## Extending the demo
 

@@ -214,9 +214,11 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 ~~BL-77: Map value field should display any related value.~~
 **Fixed** (removed `getReachableSourceIds` restriction from `numericFields` in `MapSetupPanel`; value field picker now shows numeric fields from ALL visible sources — matching the country field picker's behaviour; cross-source joins are handled at render time by `useWidgetRows`)
 
-BL-78: Make the add calculated field UI consistent across widdgets. Use table as the benchmark.
+~~BL-78: Make the add calculated field UI consistent across widgets. Use table as the benchmark.~~
+**Fixed** (replaced `InlineFormulaBar` in `ChartSetupPanel` and `KpiSetupPanel` with a "Calculated field…" button that opens the full `StudioExpressionFieldDialog`; added `onSaved` callback to auto-select the new field after creation; consistent with the table's "Add column → Calculated column…" flow)
 
-BL-79: Add a feature flag and demo apps controls for "add caclulated fields" as a global control for all calculated fields, and per widget. If caclulated fileds are disabled globally, the demo app settings panels toggles for KPIs should be disabled. Group the feature settings toggles by KPI and give them a caption.
+~~BL-79: Add a feature flag and demo apps controls for "add caclulated fields" as a global control for all calculated fields, and per widget. If caclulated fileds are disabled globally, the demo app settings panels toggles for KPIs should be disabled. Group the feature settings toggles by KPI and give them a caption.~~
+**Fixed** (added `calculatedFields` (global master), `kpiCalculatedFields`, `chartCalculatedFields`, `gridCalculatedFields` to `StudioFeatureFlags`; each compose panel gates its "Calculated field…" button on `calculatedFields !== false && <widget>CalculatedFields !== false`; both settings dialogs expose all four toggles with `parentKey: 'calculatedFields'` so per-widget toggles disable when the global is off; `useStudioFeatures()` defaults all four to `true`)
 
 BL-80: Add close buttons to the tabs in the example apps that removes the page and its config from the model. Have a confirmation dialog. Undo should restore the page.
 
@@ -237,3 +239,5 @@ BL:87: The filter panel seems a bit pointless as it stands, make it feature comp
 
 ~~BL:88: Clicking a widget in the x-studio example should open the compose panel (it did in the past). It may have been removed for the x-studio-composed example that uses an edit button instead so that the edit dialog doesn't open when interacting with a widget in edit mode. Make sure that behaviour isn't affected by any fix.~~
 **Fixed** (added a `useEffect` in `StudioContent` (`Studio.tsx`) that watches `selectedWidgetId`; when a new widget is selected in edit mode with compose enabled, it calls `setDrawerOpen('compose', true)`; in tabbed layout it also closes the data and filters drawers so compose becomes the active visible tab; x-studio-composed is unaffected because it uses `StudioCanvas` directly and does not render `Studio.tsx`)
+
+BL-89: re-run the UI performance tests and compare with the previous run.

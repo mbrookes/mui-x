@@ -95,4 +95,3 @@ export function normalizeCrossFilterValue(value: string | number | Date | undefi
 
   return String(value);
 }
-

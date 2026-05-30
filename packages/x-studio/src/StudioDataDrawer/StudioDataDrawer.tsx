@@ -1,6 +1,17 @@
 'use client';
 import * as React from 'react';
-import { Alert, Box, Button, Dialog, DialogContent, DialogTitle, Divider, IconButton, Stack, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  IconButton,
+  Stack,
+  Typography,
+} from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import {
@@ -86,7 +97,15 @@ export function StudioDataDrawer() {
                 <CloseIcon fontSize="small" />
               </IconButton>
             </DialogTitle>
-            <DialogContent dividers sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto' }}>
+            <DialogContent
+              dividers
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'auto',
+              }}
+            >
               <DataLineageGraph sources={dataSources} relationships={relationships} />
             </DialogContent>
           </Dialog>

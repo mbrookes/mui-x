@@ -28,7 +28,7 @@ import type {
   StudioFilterOperator,
   StudioQueryDescriptor,
   StudioQueryResult,
-} from '../models/studio';
+} from '../models';
 
 /** Structured filter predicate sent to the server (mirrors FilterPredicate in @mui/x-studio-server) */
 interface FilterPredicate {
@@ -93,10 +93,7 @@ function createLoader<K, V>(
 }
 
 /** Registry of loaders — one per endpoint URL */
-const loaderRegistry = new Map<
-  string,
-  BatchLoader<StudioQueryDescriptor, StudioQueryResult>
->();
+const loaderRegistry = new Map<string, BatchLoader<StudioQueryDescriptor, StudioQueryResult>>();
 
 export interface BatchingAdapterOptions {
   /**
@@ -140,8 +137,7 @@ export function createBatchingAdapter(
               columns = d.select.map((fieldId) => {
                 if (aggFieldIds.has(fieldId)) {
                   const agg = d.aggregations!.find((a) => a.field === fieldId)!;
-                  const prefix =
-                    agg.fn === 'count_distinct' ? 'count_' : `${agg.fn}_`;
+                  const prefix = agg.fn === 'count_distinct' ? 'count_' : `${agg.fn}_`;
                   return `${prefix}${fieldId}`;
                 }
                 return fieldId;
@@ -155,9 +151,7 @@ export function createBatchingAdapter(
               table: d.sourceId,
               columns,
               filters: d.filter ? flattenFilterNode(d.filter) : undefined,
-              orderBy: d.groupBy
-                ? [{ column: d.groupBy, direction: 'asc' as const }]
-                : undefined,
+              orderBy: d.groupBy ? [{ column: d.groupBy, direction: 'asc' as const }] : undefined,
               limit: undefined,
             };
           }),
@@ -170,7 +164,9 @@ export function createBatchingAdapter(
         });
 
         if (!response.ok) {
-          const err = new Error(`Studio batch request failed: ${response.status} ${response.statusText}`);
+          const err = new Error(
+            `Studio batch request failed: ${response.status} ${response.statusText}`,
+          );
           return descriptors.map(() => err);
         }
 

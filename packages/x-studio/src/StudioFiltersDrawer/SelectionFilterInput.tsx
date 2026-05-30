@@ -1,6 +1,14 @@
 'use client';
 import * as React from 'react';
-import { Box, Checkbox, Divider, InputAdornment, Stack, TextField, Typography } from '@mui/material';
+import {
+  Box,
+  Checkbox,
+  Divider,
+  InputAdornment,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 
 export function SelectionFilterInput({
@@ -95,7 +103,10 @@ export function SelectionFilterInput({
                 onClick={(event) => event.stopPropagation()}
                 sx={{ p: 0.5 }}
               />
-              <Typography variant="body2" sx={{ ml: 0.5, color: 'text.secondary', fontStyle: 'italic' }}>
+              <Typography
+                variant="body2"
+                sx={{ ml: 0.5, color: 'text.secondary', fontStyle: 'italic' }}
+              >
                 All
               </Typography>
             </Box>

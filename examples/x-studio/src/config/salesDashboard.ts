@@ -136,6 +136,19 @@ export const INITIAL_STATE: Partial<StudioState> = {
       targetField: 'id',
       type: 'many-to-one',
     },
+    // M:N relationship so "ship date" cross-filters can apply to order-items widgets.
+    // ORDER_ITEMS ↔ SHIPMENTS via SHIPMENT_ITEMS junction
+    {
+      id: 'rel-orderitems-shipments-mn',
+      sourceId: ORDER_ITEMS_SOURCE_ID,
+      sourceField: 'id',
+      targetId: SHIPMENTS_SOURCE_ID,
+      targetField: 'id',
+      type: 'many-to-many',
+      junctionSourceId: SHIPMENT_ITEMS_SOURCE_ID,
+      junctionSourceField: 'orderItemId',
+      junctionTargetField: 'shipmentId',
+    },
   ],
   widgets: {
     // ── Page 1: Overview ────────────────────────────────────────────────────

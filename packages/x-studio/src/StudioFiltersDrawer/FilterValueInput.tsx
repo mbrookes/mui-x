@@ -3,6 +3,7 @@ import * as React from 'react';
 import {
   Autocomplete,
   Box,
+  Chip,
   FormControl,
   IconButton,
   InputLabel,
@@ -39,6 +40,14 @@ const RELATIVE_UNITS: { value: RelativeDateUnit; label: string }[] = [
   { value: 'week', label: 'weeks' },
   { value: 'month', label: 'months' },
   { value: 'year', label: 'years' },
+];
+
+const DATE_PRESETS: { label: string; value: RelativeDateValue }[] = [
+  { label: '7 days', value: { relative: true, amount: 7, unit: 'day', direction: 'past' } },
+  { label: '30 days', value: { relative: true, amount: 30, unit: 'day', direction: 'past' } },
+  { label: '3 months', value: { relative: true, amount: 3, unit: 'month', direction: 'past' } },
+  { label: '12 months', value: { relative: true, amount: 12, unit: 'month', direction: 'past' } },
+  { label: '1 year', value: { relative: true, amount: 1, unit: 'year', direction: 'past' } },
 ];
 
 const OPERATORS_WITH_AUTOCOMPLETE = new Set<StudioFilterOperator>(['equals', 'not_equals']);
@@ -193,6 +202,30 @@ function RelativeDateInput({
 
   return (
     <Stack spacing={0.75} sx={{ flexGrow: 1, minWidth: 0 }}>
+      {/* Quick preset chips */}
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+        {DATE_PRESETS.map((preset) => {
+          const isActive =
+            value.amount === preset.value.amount &&
+            value.unit === preset.value.unit &&
+            value.direction === preset.value.direction;
+          return (
+            <Chip
+              key={preset.label}
+              label={preset.label}
+              size="small"
+              color={isActive ? 'primary' : 'default'}
+              variant={isActive ? 'filled' : 'outlined'}
+              onClick={() => {
+                onChange(preset.value);
+                if (valueRef && onValueRefChange) {
+                  onValueRefChange(undefined);
+                }
+              }}
+            />
+          );
+        })}
+      </Box>
       {onValueRefChange ? (
         <Box sx={{ minWidth: 0 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>

@@ -8,11 +8,14 @@ import {
   StudioController,
   StudioProvider,
   createStudioController,
+  deserializeState,
+  migrateState,
   selectDashboard,
   selectDataSources,
   selectFilters,
   selectMode,
   selectPages,
+  serializeState,
   useStudioController,
   useStudioKeyboardShortcuts,
   useStudioSelector,
@@ -25,6 +28,7 @@ import type {
   StudioMode,
   StudioPage,
   StudioState,
+  SerializedStudioState,
 } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { OS_INITIAL_STATE } from './config/officeSuppliesDashboard';
@@ -38,7 +42,7 @@ import { AddWidgetFab } from './components/AddWidgetFab';
 import { ChatSidePanel } from './components/ChatSidePanel';
 import { EmptyPagePrompt } from './components/EmptyPagePrompt';
 import { SettingsDialog } from './components/SettingsDialog';
-import { uploadJson, downloadJson } from './utils/fileUtils';
+import { uploadJson, downloadJson } from 'x-studio-shared';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
@@ -161,24 +165,60 @@ function getUrlFilterValuesParam(): string | null {
   return new URL(window.location.href).searchParams.get('fv');
 }
 
+// ── LocalStorage persistence ──────────────────────────────────────────────────
+
+const LOCAL_STORAGE_KEY = 'x-studio-composed-state';
+
+function readLocalState(): SerializedStudioState | null {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const result = migrateState(JSON.parse(raw));
+    return result.success && result.state ? result.state : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearLocalState(): void {
+  try {
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 // ── Build initial state ───────────────────────────────────────────────────────
 
 function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
   const dataset = getUrlDatasetParam();
 
-  // AG Studio Data: use OS dashboard config + runtime data sources
-  if (dataset === 'ag-studio' && osData) {
-    const urlPageId = resolvePageIdFromQuery(getUrlPageParam(), OS_INITIAL_STATE.pages);
-    const base: Partial<StudioState> = {
-      ...OS_INITIAL_STATE,
-      dataSources: {
+  // Determine the base data sources from the dataset
+  const baseDataSources = dataset === 'ag-studio' && osData
+    ? {
         [osData.storesSource.id]: osData.storesSource,
         [osData.productsSource.id]: osData.productsSource,
         [osData.customersSource.id]: osData.customersSource,
         [osData.ordersSource.id]: osData.ordersSource,
         [osData.orderItemsSource.id]: osData.orderItemsSource,
         [osData.shipmentsSource.id]: osData.shipmentsSource,
-      },
+      }
+    : INITIAL_STATE.dataSources;
+
+  // Restore from localStorage if available, merging with the live data sources.
+  const saved = readLocalState();
+  if (saved) {
+    return deserializeState(saved, baseDataSources);
+  }
+
+  // AG Studio Data: use OS dashboard config + runtime data sources
+  if (dataset === 'ag-studio' && osData) {
+    const urlPageId = resolvePageIdFromQuery(getUrlPageParam(), OS_INITIAL_STATE.pages);
+    const base: Partial<StudioState> = {
+      ...OS_INITIAL_STATE,
+      dataSources: baseDataSources,
     };
     if (!urlPageId) {
       return base;
@@ -302,11 +342,27 @@ function DashboardLayout({
   // canUndo / canRedo are not part of the reactive store state; subscribe manually
   const [canUndo, setCanUndo] = React.useState(() => controller.canUndo());
   const [canRedo, setCanRedo] = React.useState(() => controller.canRedo());
+
+  const localSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(
     () =>
       controller.subscribe(() => {
         setCanUndo(controller.canUndo());
         setCanRedo(controller.canRedo());
+
+        // Persist config changes locally (debounced 1 s).
+        if (localSaveTimer.current) {
+          clearTimeout(localSaveTimer.current);
+        }
+        localSaveTimer.current = setTimeout(() => {
+          try {
+            const state = controller.getState();
+            const serialized = serializeState(state);
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(serialized));
+          } catch {
+            // Ignore storage quota errors
+          }
+        }, 1000);
       }),
     [controller],
   );
@@ -438,6 +494,12 @@ function DashboardLayout({
     navigator.clipboard.writeText(window.location.href).catch(() => {});
   }, []);
 
+  const handleReset = React.useCallback(() => {
+    clearLocalState();
+    onSnackbar('Local changes cleared — reloading demo…', 'info');
+    setTimeout(() => window.location.reload(), 800);
+  }, [onSnackbar]);
+
   const handleSave = React.useCallback(() => {
     const serialized = controller.serializeState();
     if (!serialized) {
@@ -513,6 +575,7 @@ function DashboardLayout({
         onPageReorder={mode === 'edit' ? handlePageReorder : undefined}
         hasEmptyPage={hasEmptyPage}
         onRefresh={handleRefresh}
+        onReset={handleReset}
         onCopyLink={handleCopyLink}
         onSettingsOpen={handleSettingsOpen}
       />

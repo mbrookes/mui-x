@@ -358,6 +358,8 @@ export default function App() {
     // Re-run after Studio remounts (studioKey changes when generated data arrives).
   }, [serverEndpoint, adapterMode, studioKey]);
 
+  const localSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleStateChange = React.useCallback((state: StudioState) => {
     // Use functional updates so React can skip if the value is unchanged,
     // and so the 6 calls are batched into a single App re-render (React 18+).
@@ -369,6 +371,19 @@ export default function App() {
     );
     setCanUndo(studioRef.current?.canUndo() ?? false);
     setCanRedo(studioRef.current?.canRedo() ?? false);
+
+    // Persist config changes locally (debounced 1 s).
+    if (localSaveTimer.current) {
+      clearTimeout(localSaveTimer.current);
+    }
+    localSaveTimer.current = setTimeout(() => {
+      try {
+        const serialized = serializeState(state);
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(serialized));
+      } catch {
+        // Ignore storage quota errors
+      }
+    }, 1000);
   }, []);
 
   const handleModeChange = React.useCallback(
@@ -445,6 +460,12 @@ export default function App() {
     setSnackbar((prev) => ({ ...prev, open: false }));
   };
 
+  const handleReset = React.useCallback(() => {
+    clearLocalState();
+    setSnackbar({ open: true, message: 'Local changes cleared — reloading demo…', severity: 'info' });
+    setTimeout(() => window.location.reload(), 800);
+  }, []);
+
   const handleOpenSettings = React.useCallback(() => {
     setSettingsOpen(true);
   }, []);
@@ -479,6 +500,7 @@ export default function App() {
             onModeChange={handleModeChange}
             onSave={handleSave}
             onLoad={handleLoad}
+            onReset={handleReset}
             onOpenSettings={handleOpenSettings}
             pages={pageList}
             activePageId={activePageId}

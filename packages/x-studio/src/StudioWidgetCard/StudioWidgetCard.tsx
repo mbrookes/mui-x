@@ -202,6 +202,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const [isDragging, setIsDragging] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
   const [editDialogOpen, setEditDialogOpen] = React.useState(false);
+  // Tracks the pointer position within the element at mousedown, used to position
+  // the drag ghost so the card appears grabbed from where the user clicked.
+  const dragOffsetRef = React.useRef({ x: 0, y: 0 });
 
   // Defer heavy widget content to after the first browser paint so the card
   // shells are visible immediately on initial load. Widgets that have already
@@ -245,12 +248,31 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         'application/json',
         JSON.stringify({ type: 'canvas-widget', widgetId }),
       );
-      if (node) {
-        event.dataTransfer?.setDragImage(node, 0, 0);
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
       }
+      if (node) {
+        // Use the recorded click offset so the ghost image appears grabbed from
+        // where the user clicked, not from the top-left corner of the card.
+        const { x, y } = dragOffsetRef.current;
+        event.dataTransfer?.setDragImage(node, x, y);
+        // Apply transparency AFTER the browser has snapshotted the ghost image so
+        // the ghost stays fully opaque while the in-place card becomes semi-transparent,
+        // letting users see insertion points around it.
+        requestAnimationFrame(() => {
+          node.style.opacity = '0.4';
+        });
+      }
+      // Force the grabbing cursor globally so it doesn't flicker to + or default
+      // as the pointer moves over insertion points or other non-draggable areas.
+      document.body.classList.add('x-studio-dragging-widget');
     }
     function handleDragEnd() {
       setIsDragging(false);
+      document.body.classList.remove('x-studio-dragging-widget');
+      if (node) {
+        node.style.opacity = '';
+      }
     }
     // Temporarily remove draggable when the pointer goes down inside a
     // [data-no-drag] element (e.g. a slider). This must happen in mousedown
@@ -266,6 +288,13 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         };
         document.addEventListener('mouseup', restoreDraggable, { capture: true });
       }
+      // Record click position relative to the element so handleDragStart can use
+      // it as the setDragImage offset (grab point = where the user clicked).
+      const rect = node!.getBoundingClientRect();
+      dragOffsetRef.current = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      };
     }
     node.setAttribute('draggable', 'true');
     node.addEventListener('mousedown', handleMouseDown, { capture: true });

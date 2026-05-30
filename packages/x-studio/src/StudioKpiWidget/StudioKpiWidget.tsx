@@ -114,18 +114,18 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   // isGrainAnchored is true when the value field is on a different (parent) source and the
   // re-anchoring actually changed the row grain. Used to skip the redundant time-field join
   // in the sparkline path when the time field is also on the anchor source rows natively.
-  const kpiValueField = config.kpiValueField;
+  const currentKpiValueField = config.kpiValueField;
   const { grainAnchoredRows, isGrainAnchored } = React.useMemo(() => {
-    const isMeasure = kpiValueField
-      ? expressionFields.some((ef) => ef.id === kpiValueField && ef.isMeasure)
+    const isMeasure = currentKpiValueField
+      ? expressionFields.some((ef) => ef.id === currentKpiValueField && ef.isMeasure)
       : false;
-    if (!kpiValueField || !widget.sourceId || isMeasure) {
+    if (!currentKpiValueField || !widget.sourceId || isMeasure) {
       return { grainAnchoredRows: currentRows, isGrainAnchored: false };
     }
     const support = analyzeChartSupport(
       widget.sourceId,
       undefined,
-      [kpiValueField],
+      [currentKpiValueField],
       undefined,
       undefined,
       dataSources,
@@ -144,7 +144,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         currentRows,
         widget.sourceId,
         undefined,
-        [kpiValueField],
+        [currentKpiValueField],
         undefined,
         dataSources,
         relationships,
@@ -152,7 +152,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       ),
       isGrainAnchored: true,
     };
-  }, [currentRows, kpiValueField, widget.sourceId, expressionFields, dataSources, relationships]);
+  }, [currentRows, currentKpiValueField, widget.sourceId, expressionFields, dataSources, relationships]);
 
   const resolvedTargetValue = React.useMemo(() => {
     if (!config.kpiTarget || !config.kpiTargetRef) {
@@ -169,6 +169,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     sparklineTimeField,
     trendResult,
     trendNeedsDateFilter,
+    kpiNumericValue,
   } = React.useMemo(() => {
     if (!dataSource?.rows || !config.kpiValueField) {
       return {
@@ -178,6 +179,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         sparklineTimeField: null,
         trendResult: null,
         trendNeedsDateFilter: false,
+        kpiNumericValue: 0,
       };
     }
 
@@ -202,8 +204,9 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       expressionFields.find((ef) => ef.id === config.kpiValueField);
     // avg of a boolean field is a 0–1 ratio; scale to 0–100 and display as percent
     const isBooleanAvg = fieldDef?.type === 'boolean' && aggregation === 'avg';
+    const semanticValue = isBooleanAvg ? value * 100 : value;
     const formatted = formatNumber(
-      isBooleanAvg ? value * 100 : value,
+      semanticValue,
       isBooleanAvg ? 'percent' : fieldDef?.format,
       fieldDef?.currencyCode,
       config.kpiCompact ?? true,
@@ -300,7 +303,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           };
         }
       } else {
-        const kpiValueField = config.kpiValueField;
+        const previousKpiValueField = config.kpiValueField;
         const dateFilter = findDateFilter(filters, widget.id, dataSource);
         if (dateFilter) {
           const currentRange = extractDateRange(dateFilter);
@@ -370,7 +373,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             );
             const previousValue = cachedCompute(
               prevRows,
-              `kpi-value:${kpiValueField}:${measureKey}`,
+              `kpi-value:${previousKpiValueField}:${measureKey}`,
               () => {
                 if (measureExprField) {
                   return evaluateMeasure(measureExprField, prevRows, expressionFields);
@@ -384,15 +387,15 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
                     prevRows,
                     widget.sourceId,
                     undefined,
-                    [kpiValueField],
+                    [previousKpiValueField],
                     undefined,
                     dataSources,
                     relationships,
                     expressionFields,
                   );
-                  return computeAggregate(prevGrainRows, kpiValueField, aggregation);
+                  return computeAggregate(prevGrainRows, previousKpiValueField, aggregation);
                 }
-                return computeAggregate(prevRows, kpiValueField, aggregation);
+                return computeAggregate(prevRows, previousKpiValueField, aggregation);
               },
             );
 
@@ -423,6 +426,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       sparklineTimeField: kpiSparklineTimeField,
       trendResult: kpiTrend,
       trendNeedsDateFilter: needsDateFilter,
+      kpiNumericValue: semanticValue,
     };
   }, [
     currentRows,
@@ -472,7 +476,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       .join(' · ');
   }, [filters, dataSources, expressionFields, dataSource, widget.id]);
 
-  const showSparkline = config.kpiSparkline ?? false;
+  const showSparkline = (config.kpiSparkline ?? false) && hasData;
 
   // Show an indicator when crossFilterMode is 'none' and there are active interactive
   // filters from other widgets that this KPI is intentionally ignoring.
@@ -526,6 +530,9 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             fieldCurrencyCode={fieldDef?.currencyCode}
             colors={chartColors}
             targetValue={resolvedTargetValue ?? undefined}
+            kpiValue={kpiNumericValue}
+            gaugeMin={config.kpiSparklineGaugeMin ?? 0}
+            gaugeMax={config.kpiSparklineGaugeMax ?? 100}
             {...slotProps?.sparkline}
           />
         )}

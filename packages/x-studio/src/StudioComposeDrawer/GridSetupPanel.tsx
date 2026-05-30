@@ -28,6 +28,7 @@ import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import FunctionsIcon from '@mui/icons-material/Functions';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import type {
   StudioConditionalFormat,
   StudioCrossFilterMode,
@@ -316,6 +317,9 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const [addMenuAnchor, setAddMenuAnchor] = React.useState<HTMLElement | null>(null);
   // Calculated column dialog
   const [calcDialogOpen, setCalcDialogOpen] = React.useState(false);
+  // Drag-and-drop column reorder state
+  const [dragIndex, setDragIndex] = React.useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = React.useState<number | null>(null);
 
   const crossFilterFieldEntries = React.useMemo<DataSourceFieldEntry[]>(() => {
     if (!source || !widget?.sourceId) {
@@ -393,6 +397,20 @@ export function GridSetupPanel(props: { widgetId: string }) {
     setMenuAnchor(null);
   };
 
+  const handleColumnDrop = (dropIndex: number) => {
+    if (dragIndex === null || dragIndex === dropIndex) {
+      setDragIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+    const next = [...configColumns];
+    const [moved] = next.splice(dragIndex, 1);
+    next.splice(dropIndex, 0, moved);
+    controller.updateWidgetConfig(widgetId, { columns: next });
+    setDragIndex(null);
+    setDragOverIndex(null);
+  };
+
   const sourcePickerValue = source ? { id: source.id, label: source.label } : null;
 
   return (
@@ -432,7 +450,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
           </Typography>
 
           {/* Selected columns list */}
-          {configColumns.map((col) => {
+          {configColumns.map((col, index) => {
             const colKey = col.sourceId ? `${col.sourceId}/${col.fieldId}` : col.fieldId;
             const fieldInfo = fieldLookup.get(colKey) ?? fieldLookup.get(col.fieldId);
             const isNumeric = fieldInfo?.type === 'number';
@@ -441,10 +459,16 @@ export function GridSetupPanel(props: { widgetId: string }) {
               ? groupAggregations[col.fieldId]
               : summaryFields[col.fieldId];
             const isGroupByField = col.fieldId === groupByField && !col.sourceId;
+            const isDraggingOver = dragOverIndex === index && dragIndex !== index;
 
             return (
               <Box
                 key={colKey}
+                draggable
+                onDragStart={() => setDragIndex(index)}
+                onDragOver={(e) => { e.preventDefault(); setDragOverIndex(index); }}
+                onDrop={() => handleColumnDrop(index)}
+                onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
                 sx={{
                   display: 'flex',
                   alignItems: 'center',
@@ -453,9 +477,15 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   py: 0.5,
                   borderRadius: 1,
                   border: 1,
-                  borderColor: 'divider',
+                  borderColor: isDraggingOver ? 'primary.main' : 'divider',
+                  opacity: dragIndex === index ? 0.4 : 1,
+                  cursor: 'grab',
                 }}
               >
+                <DragIndicatorIcon
+                  fontSize="small"
+                  sx={{ color: 'text.disabled', flexShrink: 0, cursor: 'grab' }}
+                />
                 <FieldTypeIcon
                   type={(fieldInfo?.type ?? 'string') as any}
                   generated={fieldInfo?.generated}

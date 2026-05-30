@@ -337,10 +337,21 @@ BL-108: Add examples of the new widgets in all three example apps configs for th
 
 BL109: Widget resize vertical grid lines still aren't correctly spaced. This was supposed to be fixed in BL-96. Use a browser to check if you can and need to see for yourself.
 
-BL-110: KPI cards are supposed to have a minsize of 2 when they don't have a sparkline enabled.
+~~BL-110: KPI cards are supposed to have a minsize of 2 when they don't have a sparkline enabled.~~
 
-BL-111: The pointer behavior seems worse than it was before BL-101. It's only showing the closed hand when dropping the dragged item, and no longer shows the + pointer when hovering an insertion point.
+**Done** — `KPI_NO_SPARKLINE_MIN_SPAN = 2` added to `StudioCanvas`. `getWidgetMinSpan(widget)` returns 2 for KPI without sparkline, `MIN_SPAN` (6) otherwise. `RowResizeHandle` and `WidgetGap` accept `leftMinSpan`/`rightMinSpan` props. `controller.setAdjacentWidgetColSpans()` updated to accept per-side min spans and clamps `clampedRight = totalSpan - clampedLeft` to preserve the pair total invariant.
 
-BL-112: Insertion points immediately to the left and right of the widget being dragged should be disabled.
+~~BL-111: The pointer behavior seems worse than it was before BL-101. It's only showing the closed hand when dropping the dragged item, and no longer shows the + pointer when hovering an insertion point.~~
+
+**Done** — `effectAllowed = 'all'` on widget `dragstart`; `dropEffect = 'copy'` in `InsertionPoint` and `WidgetGap` `dragover`. Browser now shows `+` cursor when hovering over insertion points and between-widget gaps.
+
+~~BL-112: Insertion points immediately to the left and right of the widget being dragged should be disabled.~~
+
+**Done** — `StudioWidgetCard.handleDragStart` sets `document.body.dataset.studioDraggingWidgetId`; `handleDragEnd` clears it. Module-level `isAdjacentToDraggingWidget()` helper checks the attribute against `widgetRowsRef` to detect flanking positions. Both `InsertionPoint` (vertical only) and `WidgetGap` skip `preventDefault`/`setIsOver` when adjacent to the drag source.
 
 BL-113: The demo app config dialogs need to be updated to reflect the nested feature flags -  turning off a parent feature should disable the child flags switches (preserving but ignoring thier current state).
+
+BL-114: BL-102 isn't completely fixed: Non-editible fields in the data dialog can still be clicked (with ripple) and selected (grey highlight). Disable this.
+
+BL-115: Map tooltip should show the country/state etc name.
+

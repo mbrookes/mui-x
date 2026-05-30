@@ -17,10 +17,7 @@ import { NUMERIC_TO_ALPHA2, FIPS_TO_STATE_ABBR, EUROPEAN_ALPHA2_CODES } from './
 export type GeographyLoader = () => Promise<ExtendedFeatureCollection>;
 
 /** Converts a topojson Topology + object name to a GeoJSON FeatureCollection. */
-async function loadTopoFeatures(
-  topo: any,
-  objectName: string,
-): Promise<ExtendedFeatureCollection> {
+async function loadTopoFeatures(topo: any, objectName: string): Promise<ExtendedFeatureCollection> {
   const { feature } = await import('topojson-client');
   // JSON modules resolve to { default: data } in ESM bundlers
   const topology = topo?.default ?? topo;
@@ -84,7 +81,9 @@ export async function loadEuropeGeography(): Promise<ExtendedFeatureCollection> 
   const world = await loadWorldGeography();
   return {
     ...world,
-    features: world.features.filter((f: ExtendedFeature) => EUROPEAN_ALPHA2_CODES.has(String(f.id ?? ''))),
+    features: world.features.filter((f: ExtendedFeature) =>
+      EUROPEAN_ALPHA2_CODES.has(String(f.id ?? '')),
+    ),
   };
 }
 

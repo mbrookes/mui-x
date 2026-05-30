@@ -6,6 +6,7 @@ export {
 } from './src/FeatureFlagSettings.js';
 export type { FeatureFlagSettingsProps } from './src/FeatureFlagSettings.js';
 export { agStudioSeededFactory } from './src/prng.js';
+export { downloadJson, uploadJson } from './src/fileUtils.js';
 export type {
   RawOfficeSuppliesData,
   StoreRow,

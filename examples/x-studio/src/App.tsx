@@ -10,7 +10,7 @@ import {
 } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { Studio, createBatchingAdapter } from '@mui/x-studio';
+import { Studio, createBatchingAdapter, deserializeState, migrateState, serializeState } from '@mui/x-studio';
 import type {
   StudioHandle,
   StudioMode,
@@ -18,6 +18,7 @@ import type {
   StudioState,
   StudioAIConfig,
   StudioFeatureFlags,
+  SerializedStudioState,
 } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { OS_INITIAL_STATE } from './config/officeSuppliesDashboard';
@@ -26,7 +27,7 @@ import type { OfficeSuppliesData } from './officeSuppliesData';
 import { AppToolbar } from './components/AppToolbar';
 import { SettingsDialog } from './components/SettingsDialog';
 import type { SidebarLayout, SidebarSide, TableSourceMode } from './components/SettingsDialog';
-import { downloadJson, uploadJson } from './utils/fileUtils';
+import { downloadJson, uploadJson } from 'x-studio-shared';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
@@ -147,6 +148,31 @@ function setUrlPageId(pageId: string, pages: Record<string, StudioPage> | undefi
   window.history.replaceState(window.history.state, '', url);
 }
 
+// ── LocalStorage persistence ──────────────────────────────────────────────────
+
+const LOCAL_STORAGE_KEY = 'x-studio-state';
+
+function readLocalState(): SerializedStudioState | null {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const result = migrateState(JSON.parse(raw));
+    return result.success && result.state ? result.state : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearLocalState(): void {
+  try {
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);
 
@@ -179,19 +205,25 @@ export default function App() {
   // Phase 1: render the shell immediately with the static demo data so FCP
   // is not blocked by data generation.
   const baseInitialState = React.useMemo<Partial<StudioState>>(() => {
-    const baseState = dataset === 'ag-studio' && osData
+    const baseDataSources = (dataset === 'ag-studio' && osData
       ? {
-          ...OS_INITIAL_STATE,
-          dataSources: {
-            [osData.storesSource.id]: osData.storesSource,
-            [osData.productsSource.id]: osData.productsSource,
-            [osData.customersSource.id]: osData.customersSource,
-            [osData.ordersSource.id]: osData.ordersSource,
-            [osData.orderItemsSource.id]: osData.orderItemsSource,
-            [osData.shipmentsSource.id]: osData.shipmentsSource,
-          },
+          [osData.storesSource.id]: osData.storesSource,
+          [osData.productsSource.id]: osData.productsSource,
+          [osData.customersSource.id]: osData.customersSource,
+          [osData.ordersSource.id]: osData.ordersSource,
+          [osData.orderItemsSource.id]: osData.orderItemsSource,
+          [osData.shipmentsSource.id]: osData.shipmentsSource,
         }
-      : INITIAL_STATE;
+      : INITIAL_STATE.dataSources) ?? {};
+    const baseConfig = dataset === 'ag-studio' && osData ? OS_INITIAL_STATE : INITIAL_STATE;
+
+    // Restore from localStorage if available, merging with the live data sources.
+    const saved = readLocalState();
+    if (saved) {
+      return deserializeState(saved, baseDataSources);
+    }
+
+    const baseState = { ...baseConfig, dataSources: baseDataSources };
 
     if (!urlPageId) {
       return baseState;
@@ -590,7 +622,6 @@ export default function App() {
             stackBreakpoint,
             rowCount: getUrlRowsParam(),
             adapterEnabled: adapterMode,
-            dataSource: dataset,
           }}
           onSidebarLayoutChange={setSidebarLayout}
           onSidebarSideChange={setSidebarSide}

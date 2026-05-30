@@ -267,6 +267,16 @@ export interface StudioWidgetConfig {
    * @default 'blues'
    */
   mapColorScheme?: 'blues' | 'reds' | 'greens' | 'oranges' | 'purples';
+  /**
+   * Position of the continuous-colour legend on the map widget.
+   * - `'bottom'` (default) — gradient bar below the map
+   * - `'top'` — gradient bar above the map
+   * - `'left'` — vertical gradient bar to the left
+   * - `'right'` — vertical gradient bar to the right
+   * - `'hidden'` — legend not rendered
+   * @default 'bottom'
+   */
+  mapLegendPosition?: 'bottom' | 'top' | 'left' | 'right' | 'hidden';
   // Shared
   measures?: string[];
   dimensions?: string[];

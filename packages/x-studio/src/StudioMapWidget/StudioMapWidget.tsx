@@ -78,6 +78,7 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
   const aggFn: AggFn = (config.mapAggregation as AggFn) ?? 'sum';
   const colorScheme = config.mapColorScheme ?? 'blues';
   const mapGeography = config.mapGeography ?? 'world';
+  const legendPosition = config.mapLegendPosition ?? 'bottom';
 
   // Merge built-in loaders with consumer-provided overrides
   const allGeographies: Record<string, GeographyLoader> = React.useMemo(
@@ -186,6 +187,27 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
 
   const [colorStart, colorEnd] = COLOR_RAMPS[colorScheme] ?? COLOR_RAMPS.blues;
 
+  const hideLegend = legendPosition === 'hidden';
+  const legendSlotProps =
+    legendPosition === 'left' || legendPosition === 'right'
+      ? {
+          legend: {
+            position: {
+              vertical: 'middle' as const,
+              horizontal: (legendPosition === 'left' ? 'start' : 'end') as 'start' | 'end',
+            },
+            direction: 'vertical' as const,
+          },
+        }
+      : {
+          legend: {
+            position: {
+              vertical: legendPosition as 'top' | 'bottom',
+              horizontal: 'center' as const,
+            },
+          },
+        };
+
   let projectionType: 'geoAlbersUsa' | 'geoMercator' | 'geoNaturalEarth1';
   if (mapGeography === 'usa') {
     projectionType = 'geoAlbersUsa';
@@ -221,6 +243,8 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
             },
           },
         ]}
+        hideLegend={hideLegend}
+        slotProps={hideLegend ? undefined : legendSlotProps}
         loading={isLoading || !geography}
         margin={{ top: 8, bottom: 32, left: 8, right: 8 }}
         sx={{ width: '100%', height: '100%' }}

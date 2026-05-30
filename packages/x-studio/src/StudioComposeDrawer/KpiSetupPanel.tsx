@@ -31,6 +31,7 @@ import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioKpiAggregation, StudioWidgetConfig, StudioCrossFilterMode } from '../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
+import { SetupSection } from './SetupSection';
 import { MetricRefInput } from '../StudioFiltersDrawer/MetricRefInput';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 import FunctionsIcon from '@mui/icons-material/Functions';
@@ -544,16 +545,12 @@ export function KpiSetupPanel(props: { widgetId: string }) {
       )}
 
       {/* Interactions — cross-filter mode. KPIs are summary metrics with no visual row
-          representation, so "cross-highlight" (dim non-matching rows) does not apply.
-          Only "Filter" (re-aggregate over the selection) and "None" (grand total) make sense. */}
-      <div>
-        <Divider sx={{ mb: 1.5 }} />
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-          Interactions
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          When other widgets are clicked, this KPI…
-        </Typography>
+        representation, so "cross-highlight" (dim non-matching rows) does not apply.
+        Only "Filter" (re-aggregate over the selection) and "None" (grand total) make sense. */}
+      <SetupSection
+        title="Interactions"
+        description="When other widgets are clicked, this KPI…"
+      >
         <ToggleButtonGroup
           value={
             ((config.crossFilterMode === 'cross-highlight'
@@ -576,7 +573,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             None
           </ToggleButton>
         </ToggleButtonGroup>
-      </div>
+        </SetupSection>
     </Stack>
 
     {/* Calculated field dialog */}

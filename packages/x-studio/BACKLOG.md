@@ -202,4 +202,35 @@ BL-72: Map widget country field picker doesn't include country fields from relat
 BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget features, with full UI in demo settings dialogs.
 ~~**Done**~~ (14 new flags added: `allowGrid/Chart/Kpi/Text/Filter/Pivot/Map`, `kpiSparkline/Trend/Target`, `chartAnnotations`, `gridGroupBy/Summary/ConditionalFormats`, `drilldown`; wired into `KpiSetupPanel`, `ChartSetupPanel`, `GridSetupPanel`; both demo apps — `x-studio` and `x-studio-composed` — now have Settings dialogs with "Widget types" and "Features" sections exposing all flags as live switches)
 
-BL-74: 
+~~BL-74: For the map widget, if no value field is selected, the aggregation dropdown should be disabled (with count selected).~~
+**Fixed** (aggregation `Select` is now `disabled` and forced to `'count'` when no value field is configured; becomes enabled as soon as a value field is picked)
+
+~~BL-75: Change "Compose / edit mode" in the demo apps settings to "Compose panel" that follows enabling/disabling of other panels. Don't affect the edit mode toggle which is a separate feature.~~
+**Fixed** (label changed to `'Compose panel'` in both `x-studio` and `x-studio-composed` `SettingsDialog.tsx`)
+
+BL-76: When a feature is disabled in the demo app controls, widget sub feature controls should also be disabled (eg KPI disable: spakine, trend, target line toggles disabled).
+
+BL-77: Map value field should display any related value.
+
+BL-78: Make the add calculated field UI consistent across widdgets. Use table as the benchmark.
+
+BL-79: Add a feature flag and demo apps controls for "add caclulated fields" as a global control for all calculated fields, and per widget. If caclulated fileds are disabled globally, the demo app settings panels toggles for KPIs should be disabled. Group the feature settings toggles by KPI and give them a caption.
+
+BL-80: Add close buttons to the tabs in the example apps that removes the page and its config from the model. Have a confirmation dialog. Undo should restore the page.
+
+BL-81: Add a querystring for the responsive breakpoint setting in the two demo apps, and make sure settings are working. DRY the settings panel between the two demo apps.
+
+BL-82: Is there anything we can resue from x-data-grid-pro's server-side data handling for x-studio (without creating a hard dependancy on the data-grid component? (dependancy on the package is fine)
+
+BL-83: Add support for drag-and drop reordering of columns in the table config widget. Consider whether reordering in the table itself should persist in edit mode (reflected in the UI field ordering).
+
+BL-84: Add drag-and-drop tab ordering to the x-studio-composed example. Consider whether it should update the studio config so that the ordering can be persisted. Ideally the active/dragged/dropped tab/page shouldn't rerender, and definitely shouldn't reload, recalculate/sort/filter etc the data.
+
+~~BL-85: Make the edit/delete buttons for data fields in the data panel right aligned. Edit/delete buttons for relationships overlap the relationship name (Shipment Items → Shipments).~~
+**Fixed** (added `flexGrow: 1; minWidth: 0` to `ExpressionFieldRow` primary-content Stack so edit/delete buttons are always right-aligned; added `flexShrink: 0` to relationship edit/delete `IconButton`s so they no longer overlap long relationship names)
+
+BL-86: Add a feature flag and example app setting for relationships, and for the filter panel.
+
+BL:87: The filter panel seems a bit pointless as it stands, make it feature complete without bloating it with pointless features (releaserch what's typical), and allow it to be configured on the filters panel. It's also seems buggy - Quarterly revenue by category for shipments ship date last 12 months shows data for all time. If it's the data itself that is inconsistent, for exmaple ship dates before order dates, fix that.
+
+BL:88: Clicking a widget in the x-studio example should open the compose panel (it did in the past). It may have been removed for the x-studio-composed example that uses an edit button instead so that the edit dialog doesn't open when interacting with a widget in edit mode. Make sure that behaviour isn't affected by any fix.

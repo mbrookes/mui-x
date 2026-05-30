@@ -69,6 +69,8 @@ export interface StudioHandle {
   setMode(mode: StudioMode): void;
   /** Set the active page by id. */
   setActivePage(pageId: string): void;
+  /** Remove a page and its widgets from the dashboard. Supports undo. */
+  removePage(pageId: string): void;
   /** Return a snapshot of the current studio state. */
   getState(): StudioState;
   /** Serialise the current state to a plain JSON-safe object. */
@@ -511,6 +513,7 @@ export const Studio = React.memo(
         canRedo: () => controller.canRedo(),
         setMode: (mode) => controller.setMode(mode),
         setActivePage: (pageId) => controller.setActivePage(pageId),
+        removePage: (pageId) => controller.removePage(pageId),
         getState: () => controller.getState(),
         serializeState: () => controller.serializeState(),
         loadSerializedState: (data) => controller.loadSerializedState(data),

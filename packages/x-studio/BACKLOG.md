@@ -220,7 +220,8 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 ~~BL-79: Add a feature flag and demo apps controls for "add caclulated fields" as a global control for all calculated fields, and per widget. If caclulated fileds are disabled globally, the demo app settings panels toggles for KPIs should be disabled. Group the feature settings toggles by KPI and give them a caption.~~
 **Fixed** (added `calculatedFields` (global master), `kpiCalculatedFields`, `chartCalculatedFields`, `gridCalculatedFields` to `StudioFeatureFlags`; each compose panel gates its "Calculated field…" button on `calculatedFields !== false && <widget>CalculatedFields !== false`; both settings dialogs expose all four toggles with `parentKey: 'calculatedFields'` so per-widget toggles disable when the global is off; `useStudioFeatures()` defaults all four to `true`)
 
-BL-80: Add close buttons to the tabs in the example apps that removes the page and its config from the model. Have a confirmation dialog. Undo should restore the page.
+~~BL-80: Add close buttons to the tabs in the example apps that removes the page and its config from the model. Have a confirmation dialog. Undo should restore the page.~~
+**Fixed** (added `removePage(pageId)` to `StudioHandle`; added `onPageClose` prop to both `AppToolbar` components; in edit mode with 2+ pages each tab gets an × button; clicking it opens a confirmation dialog with Cancel/Remove; Remove calls `controller.removePage()` which commits to undo history so ⌘Z restores the page)
 
 BL-81: Add a querystring for the responsive breakpoint setting in the two demo apps, and make sure settings are working. DRY the settings panel between the two demo apps.
 
@@ -243,4 +244,6 @@ BL:87: The filter panel seems a bit pointless as it stands, make it feature comp
 
 BL-89: re-run the UI performance tests and compare with the previous run.
 
-BL-90: Make backlog changes persist locally in the browser, so that page reloads when the state isn't saved by the containing server don't loose changes. Move the upload download helpers out of the 
+BL-90: Make backlog changes persist locally in the browser, so that if the page reloads when the state isn't saved by the containing server, the user doesn't loose changes. 
+
+BL-91: Move the upload download helpers out of the studio package, and into the containing example apps.

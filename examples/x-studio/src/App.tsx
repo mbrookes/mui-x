@@ -301,6 +301,9 @@ export default function App() {
   const handleRedo = React.useCallback(() => {
     studioRef.current?.redo();
   }, []);
+  const handlePageClose = React.useCallback((pageId: string) => {
+    studioRef.current?.removePage(pageId);
+  }, []);
 
   const handleSave = React.useCallback(() => {
     const serialized = studioRef.current?.serializeState();
@@ -394,6 +397,7 @@ export default function App() {
             pages={pageList}
             activePageId={activePageId}
             onPageChange={handlePageChange}
+            onPageClose={handlePageClose}
             canUndo={canUndo}
             canRedo={canRedo}
             onUndo={handleUndo}

@@ -1,0 +1,14 @@
+<ScatterChart
+  dataset={dataset}
+  series={[
+    {
+      label: 'Net Revenue by Brand',
+      datasetKeys: { x: 'avgQty', y: 'avgDiscount', id: 'brand', size: 'netRevenue' },
+      minBubbleRadius: 6,
+      maxBubbleRadius: 48,
+    },
+  ]}
+  xAxis={[{ label: 'Avg Quantity per Order' }]}
+  yAxis={[{ label: 'Avg Discount Rate', min: 0, max: 0.3 }]}
+  height={400}
+/>

@@ -9,13 +9,13 @@ const series = [
       { featureId: 'CA', value: 65 },
       { featureId: 'MX', value: 48 },
       { featureId: 'BR', value: 71 },
-      // AR has no data — it will be rendered as transparent
+      // AR has no data — it will be rendered with the defaultFeatureColor (grey)
     ],
     label: 'Score',
   },
 ];
 
-export default function ChoroplethWithMissingData() {
+export default function ChoroplethMissingData() {
   return (
     <Box sx={{ width: '100%' }}>
       <ChoroplethChart

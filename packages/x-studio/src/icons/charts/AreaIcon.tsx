@@ -1,12 +1,13 @@
 import * as React from 'react';
 import { ChartSvg, type BasicIconProps } from '../utils';
 
+const YS = [22, 12, 18, 8, 14];
+const XS = [4, 10, 17, 24, 29];
+
 export function AreaIcon({ size, color = 'currentColor' }: BasicIconProps) {
-  const ys = [22, 12, 18, 8, 14];
-  const xs = [4, 10, 17, 24, 29];
   const bottom = 28;
-  const line = xs.map((x, i) => `${x},${ys[i]}`).join(' ');
-  const area = `${xs[0]},${bottom} ${line} ${xs[xs.length - 1]},${bottom}`;
+  const line = XS.map((x, i) => `${x},${YS[i]}`).join(' ');
+  const area = `${XS[0]},${bottom} ${line} ${XS[XS.length - 1]},${bottom}`;
   return (
     <ChartSvg size={size}>
       <polygon points={area} fill={color} opacity={0.3} />

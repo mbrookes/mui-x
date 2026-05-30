@@ -50,6 +50,9 @@ function generateAnnotationId() {
   return `ann-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+const sortBySourceLabel = (a: { sourceLabel: string }, b: { sourceLabel: string }) =>
+  a.sourceLabel.localeCompare(b.sourceLabel);
+
 // react-doctor-disable-next-line react-doctor/no-giant-component
 export function ChartSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
@@ -110,9 +113,6 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     const reachableIds = getReachableSourceIds(supportSourceId, relationships);
     return allFields.filter((f) => reachableIds.has(f.sourceId));
   }, [allFields, relationships, supportSourceId]);
-
-  const sortBySourceLabel = (a: { sourceLabel: string }, b: { sourceLabel: string }) =>
-    a.sourceLabel.localeCompare(b.sourceLabel);
 
   const numericFields = React.useMemo(
     () => fieldsForCapability(reachableFields, 'numeric').sort(sortBySourceLabel),

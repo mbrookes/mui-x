@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { ChartSvg, type IconProps } from '../utils';
 
+const RATIOS = [0.8, 0.6, 0.9, 0.4, 0.7];
+
 export function RadarIcon({
   size,
   color = 'currentColor',
@@ -16,10 +18,9 @@ export function RadarIcon({
       number,
     ];
   });
-  const ratios = [0.8, 0.6, 0.9, 0.4, 0.7];
   const dataPts = outerPts.map(
     ([x, y], i) =>
-      [+(cx + (x - cx) * ratios[i]).toFixed(1), +(cy + (y - cy) * ratios[i]).toFixed(1)] as [
+      [+(cx + (x - cx) * RATIOS[i]).toFixed(1), +(cy + (y - cy) * RATIOS[i]).toFixed(1)] as [
         number,
         number,
       ],

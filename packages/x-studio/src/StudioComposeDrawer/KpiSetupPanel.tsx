@@ -221,17 +221,6 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
 
   const plotType = config.kpiSparklinePlotType ?? 'line';
 
-  const GRANULARITIES: {
-    value: NonNullable<StudioWidgetConfig['kpiSparklineGranularity']>;
-    label: string;
-  }[] = [
-    { value: 'day', label: 'Day' },
-    { value: 'week', label: 'Week' },
-    { value: 'month', label: 'Month' },
-    { value: 'quarter', label: 'Quarter' },
-    { value: 'year', label: 'Year' },
-  ];
-
   return (
     <React.Fragment>
       {autoDateFilter ? (
@@ -322,6 +311,39 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
   );
 }
 
+const GRANULARITIES: {
+  value: NonNullable<StudioWidgetConfig['kpiSparklineGranularity']>;
+  label: string;
+}[] = [
+  { value: 'day', label: 'Day' },
+  { value: 'week', label: 'Week' },
+  { value: 'month', label: 'Month' },
+  { value: 'quarter', label: 'Quarter' },
+  { value: 'year', label: 'Year' },
+];
+
+const AGGREGATIONS: Record<string, { value: StudioKpiAggregation; label: string }[]> = {
+  number: [
+    { value: 'sum', label: 'Sum' },
+    { value: 'avg', label: 'Average' },
+    { value: 'count', label: 'Count' },
+    { value: 'min', label: 'Min' },
+    { value: 'max', label: 'Max' },
+  ],
+  string: [{ value: 'count', label: 'Count' }],
+  boolean: [{ value: 'count', label: 'Count' }],
+  date: [
+    { value: 'count', label: 'Count' },
+    { value: 'min', label: 'Earliest' },
+    { value: 'max', label: 'Latest' },
+  ],
+  datetime: [
+    { value: 'count', label: 'Count' },
+    { value: 'min', label: 'Earliest' },
+    { value: 'max', label: 'Latest' },
+  ],
+};
+
 export function KpiSetupPanel(props: { widgetId: string }) {
   const widget = useStudioSelector(selectWidgets)[props.widgetId];
   const controller = useStudioController();
@@ -379,28 +401,6 @@ export function KpiSetupPanel(props: { widgetId: string }) {
     allFields.find((f) => f.id === config.kpiValueField);
   const selectedFieldType = selectedField?.type ?? null;
 
-  // Aggregation options by type
-  const AGGREGATIONS: Record<string, { value: StudioKpiAggregation; label: string }[]> = {
-    number: [
-      { value: 'sum', label: 'Sum' },
-      { value: 'avg', label: 'Average' },
-      { value: 'count', label: 'Count' },
-      { value: 'min', label: 'Min' },
-      { value: 'max', label: 'Max' },
-    ],
-    string: [{ value: 'count', label: 'Count' }],
-    boolean: [{ value: 'count', label: 'Count' }],
-    date: [
-      { value: 'count', label: 'Count' },
-      { value: 'min', label: 'Earliest' },
-      { value: 'max', label: 'Latest' },
-    ],
-    datetime: [
-      { value: 'count', label: 'Count' },
-      { value: 'min', label: 'Earliest' },
-      { value: 'max', label: 'Latest' },
-    ],
-  };
   const aggregationOptions = selectedFieldType
     ? AGGREGATIONS[selectedFieldType] || [{ value: 'count', label: 'Count' }]
     : AGGREGATIONS.number;

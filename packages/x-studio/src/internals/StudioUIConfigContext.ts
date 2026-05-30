@@ -184,6 +184,8 @@ export function useStudioFeatures(): Required<StudioFeatureFlags> {
     filters: featureFlags.filters ?? true,
     savedFilterViews: featureFlags.savedFilterViews ?? true,
     dataManagement: featureFlags.dataManagement ?? true,
+    relationships: featureFlags.relationships ?? true,
+    widgetFilters: featureFlags.widgetFilters ?? true,
     aiChat: featureFlags.aiChat ?? true,
     grid: featureFlags.grid ?? true,
     chart: featureFlags.chart ?? true,

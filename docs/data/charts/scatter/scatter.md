@@ -122,6 +122,24 @@ See the [Bubble chart page](/x/react-charts/bubble/) to modify mark size based o
 
 {{"demo": "ScatterCustomSize.js"}}
 
+### Bubble chart
+
+A bubble chart extends the scatter chart with a third data dimension encoded as marker size.
+Set `size` on each data point and configure `minBubbleRadius` and `maxBubbleRadius` on the series.
+The radius scales with the square root of the value so that bubble *area* is proportional to the data,
+following the standard cartographic convention.
+
+{{"demo": "BubbleChart.js"}}
+
+When using a `dataset`, map the size dimension with `datasetKeys.size`:
+
+{{"demo": "BubbleChartDataset.js"}}
+
+:::info
+The batch renderer (`renderer="svg-batch"`) is not compatible with bubble charts.
+It falls back automatically to per-point rendering when `size` values are present.
+:::
+
 ## Plot customization
 
 To customize how data is plotted, pass custom components as children of `ScatterChart`.

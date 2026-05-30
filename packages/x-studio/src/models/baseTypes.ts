@@ -39,6 +39,19 @@ export interface StudioFeatureFlags {
    */
   dataManagement?: boolean;
   /**
+   * Show the relationship management panel in the data drawer.
+   * Set to `false` to hide the "Relationships" section, preventing editors from
+   * adding or removing cross-source join definitions.
+   * @default true
+   */
+  relationships?: boolean;
+  /**
+   * Show the per-widget "Filters" tab in the widget edit dialog (`StudioWidgetEditDialog`).
+   * Set to `false` to hide the widget-level filter conditions editor from editors.
+   * @default true
+   */
+  widgetFilters?: boolean;
+  /**
    * Enable the AI chat assistant panel.
    * Requires `aiConfig` to also be provided — this flag only controls visibility.
    * @default true
@@ -114,7 +127,7 @@ export interface StudioFeatureFlags {
    */
   chartAnnotations?: boolean;
 
-  // ── Grid widget features ───────────────────────────────────────────────────
+  // ── Grid widget features ────────────────────────────────────────────────────
 
   /**
    * Show the "Group by" field picker in the grid setup panel.

@@ -233,7 +233,8 @@ BL-84: Add drag-and-drop tab ordering to the x-studio-composed example. Consider
 ~~BL-85: Make the edit/delete buttons for data fields in the data panel right aligned. Edit/delete buttons for relationships overlap the relationship name (Shipment Items → Shipments).~~
 **Fixed** (added `flexGrow: 1; minWidth: 0` to `ExpressionFieldRow` primary-content Stack so edit/delete buttons are always right-aligned; added `flexShrink: 0` to relationship edit/delete `IconButton`s so they no longer overlap long relationship names)
 
-BL-86: Add a feature flag and example app setting for relationships, and for the filter panel.
+~~BL-86: Add a feature flag and example app setting for relationships, and for the filter panel.~~
+**Fixed** (added `relationships` flag — gates `RelationshipPanel` in `StudioDataDrawer`; added `widgetFilters` flag — gates the "Filters" tab in `StudioWidgetEditDialog`; both default to `true`; both settings dialogs expose the new toggles with appropriate `parentKey` links)
 
 BL:87: The filter panel seems a bit pointless as it stands, make it feature complete without bloating it with pointless features (releaserch what's typical), and allow it to be configured on the filters panel. It's also seems buggy - Quarterly revenue by category for shipments ship date last 12 months shows data for all time. If it's the data itself that is inconsistent, for exmaple ship dates before order dates, fix that.
 
@@ -241,3 +242,5 @@ BL:87: The filter panel seems a bit pointless as it stands, make it feature comp
 **Fixed** (added a `useEffect` in `StudioContent` (`Studio.tsx`) that watches `selectedWidgetId`; when a new widget is selected in edit mode with compose enabled, it calls `setDrawerOpen('compose', true)`; in tabbed layout it also closes the data and filters drawers so compose becomes the active visible tab; x-studio-composed is unaffected because it uses `StudioCanvas` directly and does not render `Studio.tsx`)
 
 BL-89: re-run the UI performance tests and compare with the previous run.
+
+BL-90: Make backlog changes persist locally in the browser, so that page reloads when the state isn't saved by the containing server don't loose changes. Move the upload download helpers out of the 

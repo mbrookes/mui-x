@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Box, Dialog, DialogTitle, IconButton, Stack, Tab, Tabs, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { useStudioSelector, selectWidgets } from '../context';
+import { useStudioFeatures } from '../internals/StudioUIConfigContext';
 import { KIND_LABEL } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
 import { ChartSetupPanel } from '../StudioComposeDrawer/ChartSetupPanel';
 import { FilterSetupPanel } from '../StudioComposeDrawer/FilterSetupPanel';
@@ -45,6 +46,8 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
   const [tab, setTab] = React.useState(0);
   const widgets = useStudioSelector(selectWidgets);
   const widget = widgets[widgetId];
+  const features = useStudioFeatures();
+  const showFiltersTab = features.widgetFilters !== false;
 
   const handleTabChange = React.useCallback(
     (_event: React.SyntheticEvent, v: number) => setTab(v),
@@ -159,7 +162,7 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
           sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
         >
           <Tab label="Setup" />
-          <Tab label="Filters" />
+          {showFiltersTab && <Tab label="Filters" />}
           <Tab label="Format" />
         </Tabs>
 
@@ -174,11 +177,13 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
           {widget.kind === 'map' && <MapSetupPanel widgetId={widgetId} />}
         </TabPanel>
 
-        <TabPanel value={tab} index={1}>
-          <WidgetFiltersPanel widgetId={widgetId} />
-        </TabPanel>
+        {showFiltersTab && (
+          <TabPanel value={tab} index={1}>
+            <WidgetFiltersPanel widgetId={widgetId} />
+          </TabPanel>
+        )}
 
-        <TabPanel value={tab} index={2}>
+        <TabPanel value={tab} index={showFiltersTab ? 2 : 1}>
           {widget.kind === 'text' ? (
             <TextFormatPanel widgetId={widgetId} />
           ) : (

@@ -1,5 +1,5 @@
 /**
- * Downloads data as a JSON file
+ * Downloads data as a JSON file to the user's device.
  */
 export function downloadJson(data: unknown, filename: string): void {
   const json = JSON.stringify(data, null, 2);
@@ -15,7 +15,7 @@ export function downloadJson(data: unknown, filename: string): void {
 }
 
 /**
- * Prompts user to select a JSON file and returns parsed content
+ * Prompts the user to select a JSON file and returns its parsed content.
  */
 export function uploadJson(): Promise<unknown> {
   return new Promise((resolve, reject) => {

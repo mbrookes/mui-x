@@ -32,7 +32,6 @@ import type {
 } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { OS_INITIAL_STATE } from './config/officeSuppliesDashboard';
-import { loadOfficeSuppliesData } from './officeSuppliesData';
 import type { OfficeSuppliesData } from './officeSuppliesData';
 import { AppToolbar } from './components/AppToolbar';
 import { ComposeDialog } from './components/ComposeDialog';
@@ -196,7 +195,7 @@ function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
   const dataset = getUrlDatasetParam();
 
   // Determine the base data sources from the dataset
-  const baseDataSources = dataset === 'ag-studio' && osData
+  const baseDataSources = (dataset === 'ag-studio' && osData
     ? {
         [osData.storesSource.id]: osData.storesSource,
         [osData.productsSource.id]: osData.productsSource,
@@ -205,7 +204,7 @@ function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
         [osData.orderItemsSource.id]: osData.orderItemsSource,
         [osData.shipmentsSource.id]: osData.shipmentsSource,
       }
-    : INITIAL_STATE.dataSources;
+    : INITIAL_STATE.dataSources) as Record<string, import('@mui/x-studio').StudioDataSource>;
 
   // Restore from localStorage if available, merging with the live data sources.
   const saved = readLocalState();
@@ -587,7 +586,6 @@ function DashboardLayout({
       <SettingsDialog
         open={settingsOpen}
         onClose={handleSettingsClose}
-        dataSource={getUrlDatasetParam()}
         featureFlags={featureFlags}
         onFeatureFlagsChange={onFeatureFlagsChange}
       />

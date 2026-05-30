@@ -197,7 +197,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         filterWidgetType: 'toggle',
         filterWidgetField: 'expr-order-country',
-        filterWidgetLabel: 'Country',
       },
     },
     'widget-filter-date': {
@@ -209,7 +208,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         filterWidgetType: 'slider' as const,
         filterWidgetField: 'date',
-        filterWidgetLabel: 'Order Date',
       },
     },
     'widget-kpi-orders': {
@@ -562,7 +560,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         filterWidgetType: 'toggle',
         filterWidgetField: 'segment',
-        filterWidgetLabel: 'Customer Segment',
       },
     },
     'widget-filter4-signup-date': {
@@ -574,7 +571,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         filterWidgetType: 'date-range',
         filterWidgetField: 'since',
-        filterWidgetLabel: 'Signup Date',
       },
     },
 

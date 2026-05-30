@@ -179,9 +179,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const localeText = useStudioLocaleText();
   const customWidgetMap = useCustomWidgetMap();
   // Look up the custom widget definition for non-builtin widget kinds
-  const customDef = widget && !['grid', 'chart', 'kpi', 'text', 'filter', 'pivot', 'map'].includes(widget.kind)
-    ? customWidgetMap.get(widget.kind) ?? null
-    : null;
+  const customDef =
+    widget && !['grid', 'chart', 'kpi', 'text', 'filter', 'pivot', 'map'].includes(widget.kind)
+      ? (customWidgetMap.get(widget.kind) ?? null)
+      : null;
 
   // Pages the user can move this widget to (all pages except the current one)
   const moveToPageOptions = React.useMemo(

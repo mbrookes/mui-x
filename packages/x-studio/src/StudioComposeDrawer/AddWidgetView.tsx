@@ -438,7 +438,10 @@ export function AddWidgetView() {
       }
       if (customDef) {
         controller.addWidget(
-          createDefaultWidget(kind, { title: customDef.label ?? kind, customConfig: customDef.defaultConfig ?? {} }),
+          createDefaultWidget(kind, {
+            title: customDef.label ?? kind,
+            customConfig: customDef.defaultConfig ?? {},
+          }),
         );
       } else {
         controller.addWidget(createDefaultWidget(kind));

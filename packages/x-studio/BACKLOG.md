@@ -255,8 +255,21 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 ~~BL:88: Clicking a widget in the x-studio example should open the compose panel (it did in the past). It may have been removed for the x-studio-composed example that uses an edit button instead so that the edit dialog doesn't open when interacting with a widget in edit mode. Make sure that behaviour isn't affected by any fix.~~
 **Fixed** (added a `useEffect` in `StudioContent` (`Studio.tsx`) that watches `selectedWidgetId`; when a new widget is selected in edit mode with compose enabled, it calls `setDrawerOpen('compose', true)`; in tabbed layout it also closes the data and filters drawers so compose becomes the active visible tab; x-studio-composed is unaffected because it uses `StudioCanvas` directly and does not render `Studio.tsx`)
 
-BL-89: re-run the UI performance tests and compare with the previous run. Save the results to a markdown file in the x-studio folder.
+~~BL-89: re-run the UI performance tests and compare with the previous run. Save the results to a markdown file in the x-studio folder.~~
 
-BL-90: Make config changes persist locally in the browser, so that if the page reloads when the state isn't saved by the containing server, the user doesn't loose changes. 
+**Done** (ran `pnpm --filter "@mui/x-studio" bench`; results saved to `packages/x-studio/PERF_RESULTS.md`; caches are 1000–100,000× faster than cold; L2 enrichment is the bottleneck at 100 k rows but cache hit rate is very high in practice; L5 aggregation comfortably under 50 ms frame budget for typical 20–50 k row dashboards)
 
-BL-91: Move the upload download helpers out of the studio package, and into the containing example apps.
+~~BL-90: Make config changes persist locally in the browser, so that if the page reloads when the state isn't saved by the containing server, the user doesn't loose changes.~~
+
+**Fixed** (both `x-studio` and `x-studio-composed` now serialize the studio config to `localStorage` (keys `x-studio-state` / `x-studio-composed-state`) on every state change with a 1-second debounce; on page load the saved config is merged with the live data sources via `deserializeState`; a "Reset to demo" toolbar button (RestoreIcon) clears localStorage and reloads the page; data rows are never persisted — only pages, widgets, filters, relationships, and expression fields)
+
+~~BL-91: Move the upload download helpers out of the studio package, and into the containing example apps.~~
+
+**Fixed** (`downloadJson` / `uploadJson` were duplicated in both example apps; moved to `x-studio-shared/src/fileUtils.ts` and re-exported from `x-studio-shared/index.ts`; both example apps now import from `x-studio-shared`; local `utils/fileUtils.ts` copies deleted; `stateToJson` / `jsonToState` removed from `packages/x-studio/src/index.ts` and `statePersistence.ts` — they were app-level convenience wrappers unused by the examples)
+
+BL-92: Add sorting to widget data field selection (All widgets). Only one sort should exist at a time, as you can't sort both X and Y axis, for example. When sorted replace the data type icon with an up/down arrow.
+
+BL-93: For all data field selects, when a data field is selected replace the dropdown chevron with the close icon.
+
+BL-94: 
+

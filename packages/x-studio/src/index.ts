@@ -151,8 +151,6 @@ export {
   serializeState,
   deserializeState,
   migrateState,
-  stateToJson,
-  jsonToState,
 } from './store/statePersistence';
 export type { SerializedStudioState, MigrationResult } from './store/statePersistence';
 

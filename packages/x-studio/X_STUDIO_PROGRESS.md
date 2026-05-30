@@ -588,6 +588,31 @@
 - **`createDefaultWidget`** updated to accept an `overrides` object instead of a `StudioDataSource` second argument; custom kinds receive `config.customConfig` seeded with `defaultConfig`
 - **Example** (`examples/x-studio`): `AlertBannerWidget` + `AlertBannerSetupPanel` demonstrate the API — an MUI `Alert` whose title, message, and severity are configured via the compose drawer
 
+### UX-14 · Non-editable field text selection disabled (BL-102)
+
+- Added `userSelect: 'none'` to `Typography` elements for physical field rows, expression field rows, and section headers in `StudioDataDrawer/DataSourceSection.tsx`
+- Prevents accidental text selection when clicking or dragging labels in the data drawer
+
+### UX-15 · DataDialog scrollable (BL-104)
+
+- Changed `overflow: 'hidden'` → `overflow: 'auto'` in the `DialogContent` of `examples/x-studio-composed/src/components/DataDialog.tsx`
+- Data source dialog now scrolls when the content exceeds the dialog height
+
+### UX-16 · Drag ghost without action overlay (BL-105)
+
+- Widget drag ghost is now a `cloneNode(true)` of the card, positioned off-screen (`position:fixed; left:-9999px`)
+- Action overlay (`[data-widget-overlay]`) hidden in the clone via `querySelector` before `setDragImage` call
+- Clone gets `opacity: 0.4`; original card stays fully opaque so nearby insertion points are visible
+- Clone is removed via `requestAnimationFrame` after the browser captures the drag image
+- `data-widget-overlay` attribute added to both overlay Stacks in `StudioWidgetCardActionsOverlay.tsx` (edit mode and view mode)
+
+### UX-17 · Drag type isolation; tab reorder off-by-one fix (BL-106)
+
+- Canvas `InsertionPoint` (native DOM listeners) and `WidgetGap` (React synthetic events) now guard both `handleDragOver` and `handleDrop` with `Array.from(dataTransfer.types).includes('application/json')` — tab reorder drags can no longer activate canvas drop zones
+- AppToolbar (both `x-studio` and `x-studio-composed`) sets `'text/x-studio-tab'` MIME type on tab `dragStart`; `onDragOver` and `onDrop` only respond when that type is present — widget drags cannot trigger tab reorder highlighting
+- Fixed off-by-one in `handleTabDrop`: after `splice(tabDragIndex, 1)` removes the source tab, the remaining array is one element shorter, so `adjustedIndex = tabDragIndex < dropIndex ? dropIndex - 1 : dropIndex` corrects the insertion position
+- `Array.from()` used throughout for cross-browser safety (`DOMStringList` in older Safari lacks `Array.prototype.includes`)
+
 ---
 
 ## 📋 Planned

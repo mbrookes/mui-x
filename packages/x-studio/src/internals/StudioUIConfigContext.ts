@@ -4,6 +4,7 @@ import type {
   KpiFeatureFlags,
   ChartFeatureFlags,
   GridFeatureFlags,
+  StudioCustomWidgetDef,
 } from '../models';
 import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
 
@@ -159,7 +160,16 @@ export interface StudioUIConfig {
    * Set to `null` to disable AI features even if the config object exists.
    */
   aiConfig?: StudioAIConfig | null;
+  /**
+   * Consumer-defined custom widget kinds.
+   * Widgets registered here appear in the widget picker and are rendered on the canvas.
+   * See {@link StudioCustomWidgetDef} for the registration shape.
+   */
+  customWidgets?: StudioCustomWidgetDef[];
 }
+
+/** Pre-built map from `kind` → `StudioCustomWidgetDef` for fast lookup. */
+type CustomWidgetMap = ReadonlyMap<string, StudioCustomWidgetDef>;
 
 export const StudioUIConfigContext = React.createContext<StudioUIConfig>({
   tableSourceMode: 'explicit',
@@ -170,6 +180,19 @@ export const StudioUIConfigContext = React.createContext<StudioUIConfig>({
 /** Returns the resolved UI config including feature flags. */
 export function useStudioUIConfig(): StudioUIConfig {
   return React.useContext(StudioUIConfigContext);
+}
+
+/** Returns the custom widget definitions indexed by kind for O(1) lookup. */
+export function useCustomWidgetMap(): CustomWidgetMap {
+  const { customWidgets } = useStudioUIConfig();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return React.useMemo(
+    () => new Map((customWidgets ?? []).map((d) => [d.kind, d])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- JSON.stringify proxy for deep equality
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(customWidgets?.map((d) => d.kind))],
+  );
 }
 
 /**

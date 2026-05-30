@@ -576,6 +576,18 @@
 - **Card transparency**: `requestAnimationFrame`-deferred `opacity: 0.4` is applied to the original card element _after_ the browser captures the ghost image — the ghost stays fully opaque (visible drag feedback) while the in-place card fades, making nearby insertion points visible
 - **Move semantics**: `effectAllowed = 'move'` on drag source; `dropEffect = 'move'` set in all `dragover` handlers (`InsertionPoint`, `WidgetGap`)
 
+### UX-13 · Custom widget support (BL-99)
+
+- **New types**: `StudioCustomWidgetDef`, `StudioCustomWidgetProps`, `StudioCustomWidgetSetupPanelProps` added to `models/customWidgetTypes.ts` and exported from `@mui/x-studio`
+- **Registration API**: `<Studio customWidgets={[...]} />` accepts an array of `StudioCustomWidgetDef`; each entry registers a `kind` string (namespaced custom identifier), a `component` to render on the canvas, an optional `setupPanel` for the compose drawer, plus metadata: `label`, `description`, `icon`, `requiresDataSource`, `defaultConfig`
+- **`StudioCustomWidgetDef.kind`** must not collide with built-in kinds; `BuiltinStudioWidgetKind` literal union is exported for exhaustive checks
+- **Widget picker** (`AddWidgetView`): custom widget types appear below built-in types; `requiresDataSource` controls whether the "no source" warning blocks creation
+- **Canvas rendering** (`StudioWidgetCard`): custom widget `component` renders inside the card with the same deferred-content skeleton as built-ins; also shown in the expand dialog
+- **Compose drawer** (`StudioComposeDrawer`): if the widget's kind has a registered `setupPanel`, it is mounted in the Setup tab alongside built-in panels; consumers call `useStudioController()` and `controller.updateWidgetConfig(widgetId, { customConfig: { ...changes } })` to persist config
+- **`useCustomWidgetMap()`** hook exported — returns a stable `ReadonlyMap<string, StudioCustomWidgetDef>` for O(1) lookup; rebuilds only when registered kinds change
+- **`createDefaultWidget`** updated to accept an `overrides` object instead of a `StudioDataSource` second argument; custom kinds receive `config.customConfig` seeded with `defaultConfig`
+- **Example** (`examples/x-studio`): `AlertBannerWidget` + `AlertBannerSetupPanel` demonstrate the API — an MUI `Alert` whose title, message, and severity are configured via the compose drawer
+
 ---
 
 ## 📋 Planned

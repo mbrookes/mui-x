@@ -7,6 +7,10 @@ import type {
   StudioCustomWidgetDef,
 } from '../models';
 import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
+import {
+  BUILT_IN_GEOGRAPHY_DEFINITIONS,
+  type StudioMapGeographyDefinition,
+} from '../StudioMapWidget/geographyLoaders';
 
 // ── Locale text ─────────────────────────────────────────────────────────────
 
@@ -166,6 +170,29 @@ export interface StudioUIConfig {
    * See {@link StudioCustomWidgetDef} for the registration shape.
    */
   customWidgets?: StudioCustomWidgetDef[];
+  /**
+   * Additional map geography definitions to register alongside the built-in `'world'`,
+   * `'usa'`, and `'europe'` geographies.
+   *
+   * Each entry defines how to load the topology, how to normalise raw data values to
+   * feature IDs, and how the geography appears in the Map Setup panel (label, field
+   * label, and help text).
+   *
+   * @example
+   * ```tsx
+   * const geographies = {
+   *   'uk-counties': {
+   *     label: 'United Kingdom',
+   *     fieldLabel: 'County field',
+   *     fieldHint: 'A field containing UK county names.',
+   *     loader: async () => { ... },
+   *     normalizer: (v) => String(v).trim().toLowerCase(),
+   *   },
+   * };
+   * <Studio geographies={geographies} />
+   * ```
+   */
+  geographies?: Record<string, StudioMapGeographyDefinition>;
 }
 
 /** Pre-built map from `kind` → `StudioCustomWidgetDef` for fast lookup. */
@@ -185,13 +212,28 @@ export function useStudioUIConfig(): StudioUIConfig {
 /** Returns the custom widget definitions indexed by kind for O(1) lookup. */
 export function useCustomWidgetMap(): CustomWidgetMap {
   const { customWidgets } = useStudioUIConfig();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   return React.useMemo(
     () => new Map((customWidgets ?? []).map((d) => [d.kind, d])),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     // react-doctor-disable-next-line react-doctor/exhaustive-deps -- JSON.stringify proxy for deep equality
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [JSON.stringify(customWidgets?.map((d) => d.kind))],
+  );
+}
+
+/**
+ * Returns all geography definitions — built-ins merged with any consumer-provided
+ * overrides from `<Studio geographies={…} />`.
+ *
+ * Consumer entries take precedence, so a consumer can override a built-in geography
+ * by registering a definition under the same key (`'world'`, `'usa'`, `'europe'`).
+ */
+export function useStudioGeographies(): Record<string, StudioMapGeographyDefinition> {
+  const { geographies } = useStudioUIConfig();
+  return React.useMemo(
+    () => ({ ...BUILT_IN_GEOGRAPHY_DEFINITIONS, ...geographies }),
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- JSON.stringify proxy for deep equality
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(Object.keys(geographies ?? {}))],
   );
 }
 

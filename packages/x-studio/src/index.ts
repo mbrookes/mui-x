@@ -62,6 +62,10 @@ export type { StudioPivotWidgetProps } from './StudioPivotWidget/StudioPivotWidg
 // ─── StudioMapWidget ──────────────────────────────────────────────────────────
 export { StudioMapWidget } from './StudioMapWidget';
 export type { StudioMapWidgetProps } from './StudioMapWidget';
+export type {
+  GeographyLoader,
+  StudioMapGeographyDefinition,
+} from './StudioMapWidget/geographyLoaders';
 
 // ─── StudioDataDrawer ─────────────────────────────────────────────────────────
 export { StudioDataDrawer } from './StudioDataDrawer/StudioDataDrawer';
@@ -92,6 +96,7 @@ export {
   useStudioFeatures,
   useStudioUIConfig,
   useStudioLocaleText,
+  useStudioGeographies,
   useCustomWidgetMap,
   CanvasScrollContext,
 } from './context/StudioContext';

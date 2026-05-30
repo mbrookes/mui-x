@@ -27,6 +27,7 @@ import type {
   StudioCustomWidgetDef,
 } from '../models';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
+import type { StudioMapGeographyDefinition } from '../StudioMapWidget/geographyLoaders';
 import { StudioController } from '../store';
 import type { SerializedStudioState, MigrationResult } from '../store/statePersistence';
 import { DrawerPanel } from './DrawerPanel';
@@ -199,6 +200,34 @@ export interface StudioProps extends StudioSlots {
    * ```
    */
   customWidgets?: StudioCustomWidgetDef[];
+  /**
+   * Additional map geography definitions to register alongside the built-in `'world'`,
+   * `'usa'`, and `'europe'` geographies.
+   *
+   * Each entry defines how to load the topology, how to normalise raw data values to
+   * feature IDs, and how the geography appears in the Map Setup panel (label, field label,
+   * and help text).
+   *
+   * @example
+   * ```tsx
+   * import type { StudioMapGeographyDefinition } from '@mui/x-studio';
+   * const geographies: Record<string, StudioMapGeographyDefinition> = {
+   *   'uk-counties': {
+   *     label: 'United Kingdom',
+   *     fieldLabel: 'County field',
+   *     fieldHint: 'A field containing UK county names.',
+   *     loader: async () => {
+   *       const topo = await import('./uk-counties.json');
+   *       const { feature } = await import('topojson-client');
+   *       return feature(topo, topo.objects.counties);
+   *     },
+   *     normalizer: (value) => String(value ?? '').trim().toLowerCase(),
+   *   },
+   * };
+   * <Studio geographies={geographies} />
+   * ```
+   */
+  geographies?: Record<string, StudioMapGeographyDefinition>;
   /** Props forwarded to slot sub-components. */
   slotProps?: {
     /**
@@ -505,6 +534,8 @@ export const Studio = React.memo(
       props;
     const aiConfig = (slots as { aiConfig?: StudioAIConfig | null }).aiConfig;
     const customWidgets = (slots as { customWidgets?: StudioCustomWidgetDef[] }).customWidgets;
+    const geographies = (slots as { geographies?: Record<string, StudioMapGeographyDefinition> })
+      .geographies;
 
     // Controller is created once at mount and never replaced.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -554,6 +585,7 @@ export const Studio = React.memo(
         localeText={localeText}
         aiConfig={aiConfig}
         customWidgets={customWidgets}
+        geographies={geographies}
       >
         <StudioContent {...slots} />
       </StudioProvider>

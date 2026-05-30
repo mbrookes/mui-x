@@ -9,6 +9,7 @@ import type {
   StudioCustomWidgetDef,
 } from '../models';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
+import type { StudioMapGeographyDefinition } from '../StudioMapWidget/geographyLoaders';
 
 /**
  * Props for `StudioDashboard` — the embed-first entry point to Studio.
@@ -92,6 +93,12 @@ export interface StudioDashboardProps {
    * @see StudioCustomWidgetDef
    */
   customWidgets?: StudioCustomWidgetDef[];
+  /**
+   * Additional map geography definitions to register alongside the built-in `'world'`,
+   * `'usa'`, and `'europe'` geographies.
+   * @see Studio.geographies for full documentation.
+   */
+  geographies?: Record<string, StudioMapGeographyDefinition>;
 }
 
 const DEFAULT_EMBED_FLAGS: StudioFeatureFlags = {
@@ -119,6 +126,7 @@ export const StudioDashboard = React.memo(
       stackBreakpoint,
       sidebarSide,
       customWidgets,
+      geographies,
     } = props;
 
     // Merge caller-supplied flags on top of view-only defaults
@@ -166,6 +174,7 @@ export const StudioDashboard = React.memo(
         stackBreakpoint={stackBreakpoint}
         sidebarSide={sidebarSide}
         customWidgets={customWidgets}
+        geographies={geographies}
       />
     );
   }),

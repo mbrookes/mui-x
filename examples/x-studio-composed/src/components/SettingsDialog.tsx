@@ -17,7 +17,10 @@ export function SettingsDialog(props: SettingsDialogProps) {
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle>Settings</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 1 }}>
-        <FeatureFlagSettings featureFlags={featureFlags} onFeatureFlagsChange={onFeatureFlagsChange} />
+        <FeatureFlagSettings
+          featureFlags={featureFlags}
+          onFeatureFlagsChange={onFeatureFlagsChange}
+        />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
@@ -25,4 +28,3 @@ export function SettingsDialog(props: SettingsDialogProps) {
     </Dialog>
   );
 }
-

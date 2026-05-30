@@ -25,7 +25,7 @@ They share the same pattern: a drag-and-drop canvas, sidebar panels, and a seria
 
 The most notable differences are:
 
-- **Layout:** AG Studio uses a 12-column drag-resize grid; MUI X Studio uses equal-width rows. Both support drag-and-drop reorder.
+- **Layout:** AG Studio uses a 24-column drag-resize grid (configurable); MUI X Studio also uses a 24-column col-span grid for resize, within equal-width rows. Both support drag-and-drop reorder.
 - **Composition:** MUI X Studio exports every building block independently for custom layouts; AG Studio exposes a single component with a `panels` prop.
 - **Filtering:** MUI X Studio has a richer filter system with relative dates, metric references, rank/Top-N, and selection mode; AG Studio's filter API is simpler.
 - **AI:** AG Studio uses a multi-agent pipeline with structured planning; MUI X Studio uses simple tool calls via any OpenAI-compatible endpoint.
@@ -40,7 +40,7 @@ The most notable differences are:
 | Pivot table           | ✅                                            | ❌                                                 |
 | Map / choropleth      | ✅                                            | ❌                                                 |
 | Text / narrative      | ✅ (title, subtitle, Markdown body)           | ❌                                                 |
-| On-canvas filter      | ✅ (date range, multi-select, toggle, slider) | ✅ (date range, list, button)                      |
+| On-canvas filter      | ✅ (date range, multi-select, toggle, slider) | ✅ (list, button, date)                            |
 | Custom widget API     | ❌                                            | ✅ (`AgWidgetDefinition`)                          |
 
 ### Charts
@@ -63,8 +63,8 @@ MUI X Studio's KPI widget includes features not documented in AG Studio:
 
 ### Grid Widget
 
-[AG Studio's grid widget](https://www.ag-grid.com/studio/react/widgets/) (built on AG Grid Enterprise) supports group-by aggregation — placing a category field in a column groups and aggregates values by that field.
-MUI X Studio's grid widget (built on MUI X Data Grid) does not currently support row grouping.
+MUI X Studio's grid widget (built on MUI X Data Grid) supports group-by aggregation via `gridGroupByField` — grouping raw rows by a category field and computing per-column aggregations.
+Both products' grid widgets support group-by aggregation; AG Studio's Table widget additionally allows non-uniform multi-column row layouts.
 
 ### Text Widget
 
@@ -74,7 +74,7 @@ AG Studio's Static Content widget supports text and images but offers less confi
 ### Pivot Widget
 
 MUI X Studio's `StudioPivotWidget` renders a cross-tabulation with configurable row field, column field, and value field.
-Groups are collapsible and the table can be exported to CSV.
+The table can be exported to CSV.
 
 AG Studio does not include a dedicated pivot widget.
 
@@ -94,18 +94,20 @@ AG Studio does not include a built-in map widget.
 | :-------------------------------- | :---------------------------------------------------------- | :------------------------ |
 | Inline (synchronous) rows         | ✅                                                          | ✅                        |
 | Async callback                    | ✅ (`createSimpleAdapter`, `createBatchingAdapter`)         | ✅ (`getData()`)          |
-| Server-side data middleware       | ✅ (`@mui/x-studio-server`)                                 | ✅ (`AgDataEngine`)       |
+| Server-side data middleware       | ✅ (`@mui/x-studio-server`)                                 | ✅ (`createDataEngine()`) |
 | Shared engine (cross-instance)    | ❌                                                          | ✅ (`createDataEngine()`) |
 | On-demand reload                  | ❌                                                          | ✅ (`api.reload()`)       |
 
 MUI X Studio's async adapter interface (`StudioDataSourceAdapter`) mirrors the synchronous rows pipeline — `getRows(descriptor): Promise<StudioQueryResult>` — and is attached at runtime via `ref.setDataSourceAdapter(sourceId, adapter)`.
 `@mui/x-studio-server` provides a framework-agnostic Node.js middleware (`handleBatchQuery`) that batches and proxies queries from the browser, keeping data and API keys server-side.
-AG Studio's `AgDataEngine` is an in-browser engine that can be backed by a server; the architectural models differ but the end result is comparable.
+AG Studio's `createDataEngine()` produces an in-browser data engine that can be backed by a server; the architectural models differ but the end result is comparable.
 
 ### Field Types
 
-Both products support `string`, `number`, `boolean`, `date`, `datetime`, `percent`, and `currency` field types.
-AG Studio additionally supports custom `valueFormatter` and `serializer` functions per field, and an `aiDescription` field to improve AI query quality (see [AG Studio — Data types](https://www.ag-grid.com/studio/react/data-types/)).
+Both products support `string`, `number`, `boolean`, `date`, and `datetime` field types.
+Percentage and currency display formats are applied to `number` fields in both products, and are not separate field types.
+AG Studio additionally supports custom `valueFormatter` and `serializer` functions per field.
+AG Studio's table and dataset definitions also accept an `aiDescription` property to improve AI query quality (see [AG Studio — Data types](https://www.ag-grid.com/studio/react/data-types/)).
 
 MUI X Studio supports a **field capability override** system that lets you mark a field as `categorical`, `numeric`, or `temporal` regardless of its raw type — enabling fields like a numeric product ID to behave as a category in chart dimensions.
 
@@ -171,7 +173,8 @@ The APIs are structurally identical: an `expressionFields` array, a `isMeasure` 
 Both products implement arithmetic (`add`, `subtract`, `multiply`, `divide`, `modulo`), comparison (`equals`, `notEqual`, `lessThan`, `greaterThan`, `lessThanOrEqual`, `greaterThanOrEqual`), boolean (`and`, `or`, `not`), conditional (`if`), set membership (`in`), null checks (`isNull`, `isNotNull`, `isTrue`, `isFalse`), and date difference (`datediff` with 10+ time units)
 (see [AG Studio — Expressions](https://www.ag-grid.com/studio/react/expressions/)).
 
-MUI X Studio additionally implements string operators (`concat`, `lower`, `upper`, `trim`, `length`), math operators (`abs`, `round`, `floor`, `ceil`), null coalescence (`coalesce`), date component extraction (`year`, `month`, `day`), and **join field expressions** that reference a field on a related source directly inside an expression without materialising a join.
+MUI X Studio additionally implements **join field expressions** — a fourth expression node type (`StudioJoinFieldExpression: { joinSourceId, fieldId }`) that references a field on a related data source directly inside an expression without materialising a join.
+AG Studio's expression tree has three node types (Function, Value, Field); MUI X Studio adds a fourth.
 
 ### Visual Editor
 
@@ -182,16 +185,18 @@ AG Studio documents `expressionFields` as a state configuration key but does not
 
 | Feature                    | MUI X Studio                           | AG Studio                                |
 | :------------------------- | :------------------------------------- | :--------------------------------------- |
-| Layout model               | Equal-width rows (12-column col-spans) | 12-column grid                           |
+| Layout model               | Equal-width rows (12-column col-spans) | 24-column grid (configurable)            |
 | Widget resize              | ✅ (col-span drag handle)              | ✅ (drag handle, snaps to grid)          |
 | Drag-and-drop reorder      | ✅                                     | ✅                                       |
 | Page min/max width         | ❌                                     | ✅ (720px default min, configurable max) |
 | Fixed-height (poster) mode | ❌                                     | ✅                                       |
-| Mobile / responsive        | ❌                                     | ❌ (both products require 720px+)        |
+| Mobile / responsive        | ✅ (`stackBreakpoint`, default 600px)  | ⚠️ (scales; 720px min, configurable)     |
 
-AG Studio's 12-column grid (see [AG Studio — Modes & Layout](https://www.ag-grid.com/studio/react/modes-layout/)) allows non-uniform column widths (a 4+8 split, a 3+3+6 layout, and so on).
+AG Studio's 24-column grid (see [AG Studio — Modes & Layout](https://www.ag-grid.com/studio/react/modes-layout/)) allows non-uniform column widths (an 8+16 split, a 6+6+12 layout, and so on).
 MUI X Studio also uses a 12-column grid for column spans — each widget occupies 3–12 columns, with a drag handle between adjacent widgets that snaps to the grid.
 Widgets in the same row share the remaining width equally by default.
+MUI X Studio's `stackBreakpoint` prop (default 600px) stacks all widgets to full width in view mode below that threshold.
+AG Studio pages scale to the viewport within configured page boundaries; the default minimum page width is 720px but is configurable via the `layout` prop.
 
 ## AI Assistant
 
@@ -248,10 +253,10 @@ AG Studio exposes `getState()`/`setState()` and similarly leaves file I/O to the
 | Custom widget API                             | ❌                                                    | ✅                                 |
 | Localisation / i18n                           | ✅ (`StudioLocaleText`; ptBR locale included)         | ✅ (`localeText`; 31 locales)      |
 | RTL support                                   | ❌                                                    | ✅ (`enableRtl`)                   |
-| Runtime feature flags                         | ✅ (`StudioFeatureFlags` — 17 flags)                  | ❌                                 |
+| Runtime feature flags                         | ✅ (`StudioFeatureFlags` — 25 flags)                  | ❌                                 |
 
 `StudioFeatureFlags` lets you gate entire feature areas at runtime — for example `{ filters: false }` hides the Filters panel entirely, `{ aiChat: false }` removes the AI button, `{ pivot: false }` removes the Pivot widget type, and so on.
-Individual flags: `compose`, `filters`, `savedFilterViews`, `dataManagement`, `aiChat`, `grid`, `chart`, `kpi`, `text`, `filter`, `pivot`, `map`, `kpiSparkline`, `kpiTrend`, `kpiTarget`, `chartAnnotations`, `gridGroupBy`, `gridSummary`, `gridConditionalFormats`.
+Individual flags: `compose`, `filters`, `savedFilterViews`, `dataManagement`, `aiChat`, `grid`, `chart`, `kpi`, `text`, `filter`, `pivot`, `map`, `relationships`, `widgetFilters`, `kpiSparkline`, `kpiTrend`, `kpiTarget`, `chartAnnotations`, `gridGroupBy`, `gridSummary`, `gridConditionalFormats`, `calculatedFields`, `kpiCalculatedFields`, `chartCalculatedFields`, `gridCalculatedFields`.
 
 ### Composition API
 

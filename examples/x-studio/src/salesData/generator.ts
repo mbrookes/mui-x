@@ -386,7 +386,15 @@ function generateOrders(
   const weightSum = customerWeights.reduce((s, w) => s + w, 0);
   const customerWeightsNorm = customerWeights.map((w) => w / weightSum);
 
-  const sampleOrderDate = makeDateSampler('2023-01-01', '2026-04-25');
+  // Generate dates from 3 years ago through 90 days from now so that relative-date
+  // filters (e.g. "last 12 months") always cover a meaningful slice of the data
+  // regardless of when the demo is run.
+  const today = new Date();
+  const threeYearsAgo = new Date(today);
+  threeYearsAgo.setFullYear(today.getFullYear() - 3);
+  const ninetyDaysAhead = new Date(today);
+  ninetyDaysAhead.setDate(today.getDate() + 90);
+  const sampleOrderDate = makeDateSampler(isoDate(threeYearsAgo), isoDate(ninetyDaysAhead));
   for (let i = 0; i < count; i++) {
     const customer = pickWeighted(rng, customerRows, customerWeightsNorm);
     const country = customer.country as string;

@@ -2,10 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CURRENT_SCHEMA_VERSION,
   deserializeState,
-  jsonToState,
   migrateState,
   serializeState,
-  stateToJson,
 } from './statePersistence';
 import { createDefaultStudioState } from '../models';
 
@@ -180,19 +178,21 @@ describe('deserializeState', () => {
   });
 });
 
-// ─── stateToJson / jsonToState roundtrip ──────────────────────────────────────
+// ─── serializeState / deserializeState roundtrip ─────────────────────────────
 
-describe('stateToJson / jsonToState roundtrip', () => {
+describe('serializeState / deserializeState roundtrip', () => {
   it('produces valid JSON', () => {
     const state = createDefaultStudioState();
-    expect(() => JSON.parse(stateToJson(state))).not.toThrow();
+    expect(() => JSON.stringify(serializeState(state))).not.toThrow();
   });
 
   it('roundtrip restores dashboard title', () => {
     const state = createDefaultStudioState({
       dashboard: { id: 'd1', title: 'My Dashboard', activePageId: 'p1' },
     });
-    const { state: restored } = jsonToState(stateToJson(state));
+    const json = JSON.stringify(serializeState(state));
+    const migration = migrateState(JSON.parse(json));
+    const restored = migration.success ? deserializeState(migration.state!, {}) : null;
     expect(restored?.dashboard.title).toBe('My Dashboard');
   });
 
@@ -209,33 +209,39 @@ describe('stateToJson / jsonToState roundtrip', () => {
         },
       ],
     });
-    const { state: restored } = jsonToState(stateToJson(state));
-    expect(restored?.filters.filter((f) => f.scope === 'cross-filter')).toHaveLength(0);
+    const json = JSON.stringify(serializeState(state));
+    const migration = migrateState(JSON.parse(json));
+    const restored = migration.success ? deserializeState(migration.state!, {}) : null;
+    expect(
+      restored?.filters.filter((f: { scope: string }) => f.scope === 'cross-filter'),
+    ).toHaveLength(0);
   });
 
-  it('returns null state for invalid JSON', () => {
-    const { state, migrationResult } = jsonToState('not valid json {{');
-    expect(state).toBeNull();
+  it('migrateState returns failure for invalid JSON', () => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse('not valid json {{');
+    } catch {
+      parsed = null;
+    }
+    const migrationResult = migrateState(parsed);
     expect(migrationResult.success).toBe(false);
-    expect(migrationResult.errors[0]).toMatch(/parse/i);
+    expect(migrationResult.errors[0]).toMatch(/parse|invalid|null/i);
   });
 
-  it('returns null state for valid JSON with a future schemaVersion', () => {
-    const json = JSON.stringify({ schemaVersion: CURRENT_SCHEMA_VERSION + 99 });
-    const { state, migrationResult } = jsonToState(json);
-    expect(state).toBeNull();
+  it('migrateState returns failure for a future schemaVersion', () => {
+    const migrationResult = migrateState({ schemaVersion: CURRENT_SCHEMA_VERSION + 99 });
     expect(migrationResult.success).toBe(false);
   });
 
-  it('returns a valid state for an object with no schemaVersion (v0 → current)', () => {
-    const json = JSON.stringify({
+  it('migrateState returns success for an object with no schemaVersion (v0 → current)', () => {
+    const migrationResult = migrateState({
       widgets: {},
       pages: {},
       filters: [],
       dashboard: { id: 'd', title: 'T', activePageId: 'p' },
     });
-    const { state, migrationResult } = jsonToState(json);
     expect(migrationResult.success).toBe(true);
-    expect(state).not.toBeNull();
+    expect(migrationResult.state).not.toBeNull();
   });
 });

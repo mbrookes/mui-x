@@ -503,6 +503,27 @@
 - Added `widgetFilters` flag to `StudioFeatureFlags` — when `false`, hides the "Filters" tab in `StudioWidgetEditDialog` and re-indexes the "Format" tab accordingly; `useStudioFeatures()` defaults it to `true`
 - Both settings dialogs (x-studio and x-studio-composed) expose the new toggles; `relationships` uses `parentKey: 'dataManagement'` so it disables when the data drawer is hidden
 
+### INFRA-01 · fileUtils consolidated; stateToJson/jsonToState removed from public API (BL-91)
+
+- Duplicate `downloadJson`/`uploadJson` helpers from both example apps moved to `examples/x-studio-shared/src/fileUtils.ts` and re-exported from the shared index
+- Both example apps now import file helpers from `x-studio-shared` instead of maintaining local copies
+- Removed `stateToJson` and `jsonToState` from `packages/x-studio` public API (`src/index.ts` + `src/store/statePersistence.ts`) — they were convenience wrappers (`serializeState + JSON.stringify` and inverse) that were unused; consumers use `serializeState`/`deserializeState` + `loadSerializedState` through the controller directly
+
+### INFRA-02 · Pipeline benchmark results (BL-89)
+
+- Ran `pnpm --filter "@mui/x-studio" bench` (50 iterations, 5 warmup, Apple M2)
+- Results saved in `packages/x-studio/PERF_RESULTS.md`
+- All cached layers (L1–L3 warm) are 1,000–100,000× faster than cold paths
+- L2 `enrichRowsWithExpressions` is the bottleneck at 100k rows (381 ms cold / 0.003 ms warm)
+- L5 aggregation under 20 ms at 100k rows; A1 `buildQueryDescriptor` under 2 ms with 50 filters
+
+### UX-06 · localStorage persistence with Reset button (BL-90)
+
+- Both `x-studio` and `x-studio-composed` now auto-save studio config to `localStorage` on every state change (1 s debounce), so layout and widget configuration survives page reloads
+- On mount, saved state is restored via `deserializeState(saved, liveDataSources)` — data rows are never persisted; only pages, widgets, filters, relationships, and expression fields
+- A **Reset to demo** toolbar button (`RestoreIcon`) clears localStorage and reloads the page, restoring the built-in demo configuration
+- x-studio key: `'x-studio-state'`; x-studio-composed key: `'x-studio-composed-state'`
+
 ---
 
 ## 📋 Planned

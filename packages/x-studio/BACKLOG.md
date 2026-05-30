@@ -284,5 +284,7 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 
 **Fixed** (root cause: `RowResizeHandle` is `position:absolute; inset:0; z-index:20` inside the gap box, covering the `InsertionPoint` child that had the drag handlers. Drag events fired on the resize handle and could not reach the sibling insertion point. Fix: new `WidgetGap` component owns the gap box and registers `onDragOver`/`onDragLeave`/`onDrop` at the container level — bubbled events from `RowResizeHandle` propagate to the container and are captured. The `InsertionPoint` is no longer needed inside gap boxes; the visual indicator is rendered at the container level. Before-first-widget `InsertionPoint` is unchanged.)
 
-BL-96: Change the widget resize grid to 24 cols. Make sure the visual grid guidelines are correctly aligned. (We fixed this before but it seems to have regressed).
+~~BL-96: Change the widget resize grid to 24 cols. Make sure the visual grid guidelines are correctly aligned. (We fixed this before but it seems to have regressed).~~
+
+**Done** — `GRID_COLS = 24` constant introduced in `StudioCanvas.tsx`, `MIN_SPAN = 6` (GRID_COLS/4). All flex-width calculations, grid-line positions, overflow checks, and defaultFlexGrow updated. `setAdjacentWidgetColSpans` in `StudioController.ts` clamp updated to `[MIN_SPAN_COLS, GRID_COLS - MIN_SPAN_COLS]` = `[6, 18]`. Grid lines now render 23 lines at positions `(i+1)/GRID_COLS`.
 

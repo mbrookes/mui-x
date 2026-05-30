@@ -78,6 +78,11 @@
 | UX-03 | UX        | Data panel: right-aligned edit/delete     | ✅ Completed |
 | UX-04 | UX        | Consistent calculated field UI + flags    | ✅ Completed |
 | UX-05 | UX        | Feature flags: relationships + widgetFilters | ✅ Completed |
+| UX-06 | UX        | localStorage state persistence + Reset    | ✅ Completed |
+| UX-07 | UX        | Field picker: alphabetical sort + clear icon | ✅ Completed |
+| UX-08 | UX        | SetupSection shared section component     | ✅ Completed |
+| UX-09 | UX        | Canvas DnD drops between/after widgets    | ✅ Completed |
+| UX-10 | UX        | 24-column widget resize grid              | ✅ Completed |
 
 ---
 
@@ -523,6 +528,33 @@
 - On mount, saved state is restored via `deserializeState(saved, liveDataSources)` — data rows are never persisted; only pages, widgets, filters, relationships, and expression fields
 - A **Reset to demo** toolbar button (`RestoreIcon`) clears localStorage and reloads the page, restoring the built-in demo configuration
 - x-studio key: `'x-studio-state'`; x-studio-composed key: `'x-studio-composed-state'`
+
+### UX-07 · Field picker: alphabetical sort + clear icon (BL-92, BL-93)
+
+- `DataSourceFieldSelect` now sorts options by `(sourceLabel, label)` using locale-aware comparison so grouped options appear in a consistent alphabetical order regardless of insertion order
+- When a value is selected, the Autocomplete's popup chevron is replaced by a visible × clear icon (`CloseIcon`), making it immediately obvious that the selection can be cleared
+- Both the `fieldsProp` (static fields list) and `dataSources` (multi-source) code paths receive the same sort
+
+### UX-08 · SetupSection shared section component (BL-94)
+
+- New `SetupSection` component (`packages/x-studio/src/StudioComposeDrawer/SetupSection.tsx`) wraps a section with a `<Divider>`, a caption-weight heading, and an optional description paragraph
+- Replaces ad-hoc `<Divider>` + `<Typography variant="caption">` patterns in `ChartSetupPanel`, `KpiSetupPanel`, and `GridSetupPanel`
+- Props: `title`, `description?`, `dividerMb?`, `children?`
+
+### UX-09 · Canvas DnD drops between and after widgets (BL-95)
+
+- Root cause: `RowResizeHandle` (`position:absolute; z-index:20`) was a sibling of `InsertionPoint` inside the gap box, so drag events fired on the handle but never reached the `InsertionPoint` listener
+- Fix: new `WidgetGap` component owns the gap box and registers `onDragOver`/`onDragLeave`/`onDrop` at the container level where events bubble from all descendants including the resize handle
+- Drop indicator is rendered inside the container at `z-index:30`, above the resize handle
+- `contains(relatedTarget)` guard in `onDragLeave` prevents indicator flicker when the cursor moves between child elements
+
+### UX-10 · 24-column widget resize grid (BL-96)
+
+- `GRID_COLS = 24` constant replaces the previous hardcoded `12` in `StudioCanvas.tsx`; `MIN_SPAN = GRID_COLS / 4 = 6` sets the minimum widget column span
+- Matching `GRID_COLS` / `MIN_SPAN_COLS` constants added to `StudioController.ts`
+- All flex/width calculations, grid-line positions, overflow checks, and default span calculations updated to use `GRID_COLS`
+- `setAdjacentWidgetColSpans` clamp updated from `[3, 9]` to `[MIN_SPAN_COLS, GRID_COLS − MIN_SPAN_COLS]` = `[6, 18]`
+- Finer 24-col grid gives more layout precision (smallest snap unit = 4.17% of row width)
 
 ---
 

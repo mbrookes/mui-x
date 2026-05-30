@@ -16,7 +16,7 @@ import type { ChartSeriesType } from '../../../../../models/seriesType/config';
  */
 export type ColorGetter<SeriesType extends ChartSeriesType> = SeriesType extends 'pie' | 'funnel'
   ? (dataIndex: number) => string
-  : SeriesType extends 'heatmap'
+  : SeriesType extends 'heatmap' | 'choropleth'
     ? (value: number | null) => string
     : SeriesType extends 'mapShape'
       ? (name?: string) => string | null

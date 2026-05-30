@@ -94,15 +94,15 @@ Cache keys incorporate a security hash so users with different row-level permiss
 
 ### `handleBatchQuery(body, claims, options)`
 
-| Parameter | Type | Description |
-| :--- | :--- | :--- |
-| `body` | `BatchQueryRequest` | Parsed request body from the client |
-| `claims` | `JwtSecurityClaims` | Pre-verified JWT claims |
-| `options.db` | `Knex.Knex` | **Required.** Configured Knex instance |
-| `options.schemaAllowlist` | `string[]` | **Required.** Permitted table names |
-| `options.cacheProvider` | `CacheProvider` | Default: shared `LRUCacheProvider` |
-| `options.thresholds.clientTier` | `number` | Default: `10_000` |
-| `options.thresholds.serverMemoryTier` | `number` | Default: `100_000` |
+| Parameter                             | Type                | Description                            |
+| :------------------------------------ | :------------------ | :------------------------------------- |
+| `body`                                | `BatchQueryRequest` | Parsed request body from the client    |
+| `claims`                              | `JwtSecurityClaims` | Pre-verified JWT claims                |
+| `options.db`                          | `Knex.Knex`         | **Required.** Configured Knex instance |
+| `options.schemaAllowlist`             | `string[]`          | **Required.** Permitted table names    |
+| `options.cacheProvider`               | `CacheProvider`     | Default: shared `LRUCacheProvider`     |
+| `options.thresholds.clientTier`       | `number`            | Default: `10_000`                      |
+| `options.thresholds.serverMemoryTier` | `number`            | Default: `100_000`                     |
 
 ### `extractSecurityClaims(authorizationHeader, secret)`
 
@@ -125,10 +125,10 @@ Implement this interface to use Redis or any other cache backend. Methods: `get(
 Measured on `node:sqlite` in-memory, covering indexes:
 
 | Row count | COUNT(\*) | GROUP BY SUM | Full scan |
-| :--- | :--- | :--- | :--- |
-| 10 k | 0.07 ms | 1.65 ms | 12 ms |
-| 100 k | 0.73 ms | 18 ms | 127 ms |
-| 1 M | 7 ms | 207 ms | 2 200 ms |
+| :-------- | :-------- | :----------- | :-------- |
+| 10 k      | 0.07 ms   | 1.65 ms      | 12 ms     |
+| 100 k     | 0.73 ms   | 18 ms        | 127 ms    |
+| 1 M       | 7 ms      | 207 ms       | 2 200 ms  |
 
 Default thresholds (`clientTier: 10_000`, `serverMemoryTier: 100_000`) are derived from these measurements. Tune with `options.thresholds` for your database and hardware.
 

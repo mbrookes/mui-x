@@ -16,11 +16,46 @@ import { createMockDb } from './mockDb';
 // ─── Test data ────────────────────────────────────────────────────────────────
 
 const SALES_ROWS = [
-  { id: 1, tenant_id: 'acme', region: 'west', product: 'widget', amount: 100, sale_date: '2024-01-15' },
-  { id: 2, tenant_id: 'acme', region: 'east', product: 'gadget', amount: 200, sale_date: '2024-01-16' },
-  { id: 3, tenant_id: 'acme', region: 'west', product: 'widget', amount: 150, sale_date: '2024-02-01' },
-  { id: 4, tenant_id: 'globex', region: 'north', product: 'thingamajig', amount: 500, sale_date: '2024-01-20' },
-  { id: 5, tenant_id: 'acme', region: 'north', product: 'gadget', amount: 75, sale_date: '2024-02-15' },
+  {
+    id: 1,
+    tenant_id: 'acme',
+    region: 'west',
+    product: 'widget',
+    amount: 100,
+    sale_date: '2024-01-15',
+  },
+  {
+    id: 2,
+    tenant_id: 'acme',
+    region: 'east',
+    product: 'gadget',
+    amount: 200,
+    sale_date: '2024-01-16',
+  },
+  {
+    id: 3,
+    tenant_id: 'acme',
+    region: 'west',
+    product: 'widget',
+    amount: 150,
+    sale_date: '2024-02-01',
+  },
+  {
+    id: 4,
+    tenant_id: 'globex',
+    region: 'north',
+    product: 'thingamajig',
+    amount: 500,
+    sale_date: '2024-01-20',
+  },
+  {
+    id: 5,
+    tenant_id: 'acme',
+    region: 'north',
+    product: 'gadget',
+    amount: 75,
+    sale_date: '2024-02-15',
+  },
 ];
 
 const ACME_CLAIMS: JwtSecurityClaims = {

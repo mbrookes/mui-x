@@ -111,10 +111,13 @@ export const StudioDashboard = React.memo(
     } = props;
 
     // Merge caller-supplied flags on top of view-only defaults
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const featureFlagsKey = JSON.stringify(featureFlags);
     const mergedFlags = React.useMemo<StudioFeatureFlags>(
       () => ({ ...DEFAULT_EMBED_FLAGS, ...featureFlags }),
       // eslint-disable-next-line react-hooks/exhaustive-deps
-      [JSON.stringify(featureFlags)],
+      // react-doctor-disable-next-line react-doctor/exhaustive-deps -- featureFlagsKey = JSON.stringify(featureFlags) is used as a stable deep-equality proxy
+      [featureFlagsKey],
     );
 
     const innerRef = React.useRef<StudioHandle>(null);

@@ -1,8 +1,4 @@
-import type {
-  StudioDataSource,
-  StudioGridColumn,
-  StudioRelationship,
-} from '../models';
+import type { StudioDataSource, StudioGridColumn, StudioRelationship } from '../models';
 
 type Row = Record<string, unknown>;
 
@@ -113,9 +109,11 @@ export function enrichWithCrossSourceColumns(
     return rows;
   }
 
-  const fieldRefs: CrossSourceFieldRef[] = columns
-    .filter((c) => c.sourceId && c.sourceId !== widgetSourceId)
-    .map((c) => ({ fieldId: c.fieldId, sourceId: c.sourceId! }));
+  const fieldRefs: CrossSourceFieldRef[] = columns.flatMap((c) =>
+    c.sourceId && c.sourceId !== widgetSourceId
+      ? [{ fieldId: c.fieldId, sourceId: c.sourceId }]
+      : [],
+  );
 
   return enrichWithCrossSourceFields(rows, widgetSourceId, fieldRefs, dataSources, relationships);
 }

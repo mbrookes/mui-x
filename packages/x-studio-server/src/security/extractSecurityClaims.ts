@@ -53,9 +53,7 @@ export function extractSecurityClaims(
 
   // Verify signature (HS256)
   const signingInput = `${headerB64}.${payloadB64}`;
-  const expectedSig = createHmac('sha256', jwtSecret)
-    .update(signingInput)
-    .digest('base64url');
+  const expectedSig = createHmac('sha256', jwtSecret).update(signingInput).digest('base64url');
 
   if (!timingSafeEqual(Buffer.from(expectedSig), Buffer.from(signatureB64))) {
     throw new Error('MUI X Studio Server: JWT signature verification failed');
@@ -75,9 +73,7 @@ export function extractSecurityClaims(
   }
 
   if (!payload.tenantId || !payload.sub) {
-    throw new Error(
-      'MUI X Studio Server: JWT payload must include "tenantId" and "sub" claims',
-    );
+    throw new Error('MUI X Studio Server: JWT payload must include "tenantId" and "sub" claims');
   }
 
   return {

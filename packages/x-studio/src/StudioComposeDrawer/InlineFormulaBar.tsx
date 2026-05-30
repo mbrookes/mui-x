@@ -73,7 +73,11 @@ function buildAutoLabel(
   return `${operandLabel(left, fields)} ${opSymbol(operator)} ${operandLabel(right, fields)}`;
 }
 
-function buildExpression(left: OperandState, operator: ArithmeticOp, right: OperandState): StudioExpression {
+function buildExpression(
+  left: OperandState,
+  operator: ArithmeticOp,
+  right: OperandState,
+): StudioExpression {
   const leftExpr: StudioExpression =
     left.type === 'const'
       ? { type: 'number', value: parseFloat(left.constant) || 0 }
@@ -108,10 +112,16 @@ function OperandEditor({
         sx={{ alignSelf: 'flex-start' }}
         aria-label={`${label} type`}
       >
-        <ToggleButton value="field" sx={{ px: 1, py: 0.25, fontSize: '0.7rem', textTransform: 'none' }}>
+        <ToggleButton
+          value="field"
+          sx={{ px: 1, py: 0.25, fontSize: '0.7rem', textTransform: 'none' }}
+        >
           Field
         </ToggleButton>
-        <ToggleButton value="const" sx={{ px: 1, py: 0.25, fontSize: '0.7rem', textTransform: 'none' }}>
+        <ToggleButton
+          value="const"
+          sx={{ px: 1, py: 0.25, fontSize: '0.7rem', textTransform: 'none' }}
+        >
           Number
         </ToggleButton>
       </ToggleButtonGroup>
@@ -170,6 +180,7 @@ export interface InlineFormulaBarProps {
  *
  * On "Add", creates a `StudioExpressionField` via the controller and calls `onFieldCreated`.
  */
+// react-doctor-disable-next-line react-doctor/prefer-useReducer -- each useState is independent; useReducer would add complexity without benefit
 export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFormulaBarProps) {
   const controller = useStudioController();
   const [open, setOpen] = React.useState(false);
@@ -226,7 +237,12 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
           startIcon={<FunctionsIcon fontSize="small" />}
           endIcon={<AddIcon fontSize="small" />}
           onClick={handleOpen}
-          sx={{ fontSize: '0.75rem', textTransform: 'none', alignSelf: 'flex-start', color: 'text.secondary' }}
+          sx={{
+            fontSize: '0.75rem',
+            textTransform: 'none',
+            alignSelf: 'flex-start',
+            color: 'text.secondary',
+          }}
         >
           Formula
         </Button>
@@ -271,7 +287,11 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
               sx={{ fontSize: '0.85rem', fontWeight: 700 }}
             >
               {OPERATORS.map((op) => (
-                <MenuItem key={op.value} value={op.value} sx={{ fontSize: '0.9rem', fontWeight: 700 }}>
+                <MenuItem
+                  key={op.value}
+                  value={op.value}
+                  sx={{ fontSize: '0.9rem', fontWeight: 700 }}
+                >
                   {op.label}
                 </MenuItem>
               ))}

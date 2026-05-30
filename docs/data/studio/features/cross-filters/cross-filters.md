@@ -117,11 +117,11 @@ By default, when a widget receives a cross-filter it **dims** non-matching data 
 }
 ```
 
-| Value | Behavior |
-| :--- | :--- |
-| `'cross-highlight'` | Non-matching data points are dimmed/greyed. The full dataset is still visible. This is the default for all widgets. |
-| `'cross-filter'` | Non-matching rows are removed. Only rows that match the cross-filter are shown. Use this to build filter widgets that enforce a strict selection. |
-| `'none'` | The widget ignores incoming cross-filters entirely. Use this to keep a reference widget always showing the full picture while others react to user clicks. |
+| Value               | Behavior                                                                                                                                                   |
+| :------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `'cross-highlight'` | Non-matching data points are dimmed/greyed. The full dataset is still visible. This is the default for all widgets.                                        |
+| `'cross-filter'`    | Non-matching rows are removed. Only rows that match the cross-filter are shown. Use this to build filter widgets that enforce a strict selection.          |
+| `'none'`            | The widget ignores incoming cross-filters entirely. Use this to keep a reference widget always showing the full picture while others react to user clicks. |
 
 ### Example — strictly filtered widget
 
@@ -164,25 +164,31 @@ To prevent a specific widget from receiving any cross-filters, set `crossFilterM
 
 When building a [custom widget](/x/react-studio/getting-started/composition/), use `useWidgetRows` to get the row arrays that already have cross-filters applied. Three outputs are relevant:
 
-| Output | Description |
-| :--- | :--- |
-| `effectiveRows` | The rows the widget should render — respects `crossFilterMode` automatically. |
-| `filteredRowsNoCross` | Rows with page and widget filters only (no cross-filters). Useful as a ghost/background dataset when `shouldShowGhost` is true. |
+| Output                     | Description                                                                                                                                                                                                                                                    |
+| :------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `effectiveRows`            | The rows the widget should render — respects `crossFilterMode` automatically.                                                                                                                                                                                  |
+| `filteredRowsNoCross`      | Rows with page and widget filters only (no cross-filters). Useful as a ghost/background dataset when `shouldShowGhost` is true.                                                                                                                                |
 | `filteredRowsNoChartCross` | Rows with page, widget, and interactive filters applied, but NOT chart-click cross-filters. Use as the baseline for table cross-highlight (interactive selections always hard-filter). Same reference as `effectiveRows` when no chart cross-filter is active. |
-| `shouldShowGhost` | `true` when the widget should render a dimmed background layer. Only set when `crossFilterMode === 'cross-highlight'` (the default) **and** a chart-click cross-filter is active. Interactive filter-widget selections never trigger ghost rendering. |
-| `hasCrossFilters` | `true` when at least one incoming cross-filter or interactive filter is active for this widget on the current page. |
-| `hasChartCrossFilters` | `true` when at least one chart-click cross-filter is active for this widget. |
+| `shouldShowGhost`          | `true` when the widget should render a dimmed background layer. Only set when `crossFilterMode === 'cross-highlight'` (the default) **and** a chart-click cross-filter is active. Interactive filter-widget selections never trigger ghost rendering.          |
+| `hasCrossFilters`          | `true` when at least one incoming cross-filter or interactive filter is active for this widget on the current page.                                                                                                                                            |
+| `hasChartCrossFilters`     | `true` when at least one chart-click cross-filter is active for this widget.                                                                                                                                                                                   |
 
 ```tsx
 import { useWidgetRows } from '@mui/x-studio';
 
 function MyChartWidget({ widget, dataSource }) {
-  const { effectiveRows, filteredRowsNoCross, shouldShowGhost } = useWidgetRows(widget, dataSource);
+  const { effectiveRows, filteredRowsNoCross, shouldShowGhost } = useWidgetRows(
+    widget,
+    dataSource,
+  );
 
   return (
     <div style={{ position: 'relative' }}>
       {shouldShowGhost && (
-        <MyChart rows={filteredRowsNoCross} style={{ opacity: 0.25, position: 'absolute', inset: 0 }} />
+        <MyChart
+          rows={filteredRowsNoCross}
+          style={{ opacity: 0.25, position: 'absolute', inset: 0 }}
+        />
       )}
       <MyChart rows={effectiveRows} />
     </div>

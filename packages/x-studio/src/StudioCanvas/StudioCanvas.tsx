@@ -213,7 +213,10 @@ function RowResizeHandle({
       const minFrac = 3 / drag.totalSpan;
       const clamped = Math.max(minFrac, Math.min(1 - minFrac, fraction));
       // Snap at midpoint: jump to the next column when the mouse crosses 50% between columns
-      const leftSpanLive = Math.max(3, Math.min(drag.totalSpan - 3, Math.round(clamped * drag.totalSpan)));
+      const leftSpanLive = Math.max(
+        3,
+        Math.min(drag.totalSpan - 3, Math.round(clamped * drag.totalSpan)),
+      );
       onDragMove(leftId, rightId, leftSpanLive);
     },
     [leftId, rightId, onDragMove],
@@ -231,7 +234,10 @@ function RowResizeHandle({
       const fraction = (event.clientX - drag.combinedLeft) / drag.combinedWidth;
       const minFrac = 3 / drag.totalSpan;
       const clamped = Math.max(minFrac, Math.min(1 - minFrac, fraction));
-      const snappedLeft = Math.max(3, Math.min(drag.totalSpan - 3, Math.round(clamped * drag.totalSpan)));
+      const snappedLeft = Math.max(
+        3,
+        Math.min(drag.totalSpan - 3, Math.round(clamped * drag.totalSpan)),
+      );
       const snappedRight = drag.totalSpan - snappedLeft;
       onDragEnd(leftId, rightId, snappedLeft, snappedRight);
     },
@@ -314,7 +320,10 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   }, [mode, effectiveBreakpoint]);
 
   const isStacked =
-    mode !== 'edit' && effectiveBreakpoint > 0 && canvasWidth !== null && canvasWidth < effectiveBreakpoint;
+    mode !== 'edit' &&
+    effectiveBreakpoint > 0 &&
+    canvasWidth !== null &&
+    canvasWidth < effectiveBreakpoint;
 
   // Live resize: maps widgetId → continuous (float) span during a between-widget drag.
   const [liveDrag, setLiveDrag] = React.useState<{
@@ -701,7 +710,12 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                           }}
                           onDragEnd={(lId, rId, snappedLeft, snappedRight) => {
                             setLiveDrag(null);
-                            controller.setAdjacentWidgetColSpans(lId, snappedLeft, rId, snappedRight);
+                            controller.setAdjacentWidgetColSpans(
+                              lId,
+                              snappedLeft,
+                              rId,
+                              snappedRight,
+                            );
                           }}
                         />
                       )}
@@ -713,7 +727,8 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
             {/* Column grid lines overlay — shown during a resize drag on this row.
                 Lines are offset to align with the widget area, accounting for the
                 8px insertion point at the left and the 8px gap(s) within and after. */}
-            {liveDrag && row.includes(liveDrag.leftId) &&
+            {liveDrag &&
+              row.includes(liveDrag.leftId) &&
               Array.from({ length: 11 }).map((_, i) => (
                 <Box
                   key={i}

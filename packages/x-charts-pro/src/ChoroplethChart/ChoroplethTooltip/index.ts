@@ -1,0 +1,1 @@
+export { ChoroplethTooltipContent } from './ChoroplethTooltipContent';

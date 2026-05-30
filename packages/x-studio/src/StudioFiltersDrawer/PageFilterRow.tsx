@@ -64,10 +64,11 @@ export function PageFilterRow(props: PageFilterRowProps) {
 
   const dependencyOptions = React.useMemo(
     () =>
-      allPageFilters
-        .flatMap((f) => (f.id !== filter.id && !!f.field)
+      allPageFilters.flatMap((f) =>
+        f.id !== filter.id && !!f.field
           ? [{ id: f.id, label: fields.find((sf) => sf.id === f.field)?.label ?? f.field }]
-          : []),
+          : [],
+      ),
     [allPageFilters, filter.id, fields],
   );
 
@@ -172,7 +173,9 @@ export function PageFilterRow(props: PageFilterRowProps) {
         disableRankMode={disableRankMode}
         dependencyOptions={dependencyOptions.length > 0 ? dependencyOptions : undefined}
         dependsOn={filter.dependsOn}
-        onDependencyChange={(ids) => handleFilterChange({ dependsOn: ids.length > 0 ? ids : undefined })}
+        onDependencyChange={(ids) =>
+          handleFilterChange({ dependsOn: ids.length > 0 ? ids : undefined })
+        }
       />
     </FilterCard>
   );

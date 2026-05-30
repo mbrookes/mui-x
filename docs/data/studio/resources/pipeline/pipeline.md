@@ -16,21 +16,21 @@ githubLabel: 'scope: studio'
 Studio's data pipeline transforms raw source rows into the filtered, enriched row arrays that each widget renders.
 It runs in two modes depending on whether the source has an async adapter:
 
-| Mode | When | What runs |
-| :--- | :--- | :--- |
-| **Sync (in-memory)** | `dataSource.adapter` is not set | L1 normalization → L2 enrichment → L3 filter application → (L4 chart re-anchor for charts) |
-| **Async (adapter)** | `dataSource.adapter` is set | `buildQueryDescriptor` → `StudioRequestCache` → `adapter.getRows()` → returns rows directly |
+| Mode                 | When                            | What runs                                                                                   |
+| :------------------- | :------------------------------ | :------------------------------------------------------------------------------------------ |
+| **Sync (in-memory)** | `dataSource.adapter` is not set | L1 normalization → L2 enrichment → L3 filter application → (L4 chart re-anchor for charts)  |
+| **Async (adapter)**  | `dataSource.adapter` is set     | `buildQueryDescriptor` → `StudioRequestCache` → `adapter.getRows()` → returns rows directly |
 
 ## Store entries
 
 The pipeline reads from four slices of `StudioState`:
 
-| Entry | Type | Description |
-| :--- | :--- | :--- |
-| `dataSources` | `Record<string, StudioDataSource>` | Raw rows, field schema, and optional `adapter` for each source. Row array reference identity is used as a cache key — replacing the array automatically invalidates downstream caches for that source. |
-| `expressionFields` | `StudioExpressionField[]` | Calculated columns and aggregated measures. Dependencies between expression fields are resolved transitively at enrichment time (L2). |
-| `relationships` | `StudioRelationship[]` | Foreign-key links between sources. Used by enrichment (join-field expressions), cross-source filter resolution, and chart re-anchoring (L4). |
-| `filters` | `StudioFilterState[]` | All active filter states. Each entry carries a `scope` tag (`'page'`, `'widget'`, `'cross-filter'`, `'interactive'`), plus `widgetId`, `sourceWidgetId`, and `pageId` for scoping. |
+| Entry              | Type                               | Description                                                                                                                                                                                            |
+| :----------------- | :--------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dataSources`      | `Record<string, StudioDataSource>` | Raw rows, field schema, and optional `adapter` for each source. Row array reference identity is used as a cache key — replacing the array automatically invalidates downstream caches for that source. |
+| `expressionFields` | `StudioExpressionField[]`          | Calculated columns and aggregated measures. Dependencies between expression fields are resolved transitively at enrichment time (L2).                                                                  |
+| `relationships`    | `StudioRelationship[]`             | Foreign-key links between sources. Used by enrichment (join-field expressions), cross-source filter resolution, and chart re-anchoring (L4).                                                           |
+| `filters`          | `StudioFilterState[]`              | All active filter states. Each entry carries a `scope` tag (`'page'`, `'widget'`, `'cross-filter'`, `'interactive'`), plus `widgetId`, `sourceWidgetId`, and `pageId` for scoping.                     |
 
 ## Pre-partitioned filter selector
 
@@ -115,11 +115,11 @@ interface StudioQueryDescriptor {
 
 Module-singleton cache for async adapter results.
 
-| Feature | Detail |
-| :--- | :--- |
-| TTL | 30 s |
-| Inflight deduplication | Multiple `getRows()` calls for the same `cacheKey` resolve from one shared `Promise` |
-| Stale-while-revalidate | Returns last known result synchronously on the first render after a cache miss |
+| Feature                   | Detail                                                                                       |
+| :------------------------ | :------------------------------------------------------------------------------------------- |
+| TTL                       | 30 s                                                                                         |
+| Inflight deduplication    | Multiple `getRows()` calls for the same `cacheKey` resolve from one shared `Promise`         |
+| Stale-while-revalidate    | Returns last known result synchronously on the first render after a cache miss               |
 | Source-level invalidation | `cache.invalidateSource(sourceId)` clears all entries whose key starts with `"${sourceId}:"` |
 
 ## `useWidgetRows` outputs
@@ -127,15 +127,15 @@ Module-singleton cache for async adapter results.
 `useWidgetRows(widget, dataSource)` is the React hook that drives all widget row computation.
 It returns:
 
-| Output | Type | Description |
-| :--- | :--- | :--- |
-| `effectiveRows` | `Row[]` | Rows the widget should render. Equals `filteredRowsNoCross` when `crossFilterMode: 'none'`; `filteredRows` otherwise. |
-| `filteredRows` | `Row[]` | All filters applied (page + widget + cross-filter + interactive). On the async path, equals `adapterRows`. |
-| `filteredRowsNoCross` | `Row[]` | Page and widget filters only — cross-filter and interactive filters excluded. Same reference as `filteredRows` when no cross-filters are active. On the async path, same as `filteredRows`. |
-| `hasCrossFilters` | `boolean` | `true` if any chart-click or interactive filter from another widget is active on this page. Always `false` on the async path. |
-| `shouldShowGhost` | `boolean` | `true` only when `crossFilterMode === 'cross-highlight'` and a **chart-click** cross-filter is active. Interactive filter-widget selections never trigger ghost rendering. |
-| `isLoading` | `boolean` | `true` while an adapter fetch is in flight with no prior cached result. Always `false` on the sync path. |
-| `isRecomputing` | `boolean` | `true` while React's deferred update of the partitioned filter state has not committed. Always `false` on the async path. |
+| Output                | Type      | Description                                                                                                                                                                                 |
+| :-------------------- | :-------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `effectiveRows`       | `Row[]`   | Rows the widget should render. Equals `filteredRowsNoCross` when `crossFilterMode: 'none'`; `filteredRows` otherwise.                                                                       |
+| `filteredRows`        | `Row[]`   | All filters applied (page + widget + cross-filter + interactive). On the async path, equals `adapterRows`.                                                                                  |
+| `filteredRowsNoCross` | `Row[]`   | Page and widget filters only — cross-filter and interactive filters excluded. Same reference as `filteredRows` when no cross-filters are active. On the async path, same as `filteredRows`. |
+| `hasCrossFilters`     | `boolean` | `true` if any chart-click or interactive filter from another widget is active on this page. Always `false` on the async path.                                                               |
+| `shouldShowGhost`     | `boolean` | `true` only when `crossFilterMode === 'cross-highlight'` and a **chart-click** cross-filter is active. Interactive filter-widget selections never trigger ghost rendering.                  |
+| `isLoading`           | `boolean` | `true` while an adapter fetch is in flight with no prior cached result. Always `false` on the sync path.                                                                                    |
+| `isRecomputing`       | `boolean` | `true` while React's deferred update of the partitioned filter state has not committed. Always `false` on the async path.                                                                   |
 
 ## `createStudioPipeline`
 
@@ -155,7 +155,12 @@ Applies metric-ref resolution, enrichment, and all scoped filters for a given wi
 Rank-mode widget filters are excluded — apply them after aggregation if needed.
 
 ```ts
-const filtered = pipeline.resolveWidgetRows('w1', 'orders', source.rows, activePageId);
+const filtered = pipeline.resolveWidgetRows(
+  'w1',
+  'orders',
+  source.rows,
+  activePageId,
+);
 ```
 
 ### `pipeline.resolveChartRows(filteredRows, sourceId, xField, yFields, seriesField)`
@@ -164,7 +169,13 @@ L4 cross-source chart re-anchor.
 Call after `resolveWidgetRows` when generating chart data outside React (e.g. for a CSV export of a chart's aggregated data).
 
 ```ts
-const chartRows = pipeline.resolveChartRows(filtered, 'orders', 'date', ['revenue'], 'category');
+const chartRows = pipeline.resolveChartRows(
+  filtered,
+  'orders',
+  'date',
+  ['revenue'],
+  'category',
+);
 ```
 
 ### `pipeline.getEnrichedRows(rows, sourceId, usedFieldIds?)`
@@ -174,7 +185,11 @@ Returns rows with expression-field values appended.
 Useful when you need enriched rows before applying custom filter logic outside the standard pipeline.
 
 ```ts
-const enriched = pipeline.getEnrichedRows(source.rows, 'orders', new Set(['expr-margin']));
+const enriched = pipeline.getEnrichedRows(
+  source.rows,
+  'orders',
+  new Set(['expr-margin']),
+);
 ```
 
 ## See also

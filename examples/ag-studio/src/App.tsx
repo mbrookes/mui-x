@@ -1,5 +1,18 @@
 import * as React from 'react';
-import { Alert, Box, Button, CssBaseline, Snackbar, Tab, Tabs, ThemeProvider, Toolbar, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  CssBaseline,
+  Snackbar,
+  Tab,
+  Tabs,
+  ThemeProvider,
+  Toolbar,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
+} from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import { AgStudio } from 'ag-studio-react';
@@ -36,9 +49,13 @@ function getUrlRowsParam(): number | undefined {
 
 export default function App() {
   // AG Studio API is accessed via ref.current.api after onApiReady fires.
-  const apiRef = React.useRef<{ getState: () => unknown; setState: (s: unknown) => void } | null>(null);
+  const apiRef = React.useRef<{ getState: () => unknown; setState: (s: unknown) => void } | null>(
+    null,
+  );
   const [mode, setMode] = React.useState<'edit' | 'view'>('edit');
-  const [currentPageId, setCurrentPageId] = React.useState<string>(AG_SALES_DASHBOARD_STATE.selectedPageId);
+  const [currentPageId, setCurrentPageId] = React.useState<string>(
+    AG_SALES_DASHBOARD_STATE.selectedPageId,
+  );
   const [snackbar, setSnackbar] = React.useState<{
     open: boolean;
     message: string;
@@ -159,18 +176,15 @@ export default function App() {
     setSnackbar((prev) => ({ ...prev, open: false }));
   }, []);
 
-  const handlePageChange = React.useCallback(
-    (_event: React.SyntheticEvent, pageId: string) => {
-      const api = apiRef.current;
-      if (!api) {
-        return;
-      }
-      const state = api.getState() as { selectedPageId: string };
-      api.setState({ ...state, selectedPageId: pageId });
-      setCurrentPageId(pageId);
-    },
-    [],
-  );
+  const handlePageChange = React.useCallback((_event: React.SyntheticEvent, pageId: string) => {
+    const api = apiRef.current;
+    if (!api) {
+      return;
+    }
+    const state = api.getState() as { selectedPageId: string };
+    api.setState({ ...state, selectedPageId: pageId });
+    setCurrentPageId(pageId);
+  }, []);
 
   return (
     <ThemeProvider theme={theme}>
@@ -178,41 +192,48 @@ export default function App() {
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
         {/* Header: toolbar + page tabs */}
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Toolbar
-          variant="dense"
-          sx={{ gap: 1, minHeight: 48 }}
-        >
-          <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 700, fontSize: 15 }}>
-            Sales Dashboard
-          </Typography>
-          <ToggleButtonGroup
-            value={mode}
-            exclusive
-            onChange={handleModeChange}
-            size="small"
-            sx={{ mr: 1 }}
+          <Toolbar variant="dense" sx={{ gap: 1, minHeight: 48 }}>
+            <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 700, fontSize: 15 }}>
+              Sales Dashboard
+            </Typography>
+            <ToggleButtonGroup
+              value={mode}
+              exclusive
+              onChange={handleModeChange}
+              size="small"
+              sx={{ mr: 1 }}
+            >
+              <ToggleButton value="edit">Edit</ToggleButton>
+              <ToggleButton value="view">View</ToggleButton>
+            </ToggleButtonGroup>
+            <Button size="small" startIcon={<SaveIcon />} onClick={handleSave} variant="outlined">
+              Save
+            </Button>
+            <Button
+              size="small"
+              startIcon={<FolderOpenIcon />}
+              onClick={handleLoad}
+              variant="outlined"
+            >
+              Load
+            </Button>
+          </Toolbar>
+          <Tabs
+            value={currentPageId}
+            onChange={handlePageChange}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{ minHeight: 36, px: 2 }}
           >
-            <ToggleButton value="edit">Edit</ToggleButton>
-            <ToggleButton value="view">View</ToggleButton>
-          </ToggleButtonGroup>
-          <Button size="small" startIcon={<SaveIcon />} onClick={handleSave} variant="outlined">
-            Save
-          </Button>
-          <Button size="small" startIcon={<FolderOpenIcon />} onClick={handleLoad} variant="outlined">
-            Load
-          </Button>
-        </Toolbar>
-        <Tabs
-          value={currentPageId}
-          onChange={handlePageChange}
-          variant="scrollable"
-          scrollButtons="auto"
-          sx={{ minHeight: 36, px: 2 }}
-        >
-          {PAGES.map((page) => (
-            <Tab key={page.id} label={page.label} value={page.id} sx={{ minHeight: 36, py: 0.5 }} />
-          ))}
-        </Tabs>
+            {PAGES.map((page) => (
+              <Tab
+                key={page.id}
+                label={page.label}
+                value={page.id}
+                sx={{ minHeight: 36, py: 0.5 }}
+              />
+            ))}
+          </Tabs>
         </Box>
 
         {/* AG Studio fills remaining space */}

@@ -224,6 +224,21 @@ const chartsApiPages: MuiPage[] = [
     plan: 'pro',
   },
   {
+    pathname: '/x/api/charts/choropleth-chart',
+    title: 'ChoroplethChart',
+    plan: 'pro',
+  },
+  {
+    pathname: '/x/api/charts/choropleth-plot',
+    title: 'ChoroplethPlot',
+    plan: 'pro',
+  },
+  {
+    pathname: '/x/api/charts/choropleth-tooltip-content',
+    title: 'ChoroplethTooltipContent',
+    plan: 'pro',
+  },
+  {
     pathname: '/x/api/charts/continuous-color-legend',
     title: 'ContinuousColorLegend',
   },

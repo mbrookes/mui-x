@@ -24,8 +24,11 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
   );
 
   // Sync when external value changes (e.g. filter cleared programmatically)
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- external sync is intentional; local state buffers UI interaction
   React.useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-derived-state -- date pickers use local state to avoid re-render on every keystroke
     setFrom(currentValue?.from ? dayjs(currentValue.from) : null);
+    // react-doctor-disable-next-line react-doctor/no-derived-state -- same as above
     setTo(currentValue?.to ? dayjs(currentValue.to) : null);
   }, [currentValue?.from, currentValue?.to]);
 

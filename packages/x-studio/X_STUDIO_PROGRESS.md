@@ -1,6 +1,6 @@
 # @mui/x-studio — Requirements Progress Tracker
 
-> Last updated: 2026-05-30
+> Last updated: 2026-05-31
 
 ---
 
@@ -76,6 +76,7 @@
 | UX-01 | UX        | Map aggregation disabled without value field | ✅ Completed |
 | UX-02 | UX        | Settings: Compose panel label             | ✅ Completed |
 | UX-03 | UX        | Data panel: right-aligned edit/delete     | ✅ Completed |
+| UX-04 | UX        | Consistent calculated field UI + flags    | ✅ Completed |
 
 ---
 
@@ -485,6 +486,15 @@
 
 - Added `flexGrow: 1; minWidth: 0` to `ExpressionFieldRow` primary-content Stack so edit/delete icon buttons are always pushed to the right
 - Added `flexShrink: 0` to relationship edit/delete `IconButton`s to prevent them overlapping long relationship names
+
+### UX-04 · Consistent calculated field UI + feature flags (BL-78, BL-79)
+
+- Replaced `InlineFormulaBar` in `ChartSetupPanel` and `KpiSetupPanel` with a "Calculated field…" button that opens the full `StudioExpressionFieldDialog`
+- Added `onSaved?: (fieldId: string) => void` callback to `StudioExpressionFieldDialog` — called after a new field is created (not on edits); used by chart/KPI panels to auto-add the new field to the widget config
+- All three widget types (chart, KPI, table) now use the identical full-featured expression dialog flow, consistent with the table benchmark
+- New `StudioFeatureFlags` keys: `calculatedFields` (global master), `kpiCalculatedFields`, `chartCalculatedFields`, `gridCalculatedFields`; all default to `true`; each panel gates its "Calculated field…" control on `calculatedFields !== false && <widget>CalculatedFields !== false`
+- Settings dialogs in both example apps expose the four new toggles; per-widget toggles have `parentKey: 'calculatedFields'` so they disable when the global master is off
+- Fixed `Studio.tsx` variable ordering: `showCompose` declaration moved before the `useEffect` that references it
 
 ---
 

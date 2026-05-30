@@ -28,7 +28,7 @@
 `@mui/x-studio` is a self-contained, embeddable analytics dashboard builder.
 A host application mounts the `<Studio>` component, provides data sources at runtime, and can read/write state via the imperative `StudioHandle` or the `StudioController` class.
 
-```mermaid
+````mermaid
 graph TD
     Host["Host Application"]
     Studio["&lt;Studio&gt; component"]
@@ -840,3 +840,4 @@ All flags default to `true` (opt-out model). Setting any flag to `false` hides t
 ### 13.7 Locale / i18n
 
 All user-visible strings are defined in `StudioLocaleText` and passed via `localeText` prop on `<Studio>`. A complete `ptBRLocaleText` translation is provided. Partial override objects are merged over the English defaults.
+````

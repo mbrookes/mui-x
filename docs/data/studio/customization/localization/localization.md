@@ -23,11 +23,11 @@ Studio ships with a Brazilian Portuguese translation out of the box:
 import { Studio } from '@mui/x-studio';
 import { ptBRLocaleText } from '@mui/x-studio';
 
-<Studio localeText={ptBRLocaleText} initialState={myState} />
+<Studio localeText={ptBRLocaleText} initialState={myState} />;
 ```
 
-| Import name | Language |
-| :--- | :--- |
+| Import name      | Language                     |
+| :--------------- | :--------------------------- |
 | `ptBRLocaleText` | Brazilian Portuguese (pt-BR) |
 
 ## Partial override
@@ -50,71 +50,71 @@ Defaults are the English strings shown in the right column.
 
 ### Drawer titles
 
-| Token | Default |
-| :--- | :--- |
-| `dataDrawerTitle` | `'Data'` |
+| Token                | Default     |
+| :------------------- | :---------- |
+| `dataDrawerTitle`    | `'Data'`    |
 | `composeDrawerTitle` | `'Compose'` |
 | `filtersDrawerTitle` | `'Filters'` |
 
 ### Date range presets
 
-| Token | Default |
-| :--- | :--- |
-| `dateRangePresetAllTime` | `'All time'` |
-| `dateRangePresetYTD` | `'YTD'` |
-| `dateRangePresetThisMonth` | `'This month'` |
-| `dateRangePresetLast3Months` | `'Last 3 months'` |
+| Token                         | Default            |
+| :---------------------------- | :----------------- |
+| `dateRangePresetAllTime`      | `'All time'`       |
+| `dateRangePresetYTD`          | `'YTD'`            |
+| `dateRangePresetThisMonth`    | `'This month'`     |
+| `dateRangePresetLast3Months`  | `'Last 3 months'`  |
 | `dateRangePresetLast12Months` | `'Last 12 months'` |
 
 ### Filters panel
 
-| Token | Default |
-| :--- | :--- |
-| `filterSearchPlaceholder` | `'Search filters…'` |
-| `filtersSectionPageFiltersTitle` | `'Page filters'` |
-| `filtersSectionNoFilters` | `'No filters applied.'` |
-| `filtersSectionNoMatchingFilters` | `'No matching filters.'` |
-| `filtersAddFilterTooltip` | `'Add filter'` |
-| `filtersSavedViewsTitle` | `'Saved views'` |
-| `filtersSaveViewTooltip` | `'Save current page filters as a named view'` |
-| `filtersSaveViewButton` | `'Save'` |
-| `filtersSaveViewPlaceholder` | `'View name'` |
-| `filtersDeleteViewTooltip` | `'Delete view'` |
-| `filtersNoSavedViews` | `'No saved views. Apply page filters and save them here.'` |
-| `filtersAddDataSourceHint` | `'Add a data source and widgets first.'` |
+| Token                             | Default                                                    |
+| :-------------------------------- | :--------------------------------------------------------- |
+| `filterSearchPlaceholder`         | `'Search filters…'`                                        |
+| `filtersSectionPageFiltersTitle`  | `'Page filters'`                                           |
+| `filtersSectionNoFilters`         | `'No filters applied.'`                                    |
+| `filtersSectionNoMatchingFilters` | `'No matching filters.'`                                   |
+| `filtersAddFilterTooltip`         | `'Add filter'`                                             |
+| `filtersSavedViewsTitle`          | `'Saved views'`                                            |
+| `filtersSaveViewTooltip`          | `'Save current page filters as a named view'`              |
+| `filtersSaveViewButton`           | `'Save'`                                                   |
+| `filtersSaveViewPlaceholder`      | `'View name'`                                              |
+| `filtersDeleteViewTooltip`        | `'Delete view'`                                            |
+| `filtersNoSavedViews`             | `'No saved views. Apply page filters and save them here.'` |
+| `filtersAddDataSourceHint`        | `'Add a data source and widgets first.'`                   |
 
 ### Widget states
 
-| Token | Default |
-| :--- | :--- |
-| `widgetConfigureChartHint` | `'Use the Setup tab to configure this chart.'` |
-| `widgetConfigureGaugeHint` | `'Use the Setup tab to choose a gauge value field.'` |
+| Token                      | Default                                                           |
+| :------------------------- | :---------------------------------------------------------------- |
+| `widgetConfigureChartHint` | `'Use the Setup tab to configure this chart.'`                    |
+| `widgetConfigureGaugeHint` | `'Use the Setup tab to choose a gauge value field.'`              |
 | `widgetConfigurePivotHint` | `'Use the Setup tab to configure row, column, and value fields.'` |
-| `widgetNoData` | `'No data to display.'` |
-| `widgetLoadError` | `'Failed to load data'` |
+| `widgetNoData`             | `'No data to display.'`                                           |
+| `widgetLoadError`          | `'Failed to load data'`                                           |
 
 ### Quick filter bar
 
-| Token | Default |
-| :--- | :--- |
-| `quickFilterBarOpenFilters` | `'Open filters panel'` |
-| `quickFilterBarClearAll` | `'Clear all page filters'` |
+| Token                       | Default                    |
+| :-------------------------- | :------------------------- |
+| `quickFilterBarOpenFilters` | `'Open filters panel'`     |
+| `quickFilterBarClearAll`    | `'Clear all page filters'` |
 
 ### Widget card actions
 
-| Token | Default |
-| :--- | :--- |
-| `widgetEditTooltip` | `'Edit widget'` |
+| Token                    | Default           |
+| :----------------------- | :---------------- |
+| `widgetEditTooltip`      | `'Edit widget'`   |
 | `widgetExportCsvTooltip` | `'Export as CSV'` |
 | `widgetExportPngTooltip` | `'Export as PNG'` |
-| `widgetExpandTooltip` | `'Expand chart'` |
-| `widgetMoveToPageLabel` | `'Move to page'` |
+| `widgetExpandTooltip`    | `'Expand chart'`  |
+| `widgetMoveToPageLabel`  | `'Move to page'`  |
 
 ### AI assistant
 
-| Token | Default |
-| :--- | :--- |
-| `aiAssistantOpenTooltip` | `'Open AI assistant'` |
+| Token                     | Default                |
+| :------------------------ | :--------------------- |
+| `aiAssistantOpenTooltip`  | `'Open AI assistant'`  |
 | `aiAssistantCloseTooltip` | `'Close AI assistant'` |
 
 ## Adding a custom translation
@@ -137,7 +137,7 @@ Pass it the same way as the built-in translations:
 ```tsx
 import { deLocaleText } from './locales/de';
 
-<Studio localeText={deLocaleText} initialState={myState} />
+<Studio localeText={deLocaleText} initialState={myState} />;
 ```
 
 ## `useStudioLocaleText` hook
@@ -163,7 +163,7 @@ This ensures your custom components automatically pick up any locale overrides p
 import { StudioDashboard } from '@mui/x-studio';
 import { ptBRLocaleText } from '@mui/x-studio';
 
-<StudioDashboard config={dashboardState} localeText={ptBRLocaleText} />
+<StudioDashboard config={dashboardState} localeText={ptBRLocaleText} />;
 ```
 
 ## `DEFAULT_STUDIO_LOCALE_TEXT`

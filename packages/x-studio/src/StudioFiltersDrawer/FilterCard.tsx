@@ -24,7 +24,13 @@ export interface FilterCardProps {
 /**
  * Collapsible card used by both PageFilterRow and WidgetFilterRow.
  */
-export function FilterCard({ title, summary, onRemove, children, initialExpanded = false }: FilterCardProps) {
+export function FilterCard({
+  title,
+  summary,
+  onRemove,
+  children,
+  initialExpanded = false,
+}: FilterCardProps) {
   const [expanded, setExpanded] = React.useState(initialExpanded);
 
   return (

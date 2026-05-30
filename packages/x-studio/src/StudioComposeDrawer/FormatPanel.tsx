@@ -36,7 +36,9 @@ export function FormatPanel(props: { widgetId: string }) {
   const isAutoSubtitle =
     widget?.subtitleMode === 'auto' || (!widget?.subtitleMode && !widget?.subtitle);
 
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- form state is intentionally reset when widget/page changes
   React.useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-derived-state -- locally buffered editable fields; saved on blur
     setFormState({
       title: widget?.title ?? '',
       subtitle: widget?.subtitle ?? '',

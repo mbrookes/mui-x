@@ -1,4 +1,5 @@
 # Comprehensive UI Performance Review
+
 ## For MUI X Studio (React + MUI + MUI X)
 
 ---
@@ -39,15 +40,15 @@ TTFB █████                 #5 — Infrastructure (CDN, server)
 
 ### Core Web Vitals Thresholds
 
-| Metric | Good | Needs Work | Poor |
-|--------|------|-----------|------|
-| INP (Interaction to Next Paint) | ≤ 200ms | 200–500ms | > 500ms |
-| LCP (Largest Contentful Paint) | ≤ 2.5s | 2.5–4.0s | > 4.0s |
-| CLS (Cumulative Layout Shift) | ≤ 0.1 | 0.1–0.25 | > 0.25 |
-| FCP (First Contentful Paint) | ≤ 1.8s | 1.8–3.0s | > 3.0s |
-| TTFB (Time to First Byte) | ≤ 0.8s | 0.8–1.8s | > 1.8s |
+| Metric                          | Good    | Needs Work | Poor    |
+| ------------------------------- | ------- | ---------- | ------- |
+| INP (Interaction to Next Paint) | ≤ 200ms | 200–500ms  | > 500ms |
+| LCP (Largest Contentful Paint)  | ≤ 2.5s  | 2.5–4.0s   | > 4.0s  |
+| CLS (Cumulative Layout Shift)   | ≤ 0.1   | 0.1–0.25   | > 0.25  |
+| FCP (First Contentful Paint)    | ≤ 1.8s  | 1.8–3.0s   | > 3.0s  |
+| TTFB (Time to First Byte)       | ≤ 0.8s  | 0.8–1.8s   | > 1.8s  |
 
-**INP replaced FID as a Core Web Vital in March 2024.**[^1] Unlike FID (which measured only the *first* interaction's input delay), INP observes **all qualifying interactions** (click, tap, keyboard) throughout the page's lifetime and reports the worst-performing one (excluding top 1/50 outliers). Every data grid sort, filter chip click, or date range change contributes.
+**INP replaced FID as a Core Web Vital in March 2024.**[^1] Unlike FID (which measured only the _first_ interaction's input delay), INP observes **all qualifying interactions** (click, tap, keyboard) throughout the page's lifetime and reports the worst-performing one (excluding top 1/50 outliers). Every data grid sort, filter chip click, or date range change contributes.
 
 ---
 
@@ -73,6 +74,7 @@ Records a Chrome DevTools-identical performance trace using CDP `Tracing` domain
 ```
 
 For interaction-specific traces (e.g., profiling a DataGrid sort):
+
 ```
 1. navigate_page(url="http://localhost:3000")
 2. performance_start_trace(reload=false, autoStop=false)
@@ -169,16 +171,16 @@ Fills the Lighthouse performance gap. Provides 13 tools including **actual Light
 
 **Key tools:**
 
-| Tool | What It Returns |
-|------|----------------|
-| `get_performance_score` | Lighthouse score + FCP, LCP, TBT, CLS, Speed Index, TTI |
-| `get_core_web_vitals` | LCP/INP/CLS with configurable pass/fail thresholds |
-| `compare_mobile_desktop` | Side-by-side score diff |
-| `check_performance_budget` | Custom budget: `{ lcp: 2500, cls: 0.1, tbt: 200 }` |
-| `get_lcp_opportunities` | LCP element + specific actionable recommendations |
-| `find_unused_javascript` | Per-file: total KB, unused KB, unused %, recommendations |
-| `analyze_resources` | All JS/CSS/image/font resources with size + priority |
-| `run_audit` | Full audit (perf + a11y + SEO + best practices) |
+| Tool                       | What It Returns                                          |
+| -------------------------- | -------------------------------------------------------- |
+| `get_performance_score`    | Lighthouse score + FCP, LCP, TBT, CLS, Speed Index, TTI  |
+| `get_core_web_vitals`      | LCP/INP/CLS with configurable pass/fail thresholds       |
+| `compare_mobile_desktop`   | Side-by-side score diff                                  |
+| `check_performance_budget` | Custom budget: `{ lcp: 2500, cls: 0.1, tbt: 200 }`       |
+| `get_lcp_opportunities`    | LCP element + specific actionable recommendations        |
+| `find_unused_javascript`   | Per-file: total KB, unused KB, unused %, recommendations |
+| `analyze_resources`        | All JS/CSS/image/font resources with size + priority     |
+| `run_audit`                | Full audit (perf + a11y + SEO + best practices)          |
 
 **Important:** Both Lighthouse MCP and chrome-devtools-mcp can attach to the same Chrome instance via `--chrome-port 9222`. Launch Chrome with `--remote-debugging-port=9222` to enable this.
 
@@ -203,14 +205,14 @@ Best for orchestrating realistic user flows before measuring performance (e.g., 
 
 **Performance-relevant tools:**
 
-| Tool | Performance Use Case |
-|------|---------------------|
-| `browser_start_tracing` / `browser_stop_tracing` | Playwright trace files (open with `npx playwright show-trace`) |
-| `browser_network_requests` | All requests since page load |
-| `browser_evaluate` | Run `performance.getEntriesByType('navigation')` or custom marks |
-| `browser_route` | Mock slow APIs to test skeleton states and error handling |
-| `browser_network_state_set` | Test offline / cached-asset behavior |
-| `browser_take_screenshot` | Before/after visual regression |
+| Tool                                             | Performance Use Case                                             |
+| ------------------------------------------------ | ---------------------------------------------------------------- |
+| `browser_start_tracing` / `browser_stop_tracing` | Playwright trace files (open with `npx playwright show-trace`)   |
+| `browser_network_requests`                       | All requests since page load                                     |
+| `browser_evaluate`                               | Run `performance.getEntriesByType('navigation')` or custom marks |
+| `browser_route`                                  | Mock slow APIs to test skeleton states and error handling        |
+| `browser_network_state_set`                      | Test offline / cached-asset behavior                             |
+| `browser_take_screenshot`                        | Before/after visual regression                                   |
 
 ---
 
@@ -235,15 +237,15 @@ Explicitly designed as a companion to chrome-devtools-mcp. Adds the 5 CDP domain
 
 **Performance additions:**
 
-| Domain | Tool | What It Adds |
-|--------|------|-------------|
-| Performance | `perf_metrics` | Raw runtime: JS heap, DOM nodes, layout count, style recalc count |
-| Performance | `perf_cpu_profile_start` / `stop` | CPU profiling with hotspot analysis |
-| Performance | `perf_heap_snapshot` | Memory snapshot (simpler than chrome-devtools-mcp's heap tools) |
-| CSS | `css_coverage_start` / `stop` | **Used vs. unused CSS per file** — critical for MUI/Emotion analysis |
-| CSS | `css_computed_style` | Final computed styles for any element |
-| Fetch | `fetch_enable` / `fetch_fulfill` / `fetch_fail` | Request interception for testing loading states |
-| Emulation | `emulate_reduced_motion` | Test `prefers-reduced-motion` animation behavior |
+| Domain      | Tool                                            | What It Adds                                                         |
+| ----------- | ----------------------------------------------- | -------------------------------------------------------------------- |
+| Performance | `perf_metrics`                                  | Raw runtime: JS heap, DOM nodes, layout count, style recalc count    |
+| Performance | `perf_cpu_profile_start` / `stop`               | CPU profiling with hotspot analysis                                  |
+| Performance | `perf_heap_snapshot`                            | Memory snapshot (simpler than chrome-devtools-mcp's heap tools)      |
+| CSS         | `css_coverage_start` / `stop`                   | **Used vs. unused CSS per file** — critical for MUI/Emotion analysis |
+| CSS         | `css_computed_style`                            | Final computed styles for any element                                |
+| Fetch       | `fetch_enable` / `fetch_fulfill` / `fetch_fail` | Request interception for testing loading states                      |
+| Emulation   | `emulate_reduced_motion`                        | Test `prefers-reduced-motion` animation behavior                     |
 
 **CSS coverage is particularly relevant for MUI X** — Emotion generates many class names at runtime, and CSS coverage reveals how much of that generated CSS is actually applied.[^8]
 
@@ -300,7 +302,7 @@ npm install -D react-scan
 ```html
 <head>
   <!-- dev only: react-scan re-render overlay -->
-  <script crossOrigin="anonymous" src="//unpkg.com/react-scan/dist/auto.global.js"></script>
+  <script crossorigin="anonymous" src="//unpkg.com/react-scan/dist/auto.global.js"></script>
 </head>
 ```
 
@@ -320,8 +322,8 @@ if (import.meta.env.DEV) {
 import { scan, setOptions } from 'react-scan';
 scan({
   enabled: true,
-  log: false,           // log to console
-  showToolbar: true,    // on-page toolbar
+  log: false, // log to console
+  showToolbar: true, // on-page toolbar
   animationSpeed: 'fast',
   onRender: (fiber, renders) => {
     // programmatic access to every render event
@@ -339,7 +341,7 @@ setOptions({ enabled: false }); // disable before perf measurements
 
 **npm:** `@welldone-software/why-did-you-render` | **Version:** `10.0.1`[^10]
 
-Reports *why* a component re-rendered — which prop/state/hook/context changed. Critical for finding the "something upstream is creating a new object reference every render" class of bugs.
+Reports _why_ a component re-rendered — which prop/state/hook/context changed. Critical for finding the "something upstream is creating a new object reference every render" class of bugs.
 
 ```bash
 npm install --save-dev @welldone-software/why-did-you-render
@@ -357,9 +359,9 @@ import React from 'react';
 if (process.env.NODE_ENV === 'development') {
   const { default: whyDidYouRender } = await import('@welldone-software/why-did-you-render');
   whyDidYouRender(React, {
-    trackAllPureComponents: true,  // all React.memo + PureComponent
+    trackAllPureComponents: true, // all React.memo + PureComponent
     trackHooks: true,
-    logOwnerReasons: true,         // show why the PARENT re-rendered too
+    logOwnerReasons: true, // show why the PARENT re-rendered too
     collapseGroups: false,
     // Scope to specific components to avoid console noise:
     // include: [/StudioWidgetCard/, /FormatPanel/],
@@ -370,7 +372,7 @@ if (process.env.NODE_ENV === 'development') {
 
 ```ts
 // src/main.tsx
-import './wdyr';  // ⚠️ MUST be line 1
+import './wdyr'; // ⚠️ MUST be line 1
 import React from 'react';
 // ... rest of app
 ```
@@ -378,7 +380,9 @@ import React from 'react';
 **Enable per component:**
 
 ```ts
-const MyWidget = (props) => { /* ... */ };
+const MyWidget = (props) => {
+  /* ... */
+};
 MyWidget.whyDidYouRender = true;
 
 // Or with advanced config:
@@ -399,10 +403,12 @@ MyWidget.whyDidYouRender = {
 After installation, a **⚛️ Profiler** tab appears in DevTools.
 
 **Key settings to enable:**
-- Profiler → ⚙️ → ✅ **"Record why each component rendered"** — shows *Props changed / State changed / Hooks changed / Context changed* for each bar
+
+- Profiler → ⚙️ → ✅ **"Record why each component rendered"** — shows _Props changed / State changed / Hooks changed / Context changed_ for each bar
 - Components → ⚙️ → ✅ **"Highlight updates when components render"** — blue/red flash overlay (similar to react-scan but built-in)
 
 **Reading the flamegraph:**
+
 ```
 Key rules:
 - Bar WIDTH = render time (wider = slower)
@@ -435,35 +441,38 @@ Works in development and profiling builds. Useful for automated regression detec
 import { Profiler } from 'react';
 
 function onRender(
-  id: string,           // "DataGrid" — which Profiler
+  id: string, // "DataGrid" — which Profiler
   phase: 'mount' | 'update' | 'nested-update',
-  actualDuration: number,  // ms spent in this commit
-  baseDuration: number,    // ms without any memoization (worst case)
+  actualDuration: number, // ms spent in this commit
+  baseDuration: number, // ms without any memoization (worst case)
   startTime: number,
   commitTime: number,
 ) {
   // actualDuration << baseDuration = memoization working ✅
   // actualDuration ≈ baseDuration  = memoization broken  ❌
   if (actualDuration > 16) {
-    console.warn(`[Perf] ${id} [${phase}]: ${actualDuration.toFixed(1)}ms (base: ${baseDuration.toFixed(1)}ms)`);
+    console.warn(
+      `[Perf] ${id} [${phase}]: ${actualDuration.toFixed(1)}ms (base: ${baseDuration.toFixed(1)}ms)`,
+    );
   }
 }
 
 <Profiler id="DataGrid" onRender={onRender}>
   <DataGrid rows={rows} columns={columns} />
-</Profiler>
+</Profiler>;
 ```
 
 **For production monitoring (with sampling):**
 
 ```ts
 function onRender(id, phase, actualDuration, baseDuration) {
-  if (Math.random() < 0.01 && actualDuration > 16) { // 1% sample, >1 frame
+  if (Math.random() < 0.01 && actualDuration > 16) {
+    // 1% sample, >1 frame
     analytics.track('slow_render', {
       component: id,
       phase,
       actualDuration,
-      memoEfficiency: baseDuration > 0 ? 1 - (actualDuration / baseDuration) : 0,
+      memoEfficiency: baseDuration > 0 ? 1 - actualDuration / baseDuration : 0,
     });
   }
 }
@@ -491,15 +500,15 @@ export default defineConfig({
     // ... other plugins
     visualizer({
       filename: 'stats.html',
-      open: true,           // auto-open after build
-      template: 'treemap',  // treemap | sunburst | flamegraph | network | list
+      open: true, // auto-open after build
+      template: 'treemap', // treemap | sunburst | flamegraph | network | list
       gzipSize: true,
       brotliSize: true,
-      sourcemap: true,      // requires sourcemap: true in build
+      sourcemap: true, // requires sourcemap: true in build
     }) as PluginOption,
   ],
   build: {
-    sourcemap: true,  // needed for accurate sizes
+    sourcemap: true, // needed for accurate sizes
   },
 });
 ```
@@ -532,12 +541,14 @@ npm install --save-dev source-map-explorer
 ```
 
 After `vite build` (with `sourcemap: true`):
+
 ```bash
 npx source-map-explorer 'dist/assets/*.js'
 npx source-map-explorer 'dist/assets/*.js' --html bundle.html
 ```
 
 Add as an npm script:
+
 ```json
 {
   "scripts": {
@@ -567,13 +578,16 @@ import { onCLS, onINP, onLCP, onFCP, onTTFB } from 'web-vitals';
 import type { Metric } from 'web-vitals';
 
 function sendToAnalytics(metric: Metric) {
-  navigator.sendBeacon('/analytics/vitals', JSON.stringify({
-    name: metric.name,
-    id: metric.id,
-    value: metric.value,
-    delta: metric.delta,
-    rating: metric.rating,  // 'good' | 'needs-improvement' | 'poor'
-  }));
+  navigator.sendBeacon(
+    '/analytics/vitals',
+    JSON.stringify({
+      name: metric.name,
+      id: metric.id,
+      value: metric.value,
+      delta: metric.delta,
+      rating: metric.rating, // 'good' | 'needs-improvement' | 'poor'
+    }),
+  );
 }
 
 export function reportWebVitals() {
@@ -585,7 +599,7 @@ export function reportWebVitals() {
 }
 ```
 
-**Attribution build** — identifies the *specific element/interaction* causing the metric:
+**Attribution build** — identifies the _specific element/interaction_ causing the metric:
 
 ```ts
 import { onINP, onLCP, onCLS } from 'web-vitals/attribution';
@@ -593,8 +607,8 @@ import { onINP, onLCP, onCLS } from 'web-vitals/attribution';
 onINP(({ name, value, attribution }) => {
   // Which element was interacted with?
   console.log('INP element:', attribution.interactionTarget);
-  console.log('Input delay:', attribution.inputDelay);         // ms waiting for main thread
-  console.log('Processing:', attribution.processingDuration);  // ms in event handlers
+  console.log('Input delay:', attribution.inputDelay); // ms waiting for main thread
+  console.log('Processing:', attribution.processingDuration); // ms in event handlers
   console.log('Presentation delay:', attribution.presentationDelay); // ms to next paint
 });
 
@@ -622,7 +636,7 @@ onLCP(({ value, attribution }) => {
 
 An interaction's total latency = **input delay** + **processing duration** + **presentation delay**
 
-- **Input delay** — long tasks on the main thread *before* event handlers run. Caused by large bundles evaluating, or previous interactions not yet complete.
+- **Input delay** — long tasks on the main thread _before_ event handlers run. Caused by large bundles evaluating, or previous interactions not yet complete.
 - **Processing duration** — time in event callback code. A `onClick` that does synchronous filtering/sorting of 10,000 rows lands here.
 - **Presentation delay** — time from callbacks finishing to next paint. Large DOMs, CSS recalculation, layout thrashing.
 
@@ -634,14 +648,13 @@ async function handleSort() {
 
   await scheduler.yield(); // yields to browser; continuation is prioritized
 
-  sortDataInplace();    // non-visual — deferred
+  sortDataInplace(); // non-visual — deferred
   await scheduler.yield();
   updateRowOrder();
 }
 
 // Fallback for browsers without scheduler.yield():
-const yieldToMain = () =>
-  globalThis.scheduler?.yield?.() ?? new Promise(r => setTimeout(r, 0));
+const yieldToMain = () => globalThis.scheduler?.yield?.() ?? new Promise((r) => setTimeout(r, 0));
 ```
 
 **Budget rule:** any task > 50ms is a "long task" and blocks user input. The Performance panel shows these with red triangles.
@@ -669,16 +682,18 @@ const yieldToMain = () =>
 
 ```js
 // BAD — forces layout each iteration (alternates read/write)
-elements.forEach(el => {
+elements.forEach((el) => {
   el.style.width = container.offsetWidth + 'px';
 });
 
 // GOOD — batch reads, then writes
 const width = container.offsetWidth; // single read
-elements.forEach(el => { el.style.width = width + 'px'; });
+elements.forEach((el) => {
+  el.style.width = width + 'px';
+});
 ```
 
-- [ ] No `useLayoutEffect` that reads layout properties *and* sets state synchronously
+- [ ] No `useLayoutEffect` that reads layout properties _and_ sets state synchronously
 - [ ] Animations use `transform`/`opacity` (GPU-composited), not `top`/`left`/`width`/`height`
 
 ### 7.4 Memory Leaks
@@ -717,6 +732,7 @@ rowHeight: 52,         // default row height
 ```
 
 **Critical warning — `getRowHeight` disables column virtualization:**[^17]
+
 ```tsx
 // ❌ This disables column virtualization (all columns rendered):
 <DataGrid getRowHeight={() => 'auto'} />
@@ -729,6 +745,7 @@ rowHeight: 52,         // default row height
 ```
 
 **`disableVirtualization` is testing-only:**[^17]
+
 ```tsx
 // ❌ NEVER in production — renders ALL rows at once (O(n) DOM nodes)
 <DataGrid disableVirtualization />
@@ -739,10 +756,10 @@ rowHeight: 52,         // default row height
 
 **Historical benchmarks** (directionally valid):[^18]
 
-| Scenario | Rows | Sort time | Filter time |
-|----------|------|-----------|-------------|
-| DataGrid | 100 | 40ms | 63ms |
-| DataGrid | 10,000 | 83ms | 115ms |
+| Scenario | Rows    | Sort time    | Filter time  |
+| -------- | ------- | ------------ | ------------ |
+| DataGrid | 100     | 40ms         | 63ms         |
+| DataGrid | 10,000  | 83ms         | 115ms        |
 | DataGrid | 100,000 | **563ms ❌** | **392ms ❌** |
 
 → At 100k rows, `sortingMode="server"` and `filterMode="server"` are mandatory for acceptable INP.
@@ -791,11 +808,11 @@ function Component({ rows, someValue }) {
 
 **Source:** MUI official benchmarks[^20]
 
-| Approach | Render Time | Relative Cost |
-|----------|-------------|--------------|
-| `<div className="...">` | 100ms | 1.0× baseline |
-| `<StyledDiv>` (emotion styled) | 181ms | 1.8× |
-| `<Box sx={...}>` | **296ms** | **~3×** |
+| Approach                       | Render Time | Relative Cost |
+| ------------------------------ | ----------- | ------------- |
+| `<div className="...">`        | 100ms       | 1.0× baseline |
+| `<StyledDiv>` (emotion styled) | 181ms       | 1.8×          |
+| `<Box sx={...}>`               | **296ms**   | **~3×**       |
 
 ```tsx
 // ❌ BAD on hot render paths (list rows, table cells, frequently-updating values)
@@ -826,10 +843,7 @@ function App() {
 // ✅ GOOD — memoize
 function App() {
   const [mode, setMode] = useState('light');
-  const theme = React.useMemo(
-    () => createTheme({ palette: { mode } }),
-    [mode],
-  );
+  const theme = React.useMemo(() => createTheme({ palette: { mode } }), [mode]);
   return <ThemeProvider theme={theme}>...</ThemeProvider>;
 }
 ```
@@ -839,6 +853,7 @@ function App() {
 **Source:** `mui/mui-x:packages/x-charts`[^21]
 
 MUI X Charts renders with **SVG** (Canvas is a tracked future goal[^22]). Performance implications:
+
 - SVG elements have per-node DOM cost — at > ~1,000 points per series, performance can degrade
 - Pre-aggregate/sample data before passing to charts for large datasets
 
@@ -867,8 +882,8 @@ export const selectMode = (state: StudioState) => state.mode;
 export const selectFilters = (state: StudioState) => state.filters;
 
 // In components:
-const mode = useStudioSelector(selectMode);        // ✅
-const mode = useStudioSelector(s => s.mode);       // ❌ — new fn reference every render
+const mode = useStudioSelector(selectMode); // ✅
+const mode = useStudioSelector((s) => s.mode); // ❌ — new fn reference every render
 ```
 
 **For selectors returning arrays** — use the closure-based memoization pattern to prevent `[]!==[]` re-renders when content is identical.[^23]
@@ -900,6 +915,7 @@ const mode = useStudioSelector(s => s.mode);       // ❌ — new fn reference e
 ### Phase 2: Interaction Profiling (45 min)
 
 For each of these user flows, record a performance trace + React DevTools profile:
+
 1. **Initial page load** → note LCP element, any render-blocking tasks
 2. **Sort a DataGrid column** → look for tasks > 50ms; check if server-side sort needed
 3. **Apply a filter** → same
@@ -962,18 +978,18 @@ find_unused_javascript(url="http://localhost:3000")
 
 ## 10. All Tools — Quick Reference
 
-| Tool | Category | Install | Dev-only? | Cost |
-|------|----------|---------|-----------|------|
-| `chrome-devtools-mcp` | MCP (existing) | Already installed | No (lab tool) | Free |
-| `@danielsogl/lighthouse-mcp` | MCP (add) | MCP config npx | No (lab tool) | Free |
-| `@playwright/mcp` | MCP (add) | MCP config npx | No (lab tool) | Free |
-| `cdp-extended-mcp` | MCP (add) | MCP config npx | No (lab tool) | Free (evaluate first) |
-| `react-scan` | Dev overlay | `npm i -D react-scan` (0.5.6) | Yes | Free |
-| `@welldone-software/why-did-you-render` | Re-render diagnosis | `npm i -D @welldone-software/why-did-you-render` (10.0.1) | **Strictly yes** | Free |
-| React DevTools (browser ext) | Profiler + components | Chrome Web Store | No (DevTools) | Free |
-| `rollup-plugin-visualizer` | Bundle analysis | `npm i -D rollup-plugin-visualizer` (7.0.1) | Build-time | Free |
-| `source-map-explorer` | Bundle analysis | `npm i -D source-map-explorer` (2.5.3) | Build-time | Free |
-| `web-vitals` | RUM | `npm i web-vitals` (5.2.0) | **No — production** | Free |
+| Tool                                    | Category              | Install                                                   | Dev-only?           | Cost                  |
+| --------------------------------------- | --------------------- | --------------------------------------------------------- | ------------------- | --------------------- |
+| `chrome-devtools-mcp`                   | MCP (existing)        | Already installed                                         | No (lab tool)       | Free                  |
+| `@danielsogl/lighthouse-mcp`            | MCP (add)             | MCP config npx                                            | No (lab tool)       | Free                  |
+| `@playwright/mcp`                       | MCP (add)             | MCP config npx                                            | No (lab tool)       | Free                  |
+| `cdp-extended-mcp`                      | MCP (add)             | MCP config npx                                            | No (lab tool)       | Free (evaluate first) |
+| `react-scan`                            | Dev overlay           | `npm i -D react-scan` (0.5.6)                             | Yes                 | Free                  |
+| `@welldone-software/why-did-you-render` | Re-render diagnosis   | `npm i -D @welldone-software/why-did-you-render` (10.0.1) | **Strictly yes**    | Free                  |
+| React DevTools (browser ext)            | Profiler + components | Chrome Web Store                                          | No (DevTools)       | Free                  |
+| `rollup-plugin-visualizer`              | Bundle analysis       | `npm i -D rollup-plugin-visualizer` (7.0.1)               | Build-time          | Free                  |
+| `source-map-explorer`                   | Bundle analysis       | `npm i -D source-map-explorer` (2.5.3)                    | Build-time          | Free                  |
+| `web-vitals`                            | RUM                   | `npm i web-vitals` (5.2.0)                                | **No — production** | Free                  |
 
 **MCP tools require no project install** — they run via `npx` in the MCP server config.
 
@@ -981,18 +997,18 @@ find_unused_javascript(url="http://localhost:3000")
 
 ## Confidence Assessment
 
-| Finding | Confidence | Basis |
-|---------|-----------|-------|
-| chrome-devtools-mcp tool list (45 tools, perf/heap/network/lighthouse) | **High** | GitHub source files read directly[^2][^3][^4] |
-| `lighthouse_audit` excludes performance score | **High** | Explicit note in tool description[^5] |
-| `@danielsogl/lighthouse-mcp` 13 tools | **High** | README + source files read[^6] |
-| INP replaced FID in March 2024 | **High** | web.dev authoritative source[^1] |
-| MUI sx prop ~3× slower than div | **High** | Official MUI benchmark numbers[^20] |
-| DataGrid 100k row sort = 563ms | **Medium** | Issue #2175, v4 era benchmarks[^18] |
-| `cdp-extended-mcp` fills chrome-devtools gaps | **Medium** | 0 stars, new tool — not battle-tested[^8] |
-| react-scan v0.5.6 | **High** | npm registry confirmed[^9] |
-| Studio selector patterns | **High** | Source code read directly[^23] |
-| CSS coverage via cdp-extended-mcp | **Medium** | Tool documented; Emotion/MUI interaction not verified |
+| Finding                                                                | Confidence | Basis                                                 |
+| ---------------------------------------------------------------------- | ---------- | ----------------------------------------------------- |
+| chrome-devtools-mcp tool list (45 tools, perf/heap/network/lighthouse) | **High**   | GitHub source files read directly[^2][^3][^4]         |
+| `lighthouse_audit` excludes performance score                          | **High**   | Explicit note in tool description[^5]                 |
+| `@danielsogl/lighthouse-mcp` 13 tools                                  | **High**   | README + source files read[^6]                        |
+| INP replaced FID in March 2024                                         | **High**   | web.dev authoritative source[^1]                      |
+| MUI sx prop ~3× slower than div                                        | **High**   | Official MUI benchmark numbers[^20]                   |
+| DataGrid 100k row sort = 563ms                                         | **Medium** | Issue #2175, v4 era benchmarks[^18]                   |
+| `cdp-extended-mcp` fills chrome-devtools gaps                          | **Medium** | 0 stars, new tool — not battle-tested[^8]             |
+| react-scan v0.5.6                                                      | **High**   | npm registry confirmed[^9]                            |
+| Studio selector patterns                                               | **High**   | Source code read directly[^23]                        |
+| CSS coverage via cdp-extended-mcp                                      | **Medium** | Tool documented; Emotion/MUI interaction not verified |
 
 ---
 

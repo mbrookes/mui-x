@@ -78,7 +78,9 @@ describe('buildQueryDescriptor', () => {
   });
 
   it('collects grid columns into select', () => {
-    const widget = makeWidget({ columns: [{ fieldId: 'id' }, { fieldId: 'name' }, { fieldId: 'amount' }] });
+    const widget = makeWidget({
+      columns: [{ fieldId: 'id' }, { fieldId: 'name' }, { fieldId: 'amount' }],
+    });
     const desc = buildQueryDescriptor(widget, [], PAGE_ID);
     expect(desc.select).toEqual(expect.arrayContaining(['id', 'name', 'amount']));
   });

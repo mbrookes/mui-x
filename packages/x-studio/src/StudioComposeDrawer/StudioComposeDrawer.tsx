@@ -129,9 +129,7 @@ export function StudioComposeDrawer(props: StudioComposeDrawerProps = {}) {
 
   if (tableSourceMode !== undefined) {
     return (
-      <StudioUIConfigContext.Provider value={configValue}>
-        {content}
-      </StudioUIConfigContext.Provider>
+      <StudioUIConfigContext.Provider value={configValue}>{content}</StudioUIConfigContext.Provider>
     );
   }
 

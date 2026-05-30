@@ -34,7 +34,9 @@ Use the browser's built-in APIs to trigger a download:
 ```ts
 const serialized = studioRef.current?.serializeState();
 if (serialized) {
-  const blob = new Blob([JSON.stringify(serialized, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify(serialized, null, 2)], {
+    type: 'application/json',
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -78,7 +80,10 @@ if (!result) return;
 
 if (result.success) {
   if (result.fromVersion !== result.toVersion) {
-    showSnackbar(`Loaded and migrated from v${result.fromVersion} to v${result.toVersion}`, 'info');
+    showSnackbar(
+      `Loaded and migrated from v${result.fromVersion} to v${result.toVersion}`,
+      'info',
+    );
   } else {
     showSnackbar('Dashboard loaded', 'success');
   }
@@ -99,8 +104,15 @@ async function handleLoad() {
     input.accept = '.json,application/json';
     input.onchange = async () => {
       const file = input.files?.[0];
-      if (!file) { reject(new Error('No file selected')); return; }
-      try { resolve(JSON.parse(await file.text())); } catch (e) { reject(e); }
+      if (!file) {
+        reject(new Error('No file selected'));
+        return;
+      }
+      try {
+        resolve(JSON.parse(await file.text()));
+      } catch (e) {
+        reject(e);
+      }
     };
     input.click();
   });
@@ -124,8 +136,15 @@ function uploadJson(): Promise<unknown> {
     input.accept = '.json,application/json';
     input.onchange = async () => {
       const file = input.files?.[0];
-      if (!file) { reject(new Error('No file selected')); return; }
-      try { resolve(JSON.parse(await file.text())); } catch (e) { reject(e); }
+      if (!file) {
+        reject(new Error('No file selected'));
+        return;
+      }
+      try {
+        resolve(JSON.parse(await file.text()));
+      } catch (e) {
+        reject(e);
+      }
     };
     input.click();
   });
@@ -145,9 +164,14 @@ export default function SaveLoadExample() {
   const handleSave = () => {
     const serialized = studioRef.current?.serializeState();
     if (!serialized) return;
-    const blob = new Blob([JSON.stringify(serialized, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(serialized, null, 2)], {
+      type: 'application/json',
+    });
     const url = URL.createObjectURL(blob);
-    Object.assign(document.createElement('a'), { href: url, download: 'dashboard.json' }).click();
+    Object.assign(document.createElement('a'), {
+      href: url,
+      download: 'dashboard.json',
+    }).click();
     URL.revokeObjectURL(url);
     showMessage('Dashboard saved', 'success');
   };
@@ -175,8 +199,12 @@ export default function SaveLoadExample() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <div style={{ padding: '8px 16px', display: 'flex', gap: 8 }}>
-        <Button variant="outlined" onClick={handleSave}>Save</Button>
-        <Button variant="outlined" onClick={handleLoad}>Load</Button>
+        <Button variant="outlined" onClick={handleSave}>
+          Save
+        </Button>
+        <Button variant="outlined" onClick={handleLoad}>
+          Load
+        </Button>
       </div>
       <div style={{ flexGrow: 1 }}>
         <Studio ref={studioRef} initialState={myInitialState} />
@@ -211,13 +239,13 @@ Migration is automatic — you don't need to write migration code.
 
 These are used internally by the Studio controller but are exported for advanced use cases:
 
-| Function | Description |
-| :--- | :--- |
-| `serializeState(state)` | Converts `StudioState` to `SerializedStudioState` |
+| Function                 | Description                                            |
+| :----------------------- | :----------------------------------------------------- |
+| `serializeState(state)`  | Converts `StudioState` to `SerializedStudioState`      |
 | `deserializeState(data)` | Converts `SerializedStudioState` back to `StudioState` |
-| `migrateState(data)` | Runs schema migrations and returns `MigrationResult` |
-| `stateToJson(state)` | Serializes to a JSON string |
-| `jsonToState(json)` | Parses a JSON string to `StudioState` |
+| `migrateState(data)`     | Runs schema migrations and returns `MigrationResult`   |
+| `stateToJson(state)`     | Serializes to a JSON string                            |
+| `jsonToState(json)`      | Parses a JSON string to `StudioState`                  |
 
 ## Auto-save to localStorage
 

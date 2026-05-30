@@ -49,7 +49,7 @@ const ref = React.useRef<StudioHandle>(null);
     setMode(state.mode);
     setCanUndo(ref.current?.canUndo() ?? false);
   }}
-/>
+/>;
 ```
 
 See [Studio component](/x/react-studio/getting-started/studio/) for the full API.
@@ -73,20 +73,20 @@ import {
     <StudioDataDrawer />
   </DrawerPanel>
   <StudioCanvas />
-</StudioProvider>
+</StudioProvider>;
 ```
 
 See [Composed approach](/x/react-studio/getting-started/composition/) for details.
 
 ## Widget types
 
-| Type | Component | Description |
-| :--- | :--- | :--- |
-| Bar / line / pie / scatter chart | `StudioChartWidget` | Powered by MUI X Charts |
-| KPI card | `StudioKpiWidget` | Big number with sparkline and trend indicator |
-| Table | `StudioGridWidget` | Powered by MUI X Data Grid Pro |
-| Filter | `StudioFilterWidget` | Date-range, multi-select, toggle, or slider |
-| Text | `StudioTextWidget` | Rich text with Markdown support |
+| Type                             | Component            | Description                                   |
+| :------------------------------- | :------------------- | :-------------------------------------------- |
+| Bar / line / pie / scatter chart | `StudioChartWidget`  | Powered by MUI X Charts                       |
+| KPI card                         | `StudioKpiWidget`    | Big number with sparkline and trend indicator |
+| Table                            | `StudioGridWidget`   | Powered by MUI X Data Grid Pro                |
+| Filter                           | `StudioFilterWidget` | Date-range, multi-select, toggle, or slider   |
+| Text                             | `StudioTextWidget`   | Rich text with Markdown support               |
 
 ## Data flow
 
@@ -108,7 +108,9 @@ const source: StudioDataSource = {
 // Async adapter
 studioRef.current?.setDataSourceAdapter('orders', {
   async getRows(descriptor) {
-    return fetch('/api/orders', { body: JSON.stringify(descriptor) }).then(r => r.json());
+    return fetch('/api/orders', { body: JSON.stringify(descriptor) }).then((r) =>
+      r.json(),
+    );
   },
 });
 ```

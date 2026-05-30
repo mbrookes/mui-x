@@ -30,7 +30,16 @@ export interface DrawerPanelProps {
 }
 
 export function DrawerPanel(props: DrawerPanelProps) {
-  const { badge, children, drawer, icon, onBack, side = 'left', subheader: subheaderProp, title } = props;
+  const {
+    badge,
+    children,
+    drawer,
+    icon,
+    onBack,
+    side = 'left',
+    subheader: subheaderProp,
+    title,
+  } = props;
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);
   const open = shell.openDrawers[drawer];

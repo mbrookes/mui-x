@@ -80,4 +80,3 @@ if (process.argv[1] === import.meta.filename) {
   console.log(`Seeded ${rows.toLocaleString()} rows.`);
   db.close();
 }
-

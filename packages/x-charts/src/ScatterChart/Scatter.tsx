@@ -127,6 +127,12 @@ function Scatter(props: ScatterProps) {
         const isItemHighlighted = highlightState === 'highlighted';
         const isItemFaded = highlightState === 'faded';
 
+        const pointData = series.data[dataPoint.dataIndex];
+        const pointSize =
+          series.sizeScale != null && pointData?.size != null
+            ? series.sizeScale(pointData.size)
+            : series.markerSize;
+
         return (
           <Marker
             key={dataPoint.id ?? dataPoint.dataIndex}
@@ -153,6 +159,7 @@ function Scatter(props: ScatterProps) {
               ? undefined
               : getInteractionItemProps(instance, dataPoint))}
             {...markerProps}
+            size={pointSize}
           />
         );
       })}

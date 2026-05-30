@@ -48,7 +48,14 @@ import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
-const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = ['sum', 'avg', 'min', 'max', 'count', 'count_distinct'];
+const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = [
+  'sum',
+  'avg',
+  'min',
+  'max',
+  'count',
+  'count_distinct',
+];
 const STRING_AGGREGATIONS: StudioGridSummaryAggregation[] = ['count', 'count_distinct'];
 
 const AGG_LABELS: Record<StudioGridSummaryAggregation, string> = {
@@ -91,6 +98,7 @@ interface SelectableField {
   isPrimary: boolean;
 }
 
+// react-doctor-disable-next-line react-doctor/no-giant-component -- setup panel with many fields is inherently complex and cannot be easily split
 export function GridSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
@@ -264,9 +272,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
           !configColumns.some(
             (c) =>
               c.fieldId === f.fieldId &&
-              (f.isPrimary
-                ? !c.sourceId || c.sourceId === f.sourceId
-                : c.sourceId === f.sourceId),
+              (f.isPrimary ? !c.sourceId || c.sourceId === f.sourceId : c.sourceId === f.sourceId),
           ),
       ),
     [allSelectableFields, configColumns],
@@ -296,7 +302,8 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const sortField = widget?.config?.gridSortField ?? '';
   const sortDirection = widget?.config?.gridSortDirection ?? 'asc';
   const gridHeight = widget?.config?.gridHeight ?? 400;
-  const conditionalFormats: StudioConditionalFormat[] = widget?.config?.gridConditionalFormats ?? [];
+  const conditionalFormats: StudioConditionalFormat[] =
+    widget?.config?.gridConditionalFormats ?? [];
 
   const availableSources = React.useMemo(
     () => Object.values(dataSources).filter((s) => !s.hidden),
@@ -304,9 +311,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
   );
 
   // ⋮ menu anchor for selected columns (keyed by composite column key)
-  const [menuAnchor, setMenuAnchor] = React.useState<{ key: string; el: HTMLElement } | null>(
-    null,
-  );
+  const [menuAnchor, setMenuAnchor] = React.useState<{ key: string; el: HTMLElement } | null>(null);
   // "Add column" pill menu anchor
   const [addMenuAnchor, setAddMenuAnchor] = React.useState<HTMLElement | null>(null);
   // Calculated column dialog
@@ -327,7 +332,10 @@ export function GridSetupPanel(props: { widgetId: string }) {
   }, [primaryFields, source, widget?.sourceId]);
 
   const handleSourceChange = (_: React.SyntheticEvent, selected: { id: string } | null) => {
-    controller.updateWidget(widgetId, { sourceId: selected?.id ?? undefined, config: { columns: [] } });
+    controller.updateWidget(widgetId, {
+      sourceId: selected?.id ?? undefined,
+      config: { columns: [] },
+    });
   };
 
   const handleColumnRemove = (col: StudioGridColumn) => {
@@ -419,7 +427,9 @@ export function GridSetupPanel(props: { widgetId: string }) {
       {/* Columns section — always shown in implicit mode, gated by source in explicit */}
       {(source || tableSourceMode === 'implicit') && (
         <React.Fragment>
-          <Typography variant="caption" color="text.secondary">Columns</Typography>
+          <Typography variant="caption" color="text.secondary">
+            Columns
+          </Typography>
 
           {/* Selected columns list */}
           {configColumns.map((col) => {
@@ -558,18 +568,20 @@ export function GridSetupPanel(props: { widgetId: string }) {
             onClose={() => setAddMenuAnchor(null)}
             slotProps={{ list: { dense: true } }}
           >
-            <MenuItem
-              onClick={() => {
-                setCalcDialogOpen(true);
-                setAddMenuAnchor(null);
-              }}
-            >
-              <ListItemIcon>
-                <FunctionsIcon fontSize="small" />
-              </ListItemIcon>
-              Calculated column…
-            </MenuItem>
-            {addableFields.length > 0 && <Divider />}
+            {features.calculatedFields !== false && features.gridCalculatedFields !== false && (
+              <MenuItem
+                onClick={() => {
+                  setCalcDialogOpen(true);
+                  setAddMenuAnchor(null);
+                }}
+              >
+                <ListItemIcon>
+                  <FunctionsIcon fontSize="small" />
+                </ListItemIcon>
+                Calculated column…
+              </MenuItem>
+            )}
+            {features.calculatedFields !== false && features.gridCalculatedFields !== false && addableFields.length > 0 && <Divider />}
             {Array.from(addableFieldsBySource.entries()).map(([srcId, group]) => (
               <React.Fragment key={srcId}>
                 {addableFieldsBySource.size > 1 && (
@@ -605,7 +617,9 @@ export function GridSetupPanel(props: { widgetId: string }) {
               <DataSourceFieldSelect
                 value={crossFilterField}
                 onChange={(fieldId) =>
-                  controller.updateWidgetConfig(widgetId, { crossFilterField: fieldId || undefined })
+                  controller.updateWidgetConfig(widgetId, {
+                    crossFilterField: fieldId || undefined,
+                  })
                 }
                 fields={crossFilterFieldEntries}
                 label="Cross-filter field"
@@ -614,18 +628,18 @@ export function GridSetupPanel(props: { widgetId: string }) {
 
               {/* Group-by field */}
               {features.gridGroupBy !== false && (
-              <DataSourceFieldSelect
-                value={groupByField}
-                onChange={(fieldId) =>
-                  controller.updateWidgetConfig(widgetId, {
-                    gridGroupByField: fieldId || undefined,
-                    gridAggregations: fieldId ? groupAggregations : undefined,
-                  })
-                }
-                fields={crossFilterFieldEntries}
-                label="Group by"
-                helperText="Collapse rows into groups — set per-column aggregation below"
-              />
+                <DataSourceFieldSelect
+                  value={groupByField}
+                  onChange={(fieldId) =>
+                    controller.updateWidgetConfig(widgetId, {
+                      gridGroupByField: fieldId || undefined,
+                      gridAggregations: fieldId ? groupAggregations : undefined,
+                    })
+                  }
+                  fields={crossFilterFieldEntries}
+                  label="Group by"
+                  helperText="Collapse rows into groups — set per-column aggregation below"
+                />
               )}
 
               {/* Sort field + direction */}
@@ -707,7 +721,10 @@ export function GridSetupPanel(props: { widgetId: string }) {
               );
               return (
                 // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- conditional format rules have no stable ID
-                <Box key={i} sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Box
+                  key={i}
+                  sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}
+                >
                   <Select
                     size="small"
                     value={rule.fieldId}
@@ -729,7 +746,10 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     value={rule.operator}
                     onChange={(e) => {
                       const next = [...conditionalFormats];
-                      next[i] = { ...rule, operator: e.target.value as StudioConditionalFormat['operator'] };
+                      next[i] = {
+                        ...rule,
+                        operator: e.target.value as StudioConditionalFormat['operator'],
+                      };
                       controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
                     }}
                     sx={{ fontSize: 12, flex: '0 0 auto', minWidth: 60 }}
@@ -743,11 +763,14 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   {!noValueOp && (
                     <TextField
                       size="small"
-                      value={rule.value !== undefined && rule.value !== null ? String(rule.value) : ''}
+                      value={
+                        rule.value !== undefined && rule.value !== null ? String(rule.value) : ''
+                      }
                       placeholder={fieldEntry?.type === 'number' ? '0' : 'value'}
                       onChange={(e) => {
                         const next = [...conditionalFormats];
-                        const v = fieldEntry?.type === 'number' ? Number(e.target.value) : e.target.value;
+                        const v =
+                          fieldEntry?.type === 'number' ? Number(e.target.value) : e.target.value;
                         next[i] = { ...rule, value: v };
                         controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
                       }}
@@ -772,7 +795,11 @@ export function GridSetupPanel(props: { widgetId: string }) {
                         {p.label}
                       </MenuItem>
                     ))}
-                    {!preset && <MenuItem value="__custom__" dense sx={{ fontSize: 12 }}>Custom</MenuItem>}
+                    {!preset && (
+                      <MenuItem value="__custom__" dense sx={{ fontSize: 12 }}>
+                        Custom
+                      </MenuItem>
+                    )}
                   </Select>
                   <IconButton
                     size="small"
@@ -799,7 +826,12 @@ export function GridSetupPanel(props: { widgetId: string }) {
                 }
                 const next: StudioConditionalFormat[] = [
                   ...conditionalFormats,
-                  { fieldId: firstField.id, operator: 'greater_than', value: 0, style: CF_STYLE_PRESETS[0].style },
+                  {
+                    fieldId: firstField.id,
+                    operator: 'greater_than',
+                    value: 0,
+                    style: CF_STYLE_PRESETS[0].style,
+                  },
                 ];
                 controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
               }}

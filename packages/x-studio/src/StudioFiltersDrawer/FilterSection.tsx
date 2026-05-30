@@ -33,7 +33,16 @@ export interface FilterSectionProps {
 }
 
 export function FilterSection(props: FilterSectionProps) {
-  const { fields, fieldOptions, filters, allFilters, onAddFilter, onRemoveFilter, title, emptyMessage } = props;
+  const {
+    fields,
+    fieldOptions,
+    filters,
+    allFilters,
+    onAddFilter,
+    onRemoveFilter,
+    title,
+    emptyMessage,
+  } = props;
   const localeText = useStudioLocaleText();
 
   return (

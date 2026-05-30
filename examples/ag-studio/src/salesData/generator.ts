@@ -375,9 +375,7 @@ function generateOrders(
 ): { source: StudioDataSource; rows: GeneratedOrder[] } {
   const rows: GeneratedOrder[] = [];
   // Pre-compute per-customer weights so weighted pick reflects country order frequency.
-  const customerWeights = customerRows.map(
-    (c) => COUNTRY_ORDER_WEIGHTS[String(c.country)] ?? 1,
-  );
+  const customerWeights = customerRows.map((c) => COUNTRY_ORDER_WEIGHTS[String(c.country)] ?? 1);
   const weightSum = customerWeights.reduce((s, w) => s + w, 0);
   const customerWeightsNorm = customerWeights.map((w) => w / weightSum);
 

@@ -82,7 +82,10 @@ import {
 } from '@mui/x-studio-server';
 
 const db = knex({ client: 'pg', connection: process.env.DATABASE_URL });
-const cache = new LRUCacheProvider({ maxSizeBytes: 256 * 1024 * 1024, ttlMs: 60_000 });
+const cache = new LRUCacheProvider({
+  maxSizeBytes: 256 * 1024 * 1024,
+  ttlMs: 60_000,
+});
 
 const app = express();
 app.use(express.json());
@@ -90,7 +93,10 @@ app.use(express.json());
 app.post('/api/studio-data', async (req, res) => {
   try {
     // 1. Extract and verify JWT — throws if invalid
-    const claims = extractSecurityClaims(req.headers.authorization, process.env.JWT_SECRET!);
+    const claims = extractSecurityClaims(
+      req.headers.authorization,
+      process.env.JWT_SECRET!,
+    );
 
     // 2. Handle the batch
     const result = await handleBatchQuery(req.body, claims, {
@@ -134,11 +140,11 @@ const source: StudioDataSource = {
 
 ```ts
 interface JwtSecurityClaims {
-  tenantId: string;        // primary multi-tenant isolation boundary
-  userId: string;          // authenticated user
-  roleIds: string[];       // role assignments
-  regionIds?: number[];    // optional row-level region restriction
-  department?: string;     // optional row-level department restriction
+  tenantId: string; // primary multi-tenant isolation boundary
+  userId: string; // authenticated user
+  roleIds: string[]; // role assignments
+  regionIds?: number[]; // optional row-level region restriction
+  department?: string; // optional row-level department restriction
 }
 ```
 
@@ -189,7 +195,9 @@ app.post('/api/studio-data', async (req, res) => {
     req.body.widgets.map(async (widget) => {
       const table = sourceIdToTable(widget.table);
       if (!allowlist.includes(table)) {
-        console.warn(`[studio] Unknown source "${widget.table}" — returning empty rows`);
+        console.warn(
+          `[studio] Unknown source "${widget.table}" — returning empty rows`,
+        );
         return { id: widget.id, rows: [], tier: 'client', rowCount: 0 };
       }
       // ... execute query
@@ -240,10 +248,10 @@ The pre-flight is consistently 5–20× faster than the actual query, making it 
 Measured on `node:sqlite` in-memory with covering indexes. Use these numbers as a guide when choosing `thresholds` for your database:
 
 | Row count | COUNT(\*) | Full scan | GROUP BY SUM |
-| :--- | :--- | :--- | :--- |
-| 10 k | 0.07 ms | 12 ms | 1.65 ms |
-| 100 k | 0.73 ms | 127 ms | 18 ms |
-| 1 M | 7 ms | 2,200 ms | 207 ms |
+| :-------- | :-------- | :-------- | :----------- |
+| 10 k      | 0.07 ms   | 12 ms     | 1.65 ms      |
+| 100 k     | 0.73 ms   | 127 ms    | 18 ms        |
+| 1 M       | 7 ms      | 2,200 ms  | 207 ms       |
 
 The default thresholds (`clientTier: 10_000`, `serverMemoryTier: 100_000`) are derived from these measurements. Networked databases will have higher latencies — tune accordingly.
 
@@ -254,7 +262,7 @@ await handleBatchQuery(req.body, claims, {
   db,
   schemaAllowlist: ['orders'],
   thresholds: {
-    clientTier: 5_000,     // default: 10,000
+    clientTier: 5_000, // default: 10,000
     serverMemoryTier: 50_000, // default: 100,000
   },
 });
@@ -264,11 +272,11 @@ await handleBatchQuery(req.body, claims, {
 
 When the row count exceeds `serverMemoryTier`, the middleware uses database-side aggregation (`GROUP BY`). It identifies aggregation columns by a name prefix convention on the `columns` list in the `BatchWidgetDescriptor`:
 
-| Prefix | SQL aggregate | Example column name | SQL fragment |
-| :--- | :--- | :--- | :--- |
-| `sum_` | `SUM` | `sum_revenue` | `SUM(revenue) AS sum_revenue` |
-| `avg_` | `AVG` | `avg_order_value` | `AVG(order_value) AS avg_order_value` |
-| `count_` | `COUNT` | `count_orders` | `COUNT(orders) AS count_orders` |
+| Prefix   | SQL aggregate | Example column name | SQL fragment                          |
+| :------- | :------------ | :------------------ | :------------------------------------ |
+| `sum_`   | `SUM`         | `sum_revenue`       | `SUM(revenue) AS sum_revenue`         |
+| `avg_`   | `AVG`         | `avg_order_value`   | `AVG(order_value) AS avg_order_value` |
+| `count_` | `COUNT`       | `count_orders`      | `COUNT(orders) AS count_orders`       |
 
 All other columns in the list are treated as `GROUP BY` keys. For example, `columns: ['region', 'sum_revenue', 'count_orders']` produces:
 
@@ -292,14 +300,14 @@ import { LRUCacheProvider } from '@mui/x-studio-server';
 
 const cache = new LRUCacheProvider({
   maxSizeBytes: 128 * 1024 * 1024, // 128 MB (default)
-  ttlMs: 30_000,                   // 30 seconds (default)
+  ttlMs: 30_000, // 30 seconds (default)
 });
 ```
 
-| Option | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
+| Option         | Type     | Default              | Description                                                                                              |
+| :------------- | :------- | :------------------- | :------------------------------------------------------------------------------------------------------- |
 | `maxSizeBytes` | `number` | `134217728` (128 MB) | Maximum total memory for cached rows. Least-recently-used entries are evicted when the limit is reached. |
-| `ttlMs` | `number` | `30000` | Time-to-live in milliseconds. Matches the client-side `StudioRequestCache` TTL by default. |
+| `ttlMs`        | `number` | `30000`              | Time-to-live in milliseconds. Matches the client-side `StudioRequestCache` TTL by default.               |
 
 `LRUCacheProvider` is suitable for single-node deployments. For horizontally scaled (multi-instance) setups, provide a Redis-backed implementation (see [Custom cache provider](#custom-cache-provider)).
 
@@ -366,13 +374,13 @@ handleBatchQuery(
 
 ### `HandleBatchQueryOptions`
 
-| Option | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `db` | `Knex.Knex` | — | **Required.** Configured Knex instance. The package never creates connections itself. |
-| `schemaAllowlist` | `string[]` | — | **Required.** Table names the middleware may query. Any other table name in the request is rejected. |
-| `cacheProvider` | `CacheProvider` | `LRUCacheProvider` | Cache backend. Defaults to a shared in-process LRU instance. |
-| `thresholds.clientTier` | `number` | `10000` | Max row count for the client-tier strategy. |
-| `thresholds.serverMemoryTier` | `number` | `100000` | Max row count for the server-memory strategy. Rows above this use DB push-down. |
+| Option                        | Type            | Default            | Description                                                                                          |
+| :---------------------------- | :-------------- | :----------------- | :--------------------------------------------------------------------------------------------------- |
+| `db`                          | `Knex.Knex`     | —                  | **Required.** Configured Knex instance. The package never creates connections itself.                |
+| `schemaAllowlist`             | `string[]`      | —                  | **Required.** Table names the middleware may query. Any other table name in the request is rejected. |
+| `cacheProvider`               | `CacheProvider` | `LRUCacheProvider` | Cache backend. Defaults to a shared in-process LRU instance.                                         |
+| `thresholds.clientTier`       | `number`        | `10000`            | Max row count for the client-tier strategy.                                                          |
+| `thresholds.serverMemoryTier` | `number`        | `100000`           | Max row count for the server-memory strategy. Rows above this use DB push-down.                      |
 
 ### `BatchQueryRequest`
 
@@ -385,9 +393,9 @@ interface BatchQueryRequest {
 }
 
 interface BatchWidgetDescriptor {
-  id: string;             // widget ID — used to route the response back
-  table: string;          // table / data source to query
-  columns?: string[];     // projection — only return these columns
+  id: string; // widget ID — used to route the response back
+  table: string; // table / data source to query
+  columns?: string[]; // projection — only return these columns
   filters?: FilterPredicate[];
   orderBy?: OrderBy[];
   limit?: number;
@@ -396,7 +404,14 @@ interface BatchWidgetDescriptor {
 interface FilterPredicate {
   column: string;
   operator: 'eq' | 'neq' | 'in' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'between';
-  value: string | number | boolean | string[] | number[] | [string, string] | [number, number];
+  value:
+    | string
+    | number
+    | boolean
+    | string[]
+    | number[]
+    | [string, string]
+    | [number, number];
 }
 ```
 
@@ -409,11 +424,11 @@ interface BatchQueryResponse {
 }
 
 interface WidgetQueryResult {
-  id: string;             // echoes BatchWidgetDescriptor.id for client routing
+  id: string; // echoes BatchWidgetDescriptor.id for client routing
   rows: Record<string, unknown>[];
-  tier: 'client' | 'server' | 'db';  // which routing tier served this widget
-  rowCount: number;       // total matching rows (before limit)
-  error?: string;         // set if this widget's query failed
+  tier: 'client' | 'server' | 'db'; // which routing tier served this widget
+  rowCount: number; // total matching rows (before limit)
+  error?: string; // set if this widget's query failed
 }
 ```
 

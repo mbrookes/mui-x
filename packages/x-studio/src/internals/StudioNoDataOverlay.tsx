@@ -15,12 +15,7 @@ export interface StudioNoDataOverlayProps extends React.HTMLAttributes<HTMLDivEl
  * Centered "No data" overlay shown when a widget has zero rows after filtering.
  * Used by chart, grid, and KPI widgets.
  */
-export function StudioNoDataOverlay({
-  message,
-  height,
-  style,
-  ...rest
-}: StudioNoDataOverlayProps) {
+export function StudioNoDataOverlay({ message, height, style, ...rest }: StudioNoDataOverlayProps) {
   const localeText = useStudioLocaleText();
   return (
     <Box

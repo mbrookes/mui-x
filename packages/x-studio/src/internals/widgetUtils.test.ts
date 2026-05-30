@@ -238,7 +238,14 @@ describe('inferWidgetTitles — grid', () => {
     const { subtitle } = inferWidgetTitles(
       makeWidget({
         kind: 'grid',
-        config: { columns: [{ fieldId: 'category' }, { fieldId: 'revenue' }, { fieldId: 'month' }, { fieldId: 'status' }] },
+        config: {
+          columns: [
+            { fieldId: 'category' },
+            { fieldId: 'revenue' },
+            { fieldId: 'month' },
+            { fieldId: 'status' },
+          ],
+        },
       }),
       {
         ...SOURCES,
@@ -323,7 +330,11 @@ describe('createDefaultWidget', () => {
 
   it('grid with source: config.columns is pre-populated from source field ids', () => {
     const widget = createDefaultWidget('grid', SOURCES.orders);
-    expect(widget.config.columns).toEqual([{ fieldId: 'category' }, { fieldId: 'revenue' }, { fieldId: 'month' }]);
+    expect(widget.config.columns).toEqual([
+      { fieldId: 'category' },
+      { fieldId: 'revenue' },
+      { fieldId: 'month' },
+    ]);
     expect(widget.sourceId).toBe('orders');
   });
 
@@ -436,7 +447,9 @@ describe('buildCsvContent — number formatting', () => {
     const src: StudioDataSource = {
       id: 's',
       label: 'S',
-      fields: [{ id: 'rev', label: 'Revenue', type: 'number', format: 'currency', currencyCode: 'USD' }],
+      fields: [
+        { id: 'rev', label: 'Revenue', type: 'number', format: 'currency', currencyCode: 'USD' },
+      ],
       rows: [],
     };
     const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };

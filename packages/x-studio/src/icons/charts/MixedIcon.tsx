@@ -2,7 +2,11 @@ import * as React from 'react';
 import { ChartSvg, type IconProps } from '../utils';
 
 /** Icon representing a mixed bar + line chart. */
-export function MixedIcon({ size, color = 'currentColor', secondaryColor = 'currentColor' }: IconProps) {
+export function MixedIcon({
+  size,
+  color = 'currentColor',
+  secondaryColor = 'currentColor',
+}: IconProps) {
   const bottom = 28;
   const bars = [
     { x: 3, h: 14 },

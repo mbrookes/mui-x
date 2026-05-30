@@ -204,7 +204,11 @@ function InputNode({
 
   return (
     <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1, mb: 0.5 }}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: inputKind === 'function' ? 0.5 : 0 }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{ alignItems: 'center', mb: inputKind === 'function' ? 0.5 : 0 }}
+      >
         <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
           {label}
         </Typography>
@@ -223,9 +227,15 @@ function InputNode({
             <IconButton
               size="small"
               onClick={() => setFunctionCollapsed((c) => !c)}
-              aria-label={functionCollapsed ? 'Expand nested expression' : 'Collapse nested expression'}
+              aria-label={
+                functionCollapsed ? 'Expand nested expression' : 'Collapse nested expression'
+              }
             >
-              {functionCollapsed ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
+              {functionCollapsed ? (
+                <ExpandMoreIcon fontSize="small" />
+              ) : (
+                <ExpandLessIcon fontSize="small" />
+              )}
             </IconButton>
           </Tooltip>
         )}
@@ -245,11 +255,7 @@ function InputNode({
               <MenuItem key={opt.id} value={opt.id}>
                 {opt.label}
                 {opt.isExpr && (
-                  <Chip
-                    label="fx"
-                    size="small"
-                    sx={{ ml: 0.5, height: 16, fontSize: '0.6rem' }}
-                  />
+                  <Chip label="fx" size="small" sx={{ ml: 0.5, height: 16, fontSize: '0.6rem' }} />
                 )}
               </MenuItem>
             ))}
@@ -559,6 +565,11 @@ export interface StudioExpressionFieldDialogProps {
   expressionFields: StudioExpressionField[];
   /** When provided, the dialog is in edit mode for this field. */
   existingField?: StudioExpressionField;
+  /**
+   * Called with the new field's ID after a successful create (not called for edits).
+   * Useful for auto-selecting the new field in the parent component.
+   */
+  onSaved?: (fieldId: string) => void;
 }
 
 function makeDefaultExpression(): StudioExpression {
@@ -572,7 +583,7 @@ function makeDefaultExpression(): StudioExpression {
 }
 
 export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogProps) {
-  const { open, onClose, dataSource, expressionFields, existingField } = props;
+  const { open, onClose, dataSource, expressionFields, existingField, onSaved } = props;
   const controller = useStudioController();
 
   const isEdit = !!existingField;
@@ -633,6 +644,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
         expression,
         type: inferredType,
       });
+      onSaved?.(fieldId);
     }
     onClose();
   };

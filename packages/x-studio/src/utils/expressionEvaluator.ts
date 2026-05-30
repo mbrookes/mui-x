@@ -428,9 +428,7 @@ function evalMeasureExpression(
       // This enables conditional sums like: if(on_time, 1, 0) → sum per-row results.
       const rowValues = rows
         .map((row) =>
-          toNumber(
-            evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows }),
-          ),
+          toNumber(evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows })),
         )
         .filter((v) => !Number.isNaN(v));
       return aggregate(rowValues, 'sum');

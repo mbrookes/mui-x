@@ -102,6 +102,9 @@ export function collectSelectFields(widget: StudioWidget): string[] {
   if (config.scatterColorField) {
     fields.add(config.scatterColorField);
   }
+  if (config.scatterSizeField) {
+    fields.add(config.scatterSizeField);
+  }
   if (config.ySeries) {
     config.ySeries.forEach((s) => fields.add(s.fieldId));
   }

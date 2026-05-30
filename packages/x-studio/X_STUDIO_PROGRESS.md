@@ -77,6 +77,7 @@
 | UX-02 | UX        | Settings: Compose panel label             | ✅ Completed |
 | UX-03 | UX        | Data panel: right-aligned edit/delete     | ✅ Completed |
 | UX-04 | UX        | Consistent calculated field UI + flags    | ✅ Completed |
+| UX-05 | UX        | Feature flags: relationships + widgetFilters | ✅ Completed |
 
 ---
 
@@ -495,6 +496,12 @@
 - New `StudioFeatureFlags` keys: `calculatedFields` (global master), `kpiCalculatedFields`, `chartCalculatedFields`, `gridCalculatedFields`; all default to `true`; each panel gates its "Calculated field…" control on `calculatedFields !== false && <widget>CalculatedFields !== false`
 - Settings dialogs in both example apps expose the four new toggles; per-widget toggles have `parentKey: 'calculatedFields'` so they disable when the global master is off
 - Fixed `Studio.tsx` variable ordering: `showCompose` declaration moved before the `useEffect` that references it
+
+### UX-05 · Feature flags: relationships + widgetFilters (BL-86)
+
+- Added `relationships` flag to `StudioFeatureFlags` — when `false`, hides the `RelationshipPanel` in `StudioDataDrawer`; `useStudioFeatures()` defaults it to `true`
+- Added `widgetFilters` flag to `StudioFeatureFlags` — when `false`, hides the "Filters" tab in `StudioWidgetEditDialog` and re-indexes the "Format" tab accordingly; `useStudioFeatures()` defaults it to `true`
+- Both settings dialogs (x-studio and x-studio-composed) expose the new toggles; `relationships` uses `parentKey: 'dataManagement'` so it disables when the data drawer is hidden
 
 ---
 

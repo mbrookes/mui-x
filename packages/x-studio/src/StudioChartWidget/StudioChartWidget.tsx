@@ -1019,8 +1019,20 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       : null;
 
     const highlightedSeries = hasColorBy
-      ? scatterSeries!.map((s) => ({ id: s.id, label: s.label, data: s.data }))
-      : [{ data: scatterData! }];
+      ? scatterSeries!.map((s) => ({
+          id: s.id,
+          label: s.label,
+          data: s.data,
+          minBubbleRadius: config.scatterMinRadius,
+          maxBubbleRadius: config.scatterMaxRadius,
+        }))
+      : [
+          {
+            data: scatterData!,
+            minBubbleRadius: config.scatterMinRadius,
+            maxBubbleRadius: config.scatterMaxRadius,
+          },
+        ];
 
     const resolvedSeries = ghostSeries ? [...ghostSeries, ...highlightedSeries] : highlightedSeries;
 

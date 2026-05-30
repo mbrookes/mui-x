@@ -87,6 +87,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
         relationships,
         expressionFields,
         config.scatterColorField,
+        config.scatterSizeField,
       ),
     [
       widget.sourceId,
@@ -98,6 +99,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
       relationships,
       expressionFields,
       config.scatterColorField,
+      config.scatterSizeField,
     ],
   );
 
@@ -308,15 +310,16 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
   const scatterData = React.useMemo(() => {
     const xField = config.xField;
     const yField = config.yField;
+    const sizeField = config.scatterSizeField;
 
     if (!xField || !yField || enrichedRows.length === 0) {
       return null;
     }
 
-    return cachedCompute(enrichedRows, `scat:${xField}:${yField}`, () =>
-      prepareScatterData(enrichedRows, xField, yField),
+    return cachedCompute(enrichedRows, `scat:${xField}:${yField}:${sizeField ?? ''}`, () =>
+      prepareScatterData(enrichedRows, xField, yField, sizeField),
     );
-  }, [enrichedRows, config.xField, config.yField]);
+  }, [enrichedRows, config.xField, config.yField, config.scatterSizeField]);
 
   // Stable category order for scatter color-by field (from unfiltered rows)
   const scatterColorCategories = React.useMemo(() => {
@@ -342,6 +345,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     const xField = config.xField;
     const yField = config.yField;
     const colorField = config.scatterColorField;
+    const sizeField = config.scatterSizeField;
 
     if (!xField || !yField || !colorField || !scatterColorCategories || enrichedRows.length === 0) {
       return null;
@@ -349,15 +353,16 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
 
     return cachedCompute(
       enrichedRows,
-      `scatc:${xField}:${yField}:${colorField}:${scatterColorCategories.join(',')}`,
+      `scatc:${xField}:${yField}:${colorField}:${scatterColorCategories.join(',')}:${sizeField ?? ''}`,
       () =>
-        prepareScatterDataGrouped(enrichedRows, xField, yField, colorField, scatterColorCategories),
+        prepareScatterDataGrouped(enrichedRows, xField, yField, colorField, scatterColorCategories, sizeField),
     );
   }, [
     enrichedRows,
     config.xField,
     config.yField,
     config.scatterColorField,
+    config.scatterSizeField,
     scatterColorCategories,
   ]);
 
@@ -368,13 +373,14 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     }
     const xField = config.xField;
     const yField = config.yField;
+    const sizeField = config.scatterSizeField;
     if (!xField || !yField || allEnrichedRows.length === 0) {
       return null;
     }
-    return cachedCompute(allEnrichedRows, `scat-all:${xField}:${yField}`, () =>
-      prepareScatterData(allEnrichedRows, xField, yField),
+    return cachedCompute(allEnrichedRows, `scat-all:${xField}:${yField}:${sizeField ?? ''}`, () =>
+      prepareScatterData(allEnrichedRows, xField, yField, sizeField),
     );
-  }, [shouldShowGhost, allEnrichedRows, config.xField, config.yField]);
+  }, [shouldShowGhost, allEnrichedRows, config.xField, config.yField, config.scatterSizeField]);
 
   const allScatterSeries: ScatterSeriesData[] | null = React.useMemo(() => {
     if (!shouldShowGhost || !config.scatterColorField || !scatterColorCategories) {
@@ -382,12 +388,13 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     }
     const xField = config.xField;
     const yField = config.yField;
+    const sizeField = config.scatterSizeField;
     if (!xField || !yField || allEnrichedRows.length === 0) {
       return null;
     }
     return cachedCompute(
       allEnrichedRows,
-      `scatc-all:${xField}:${yField}:${config.scatterColorField}:${scatterColorCategories.join(',')}`,
+      `scatc-all:${xField}:${yField}:${config.scatterColorField}:${scatterColorCategories.join(',')}:${sizeField ?? ''}`,
       () =>
         prepareScatterDataGrouped(
           allEnrichedRows,
@@ -395,6 +402,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
           yField,
           config.scatterColorField!,
           scatterColorCategories,
+          sizeField,
         ),
     );
   }, [
@@ -403,6 +411,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     config.xField,
     config.yField,
     config.scatterColorField,
+    config.scatterSizeField,
     scatterColorCategories,
   ]);
 

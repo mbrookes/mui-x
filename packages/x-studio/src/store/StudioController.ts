@@ -475,20 +475,18 @@ export class StudioController {
     leftSpan: number,
     rightId: string,
     rightSpan: number,
+    leftMinSpan: number = MIN_SPAN_COLS,
+    rightMinSpan: number = MIN_SPAN_COLS,
   ): void => {
     const state = this.store.state;
     const activePage = state.pages[state.dashboard.activePageId];
     if (!activePage) {
       return;
     }
-    const clampedLeft = Math.max(
-      MIN_SPAN_COLS,
-      Math.min(GRID_COLS - MIN_SPAN_COLS, Math.round(leftSpan)),
-    );
-    const clampedRight = Math.max(
-      MIN_SPAN_COLS,
-      Math.min(GRID_COLS - MIN_SPAN_COLS, Math.round(rightSpan)),
-    );
+    // Clamp left to its min; right follows so the pair total stays constant
+    const totalSpan = Math.round(leftSpan) + Math.round(rightSpan);
+    const clampedLeft = Math.max(leftMinSpan, Math.min(totalSpan - rightMinSpan, Math.round(leftSpan)));
+    const clampedRight = totalSpan - clampedLeft;
     const newSpans: Record<string, number> = { ...(activePage.widgetColSpans ?? {}) };
     newSpans[leftId] = clampedLeft;
     newSpans[rightId] = clampedRight;

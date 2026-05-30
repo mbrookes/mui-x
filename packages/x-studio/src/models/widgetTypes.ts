@@ -270,6 +270,20 @@ export interface StudioWidgetConfig {
    */
   mapColorScheme?: 'blues' | 'reds' | 'greens' | 'oranges' | 'purples';
   /**
+   * When `true`, the colour scale minimum is clamped to `0` instead of the
+   * lowest data value. Useful when the lowest value is non-zero but you want
+   * the colour ramp to communicate magnitude relative to zero.
+   * @default false
+   */
+  mapLegendZeroMin?: boolean;
+  /**
+   * When `true`, clicking a map region emits a cross-filter on `mapCountryField`
+   * that other widgets can respond to. Clicking the same region again clears
+   * the filter.
+   * @default false
+   */
+  mapCrossFilterEmit?: boolean;
+  /**
    * Position of the continuous-colour legend on the map widget.
    * - `'bottom'` (default) — gradient bar below the map
    * - `'top'` — gradient bar above the map

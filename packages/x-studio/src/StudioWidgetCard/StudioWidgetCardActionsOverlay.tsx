@@ -56,6 +56,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
   if (mode === 'edit') {
     return (
       <Stack
+        data-widget-overlay
         direction="row"
         spacing={0.5}
         sx={{
@@ -190,6 +191,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
   if (mode === 'view' && (canExport || isChart)) {
     return (
       <Stack
+        data-widget-overlay
         direction="row"
         sx={{
           position: 'absolute',

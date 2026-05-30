@@ -21,7 +21,8 @@
     "@emotion/styled": "catalog:",
     "dayjs": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "x-studio-shared": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "catalog:",

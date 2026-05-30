@@ -6,6 +6,8 @@
     "import { ChoroplethPlot } from '@mui/x-charts-pro';"
   ],
   "classes": [],
+  "spread": true,
+  "themeDefaultProps": null,
   "muiName": "MuiChoroplethPlot",
   "filename": "/packages/x-charts-pro/src/ChoroplethChart/ChoroplethPlot.tsx",
   "inheritance": null,

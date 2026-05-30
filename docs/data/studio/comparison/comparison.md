@@ -183,7 +183,7 @@ AG Studio documents `expressionFields` as a state configuration key but does not
 | Feature                    | MUI X Studio                           | AG Studio                                |
 | :------------------------- | :------------------------------------- | :--------------------------------------- |
 | Layout model               | Equal-width rows (12-column col-spans) | 12-column grid                           |
-| Widget resize              | ✅ (col-span drag handle)               | ✅ (drag handle, snaps to grid)           |
+| Widget resize              | ✅ (col-span drag handle)              | ✅ (drag handle, snaps to grid)          |
 | Drag-and-drop reorder      | ✅                                     | ✅                                       |
 | Page min/max width         | ❌                                     | ✅ (720px default min, configurable max) |
 | Fixed-height (poster) mode | ❌                                     | ✅                                       |
@@ -246,7 +246,7 @@ AG Studio exposes `getState()`/`setState()` and similarly leaves file I/O to the
 | Custom sidebar layout                         | ✅ (stacked / tabbed; left / right)                   | ✅ (left/right panel config)       |
 | Headless composition                          | ✅                                                    | ❌                                 |
 | Custom widget API                             | ❌                                                    | ✅                                 |
-| Localisation / i18n                           | ✅ (`StudioLocaleText`; ptBR locale included)         | ✅ (`localeText`; 31 locales)       |
+| Localisation / i18n                           | ✅ (`StudioLocaleText`; ptBR locale included)         | ✅ (`localeText`; 31 locales)      |
 | RTL support                                   | ❌                                                    | ✅ (`enableRtl`)                   |
 | Runtime feature flags                         | ✅ (`StudioFeatureFlags` — 17 flags)                  | ❌                                 |
 

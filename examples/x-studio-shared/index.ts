@@ -1,4 +1,10 @@
 export { loadRawOfficeSuppliesData } from './src/loadRawOfficeSuppliesData.js';
+export {
+  FeatureFlagSettings,
+  WIDGET_KIND_FLAGS,
+  WIDGET_FEATURE_FLAGS,
+} from './src/FeatureFlagSettings.js';
+export type { FeatureFlagSettingsProps } from './src/FeatureFlagSettings.js';
 export { agStudioSeededFactory } from './src/prng.js';
 export type {
   RawOfficeSuppliesData,

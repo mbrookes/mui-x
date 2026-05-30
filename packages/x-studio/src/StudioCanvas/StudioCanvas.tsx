@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Paper, Typography } from '@mui/material';
+import { Box, GlobalStyles, Paper, Typography } from '@mui/material';
 
 import { useStudioController, useStudioSelector, selectMode, selectActivePage } from '../context';
 import { StudioWidgetCard } from '../StudioWidgetCard';
@@ -66,6 +66,9 @@ function InsertionPoint({
     }
     function handleDragOver(event: DragEvent) {
       event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move';
+      }
       setIsOver(true);
     }
     function handleDragLeave(event: DragEvent) {
@@ -323,6 +326,9 @@ function WidgetGap({
 
   const handleDragOver = React.useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move';
+    }
     setIsOver(true);
   }, []);
 
@@ -664,14 +670,19 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   }
 
   return (
-    <Box
-      ref={canvasRef}
-      sx={{
-        width: '100%',
-        p: mode === 'edit' ? 0 : '8px',
-        backgroundColor: pageTheme?.pageBackground ?? undefined,
-        minHeight: '100%',
-      }}
+    <React.Fragment>
+      {/* Force grabbing cursor across all elements during a widget drag */}
+      <GlobalStyles
+        styles={{ 'body.x-studio-dragging-widget, body.x-studio-dragging-widget *': { cursor: 'grabbing !important' } }}
+      />
+      <Box
+        ref={canvasRef}
+        sx={{
+          width: '100%',
+          p: mode === 'edit' ? 0 : '8px',
+          backgroundColor: pageTheme?.pageBackground ?? undefined,
+          minHeight: '100%',
+        }}
       onMouseDown={(event) => {
         // Deselect when clicking the canvas background (not a widget card)
         const target = event.target as HTMLElement;
@@ -856,5 +867,6 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         </Box>
       ))}
     </Box>
+    </React.Fragment>
   );
 });

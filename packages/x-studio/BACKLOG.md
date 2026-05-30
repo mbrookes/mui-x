@@ -229,9 +229,11 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 
 BL-82: Is there anything we can resue from x-data-grid-pro's server-side data handling for x-studio (without creating a hard dependancy on the data-grid component? (dependancy on the package is fine)
 
-BL-83: Add support for drag-and drop reordering of columns in the table config widget. Consider whether reordering in the table itself should persist in edit mode (reflected in the UI field ordering).
+~~BL-83: Add support for drag-and drop reordering of columns in the table config widget. Consider whether reordering in the table itself should persist in edit mode (reflected in the UI field ordering).~~
 
-BL-84: Add drag-and-drop tab ordering to the x-studio-composed example. Consider whether it should update the studio config so that the ordering can be persisted. Ideally the active/dragged/dropped tab/page shouldn't rerender, and definitely shouldn't reload, recalculate/sort/filter etc the data.
+**Fixed** (added HTML5 drag-and-drop to the columns list in `GridSetupPanel`: each row has a `DragIndicatorIcon` handle, `draggable` attribute, and `onDragStart`/`onDragOver`/`onDrop`/`onDragEnd` handlers; dropping reorders via `controller.updateWidgetConfig()`; the dragged item is faded and the drop target gets a primary-coloured border; no extra library needed)
+
+BL-84: Add drag-and-drop tab ordering to the x-studio-composed example. It should update the studio config so that the ordering can be persisted. Ideally the active/dragged/dropped tab/page shouldn't rerender, and definitely shouldn't reload, recalculate/sort/filter etc the data.
 
 ~~BL-85: Make the edit/delete buttons for data fields in the data panel right aligned. Edit/delete buttons for relationships overlap the relationship name (Shipment Items → Shipments).~~
 **Fixed** (added `flexGrow: 1; minWidth: 0` to `ExpressionFieldRow` primary-content Stack so edit/delete buttons are always right-aligned; added `flexShrink: 0` to relationship edit/delete `IconButton`s so they no longer overlap long relationship names)
@@ -246,6 +248,6 @@ BL:87: The filter panel seems a bit pointless as it stands, make it feature comp
 
 BL-89: re-run the UI performance tests and compare with the previous run.
 
-BL-90: Make backlog changes persist locally in the browser, so that if the page reloads when the state isn't saved by the containing server, the user doesn't loose changes. 
+BL-90: Make config changes persist locally in the browser, so that if the page reloads when the state isn't saved by the containing server, the user doesn't loose changes. 
 
 BL-91: Move the upload download helpers out of the studio package, and into the containing example apps.

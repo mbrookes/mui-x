@@ -20,13 +20,13 @@ Pivot tables are useful when you want to compare multiple categories simultaneou
 
 Configure a pivot widget through the **Setup** tab in the compose sidebar:
 
-| Property | Description |
-| :--- | :--- |
-| **Row field** | The field whose unique values appear as row labels. |
-| **Column field** | The field whose unique values appear as column headers. |
-| **Value field** | The numeric field to aggregate in each cell. When omitted, the widget counts rows. |
-| **Aggregation** | How to combine multiple values in a cell: `Sum`, `Average`, `Count`, `Min`, or `Max`. Defaults to `Sum`. |
-| **Show totals** | Adds a grand-total row and column. Enabled by default. |
+| Property         | Description                                                                                              |
+| :--------------- | :------------------------------------------------------------------------------------------------------- |
+| **Row field**    | The field whose unique values appear as row labels.                                                      |
+| **Column field** | The field whose unique values appear as column headers.                                                  |
+| **Value field**  | The numeric field to aggregate in each cell. When omitted, the widget counts rows.                       |
+| **Aggregation**  | How to combine multiple values in a cell: `Sum`, `Average`, `Count`, `Min`, or `Max`. Defaults to `Sum`. |
+| **Show totals**  | Adds a grand-total row and column. Enabled by default.                                                   |
 
 ## Programmatic configuration
 
@@ -35,9 +35,9 @@ The pivot widget config uses the following shape in the Studio state:
 ```ts
 interface StudioWidgetConfig {
   // ...shared fields...
-  pivotRowField?: string;    // field ID for row dimension
-  pivotColField?: string;    // field ID for column dimension
-  pivotValueField?: string;  // field ID for value cells (optional)
+  pivotRowField?: string; // field ID for row dimension
+  pivotColField?: string; // field ID for column dimension
+  pivotValueField?: string; // field ID for value cells (optional)
   pivotAggregation?: 'sum' | 'avg' | 'count' | 'min' | 'max';
   pivotShowTotals?: boolean;
 }

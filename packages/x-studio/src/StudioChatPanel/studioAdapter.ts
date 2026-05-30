@@ -76,9 +76,7 @@ function toOpenAIMessages(systemPrompt: string, messages: ChatMessage[]): OpenAI
   const result: OpenAIMessage[] = [{ role: 'system', content: systemPrompt }];
 
   for (const msg of messages) {
-    const textParts = msg.parts
-      .flatMap((p) => (p.type === 'text' ? [p.text] : []))
-      .join('');
+    const textParts = msg.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('');
 
     const toolParts = msg.parts.filter((p) => p.type === 'dynamic-tool') as Array<{
       type: 'dynamic-tool';
@@ -226,8 +224,9 @@ function executeTool(toolName: string, input: unknown, controller: StudioControl
       try {
         const state = controller.getState();
         const activePage = state.pages[state.dashboard.activePageId];
-        const rowWidgetIds =
-          activePage?.widgetRows?.find((row) => row.includes(widgetId)) ?? [widgetId];
+        const rowWidgetIds = activePage?.widgetRows?.find((row) => row.includes(widgetId)) ?? [
+          widgetId,
+        ];
         controller.setWidgetColSpanInRow(widgetId, columns, rowWidgetIds);
         return JSON.stringify({ success: true, widgetId, columns });
       } catch (err) {
@@ -329,7 +328,10 @@ export function createStudioChatAdapter(
                 }),
               });
             } catch (err) {
-              if (input.signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+              if (
+                input.signal?.aborted ||
+                (err instanceof DOMException && err.name === 'AbortError')
+              ) {
                 streamController.enqueue({ type: 'abort', messageId: msgId });
                 streamController.close();
               } else {

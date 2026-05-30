@@ -24,7 +24,7 @@ interface StudioExpressionField {
   id: string;
   label: string;
   sourceId: string;
-  isMeasure: true;            // aggregate measure
+  isMeasure: true; // aggregate measure
   expression: StudioExpression;
   type?: 'number' | 'string' | 'boolean';
   format?: StudioNumberFormat;
@@ -37,13 +37,13 @@ interface StudioExpressionField {
 
 Use the aggregate operators inside the expression tree. They accept a field reference and compute over all rows in the current filtered view:
 
-| Operator | Description |
-| :--- | :--- |
-| `sum` | Sum of all non-null values. |
-| `avg` | Arithmetic mean. |
-| `count` | Count of non-null values. |
-| `min` | Minimum value. |
-| `max` | Maximum value. |
+| Operator | Description                 |
+| :------- | :-------------------------- |
+| `sum`    | Sum of all non-null values. |
+| `avg`    | Arithmetic mean.            |
+| `count`  | Count of non-null values.   |
+| `min`    | Minimum value.              |
+| `max`    | Maximum value.              |
 
 ```ts
 // Total revenue measure

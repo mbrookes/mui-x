@@ -237,6 +237,7 @@ const KPI_AGG_PREFIXES: Record<StudioKpiAggregation, string> = {
   count: 'Count of',
   min: 'Min',
   max: 'Max',
+  count_distinct: 'Distinct',
 };
 
 const CHART_GROUP_BY_TITLE_PREFIXES = {
@@ -331,7 +332,9 @@ export function inferWidgetTitles(
     case 'grid': {
       const title = source?.label ?? 'Table';
       const visibleColumnLabels = (
-        config.columns?.length ? columnFieldIds(config.columns) : (source?.fields.map((f) => f.id) ?? [])
+        config.columns?.length
+          ? columnFieldIds(config.columns)
+          : (source?.fields.map((f) => f.id) ?? [])
       ).flatMap((fieldId) => {
         const label = findFieldLabel(fieldId);
         return label ? [label] : [];

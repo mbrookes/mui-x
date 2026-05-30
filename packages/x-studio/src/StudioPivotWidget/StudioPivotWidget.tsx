@@ -1,12 +1,6 @@
 'use client';
 import * as React from 'react';
-import {
-  Box,
-  Button,
-  Skeleton,
-  Typography,
-  useTheme,
-} from '@mui/material';
+import { Box, Button, Skeleton, Typography, useTheme } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import { useWidgetRows } from '../internals/useWidgetRows';
 import { formatNumber } from '../internals/numberFormat';
@@ -150,7 +144,9 @@ function pivotToCsv(
   for (const rv of rowValues) {
     const rowCells = matrix.cells.get(rv);
     const cells = colValues.map((cv) => formatCell(resolveAgg(rowCells?.get(cv), aggFn)));
-    const rowTotal = showTotals ? formatCell(resolveAgg(matrix.rowTotals.get(rv), aggFn)) : undefined;
+    const rowTotal = showTotals
+      ? formatCell(resolveAgg(matrix.rowTotals.get(rv), aggFn))
+      : undefined;
     const line = [JSON.stringify(rv), ...cells, ...(rowTotal !== undefined ? [rowTotal] : [])];
     lines.push(line.join(','));
   }
@@ -200,12 +196,9 @@ function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProps) {
     return formatNumber(Math.round(v * 100) / 100, 'decimal');
   };
 
-  const headerBg = theme.palette.mode === 'dark'
-    ? theme.palette.grey[800]
-    : theme.palette.grey[100];
-  const totalBg = theme.palette.mode === 'dark'
-    ? theme.palette.grey[700]
-    : theme.palette.grey[50];
+  const headerBg =
+    theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[100];
+  const totalBg = theme.palette.mode === 'dark' ? theme.palette.grey[700] : theme.palette.grey[50];
   const borderColor = theme.palette.divider;
   const cellStyle: React.CSSProperties = {
     border: `1px solid ${borderColor}`,
@@ -264,9 +257,12 @@ function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProps) {
         <tbody>
           {matrix.rowValues.map((rv, ri) => {
             const rowCells = matrix.cells.get(rv);
-            const rowBg = ri % 2 === 1
-              ? (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)')
-              : theme.palette.background.paper;
+            const rowBg =
+              ri % 2 === 1
+                ? theme.palette.mode === 'dark'
+                  ? 'rgba(255,255,255,0.03)'
+                  : 'rgba(0,0,0,0.02)'
+                : theme.palette.background.paper;
             return (
               <tr key={rv}>
                 <td style={{ ...labelStyle, background: rowBg }}>{rv || '(blank)'}</td>
@@ -311,7 +307,13 @@ export interface StudioPivotWidgetProps {
 
 export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps) {
   const { config } = widget;
-  const { pivotRowField, pivotColField, pivotValueField, pivotAggregation = 'sum', pivotShowTotals = true } = config;
+  const {
+    pivotRowField,
+    pivotColField,
+    pivotValueField,
+    pivotAggregation = 'sum',
+    pivotShowTotals = true,
+  } = config;
 
   const { filteredRows, isLoading, isError, errorMessage } = useWidgetRows(widget, dataSource);
   const localeText = useStudioLocaleText();
@@ -320,7 +322,13 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
     if (!pivotRowField || !pivotColField || filteredRows.length === 0) {
       return null;
     }
-    return buildPivotMatrix(filteredRows, pivotRowField, pivotColField, pivotValueField, pivotAggregation);
+    return buildPivotMatrix(
+      filteredRows,
+      pivotRowField,
+      pivotColField,
+      pivotValueField,
+      pivotAggregation,
+    );
   }, [filteredRows, pivotRowField, pivotColField, pivotValueField, pivotAggregation]);
 
   const handleExport = React.useCallback(() => {

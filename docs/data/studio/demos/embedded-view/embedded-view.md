@@ -26,11 +26,7 @@ An admin-only route can render the full `Studio` component where authors build a
 
 ```tsx
 import * as React from 'react';
-import {
-  StudioCanvas,
-  StudioController,
-  StudioStateProvider,
-} from '@mui/x-studio';
+import { StudioCanvas, StudioController, StudioStateProvider } from '@mui/x-studio';
 import type { StudioState } from '@mui/x-studio';
 import { Box, CircularProgress, Typography } from '@mui/material';
 
@@ -52,7 +48,10 @@ interface EmbeddedDashboardProps {
   height?: string | number;
 }
 
-export function EmbeddedDashboard({ dashboardId, height = '100%' }: EmbeddedDashboardProps) {
+export function EmbeddedDashboard({
+  dashboardId,
+  height = '100%',
+}: EmbeddedDashboardProps) {
   const [controller, setController] = React.useState<StudioController | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -88,7 +87,14 @@ export function EmbeddedDashboard({ dashboardId, height = '100%' }: EmbeddedDash
 
   if (!controller) {
     return (
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height,
+        }}
+      >
         <CircularProgress />
       </Box>
     );
@@ -142,7 +148,11 @@ async function saveDashboard(dashboardId: string, state: StudioState) {
   });
 }
 
-export default function AdminDashboardEditor({ dashboardId }: { dashboardId: string }) {
+export default function AdminDashboardEditor({
+  dashboardId,
+}: {
+  dashboardId: string;
+}) {
   return (
     <Studio
       onStateChange={(state) => saveDashboard(dashboardId, state)}
@@ -154,13 +164,13 @@ export default function AdminDashboardEditor({ dashboardId }: { dashboardId: str
 
 ## What this demonstrates
 
-| Feature | Where |
-| :--- | :--- |
-| Forced view mode | `{ ...state, mode: 'view' }` in controller |
-| Canvas-only rendering | `StudioCanvas` without `StudioToolbar` or `StudioSidebar` |
-| Async state loading | `fetchDashboardState` with loading/error states |
-| Cursor override | `slotProps.widgetCard.slotProps.paper.sx` |
-| Separate read/write routes | `EmbeddedDashboard` vs `AdminDashboardEditor` |
+| Feature                    | Where                                                     |
+| :------------------------- | :-------------------------------------------------------- |
+| Forced view mode           | `{ ...state, mode: 'view' }` in controller                |
+| Canvas-only rendering      | `StudioCanvas` without `StudioToolbar` or `StudioSidebar` |
+| Async state loading        | `fetchDashboardState` with loading/error states           |
+| Cursor override            | `slotProps.widgetCard.slotProps.paper.sx`                 |
+| Separate read/write routes | `EmbeddedDashboard` vs `AdminDashboardEditor`             |
 
 ## Key considerations
 
@@ -171,7 +181,7 @@ To reflect data changes (e.g., live metrics), refetch the state and pass it to a
 If you need to programmatically guard against a mode switch, listen to `onStateChange` and reset:
 
 ```tsx
-<StudioCanvas />
+<StudioCanvas />;
 // In a parent component:
 controller.subscribe((state) => {
   if (state.mode === 'edit') {

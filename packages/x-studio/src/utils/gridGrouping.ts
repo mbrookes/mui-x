@@ -3,7 +3,7 @@ import type {
   StudioGridColumn,
   StudioGridSummaryAggregation,
   StudioRelationship,
-} from '../models/studio';
+} from '../models';
 
 function aggregateGridValue(
   rows: Record<string, unknown>[],

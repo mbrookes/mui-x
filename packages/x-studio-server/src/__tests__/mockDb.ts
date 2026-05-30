@@ -71,7 +71,10 @@ export function createMockDb(tables: Tables): (table: string) => MockQueryBuilde
         return qb;
       },
       whereBetween(column: string, [lo, hi]: [unknown, unknown]) {
-        predicates.push((row) => (row[column] as number) >= (lo as number) && (row[column] as number) <= (hi as number));
+        predicates.push(
+          (row) =>
+            (row[column] as number) >= (lo as number) && (row[column] as number) <= (hi as number),
+        );
         return qb;
       },
       count(expr: string) {

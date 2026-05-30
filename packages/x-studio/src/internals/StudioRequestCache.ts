@@ -1,4 +1,4 @@
-import type { StudioQueryResult } from '../models/studio';
+import type { StudioQueryResult } from '../models';
 
 const TTL_MS = 30_000;
 

@@ -47,7 +47,7 @@ import {
   makeSelectIncomingCrossFilters,
 } from '../context';
 import { formatNumber } from '../internals/numberFormat';
-import type { StudioNumberFormat } from '../models/studio';
+import type { StudioNumberFormat } from '../models';
 import { computeAggregate } from '../StudioKpiWidget/kpiUtils';
 import { useChartWidgetData } from './useChartWidgetData';
 import { buildMultiYLineSeries } from './lineSeries';
@@ -75,7 +75,10 @@ export interface StudioChartWidgetSlotProps {
   /** Spread onto ScatterChart. */
   scatterChart?: Partial<ScatterChartProps>;
   /** Spread onto Gauge (gauge chart type). */
-  gaugeChart?: Omit<Partial<GaugeProps>, 'ref' | 'value' | 'valueMin' | 'valueMax' | 'width' | 'height'>;
+  gaugeChart?: Omit<
+    Partial<GaugeProps>,
+    'ref' | 'value' | 'valueMin' | 'valueMax' | 'width' | 'height'
+  >;
 }
 
 export interface StudioChartWidgetProps {
@@ -508,7 +511,16 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       : null;
 
     return { rings, filteredCategories, filteredSlicesByCategory };
-  }, [normalizedChartType, config.seriesField, config.xField, config.yField, activeYFields, enrichedRows, allEnrichedRows, shouldShowGhost]);
+  }, [
+    normalizedChartType,
+    config.seriesField,
+    config.xField,
+    config.yField,
+    activeYFields,
+    enrichedRows,
+    allEnrichedRows,
+    shouldShowGhost,
+  ]);
 
   const currentHighlightableSeriesIds = React.useMemo(() => {
     if (normalizedChartType === 'pie' || normalizedChartType === 'donut') {
@@ -552,12 +564,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
 
     return new Set<string>();
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- deps are correct; config.seriesField is a stable selector
   }, [multiYData, normalizedChartType, seriesFieldData, config.seriesField]);
 
   const controlledHighlightedItem =
-    !hasActiveXFilter &&
-    hoveredItem &&
-    currentHighlightableSeriesIds.has(hoveredItem.seriesId)
+    !hasActiveXFilter && hoveredItem && currentHighlightableSeriesIds.has(hoveredItem.seriesId)
       ? hoveredItem
       : null;
   const controlledHighlightedAxis = !hasActiveXFilter ? (hoveredAxis ?? []) : [];
@@ -699,8 +710,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   // ── Pie cross-highlight context (must be before any early returns) ───────────
   // Computed at top level to satisfy the Rules of Hooks (no conditional useMemo).
-  const isPieOrDonut =
-    normalizedChartType === 'pie' || normalizedChartType === 'donut';
+  const isPieOrDonut = normalizedChartType === 'pie' || normalizedChartType === 'donut';
   const isPieHighlightActive = Boolean(
     isPieOrDonut && shouldShowGhost && allChartData && preserveXFieldBaseline,
   );
@@ -744,7 +754,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     );
   }
 
-  if (!dataSource || (!config.xField && normalizedChartType !== 'gauge' && normalizedChartType !== 'gantt')) {
+  if (
+    !dataSource ||
+    (!config.xField && normalizedChartType !== 'gauge' && normalizedChartType !== 'gantt')
+  ) {
     return (
       <Box
         sx={{
@@ -968,13 +981,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
     const categories = [...categorySet];
 
-    return (
-      <StudioGanttChart
-        items={ganttItems}
-        height={chartHeight}
-        categories={categories}
-      />
-    );
+    return <StudioGanttChart items={ganttItems} height={chartHeight} categories={categories} />;
   }
 
   // Scatter chart
@@ -1015,9 +1022,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ? scatterSeries!.map((s) => ({ id: s.id, label: s.label, data: s.data }))
       : [{ data: scatterData! }];
 
-    const resolvedSeries = ghostSeries
-      ? [...ghostSeries, ...highlightedSeries]
-      : highlightedSeries;
+    const resolvedSeries = ghostSeries ? [...ghostSeries, ...highlightedSeries] : highlightedSeries;
 
     // Ghost series are identified by suffix; we render them at reduced opacity via sx
     const ghostIds = new Set(ghostSeries?.map((s) => s.id) ?? []);
@@ -1070,9 +1075,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             color: 'text.disabled',
           }}
         >
-          <Typography variant="body2">
-            Mixed chart requires 2 or more measure fields.
-          </Typography>
+          <Typography variant="body2">Mixed chart requires 2 or more measure fields.</Typography>
         </Box>
       );
     }
@@ -1349,8 +1352,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       const pieSeries = rings.map((ring, ringIndex) => {
         const outerRadius = maxRadius - ringIndex * (ringWidth + ringGapActual);
         const innerRadius = Math.max(donutHole, outerRadius - ringWidth);
-        const isCatDimmed =
-          filteredCategories != null && !filteredCategories.has(ring.label);
+        const isCatDimmed = filteredCategories != null && !filteredCategories.has(ring.label);
         const filteredSlices = filteredSlicesByCategory?.get(ring.label) ?? null;
         const ringTotal = ring.slices.values.reduce((sum, v) => sum + (v ?? 0), 0);
 
@@ -1367,7 +1369,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           label: ring.label,
           innerRadius,
           outerRadius,
-          ...(ringArcLabel ? { arcLabel: ringArcLabel, arcLabelMinAngle: pieArcLabelMinAngle } : {}),
+          ...(ringArcLabel
+            ? { arcLabel: ringArcLabel, arcLabelMinAngle: pieArcLabelMinAngle }
+            : {}),
           data: ring.slices.labels.map((label, i) => {
             const isDimmed =
               isCatDimmed || (filteredSlices != null && !filteredSlices.has(String(label)));
@@ -1595,11 +1599,27 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       }),
                     },
                   ]
-                : [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto', valueFormatter: (v: string | number) => formatLabel(String(v)) }]
+                : [
+                    {
+                      id: CROSS_FILTER_AXIS_ID,
+                      data: xAxisData,
+                      scaleType: 'band',
+                      height: 'auto',
+                      valueFormatter: (v: string | number) => formatLabel(String(v)),
+                    },
+                  ]
             }
             yAxis={
               isHorizontalBarLayout
-                ? [{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', width: 'auto', valueFormatter: (v: string | number) => formatLabel(String(v)) }]
+                ? [
+                    {
+                      id: CROSS_FILTER_AXIS_ID,
+                      data: xAxisData,
+                      scaleType: 'band',
+                      width: 'auto',
+                      valueFormatter: (v: string | number) => formatLabel(String(v)),
+                    },
+                  ]
                 : [
                     {
                       width: 'auto' as const,
@@ -2092,7 +2112,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             layout="horizontal"
             xAxis={[{ height: 'auto' }]}
             yAxis={[
-              { id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', width: 'auto', valueFormatter: (v: string | number) => formatLabel(String(v)) },
+              {
+                id: CROSS_FILTER_AXIS_ID,
+                data: xAxisData,
+                scaleType: 'band',
+                width: 'auto',
+                valueFormatter: (v: string | number) => formatLabel(String(v)),
+              },
             ]}
             series={[
               {
@@ -2144,7 +2170,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         <BarChart
           {...slotProps?.barChart}
           skipAnimation={skipAnimation}
-          xAxis={[{ id: CROSS_FILTER_AXIS_ID, data: xAxisData, scaleType: 'band', height: 'auto', valueFormatter: (v: string | number) => formatLabel(String(v)) }]}
+          xAxis={[
+            {
+              id: CROSS_FILTER_AXIS_ID,
+              data: xAxisData,
+              scaleType: 'band',
+              height: 'auto',
+              valueFormatter: (v: string | number) => formatLabel(String(v)),
+            },
+          ]}
           yAxis={[{ width: 'auto' }]}
           series={[
             {

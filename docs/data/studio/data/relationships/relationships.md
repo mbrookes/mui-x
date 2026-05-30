@@ -20,22 +20,22 @@ A relationship links two data sources along a foreign key. Once declared, Studio
 ```ts
 interface StudioRelationship {
   id: string;
-  sourceId: string;    // The "many" side (e.g. 'orders')
+  sourceId: string; // The "many" side (e.g. 'orders')
   sourceField: string; // FK field on the many side (e.g. 'customerId')
-  targetId: string;    // The "one" side (e.g. 'customers')
+  targetId: string; // The "one" side (e.g. 'customers')
   targetField: string; // PK field on the one side (e.g. 'id')
   type: 'many-to-one' | 'one-to-one';
 }
 ```
 
-| Property | Description |
-| :--- | :--- |
-| `id` | Unique stable identifier for the relationship. |
-| `sourceId` | The "many" side — the source that holds the foreign key. |
-| `sourceField` | The FK field name on the many side. |
-| `targetId` | The "one" side — the lookup / dimension source. |
-| `targetField` | The PK field name on the one side. |
-| `type` | `'many-to-one'` for typical FK lookups; `'one-to-one'` for 1:1 enrichment tables. |
+| Property      | Description                                                                       |
+| :------------ | :-------------------------------------------------------------------------------- |
+| `id`          | Unique stable identifier for the relationship.                                    |
+| `sourceId`    | The "many" side — the source that holds the foreign key.                          |
+| `sourceField` | The FK field name on the many side.                                               |
+| `targetId`    | The "one" side — the lookup / dimension source.                                   |
+| `targetField` | The PK field name on the one side.                                                |
+| `type`        | `'many-to-one'` for typical FK lookups; `'one-to-one'` for 1:1 enrichment tables. |
 
 ## Declaring relationships
 
@@ -48,7 +48,7 @@ const initialState = createDefaultStudioState({
   relationships: [
     {
       id: 'orders-customers',
-      sourceId: 'orders',     // orders.customerId → customers.id
+      sourceId: 'orders', // orders.customerId → customers.id
       sourceField: 'customerId',
       targetId: 'customers',
       targetField: 'id',
@@ -56,7 +56,7 @@ const initialState = createDefaultStudioState({
     },
     {
       id: 'orders-products',
-      sourceId: 'orders',     // orders.productId → products.id
+      sourceId: 'orders', // orders.productId → products.id
       sourceField: 'productId',
       targetId: 'products',
       targetField: 'id',
@@ -67,11 +67,16 @@ const initialState = createDefaultStudioState({
 
 const dataSources = [
   { id: 'orders', label: 'Orders', fields: ordersFields, rows: ordersRows },
-  { id: 'customers', label: 'Customers', fields: customersFields, rows: customersRows },
+  {
+    id: 'customers',
+    label: 'Customers',
+    fields: customersFields,
+    rows: customersRows,
+  },
   { id: 'products', label: 'Products', fields: productsFields, rows: productsRows },
 ];
 
-<Studio initialState={initialState} dataSources={dataSources} />
+<Studio initialState={initialState} dataSources={dataSources} />;
 ```
 
 ## What relationships enable
@@ -88,8 +93,8 @@ const customerRegion: StudioExpressionField = {
   sourceId: 'orders',
   isMeasure: false,
   expression: {
-    joinSourceId: 'customers',  // target source
-    fieldId: 'region',          // field on customers
+    joinSourceId: 'customers', // target source
+    fieldId: 'region', // field on customers
   },
 };
 ```
@@ -134,10 +139,21 @@ import { createStudioPipeline } from '@mui/x-studio';
 const pipeline = createStudioPipeline(controller.getState());
 
 // L3: filter to the widget's effective rows
-const filtered = pipeline.resolveWidgetRows(widget.id, widget.sourceId, source.rows, activePageId);
+const filtered = pipeline.resolveWidgetRows(
+  widget.id,
+  widget.sourceId,
+  source.rows,
+  activePageId,
+);
 
 // L4: re-anchor to the correct aggregation grain for the chart
-const chartRows = pipeline.resolveChartRows(filtered, widget.sourceId, xField, yFields, seriesField);
+const chartRows = pipeline.resolveChartRows(
+  filtered,
+  widget.sourceId,
+  xField,
+  yFields,
+  seriesField,
+);
 ```
 
 ## Hidden join-only sources

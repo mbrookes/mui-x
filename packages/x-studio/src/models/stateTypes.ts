@@ -9,7 +9,12 @@ import type { StudioWidget, StudioPage, StudioPageTheme } from './widgetTypes';
 import type { StudioDataSource, StudioDataField } from './dataTypes';
 import type { StudioExpressionField, StudioRelationship } from './expressionTypes';
 
-export type StudioDateRangePreset = 'this_month' | 'last_3_months' | 'last_12_months' | 'ytd' | 'custom';
+export type StudioDateRangePreset =
+  | 'this_month'
+  | 'last_3_months'
+  | 'last_12_months'
+  | 'ytd'
+  | 'custom';
 
 export interface StudioFilterState {
   id: string;

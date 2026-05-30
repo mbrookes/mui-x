@@ -17,7 +17,15 @@ import type { JwtSecurityClaims, BatchWidgetDescriptor, FilterPredicate } from '
 
 // Allowlist of operators that may be used in user-supplied filters
 const SAFE_OPERATORS = new Set<FilterPredicate['operator']>([
-  'eq', 'neq', 'in', 'lt', 'lte', 'gt', 'gte', 'like', 'between',
+  'eq',
+  'neq',
+  'in',
+  'lt',
+  'lte',
+  'gt',
+  'gte',
+  'like',
+  'between',
 ]);
 
 /**
@@ -37,7 +45,7 @@ export function buildSecureQuery(
   db: any, // Knex.Knex
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any {
   const query = db(descriptor.table);
 
@@ -70,7 +78,7 @@ function applyPredicate(query: any, predicate: FilterPredicate): void {
   if (!SAFE_OPERATORS.has(predicate.operator)) {
     throw new Error(
       `MUI X Studio Server: Unsupported filter operator "${predicate.operator}". ` +
-      `Allowed: ${[...SAFE_OPERATORS].join(', ')}`,
+        `Allowed: ${[...SAFE_OPERATORS].join(', ')}`,
     );
   }
 

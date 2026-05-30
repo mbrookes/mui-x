@@ -52,11 +52,24 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
 
     source.fields.forEach((f) => {
       if (f.hidden) return;
-      entries.push({ id: f.id, label: f.label, type: f.type, sourceId: source.id, sourceLabel: source.label });
+      entries.push({
+        id: f.id,
+        label: f.label,
+        type: f.type,
+        sourceId: source.id,
+        sourceLabel: source.label,
+      });
     });
     expressionFields.forEach((ef) => {
       if (ef.sourceId !== widget.sourceId || ef.hidden) return;
-      entries.push({ id: ef.id, label: ef.label, type: 'number' as const, sourceId: source.id, sourceLabel: source.label, generated: true });
+      entries.push({
+        id: ef.id,
+        label: ef.label,
+        type: 'number' as const,
+        sourceId: source.id,
+        sourceLabel: source.label,
+        generated: true,
+      });
     });
 
     relationships.forEach((rel) => {
@@ -72,7 +85,13 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
       }
       relSource.fields.forEach((f) => {
         if (f.hidden) return;
-        entries.push({ id: f.id, label: f.label, type: f.type, sourceId: rel.targetId, sourceLabel: relSource.label });
+        entries.push({
+          id: f.id,
+          label: f.label,
+          type: f.type,
+          sourceId: rel.targetId,
+          sourceLabel: relSource.label,
+        });
       });
     });
 
@@ -101,7 +120,9 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
 
       <DataSourceFieldSelect
         value={config.pivotRowField ?? ''}
-        onChange={(fieldId) => controller.updateWidgetConfig(widgetId, { pivotRowField: fieldId || undefined })}
+        onChange={(fieldId) =>
+          controller.updateWidgetConfig(widgetId, { pivotRowField: fieldId || undefined })
+        }
         fields={categoryFields}
         label="Row field"
         helperText="Categorical field shown as row groups on the left"
@@ -109,7 +130,9 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
 
       <DataSourceFieldSelect
         value={config.pivotColField ?? ''}
-        onChange={(fieldId) => controller.updateWidgetConfig(widgetId, { pivotColField: fieldId || undefined })}
+        onChange={(fieldId) =>
+          controller.updateWidgetConfig(widgetId, { pivotColField: fieldId || undefined })
+        }
         fields={categoryFields}
         label="Column field"
         helperText="Categorical field spread across column headers"
@@ -153,7 +176,9 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
           <Switch
             size="small"
             checked={showTotals}
-            onChange={(e) => controller.updateWidgetConfig(widgetId, { pivotShowTotals: e.target.checked })}
+            onChange={(e) =>
+              controller.updateWidgetConfig(widgetId, { pivotShowTotals: e.target.checked })
+            }
           />
         }
         label={<Typography variant="caption">Show totals row and column</Typography>}

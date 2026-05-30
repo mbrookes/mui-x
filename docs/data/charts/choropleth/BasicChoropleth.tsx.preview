@@ -1,0 +1,15 @@
+<ChoroplethChart
+  geography={demoGeography}
+  series={series}
+  height={300}
+  zAxis={[
+    {
+      colorMap: {
+        type: 'continuous',
+        min: 0,
+        max: 100,
+        color: ['#ffffb2', '#b10026'],
+      },
+    },
+  ]}
+/>

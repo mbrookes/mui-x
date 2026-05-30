@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Box, Tooltip, Typography, useTheme } from '@mui/material';
 import { formatNumber } from '../internals/numberFormat';
-import type { StudioNumberFormat } from '../models/studio';
+import type { StudioNumberFormat } from '../models';
 
 export interface FunnelStage {
   label: string;
@@ -192,7 +192,10 @@ export function StudioFunnelChart({
                   {formatter(stage.value)}
                 </Typography>
                 {i > 0 && (
-                  <Typography variant="caption" sx={{ fontSize: 9, color: 'text.secondary', lineHeight: 1.2 }}>
+                  <Typography
+                    variant="caption"
+                    sx={{ fontSize: 9, color: 'text.secondary', lineHeight: 1.2 }}
+                  >
                     {retentionPct}% of total
                   </Typography>
                 )}

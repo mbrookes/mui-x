@@ -32,18 +32,18 @@ interface StudioState {
 
 ### Top-level fields
 
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `schemaVersion` | `1` | Always `1`. Used by the migration system when loading older saved states. |
-| `mode` | `'edit' \| 'view'` | Current editing mode. |
-| `dashboard` | `StudioDashboardState` | Dashboard-level metadata: `id`, `title`, `activePageId`, optional `defaultTheme`. |
-| `pages` | `Record<string, StudioPage>` | All pages, keyed by page ID. Each page owns its own widget layout. |
-| `widgets` | `Record<string, StudioWidget>` | All widgets across all pages, keyed by widget ID. |
-| `dataSources` | `Record<string, StudioDataSource>` | All registered data sources, keyed by source ID. |
-| `relationships` | `StudioRelationship[]` | Declared foreign-key relationships between sources. |
-| `filters` | `StudioFilterState[]` | All active filters: page, widget, cross-filter, and interactive. |
-| `expressionFields` | `StudioExpressionField[]` | User-authored calculated columns and measures. |
-| `shell` | `StudioShellState` | Transient UI state: open drawers, selected widget/field. Not persisted. |
+| Field              | Type                               | Description                                                                       |
+| :----------------- | :--------------------------------- | :-------------------------------------------------------------------------------- |
+| `schemaVersion`    | `1`                                | Always `1`. Used by the migration system when loading older saved states.         |
+| `mode`             | `'edit' \| 'view'`                 | Current editing mode.                                                             |
+| `dashboard`        | `StudioDashboardState`             | Dashboard-level metadata: `id`, `title`, `activePageId`, optional `defaultTheme`. |
+| `pages`            | `Record<string, StudioPage>`       | All pages, keyed by page ID. Each page owns its own widget layout.                |
+| `widgets`          | `Record<string, StudioWidget>`     | All widgets across all pages, keyed by widget ID.                                 |
+| `dataSources`      | `Record<string, StudioDataSource>` | All registered data sources, keyed by source ID.                                  |
+| `relationships`    | `StudioRelationship[]`             | Declared foreign-key relationships between sources.                               |
+| `filters`          | `StudioFilterState[]`              | All active filters: page, widget, cross-filter, and interactive.                  |
+| `expressionFields` | `StudioExpressionField[]`          | User-authored calculated columns and measures.                                    |
+| `shell`            | `StudioShellState`                 | Transient UI state: open drawers, selected widget/field. Not persisted.           |
 
 ### StudioDashboardState
 
@@ -62,7 +62,7 @@ interface StudioDashboardState {
 interface StudioPage {
   id: string;
   title: string;
-  widgetRows: string[][];   // Each inner array is one row of widget IDs
+  widgetRows: string[][]; // Each inner array is one row of widget IDs
   theme?: StudioPageTheme;
 }
 ```
@@ -78,11 +78,7 @@ The simplest way to observe state is the `onStateChange` prop on `<Studio>`:
 ```tsx
 const [state, setState] = React.useState(() => createDefaultStudioState());
 
-<Studio
-  initialState={state}
-  onStateChange={setState}
-  dataSources={dataSources}
-/>
+<Studio initialState={state} onStateChange={setState} dataSources={dataSources} />;
 ```
 
 `onStateChange` fires on every state mutation. The callback receives the full new `StudioState`.
@@ -106,20 +102,20 @@ Pass any function `(state: StudioState) => T`. Use the stable selectors exported
 
 All selectors are simple `(state: StudioState) => T` functions. Import them from `@mui/x-studio`.
 
-| Selector | Return type | Description |
-| :--- | :--- | :--- |
-| `selectMode` | `StudioMode` | Current `'edit'` or `'view'` mode. |
-| `selectDashboard` | `StudioDashboardState` | Dashboard metadata including `activePageId`. |
-| `selectPages` | `Record<string, StudioPage>` | All pages. |
-| `selectActivePage` | `StudioPage` | The currently visible page. |
-| `selectWidgets` | `Record<string, StudioWidget>` | All widgets. |
-| `selectDataSources` | `Record<string, StudioDataSource>` | All data sources. |
-| `selectRelationships` | `StudioRelationship[]` | All declared relationships. |
-| `selectFilters` | `StudioFilterState[]` | All active filters (all scopes). |
-| `selectExpressionFields` | `StudioExpressionField[]` | All expression fields. |
-| `selectShell` | `StudioShellState` | Transient UI state (drawers, selection). |
-| `selectActivePageId` | `string` | ID of the active page (convenience shortcut). |
-| `selectPartitionedFilters` | `PartitionedFilters` | Filters bucketed by scope in a single pass. Use instead of multiple `.filter()` calls. |
+| Selector                   | Return type                        | Description                                                                            |
+| :------------------------- | :--------------------------------- | :------------------------------------------------------------------------------------- |
+| `selectMode`               | `StudioMode`                       | Current `'edit'` or `'view'` mode.                                                     |
+| `selectDashboard`          | `StudioDashboardState`             | Dashboard metadata including `activePageId`.                                           |
+| `selectPages`              | `Record<string, StudioPage>`       | All pages.                                                                             |
+| `selectActivePage`         | `StudioPage`                       | The currently visible page.                                                            |
+| `selectWidgets`            | `Record<string, StudioWidget>`     | All widgets.                                                                           |
+| `selectDataSources`        | `Record<string, StudioDataSource>` | All data sources.                                                                      |
+| `selectRelationships`      | `StudioRelationship[]`             | All declared relationships.                                                            |
+| `selectFilters`            | `StudioFilterState[]`              | All active filters (all scopes).                                                       |
+| `selectExpressionFields`   | `StudioExpressionField[]`          | All expression fields.                                                                 |
+| `selectShell`              | `StudioShellState`                 | Transient UI state (drawers, selection).                                               |
+| `selectActivePageId`       | `string`                           | ID of the active page (convenience shortcut).                                          |
+| `selectPartitionedFilters` | `PartitionedFilters`               | Filters bucketed by scope in a single pass. Use instead of multiple `.filter()` calls. |
 
 ## Selector factories
 
@@ -149,11 +145,11 @@ function FilterWidget({ widgetId, sourceId }) {
 }
 ```
 
-| Factory | Returns | Description |
-| :--- | :--- | :--- |
-| `makeSelectActiveInteractiveFilter(widgetId)` | `StudioFilterState \| null` | The active interactive (slider/toggle/date-range/multi-select) filter emitted by the given filter widget. |
-| `makeSelectExpressionFieldsForSource(sourceId)` | `StudioExpressionField[]` | Expression fields for a single source. Reference-stable when unrelated sources change. |
-| `makeSelectExpressionFieldsForSources(sourceIds)` | `StudioExpressionField[]` | Expression fields for a set of source IDs. Useful in widgets that join multiple sources. |
+| Factory                                           | Returns                     | Description                                                                                               |
+| :------------------------------------------------ | :-------------------------- | :-------------------------------------------------------------------------------------------------------- |
+| `makeSelectActiveInteractiveFilter(widgetId)`     | `StudioFilterState \| null` | The active interactive (slider/toggle/date-range/multi-select) filter emitted by the given filter widget. |
+| `makeSelectExpressionFieldsForSource(sourceId)`   | `StudioExpressionField[]`   | Expression fields for a single source. Reference-stable when unrelated sources change.                    |
+| `makeSelectExpressionFieldsForSources(sourceIds)` | `StudioExpressionField[]`   | Expression fields for a set of source IDs. Useful in widgets that join multiple sources.                  |
 
 ## Imperative access (ref)
 
@@ -162,7 +158,7 @@ When using `<Studio>`, get a `StudioHandle` ref to read the current state at any
 ```tsx
 const studioRef = React.useRef<StudioHandle>(null);
 
-<Studio ref={studioRef} initialState={initialState} dataSources={sources} />
+<Studio ref={studioRef} initialState={initialState} dataSources={sources} />;
 
 // Read state on demand (e.g. in a save button handler)
 function handleSave() {

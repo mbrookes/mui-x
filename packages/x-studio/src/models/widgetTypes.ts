@@ -66,6 +66,15 @@ export interface StudioWidgetConfig {
   /** Scatter chart: categorical field used to split points into colour-coded series. */
   scatterColorField?: string;
   /**
+   * Scatter chart: numeric field to use as per-point bubble size.
+   * When set, renders as a bubble chart with variable marker radii (sqrt-scaled).
+   */
+  scatterSizeField?: string;
+  /** Bubble chart: minimum marker radius in pixels. @default 4 */
+  scatterMinRadius?: number;
+  /** Bubble chart: maximum marker radius in pixels. @default 40 */
+  scatterMaxRadius?: number;
+  /**
    * Mixed chart (bar + line): when `true`, bar series use the left Y axis and line series
    * use an independent right Y axis. Useful when bar and line series have different scales
    * (e.g. revenue bars vs. margin-% line).
@@ -246,6 +255,14 @@ export interface StudioWidgetConfig {
   /** Aggregation applied to mapValueField per country group. @default 'sum' */
   mapAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
   /**
+   * Which built-in map to render, or a custom key registered via the `geographies` prop.
+   * - `'world'`  → world countries (ISO alpha-2 feature IDs, e.g. `'US'`, `'FR'`)
+   * - `'usa'`    → US states (2-letter postal abbreviations, e.g. `'CA'`, `'TX'`)
+   * - `'europe'` → European countries subset (ISO alpha-2 feature IDs)
+   * @default 'world'
+   */
+  mapGeography?: 'world' | 'usa' | 'europe' | (string & {});
+  /**
    * Sequential colour ramp applied to the value scale.
    * @default 'blues'
    */
@@ -304,4 +321,3 @@ export interface StudioPage {
    */
   stackBreakpoint?: number;
 }
-

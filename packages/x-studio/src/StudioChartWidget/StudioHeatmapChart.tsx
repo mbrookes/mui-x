@@ -3,7 +3,7 @@ import * as React from 'react';
 import { Box, Tooltip, Typography, useTheme } from '@mui/material';
 import type { HeatmapData } from '../internals/chartAggregation';
 import { formatNumber } from '../internals/numberFormat';
-import type { StudioNumberFormat } from '../models/studio';
+import type { StudioNumberFormat } from '../models';
 
 export interface StudioHeatmapChartProps {
   data: HeatmapData;
@@ -69,9 +69,10 @@ export function StudioHeatmapChart({
 
   // Compute cell width to fill available space
   const gridHeight = height - X_LABEL_HEIGHT;
-  const cellHeight = yLabels.length > 0
-    ? Math.max(CELL_HEIGHT, Math.floor((gridHeight - 16) / yLabels.length))
-    : CELL_HEIGHT;
+  const cellHeight =
+    yLabels.length > 0
+      ? Math.max(CELL_HEIGHT, Math.floor((gridHeight - 16) / yLabels.length))
+      : CELL_HEIGHT;
 
   return (
     <Box sx={{ width: '100%', height, overflow: 'auto', userSelect: 'none' }}>
@@ -162,10 +163,7 @@ export function StudioHeatmapChart({
 
           {/* Cell rows */}
           {yLabels.map((yLbl) => (
-            <Box
-              key={yLbl}
-              sx={{ display: 'flex', height: cellHeight, gap: '1px', mb: '1px' }}
-            >
+            <Box key={yLbl} sx={{ display: 'flex', height: cellHeight, gap: '1px', mb: '1px' }}>
               {xLabels.map((xLbl) => {
                 const key = `${xLbl}\x00${yLbl}`;
                 const value = cells.get(key) ?? 0;

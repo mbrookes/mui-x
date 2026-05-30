@@ -17,7 +17,8 @@ import type {
 
 export const selectFilters = (state: StudioState) => state.filters;
 const EMPTY_FILTER_PRESETS: NonNullable<StudioState['filterPresets']> = [];
-export const selectFilterPresets = (state: StudioState) => state.filterPresets ?? EMPTY_FILTER_PRESETS;
+export const selectFilterPresets = (state: StudioState) =>
+  state.filterPresets ?? EMPTY_FILTER_PRESETS;
 export const selectDataSources = (state: StudioState) => state.dataSources;
 export const selectRelationships = (state: StudioState) => state.relationships;
 export const selectExpressionFields = (state: StudioState) => state.expressionFields;
@@ -341,7 +342,9 @@ export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string)
 /**
  * Returns the widget config for the given widgetId, or undefined if not found.
  */
-export function makeSelectWidget(widgetId: string): (state: StudioState) => StudioWidget | undefined {
+export function makeSelectWidget(
+  widgetId: string,
+): (state: StudioState) => StudioWidget | undefined {
   return (state) => state.widgets[widgetId];
 }
 
@@ -439,9 +442,7 @@ export function makeSelectWidgetActiveCrossFilter(
     return (
       state.filters.find(
         (f) =>
-          f.scope === 'cross-filter' &&
-          f.sourceWidgetId === widgetId &&
-          f.pageId === activePageId,
+          f.scope === 'cross-filter' && f.sourceWidgetId === widgetId && f.pageId === activePageId,
       ) ?? null
     );
   };

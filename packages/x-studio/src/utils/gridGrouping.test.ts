@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildGroupedGridRows } from './gridGrouping';
-import type { StudioDataSource, StudioRelationship } from '../models/studio';
+import type { StudioDataSource, StudioRelationship } from '../models';
 
 describe('buildGroupedGridRows', () => {
   it('returns one row per group with aggregated numeric fields', () => {
@@ -71,7 +71,10 @@ describe('buildGroupedGridRows', () => {
     const orders: StudioDataSource = {
       id: 'orders',
       label: 'Orders',
-      fields: [{ id: 'id', label: 'ID', type: 'string' }, { id: 'total', label: 'Total', type: 'number' }],
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
       rows: [
         { id: 'ord1', total: 100 },
         { id: 'ord2', total: 50 },

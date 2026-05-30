@@ -23,11 +23,7 @@
  *     adapter: createSimpleAdapter('/api/studio/orders'),
  *   };
  */
-import type {
-  StudioDataSourceAdapter,
-  StudioQueryDescriptor,
-  StudioQueryResult,
-} from '../models/studio';
+import type { StudioDataSourceAdapter, StudioQueryDescriptor, StudioQueryResult } from '../models';
 
 export interface SimpleAdapterOptions {
   /**
@@ -74,9 +70,7 @@ export function createSimpleAdapter(
       const json = (await response.json()) as { rows: Record<string, unknown>[] };
 
       if (!Array.isArray(json.rows)) {
-        throw new Error(
-          `MUI X Studio: Response from "${endpoint}" must have a "rows" array`,
-        );
+        throw new Error(`MUI X Studio: Response from "${endpoint}" must have a "rows" array`);
       }
 
       return { rows: json.rows };

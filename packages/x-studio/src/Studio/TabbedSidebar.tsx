@@ -137,7 +137,14 @@ function ActivePanel({ panel, side = 'left' }: ActivePanelProps) {
         {panel.onBack && (
           <React.Fragment>
             <Box
-              sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 0.5, minHeight: 48 }}
+              sx={{
+                px: 1.5,
+                py: 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.5,
+                minHeight: 48,
+              }}
             >
               <IconButton
                 size="small"

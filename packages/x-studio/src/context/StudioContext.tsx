@@ -46,7 +46,19 @@ export interface StudioProviderProps {
 }
 
 export function StudioProvider(props: StudioProviderProps) {
-  const { children, controller, tableSourceMode = 'explicit', featureFlags = {}, localeText, aiConfig } = props;
+  const {
+    children,
+    controller,
+    tableSourceMode = 'explicit',
+    featureFlags = {},
+    localeText,
+    aiConfig,
+  } = props;
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const featureFlagsKey = JSON.stringify(featureFlags);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const localeTextKey = JSON.stringify(localeText);
 
   const uiConfig = React.useMemo(
     () => ({
@@ -58,7 +70,8 @@ export function StudioProvider(props: StudioProviderProps) {
       aiConfig: aiConfig ?? null,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tableSourceMode, JSON.stringify(featureFlags), JSON.stringify(localeText), aiConfig],
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- featureFlagsKey/localeTextKey are JSON.stringify proxies for deep equality
+    [tableSourceMode, featureFlagsKey, localeTextKey, aiConfig],
   );
 
   return (

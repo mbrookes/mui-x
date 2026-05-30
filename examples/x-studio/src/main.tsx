@@ -9,7 +9,10 @@ import { reportWebVitals } from './reportWebVitals';
 // react-scan: opt-in only — activate via either:
 //   • pnpm dev:scan  (sets VITE_REACT_SCAN=true for the whole session)
 //   • localStorage.setItem('reactScan', '1'); location.reload()  (per-tab toggle)
-if (import.meta.env.DEV && (import.meta.env.VITE_REACT_SCAN === 'true' || localStorage.getItem('reactScan') === '1')) {
+if (
+  import.meta.env.DEV &&
+  (import.meta.env.VITE_REACT_SCAN === 'true' || localStorage.getItem('reactScan') === '1')
+) {
   const { scan } = await import('react-scan');
   scan({ enabled: true, log: false, showToolbar: true });
 }

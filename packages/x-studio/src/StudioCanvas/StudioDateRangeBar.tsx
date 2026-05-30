@@ -105,7 +105,8 @@ export function StudioDateRangeBar() {
   }
 
   // ── Derived selection values ──────────────────────────────────────────────
-  const activePreset: StudioDateRangePreset | 'all_time' = dateRangeFilter?.dateRangePreset ?? 'all_time';
+  const activePreset: StudioDateRangePreset | 'all_time' =
+    dateRangeFilter?.dateRangePreset ?? 'all_time';
 
   // Build a stable composite key for each field
   const fieldKey = (f: DateField) => `${f.sourceId}.${f.fieldId}`;
@@ -115,10 +116,7 @@ export function StudioDateRangeBar() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  const applyRange = (
-    field: DateField,
-    preset: StudioDateRangePreset | 'all_time',
-  ) => {
+  const applyRange = (field: DateField, preset: StudioDateRangePreset | 'all_time') => {
     if (preset === 'all_time') {
       controller.setDashboardDateRange(activePageId, null, null, null, null);
       return;

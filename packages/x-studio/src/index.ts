@@ -144,7 +144,7 @@ export { WIDGET_TYPES, createDefaultWidget } from './internals/widgetUtils';
 
 // ─── Controller ───────────────────────────────────────────────────────────────
 export { StudioController, createStudioController } from './store/StudioController';
-export { createDefaultStudioState } from './models/studio';
+export { createDefaultStudioState } from './models';
 
 // ─── State persistence ────────────────────────────────────────────────────────
 export {
@@ -199,7 +199,7 @@ export type {
   StudioFeatureFlags,
   StudioChartAnnotation,
   StudioDateRangePreset,
-} from './models/studio';
+} from './models';
 
 // ─── Utility types ────────────────────────────────────────────────────────────
 export type { RelativeDateValue, RelativeDateUnit } from './internals/filterTypes';
@@ -216,7 +216,10 @@ export type { StudioWordmarkProps } from './icons/StudioWordmark';
 
 // ─── AI / Chat ────────────────────────────────────────────────────────────────
 export { StudioChatPanel } from './StudioChatPanel/StudioChatPanel';
-export type { StudioChatPanelProps, StudioChatPanelSlotProps } from './StudioChatPanel/StudioChatPanel';
+export type {
+  StudioChatPanelProps,
+  StudioChatPanelSlotProps,
+} from './StudioChatPanel/StudioChatPanel';
 export { createStudioChatAdapter } from './StudioChatPanel/studioAdapter';
 export type { StudioAIConfig } from './StudioChatPanel/studioAdapter';
 export { buildAISystemPrompt } from './internals/buildAISystemPrompt';

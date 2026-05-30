@@ -120,62 +120,62 @@ For component-level planned features see the root `BACKLOG.md`.
 ### DB-08 · Additional demo pages
 
 - **Inventory** page: stock levels, reorder alerts, supplier breakdown chart
-| D-02  | Data      | Expression fields (calculated columns & measures) | ✅ Done    |
-| D-03  | Data      | Cross-source join projection                      | ✅ Done    |
-| D-04  | Data      | Async / real data connector                       | 🔭 Future  |
-| D-05  | Data      | Pivot table widget                                | 🔭 Future  |
-| D-06  | Data      | Ad-hoc formula bar in chart setup                 | 🔭 Future  |
-| D-07  | Data      | Data lineage view                                 | 🔭 Future  |
-| DB-01 | Dashboard | Multi-page dashboard with theming                 | ✅ Done    |
-| DB-02 | Dashboard | Page-level and widget-level filters               | ✅ Done    |
-| DB-03 | Dashboard | Cross-filter (click-to-filter)                    | ✅ Done    |
-| DB-04 | Dashboard | Dashboard-level date range filter                 | 📋 Planned |
-| DB-05 | Dashboard | Drill-down / detail panel                         | 📋 Planned |
-| DB-06 | Dashboard | Additional demo pages (Customers etc.)            | ✅ Done    |
-| DB-07 | Dashboard | Data refresh simulation                           | 📋 Planned |
-| DB-08 | Dashboard | State persistence (save/restore)                  | 🔭 Future  |
-| DB-09 | Dashboard | Shareable filter links (URL encoding)             | 🔭 Future  |
-| W-01  | Widget    | Grid: sort, export, cross-filter                  | ✅ Done    |
-| W-02  | Widget    | Grid: conditional formatting                      | 📋 Planned |
-| W-03  | Widget    | Grid: totals / summary row                        | 📋 Planned |
-| W-04  | Widget    | Chart: all major types + horizontal               | ✅ Done    |
-| W-05  | Widget    | Chart: scatter axis configuration                 | 📋 Planned |
-| W-06  | Widget    | Chart: pie/donut label formatting                 | 📋 Planned |
-| W-07  | Widget    | Chart: mixed (bar + line on same axes)            | 🔭 Future  |
-| W-08  | Widget    | Chart: map / choropleth                           | 🔭 Future  |
-| W-09  | Widget    | Chart: Gantt / timeline                           | 🔭 Future  |
-| W-10  | Widget    | Chart: heatmap                                    | 🔭 Future  |
-| W-11  | Widget    | Chart: funnel                                     | 🔭 Future  |
-| W-12  | Widget    | Chart: annotations / reference lines              | 🔭 Future  |
-| W-13  | Widget    | KPI: value, trend, sparkline, formatting          | ✅ Done    |
-| W-14  | Widget    | KPI: target line from business metrics            | 📋 Planned |
-| W-15  | Widget    | KPI: per-widget chart palette override            | 📋 Planned |
-| W-16  | Widget    | Text: per-section font/colour/alignment           | ✅ Done    |
-| C-01  | Compose   | Widget setup and format tabs                      | ✅ Done    |
-| C-02  | Compose   | Chart type picker with icons                      | ✅ Done    |
-| C-03  | Compose   | Auto-inferred titles + manual override            | ✅ Done    |
-| C-04  | Compose   | Page theming (bg, cards, palette)                 | ✅ Done    |
-| C-05  | Compose   | Undo / redo                                       | ✅ Done    |
-| C-06  | Compose   | Widget resize (column width)                      | 📋 Planned |
-| C-07  | Compose   | Row add/remove and layout picker                  | 📋 Planned |
-| C-08  | Compose   | Widget reorder within a row                       | 📋 Planned |
-| C-09  | Compose   | Saved views / filter presets                      | 📋 Planned |
-| C-10  | Compose   | Duplicate / move widgets across pages             | 🔭 Future  |
-| C-11  | Compose   | Widget template library                           | 🔭 Future  |
-| C-12  | Compose   | Visual expression builder (node editor)           | 🔭 Future  |
-| C-13  | Compose   | Natural language widget creation                  | 🔭 Future  |
-| F-01  | Filters   | Condition, Selection, Rank modes                  | ✅ Done    |
-| F-02  | Filters   | Relative dates, compound (AND/OR)                 | ✅ Done    |
-| F-03  | Filters   | Metric refs (dynamic thresholds)                  | ✅ Done    |
-| F-04  | Filters   | Quick filter bar above canvas                     | 📋 Planned |
-| F-05  | Filters   | Global filter search                              | 📋 Planned |
-| F-06  | Filters   | Filter dependency (cascading options)             | 📋 Planned |
-| A-01  | Arch      | Reactive store + undo/redo                        | ✅ Done    |
-| A-02  | Arch      | Deferred render + memoized cards                  | ✅ Done    |
-| A-03  | Arch      | Expression field system                           | ✅ Done    |
-| A-04  | Arch      | Field capability system                           | ✅ Done    |
-| A-05  | Arch      | Embeddable SDK / zero-config consumer API         | 🔭 Future  |
-| A-06  | Arch      | Multi-user / permissions                          | 🔭 Future  |
+  | D-02 | Data | Expression fields (calculated columns & measures) | ✅ Done |
+  | D-03 | Data | Cross-source join projection | ✅ Done |
+  | D-04 | Data | Async / real data connector | 🔭 Future |
+  | D-05 | Data | Pivot table widget | 🔭 Future |
+  | D-06 | Data | Ad-hoc formula bar in chart setup | 🔭 Future |
+  | D-07 | Data | Data lineage view | 🔭 Future |
+  | DB-01 | Dashboard | Multi-page dashboard with theming | ✅ Done |
+  | DB-02 | Dashboard | Page-level and widget-level filters | ✅ Done |
+  | DB-03 | Dashboard | Cross-filter (click-to-filter) | ✅ Done |
+  | DB-04 | Dashboard | Dashboard-level date range filter | 📋 Planned |
+  | DB-05 | Dashboard | Drill-down / detail panel | 📋 Planned |
+  | DB-06 | Dashboard | Additional demo pages (Customers etc.) | ✅ Done |
+  | DB-07 | Dashboard | Data refresh simulation | 📋 Planned |
+  | DB-08 | Dashboard | State persistence (save/restore) | 🔭 Future |
+  | DB-09 | Dashboard | Shareable filter links (URL encoding) | 🔭 Future |
+  | W-01 | Widget | Grid: sort, export, cross-filter | ✅ Done |
+  | W-02 | Widget | Grid: conditional formatting | 📋 Planned |
+  | W-03 | Widget | Grid: totals / summary row | 📋 Planned |
+  | W-04 | Widget | Chart: all major types + horizontal | ✅ Done |
+  | W-05 | Widget | Chart: scatter axis configuration | 📋 Planned |
+  | W-06 | Widget | Chart: pie/donut label formatting | 📋 Planned |
+  | W-07 | Widget | Chart: mixed (bar + line on same axes) | 🔭 Future |
+  | W-08 | Widget | Chart: map / choropleth | 🔭 Future |
+  | W-09 | Widget | Chart: Gantt / timeline | 🔭 Future |
+  | W-10 | Widget | Chart: heatmap | 🔭 Future |
+  | W-11 | Widget | Chart: funnel | 🔭 Future |
+  | W-12 | Widget | Chart: annotations / reference lines | 🔭 Future |
+  | W-13 | Widget | KPI: value, trend, sparkline, formatting | ✅ Done |
+  | W-14 | Widget | KPI: target line from business metrics | 📋 Planned |
+  | W-15 | Widget | KPI: per-widget chart palette override | 📋 Planned |
+  | W-16 | Widget | Text: per-section font/colour/alignment | ✅ Done |
+  | C-01 | Compose | Widget setup and format tabs | ✅ Done |
+  | C-02 | Compose | Chart type picker with icons | ✅ Done |
+  | C-03 | Compose | Auto-inferred titles + manual override | ✅ Done |
+  | C-04 | Compose | Page theming (bg, cards, palette) | ✅ Done |
+  | C-05 | Compose | Undo / redo | ✅ Done |
+  | C-06 | Compose | Widget resize (column width) | 📋 Planned |
+  | C-07 | Compose | Row add/remove and layout picker | 📋 Planned |
+  | C-08 | Compose | Widget reorder within a row | 📋 Planned |
+  | C-09 | Compose | Saved views / filter presets | 📋 Planned |
+  | C-10 | Compose | Duplicate / move widgets across pages | 🔭 Future |
+  | C-11 | Compose | Widget template library | 🔭 Future |
+  | C-12 | Compose | Visual expression builder (node editor) | 🔭 Future |
+  | C-13 | Compose | Natural language widget creation | 🔭 Future |
+  | F-01 | Filters | Condition, Selection, Rank modes | ✅ Done |
+  | F-02 | Filters | Relative dates, compound (AND/OR) | ✅ Done |
+  | F-03 | Filters | Metric refs (dynamic thresholds) | ✅ Done |
+  | F-04 | Filters | Quick filter bar above canvas | 📋 Planned |
+  | F-05 | Filters | Global filter search | 📋 Planned |
+  | F-06 | Filters | Filter dependency (cascading options) | 📋 Planned |
+  | A-01 | Arch | Reactive store + undo/redo | ✅ Done |
+  | A-02 | Arch | Deferred render + memoized cards | ✅ Done |
+  | A-03 | Arch | Expression field system | ✅ Done |
+  | A-04 | Arch | Field capability system | ✅ Done |
+  | A-05 | Arch | Embeddable SDK / zero-config consumer API | 🔭 Future |
+  | A-06 | Arch | Multi-user / permissions | 🔭 Future |
 
 ---
 

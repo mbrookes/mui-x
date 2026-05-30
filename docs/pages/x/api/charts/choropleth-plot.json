@@ -1,0 +1,14 @@
+{
+  "props": {},
+  "name": "ChoroplethPlot",
+  "imports": [
+    "import { ChoroplethPlot } from '@mui/x-charts-pro/ChoroplethChart';",
+    "import { ChoroplethPlot } from '@mui/x-charts-pro';"
+  ],
+  "classes": [],
+  "muiName": "MuiChoroplethPlot",
+  "filename": "/packages/x-charts-pro/src/ChoroplethChart/ChoroplethPlot.tsx",
+  "inheritance": null,
+  "demos": "<ul><li><a href=\"/x/react-charts/choropleth/\">Charts - Choropleth <a href=\"/x/introduction/licensing/#pro-plan\" title=\"Pro plan\"><span class=\"plan-pro\"></span></a></a></li></ul>",
+  "cssComponent": false
+}

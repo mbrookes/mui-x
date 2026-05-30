@@ -21,7 +21,9 @@ export function SliderControl(props: StudioFilterSliderControlProps) {
     currentValue?.to ?? max,
   ]);
 
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- slider buffers interaction locally; reset when external value or range changes
   React.useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-derived-state -- local state buffers slider interaction before commit
     setLocalValue([currentValue?.from ?? min, currentValue?.to ?? max]);
   }, [currentValue?.from, currentValue?.to, min, max]);
 
@@ -67,4 +69,3 @@ export function SliderControl(props: StudioFilterSliderControlProps) {
     </Box>
   );
 }
-

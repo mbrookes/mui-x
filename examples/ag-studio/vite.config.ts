@@ -23,6 +23,14 @@ export default defineConfig({
         find: '@mui/x-charts',
         replacement: path.resolve(__dirname, '../../packages/x-charts/src'),
       },
+      {
+        find: /^@mui\/x-charts-pro\/(.+)$/,
+        replacement: path.resolve(__dirname, '../../packages/x-charts-pro/src/$1'),
+      },
+      {
+        find: '@mui/x-charts-pro',
+        replacement: path.resolve(__dirname, '../../packages/x-charts-pro/src'),
+      },
       // x-charts-vendor uses pre-built ESM files; map subpaths to /es/*.mjs
       {
         find: /^@mui\/x-charts-vendor\/(.+)$/,

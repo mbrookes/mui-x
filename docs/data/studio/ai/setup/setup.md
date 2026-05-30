@@ -60,11 +60,7 @@ Pass a short-lived session token via `headers` instead.
 ### 2. Pass `aiConfig` to `Studio`
 
 ```tsx
-<Studio
-  ref={studioRef}
-  initialState={initialState}
-  aiConfig={aiConfig}
-/>
+<Studio ref={studioRef} initialState={initialState} aiConfig={aiConfig} />
 ```
 
 When `aiConfig.endpoint` is truthy, a floating action button (✨) appears at the bottom-right corner.
@@ -81,25 +77,25 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 
 <LocalizationProvider dateAdapter={AdapterDayjs}>
   <Studio aiConfig={aiConfig} initialState={initialState} />
-</LocalizationProvider>
+</LocalizationProvider>;
 ```
 
 ## Available AI tools
 
 The AI can call the following tools (exported as `STUDIO_AI_TOOLS`):
 
-| Tool | What it does |
-| :--- | :--- |
-| `add_widget` | Adds a new widget to the active page |
-| `configure_widget` | Updates a widget's type, title, data source, series, dimensions, or aggregation |
-| `remove_widget` | Removes a widget by ID |
-| `add_page` | Adds a new dashboard page |
-| `remove_page` | Removes a page |
-| `rename_page` | Renames a page |
-| `set_active_page` | Navigates to a specific page |
-| `add_data_source` | Adds a new data source (with provided rows) |
-| `update_dashboard_title` | Sets the dashboard title |
-| `add_filter` | Adds a global filter to the active page |
+| Tool                     | What it does                                                                    |
+| :----------------------- | :------------------------------------------------------------------------------ |
+| `add_widget`             | Adds a new widget to the active page                                            |
+| `configure_widget`       | Updates a widget's type, title, data source, series, dimensions, or aggregation |
+| `remove_widget`          | Removes a widget by ID                                                          |
+| `add_page`               | Adds a new dashboard page                                                       |
+| `remove_page`            | Removes a page                                                                  |
+| `rename_page`            | Renames a page                                                                  |
+| `set_active_page`        | Navigates to a specific page                                                    |
+| `add_data_source`        | Adds a new data source (with provided rows)                                     |
+| `update_dashboard_title` | Sets the dashboard title                                                        |
+| `add_filter`             | Adds a global filter to the active page                                         |
 
 You can restrict which tools are available using `slotProps.chatPanel` or by configuring the adapter.
 
@@ -182,7 +178,12 @@ function MyComposedLayout({ aiConfig }: { aiConfig: StudioAIConfig }) {
           <Tooltip title="AI assistant">
             <IconButton
               onClick={() => setChatOpen((v) => !v)}
-              sx={{ position: 'absolute', bottom: 20, right: 20, zIndex: 'speedDial' }}
+              sx={{
+                position: 'absolute',
+                bottom: 20,
+                right: 20,
+                zIndex: 'speedDial',
+              }}
             >
               <AutoAwesomeIcon />
             </IconButton>
@@ -202,14 +203,14 @@ function MyComposedLayout({ aiConfig }: { aiConfig: StudioAIConfig }) {
 
 ### Props
 
-| Prop | Type | Description |
-| :--- | :--- | :--- |
-| `aiConfig` | `StudioAIConfig` | LLM endpoint configuration. |
-| `open` | `boolean` | Whether the panel is visible. |
-| `onClose` | `() => void` | Called when the user clicks the close button (overlay mode). |
-| `overlay` | `boolean` | Render as a fixed-position overlay instead of inline. |
-| `slotProps.chatBox` | `Partial<ChatBoxProps>` | Props forwarded to the inner `ChatBox`. |
-| `slotProps.panel` | `Partial<BoxProps>` | Props for the overlay container (width, position, `sx`). |
+| Prop                | Type                    | Description                                                  |
+| :------------------ | :---------------------- | :----------------------------------------------------------- |
+| `aiConfig`          | `StudioAIConfig`        | LLM endpoint configuration.                                  |
+| `open`              | `boolean`               | Whether the panel is visible.                                |
+| `onClose`           | `() => void`            | Called when the user clicks the close button (overlay mode). |
+| `overlay`           | `boolean`               | Render as a fixed-position overlay instead of inline.        |
+| `slotProps.chatBox` | `Partial<ChatBoxProps>` | Props forwarded to the inner `ChatBox`.                      |
+| `slotProps.panel`   | `Partial<BoxProps>`     | Props for the overlay container (width, position, `sx`).     |
 
 ## Slot props
 
@@ -246,21 +247,24 @@ Use a server-side proxy. A minimal proxy pattern:
 export default async function handler(req, res) {
   // Authenticate the user session
   const session = await getServerSession(req, res, authOptions);
-  if (!session) { res.status(401).end(); return; }
+  if (!session) {
+    res.status(401).end();
+    return;
+  }
 
   // Forward to the LLM provider
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify(req.body),
   });
   // Stream the response back
-  response.body!.pipeTo(
-    new WritableStream({ write: (chunk) => res.write(chunk) }),
-  ).then(() => res.end());
+  response
+    .body!.pipeTo(new WritableStream({ write: (chunk) => res.write(chunk) }))
+    .then(() => res.end());
 }
 ```
 

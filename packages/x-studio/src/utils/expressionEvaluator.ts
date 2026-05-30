@@ -359,7 +359,10 @@ function evalMeasureExpression(
 
   if (isFieldExpression(expr)) {
     const { aggregation = 'sum' } = expr;
-    const values = rows.flatMap((r) => { const v = toNumber(r[expr.id]); return Number.isNaN(v) ? [] : [v]; });
+    const values = rows.flatMap((r) => {
+      const v = toNumber(r[expr.id]);
+      return Number.isNaN(v) ? [] : [v];
+    });
     return aggregate(values, aggregation);
   }
 
@@ -406,6 +409,32 @@ function evalMeasureExpression(
     }
     case 'negate':
       return -evalIn(0);
+    case 'if':
+    case 'isTrue':
+    case 'isFalse':
+    case 'isNull':
+    case 'isNotNull':
+    case 'equals':
+    case 'notEqual':
+    case 'lessThan':
+    case 'greaterThan':
+    case 'lessThanOrEqual':
+    case 'greaterThanOrEqual':
+    case 'and':
+    case 'or':
+    case 'not':
+    case 'in': {
+      // Conditional and logical operators: evaluate row-by-row then aggregate (sum).
+      // This enables conditional sums like: if(on_time, 1, 0) → sum per-row results.
+      const rowValues = rows
+        .map((row) =>
+          toNumber(
+            evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows }),
+          ),
+        )
+        .filter((v) => !Number.isNaN(v));
+      return aggregate(rowValues, 'sum');
+    }
     default:
       return 0;
   }
@@ -426,6 +455,8 @@ function aggregate(values: number[], aggregation: StudioKpiAggregation): number 
       return Math.max(...values);
     case 'count':
       return values.length;
+    case 'count_distinct':
+      return new Set(values).size;
     default:
       return values.reduce((a, v) => a + v, 0);
   }

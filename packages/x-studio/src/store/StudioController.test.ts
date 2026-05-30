@@ -594,7 +594,9 @@ describe('StudioController.moveWidgetToPage', () => {
     const sourcePageId = controller.getState().dashboard.activePageId;
     const targetPageId = controller.addPage('Page 2');
     controller.setActivePage(sourcePageId);
-    controller.addFilter(makeFilter({ id: 'f1', scope: 'widget', widgetId: 'w1', pageId: sourcePageId }));
+    controller.addFilter(
+      makeFilter({ id: 'f1', scope: 'widget', widgetId: 'w1', pageId: sourcePageId }),
+    );
     controller.moveWidgetToPage('w1', targetPageId);
     const filter = controller.getState().filters.find((f) => f.id === 'f1');
     expect(filter?.pageId).toBe(targetPageId);

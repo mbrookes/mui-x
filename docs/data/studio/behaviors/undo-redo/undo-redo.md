@@ -31,10 +31,10 @@ Mode switches (`edit` ↔ `view`) are **not** tracked in the history.
 
 ## Keyboard shortcuts
 
-| Action | macOS | Windows / Linux |
-| :--- | :--- | :--- |
-| Undo | `Cmd+Z` | `Ctrl+Z` |
-| Redo | `Cmd+Shift+Z` or `Cmd+Y` | `Ctrl+Y` |
+| Action | macOS                    | Windows / Linux |
+| :----- | :----------------------- | :-------------- |
+| Undo   | `Cmd+Z`                  | `Ctrl+Z`        |
+| Redo   | `Cmd+Shift+Z` or `Cmd+Y` | `Ctrl+Y`        |
 
 Shortcuts are active whenever the Studio canvas has focus.
 
@@ -90,8 +90,12 @@ function UndoRedoButtons({ controller }: { controller: StudioController }) {
 
   return (
     <>
-      <button onClick={() => controller.undo()} disabled={!canUndo}>Undo</button>
-      <button onClick={() => controller.redo()} disabled={!canRedo}>Redo</button>
+      <button onClick={() => controller.undo()} disabled={!canUndo}>
+        Undo
+      </button>
+      <button onClick={() => controller.redo()} disabled={!canRedo}>
+        Redo
+      </button>
     </>
   );
 }

@@ -1,4 +1,9 @@
-import { createDefaultStudioState, normalizeGridColumn, type StudioState, type StudioExpressionField } from '../models';
+import {
+  createDefaultStudioState,
+  normalizeGridColumn,
+  type StudioState,
+  type StudioExpressionField,
+} from '../models';
 
 /**
  * Current schema version for the studio state

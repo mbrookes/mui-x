@@ -26,20 +26,20 @@ function ModeLabel() {
 
 ## Built-in selectors
 
-| Selector | Return type | Description |
-| :--- | :--- | :--- |
-| `selectMode` | `'edit' \| 'view'` | Current canvas mode |
-| `selectDashboard` | `StudioDashboard` | Full dashboard object (title, pages map, settings) |
-| `selectPages` | `StudioPage[]` | Ordered array of all dashboard pages |
-| `selectActivePage` | `StudioPage \| undefined` | The currently visible page |
-| `selectActivePageId` | `string \| undefined` | ID of the currently visible page |
-| `selectWidgets` | `StudioWidget[]` | All widgets on the active page |
-| `selectDataSources` | `StudioDataSource[]` | All registered data sources |
-| `selectRelationships` | `StudioRelationship[]` | All declared source relationships |
-| `selectFilters` | `StudioFilter[]` | All active filter conditions (all scopes) |
-| `selectExpressionFields` | `StudioExpressionField[]` | All calculated columns and measures |
-| `selectShell` | `StudioShell` | Shell metadata (sidebar open, selected widget) |
-| `selectPartitionedFilters` | `StudioPartitionedFilters` | Filters split by scope |
+| Selector                   | Return type                | Description                                        |
+| :------------------------- | :------------------------- | :------------------------------------------------- |
+| `selectMode`               | `'edit' \| 'view'`         | Current canvas mode                                |
+| `selectDashboard`          | `StudioDashboard`          | Full dashboard object (title, pages map, settings) |
+| `selectPages`              | `StudioPage[]`             | Ordered array of all dashboard pages               |
+| `selectActivePage`         | `StudioPage \| undefined`  | The currently visible page                         |
+| `selectActivePageId`       | `string \| undefined`      | ID of the currently visible page                   |
+| `selectWidgets`            | `StudioWidget[]`           | All widgets on the active page                     |
+| `selectDataSources`        | `StudioDataSource[]`       | All registered data sources                        |
+| `selectRelationships`      | `StudioRelationship[]`     | All declared source relationships                  |
+| `selectFilters`            | `StudioFilter[]`           | All active filter conditions (all scopes)          |
+| `selectExpressionFields`   | `StudioExpressionField[]`  | All calculated columns and measures                |
+| `selectShell`              | `StudioShell`              | Shell metadata (sidebar open, selected widget)     |
+| `selectPartitionedFilters` | `StudioPartitionedFilters` | Filters split by scope                             |
 
 ## Selector factories
 
@@ -72,7 +72,10 @@ const fields = useStudioSelector(selectOrdersExpressions);
 Returns all expression fields for any of the provided data source IDs.
 
 ```ts
-const selectMultiSourceExpressions = makeSelectExpressionFieldsForSources(['orders', 'products']);
+const selectMultiSourceExpressions = makeSelectExpressionFieldsForSources([
+  'orders',
+  'products',
+]);
 const fields = useStudioSelector(selectMultiSourceExpressions);
 ```
 
@@ -82,10 +85,10 @@ This selector returns filters pre-bucketed by scope for efficient consumption:
 
 ```ts
 interface StudioPartitionedFilters {
-  page: StudioFilter[];           // page-scoped conditions
+  page: StudioFilter[]; // page-scoped conditions
   byWidgetId: Record<string, StudioFilter[]>; // widget-scoped conditions keyed by widgetId
-  cross: StudioFilter[];          // cross-filter conditions emitted by chart/grid clicks
-  interactive: StudioFilter[];    // all interactive (non-global) conditions
+  cross: StudioFilter[]; // cross-filter conditions emitted by chart/grid clicks
+  interactive: StudioFilter[]; // all interactive (non-global) conditions
 }
 
 const { page, byWidgetId, cross } = useStudioSelector(selectPartitionedFilters);
@@ -104,8 +107,7 @@ const selectChartWidgets = (state: StudioState) =>
   selectWidgets(state).filter((w) => w.type === 'chart');
 
 // Select widget count for the active page
-const selectWidgetCount = (state: StudioState) =>
-  selectWidgets(state).length;
+const selectWidgetCount = (state: StudioState) => selectWidgets(state).length;
 ```
 
 ## Memoising expensive selectors

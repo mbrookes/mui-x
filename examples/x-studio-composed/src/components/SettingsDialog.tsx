@@ -29,19 +29,19 @@ const WIDGET_KIND_FLAGS: { key: keyof StudioFeatureFlags; label: string }[] = [
   { key: 'map', label: 'Map' },
 ];
 
-const WIDGET_FEATURE_FLAGS: { key: keyof StudioFeatureFlags; label: string }[] = [
+const WIDGET_FEATURE_FLAGS: { key: keyof StudioFeatureFlags; label: string; parentKey?: keyof StudioFeatureFlags }[] = [
   { key: 'compose', label: 'Compose panel' },
   { key: 'filters', label: 'Filters panel' },
   { key: 'savedFilterViews', label: 'Saved filter views' },
   { key: 'dataManagement', label: 'Data management drawer' },
   { key: 'aiChat', label: 'AI chat assistant' },
-  { key: 'kpiSparkline', label: 'KPI sparkline' },
-  { key: 'kpiTrend', label: 'KPI trend indicator' },
-  { key: 'kpiTarget', label: 'KPI target line' },
-  { key: 'chartAnnotations', label: 'Chart annotations' },
-  { key: 'gridGroupBy', label: 'Table group by' },
-  { key: 'gridSummary', label: 'Table summary row' },
-  { key: 'gridConditionalFormats', label: 'Table conditional formats' },
+  { key: 'kpiSparkline', label: 'KPI sparkline', parentKey: 'kpi' },
+  { key: 'kpiTrend', label: 'KPI trend indicator', parentKey: 'kpi' },
+  { key: 'kpiTarget', label: 'KPI target line', parentKey: 'kpi' },
+  { key: 'chartAnnotations', label: 'Chart annotations', parentKey: 'chart' },
+  { key: 'gridGroupBy', label: 'Table group by', parentKey: 'grid' },
+  { key: 'gridSummary', label: 'Table summary row', parentKey: 'grid' },
+  { key: 'gridConditionalFormats', label: 'Table conditional formats', parentKey: 'grid' },
 ];
 
 export function SettingsDialog(props: SettingsDialogProps) {
@@ -78,19 +78,25 @@ export function SettingsDialog(props: SettingsDialogProps) {
           <FormLabel component="legend" sx={{ mb: 0.5 }}>
             Features
           </FormLabel>
-          {WIDGET_FEATURE_FLAGS.map(({ key, label }) => (
-            <FormControlLabel
-              key={key}
-              control={
-                <Switch
-                  size="small"
-                  checked={(featureFlags[key] as boolean | undefined) !== false}
-                  onChange={(_evt, checked) => handleFlagToggle(key, checked)}
-                />
-              }
-              label={label}
-            />
-          ))}
+          {WIDGET_FEATURE_FLAGS.map(({ key, label, parentKey }) => {
+            const parentDisabled = parentKey
+              ? (featureFlags[parentKey] as boolean | undefined) === false
+              : false;
+            return (
+              <FormControlLabel
+                key={key}
+                control={
+                  <Switch
+                    size="small"
+                    checked={!parentDisabled && (featureFlags[key] as boolean | undefined) !== false}
+                    disabled={parentDisabled}
+                    onChange={(_evt, checked) => handleFlagToggle(key, checked)}
+                  />
+                }
+                label={label}
+              />
+            );
+          })}
         </FormControl>
       </DialogContent>
       <DialogActions>

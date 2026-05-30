@@ -465,6 +465,47 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 label="Color by (optional)"
                 helperText="Splits points into colour-coded series per category"
               />
+              <DataSourceFieldSelect
+                value={config.scatterSizeField ?? ''}
+                onChange={(fieldId) =>
+                  controller.updateWidgetConfig(widgetId, {
+                    scatterSizeField: fieldId || undefined,
+                  })
+                }
+                fields={numericFields}
+                label="Size by (optional)"
+                helperText="Numeric field that controls bubble radius (produces a bubble chart)"
+              />
+              {config.scatterSizeField && (
+                <Stack direction="row" spacing={1}>
+                  <TextField
+                    size="small"
+                    label="Min radius"
+                    type="number"
+                    value={config.scatterMinRadius ?? 4}
+                    onChange={(evt) =>
+                      controller.updateWidgetConfig(widgetId, {
+                        scatterMinRadius: Number(evt.target.value) || 4,
+                      })
+                    }
+                    inputProps={{ min: 1, max: 50 }}
+                    sx={{ flex: 1 }}
+                  />
+                  <TextField
+                    size="small"
+                    label="Max radius"
+                    type="number"
+                    value={config.scatterMaxRadius ?? 40}
+                    onChange={(evt) =>
+                      controller.updateWidgetConfig(widgetId, {
+                        scatterMaxRadius: Number(evt.target.value) || 40,
+                      })
+                    }
+                    inputProps={{ min: 1, max: 100 }}
+                    sx={{ flex: 1 }}
+                  />
+                </Stack>
+              )}
             </React.Fragment>
           )}
 

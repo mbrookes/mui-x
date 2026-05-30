@@ -18,10 +18,12 @@ import {
 } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
+export type DatasetOption = 'sales' | 'ag-studio';
 export type SidebarLayout = 'stacked' | 'tabbed';
 export type SidebarSide = 'left' | 'right';
 
 export interface SettingsValues {
+  dataSource: DatasetOption;
   sidebarLayout: SidebarLayout;
   sidebarSide: SidebarSide;
   rowCount: number | undefined;
@@ -39,6 +41,10 @@ export interface SettingsDialogProps {
 export function SettingsDialog(props: SettingsDialogProps) {
   const { open, onClose, values, onSidebarLayoutChange, onSidebarSideChange } = props;
 
+  const [pendingDataSource, setPendingDataSource] = React.useState<DatasetOption>(
+    values.dataSource,
+  );
+
   const [rowInput, setRowInput] = React.useState(
     values.rowCount !== undefined ? String(values.rowCount) : '',
   );
@@ -48,14 +54,17 @@ export function SettingsDialog(props: SettingsDialogProps) {
   // Sync local state when dialog re-opens
   React.useEffect(() => {
     if (open) {
+      setPendingDataSource(values.dataSource);
       setRowInput(values.rowCount !== undefined ? String(values.rowCount) : '');
       setPendingRowCount(values.rowCount);
       setPendingAdapter(values.adapterEnabled);
     }
-  }, [open, values.rowCount, values.adapterEnabled]);
+  }, [open, values.dataSource, values.rowCount, values.adapterEnabled]);
 
   const needsReload =
-    pendingRowCount !== values.rowCount || pendingAdapter !== values.adapterEnabled;
+    pendingDataSource !== values.dataSource ||
+    pendingRowCount !== values.rowCount ||
+    pendingAdapter !== values.adapterEnabled;
 
   function handleRowInputChange(evt: React.ChangeEvent<HTMLInputElement>) {
     const raw = evt.target.value;
@@ -72,6 +81,11 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
   function applyAndReload() {
     const url = new URL(window.location.href);
+    if (pendingDataSource === 'ag-studio') {
+      url.searchParams.set('dataset', 'ag-studio');
+    } else {
+      url.searchParams.delete('dataset');
+    }
     if (pendingRowCount !== undefined) {
       url.searchParams.set('rows', String(pendingRowCount));
     } else {
@@ -89,6 +103,20 @@ export function SettingsDialog(props: SettingsDialogProps) {
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle>Settings</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 1 }}>
+        {/* Dataset — requires reload */}
+        <FormControl component="fieldset">
+          <FormLabel component="legend">Dataset</FormLabel>
+          <RadioGroup
+            value={pendingDataSource}
+            onChange={(_evt, val) => setPendingDataSource(val as DatasetOption)}
+          >
+            <FormControlLabel value="sales" control={<Radio size="small" />} label="Sales (default)" />
+            <FormControlLabel value="ag-studio" control={<Radio size="small" />} label="AG Studio Data" />
+          </RadioGroup>
+        </FormControl>
+
+        <Divider />
+
         {/* Sidebar layout — immediate */}
         <FormControl>
           <FormLabel>Sidebar layout</FormLabel>
@@ -146,7 +174,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
         {needsReload && (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', gap: 0.5 }}>
             <InfoOutlinedIcon sx={{ fontSize: 14, mt: '1px' }} />
-            Row count and adapter changes take effect after reload.
+            Changes take effect after reload.
           </Typography>
         )}
       </DialogContent>

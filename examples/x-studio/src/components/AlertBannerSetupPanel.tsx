@@ -51,14 +51,14 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
       <TextField
         label="Title (optional)"
         value={title}
-        onChange={(e) => updateCustomConfig({ title: e.target.value })}
+        onChange={(event) => updateCustomConfig({ title: event.target.value })}
         size="small"
         fullWidth
       />
       <TextField
         label="Message"
         value={message}
-        onChange={(e) => updateCustomConfig({ message: e.target.value })}
+        onChange={(event) => updateCustomConfig({ message: event.target.value })}
         size="small"
         fullWidth
         multiline
@@ -69,7 +69,7 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
         <Select
           value={severity}
           label="Severity"
-          onChange={(e) => updateCustomConfig({ severity: e.target.value as Severity })}
+          onChange={(event) => updateCustomConfig({ severity: event.target.value as Severity })}
         >
           {SEVERITY_OPTIONS.map((opt) => (
             <MenuItem key={opt.value} value={opt.value}>

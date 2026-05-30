@@ -2,10 +2,11 @@
 import * as React from 'react';
 import { Box, GlobalStyles, Paper, Typography } from '@mui/material';
 
-import { useStudioController, useStudioSelector, selectMode, selectActivePage } from '../context';
+import { useStudioController, useStudioSelector, selectMode, selectActivePage, selectWidgets } from '../context';
 import { StudioWidgetCard } from '../StudioWidgetCard';
 import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../internals/widgetUtils';
+import type { StudioWidget } from '../models/widgetTypes';
 import { StudioQuickFilterBar } from './StudioQuickFilterBar';
 import { StudioDateRangeBar } from './StudioDateRangeBar';
 
@@ -13,6 +14,16 @@ import { StudioDateRangeBar } from './StudioDateRangeBar';
 const GRID_COLS = 24;
 /** Minimum column span any widget can be resized to (~12.5% of full width in a 2-widget row). */
 const MIN_SPAN = Math.round(GRID_COLS / 4);
+/** Minimum column span for a KPI widget without a sparkline (narrower is fine without the chart). */
+const KPI_NO_SPARKLINE_MIN_SPAN = 2;
+
+/** Return the minimum resize column span for a widget based on its kind and config. */
+function getWidgetMinSpan(widget: StudioWidget | undefined): number {
+  if (widget?.kind === 'kpi' && !widget.config.kpiSparkline) {
+    return KPI_NO_SPARKLINE_MIN_SPAN;
+  }
+  return MIN_SPAN;
+}
 
 export interface StudioCanvasProps {
   /**
@@ -28,6 +39,35 @@ export interface StudioCanvasProps {
   };
 }
 
+/**
+ * Returns true when the given grid position (rowIndex, colIndex) is immediately
+ * adjacent (left or right) to the widget currently being dragged.
+ * Used by InsertionPoint and WidgetGap to opt out of activating as drop targets
+ * when the dragged widget's own flanking gaps are hovered (BL-112).
+ */
+function isAdjacentToDraggingWidget(
+  rowIndex: number,
+  colIndex: number,
+  widgetRowsRef: React.RefObject<string[][] | undefined>,
+): boolean {
+  const draggingId = document.body.dataset.studioDraggingWidgetId;
+  if (!draggingId) {
+    return false;
+  }
+  const rows = widgetRowsRef.current;
+  if (!rows) {
+    return false;
+  }
+  for (let dRow = 0; dRow < rows.length; dRow += 1) {
+    const dCol = rows[dRow].indexOf(draggingId);
+    if (dCol >= 0) {
+      // Adjacent left: colIndex === dCol; adjacent right: colIndex === dCol + 1
+      return dRow === rowIndex && (colIndex === dCol || colIndex === dCol + 1);
+    }
+  }
+  return false;
+}
+
 // Plain JS DnD insertion point component — must live at module level
 function InsertionPoint({
   rowIndex,
@@ -35,6 +75,7 @@ function InsertionPoint({
   onDrop,
   orientation,
   mode,
+  widgetRowsRef,
 }: {
   rowIndex: number;
   colIndex: number;
@@ -46,6 +87,7 @@ function InsertionPoint({
   ) => void;
   orientation: 'vertical' | 'horizontal';
   mode: string;
+  widgetRowsRef: React.RefObject<string[][] | undefined>;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
   const [isOver, setIsOver] = React.useState(false);
@@ -69,9 +111,15 @@ function InsertionPoint({
       if (!Array.from(event.dataTransfer?.types ?? []).includes('application/json')) {
         return;
       }
+      // Only vertical insertion points can be adjacent to the dragged widget;
+      // horizontal row-level points are never flanking a widget (BL-112)
+      const { rowIndex: myRow, colIndex: myCol, orientation: myOrientation } = posRef.current;
+      if (myOrientation === 'vertical' && isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef)) {
+        return;
+      }
       event.preventDefault();
       if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'move';
+        event.dataTransfer.dropEffect = 'copy';
       }
       setIsOver(true);
     }
@@ -172,6 +220,8 @@ function RowResizeHandle({
   rightId,
   leftSpan,
   rightSpan,
+  leftMinSpan = MIN_SPAN,
+  rightMinSpan = MIN_SPAN,
   onDragMove,
   onDragEnd,
 }: {
@@ -179,6 +229,8 @@ function RowResizeHandle({
   rightId: string;
   leftSpan: number;
   rightSpan: number;
+  leftMinSpan?: number;
+  rightMinSpan?: number;
   onDragMove: (leftId: string, rightId: string, leftSpanLive: number) => void;
   onDragEnd: (leftId: string, rightId: string, leftSpan: number, rightSpan: number) => void;
 }) {
@@ -225,16 +277,17 @@ function RowResizeHandle({
         return;
       }
       const fraction = (event.clientX - drag.combinedLeft) / drag.combinedWidth;
-      const minFrac = MIN_SPAN / drag.totalSpan;
-      const clamped = Math.max(minFrac, Math.min(1 - minFrac, fraction));
+      const minFrac = leftMinSpan / drag.totalSpan;
+      const maxFrac = (drag.totalSpan - rightMinSpan) / drag.totalSpan;
+      const clamped = Math.max(minFrac, Math.min(maxFrac, fraction));
       // Snap at midpoint: jump to the next column when the mouse crosses 50% between columns
       const leftSpanLive = Math.max(
-        MIN_SPAN,
-        Math.min(drag.totalSpan - MIN_SPAN, Math.round(clamped * drag.totalSpan)),
+        leftMinSpan,
+        Math.min(drag.totalSpan - rightMinSpan, Math.round(clamped * drag.totalSpan)),
       );
       onDragMove(leftId, rightId, leftSpanLive);
     },
-    [leftId, rightId, onDragMove],
+    [leftId, rightId, leftMinSpan, rightMinSpan, onDragMove],
   );
 
   const handlePointerUp = React.useCallback(
@@ -247,16 +300,17 @@ function RowResizeHandle({
       setActive(false);
       (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
       const fraction = (event.clientX - drag.combinedLeft) / drag.combinedWidth;
-      const minFrac = MIN_SPAN / drag.totalSpan;
-      const clamped = Math.max(minFrac, Math.min(1 - minFrac, fraction));
+      const minFrac = leftMinSpan / drag.totalSpan;
+      const maxFrac = (drag.totalSpan - rightMinSpan) / drag.totalSpan;
+      const clamped = Math.max(minFrac, Math.min(maxFrac, fraction));
       const snappedLeft = Math.max(
-        MIN_SPAN,
-        Math.min(drag.totalSpan - MIN_SPAN, Math.round(clamped * drag.totalSpan)),
+        leftMinSpan,
+        Math.min(drag.totalSpan - rightMinSpan, Math.round(clamped * drag.totalSpan)),
       );
       const snappedRight = drag.totalSpan - snappedLeft;
       onDragEnd(leftId, rightId, snappedLeft, snappedRight);
     },
-    [leftId, rightId, onDragEnd],
+    [leftId, rightId, leftMinSpan, rightMinSpan, onDragEnd],
   );
 
   return (
@@ -313,6 +367,9 @@ function WidgetGap({
   rightId,
   leftSpan,
   rightSpan,
+  leftMinSpan = MIN_SPAN,
+  rightMinSpan = MIN_SPAN,
+  widgetRowsRef,
   onDragMove,
   onDragEnd,
 }: {
@@ -324,6 +381,9 @@ function WidgetGap({
   rightId?: string;
   leftSpan: number;
   rightSpan: number;
+  leftMinSpan?: number;
+  rightMinSpan?: number;
+  widgetRowsRef: React.RefObject<string[][] | undefined>;
   onDragMove: (leftId: string, rightId: string, leftSpanLive: number) => void;
   onDragEnd: (leftId: string, rightId: string, leftSpan: number, rightSpan: number) => void;
 }) {
@@ -331,17 +391,25 @@ function WidgetGap({
   const posRef = React.useRef({ rowIndex, colIndex });
   posRef.current = { rowIndex, colIndex };
 
-  const handleDragOver = React.useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    // Only respond to widget drags — ignore tab reorder and other drag types
-    if (!Array.from(e.dataTransfer.types).includes('application/json')) {
-      return;
-    }
-    e.preventDefault();
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = 'move';
-    }
-    setIsOver(true);
-  }, []);
+  const handleDragOver = React.useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      // Only respond to widget drags — ignore tab reorder and other drag types
+      if (!Array.from(e.dataTransfer.types).includes('application/json')) {
+        return;
+      }
+      // Don't activate the two gaps flanking the dragged widget (BL-112)
+      const { rowIndex: myRow, colIndex: myCol } = posRef.current;
+      if (isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef)) {
+        return;
+      }
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+      }
+      setIsOver(true);
+    },
+    [widgetRowsRef],
+  );
 
   const handleDragLeave = React.useCallback((e: React.DragEvent<HTMLDivElement>) => {
     // Ignore moves into descendant elements to prevent indicator flicker
@@ -407,6 +475,8 @@ function WidgetGap({
           rightId={rightId}
           leftSpan={leftSpan}
           rightSpan={rightSpan}
+          leftMinSpan={leftMinSpan}
+          rightMinSpan={rightMinSpan}
           onDragMove={onDragMove}
           onDragEnd={onDragEnd}
         />
@@ -426,6 +496,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   const widgetRows = activePage?.widgetRows;
   const widgetColSpans = activePage?.widgetColSpans;
   const pageTheme = activePage?.theme;
+  const widgets = useStudioSelector(selectWidgets);
   const controller = useStudioController();
   const canvasRef = React.useRef<HTMLDivElement>(null);
 
@@ -723,6 +794,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
             onDrop={handleDrop}
             orientation="horizontal"
             mode={mode}
+            widgetRowsRef={widgetRowsRef}
           />
         )}
         {widgetRows.map((row, rowIndex) => (
@@ -745,6 +817,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                   onDrop={handleDrop}
                   orientation="vertical"
                   mode={mode}
+                  widgetRowsRef={widgetRowsRef}
                 />
               )}
               {row.map((widgetId, colIndex) => {
@@ -831,6 +904,9 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                         rightId={nextId}
                         leftSpan={myEffectiveSpan}
                         rightSpan={nextEffectiveSpan}
+                        leftMinSpan={getWidgetMinSpan(widgets[widgetId])}
+                        rightMinSpan={nextId ? getWidgetMinSpan(widgets[nextId]) : MIN_SPAN}
+                        widgetRowsRef={widgetRowsRef}
                         onDragMove={(lId, rId, leftSpanLive) => {
                           setLiveDrag({
                             leftId: lId,
@@ -841,7 +917,14 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                         }}
                         onDragEnd={(lId, rId, snappedLeft, snappedRight) => {
                           setLiveDrag(null);
-                          controller.setAdjacentWidgetColSpans(lId, snappedLeft, rId, snappedRight);
+                          controller.setAdjacentWidgetColSpans(
+                            lId,
+                            snappedLeft,
+                            rId,
+                            snappedRight,
+                            getWidgetMinSpan(widgets[widgetId]),
+                            nextId ? getWidgetMinSpan(widgets[nextId]) : MIN_SPAN,
+                          );
                         }}
                       />
                     )}
@@ -880,6 +963,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                 onDrop={handleDrop}
                 orientation="horizontal"
                 mode={mode}
+                widgetRowsRef={widgetRowsRef}
               />
             )}
           </Box>

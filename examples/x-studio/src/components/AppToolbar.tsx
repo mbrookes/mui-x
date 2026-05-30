@@ -20,6 +20,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import RedoIcon from '@mui/icons-material/Redo';
+import RestoreIcon from '@mui/icons-material/Restore';
 import SettingsIcon from '@mui/icons-material/Settings';
 import UndoIcon from '@mui/icons-material/Undo';
 import type { StudioMode, StudioPage } from '@mui/x-studio';
@@ -31,6 +32,7 @@ export interface AppToolbarProps {
   onModeChange: SwitchProps['onChange'];
   onSave: () => void;
   onLoad: () => void;
+  onReset?: () => void;
   onOpenSettings: () => void;
   pages: StudioPage[];
   activePageId: string;
@@ -50,6 +52,7 @@ export function AppToolbar(props: AppToolbarProps) {
     onModeChange,
     onSave,
     onLoad,
+    onReset,
     onOpenSettings,
     pages,
     activePageId,
@@ -219,6 +222,13 @@ export function AppToolbar(props: AppToolbarProps) {
           <FileUploadIcon fontSize="small" />
         </IconButton>
       </Tooltip>
+      {onReset && (
+        <Tooltip title="Reset to demo">
+          <IconButton size="small" onClick={onReset} aria-label="Reset to demo">
+            <RestoreIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
       <Tooltip title="Settings">
         <IconButton size="small" onClick={onOpenSettings} aria-label="Settings">
           <SettingsIcon fontSize="small" />

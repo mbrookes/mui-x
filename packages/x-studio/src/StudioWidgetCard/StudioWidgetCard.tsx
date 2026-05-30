@@ -259,15 +259,28 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         event.dataTransfer.effectAllowed = 'move';
       }
       if (node) {
-        // Use the recorded click offset so the ghost image appears grabbed from
-        // where the user clicked, not from the top-left corner of the card.
+        // Build a semi-transparent ghost clone that excludes the action overlay.
+        // The browser snapshots setDragImage synchronously, so we must create and
+        // attach the clone BEFORE the call, then clean it up via rAF afterwards.
         const { x, y } = dragOffsetRef.current;
-        event.dataTransfer?.setDragImage(node, x, y);
-        // Apply transparency AFTER the browser has snapshotted the ghost image so
-        // the ghost stays fully opaque while the in-place card becomes semi-transparent,
-        // letting users see insertion points around it.
+        const ghost = node.cloneNode(true) as HTMLElement;
+        // Hide the actions overlay in the clone so buttons don't appear in the ghost
+        const overlayEl = ghost.querySelector<HTMLElement>('[data-widget-overlay]');
+        if (overlayEl) {
+          overlayEl.style.visibility = 'hidden';
+        }
+        ghost.style.opacity = '0.4';
+        ghost.style.position = 'fixed';
+        ghost.style.left = '-9999px';
+        ghost.style.top = '0';
+        ghost.style.width = `${node.offsetWidth}px`;
+        ghost.style.height = `${node.offsetHeight}px`;
+        ghost.style.pointerEvents = 'none';
+        document.body.appendChild(ghost);
+        event.dataTransfer?.setDragImage(ghost, x, y);
+        // Remove the clone after the browser has captured the ghost image
         requestAnimationFrame(() => {
-          node.style.opacity = '0.4';
+          document.body.removeChild(ghost);
         });
       }
       // Force the grabbing cursor globally so it doesn't flicker to + or default
@@ -277,9 +290,6 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     function handleDragEnd() {
       setIsDragging(false);
       document.body.classList.remove('x-studio-dragging-widget');
-      if (node) {
-        node.style.opacity = '';
-      }
     }
     // Temporarily remove draggable when the pointer goes down inside a
     // [data-no-drag] element (e.g. a slider). This must happen in mousedown

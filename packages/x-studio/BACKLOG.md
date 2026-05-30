@@ -193,13 +193,13 @@ Items migrated from `examples/x-studio/REQUIREMENTS.md` — these are features o
 
 BL70: ~~run the UI performance tests and compare with the baseline~~ **Done** (selector memoization tests verify `selectPartitionedFilters` reselect caching, `selectPartitionedBaseFilters` deep-equality caching, page filter partition cache invalidation on page switch, and KPI widget render smoke tests — 7 tests, all passing)
 
-BL-71: Compose panel templates too cluttered — make them a per-widget dropdown.
+~~BL-71: Compose panel templates too cluttered — make them a per-widget dropdown.~~
 ~~**Done**~~ (replaced flat `TemplateSection` with per-kind `TemplatesDropdown` Popover+MenuList on each `WidgetTypeCard`; button only shown when templates exist for that kind; clicking the button prevents card-level kind selection via `stopPropagation`)
 
-BL-72: Map widget country field picker doesn't include country fields from related sources (e.g. `customers.country` via many-to-one relationship).
+~~BL-72: Map widget country field picker doesn't include country fields from related sources (e.g. `customers.country` via many-to-one relationship).~~
 ~~**Done**~~ (`MapSetupPanel` now includes string fields from related sources in `stringFields` using the same `reachableIds` gate already used for numeric fields)
 
-BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget features, with full UI in demo settings dialogs.
+~~BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget features, with full UI in demo settings dialogs.~~
 ~~**Done**~~ (14 new flags added: `allowGrid/Chart/Kpi/Text/Filter/Pivot/Map`, `kpiSparkline/Trend/Target`, `chartAnnotations`, `gridGroupBy/Summary/ConditionalFormats`, `drilldown`; wired into `KpiSetupPanel`, `ChartSetupPanel`, `GridSetupPanel`; both demo apps — `x-studio` and `x-studio-composed` — now have Settings dialogs with "Widget types" and "Features" sections exposing all flags as live switches)
 
 ~~BL-74: For the map widget, if no value field is selected, the aggregation dropdown should be disabled (with count selected).~~
@@ -288,9 +288,9 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 
 **Done** — `GRID_COLS = 24` constant introduced in `StudioCanvas.tsx`, `MIN_SPAN = 6` (GRID_COLS/4). All flex-width calculations, grid-line positions, overflow checks, and defaultFlexGrow updated. `setAdjacentWidgetColSpans` in `StudioController.ts` clamp updated to `[MIN_SPAN_COLS, GRID_COLS - MIN_SPAN_COLS]` = `[6, 18]`. Grid lines now render 23 lines at positions `(i+1)/GRID_COLS`.
 
-BL-99: Research, plan and then add support for custom widgets.
+~~BL-99: Research, plan and then add support for custom widgets.~~
 
-~~BL-99~~ **Done** — Added `StudioCustomWidgetDef`, `StudioCustomWidgetProps`, `StudioCustomWidgetSetupPanelProps` interfaces.
+**Done** — Added `StudioCustomWidgetDef`, `StudioCustomWidgetProps`, `StudioCustomWidgetSetupPanelProps` interfaces.
 `<Studio customWidgets={[...]}/>` accepts an array of `StudioCustomWidgetDef` — each entry registers a `kind`, render `component`,
 optional `setupPanel`, `label`, `description`, `icon`, `requiresDataSource`, and `defaultConfig`.
 Custom widgets appear in the widget picker alongside built-ins, render on the canvas, and (if `setupPanel` is provided)

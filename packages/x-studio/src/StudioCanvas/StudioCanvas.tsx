@@ -279,6 +279,118 @@ function RowResizeHandle({
   );
 }
 
+/**
+ * Gap container between (and after) widgets in a row.
+ *
+ * Fixes BL-59: the RowResizeHandle uses position:absolute + z-index:20, which
+ * covers the old InsertionPoint child and intercepts drag events before they
+ * could reach it (siblings don't receive bubbled events). By attaching drag
+ * handlers to *this* container instead, the events bubble up from the resize
+ * handle through the DOM and are caught here regardless of which child element
+ * is under the cursor.
+ */
+function WidgetGap({
+  rowIndex,
+  colIndex,
+  onDrop,
+  showResizeHandle,
+  leftId,
+  rightId,
+  leftSpan,
+  rightSpan,
+  onDragMove,
+  onDragEnd,
+}: {
+  rowIndex: number;
+  colIndex: number;
+  onDrop: (data: any, rowIndex: number, colIndex: number, orientation: 'vertical') => void;
+  showResizeHandle: boolean;
+  leftId: string;
+  rightId?: string;
+  leftSpan: number;
+  rightSpan: number;
+  onDragMove: (leftId: string, rightId: string, leftSpanLive: number) => void;
+  onDragEnd: (leftId: string, rightId: string, leftSpan: number, rightSpan: number) => void;
+}) {
+  const [isOver, setIsOver] = React.useState(false);
+  const posRef = React.useRef({ rowIndex, colIndex });
+  posRef.current = { rowIndex, colIndex };
+
+  const handleDragOver = React.useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsOver(true);
+  }, []);
+
+  const handleDragLeave = React.useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    // Ignore moves into descendant elements to prevent indicator flicker
+    if ((e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+      return;
+    }
+    setIsOver(false);
+  }, []);
+
+  const handleDrop = React.useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      setIsOver(false);
+      try {
+        const data = JSON.parse(e.dataTransfer?.getData('application/json') || '{}');
+        const { rowIndex: r, colIndex: c } = posRef.current;
+        onDrop(data, r, c, 'vertical');
+      } catch {
+        /* ignore invalid JSON */
+      }
+    },
+    [onDrop],
+  );
+
+  return (
+    <Box
+      data-gap
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      sx={{
+        position: 'relative',
+        flexShrink: 0,
+        width: 8,
+        alignSelf: 'stretch',
+        zIndex: isOver ? 2 : 1,
+      }}
+    >
+      {/* Visual drop indicator — rendered in the gap container so it's always
+          visible even when the resize handle covers the original InsertionPoint */}
+      {isOver && (
+        <Box
+          sx={{
+            position: 'absolute',
+            left: '50%',
+            top: 0,
+            bottom: 0,
+            width: 2,
+            bgcolor: 'primary.main',
+            borderRadius: 1,
+            transform: 'translateX(-50%)',
+            boxShadow: 2,
+            zIndex: 30,
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+      {showResizeHandle && rightId && (
+        <RowResizeHandle
+          leftId={leftId}
+          rightId={rightId}
+          leftSpan={leftSpan}
+          rightSpan={rightSpan}
+          onDragMove={onDragMove}
+          onDragEnd={onDragEnd}
+        />
+      )}
+    </Box>
+  );
+}
+
+
 export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvasProps) {
   const { slotProps, stackBreakpoint: stackBreakpointProp = 600 } = props;
   const mode = useStudioSelector(selectMode);
@@ -675,51 +787,35 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                       {...slotProps?.widgetCard}
                     />
                   </Box>
-                  {/* Gap: insertion point (DnD) + resize handle (between consecutive widgets) */}
+                  {/* Gap: DnD drop zone + resize handle (between/after widgets) */}
                   {mode === 'edit' && (
-                    <Box
-                      data-gap
-                      sx={{
-                        position: 'relative',
-                        flexShrink: 0,
-                        width: 8,
-                        alignSelf: 'stretch',
+                    <WidgetGap
+                      rowIndex={rowIndex}
+                      colIndex={colIndex + 1}
+                      onDrop={handleDrop}
+                      showResizeHandle={colIndex < row.length - 1}
+                      leftId={widgetId}
+                      rightId={nextId}
+                      leftSpan={myEffectiveSpan}
+                      rightSpan={nextEffectiveSpan}
+                      onDragMove={(lId, rId, leftSpanLive) => {
+                        setLiveDrag({
+                          leftId: lId,
+                          rightId: rId,
+                          leftSpanLive,
+                          totalSpan: myEffectiveSpan + nextEffectiveSpan,
+                        });
                       }}
-                    >
-                      <InsertionPoint
-                        rowIndex={rowIndex}
-                        colIndex={colIndex + 1}
-                        onDrop={handleDrop}
-                        orientation="vertical"
-                        mode={mode}
-                      />
-                      {/* Resize handle only between consecutive widgets (not after the last) */}
-                      {colIndex < row.length - 1 && (
-                        <RowResizeHandle
-                          leftId={widgetId}
-                          rightId={nextId}
-                          leftSpan={myEffectiveSpan}
-                          rightSpan={nextEffectiveSpan}
-                          onDragMove={(lId, rId, leftSpanLive) => {
-                            setLiveDrag({
-                              leftId: lId,
-                              rightId: rId,
-                              leftSpanLive,
-                              totalSpan: myEffectiveSpan + nextEffectiveSpan,
-                            });
-                          }}
-                          onDragEnd={(lId, rId, snappedLeft, snappedRight) => {
-                            setLiveDrag(null);
-                            controller.setAdjacentWidgetColSpans(
-                              lId,
-                              snappedLeft,
-                              rId,
-                              snappedRight,
-                            );
-                          }}
-                        />
-                      )}
-                    </Box>
+                      onDragEnd={(lId, rId, snappedLeft, snappedRight) => {
+                        setLiveDrag(null);
+                        controller.setAdjacentWidgetColSpans(
+                          lId,
+                          snappedLeft,
+                          rId,
+                          snappedRight,
+                        );
+                      }}
+                    />
                   )}
                 </React.Fragment>
               );

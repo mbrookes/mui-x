@@ -39,6 +39,11 @@ export async function loadWorldGeography(): Promise<ExtendedFeatureCollection> {
     features: fc.features
       .map((f: ExtendedFeature) => {
         const numericId = typeof f.id === 'string' ? parseInt(f.id, 10) : (f.id as number);
+        // Exclude Antarctica (ISO 3166-1 numeric 010): no civilian population or country-level
+        // statistics, and its size is heavily distorted by the Mercator projection.
+        if (numericId === 10) {
+          return null;
+        }
         const alpha2 = NUMERIC_TO_ALPHA2[numericId];
         if (!alpha2) {
           return null;

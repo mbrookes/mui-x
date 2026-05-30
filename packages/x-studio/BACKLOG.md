@@ -227,7 +227,9 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 
 **Fixed** (added `?bp=N` querystring support in x-studio App; breakpoint initializes from URL and syncs on change via `replaceState`; extracted `FeatureFlagSettings` component + `WIDGET_KIND_FLAGS` / `WIDGET_FEATURE_FLAGS` arrays into `x-studio-shared`; both settings dialogs now import the shared component eliminating ~60 lines of duplication each)
 
-BL-82: Is there anything we can resue from x-data-grid-pro's server-side data handling for x-studio (without creating a hard dependancy on the data-grid component? (dependancy on the package is fine)
+~~BL-82: Is there anything we can resue from x-data-grid-pro's server-side data handling for x-studio (without creating a hard dependancy on the data-grid component? (dependancy on the package is fine)~~
+
+**Researched — not directly reusable.** The `GridGetRowsParams` / `GridDataSourcePro` interface in x-data-grid-pro is row-level (pagination, sort, filter) and grid-specific. x-studio's `StudioQueryDescriptor` / `StudioDataSourceAdapter` is designed for multi-widget dashboards with pre-aggregation, cross-filtering, and M:N join semantics. The two interfaces solve different problems. What *is* reusable conceptually: the caching and request-deduplication strategy from `DataSourceCache` could inform x-studio's adapter caching. For now no code changes are needed; x-studio's own adapter API is more appropriate for its use case. A future bridge adapter (`createDataGridProAdapter`) could be considered if users need to serve x-studio data from an existing x-data-grid-pro server endpoint.
 
 ~~BL-83: Add support for drag-and drop reordering of columns in the table config widget. Consider whether reordering in the table itself should persist in edit mode (reflected in the UI field ordering).~~
 

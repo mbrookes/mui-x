@@ -298,7 +298,9 @@ get a full Setup tab in the compose drawer just like built-in widgets.
 `useCustomWidgetMap()` hook exported for consumers who need O(1) lookup.
 `BuiltinStudioWidgetKind` literal union exported for exhaustive type checks.
 Example `AlertBannerWidget` + `AlertBannerSetupPanel` added to `examples/x-studio`.
+
 ~~BL-100: Plan and then implement nesting for feature flags, for example KPI can either be false, or have an object of features that are false. This can be a breaking change, but fix the example apps.~~
+
 **Done** — Added `KpiFeatureFlags`, `ChartFeatureFlags`, `GridFeatureFlags` sub-flag interfaces.
 `featureFlags.kpi` now accepts `false | KpiFeatureFlags` (e.g. `{ sparkline: false, trend: false }`);
 similarly for `chart` and `grid`. Removed flat `kpiSparkline`, `kpiTrend`, `kpiTarget`,
@@ -308,8 +310,37 @@ similarly for `chart` and `grid`. Removed flat `kpiSparkline`, `kpiTrend`, `kpiT
 `FeatureFlagSettings` in x-studio-shared updated to read/write the new nested structure.
 
 ~~BL-101: When dragging a widget the pointer changes to a closed hand, but when the pointer crosses an insertion point it changers to a +, and then back to a normal pointer. It should change back to a closed hand until the button is released. We also need to drag the widget from where it was click, not the top-left corner. It will need to be made more transparent to be able to see the insertion points. There's also a white bar above the widget when dragging. Remove it without breaking anything else.~~
-**Done** — Added global CSS rule (`body.x-studio-dragging-widget * { cursor: grabbing !important }`) toggled
-during drag; recorded mousedown offset in `dragOffsetRef` and passed to `setDragImage` so the ghost card
-is grabbed from where the user clicked; set `requestAnimationFrame`-deferred `opacity: 0.4` on the original
-card element after the browser captures the ghost (ghost stays opaque, original fades to reveal insertion
-points); set `effectAllowed = 'move'` and `dropEffect = 'move'` on all drag sources and drop targets.
+
+**Done** — Added global CSS rule (`body.x-studio-dragging-widget * { cursor: grabbing !important }`) toggled during drag; recorded mousedown offset in `dragOffsetRef` and passed to `setDragImage` so the ghost card is grabbed from where the user clicked; set `requestAnimationFrame`-deferred `opacity: 0.4` on the original card element after the browser captures the ghost (ghost stays opaque, original fades to reveal insertion points); set `effectAllowed = 'move'` and `dropEffect = 'move'` on all drag sources and drop targets.
+
+~~BL-102: Non-editible fields in the data dialog can currently be selected (blue highlight). Disable this.~~
+
+**Done** — Added `userSelect: 'none'` to Typography elements for physical field rows, expression field rows, and section headers in `StudioDataDrawer/DataSourceSection.tsx`.
+
+BL-103: Clicking a data source name in the data lineage map should open a dialog with a data grid for the data (all fields as columns, including calculated).
+
+~~BL-104: Data source dialog in the x-studio-composed app isn't scrollable.~~
+
+**Done** — Changed `overflow: 'hidden'` to `overflow: 'auto'` in the Dialog content of `examples/x-studio-composed/src/components/DataDialog.tsx`.
+
+~~BL-105: When dragging, a widget, the dragImage captures part of the card above because it's under the widget controls (edit, duplicate, move, delete, etc.). Can we exclude these controls from the image? If not, hide them before taking the image. Either way, we only want the image to be of the card. The ghost card needs to be opacity 0.4, not the original.~~
+
+**Done** — Ghost clone approach: `cloneNode(true)` positioned off-screen, overlay hidden via `[data-widget-overlay]` querySelector, `opacity: 0.4` set on clone, `setDragImage(ghost, x, y)` called, clone removed via `rAF`. Original card stays fully opaque. `data-widget-overlay` attribute added to both overlay Stacks in `StudioWidgetCardActionsOverlay.tsx`.
+
+~~BL-106: Widget insertion points highlight for tabs and vice-versa. The tab drag insertion point logic seems to have an off-by-one error - tabs are inserted after the tab they are inserted before.~~
+
+**Done** — Canvas `InsertionPoint` and `WidgetGap` now guard `handleDragOver`/`handleDrop` with `Array.from(dataTransfer.types).includes('application/json')` so tab reorder drags no longer activate canvas insertion zones. AppToolbar (both apps) sets `'text/x-studio-tab'` MIME type on `dragStart` and guards `onDragOver`/`onDrop` to only respond to that type. Off-by-one in `handleTabDrop` fixed: `adjustedIndex = tabDragIndex < dropIndex ? dropIndex - 1 : dropIndex`.
+
+BL-107: Allow moving a widget by dragging over a tab. The hovered tab should open the page for that tab, ehere it can be dropped on an insertion point.
+
+BL-108: Add examples of the new widgets in all three example apps configs for the salesData.
+
+BL109: Widget resize vertical grid lines still aren't correctly spaced. This was supposed to be fixed in BL-96. Use a browser to check if you can and need to see for yourself.
+
+BL-110: KPI cards are supposed to have a minsize of 2 when they don't have a sparkline enabled.
+
+BL-111: The pointer behavior seems worse than it was before BL-101. It's only showing the closed hand when dropping the dragged item, and no longer shows the + pointer when hovering an insertion point.
+
+BL-112: Insertion points immediately to the left and right of the widget being dragged should be disabled.
+
+BL-113: The demo app config dialogs need to be updated to reflect the nested feature flags -  turning off a parent feature should disable the child flags switches (preserving but ignoring thier current state).

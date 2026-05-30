@@ -1,8 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
-import { ChartsTooltip } from '@mui/x-charts/ChartsTooltip';
-import { ChoroplethChart } from '@mui/x-charts-pro/ChoroplethChart';
+import { ChoroplethChart, ChoroplethTooltip } from '@mui/x-charts-pro/ChoroplethChart';
 import type { ExtendedFeatureCollection } from '@mui/x-charts-pro/ChoroplethChart';
 import type { StudioDataSource, StudioWidget } from '../models';
 import { useStudioController, useStudioLocaleText, useStudioSelector, selectActivePageId, makeSelectActiveCrossFilter } from '../context';
@@ -148,7 +147,12 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
     }
     const dataMin = legendZeroMin ? 0 : Math.min(...values);
     const dataMax = Math.max(...values);
-    return [dataMin, dataMin === dataMax ? dataMin + 1 : dataMax];
+    // Degenerate case: all values are equal (common when cross-filter shows only one country).
+    // Use [0, max] so the value renders at full color intensity rather than the lightest shade.
+    if (dataMin === dataMax) {
+      return [0, dataMax > 0 ? dataMax : dataMax < 0 ? 0 : 1];
+    }
+    return [dataMin, dataMax];
   }, [regionData, legendZeroMin]);
 
   // Lazy-load geography — async resource loading requires useEffect; the null-reset
@@ -295,7 +299,7 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
           },
         ]}
         hideLegend={hideLegend}
-        slots={{ tooltip: ChartsTooltip }}
+        slots={{ tooltip: ChoroplethTooltip }}
         slotProps={hideLegend ? undefined : legendSlotProps}
         onItemClick={crossFilterEmit ? handleFeatureClick : undefined}
         loading={isLoading || !geography}

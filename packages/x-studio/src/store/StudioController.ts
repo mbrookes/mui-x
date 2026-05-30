@@ -485,7 +485,10 @@ export class StudioController {
     }
     // Clamp left to its min; right follows so the pair total stays constant
     const totalSpan = Math.round(leftSpan) + Math.round(rightSpan);
-    const clampedLeft = Math.max(leftMinSpan, Math.min(totalSpan - rightMinSpan, Math.round(leftSpan)));
+    const clampedLeft = Math.max(
+      leftMinSpan,
+      Math.min(totalSpan - rightMinSpan, Math.round(leftSpan)),
+    );
     const clampedRight = totalSpan - clampedLeft;
     const newSpans: Record<string, number> = { ...(activePage.widgetColSpans ?? {}) };
     newSpans[leftId] = clampedLeft;

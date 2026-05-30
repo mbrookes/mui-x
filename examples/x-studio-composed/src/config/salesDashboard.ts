@@ -75,6 +75,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
         ],
         ['widget-chart4-acquisition', 'widget-chart4-revenue-by-segment'],
         ['widget-chart4-top-customers', 'widget-chart4-quarterly-segment'],
+        ['widget-map4-uk-regions'],
         ['widget-grid4-top-customers'],
       ],
     },
@@ -710,6 +711,27 @@ export const INITIAL_STATE: Partial<StudioState> = {
         gridSortDirection: 'desc',
         gridSummaryFields: { total: 'sum' },
         crossFilterField: 'expr-order-company',
+      },
+    },
+
+    // ── Custom geography example: England regions map ─────────────────────────
+    // This widget uses the 'england-regions' geography registered via the
+    // Studio `geographies` prop — demonstrating the developer API for
+    // adding custom map types beyond the built-in world / usa / europe options.
+    'widget-map4-uk-regions': {
+      id: 'widget-map4-uk-regions',
+      kind: 'map',
+      title: 'UK Customers by Region',
+      titleMode: 'manual',
+      sourceId: CUSTOMERS_SOURCE_ID,
+      config: {
+        mapGeography: 'england-regions',
+        mapCountryField: 'ukRegion',
+        mapAggregation: 'count',
+        mapColorScheme: 'blues',
+        mapLegendPosition: 'bottom',
+        mapLegendZeroMin: true,
+        mapCrossFilterEmit: true,
       },
     },
   },

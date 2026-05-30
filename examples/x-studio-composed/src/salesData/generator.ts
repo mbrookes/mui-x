@@ -285,6 +285,18 @@ export interface GeneratorOptions {
   orderCount?: number;
 }
 
+const UK_REGIONS = [
+  'North East',
+  'North West',
+  'Yorkshire and The Humber',
+  'East Midlands',
+  'West Midlands',
+  'Eastern',
+  'London',
+  'South East',
+  'South West',
+] as const;
+
 // ─── Individual table generators ─────────────────────────────────────────────
 
 function generateCustomers(rng: Rng, count: number): StudioDataSource {
@@ -302,6 +314,8 @@ function generateCustomers(rng: Rng, count: number): StudioDataSource {
       contact: `${firstName} ${lastName}`,
       email: `${firstName.toLowerCase().charAt(0)}.${lastName.toLowerCase()}@${prefix.toLowerCase()}.com`,
       country,
+      // UK customers get an England region; others get undefined.
+      ukRegion: country === 'UK' ? pick(rng, UK_REGIONS) : undefined,
       segment: pick(rng, SEGMENTS),
       since: randomDate(rng, '2015-01-01', '2022-12-31'),
     });
@@ -316,6 +330,7 @@ function generateCustomers(rng: Rng, count: number): StudioDataSource {
       { id: 'contact', label: 'Contact Name', type: 'string' },
       { id: 'email', label: 'Email', type: 'string' },
       { id: 'country', label: 'Country', type: 'string' },
+      { id: 'ukRegion', label: 'UK Region', type: 'string' },
       { id: 'segment', label: 'Segment', type: 'string' },
       { id: 'since', label: 'Customer Since', type: 'date' },
     ],

@@ -194,7 +194,13 @@ interface PhysicalFieldRowProps {
   onSelect: () => void;
 }
 
-function PhysicalFieldRow({ field, rows, isSelected, isEditMode, onSelect }: PhysicalFieldRowProps) {
+function PhysicalFieldRow({
+  field,
+  rows,
+  isSelected,
+  isEditMode,
+  onSelect,
+}: PhysicalFieldRowProps) {
   return (
     <FieldPreviewTooltip field={field} rows={rows}>
       <ListItemButton

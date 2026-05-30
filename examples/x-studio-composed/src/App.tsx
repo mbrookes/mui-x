@@ -721,7 +721,11 @@ export default function App() {
       <LocalizationProvider dateAdapter={AdapterDayjs}>
         <CssBaseline />
         {/* StudioProvider makes the controller available to all descendants */}
-        <StudioProvider controller={controller} featureFlags={featureFlags} geographies={CUSTOM_GEOGRAPHIES}>
+        <StudioProvider
+          controller={controller}
+          featureFlags={featureFlags}
+          geographies={CUSTOM_GEOGRAPHIES}
+        >
           <DashboardLayout
             adapterMode={adapterMode}
             aiConfig={aiConfig}

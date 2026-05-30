@@ -355,7 +355,14 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
       enrichedRows,
       `scatc:${xField}:${yField}:${colorField}:${scatterColorCategories.join(',')}:${sizeField ?? ''}`,
       () =>
-        prepareScatterDataGrouped(enrichedRows, xField, yField, colorField, scatterColorCategories, sizeField),
+        prepareScatterDataGrouped(
+          enrichedRows,
+          xField,
+          yField,
+          colorField,
+          scatterColorCategories,
+          sizeField,
+        ),
     );
   }, [
     enrichedRows,

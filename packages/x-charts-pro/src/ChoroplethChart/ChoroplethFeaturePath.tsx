@@ -23,11 +23,10 @@ const ChoroplethFeaturePathElement = styled('path', {
   name: 'MuiChoroplethChart',
   slot: 'FeaturePath',
 })<{ ownerState: ChoroplethFeaturePathOwnerState }>(({ ownerState }) => ({
-  fill: 'inherit',
   stroke: '#fff',
   strokeWidth: 0.5,
   cursor: 'pointer',
-  transition: 'opacity 0.2s',
+  transition: 'fill 0.15s ease, opacity 0.2s',
   opacity: ownerState.isFaded ? 0.4 : 1,
   outline: ownerState.isHighlighted ? '2px solid currentColor' : 'none',
 }));
@@ -68,12 +67,12 @@ function ChoroplethFeaturePath(props: ChoroplethFeaturePathProps) {
       ownerState={ownerState}
       className={classes.featurePath}
       d={d}
-      fill={fill || 'transparent'}
       data-highlighted={isHighlighted || undefined}
       data-faded={isFaded || undefined}
       data-series={seriesId}
       {...interactionProps}
       {...other}
+      style={{ ...(other.style as React.CSSProperties), fill: fill || 'transparent' }}
     />
   );
 }

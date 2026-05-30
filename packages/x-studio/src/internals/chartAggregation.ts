@@ -339,8 +339,9 @@ export function analyzeChartSupport(
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[] = [],
   scatterColorField?: string,
+  scatterSizeField?: string,
 ): ChartSupportResult {
-  const requestedFields = [xField, ...yFields, seriesField, scatterColorField].filter(
+  const requestedFields = [xField, ...yFields, seriesField, scatterColorField, scatterSizeField].filter(
     (field): field is string => Boolean(field),
   );
 
@@ -806,6 +807,7 @@ export interface ScatterDataPoint {
   x: number;
   y: number;
   id: number;
+  size?: number;
 }
 
 /**
@@ -815,11 +817,13 @@ export function prepareScatterData(
   rows: Row[],
   xField: string,
   yField: string,
+  sizeField?: string,
 ): ScatterDataPoint[] {
   return rows.map((row, index) => ({
     x: Number(row[xField] ?? 0),
     y: Number(row[yField] ?? 0),
     id: index,
+    size: sizeField != null ? Number(row[sizeField] ?? 0) : undefined,
   }));
 }
 
@@ -841,6 +845,7 @@ export function prepareScatterDataGrouped(
   yField: string,
   colorField: string,
   stableCategories: string[],
+  sizeField?: string,
 ): ScatterSeriesData[] {
   // Build a map from category → points for the current (filtered) rows
   const grouped = new Map<string, ScatterDataPoint[]>(stableCategories.map((cat) => [cat, []]));
@@ -850,7 +855,12 @@ export function prepareScatterDataGrouped(
     if (!grouped.has(cat)) {
       grouped.set(cat, []);
     }
-    grouped.get(cat)!.push({ x: Number(row[xField] ?? 0), y: Number(row[yField] ?? 0), id: index });
+    grouped.get(cat)!.push({
+      x: Number(row[xField] ?? 0),
+      y: Number(row[yField] ?? 0),
+      id: index,
+      size: sizeField != null ? Number(row[sizeField] ?? 0) : undefined,
+    });
   });
   // Only include categories that have data (skip empty series)
   return stableCategories.flatMap((cat) => {

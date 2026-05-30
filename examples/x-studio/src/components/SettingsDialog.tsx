@@ -59,6 +59,8 @@ const WIDGET_FEATURE_FLAGS: { key: keyof StudioFeatureFlags; label: string; pare
   { key: 'filters', label: 'Filters panel' },
   { key: 'savedFilterViews', label: 'Saved filter views' },
   { key: 'dataManagement', label: 'Data management drawer' },
+  { key: 'relationships', label: 'Relationships panel', parentKey: 'dataManagement' },
+  { key: 'widgetFilters', label: 'Widget filters tab' },
   { key: 'aiChat', label: 'AI chat assistant' },
   { key: 'calculatedFields', label: 'Calculated fields (all)' },
   { key: 'kpiCalculatedFields', label: 'KPI calculated fields', parentKey: 'calculatedFields' },

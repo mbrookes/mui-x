@@ -24,6 +24,7 @@ import {
 import { DataSourceSection } from './DataSourceSection';
 import { RelationshipPanel } from './RelationshipPanel';
 import { DataLineageGraph } from './DataLineageGraph';
+import { useStudioFeatures } from '../internals/StudioUIConfigContext';
 
 // ─── Drawer ───────────────────────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ export function StudioDataDrawer() {
   const expressionFields = useStudioSelector(selectExpressionFields);
   const relationships = useStudioSelector(selectRelationships);
   const mode = useStudioSelector(selectMode);
+  const features = useStudioFeatures();
   const sourceList = Object.values(dataSources).filter((s) => !s.hidden);
 
   const [lineageOpen, setLineageOpen] = React.useState(false);
@@ -56,7 +58,7 @@ export function StudioDataDrawer() {
           isEditMode={mode === 'edit'}
         />
       ))}
-      {mode === 'edit' && sourceList.length >= 2 && (
+      {mode === 'edit' && sourceList.length >= 2 && features.relationships !== false && (
         <React.Fragment>
           <Divider />
           <RelationshipPanel relationships={relationships} dataSources={dataSources} />

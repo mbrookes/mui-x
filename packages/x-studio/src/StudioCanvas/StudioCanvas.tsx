@@ -9,6 +9,11 @@ import { createDefaultWidget, widgetKindRequiresDataSource } from '../internals/
 import { StudioQuickFilterBar } from './StudioQuickFilterBar';
 import { StudioDateRangeBar } from './StudioDateRangeBar';
 
+/** Total column count for the widget resize grid. */
+const GRID_COLS = 24;
+/** Minimum column span any widget can be resized to (~12.5% of full width in a 2-widget row). */
+const MIN_SPAN = Math.round(GRID_COLS / 4);
+
 export interface StudioCanvasProps {
   /**
    * Canvas width (in px) below which all widgets stack to full width in view mode.
@@ -210,12 +215,12 @@ function RowResizeHandle({
         return;
       }
       const fraction = (event.clientX - drag.combinedLeft) / drag.combinedWidth;
-      const minFrac = 3 / drag.totalSpan;
+      const minFrac = MIN_SPAN / drag.totalSpan;
       const clamped = Math.max(minFrac, Math.min(1 - minFrac, fraction));
       // Snap at midpoint: jump to the next column when the mouse crosses 50% between columns
       const leftSpanLive = Math.max(
-        3,
-        Math.min(drag.totalSpan - 3, Math.round(clamped * drag.totalSpan)),
+        MIN_SPAN,
+        Math.min(drag.totalSpan - MIN_SPAN, Math.round(clamped * drag.totalSpan)),
       );
       onDragMove(leftId, rightId, leftSpanLive);
     },
@@ -232,11 +237,11 @@ function RowResizeHandle({
       setActive(false);
       (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
       const fraction = (event.clientX - drag.combinedLeft) / drag.combinedWidth;
-      const minFrac = 3 / drag.totalSpan;
+      const minFrac = MIN_SPAN / drag.totalSpan;
       const clamped = Math.max(minFrac, Math.min(1 - minFrac, fraction));
       const snappedLeft = Math.max(
-        3,
-        Math.min(drag.totalSpan - 3, Math.round(clamped * drag.totalSpan)),
+        MIN_SPAN,
+        Math.min(drag.totalSpan - MIN_SPAN, Math.round(clamped * drag.totalSpan)),
       );
       const snappedRight = drag.totalSpan - snappedLeft;
       onDragEnd(leftId, rightId, snappedLeft, snappedRight);
@@ -606,7 +611,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
             const s = nextColSpans?.[id];
             return sum + (s ?? 0);
           }, 0);
-          if (destSpanTotal > 12) {
+          if (destSpanTotal > GRID_COLS) {
             const { [widgetId]: removedSpan, ...rest } = nextColSpans;
             void removedSpan;
             nextColSpans = Object.keys(rest).length > 0 ? rest : undefined;
@@ -734,14 +739,14 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
               // Default flex-grow: 12/rowLength so unsized widgets match the same ratio.
               // View mode: use percentage flex-basis (no insertion points present).
               // Stacked mode: force full width regardless of stored span.
-              const defaultFlexGrow = Math.round(12 / row.length);
+              const defaultFlexGrow = Math.round(GRID_COLS / row.length);
               let flexValue: string | number;
               if (isStacked) {
                 flexValue = '0 0 100%';
               } else if (mode === 'edit') {
                 flexValue = `${span ?? defaultFlexGrow} 0 0`;
               } else if (span != null) {
-                flexValue = `0 0 ${(span / 12) * 100}%`;
+                flexValue = `0 0 ${(span / GRID_COLS) * 100}%`;
               } else {
                 flexValue = 1;
               }
@@ -749,7 +754,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
               if (isStacked) {
                 maxWidth = '100%';
               } else if (mode !== 'edit' && span != null) {
-                maxWidth = `${(span / 12) * 100}%`;
+                maxWidth = `${(span / GRID_COLS) * 100}%`;
               }
 
               // Spans for the resize handle on the right of this widget
@@ -757,7 +762,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
               const nextStoredSpan = nextId ? (widgetColSpans?.[nextId] ?? null) : null;
               const myEffectiveSpan = storedSpan ?? defaultFlexGrow;
               const nextEffectiveSpan = nextId
-                ? (nextStoredSpan ?? Math.round(12 / row.length))
+                ? (nextStoredSpan ?? Math.round(GRID_COLS / row.length))
                 : 0;
 
               const isResizing =
@@ -825,7 +830,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                 8px insertion point at the left and the 8px gap(s) within and after. */}
             {liveDrag &&
               row.includes(liveDrag.leftId) &&
-              Array.from({ length: 11 }).map((_, i) => (
+              Array.from({ length: GRID_COLS - 1 }).map((_, i) => (
                 <Box
                   key={i}
                   sx={{
@@ -834,7 +839,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                     bottom: 0,
                     // Widget area starts at 8px (left IP) and ends at rowWidth − 8px (trailing gap).
                     // Internal gaps add (row.length − 1) × 8px; total fixed = (row.length + 1) × 8px.
-                    left: `calc(8px + ${(i + 1) / 12} * (100% - ${(row.length + 1) * 8}px))`,
+                    left: `calc(8px + ${(i + 1) / GRID_COLS} * (100% - ${(row.length + 1) * 8}px))`,
                     width: '1px',
                     bgcolor: 'divider',
                     opacity: 0.6,

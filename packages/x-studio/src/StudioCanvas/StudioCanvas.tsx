@@ -395,7 +395,6 @@ function WidgetGap({
   );
 }
 
-
 export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvasProps) {
   const { slotProps, stackBreakpoint: stackBreakpointProp = 600 } = props;
   const mode = useStudioSelector(selectMode);
@@ -813,12 +812,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                       }}
                       onDragEnd={(lId, rId, snappedLeft, snappedRight) => {
                         setLiveDrag(null);
-                        controller.setAdjacentWidgetColSpans(
-                          lId,
-                          snappedLeft,
-                          rId,
-                          snappedRight,
-                        );
+                        controller.setAdjacentWidgetColSpans(lId, snappedLeft, rId, snappedRight);
                       }}
                     />
                   )}

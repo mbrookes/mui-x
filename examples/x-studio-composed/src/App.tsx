@@ -45,6 +45,15 @@ import { uploadJson, downloadJson } from 'x-studio-shared';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
+import { ukRegionsGeography } from './config/geographies/ukRegions';
+
+// ── Custom geography registrations ────────────────────────────────────────────
+// This is where developers register additional map geographies beyond the
+// built-in 'world', 'usa', and 'europe' options. Each entry in this record
+// becomes a selectable map type in the Map widget's Setup panel.
+const CUSTOM_GEOGRAPHIES = {
+  'england-regions': ukRegionsGeography,
+};
 
 const MIN_CANVAS_WIDTH = 480;
 
@@ -195,16 +204,18 @@ function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
   const dataset = getUrlDatasetParam();
 
   // Determine the base data sources from the dataset
-  const baseDataSources = (dataset === 'ag-studio' && osData
-    ? {
-        [osData.storesSource.id]: osData.storesSource,
-        [osData.productsSource.id]: osData.productsSource,
-        [osData.customersSource.id]: osData.customersSource,
-        [osData.ordersSource.id]: osData.ordersSource,
-        [osData.orderItemsSource.id]: osData.orderItemsSource,
-        [osData.shipmentsSource.id]: osData.shipmentsSource,
-      }
-    : INITIAL_STATE.dataSources) as Record<string, import('@mui/x-studio').StudioDataSource>;
+  const baseDataSources = (
+    dataset === 'ag-studio' && osData
+      ? {
+          [osData.storesSource.id]: osData.storesSource,
+          [osData.productsSource.id]: osData.productsSource,
+          [osData.customersSource.id]: osData.customersSource,
+          [osData.ordersSource.id]: osData.ordersSource,
+          [osData.orderItemsSource.id]: osData.orderItemsSource,
+          [osData.shipmentsSource.id]: osData.shipmentsSource,
+        }
+      : INITIAL_STATE.dataSources
+  ) as Record<string, import('@mui/x-studio').StudioDataSource>;
 
   // Restore from localStorage if available, merging with the live data sources.
   const saved = readLocalState();
@@ -222,7 +233,10 @@ function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
     if (!urlPageId) {
       return base;
     }
-    return { ...base, dashboard: { ...base.dashboard, activePageId: urlPageId } } as Partial<StudioState>;
+    return {
+      ...base,
+      dashboard: { ...base.dashboard, activePageId: urlPageId },
+    } as Partial<StudioState>;
   }
 
   const urlPageId = resolvePageIdFromQuery(getUrlPageParam(), INITIAL_STATE.pages);
@@ -388,13 +402,19 @@ function DashboardLayout({
     controller.setActivePage(newId);
   }, [controller]);
 
-  const handlePageClose = React.useCallback((pageId: string) => {
-    controller.removePage(pageId);
-  }, [controller]);
+  const handlePageClose = React.useCallback(
+    (pageId: string) => {
+      controller.removePage(pageId);
+    },
+    [controller],
+  );
 
-  const handlePageReorder = React.useCallback((pageIds: string[]) => {
-    controller.reorderPages(pageIds);
-  }, [controller]);
+  const handlePageReorder = React.useCallback(
+    (pageIds: string[]) => {
+      controller.reorderPages(pageIds);
+    },
+    [controller],
+  );
 
   // Close chat when switching to view mode
   React.useEffect(() => {
@@ -541,6 +561,11 @@ function DashboardLayout({
     [controller],
   );
 
+  const handlePageDragNavigate = React.useCallback(
+    (pageId: string) => controller.setActivePage(pageId),
+    [controller],
+  );
+
   const pageList = Object.values(pages);
   const canvasScrollRef = React.useRef<HTMLDivElement>(null);
 
@@ -577,6 +602,7 @@ function DashboardLayout({
         onReset={handleReset}
         onCopyLink={handleCopyLink}
         onSettingsOpen={handleSettingsOpen}
+        onPageDragNavigate={handlePageDragNavigate}
       />
 
       {/* Dialogs — rendered outside the canvas so they overlay everything */}
@@ -695,7 +721,7 @@ export default function App() {
       <LocalizationProvider dateAdapter={AdapterDayjs}>
         <CssBaseline />
         {/* StudioProvider makes the controller available to all descendants */}
-        <StudioProvider controller={controller} featureFlags={featureFlags}>
+        <StudioProvider controller={controller} featureFlags={featureFlags} geographies={CUSTOM_GEOGRAPHIES}>
           <DashboardLayout
             adapterMode={adapterMode}
             aiConfig={aiConfig}

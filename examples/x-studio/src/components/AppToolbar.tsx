@@ -43,6 +43,8 @@ export interface AppToolbarProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  /** Called with the target pageId after a widget is held over a tab for 600ms (BL-107). */
+  onPageDragNavigate?: (pageId: string) => void;
 }
 
 export function AppToolbar(props: AppToolbarProps) {
@@ -63,6 +65,7 @@ export function AppToolbar(props: AppToolbarProps) {
     canRedo,
     onUndo,
     onRedo,
+    onPageDragNavigate,
   } = props;
 
   const [confirmPageId, setConfirmPageId] = React.useState<string | null>(null);
@@ -71,6 +74,55 @@ export function AppToolbar(props: AppToolbarProps) {
   const [tabDragIndex, setTabDragIndex] = React.useState<number | null>(null);
   const [tabDragOverIndex, setTabDragOverIndex] = React.useState<number | null>(null);
   const showDragHandles = mode === 'edit' && pages.length > 1 && Boolean(onPageReorder);
+
+  // BL-107: drag-to-navigate — tab-scoped timer + enter/leave counter
+  const dragNavTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragNavCounterRef = React.useRef<number>(0);
+  const dragNavPageIdRef = React.useRef<string | null>(null);
+
+  const cancelDragNavTimer = React.useCallback(() => {
+    if (dragNavTimerRef.current !== null) {
+      clearTimeout(dragNavTimerRef.current);
+      dragNavTimerRef.current = null;
+    }
+    dragNavCounterRef.current = 0;
+    dragNavPageIdRef.current = null;
+  }, []);
+
+  // Clean up on unmount and listen for global dragend (widget drop/cancel outside tabs)
+  React.useEffect(() => {
+    document.addEventListener('dragend', cancelDragNavTimer);
+    return () => {
+      document.removeEventListener('dragend', cancelDragNavTimer);
+      cancelDragNavTimer();
+    };
+  }, [cancelDragNavTimer]);
+
+  function handleTabWidgetDragEnter(event: React.DragEvent, pageId: string) {
+    if (!Array.from(event.dataTransfer.types).includes('application/json')) return;
+    // If entering a different tab, cancel any in-flight timer for the previous tab
+    if (dragNavPageIdRef.current !== pageId) {
+      cancelDragNavTimer();
+      dragNavPageIdRef.current = pageId;
+    }
+    dragNavCounterRef.current += 1;
+    if (dragNavTimerRef.current === null) {
+      dragNavTimerRef.current = setTimeout(() => {
+        dragNavTimerRef.current = null;
+        onPageDragNavigate?.(pageId);
+      }, 600);
+    }
+  }
+
+  function handleTabWidgetDragLeave(event: React.DragEvent, pageId: string) {
+    if (!Array.from(event.dataTransfer.types).includes('application/json')) return;
+    // Ignore stale leave events from previously hovered tabs
+    if (dragNavPageIdRef.current !== pageId) return;
+    dragNavCounterRef.current -= 1;
+    if (dragNavCounterRef.current <= 0) {
+      cancelDragNavTimer();
+    }
+  }
 
   function handleTabDrop(dropIndex: number) {
     if (tabDragIndex === null || tabDragIndex === dropIndex) {
@@ -144,6 +196,8 @@ export function AppToolbar(props: AppToolbarProps) {
                     }
                   : undefined
               }
+              onDragEnter={(e) => handleTabWidgetDragEnter(e, page.id)}
+              onDragLeave={(e) => handleTabWidgetDragLeave(e, page.id)}
               onDragOver={
                 showDragHandles
                   ? (e) => {
@@ -166,6 +220,7 @@ export function AppToolbar(props: AppToolbarProps) {
                   ? () => {
                       setTabDragIndex(null);
                       setTabDragOverIndex(null);
+                      cancelDragNavTimer();
                     }
                   : undefined
               }

@@ -70,7 +70,9 @@ function RelationshipDialog(props: {
   const { open, onClose, onSave, initial, dataSources } = props;
   const [form, setForm] = React.useState<RelationshipFormState>(initial ?? emptyRelForm());
 
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change, react-doctor/no-derived-state-effect -- form is intentionally buffered locally and synced when dialog re-opens or initial value changes
   React.useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-derived-state -- locally buffered form; sync on external change is intentional
     setForm(initial ?? emptyRelForm());
   }, [initial, open]);
 
@@ -86,9 +88,7 @@ function RelationshipDialog(props: {
     form.targetField &&
     form.sourceId !== form.targetId &&
     (!isManyToMany ||
-      (form.junctionSourceId &&
-        form.junctionSourceField &&
-        form.junctionTargetField));
+      (form.junctionSourceId && form.junctionSourceField && form.junctionTargetField));
 
   const field = (key: keyof RelationshipFormState) => (value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -100,11 +100,7 @@ function RelationshipDialog(props: {
         <Stack spacing={2} sx={{ mt: 1 }}>
           <FormControl size="small" fullWidth>
             <InputLabel>Type</InputLabel>
-            <Select
-              label="Type"
-              value={form.type}
-              onChange={(e) => field('type')(e.target.value)}
-            >
+            <Select label="Type" value={form.type} onChange={(e) => field('type')(e.target.value)}>
               <MenuItem value="many-to-one">Many-to-one</MenuItem>
               <MenuItem value="one-to-one">One-to-one</MenuItem>
               <MenuItem value="many-to-many">Many-to-many</MenuItem>
@@ -119,10 +115,15 @@ function RelationshipDialog(props: {
               <Select
                 label={isManyToMany ? 'Source' : 'Many side'}
                 value={form.sourceId}
-                onChange={(e) => { field('sourceId')(e.target.value); field('sourceField')(''); }}
+                onChange={(e) => {
+                  field('sourceId')(e.target.value);
+                  field('sourceField')('');
+                }}
               >
                 {sourceList.map((s) => (
-                  <MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>
+                  <MenuItem key={s.id} value={s.id}>
+                    {s.label}
+                  </MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -135,7 +136,9 @@ function RelationshipDialog(props: {
                 disabled={!form.sourceId}
               >
                 {sourceFields.map((f) => (
-                  <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
+                  <MenuItem key={f.id} value={f.id}>
+                    {f.label}
+                  </MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -147,9 +150,20 @@ function RelationshipDialog(props: {
               <Select
                 label={isManyToMany ? 'Target' : 'One side'}
                 value={form.targetId}
-                onChange={(e) => { field('targetId')(e.target.value); field('targetField')(''); }}
+                onChange={(e) => {
+                  field('targetId')(e.target.value);
+                  field('targetField')('');
+                }}
               >
-                {sourceList.flatMap((s) => s.id !== form.sourceId ? [<MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>] : [])}
+                {sourceList.flatMap((s) =>
+                  s.id !== form.sourceId
+                    ? [
+                        <MenuItem key={s.id} value={s.id}>
+                          {s.label}
+                        </MenuItem>,
+                      ]
+                    : [],
+                )}
               </Select>
             </FormControl>
             <FormControl size="small" sx={{ flex: 1 }}>
@@ -161,7 +175,9 @@ function RelationshipDialog(props: {
                 disabled={!form.targetId}
               >
                 {targetFields.map((f) => (
-                  <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
+                  <MenuItem key={f.id} value={f.id}>
+                    {f.label}
+                  </MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -186,7 +202,11 @@ function RelationshipDialog(props: {
                 >
                   {sourceList.flatMap((s) =>
                     s.id !== form.sourceId && s.id !== form.targetId
-                      ? [<MenuItem key={s.id} value={s.id}>{s.label}</MenuItem>]
+                      ? [
+                          <MenuItem key={s.id} value={s.id}>
+                            {s.label}
+                          </MenuItem>,
+                        ]
                       : [],
                   )}
                 </Select>
@@ -201,7 +221,9 @@ function RelationshipDialog(props: {
                     disabled={!form.junctionSourceId}
                   >
                     {junctionFields.map((f) => (
-                      <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
+                      <MenuItem key={f.id} value={f.id}>
+                        {f.label}
+                      </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
@@ -214,7 +236,9 @@ function RelationshipDialog(props: {
                     disabled={!form.junctionSourceId}
                   >
                     {junctionFields.map((f) => (
-                      <MenuItem key={f.id} value={f.id}>{f.label}</MenuItem>
+                      <MenuItem key={f.id} value={f.id}>
+                        {f.label}
+                      </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
@@ -240,7 +264,9 @@ export function RelationshipPanel(props: {
   const { relationships, dataSources } = props;
   const controller = useStudioController();
   const [dialogOpen, setDialogOpen] = React.useState(false);
-  const [editingRel, setEditingRel] = React.useState<{ id: string; form: RelationshipFormState } | undefined>(undefined);
+  const [editingRel, setEditingRel] = React.useState<
+    { id: string; form: RelationshipFormState } | undefined
+  >(undefined);
 
   const handleAdd = (form: RelationshipFormState) => {
     const isManyToMany = form.type === 'many-to-many';
@@ -307,7 +333,10 @@ export function RelationshipPanel(props: {
         <Button
           size="small"
           startIcon={<AddIcon fontSize="small" />}
-          onClick={() => { setEditingRel(undefined); setDialogOpen(true); }}
+          onClick={() => {
+            setEditingRel(undefined);
+            setDialogOpen(true);
+          }}
           sx={{ fontSize: 11 }}
         >
           Add
@@ -340,19 +369,33 @@ export function RelationshipPanel(props: {
                   {srcLabel} → {tgtLabel}
                 </Typography>
                 <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.25 }}>
-                  <Chip label={typeLabel} size="small" variant="outlined" sx={{ fontSize: 10, height: 16 }} />
+                  <Chip
+                    label={typeLabel}
+                    size="small"
+                    variant="outlined"
+                    sx={{ fontSize: 10, height: 16 }}
+                  />
                   {jctLabel && (
-                    <Chip label={`via ${jctLabel}`} size="small" variant="outlined" sx={{ fontSize: 10, height: 16 }} />
+                    <Chip
+                      label={`via ${jctLabel}`}
+                      size="small"
+                      variant="outlined"
+                      sx={{ fontSize: 10, height: 16 }}
+                    />
                   )}
                 </Stack>
               </Box>
               <Tooltip title="Edit">
-                <IconButton size="small" onClick={() => handleEdit(rel)}>
+                <IconButton size="small" sx={{ flexShrink: 0 }} onClick={() => handleEdit(rel)}>
                   <EditIcon sx={{ fontSize: 14 }} />
                 </IconButton>
               </Tooltip>
               <Tooltip title="Remove">
-                <IconButton size="small" onClick={() => controller.removeRelationship(rel.id)}>
+                <IconButton
+                  size="small"
+                  sx={{ flexShrink: 0 }}
+                  onClick={() => controller.removeRelationship(rel.id)}
+                >
                   <DeleteIcon sx={{ fontSize: 14 }} />
                 </IconButton>
               </Tooltip>
@@ -363,7 +406,10 @@ export function RelationshipPanel(props: {
 
       <RelationshipDialog
         open={dialogOpen}
-        onClose={() => { setDialogOpen(false); setEditingRel(undefined); }}
+        onClose={() => {
+          setDialogOpen(false);
+          setEditingRel(undefined);
+        }}
         onSave={editingRel ? handleUpdate : handleAdd}
         initial={editingRel?.form}
         dataSources={dataSources}
@@ -371,4 +417,3 @@ export function RelationshipPanel(props: {
     </Box>
   );
 }
-

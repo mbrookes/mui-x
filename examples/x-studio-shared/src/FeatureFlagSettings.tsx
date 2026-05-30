@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { FormControl, FormControlLabel, FormLabel, Switch } from '@mui/material';
+import { Box, FormControl, FormControlLabel, FormLabel, Switch } from '@mui/material';
 import type { StudioFeatureFlags } from '@mui/x-studio';
 
 type NestedKindKey = 'kpi' | 'chart' | 'grid';
@@ -43,7 +43,10 @@ const KIND_LABELS: Record<string, string> = {
   map: 'Map',
 };
 
-/** Top-level boolean flags (compose, filters, etc.) */
+/**
+ * Top-level boolean flags.
+ * Children are rendered indented under their parent flag.
+ */
 const TOP_LEVEL_FLAGS: {
   key: keyof StudioFeatureFlags;
   label: string;
@@ -93,6 +96,33 @@ const WIDGET_SUB_FLAGS: {
   },
 ];
 
+/** Renders a single Switch row, optionally indented for visual nesting. */
+function FlagRow({
+  label,
+  checked,
+  disabled,
+  indented,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled: boolean;
+  indented?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <Box sx={indented ? { ml: 3 } : undefined}>
+      <FormControlLabel
+        control={
+          <Switch size="small" checked={checked} disabled={disabled} onChange={(_evt, val) => onChange(val)} />
+        }
+        label={label}
+        sx={disabled ? { opacity: 0.5 } : undefined}
+      />
+    </Box>
+  );
+}
+
 export interface FeatureFlagSettingsProps {
   featureFlags: StudioFeatureFlags;
   onFeatureFlagsChange: (flags: StudioFeatureFlags) => void;
@@ -101,6 +131,8 @@ export interface FeatureFlagSettingsProps {
 /**
  * Renders widget-kind and feature-flag toggle sections, shared between the
  * x-studio and x-studio-composed settings dialogs.
+ * Child flags are visually indented under their parent and disabled when the
+ * parent is off (preserving but ignoring their stored value).
  */
 export function FeatureFlagSettings(props: FeatureFlagSettingsProps) {
   const { featureFlags, onFeatureFlagsChange } = props;
@@ -126,69 +158,57 @@ export function FeatureFlagSettings(props: FeatureFlagSettingsProps) {
 
   return (
     <React.Fragment>
-      {/* Widget kind toggles */}
+      {/* Widget kind toggles with sub-flags nested beneath */}
       <FormControl component="fieldset">
         <FormLabel component="legend" sx={{ mb: 0.5 }}>
           Widget types
         </FormLabel>
-        {Object.keys(KIND_LABELS).map((key) => (
-          <FormControlLabel
-            key={key}
-            control={
-              <Switch
-                size="small"
-                checked={featureFlags[key as keyof StudioFeatureFlags] !== false}
-                onChange={(_evt, checked) =>
-                  handleKindToggle(key as keyof StudioFeatureFlags, checked)
-                }
+        {Object.keys(KIND_LABELS).map((key) => {
+          const kindEnabled = featureFlags[key as keyof StudioFeatureFlags] !== false;
+          const subFlags = WIDGET_SUB_FLAGS.filter((sf) => sf.parentKey === key);
+          return (
+            <React.Fragment key={key}>
+              <FlagRow
+                label={KIND_LABELS[key]}
+                checked={kindEnabled}
+                disabled={false}
+                onChange={(checked) => handleKindToggle(key as keyof StudioFeatureFlags, checked)}
               />
-            }
-            label={KIND_LABELS[key]}
-          />
-        ))}
+              {subFlags.map(({ subKey, label, alsoRequires }) => {
+                const alsoDisabled = alsoRequires ? featureFlags[alsoRequires] === false : false;
+                const disabled = !kindEnabled || alsoDisabled;
+                return (
+                  <FlagRow
+                    key={`${key}.${subKey}`}
+                    label={label}
+                    checked={!disabled && getSubFlag(featureFlags, key as NestedKindKey, subKey)}
+                    disabled={disabled}
+                    indented
+                    onChange={(checked) => handleSubFlagToggle(key as NestedKindKey, subKey, checked)}
+                  />
+                );
+              })}
+            </React.Fragment>
+          );
+        })}
       </FormControl>
 
-      {/* Top-level feature flags */}
+      {/* Top-level feature flags with children nested beneath their parent */}
       <FormControl component="fieldset">
         <FormLabel component="legend" sx={{ mb: 0.5 }}>
           Features
         </FormLabel>
         {TOP_LEVEL_FLAGS.map(({ key, label, parentKey }) => {
           const parentDisabled = parentKey ? featureFlags[parentKey] === false : false;
+          const isChild = Boolean(parentKey);
           return (
-            <FormControlLabel
+            <FlagRow
               key={key}
-              control={
-                <Switch
-                  size="small"
-                  checked={!parentDisabled && featureFlags[key] !== false}
-                  disabled={parentDisabled}
-                  onChange={(_evt, checked) => handleSimpleToggle(key, checked)}
-                />
-              }
               label={label}
-            />
-          );
-        })}
-
-        {/* Widget sub-flags (nested inside kpi / chart / grid) */}
-        {WIDGET_SUB_FLAGS.map(({ parentKey, subKey, label, alsoRequires }) => {
-          const kindDisabled = !isKindEnabled(featureFlags, parentKey);
-          const alsoDisabled = alsoRequires ? featureFlags[alsoRequires] === false : false;
-          return (
-            <FormControlLabel
-              key={`${parentKey}.${subKey}`}
-              control={
-                <Switch
-                  size="small"
-                  checked={
-                    !kindDisabled && !alsoDisabled && getSubFlag(featureFlags, parentKey, subKey)
-                  }
-                  disabled={kindDisabled || alsoDisabled}
-                  onChange={(_evt, checked) => handleSubFlagToggle(parentKey, subKey, checked)}
-                />
-              }
-              label={label}
+              checked={!parentDisabled && featureFlags[key] !== false}
+              disabled={parentDisabled}
+              indented={isChild}
+              onChange={(checked) => handleSimpleToggle(key, checked)}
             />
           );
         })}

@@ -208,7 +208,8 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 ~~BL-75: Change "Compose / edit mode" in the demo apps settings to "Compose panel" that follows enabling/disabling of other panels. Don't affect the edit mode toggle which is a separate feature.~~
 **Fixed** (label changed to `'Compose panel'` in both `x-studio` and `x-studio-composed` `SettingsDialog.tsx`)
 
-BL-76: When a feature is disabled in the demo app controls, widget sub feature controls should also be disabled (eg KPI disable: spakine, trend, target line toggles disabled).
+~~BL-76: When a feature is disabled in the demo app controls, widget sub feature controls should also be disabled (eg KPI disable: spakine, trend, target line toggles disabled).~~
+**Fixed** (added `parentKey` to the `WIDGET_FEATURE_FLAGS` metadata in both `SettingsDialog.tsx` files; sub-feature `Switch`es are now `disabled` and visually unchecked when their parent widget kind is off — `kpiSparkline`/`kpiTrend`/`kpiTarget` follow `kpi`; `chartAnnotations` follows `chart`; `gridGroupBy`/`gridSummary`/`gridConditionalFormats` follow `grid`)
 
 BL-77: Map value field should display any related value.
 

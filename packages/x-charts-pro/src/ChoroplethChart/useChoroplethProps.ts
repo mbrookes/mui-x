@@ -52,6 +52,7 @@ export function useChoroplethProps(props: ChoroplethChartProps) {
     title,
     desc,
     className,
+    defaultFeatureColor,
   } = props;
 
   const id = useId();
@@ -107,6 +108,7 @@ export function useChoroplethProps(props: ChoroplethChartProps) {
   };
 
   const choroplethPlotProps: ChoroplethPlotProps = {
+    defaultFeatureColor,
     slots: slots as ChoroplethPlotProps['slots'],
     slotProps: slotProps as ChoroplethPlotProps['slotProps'],
   };

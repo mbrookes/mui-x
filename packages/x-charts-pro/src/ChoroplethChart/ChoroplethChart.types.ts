@@ -77,6 +77,11 @@ export interface ChoroplethChartProps
    */
   fitProjection?: boolean;
   /**
+   * The fill color for features that have no corresponding data value.
+   * @default '#d4d4d4'
+   */
+  defaultFeatureColor?: string;
+  /**
    * If `true`, the legend is not rendered.
    */
   hideLegend?: boolean;

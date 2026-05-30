@@ -31,6 +31,11 @@ export interface ChoroplethPlotProps {
    */
   className?: string;
   /**
+   * The fill color for features that have no corresponding data value.
+   * @default '#d4d4d4'
+   */
+  defaultFeatureColor?: string;
+  /**
    * Overridable component slots.
    * @default {}
    */
@@ -49,8 +54,10 @@ const ChoroplethPlotRoot = styled('g', {
 
 const MemoFeaturePath = React.memo(ChoroplethFeaturePath);
 
+const DEFAULT_FEATURE_COLOR = '#d4d4d4';
+
 export function ChoroplethPlot(props: ChoroplethPlotProps) {
-  const { className, slots, slotProps } = props;
+  const { className, defaultFeatureColor = DEFAULT_FEATURE_COLOR, slots, slotProps } = props;
 
   const store = useStore();
   const { path: pathGenerator, geography } = store.use(selectorChartGeo);
@@ -87,7 +94,9 @@ export function ChoroplethPlot(props: ChoroplethPlotProps) {
 
         const value = seriesToDisplay.valueMap.getValue(featureId);
         const fill =
-          value !== null && colorScale ? (colorScale(value) ?? 'transparent') : 'transparent';
+          value !== null && colorScale
+            ? (colorScale(value) ?? defaultFeatureColor)
+            : defaultFeatureColor;
 
         const item = {
           type: 'choropleth' as const,

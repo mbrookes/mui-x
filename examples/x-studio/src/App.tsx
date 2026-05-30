@@ -466,6 +466,10 @@ export default function App() {
     studioRef.current?.reorderPages(pageIds);
   }, []);
 
+  const handlePageDragNavigate = React.useCallback((pageId: string) => {
+    studioRef.current?.setActivePage(pageId);
+  }, []);
+
   const handleSave = React.useCallback(() => {
     const serialized = studioRef.current?.serializeState();
     if (!serialized) {
@@ -575,6 +579,7 @@ export default function App() {
             canRedo={canRedo}
             onUndo={handleUndo}
             onRedo={handleRedo}
+            onPageDragNavigate={handlePageDragNavigate}
           />
           <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
             {adapterMode && (

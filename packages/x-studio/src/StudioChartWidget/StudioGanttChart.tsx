@@ -176,7 +176,7 @@ export function StudioGanttChart({
             : paletteColors[0];
           const durationMs = item.endMs - item.startMs;
           const tooltipContent = (
-            <Box>
+            <div>
               <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>
                 {item.label}
               </Typography>
@@ -191,7 +191,7 @@ export function StudioGanttChart({
                   {item.colorCategory}
                 </Typography>
               )}
-            </Box>
+            </div>
           );
 
           return (

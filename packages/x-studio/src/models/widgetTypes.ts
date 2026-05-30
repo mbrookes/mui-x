@@ -1,8 +1,6 @@
 import type {
   StudioFilterWidgetType,
   StudioWidgetKind,
-  BuiltinStudioWidgetKind,
-  StudioFilterOperator,
   StudioGridColumn,
   StudioGridSummaryAggregation,
   StudioChartSeries,
@@ -11,28 +9,10 @@ import type {
   StudioBarLayout,
   StudioCrossFilterMode,
   StudioKpiAggregation,
-  StudioNumberFormat,
   StudioChartType,
   StudioConditionalFormat,
 } from './baseTypes';
 
-export type {
-  StudioFilterWidgetType,
-  StudioWidgetKind,
-  BuiltinStudioWidgetKind,
-  StudioFilterOperator,
-  StudioGridColumn,
-  StudioGridSummaryAggregation,
-  StudioChartSeries,
-  StudioMetricRef,
-  StudioChartAnnotation,
-  StudioBarLayout,
-  StudioCrossFilterMode,
-  StudioKpiAggregation,
-  StudioNumberFormat,
-  StudioChartType,
-  StudioConditionalFormat,
-};
 
 export interface StudioWidgetConfig {
   // Grid config
@@ -137,11 +117,15 @@ export interface StudioWidgetConfig {
   kpiSparklineField?: string;
   /** Source ID for the sparkline time field — only needed when field is from a related source. */
   kpiSparklineSourceId?: string;
-  kpiSparklinePlotType?: 'line' | 'bar';
+  kpiSparklinePlotType?: 'line' | 'bar' | 'gauge';
   kpiSparklineArea?: boolean;
   kpiSparklineGranularity?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /** When true, the sparkline shows a cumulative running total instead of per-period values. */
   kpiSparklineCumulative?: boolean;
+  /** Minimum value for the gauge sparkline. @default 0 */
+  kpiSparklineGaugeMin?: number;
+  /** Maximum value for the gauge sparkline. The KPI headline value is plotted against this cap. */
+  kpiSparklineGaugeMax?: number;
   // KPI trend indicator
   /** When true, shows a period-over-period percentage change badge below the headline value. */
   kpiTrend?: boolean;

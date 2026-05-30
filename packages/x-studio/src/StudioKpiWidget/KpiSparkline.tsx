@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
+import { Gauge } from '@mui/x-charts/Gauge';
 import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { StudioNumberFormat } from '../models';
 import { formatNumber } from '../internals/numberFormat';
@@ -11,7 +12,7 @@ export interface KpiSparklineProps {
   data: number[] | null;
   /** True when a time field was resolved — false means no time field at all. */
   timeFieldResolved: boolean;
-  plotType?: 'line' | 'bar';
+  plotType?: 'line' | 'bar' | 'gauge';
   area?: boolean;
   compact?: boolean;
   fieldFormat?: StudioNumberFormat;
@@ -20,6 +21,12 @@ export interface KpiSparklineProps {
   colors?: string[];
   /** When set, renders a horizontal reference line at this y-value. */
   targetValue?: number;
+  /** Current KPI aggregate value — used only when plotType is 'gauge'. */
+  kpiValue?: number;
+  /** Gauge minimum. @default 0 */
+  gaugeMin?: number;
+  /** Gauge maximum. Required when plotType is 'gauge'. */
+  gaugeMax?: number;
 }
 
 export function KpiSparkline(props: KpiSparklineProps) {
@@ -33,7 +40,42 @@ export function KpiSparkline(props: KpiSparklineProps) {
     fieldCurrencyCode,
     colors,
     targetValue,
+    kpiValue,
+    gaugeMin = 0,
+    gaugeMax = 100,
   } = props;
+
+  if (plotType === 'gauge') {
+    const value = kpiValue ?? 0;
+    // Sanitize range — guard against NaN and inverted/zero-width ranges
+    const safeMin = Number.isFinite(gaugeMin) ? gaugeMin : 0;
+    const safeMax = Number.isFinite(gaugeMax) && gaugeMax > safeMin ? gaugeMax : safeMin + 1;
+    const clampedValue = Math.min(Math.max(value, safeMin), safeMax);
+    return (
+      <Box
+        sx={{
+          flexGrow: 1,
+          minWidth: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: 64,
+          overflow: 'hidden',
+        }}
+      >
+        <Gauge
+          value={clampedValue}
+          valueMin={safeMin}
+          valueMax={safeMax}
+          width={120}
+          height={80}
+          text={({ value: v }) =>
+            v === null ? '' : formatNumber(v, fieldFormat, fieldCurrencyCode, compact)
+          }
+        />
+      </Box>
+    );
+  }
 
   const hasEnoughData = data !== null && data.length > 1;
 

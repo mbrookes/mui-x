@@ -256,7 +256,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         JSON.stringify({ type: 'canvas-widget', widgetId }),
       );
       if (event.dataTransfer) {
-        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.effectAllowed = 'all';
       }
       if (node) {
         // Build a semi-transparent ghost clone that excludes the action overlay.
@@ -286,10 +286,14 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       // Force the grabbing cursor globally so it doesn't flicker to + or default
       // as the pointer moves over insertion points or other non-draggable areas.
       document.body.classList.add('x-studio-dragging-widget');
+      // Record which widget is being dragged so insertion points adjacent to it
+      // can disable themselves during dragover (BL-112).
+      document.body.dataset.studioDraggingWidgetId = widgetId;
     }
     function handleDragEnd() {
       setIsDragging(false);
       document.body.classList.remove('x-studio-dragging-widget');
+      delete document.body.dataset.studioDraggingWidgetId;
     }
     // Temporarily remove draggable when the pointer goes down inside a
     // [data-no-drag] element (e.g. a slider). This must happen in mousedown

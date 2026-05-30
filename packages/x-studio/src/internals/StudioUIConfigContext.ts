@@ -1,5 +1,10 @@
 import * as React from 'react';
-import type { StudioFeatureFlags } from '../models';
+import type {
+  StudioFeatureFlags,
+  KpiFeatureFlags,
+  ChartFeatureFlags,
+  GridFeatureFlags,
+} from '../models';
 import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
 
 // ── Locale text ─────────────────────────────────────────────────────────────
@@ -176,9 +181,68 @@ export function useStudioLocaleText(): StudioLocaleText {
   return localeText;
 }
 
-/** Returns the active feature flags. All flags default to `true` when not explicitly set. */
-export function useStudioFeatures(): Required<StudioFeatureFlags> {
+/**
+ * Flat resolved feature flags — all nested sub-flags are unwound into top-level booleans.
+ * This is the internal type returned by `useStudioFeatures()` and consumed by UI components.
+ * The public API (`StudioFeatureFlags`) supports nested objects; resolution happens here.
+ */
+export interface ResolvedStudioFeatures {
+  // ── Top-level flags ────────────────────────────────────────────────────────
+  compose: boolean;
+  filters: boolean;
+  savedFilterViews: boolean;
+  dataManagement: boolean;
+  relationships: boolean;
+  widgetFilters: boolean;
+  aiChat: boolean;
+  // ── Widget kind availability ───────────────────────────────────────────────
+  grid: boolean;
+  chart: boolean;
+  kpi: boolean;
+  text: boolean;
+  filter: boolean;
+  pivot: boolean;
+  map: boolean;
+  // ── KPI sub-flags ──────────────────────────────────────────────────────────
+  kpiSparkline: boolean;
+  kpiTrend: boolean;
+  kpiTarget: boolean;
+  kpiCalculatedFields: boolean;
+  // ── Chart sub-flags ────────────────────────────────────────────────────────
+  chartAnnotations: boolean;
+  chartCalculatedFields: boolean;
+  // ── Grid sub-flags ─────────────────────────────────────────────────────────
+  gridGroupBy: boolean;
+  gridSummary: boolean;
+  gridConditionalFormats: boolean;
+  gridCalculatedFields: boolean;
+  // ── Global ─────────────────────────────────────────────────────────────────
+  calculatedFields: boolean;
+}
+
+/**
+ * Resolves a sub-flag from a widget-kind flag that may be boolean or an object.
+ * - `false` / `undefined parent` disabled → sub-flag is also disabled
+ * - `true` or `undefined` → sub-flag defaults to `true`
+ * - object → reads the specific sub-key, defaulting to `true`
+ */
+function resolveSubFlag<T extends object>(
+  widgetFlag: boolean | T | undefined,
+  subKey: keyof T,
+): boolean {
+  if (widgetFlag === false) {
+    return false;
+  }
+  if (widgetFlag === undefined || widgetFlag === true) {
+    return true;
+  }
+  return ((widgetFlag as T)[subKey] as boolean | undefined) ?? true;
+}
+
+/** Returns the active feature flags as a flat resolved object. All flags default to `true`. */
+export function useStudioFeatures(): ResolvedStudioFeatures {
   const { featureFlags } = useStudioUIConfig();
+  const { kpi, chart, grid } = featureFlags;
   return {
     compose: featureFlags.compose ?? true,
     filters: featureFlags.filters ?? true,
@@ -187,23 +251,28 @@ export function useStudioFeatures(): Required<StudioFeatureFlags> {
     relationships: featureFlags.relationships ?? true,
     widgetFilters: featureFlags.widgetFilters ?? true,
     aiChat: featureFlags.aiChat ?? true,
-    grid: featureFlags.grid ?? true,
-    chart: featureFlags.chart ?? true,
-    kpi: featureFlags.kpi ?? true,
+    // Widget kinds: enabled when the flag is not `false` (true, undefined, or an object all enable the kind)
+    grid: grid !== false,
+    chart: chart !== false,
+    kpi: kpi !== false,
     text: featureFlags.text ?? true,
     filter: featureFlags.filter ?? true,
     pivot: featureFlags.pivot ?? true,
     map: featureFlags.map ?? true,
-    kpiSparkline: featureFlags.kpiSparkline ?? true,
-    kpiTrend: featureFlags.kpiTrend ?? true,
-    kpiTarget: featureFlags.kpiTarget ?? true,
-    chartAnnotations: featureFlags.chartAnnotations ?? true,
-    gridGroupBy: featureFlags.gridGroupBy ?? true,
-    gridSummary: featureFlags.gridSummary ?? true,
-    gridConditionalFormats: featureFlags.gridConditionalFormats ?? true,
+    // KPI sub-flags
+    kpiSparkline: resolveSubFlag<KpiFeatureFlags>(kpi, 'sparkline'),
+    kpiTrend: resolveSubFlag<KpiFeatureFlags>(kpi, 'trend'),
+    kpiTarget: resolveSubFlag<KpiFeatureFlags>(kpi, 'target'),
+    kpiCalculatedFields: resolveSubFlag<KpiFeatureFlags>(kpi, 'calculatedFields'),
+    // Chart sub-flags
+    chartAnnotations: resolveSubFlag<ChartFeatureFlags>(chart, 'annotations'),
+    chartCalculatedFields: resolveSubFlag<ChartFeatureFlags>(chart, 'calculatedFields'),
+    // Grid sub-flags
+    gridGroupBy: resolveSubFlag<GridFeatureFlags>(grid, 'groupBy'),
+    gridSummary: resolveSubFlag<GridFeatureFlags>(grid, 'summary'),
+    gridConditionalFormats: resolveSubFlag<GridFeatureFlags>(grid, 'conditionalFormats'),
+    gridCalculatedFields: resolveSubFlag<GridFeatureFlags>(grid, 'calculatedFields'),
+    // Global
     calculatedFields: featureFlags.calculatedFields ?? true,
-    kpiCalculatedFields: featureFlags.kpiCalculatedFields ?? true,
-    chartCalculatedFields: featureFlags.chartCalculatedFields ?? true,
-    gridCalculatedFields: featureFlags.gridCalculatedFields ?? true,
   };
 }

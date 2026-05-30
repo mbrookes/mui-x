@@ -397,6 +397,13 @@ function DashboardLayout({
   const handleSettingsOpen = React.useCallback(() => setSettingsOpen(true), []);
   const handleSettingsClose = React.useCallback(() => setSettingsOpen(false), []);
 
+  const handleUnconfiguredWidgetClick = React.useCallback(
+    (_widgetId: string) => {
+      setComposeOpen(true);
+    },
+    [],
+  );
+
   const handleAddPage = React.useCallback(() => {
     const newId = controller.addPage('New Page');
     controller.setActivePage(newId);
@@ -650,7 +657,11 @@ function DashboardLayout({
                 (pages[activePageId]?.widgetRows ?? []).length === 0 ? (
                   <EmptyPagePrompt aiConfig={aiConfig} />
                 ) : (
-                  <StudioCanvas />
+                  <StudioCanvas
+                    slotProps={{
+                      widgetCard: { onUnconfiguredClick: handleUnconfiguredWidgetClick },
+                    }}
+                  />
                 )}
               </Box>
             </Box>

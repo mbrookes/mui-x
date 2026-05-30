@@ -186,15 +186,15 @@ interface PivotTableProps {
   valueFieldLabel?: string;
 }
 
+const fmt = (v: number | null) => {
+  if (v === null) {
+    return '—';
+  }
+  return formatNumber(Math.round(v * 100) / 100, 'decimal');
+};
+
 function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProps) {
   const theme = useTheme();
-
-  const fmt = (v: number | null) => {
-    if (v === null) {
-      return '—';
-    }
-    return formatNumber(Math.round(v * 100) / 100, 'decimal');
-  };
 
   const headerBg =
     theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[100];

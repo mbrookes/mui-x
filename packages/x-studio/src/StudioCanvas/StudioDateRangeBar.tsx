@@ -34,6 +34,9 @@ interface DateField {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+/** Build a stable composite key for each date field. */
+const fieldKey = (f: DateField) => `${f.sourceId}.${f.fieldId}`;
+
 /**
  * Compact date range toolbar rendered above the canvas.
  * Lets the user pick a date/datetime field and a preset range to filter all
@@ -107,9 +110,6 @@ export function StudioDateRangeBar() {
   // ── Derived selection values ──────────────────────────────────────────────
   const activePreset: StudioDateRangePreset | 'all_time' =
     dateRangeFilter?.dateRangePreset ?? 'all_time';
-
-  // Build a stable composite key for each field
-  const fieldKey = (f: DateField) => `${f.sourceId}.${f.fieldId}`;
 
   const effectiveFieldKey = localFieldKey || (dateFields[0] ? fieldKey(dateFields[0]) : '');
   const selectedField = dateFields.find((f) => fieldKey(f) === effectiveFieldKey) ?? null;

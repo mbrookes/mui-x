@@ -100,7 +100,7 @@ interface SelectableField {
   isPrimary: boolean;
 }
 
-// react-doctor-disable-next-line react-doctor/no-giant-component -- setup panel with many fields is inherently complex and cannot be easily split
+// react-doctor-disable-next-line react-doctor/no-giant-component, react-doctor/prefer-useReducer -- setup panel with many fields is inherently complex and cannot be easily split
 export function GridSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();

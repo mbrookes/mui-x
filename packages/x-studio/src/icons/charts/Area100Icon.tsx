@@ -1,6 +1,9 @@
 import * as React from 'react';
 import { ChartSvg, type IconProps } from '../utils';
 
+const XS = [4, 10, 17, 24, 29];
+const SPLITS = [16, 14, 18, 12, 16];
+
 export function Area100Icon({
   size,
   color = 'currentColor',
@@ -10,12 +13,10 @@ export function Area100Icon({
   const c2 = secondaryColor;
   const top = 6;
   const bottom = 28;
-  const xs = [4, 10, 17, 24, 29];
-  const splits = [16, 14, 18, 12, 16];
 
-  const splitLine = xs.map((x, i) => `${x},${splits[i]}`).join(' ');
-  const topArea = `${xs[0]},${top} ${splitLine} ${xs[xs.length - 1]},${top}`;
-  const bottomArea = `${xs[0]},${bottom} ${splitLine} ${xs[xs.length - 1]},${bottom}`;
+  const splitLine = XS.map((x, i) => `${x},${SPLITS[i]}`).join(' ');
+  const topArea = `${XS[0]},${top} ${splitLine} ${XS[XS.length - 1]},${top}`;
+  const bottomArea = `${XS[0]},${bottom} ${splitLine} ${XS[XS.length - 1]},${bottom}`;
 
   return (
     <ChartSvg size={size}>

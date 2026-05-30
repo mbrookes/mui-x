@@ -25,23 +25,23 @@ They share the same pattern: a drag-and-drop canvas, sidebar panels, and a seria
 
 The most notable differences are:
 
-- **Layout:** AG Studio uses a 24-column drag-resize grid (configurable); MUI X Studio also uses a 24-column col-span grid for resize, within equal-width rows. Both support drag-and-drop reorder.
+- **Layout:** AG Studio uses a 24-column free-placement grid (configurable) — dragging positions a widget at explicit coordinates; no other widgets move. MUI X Studio uses ordered rows of widgets with drag-to-reorder that auto-reflows the layout.
 - **Composition:** MUI X Studio exports every building block independently for custom layouts; AG Studio exposes a single component with a `panels` prop.
 - **Filtering:** MUI X Studio has a richer filter system with relative dates, metric references, rank/Top-N, and selection mode; AG Studio's filter API is simpler.
 - **AI:** AG Studio uses a multi-agent pipeline with structured planning; MUI X Studio uses simple tool calls via any OpenAI-compatible endpoint.
 
 ## Widget Types
 
-| Widget                | MUI X Studio                                  | AG Studio                                          |
-| :-------------------- | :-------------------------------------------- | :------------------------------------------------- |
-| Chart (15 sub-types)  | ✅                                            | ✅ (via AG Charts — full type list not documented) |
-| KPI headline value    | ✅ with sparkline and trend badge             | ✅                                                 |
-| Grid / table          | ✅                                            | ✅ with group-by aggregation                       |
-| Pivot table           | ✅                                            | ❌                                                 |
-| Map / choropleth      | ✅                                            | ❌                                                 |
-| Text / narrative      | ✅ (title, subtitle, Markdown body)           | ❌                                                 |
-| On-canvas filter      | ✅ (date range, multi-select, toggle, slider) | ✅ (list, button, date)                            |
-| Custom widget API     | ❌                                            | ✅ (`AgWidgetDefinition`)                          |
+| Widget               | MUI X Studio                                  | AG Studio                                          |
+| :------------------- | :-------------------------------------------- | :------------------------------------------------- |
+| Chart (15 sub-types) | ✅                                            | ✅ (via AG Charts — full type list not documented) |
+| KPI headline value   | ✅ with sparkline and trend badge             | ✅                                                 |
+| Grid / table         | ✅                                            | ✅ with group-by aggregation                       |
+| Pivot table          | ✅                                            | ❌                                                 |
+| Map / choropleth     | ✅                                            | ❌                                                 |
+| Text / narrative     | ✅ (title, subtitle, Markdown body)           | ❌                                                 |
+| On-canvas filter     | ✅ (date range, multi-select, toggle, slider) | ✅ (list, button, date)                            |
+| Custom widget API    | ❌                                            | ✅ (`AgWidgetDefinition`)                          |
 
 ### Charts
 
@@ -64,7 +64,7 @@ MUI X Studio's KPI widget includes features not documented in AG Studio:
 ### Grid Widget
 
 MUI X Studio's grid widget (built on MUI X Data Grid) supports group-by aggregation via `gridGroupByField` — grouping raw rows by a category field and computing per-column aggregations.
-Both products' grid widgets support group-by aggregation; AG Studio's Table widget additionally allows non-uniform multi-column row layouts.
+Both products' grid widgets support group-by aggregation.
 
 ### Text Widget
 
@@ -90,17 +90,18 @@ AG Studio does not include a built-in map widget.
 
 ### Source Types
 
-| Type                              | MUI X Studio                                                | AG Studio                 |
-| :-------------------------------- | :---------------------------------------------------------- | :------------------------ |
-| Inline (synchronous) rows         | ✅                                                          | ✅                        |
-| Async callback                    | ✅ (`createSimpleAdapter`, `createBatchingAdapter`)         | ✅ (`getData()`)          |
-| Server-side data middleware       | ✅ (`@mui/x-studio-server`)                                 | ✅ (`createDataEngine()`) |
-| Shared engine (cross-instance)    | ❌                                                          | ✅ (`createDataEngine()`) |
-| On-demand reload                  | ❌                                                          | ✅ (`api.reload()`)       |
+| Type                           | MUI X Studio                                        | AG Studio                 |
+| :----------------------------- | :-------------------------------------------------- | :------------------------ |
+| Inline (synchronous) rows      | ✅                                                  | ✅                        |
+| Async callback                 | ✅ (`createSimpleAdapter`, `createBatchingAdapter`) | ✅ (`getData()`)          |
+| Server-side data middleware    | ✅ (`@mui/x-studio-server`)                         | ✅ (`AgDataEngine`)       |
+| Shared engine (cross-instance) | ❌                                                  | ✅ (`createDataEngine()`) |
+| On-demand reload               | ❌                                                  | ✅ (`api.reload()`)       |
 
 MUI X Studio's async adapter interface (`StudioDataSourceAdapter`) mirrors the synchronous rows pipeline — `getRows(descriptor): Promise<StudioQueryResult>` — and is attached at runtime via `ref.setDataSourceAdapter(sourceId, adapter)`.
 `@mui/x-studio-server` provides a framework-agnostic Node.js middleware (`handleBatchQuery`) that batches and proxies queries from the browser, keeping data and API keys server-side.
-AG Studio's `createDataEngine()` produces an in-browser data engine that can be backed by a server; the architectural models differ but the end result is comparable.
+AG Studio's `AgDataEngine` interface lets you implement a custom backend data engine (`init()`, `getDataSources()`, `execute()`) that receives Studio's queries and forwards them to your database or API.
+`createDataEngine()` is a separate in-browser factory for sharing a single engine across multiple Studio instances.
 
 ### Field Types
 
@@ -136,7 +137,7 @@ Both products support page, widget, cross-filter, and interactive (on-canvas wid
 ### Condition Operators
 
 MUI X Studio supports 15+ condition operators including `contains`, `starts_with`, `ends_with`, `is_empty`, `is_not_empty`, and `between`.
-AG Studio's public filter documentation describes condition filters (including equals, not equals, contains, and numeric comparisons), a Selection filter for value picklists, and a Rank filter for Top-N / Bottom-N at widget level.
+AG Studio's public filter documentation describes Simple Filters (condition operators: equals, not equals, contains, and numeric comparisons), a Selection filter for value picklists, and a Rank filter for Top-N / Bottom-N at widget level.
 
 ### Advanced Features (MUI X Studio only)
 
@@ -152,14 +153,14 @@ Both products support Rank / Top-N filtering: AG Studio's Rank filter is availab
 
 ### Additional MUI X Studio Filter Features
 
-| Feature                         | Description                                                                                                             |
-| :------------------------------ | :---------------------------------------------------------------------------------------------------------------------- |
-| **Dashboard date range bar**    | `StudioDateRangeBar` above the canvas — 5 presets (All time / YTD / This month / Last 3 months / Last 12 months)        |
-| **Quick filter bar**            | `StudioQuickFilterBar` above the canvas — compact row of the active interactive filter widgets                          |
-| **Global filter search**        | Text search across all current filter values in the Filters panel                                                       |
-| **Filter dependency (cascade)** | `dependsOn` on a filter field — available values update automatically when the referenced filter changes                |
-| **Saved views**                 | Named snapshots of the full filter state stored in dashboard state, switchable from the Filters panel                   |
-| **Shareable filter links**      | Active filter state URL-encoded as `?fv=<base64-JSON>`; "Copy link" toolbar button lets users share exact filter views  |
+| Feature                         | Description                                                                                                            |
+| :------------------------------ | :--------------------------------------------------------------------------------------------------------------------- |
+| **Dashboard date range bar**    | `StudioDateRangeBar` above the canvas — 5 presets (All time / YTD / This month / Last 3 months / Last 12 months)       |
+| **Quick filter bar**            | `StudioQuickFilterBar` above the canvas — compact row of the active interactive filter widgets                         |
+| **Global filter search**        | Text search across all current filter values in the Filters panel                                                      |
+| **Filter dependency (cascade)** | `dependsOn` on a filter field — available values update automatically when the referenced filter changes               |
+| **Saved views**                 | Named snapshots of the full filter state stored in dashboard state, switchable from the Filters panel                  |
+| **Shareable filter links**      | Active filter state URL-encoded as `?fv=<base64-JSON>`; "Copy link" toolbar button lets users share exact filter views |
 
 AG Studio's filter documentation does not describe equivalents for these features.
 
@@ -185,16 +186,16 @@ AG Studio documents `expressionFields` as a state configuration key but does not
 
 | Feature                    | MUI X Studio                           | AG Studio                                |
 | :------------------------- | :------------------------------------- | :--------------------------------------- |
-| Layout model               | Equal-width rows (12-column col-spans) | 24-column grid (configurable)            |
+| Layout model               | Equal-width rows (24-column col-spans) | 24-column grid (configurable)            |
 | Widget resize              | ✅ (col-span drag handle)              | ✅ (drag handle, snaps to grid)          |
-| Drag-and-drop reorder      | ✅                                     | ✅                                       |
+| Drag-and-drop reorder      | ✅ (auto-reflows row order)            | ❌                                       |
+| Free-placement positioning | ❌                                     | ✅ (snap-to-grid; must clear space)      |
 | Page min/max width         | ❌                                     | ✅ (720px default min, configurable max) |
 | Fixed-height (poster) mode | ❌                                     | ✅                                       |
 | Mobile / responsive        | ✅ (`stackBreakpoint`, default 600px)  | ⚠️ (scales; 720px min, configurable)     |
 
 AG Studio's 24-column grid (see [AG Studio — Modes & Layout](https://www.ag-grid.com/studio/react/modes-layout/)) allows non-uniform column widths (an 8+16 split, a 6+6+12 layout, and so on).
-MUI X Studio also uses a 12-column grid for column spans — each widget occupies 3–12 columns, with a drag handle between adjacent widgets that snaps to the grid.
-Widgets in the same row share the remaining width equally by default.
+MUI X Studio uses a 24-column grid for col-spans — each widget defaults to equal width but can be resized via a drag handle between adjacent widgets that snaps to the grid (minimum span: 6 columns, or 25% of row width).
 MUI X Studio's `stackBreakpoint` prop (default 600px) stacks all widgets to full width in view mode below that threshold.
 AG Studio pages scale to the viewport within configured page boundaries; the default minimum page width is 720px but is configurable via the `layout` prop.
 
@@ -241,19 +242,19 @@ AG Studio exposes `getState()`/`setState()` and similarly leaves file I/O to the
 
 ## Theming & Customisation
 
-| Feature                                       | MUI X Studio                                          | AG Studio                          |
-| :-------------------------------------------- | :---------------------------------------------------- | :--------------------------------- |
-| Theme system                                  | MUI (`createTheme`)                                   | AG Grid (`studioTheme.withParams`) |
-| Dark mode                                     | ✅ (MUI `palette.mode: 'dark'`)                       | ✅                                 |
-| Per-page background colour                    | ✅                                                    | ✅                                 |
-| Per-page card colour, padding, radius, border | ✅                                                    | ❌                                 |
-| Slot props (deep sub-component customisation) | ✅                                                    | ❌                                 |
-| Custom sidebar layout                         | ✅ (stacked / tabbed; left / right)                   | ✅ (left/right panel config)       |
-| Headless composition                          | ✅                                                    | ❌                                 |
-| Custom widget API                             | ❌                                                    | ✅                                 |
-| Localisation / i18n                           | ✅ (`StudioLocaleText`; ptBR locale included)         | ✅ (`localeText`; 31 locales)      |
-| RTL support                                   | ❌                                                    | ✅ (`enableRtl`)                   |
-| Runtime feature flags                         | ✅ (`StudioFeatureFlags` — 25 flags)                  | ❌                                 |
+| Feature                                       | MUI X Studio                                  | AG Studio                          |
+| :-------------------------------------------- | :-------------------------------------------- | :--------------------------------- |
+| Theme system                                  | MUI (`createTheme`)                           | AG Grid (`studioTheme.withParams`) |
+| Dark mode                                     | ✅ (MUI `palette.mode: 'dark'`)               | ✅                                 |
+| Per-page background colour                    | ✅                                            | ✅                                 |
+| Per-page card colour, padding, radius, border | ✅                                            | ❌                                 |
+| Slot props (deep sub-component customisation) | ✅                                            | ❌                                 |
+| Custom sidebar layout                         | ✅ (stacked / tabbed; left / right)           | ✅ (left/right panel config)       |
+| Headless composition                          | ✅                                            | ❌                                 |
+| Custom widget API                             | ❌                                            | ✅                                 |
+| Localisation / i18n                           | ✅ (`StudioLocaleText`; ptBR locale included) | ✅ (`localeText`; 31 locales)      |
+| RTL support                                   | ❌                                            | ✅ (`enableRtl`)                   |
+| Runtime feature flags                         | ✅ (`StudioFeatureFlags` — 25 flags)          | ❌                                 |
 
 `StudioFeatureFlags` lets you gate entire feature areas at runtime — for example `{ filters: false }` hides the Filters panel entirely, `{ aiChat: false }` removes the AI button, `{ pivot: false }` removes the Pivot widget type, and so on.
 Individual flags: `compose`, `filters`, `savedFilterViews`, `dataManagement`, `aiChat`, `grid`, `chart`, `kpi`, `text`, `filter`, `pivot`, `map`, `relationships`, `widgetFilters`, `kpiSparkline`, `kpiTrend`, `kpiTarget`, `chartAnnotations`, `gridGroupBy`, `gridSummary`, `gridConditionalFormats`, `calculatedFields`, `kpiCalculatedFields`, `chartCalculatedFields`, `gridCalculatedFields`.

@@ -65,7 +65,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
       entries.push({
         id: ef.id,
         label: ef.label,
-        type: 'number' as const,
+        type: ef.type as DataSourceFieldEntry['type'],
         sourceId: source.id,
         sourceLabel: source.label,
         generated: true,

@@ -331,9 +331,11 @@ BL-103: Clicking a data source name in the data lineage map should open a dialog
 
 **Done** — Canvas `InsertionPoint` and `WidgetGap` now guard `handleDragOver`/`handleDrop` with `Array.from(dataTransfer.types).includes('application/json')` so tab reorder drags no longer activate canvas insertion zones. AppToolbar (both apps) sets `'text/x-studio-tab'` MIME type on `dragStart` and guards `onDragOver`/`onDrop` to only respond to that type. Off-by-one in `handleTabDrop` fixed: `adjustedIndex = tabDragIndex < dropIndex ? dropIndex - 1 : dropIndex`.
 
-BL-107: Allow moving a widget by dragging over a tab. The hovered tab should open the page for that tab, ehere it can be dropped on an insertion point.
+~~BL-107: IN the composed example app, allow moving a widget to a different page by dragging over a tab for a page other than the current one. The hovered tab should open the page for that tab, where the widget can be dropped on an insertion point.~~
 
-BL-108: Add examples of the new widgets in all three example apps configs for the salesData.
+**Done** — Added `onPageDragNavigate?: (pageId: string) => void` to `AppToolbar` in both example apps. Hovering a widget over a page tab for 600ms fires `onPageDragNavigate(pageId)`, navigating to that page. Uses tab-scoped counter + timer refs to handle child-element dragenter/dragleave churn. A global `document.addEventListener('dragend', cancelDragNavTimer)` cleans up if the drag ends or cancels outside the tab area. Wired in both `App.tsx` files.
+
+BL-108: Add representative examples of the the new widgets and chart types in all three example apps configs for the salesData.
 
 BL109: Widget resize vertical grid lines still aren't correctly spaced. This was supposed to be fixed in BL-96. Use a browser to check if you can and need to see for yourself.
 
@@ -355,3 +357,10 @@ BL-114: BL-102 isn't completely fixed: Non-editible fields in the data dialog ca
 
 BL-115: Map tooltip should show the country/state etc name.
 
+BL-116: The ag-studio example doesn't need a setting for for sidebar layout, that's an x-studio feature.
+
+BL-117: THe ag-studio example dashboard config for the AG Studio Data Dataset setting was supposed to have been scraped from https://www.ag-grid.com/studio/example/. Figure out how to access the underlying JSON and clone it in our app.
+
+BL-118: Make sure the chat agent tools are updated for all the new chart types and widgets. MAke sure it can understand and insert custom widgets.
+
+BL-119: /research AG Studio AI assistant, and /plan and implement enhancements to ours to make it feature complete. 

@@ -14,7 +14,7 @@ function buildWidgetCreationPrompt(controller: StudioController): string {
   const sourceLines = sources
     .map((s) => {
       const fields = s.fields
-        .flatMap((f) => f.hidden ? [] : [`${f.id} (${f.type}, "${f.label}")`])
+        .flatMap((f) => (f.hidden ? [] : [`${f.id} (${f.type}, "${f.label}")`]))
         .join(', ');
       return `  - ${s.label} [id: ${s.id}]: ${fields}`;
     })
@@ -118,11 +118,16 @@ export async function createWidgetFromDescription(
     return { success: false, error: 'Invalid response from AI.' };
   }
 
-  const choices = data.choices as Array<{ message: { tool_calls?: Array<{ function: { name: string; arguments: string } }> } }> | undefined;
+  const choices = data.choices as
+    | Array<{ message: { tool_calls?: Array<{ function: { name: string; arguments: string } }> } }>
+    | undefined;
   const toolCall = choices?.[0]?.message?.tool_calls?.[0];
 
   if (!toolCall || toolCall.function.name !== 'add_widget') {
-    return { success: false, error: 'The AI did not create a widget. Try a more specific description.' };
+    return {
+      success: false,
+      error: 'The AI did not create a widget. Try a more specific description.',
+    };
   }
 
   let args: Record<string, unknown>;
@@ -138,9 +143,7 @@ export async function createWidgetFromDescription(
   // then merge AI-provided fields and config on top.
   const state = controller.getState();
   const sources = Object.values(state.dataSources).filter((s) => !s.hidden);
-  const source = args.sourceId
-    ? state.dataSources[String(args.sourceId)]
-    : sources[0];
+  const source = args.sourceId ? state.dataSources[String(args.sourceId)] : sources[0];
 
   const base = createDefaultWidget(kind, source);
   const widget: StudioWidget = {

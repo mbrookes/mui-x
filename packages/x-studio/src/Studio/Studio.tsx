@@ -246,6 +246,12 @@ const StudioContent = React.memo(function StudioContent(
 
   useStudioKeyboardShortcuts();
 
+  const [chatOpen, setChatOpen] = React.useState(false);
+
+  const showCompose = features.compose;
+  const showFilters = features.filters;
+  const showDataManagement = features.dataManagement;
+
   // Auto-switch to the compose panel when a new widget is selected in edit mode.
   // Tracks the previous selection so only *new* selections trigger the switch.
   const prevSelectedWidgetIdRef = React.useRef<string | null>(null);
@@ -261,12 +267,6 @@ const StudioContent = React.memo(function StudioContent(
       controller.setDrawerOpen('filters', false);
     }
   }, [selectedWidgetId, mode, showCompose, controller, sidebarLayout]);
-
-  const [chatOpen, setChatOpen] = React.useState(false);
-
-  const showCompose = features.compose;
-  const showFilters = features.filters;
-  const showDataManagement = features.dataManagement;
 
   const sidebar =
     sidebarLayout === 'tabbed' ? (

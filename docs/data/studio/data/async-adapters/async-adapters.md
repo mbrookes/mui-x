@@ -27,7 +27,11 @@ Use an adapter when:
 An adapter is a plain object with a single `getRows` method:
 
 ```ts
-import type { StudioDataSourceAdapter, StudioQueryDescriptor, StudioQueryResult } from '@mui/x-studio';
+import type {
+  StudioDataSourceAdapter,
+  StudioQueryDescriptor,
+  StudioQueryResult,
+} from '@mui/x-studio';
 
 const ordersAdapter: StudioDataSourceAdapter = {
   async getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult> {
@@ -52,7 +56,7 @@ React.useEffect(() => {
   studioRef.current?.setDataSourceAdapter('orders', ordersAdapter);
 }, []);
 
-<Studio ref={studioRef} initialState={initialState} />
+<Studio ref={studioRef} initialState={initialState} />;
 ```
 
 When an adapter is attached, Studio ignores the `rows` array on that source for all widget queries.
@@ -146,14 +150,21 @@ function toSQL(node: StudioFilterNode): string {
   }
   // leaf
   switch (node.operator) {
-    case 'equals': return `${node.field} = ${quote(node.value)}`;
-    case 'notEquals': return `${node.field} != ${quote(node.value)}`;
-    case 'greaterThan': return `${node.field} > ${node.value}`;
-    case 'lessThan': return `${node.field} < ${node.value}`;
-    case 'contains': return `${node.field} LIKE '%${node.value}%'`;
-    case 'in': return `${node.field} IN (${(node.value as string[]).map(quote).join(', ')})`;
+    case 'equals':
+      return `${node.field} = ${quote(node.value)}`;
+    case 'notEquals':
+      return `${node.field} != ${quote(node.value)}`;
+    case 'greaterThan':
+      return `${node.field} > ${node.value}`;
+    case 'lessThan':
+      return `${node.field} < ${node.value}`;
+    case 'contains':
+      return `${node.field} LIKE '%${node.value}%'`;
+    case 'in':
+      return `${node.field} IN (${(node.value as string[]).map(quote).join(', ')})`;
     // handle remaining operators...
-    default: return 'TRUE';
+    default:
+      return 'TRUE';
   }
 }
 ```
@@ -218,11 +229,19 @@ Studio shows a spinner on widget cards while their adapter calls are in-flight:
 
 ```ts
 // simulatedServer.ts
-import type { StudioDataSourceAdapter, StudioQueryDescriptor, StudioQueryResult } from '@mui/x-studio';
+import type {
+  StudioDataSourceAdapter,
+  StudioQueryDescriptor,
+  StudioQueryResult,
+} from '@mui/x-studio';
 
-function applyFilter(rows: Record<string, unknown>[], filter: StudioQueryDescriptor['filter']): Record<string, unknown>[] {
+function applyFilter(
+  rows: Record<string, unknown>[],
+  filter: StudioQueryDescriptor['filter'],
+): Record<string, unknown>[] {
   if (!filter) return rows;
-  if (filter.type === 'and') return filter.children.reduce((r, f) => applyFilter(r, f), rows);
+  if (filter.type === 'and')
+    return filter.children.reduce((r, f) => applyFilter(r, f), rows);
   if (filter.type === 'or') {
     const sets = filter.children.map((f) => applyFilter(rows, f));
     return [...new Set(sets.flat())];
@@ -231,17 +250,27 @@ function applyFilter(rows: Record<string, unknown>[], filter: StudioQueryDescrip
   return rows.filter((row) => {
     const val = row[filter.field];
     switch (filter.operator) {
-      case 'equals': return val === filter.value;
-      case 'contains': return String(val).toLowerCase().includes(String(filter.value).toLowerCase());
-      case 'in': return (filter.value as unknown[]).includes(val);
-      case 'greaterThan': return Number(val) > Number(filter.value);
-      case 'lessThan': return Number(val) < Number(filter.value);
-      default: return true;
+      case 'equals':
+        return val === filter.value;
+      case 'contains':
+        return String(val)
+          .toLowerCase()
+          .includes(String(filter.value).toLowerCase());
+      case 'in':
+        return (filter.value as unknown[]).includes(val);
+      case 'greaterThan':
+        return Number(val) > Number(filter.value);
+      case 'lessThan':
+        return Number(val) < Number(filter.value);
+      default:
+        return true;
     }
   });
 }
 
-export function createAdapter(rows: Record<string, unknown>[]): StudioDataSourceAdapter {
+export function createAdapter(
+  rows: Record<string, unknown>[],
+): StudioDataSourceAdapter {
   return {
     async getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult> {
       // Simulate network latency
@@ -290,16 +319,19 @@ interface StudioQueryResult {
 
 `useWidgetRows` exposes two status flags that your custom widgets can use to show feedback while new data is being produced:
 
-| Flag | When true |
-| :--- | :--- |
-| `isLoading` | An adapter `getRows()` call is in flight and no prior cached result exists. Studio shows a spinner on built-in widget cards automatically. |
+| Flag            | When true                                                                                                                                                    |
+| :-------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isLoading`     | An adapter `getRows()` call is in flight and no prior cached result exists. Studio shows a spinner on built-in widget cards automatically.                   |
 | `isRecomputing` | The in-memory sync pipeline has received a new filter state but React's deferred re-render has not yet committed. Always `false` for adapter-backed sources. |
 
 ```tsx
 import { useWidgetRows } from '@mui/x-studio';
 
 function MyCustomWidget({ widget, dataSource }) {
-  const { effectiveRows, isLoading, isRecomputing } = useWidgetRows(widget, dataSource);
+  const { effectiveRows, isLoading, isRecomputing } = useWidgetRows(
+    widget,
+    dataSource,
+  );
 
   if (isLoading) return <Skeleton />;
   return <MyChart rows={effectiveRows} dimmed={isRecomputing} />;
@@ -365,10 +397,15 @@ When building a custom widget with `useWidgetRows`, check the `isError` and `err
 import { useWidgetRows } from '@mui/x-studio';
 
 function MyCustomWidget({ widget, dataSource }) {
-  const { effectiveRows, isLoading, isError, errorMessage } = useWidgetRows(widget, dataSource);
+  const { effectiveRows, isLoading, isError, errorMessage } = useWidgetRows(
+    widget,
+    dataSource,
+  );
 
   if (isError) {
-    return <div style={{ color: 'red' }}>{errorMessage || 'Failed to load data'}</div>;
+    return (
+      <div style={{ color: 'red' }}>{errorMessage || 'Failed to load data'}</div>
+    );
   }
   if (isLoading) return <Skeleton />;
   return <MyChart rows={effectiveRows} />;
@@ -428,19 +465,19 @@ const adapter = createSimpleAdapter('/api/studio/orders', {
 });
 ```
 
-| Option | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `fetchFn` | `typeof fetch` | `globalThis.fetch` | Custom fetch implementation. Useful for auth headers, interceptors, or test mocks. |
-| `transformDescriptor` | `(descriptor) => unknown` | — | Transform the query descriptor before sending. Useful for renaming fields or adding custom query parameters. |
+| Option                | Type                      | Default            | Description                                                                                                  |
+| :-------------------- | :------------------------ | :----------------- | :----------------------------------------------------------------------------------------------------------- |
+| `fetchFn`             | `typeof fetch`            | `globalThis.fetch` | Custom fetch implementation. Useful for auth headers, interceptors, or test mocks.                           |
+| `transformDescriptor` | `(descriptor) => unknown` | —                  | Transform the query descriptor before sending. Useful for renaming fields or adding custom query parameters. |
 
 ### When to use `createSimpleAdapter` vs `createBatchingAdapter`
 
-| Scenario | Recommendation |
-| :--- | :--- |
-| Each data source has its own dedicated endpoint | `createSimpleAdapter` |
-| Multiple sources share one endpoint (batch API) | `createBatchingAdapter` |
+| Scenario                                          | Recommendation                                |
+| :------------------------------------------------ | :-------------------------------------------- |
+| Each data source has its own dedicated endpoint   | `createSimpleAdapter`                         |
+| Multiple sources share one endpoint (batch API)   | `createBatchingAdapter`                       |
 | Many widgets on the same page with shared sources | `createBatchingAdapter` (fewer HTTP requests) |
-| Simple setup with one or two widgets | Either — `createSimpleAdapter` is less setup |
+| Simple setup with one or two widgets              | Either — `createSimpleAdapter` is less setup  |
 
 ## Batching multiple widgets into one request
 
@@ -468,7 +505,12 @@ The `table` field contains the Studio **source ID** for that widget (e.g. `sourc
 {
   "pageId": "page-1",
   "widgets": [
-    { "id": "widget-revenue", "table": "source-orders", "columns": ["date", "total"], "filters": [] },
+    {
+      "id": "widget-revenue",
+      "table": "source-orders",
+      "columns": ["date", "total"],
+      "filters": []
+    },
     {
       "id": "widget-by-country",
       "table": "source-orders",
@@ -496,17 +538,17 @@ interface FilterPredicate {
 
 The operator mapping from Studio's UI to the batch format:
 
-| Studio operator | Batch `operator` | Notes |
-| :--- | :--- | :--- |
-| `equals` | `eq` | Exact match |
-| `not_equals` | `neq` | |
-| `in` | `in` | Value is an array, e.g. `["US", "DE"]` |
-| `greater_than` | `gt` | |
-| `less_than` | `lt` | |
-| `greater_than_or_equal` | `gte` | |
-| `less_than_or_equal` | `lte` | |
-| `contains` | `like` | Value should be matched with `LIKE %value%` |
-| `between` | `between` | Emits two predicates (one `gte`, one `lte`) |
+| Studio operator         | Batch `operator` | Notes                                       |
+| :---------------------- | :--------------- | :------------------------------------------ |
+| `equals`                | `eq`             | Exact match                                 |
+| `not_equals`            | `neq`            |                                             |
+| `in`                    | `in`             | Value is an array, e.g. `["US", "DE"]`      |
+| `greater_than`          | `gt`             |                                             |
+| `less_than`             | `lt`             |                                             |
+| `greater_than_or_equal` | `gte`            |                                             |
+| `less_than_or_equal`    | `lte`            |                                             |
+| `contains`              | `like`           | Value should be matched with `LIKE %value%` |
+| `between`               | `between`        | Emits two predicates (one `gte`, one `lte`) |
 
 Group nodes (`and`/`or`) in the filter tree are flattened — all leaf predicates are collected into the flat array. For queries requiring strict `OR` logic between predicates, implement that server-side based on your schema knowledge.
 
@@ -547,15 +589,15 @@ Your server must return results keyed by the widget `id`:
 import { createBatchingAdapter, type BatchingAdapterOptions } from '@mui/x-studio';
 
 const adapter = createBatchingAdapter('/api/studio-data', {
-  batchDelayMs: 50,    // default — window to collect widget requests
-  fetchFn: myFetch,    // custom fetch (for auth headers, interceptors, etc.)
+  batchDelayMs: 50, // default — window to collect widget requests
+  fetchFn: myFetch, // custom fetch (for auth headers, interceptors, etc.)
 });
 ```
 
-| Option | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `batchDelayMs` | `number` | `50` | Window in milliseconds to collect widget requests before dispatching. |
-| `fetchFn` | `typeof fetch` | `globalThis.fetch` | Custom fetch implementation. Useful for adding auth headers or test mocks. |
+| Option         | Type           | Default            | Description                                                                |
+| :------------- | :------------- | :----------------- | :------------------------------------------------------------------------- |
+| `batchDelayMs` | `number`       | `50`               | Window in milliseconds to collect widget requests before dispatching.      |
+| `fetchFn`      | `typeof fetch` | `globalThis.fetch` | Custom fetch implementation. Useful for adding auth headers or test mocks. |
 
 ### Adding auth headers
 

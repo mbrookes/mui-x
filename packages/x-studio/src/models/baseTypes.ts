@@ -135,6 +135,35 @@ export interface StudioFeatureFlags {
    * @default true
    */
   gridConditionalFormats?: boolean;
+
+  // ── Calculated fields ──────────────────────────────────────────────────────
+
+  /**
+   * Master switch for calculated (expression) fields across all widget types.
+   * Set to `false` to hide the "Add calculated field" button from all widget setup panels,
+   * preventing editors from creating new expression-based columns or measures.
+   * Existing expression fields that are already in use remain functional.
+   * @default true
+   */
+  calculatedFields?: boolean;
+  /**
+   * Show the "Add calculated field" button in the KPI setup panel.
+   * Has no effect when `calculatedFields` is `false`.
+   * @default true
+   */
+  kpiCalculatedFields?: boolean;
+  /**
+   * Show the "Add calculated field" button in the chart setup panel.
+   * Has no effect when `calculatedFields` is `false`.
+   * @default true
+   */
+  chartCalculatedFields?: boolean;
+  /**
+   * Show the "Calculated column…" option in the table/grid setup panel's "Add column" menu.
+   * Has no effect when `calculatedFields` is `false`.
+   * @default true
+   */
+  gridCalculatedFields?: boolean;
 }
 
 /**
@@ -170,7 +199,7 @@ export type StudioBarLayout = 'grouped' | 'stacked' | 'horizontal';
 
 export type StudioNumberFormat = 'integer' | 'decimal' | 'percent' | 'currency';
 
-export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
+export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
 
 /** A visual style applied to cells matching a conditional format rule. */
 export interface StudioConditionalFormatStyle {
@@ -184,15 +213,29 @@ export interface StudioConditionalFormat {
   /** The column field this rule applies to. */
   fieldId: string;
   /** Comparison operator. Only single-value operators are supported (no 'between'). */
-  operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'greater_than_or_equal' | 'less_than_or_equal' | 'contains' | 'is_empty' | 'is_not_empty';
+  operator:
+    | 'equals'
+    | 'not_equals'
+    | 'greater_than'
+    | 'less_than'
+    | 'greater_than_or_equal'
+    | 'less_than_or_equal'
+    | 'contains'
+    | 'is_empty'
+    | 'is_not_empty';
   /** The value to compare against (not used for is_empty / is_not_empty). */
   value?: unknown;
   /** Style to apply to the cell when the rule matches. */
   style: StudioConditionalFormatStyle;
 }
 
-
-export type StudioGridSummaryAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
+export type StudioGridSummaryAggregation =
+  | 'sum'
+  | 'avg'
+  | 'count'
+  | 'min'
+  | 'max'
+  | 'count_distinct';
 
 /**
  * Aggregation function for a grid column — a superset of `StudioGridSummaryAggregation`.

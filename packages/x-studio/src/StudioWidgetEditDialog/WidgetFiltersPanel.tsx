@@ -109,7 +109,10 @@ function FilterRow(props: {
   // Group field options by source label
   const ownFields = fieldOptions.filter((f) => !f.sourceId);
   const relatedSources = Array.from(
-    fieldOptions.reduce((set, f) => { if (f.sourceId) set.add(f.sourceId); return set; }, new Set<string>()),
+    fieldOptions.reduce((set, f) => {
+      if (f.sourceId) set.add(f.sourceId);
+      return set;
+    }, new Set<string>()),
   );
 
   return (
@@ -154,7 +157,11 @@ function FilterRow(props: {
             const srcFields = fieldOptions.filter((f) => f.sourceId === srcId);
             const srcLabel = srcFields[0]?.sourceLabel ?? srcId;
             return [
-              <MenuItem key={`__group-${srcId}`} disabled sx={{ fontStyle: 'italic', opacity: 0.6 }}>
+              <MenuItem
+                key={`__group-${srcId}`}
+                disabled
+                sx={{ fontStyle: 'italic', opacity: 0.6 }}
+              >
                 {srcLabel}
               </MenuItem>,
               ...srcFields.map((f) => (

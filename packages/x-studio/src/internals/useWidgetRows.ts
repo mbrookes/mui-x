@@ -163,10 +163,12 @@ export function useWidgetRows(
     const cached = descriptor ? studioRequestCache.get(descriptor.cacheKey) : undefined;
     return cached ? cached.rows : [];
   });
+  // react-doctor-disable-next-line react-doctor/rendering-usetransition-loading -- isLoading guards an async data fetch (adapter.getRows), not a state transition
   const [isLoading, setIsLoading] = React.useState(false);
   const [isError, setIsError] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState('');
 
+  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- multiple setState calls are intentional: they atomically update related async fetch state
   React.useEffect(() => {
     if (!descriptor || !dataSource?.adapter) {
       return;
@@ -178,7 +180,9 @@ export function useWidgetRows(
     if (cached) {
       // Cache hit — serve synchronously, no loading state.
       setAdapterRows(cached.rows);
+      // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- resetting error state on new descriptor is intentional
       setIsError(false);
+      // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- resetting error state on new descriptor is intentional
       setErrorMessage('');
       return;
     }
@@ -189,6 +193,7 @@ export function useWidgetRows(
       promise = studioRequestCache.addInflight(cacheKey, dataSource.adapter.getRows(descriptor));
     }
 
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- setting loading state when descriptor changes triggers a new fetch
     setIsLoading(true);
     let cancelled = false;
 
@@ -205,9 +210,7 @@ export function useWidgetRows(
         if (!cancelled) {
           setIsLoading(false);
           setIsError(true);
-          setErrorMessage(
-            err instanceof Error ? err.message : 'Failed to load data',
-          );
+          setErrorMessage(err instanceof Error ? err.message : 'Failed to load data');
         }
       },
     );
@@ -250,7 +253,9 @@ export function useWidgetRows(
   const hasCrossFilters = React.useMemo(
     () =>
       !hasAdapter &&
-      (deferredPartitioned.cross.some((f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId) ||
+      (deferredPartitioned.cross.some(
+        (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+      ) ||
         deferredPartitioned.interactive.some(
           (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
         )),
@@ -262,7 +267,9 @@ export function useWidgetRows(
   const hasChartCrossFilters = React.useMemo(
     () =>
       !hasAdapter &&
-      deferredPartitioned.cross.some((f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId),
+      deferredPartitioned.cross.some(
+        (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+      ),
     [hasAdapter, deferredPartitioned, widget.id, activePageId],
   );
 
@@ -419,9 +426,7 @@ export function useWidgetRows(
   // Columns from sources without in-memory rows (async sources) are skipped.
   const crossSourceColumns = React.useMemo(
     () =>
-      (widget.config?.columns ?? []).filter(
-        (c) => c.sourceId && c.sourceId !== widget.sourceId,
-      ),
+      (widget.config?.columns ?? []).filter((c) => c.sourceId && c.sourceId !== widget.sourceId),
     [widget.config?.columns, widget.sourceId],
   );
 
@@ -429,7 +434,8 @@ export function useWidgetRows(
   const mapCrossSourceFields = React.useMemo(() => {
     if (widget.kind !== 'map') return [];
     const refs = [];
-    const { mapCountryField, mapCountrySourceId, mapValueField, mapValueSourceId } = widget.config ?? {};
+    const { mapCountryField, mapCountrySourceId, mapValueField, mapValueSourceId } =
+      widget.config ?? {};
     if (mapCountryField && mapCountrySourceId && mapCountrySourceId !== widget.sourceId) {
       refs.push({ fieldId: mapCountryField, sourceId: mapCountrySourceId });
     }
@@ -458,7 +464,14 @@ export function useWidgetRows(
             relationships,
           )
         : filteredRows,
-    [hasCrossSourceColumns, filteredRows, widget.sourceId, allCrossSourceFieldRefs, dataSources, relationships],
+    [
+      hasCrossSourceColumns,
+      filteredRows,
+      widget.sourceId,
+      allCrossSourceFieldRefs,
+      dataSources,
+      relationships,
+    ],
   );
 
   const enrichedFilteredRowsNoCross = React.useMemo(
@@ -472,7 +485,14 @@ export function useWidgetRows(
             relationships,
           )
         : filteredRowsNoCross,
-    [hasCrossSourceColumns, filteredRowsNoCross, widget.sourceId, allCrossSourceFieldRefs, dataSources, relationships],
+    [
+      hasCrossSourceColumns,
+      filteredRowsNoCross,
+      widget.sourceId,
+      allCrossSourceFieldRefs,
+      dataSources,
+      relationships,
+    ],
   );
 
   const enrichedFilteredRowsNoChartCross = React.useMemo(
@@ -486,7 +506,14 @@ export function useWidgetRows(
             relationships,
           )
         : filteredRowsNoChartCross,
-    [hasCrossSourceColumns, filteredRowsNoChartCross, widget.sourceId, allCrossSourceFieldRefs, dataSources, relationships],
+    [
+      hasCrossSourceColumns,
+      filteredRowsNoChartCross,
+      widget.sourceId,
+      allCrossSourceFieldRefs,
+      dataSources,
+      relationships,
+    ],
   );
 
   const enrichedEffectiveRows =

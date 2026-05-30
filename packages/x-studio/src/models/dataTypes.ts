@@ -109,4 +109,3 @@ export interface StudioDataSource {
    */
   adapter?: StudioDataSourceAdapter;
 }
-

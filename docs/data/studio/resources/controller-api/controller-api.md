@@ -20,9 +20,7 @@ import { StudioController, StudioProvider } from '@mui/x-studio';
 
 const controller = React.useMemo(() => new StudioController(), []);
 
-<StudioProvider controller={controller}>
-  {/* your layout */}
-</StudioProvider>
+<StudioProvider controller={controller}>{/* your layout */}</StudioProvider>;
 ```
 
 :::info

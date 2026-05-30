@@ -42,6 +42,7 @@ import {
   InteractiveFilterSection,
 } from './FilterSection';
 
+// react-doctor-disable-next-line react-doctor/no-giant-component -- filter drawer orchestrates many filter types and cannot be easily split
 export function StudioFiltersDrawer() {
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);
@@ -56,7 +57,6 @@ export function StudioFiltersDrawer() {
   const localeText = useStudioLocaleText();
 
   const [filterSearch, setFilterSearch] = React.useState('');
-
 
   const [savingPreset, setSavingPreset] = React.useState(false);
   const [presetName, setPresetName] = React.useState('');
@@ -161,8 +161,7 @@ export function StudioFiltersDrawer() {
     const fieldLabel = fieldLabelMap.get(filter.field) ?? filter.field ?? '';
     const summary = summarizeFilter(filter);
     return (
-      fieldLabel.toLowerCase().includes(searchLower) ||
-      summary.toLowerCase().includes(searchLower)
+      fieldLabel.toLowerCase().includes(searchLower) || summary.toLowerCase().includes(searchLower)
     );
   }
 
@@ -274,102 +273,106 @@ export function StudioFiltersDrawer() {
       {/* Saved views */}
       {features.savedFilterViews && (
         <React.Fragment>
-        <Divider />
-        <div>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1, fontWeight: 600 }}>
-              {localeText.filtersSavedViewsTitle}
-            </Typography>
-            {!savingPreset && (
-              <Tooltip title={localeText.filtersSaveViewTooltip}>
-                <Button
-                  size="small"
-                  startIcon={<BookmarkBorderIcon fontSize="small" />}
-                  onClick={() => {
-                    setSavingPreset(true);
-                    setPresetName('');
-                  }}
-                  disabled={pageFilters.length === 0}
-                  sx={{ fontSize: 11 }}
-                >
-                  {localeText.filtersSaveViewButton}
-                </Button>
-              </Tooltip>
-            )}
-          </Stack>
-
-          {savingPreset && (
-            <Box sx={{ mb: 1 }}>
-              <TextField
-                size="small"
-                fullWidth
-                autoFocus
-                placeholder={localeText.filtersSaveViewPlaceholder}
-                value={presetName}
-                onChange={(e) => setPresetName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && presetName.trim()) {
-                    controller.saveFilterPreset(presetName.trim());
-                    setSavingPreset(false);
-                  }
-                  if (e.key === 'Escape') {
-                    setSavingPreset(false);
-                  }
-                }}
-                slotProps={{
-                  input: {
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <Button
-                          size="small"
-                          disabled={!presetName.trim()}
-                          onClick={() => {
-                            if (presetName.trim()) {
-                              controller.saveFilterPreset(presetName.trim());
-                              setSavingPreset(false);
-                            }
-                          }}
-                        >
-                          {localeText.filtersSaveViewButton}
-                        </Button>
-                      </InputAdornment>
-                    ),
-                  },
-                }}
-              />
-            </Box>
-          )}
-
-          {filterPresets.length === 0 && !savingPreset && (
-            <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
-              {localeText.filtersNoSavedViews}
-            </Typography>
-          )}
-
-          <Stack spacing={0.5}>
-            {filterPresets.map((preset) => (
-              <Stack key={preset.id} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                <Chip
-                  icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
-                  label={preset.name}
-                  size="small"
-                  clickable
-                  onClick={() => controller.applyFilterPreset(preset.id)}
-                  sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
-                />
-                <Tooltip title={localeText.filtersDeleteViewTooltip}>
-                  <IconButton
+          <Divider />
+          <div>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ flexGrow: 1, fontWeight: 600 }}
+              >
+                {localeText.filtersSavedViewsTitle}
+              </Typography>
+              {!savingPreset && (
+                <Tooltip title={localeText.filtersSaveViewTooltip}>
+                  <Button
                     size="small"
-                    onClick={() => controller.deleteFilterPreset(preset.id)}
-                    aria-label={`Delete view "${preset.name}"`}
+                    startIcon={<BookmarkBorderIcon fontSize="small" />}
+                    onClick={() => {
+                      setSavingPreset(true);
+                      setPresetName('');
+                    }}
+                    disabled={pageFilters.length === 0}
+                    sx={{ fontSize: 11 }}
                   >
-                    <DeleteOutlineOutlinedIcon fontSize="small" />
-                  </IconButton>
+                    {localeText.filtersSaveViewButton}
+                  </Button>
                 </Tooltip>
-              </Stack>
-            ))}
-          </Stack>
-        </div>
+              )}
+            </Stack>
+
+            {savingPreset && (
+              <Box sx={{ mb: 1 }}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  autoFocus
+                  placeholder={localeText.filtersSaveViewPlaceholder}
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && presetName.trim()) {
+                      controller.saveFilterPreset(presetName.trim());
+                      setSavingPreset(false);
+                    }
+                    if (e.key === 'Escape') {
+                      setSavingPreset(false);
+                    }
+                  }}
+                  slotProps={{
+                    input: {
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <Button
+                            size="small"
+                            disabled={!presetName.trim()}
+                            onClick={() => {
+                              if (presetName.trim()) {
+                                controller.saveFilterPreset(presetName.trim());
+                                setSavingPreset(false);
+                              }
+                            }}
+                          >
+                            {localeText.filtersSaveViewButton}
+                          </Button>
+                        </InputAdornment>
+                      ),
+                    },
+                  }}
+                />
+              </Box>
+            )}
+
+            {filterPresets.length === 0 && !savingPreset && (
+              <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+                {localeText.filtersNoSavedViews}
+              </Typography>
+            )}
+
+            <Stack spacing={0.5}>
+              {filterPresets.map((preset) => (
+                <Stack key={preset.id} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                  <Chip
+                    icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
+                    label={preset.name}
+                    size="small"
+                    clickable
+                    onClick={() => controller.applyFilterPreset(preset.id)}
+                    sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
+                  />
+                  <Tooltip title={localeText.filtersDeleteViewTooltip}>
+                    <IconButton
+                      size="small"
+                      onClick={() => controller.deleteFilterPreset(preset.id)}
+                      aria-label={`Delete view "${preset.name}"`}
+                    >
+                      <DeleteOutlineOutlinedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              ))}
+            </Stack>
+          </div>
         </React.Fragment>
       )}
     </Stack>

@@ -54,7 +54,17 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
   // Page-level chart colour palette (undefined → charts use their default).
   const chartColors = usePageChartColors();
 
-  const { filteredRows, filteredRowsNoCross, hasCrossFilters, shouldShowGhost, effectiveRows, isLoading, isRecomputing, isError, errorMessage } = useWidgetRows(widget, dataSource);
+  const {
+    filteredRows,
+    filteredRowsNoCross,
+    hasCrossFilters,
+    shouldShowGhost,
+    effectiveRows,
+    isLoading,
+    isRecomputing,
+    isError,
+    errorMessage,
+  } = useWidgetRows(widget, dataSource);
 
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {
@@ -341,15 +351,15 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
       enrichedRows,
       `scatc:${xField}:${yField}:${colorField}:${scatterColorCategories.join(',')}`,
       () =>
-        prepareScatterDataGrouped(
-          enrichedRows,
-          xField,
-          yField,
-          colorField,
-          scatterColorCategories,
-        ),
+        prepareScatterDataGrouped(enrichedRows, xField, yField, colorField, scatterColorCategories),
     );
-  }, [enrichedRows, config.xField, config.yField, config.scatterColorField, scatterColorCategories]);
+  }, [
+    enrichedRows,
+    config.xField,
+    config.yField,
+    config.scatterColorField,
+    scatterColorCategories,
+  ]);
 
   // Ghost scatter data (all rows, pre-cross-filter) for cross-highlight mode
   const allScatterData = React.useMemo(() => {

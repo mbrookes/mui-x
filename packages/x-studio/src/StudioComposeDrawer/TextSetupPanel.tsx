@@ -13,7 +13,9 @@ export function TextSetupPanel(props: { widgetId: string }) {
     body: widget?.config.textBody ?? '',
   });
 
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- text fields are buffered locally; reset when widget/page changes
   React.useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-derived-state -- locally buffered; saved on blur
     setForm({
       title: widget?.title ?? '',
       subtitle: widget?.config.textSubtitle ?? '',

@@ -98,10 +98,14 @@ function buildEdgePath(src: NodeLayout, tgt: NodeLayout): string {
 
 /** Returns the midpoint along a cubic bezier curve (t=0.5). */
 function bezierMidpoint(
-  sx: number, sy: number,
-  cp1x: number, cp1y: number,
-  cp2x: number, cp2y: number,
-  ex: number, ey: number,
+  sx: number,
+  sy: number,
+  cp1x: number,
+  cp1y: number,
+  cp2x: number,
+  cp2y: number,
+  ex: number,
+  ey: number,
 ): { x: number; y: number } {
   const t = 0.5;
   const mt = 1 - t;
@@ -170,8 +174,10 @@ function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }: EdgeLa
   const path = buildEdgePath(srcNode, tgtNode);
   const srcSource = sources[rel.sourceId];
   const tgtSource = sources[rel.targetId];
-  const srcFieldLabel = srcSource?.fields.find((f) => f.id === rel.sourceField)?.label ?? rel.sourceField;
-  const tgtFieldLabel = tgtSource?.fields.find((f) => f.id === rel.targetField)?.label ?? rel.targetField;
+  const srcFieldLabel =
+    srcSource?.fields.find((f) => f.id === rel.sourceField)?.label ?? rel.sourceField;
+  const tgtFieldLabel =
+    tgtSource?.fields.find((f) => f.id === rel.targetField)?.label ?? rel.targetField;
 
   return (
     <g>
@@ -194,10 +200,7 @@ function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }: EdgeLa
         style={{ pointerEvents: 'none' }}
       />
       {/* Label badge */}
-      <g
-        style={{ cursor: 'pointer' }}
-        onClick={(e) => setAnchorEl(e.currentTarget as SVGElement)}
-      >
+      <g style={{ cursor: 'pointer' }} onClick={(e) => setAnchorEl(e.currentTarget as SVGElement)}>
         <rect
           x={mid.x - 14}
           y={mid.y - 9}
@@ -275,10 +278,7 @@ export function DataLineageGraph({ sources, relationships }: DataLineageGraphPro
   );
 
   const nodes = React.useMemo(() => layoutNodes(sourceList), [sourceList]);
-  const nodeById = React.useMemo(
-    () => new Map(nodes.map((n) => [n.id, n])),
-    [nodes],
-  );
+  const nodeById = React.useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
   const cols = Math.min(sourceList.length, COLS);
   const rows = Math.ceil(sourceList.length / COLS);
@@ -357,7 +357,11 @@ export function DataLineageGraph({ sources, relationships }: DataLineageGraphPro
         ))}
       </svg>
       {visibleRels.length === 0 && sourceList.length >= 2 && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, textAlign: 'center' }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: 'block', mt: 0.5, textAlign: 'center' }}
+        >
           No relationships defined between sources
         </Typography>
       )}

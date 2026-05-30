@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { StudioRequestCache } from './StudioRequestCache';
-import type { StudioQueryResult } from '../models/studio';
+import type { StudioQueryResult } from '../models';
 
 const RESULT_A: StudioQueryResult = { rows: [{ id: '1', value: 100 }], totalCount: 1 };
 const RESULT_B: StudioQueryResult = { rows: [{ id: '2', value: 200 }], totalCount: 1 };

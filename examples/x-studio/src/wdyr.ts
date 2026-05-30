@@ -6,7 +6,10 @@ import * as React from 'react';
 //   • pnpm dev:wdyr  (sets VITE_WDYR=true for the whole session)
 //   • localStorage.setItem('wdyr', '1'); location.reload()  (per-tab toggle)
 // To disable the localStorage flag: localStorage.removeItem('wdyr'); location.reload()
-if (import.meta.env.DEV && (import.meta.env.VITE_WDYR === 'true' || localStorage.getItem('wdyr') === '1')) {
+if (
+  import.meta.env.DEV &&
+  (import.meta.env.VITE_WDYR === 'true' || localStorage.getItem('wdyr') === '1')
+) {
   const { default: whyDidYouRender } = await import('@welldone-software/why-did-you-render');
   whyDidYouRender(React, {
     // Don't track all pure components — the DataGrid has hundreds of internal

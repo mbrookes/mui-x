@@ -29,8 +29,8 @@ type StudioFilterConfig =
 
 interface StudioBaseFilterConfig {
   dataSourceId: string;
-  field: string;      // field id from the data source
-  scope?: 'page' | 'widget';  // defaults to 'page'
+  field: string; // field id from the data source
+  scope?: 'page' | 'widget'; // defaults to 'page'
 }
 ```
 
@@ -41,7 +41,7 @@ Renders two date pickers (start/end). The field must have type `date`.
 ```ts
 interface StudioDateRangeFilterConfig extends StudioBaseFilterConfig {
   subType: 'date-range';
-  defaultStart?: string;  // ISO-8601 date string
+  defaultStart?: string; // ISO-8601 date string
   defaultEnd?: string;
 }
 ```
@@ -131,10 +131,10 @@ const filterConfig: StudioSliderFilterConfig = {
 The optional `scope` field controls whether the condition is broadcast to the
 whole page or only to a specific widget.
 
-| `scope` | Effect |
-| :--- | :--- |
-| `'page'` (default) | Applied to every widget on the page that shares the data source |
-| `'widget'` | Applied only to the widget whose `widgetId` is specified alongside |
+| `scope`            | Effect                                                             |
+| :----------------- | :----------------------------------------------------------------- |
+| `'page'` (default) | Applied to every widget on the page that shares the data source    |
+| `'widget'`         | Applied only to the widget whose `widgetId` is specified alongside |
 
 ```ts
 const filterConfig: StudioMultiSelectFilterConfig = {

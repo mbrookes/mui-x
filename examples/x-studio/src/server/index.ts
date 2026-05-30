@@ -110,7 +110,9 @@ function executeQuery(
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+    req.on('data', (chunk: Buffer) => {
+      data += chunk.toString();
+    });
     req.on('end', () => resolve(data));
     req.on('error', reject);
   });
@@ -158,7 +160,12 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         const cacheKey = generateCacheKey(claims, widget);
         const cached = await cache.get(cacheKey);
         if (cached) {
-          return { id: widget.id, rows: cached.rows, tier: 'server' as const, rowCount: cached.rows.length };
+          return {
+            id: widget.id,
+            rows: cached.rows,
+            tier: 'server' as const,
+            rowCount: cached.rows.length,
+          };
         }
 
         const rows = executeQuery(claims, widget.table, widget.filters);
@@ -182,5 +189,7 @@ server.listen(PORT, () => {
   console.log(`\nOpen the dev server with:`);
   console.log(`  ?server=http://localhost:${PORT}/api/studio-data\n`);
   console.log('This routes widget queries through this server (instead of simulatedServer.ts).');
-  console.log('All N widget requests are batched into a single POST via createBatchingAdapter().\n');
+  console.log(
+    'All N widget requests are batched into a single POST via createBatchingAdapter().\n',
+  );
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { StudioDataField } from '../models/studio';
+import type { StudioDataField } from '../models';
 import { computeGridSummary, aggregationLabel } from './gridSummary';
 
 function numField(id: string, label = id): StudioDataField {

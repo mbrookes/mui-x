@@ -3,7 +3,7 @@ import type {
   StudioFilterState,
   StudioQueryDescriptor,
   StudioWidget,
-} from '../models/studio';
+} from '../models';
 
 // ── Simple stable hash ──────────────────────────────────────────────────────
 

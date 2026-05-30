@@ -175,7 +175,17 @@ export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
     const category = productCategories[productId - 1];
     const currency = pick(rng, ['USD', 'EUR', 'GBP', 'CAD', 'AUD']);
 
-    insertOrder.run(i, customerId, pick(rng, STATUSES), date, total, currency, country, segment, category);
+    insertOrder.run(
+      i,
+      customerId,
+      pick(rng, STATUSES),
+      date,
+      total,
+      currency,
+      country,
+      segment,
+      category,
+    );
 
     // 1–3 items per order
     const itemCount = Math.floor(rng() * 3) + 1;
@@ -186,7 +196,17 @@ export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
       const iDiscount = +(rng() * 0.25).toFixed(2);
       const iTotal = +(iQty * iPrice * (1 - iDiscount)).toFixed(2);
       const iCategory = productCategories[iProductId - 1];
-      insertItem.run(itemId++, i, iProductId, `Product ${iProductId}`, iCategory, iQty, iPrice, iDiscount, iTotal);
+      insertItem.run(
+        itemId++,
+        i,
+        iProductId,
+        `Product ${iProductId}`,
+        iCategory,
+        iQty,
+        iPrice,
+        iDiscount,
+        iTotal,
+      );
     }
   }
   db.exec('COMMIT');

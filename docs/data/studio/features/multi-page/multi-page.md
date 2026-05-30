@@ -21,7 +21,7 @@ A Studio dashboard contains one or more pages. Each page has its own grid of wid
 interface StudioPage {
   id: string;
   title: string;
-  widgetRows: string[][];  // 2-D array of widget IDs
+  widgetRows: string[][]; // 2-D array of widget IDs
   theme?: StudioPageTheme;
 }
 ```
@@ -30,10 +30,10 @@ interface StudioPage {
 
 ```ts
 widgetRows: [
-  ['kpi-revenue', 'kpi-orders', 'kpi-aov'],  // three KPIs in a row
-  ['chart-revenue-trend'],                     // full-width chart
-  ['chart-by-category', 'grid-orders'],        // chart + table side-by-side
-]
+  ['kpi-revenue', 'kpi-orders', 'kpi-aov'], // three KPIs in a row
+  ['chart-revenue-trend'], // full-width chart
+  ['chart-by-category', 'grid-orders'], // chart + table side-by-side
+];
 ```
 
 ## StudioPageTheme
@@ -65,10 +65,7 @@ const initialState = createDefaultStudioState({
     overview: {
       id: 'overview',
       title: 'Overview',
-      widgetRows: [
-        ['kpi-revenue', 'kpi-orders'],
-        ['chart-trend'],
-      ],
+      widgetRows: [['kpi-revenue', 'kpi-orders'], ['chart-trend']],
     },
     detail: {
       id: 'detail',

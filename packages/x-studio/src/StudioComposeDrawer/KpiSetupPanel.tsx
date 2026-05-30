@@ -2,6 +2,7 @@
 import * as React from 'react';
 import {
   Box,
+  Button,
   Collapse,
   Divider,
   FormControl,
@@ -31,7 +32,8 @@ import { getReachableSourceIds } from '../internals/chartUtils';
 import type { StudioKpiAggregation, StudioWidgetConfig, StudioCrossFilterMode } from '../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { MetricRefInput } from '../StudioFiltersDrawer/MetricRefInput';
-import { InlineFormulaBar } from './InlineFormulaBar';
+import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
+import FunctionsIcon from '@mui/icons-material/Functions';
 
 /**
  * A collapsible section with a labeled header row containing a switch toggle on the
@@ -71,7 +73,8 @@ function CollapsibleFeatureSection({
   return (
     <Box
       sx={{
-        bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+        bgcolor: (theme) =>
+          theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
         borderRadius: 1,
         overflow: 'hidden',
       }}
@@ -407,13 +410,15 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
   const { widgetId } = props;
 
-  // Numeric fields for the formula bar (scoped to the widget's source when available)
-  const numericFormulaFields = React.useMemo(
-    () => reachableFields.flatMap((f) => f.type === 'number' ? [{ id: f.id, label: f.label }] : []),
-    [reachableFields],
-  );
+  const [calcDialogOpen, setCalcDialogOpen] = React.useState(false);
+  const widgetSource = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
+  const showCalcFieldButton =
+    widgetSource !== undefined &&
+    features.calculatedFields !== false &&
+    features.kpiCalculatedFields !== false;
 
   return (
+    <React.Fragment>
     <Stack spacing={2}>
       <DataSourceFieldSelect
         value={config.kpiValueField ?? ''}
@@ -441,15 +446,17 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         helperText="Field to aggregate"
       />
 
-      {/* Ad-hoc formula bar — create a simple calculated value without the full expression dialog */}
-      {widget?.sourceId && (
-        <InlineFormulaBar
-          sourceId={widget.sourceId}
-          fields={numericFormulaFields}
-          onFieldCreated={(fieldId) => {
-            controller.updateWidgetConfig(widgetId, { kpiValueField: fieldId });
-          }}
-        />
+      {/* Calculated field button — opens full expression dialog for new measure fields */}
+      {showCalcFieldButton && (
+        <Button
+          size="small"
+          variant="text"
+          startIcon={<FunctionsIcon fontSize="small" />}
+          onClick={() => setCalcDialogOpen(true)}
+          sx={{ fontSize: '0.75rem', textTransform: 'none', alignSelf: 'flex-start', color: 'text.secondary' }}
+        >
+          Calculated field…
+        </Button>
       )}
 
       <FormControl size="small" fullWidth disabled={onlyOneAgg}>
@@ -472,68 +479,68 @@ export function KpiSetupPanel(props: { widgetId: string }) {
       </FormControl>
 
       {features.kpiSparkline !== false && (
-      <CollapsibleFeatureSection
-        label="Sparkline"
-        enabled={config.kpiSparkline ?? false}
-        onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiSparkline: next })}
-      >
-        <KpiSparklineOptions widgetId={widgetId} config={config} />
-      </CollapsibleFeatureSection>
+        <CollapsibleFeatureSection
+          label="Sparkline"
+          enabled={config.kpiSparkline ?? false}
+          onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiSparkline: next })}
+        >
+          <KpiSparklineOptions widgetId={widgetId} config={config} />
+        </CollapsibleFeatureSection>
       )}
 
       {features.kpiTarget !== false && (
-      <CollapsibleFeatureSection
-        label="Target"
-        enabled={config.kpiTarget ?? false}
-        onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTarget: next })}
-      >
-        <Typography variant="caption" color="text.secondary">
-          Reference value for the target line on the sparkline. When Trend is also enabled, the
-          delta badge compares the current value against this target.
-        </Typography>
-        <MetricRefInput
-          value={config.kpiTargetRef}
-          onChange={(ref) => controller.updateWidgetConfig(widgetId, { kpiTargetRef: ref })}
-        />
-      </CollapsibleFeatureSection>
+        <CollapsibleFeatureSection
+          label="Target"
+          enabled={config.kpiTarget ?? false}
+          onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTarget: next })}
+        >
+          <Typography variant="caption" color="text.secondary">
+            Reference value for the target line on the sparkline. When Trend is also enabled, the
+            delta badge compares the current value against this target.
+          </Typography>
+          <MetricRefInput
+            value={config.kpiTargetRef}
+            onChange={(ref) => controller.updateWidgetConfig(widgetId, { kpiTargetRef: ref })}
+          />
+        </CollapsibleFeatureSection>
       )}
 
       {features.kpiTrend !== false && (
-      <CollapsibleFeatureSection
-        label="Trend"
-        enabled={config.kpiTrend ?? false}
-        onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTrend: next })}
-      >
-        <FormControl size="small" fullWidth>
-          <InputLabel>Comparison period</InputLabel>
-          <Select
-            label="Comparison period"
-            value={config.kpiTrendComparison ?? 'previous-period'}
-            onChange={(event) =>
-              controller.updateWidgetConfig(widgetId, {
-                kpiTrendComparison: event.target.value as
-                  | 'previous-period'
-                  | 'previous-calendar-period'
-                  | 'year-over-year',
-              })
-            }
-          >
-            <MenuItem value="previous-period">Previous period (matching duration)</MenuItem>
-            <MenuItem value="previous-calendar-period">Previous calendar period</MenuItem>
-            <MenuItem value="year-over-year">Same period last year</MenuItem>
-          </Select>
-        </FormControl>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="body2">Invert colours (lower is better)</Typography>
-          <Switch
-            size="small"
-            checked={config.kpiTrendInvert ?? false}
-            onChange={(event) =>
-              controller.updateWidgetConfig(widgetId, { kpiTrendInvert: event.target.checked })
-            }
-          />
-        </Box>
-      </CollapsibleFeatureSection>
+        <CollapsibleFeatureSection
+          label="Trend"
+          enabled={config.kpiTrend ?? false}
+          onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTrend: next })}
+        >
+          <FormControl size="small" fullWidth>
+            <InputLabel>Comparison period</InputLabel>
+            <Select
+              label="Comparison period"
+              value={config.kpiTrendComparison ?? 'previous-period'}
+              onChange={(event) =>
+                controller.updateWidgetConfig(widgetId, {
+                  kpiTrendComparison: event.target.value as
+                    | 'previous-period'
+                    | 'previous-calendar-period'
+                    | 'year-over-year',
+                })
+              }
+            >
+              <MenuItem value="previous-period">Previous period (matching duration)</MenuItem>
+              <MenuItem value="previous-calendar-period">Previous calendar period</MenuItem>
+              <MenuItem value="year-over-year">Same period last year</MenuItem>
+            </Select>
+          </FormControl>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="body2">Invert colours (lower is better)</Typography>
+            <Switch
+              size="small"
+              checked={config.kpiTrendInvert ?? false}
+              onChange={(event) =>
+                controller.updateWidgetConfig(widgetId, { kpiTrendInvert: event.target.checked })
+              }
+            />
+          </Box>
+        </CollapsibleFeatureSection>
       )}
 
       {/* Interactions — cross-filter mode. KPIs are summary metrics with no visual row
@@ -549,8 +556,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         </Typography>
         <ToggleButtonGroup
           value={
-            ((config.crossFilterMode === 'cross-highlight' ? 'cross-filter' : config.crossFilterMode) ??
-              'none') as StudioCrossFilterMode
+            ((config.crossFilterMode === 'cross-highlight'
+              ? 'cross-filter'
+              : config.crossFilterMode) ?? 'none') as StudioCrossFilterMode
           }
           exclusive
           onChange={(_e, value: StudioCrossFilterMode | null) => {
@@ -570,5 +578,20 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         </ToggleButtonGroup>
       </div>
     </Stack>
+
+    {/* Calculated field dialog */}
+    {widgetSource && (
+      <StudioExpressionFieldDialog
+        key={calcDialogOpen ? 'open' : 'closed'}
+        open={calcDialogOpen}
+        onClose={() => setCalcDialogOpen(false)}
+        dataSource={widgetSource}
+        expressionFields={expressionFields}
+        onSaved={(fieldId) => {
+          controller.updateWidgetConfig(widgetId, { kpiValueField: fieldId });
+        }}
+      />
+    )}
+    </React.Fragment>
   );
 }

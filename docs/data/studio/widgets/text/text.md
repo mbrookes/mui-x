@@ -22,7 +22,7 @@ interface StudioTextConfig {
   content: string;
   variant: StudioTextVariant;
   align?: 'left' | 'center' | 'right';
-  markdown?: boolean;  // render content as Markdown (default: false)
+  markdown?: boolean; // render content as Markdown (default: false)
 }
 
 type StudioTextVariant = 'title' | 'subtitle' | 'body';
@@ -30,11 +30,11 @@ type StudioTextVariant = 'title' | 'subtitle' | 'body';
 
 ## Variants
 
-| Variant | Default MUI typography | Typical use |
-| :--- | :--- | :--- |
-| `title` | `h5` | Page heading, widget section heading |
-| `subtitle` | `subtitle1` | Descriptor line below a heading |
-| `body` | `body1` | Paragraphs, annotations, context notes |
+| Variant    | Default MUI typography | Typical use                            |
+| :--------- | :--------------------- | :------------------------------------- |
+| `title`    | `h5`                   | Page heading, widget section heading   |
+| `subtitle` | `subtitle1`            | Descriptor line below a heading        |
+| `body`     | `body1`                | Paragraphs, annotations, context notes |
 
 The variant controls the default `Typography` component and its corresponding
 theme tokens. Override them with `slotProps.textWidget.sx` if needed.

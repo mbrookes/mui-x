@@ -157,6 +157,10 @@ export function computeAggregate(
     return rows.length;
   }
 
+  if (aggregation === 'count_distinct') {
+    return new Set(rows.map((row) => row[field])).size;
+  }
+
   // Exclude null/undefined values so they don't inflate the denominator for avg/min/max.
   // This aligns with gridSummary.ts which filters to typeof v === 'number'.
   const values = rows

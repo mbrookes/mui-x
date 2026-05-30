@@ -1,4 +1,4 @@
-import type { StudioDataField, StudioNumberFormat } from '../models/studio';
+import type { StudioDataField, StudioNumberFormat } from '../models';
 
 // ─── Module-level formatters (hoisted to avoid re-allocation on every call) ───
 

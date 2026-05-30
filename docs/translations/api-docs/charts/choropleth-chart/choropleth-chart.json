@@ -1,0 +1,106 @@
+{
+  "componentDescription": "",
+  "propDescriptions": {
+    "colors": { "description": "Color palette used to colorize multiple series." },
+    "dataset": {
+      "description": "An array of objects that can be used to populate series and axes data using their <code>dataKey</code> property."
+    },
+    "desc": {
+      "description": "The description of the chart. Used to provide an accessible description for the chart."
+    },
+    "disableKeyboardNavigation": {
+      "description": "If <code>true</code>, disables keyboard navigation for the chart."
+    },
+    "experimentalFeatures": {
+      "description": "Options to enable features planned for the next major."
+    },
+    "fitProjection": {
+      "description": "Whether to automatically fit the projection to the drawing area."
+    },
+    "geography": {
+      "description": "GeoJSON FeatureCollection describing the map regions to render. Users should import this from packages like <code>world-atlas</code> or <code>us-atlas</code>."
+    },
+    "height": {
+      "description": "The height of the chart in px. If not defined, it takes the height of the parent element."
+    },
+    "hideLegend": { "description": "If <code>true</code>, the legend is not rendered." },
+    "highlightedItem": {
+      "description": "The highlighted item. Used when the highlight is controlled."
+    },
+    "id": {
+      "description": "This prop is used to help implement the accessibility logic. If you don&#39;t provide this prop. It falls back to a randomly generated id."
+    },
+    "loading": { "description": "If <code>true</code>, a loading overlay is displayed." },
+    "localeText": { "description": "Localized text for chart components." },
+    "margin": {
+      "description": "The margin between the SVG and the drawing area. It&#39;s used for leaving some space for extra information such as the x- and y-axis or legend.<br>Accepts a <code>number</code> to be used on all sides or an object with the optional properties: <code>top</code>, <code>bottom</code>, <code>left</code>, and <code>right</code>."
+    },
+    "onHighlightChange": {
+      "description": "The callback fired when the highlighted item changes.",
+      "typeDescriptions": {
+        "highlightedItem": {
+          "name": "highlightedItem",
+          "description": "The newly highlighted item."
+        }
+      }
+    },
+    "onItemClick": {
+      "description": "The callback fired when an item is clicked.",
+      "typeDescriptions": {
+        "event": { "name": "event", "description": "The click event." },
+        "item": { "name": "item", "description": "The clicked item." }
+      }
+    },
+    "onTooltipItemChange": {
+      "description": "The callback fired when the tooltip item changes.",
+      "typeDescriptions": {
+        "tooltipItem": { "name": "tooltipItem", "description": "The newly highlighted item." }
+      }
+    },
+    "projection": { "description": "D3-geo projection configuration." },
+    "series": { "description": "The data series to display on the map." },
+    "skipAnimation": {
+      "description": "If <code>true</code>, animations are skipped. If unset or <code>false</code>, the animations respects the user&#39;s <code>prefers-reduced-motion</code> setting."
+    },
+    "slotProps": { "description": "The props used for each component slot." },
+    "slots": { "description": "Overridable component slots." },
+    "title": {
+      "description": "The title of the chart. Used to provide an accessible label for the chart."
+    },
+    "tooltipItem": { "description": "The tooltip item. Used when the tooltip is controlled." },
+    "width": {
+      "description": "The width of the chart in px. If not defined, it takes the width of the parent element."
+    },
+    "zAxis": { "description": "The configuration of the z-axes." }
+  },
+  "classDescriptions": {
+    "faded": {
+      "description": "Styles applied to {{nodeName}} if {{conditions}}.",
+      "nodeName": "the feature path element",
+      "conditions": "faded",
+      "deprecationInfo": "Use <code>[data-faded]</code> selector instead."
+    },
+    "highlighted": {
+      "description": "Styles applied to {{nodeName}} if {{conditions}}.",
+      "nodeName": "the feature path element",
+      "conditions": "highlighted",
+      "deprecationInfo": "Use <code>[data-highlighted]</code> selector instead."
+    },
+    "root": {
+      "description": "Styles applied to {{nodeName}}.",
+      "nodeName": "the choropleth plot root element"
+    },
+    "series": {
+      "description": "Styles applied to {{nodeName}}. Needs to be suffixed with the series ID: <code>.${choroplethChartClasses.series}-${seriesId}</code>.",
+      "nodeName": "the root element for a specified series",
+      "deprecationInfo": "Use <code>[data-series=&quot;${seriesId}&quot;]</code> selector instead."
+    }
+  },
+  "slotDescriptions": {
+    "featurePath": "The component that renders each geographic feature path.",
+    "legend": "Custom component for the legend.",
+    "loadingOverlay": "Overlay component rendered when the chart is in a loading state.",
+    "noDataOverlay": "Overlay component rendered when the chart has no data to display.",
+    "tooltip": "Custom component for the tooltip."
+  }
+}

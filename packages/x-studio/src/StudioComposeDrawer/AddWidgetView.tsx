@@ -32,7 +32,11 @@ import {
 } from '../internals/widgetUtils';
 import type { StudioWidget, StudioWidgetKind } from '../models';
 import { KIND_LABEL } from './StudioComposeDrawerLabels';
-import { useStudioUIConfig, useStudioLocaleText, useStudioFeatures } from '../internals/StudioUIConfigContext';
+import {
+  useStudioUIConfig,
+  useStudioLocaleText,
+  useStudioFeatures,
+} from '../internals/StudioUIConfigContext';
 import { createWidgetFromDescription } from '../StudioChatPanel/createWidgetFromDescription';
 
 function getCursor(isDragging: boolean) {
@@ -85,7 +89,12 @@ function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) {
           size="small"
           startIcon={<AutoAwesomeIcon />}
           onClick={() => setOpen(true)}
-          sx={{ width: '100%', justifyContent: 'flex-start', textTransform: 'none', color: 'text.secondary' }}
+          sx={{
+            width: '100%',
+            justifyContent: 'flex-start',
+            textTransform: 'none',
+            color: 'text.secondary',
+          }}
           variant="text"
         >
           {localeText.aiCreateWidgetLabel}
@@ -98,7 +107,14 @@ function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) {
             <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
               {localeText.aiCreateWidgetLabel}
             </Typography>
-            <IconButton size="small" onClick={() => { setOpen(false); setStatus('idle'); }} aria-label="Close">
+            <IconButton
+              size="small"
+              onClick={() => {
+                setOpen(false);
+                setStatus('idle');
+              }}
+              aria-label="Close"
+            >
               <ExpandLessIcon sx={{ fontSize: 16 }} />
             </IconButton>
           </Stack>
@@ -125,12 +141,18 @@ function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) {
               disabled={!prompt.trim() || status === 'loading'}
               onClick={handleSubmit}
             >
-              {status === 'loading' ? localeText.aiCreateWidgetLoading : localeText.aiCreateWidgetButton}
+              {status === 'loading'
+                ? localeText.aiCreateWidgetLoading
+                : localeText.aiCreateWidgetButton}
             </Button>
             <Button
               variant="text"
               size="small"
-              onClick={() => { setOpen(false); setStatus('idle'); setPrompt(''); }}
+              onClick={() => {
+                setOpen(false);
+                setStatus('idle');
+                setPrompt('');
+              }}
             >
               Cancel
             </Button>
@@ -425,14 +447,22 @@ export function AddWidgetView() {
     () =>
       WIDGET_TYPES.filter((wt) => {
         switch (wt.kind) {
-          case 'grid': return features.grid !== false;
-          case 'chart': return features.chart !== false;
-          case 'kpi': return features.kpi !== false;
-          case 'text': return features.text !== false;
-          case 'filter': return features.filter !== false;
-          case 'pivot': return features.pivot !== false;
-          case 'map': return features.map !== false;
-          default: return true;
+          case 'grid':
+            return features.grid !== false;
+          case 'chart':
+            return features.chart !== false;
+          case 'kpi':
+            return features.kpi !== false;
+          case 'text':
+            return features.text !== false;
+          case 'filter':
+            return features.filter !== false;
+          case 'pivot':
+            return features.pivot !== false;
+          case 'map':
+            return features.map !== false;
+          default:
+            return true;
         }
       }),
     [features],
@@ -464,14 +494,7 @@ export function AddWidgetView() {
       )}
       {visibleWidgetTypes.map((wt) => {
         const canAdd = !widgetKindRequiresDataSource(wt.kind) || hasSources;
-        return (
-          <WidgetTypeCard
-            key={wt.kind}
-            wt={wt}
-            canAdd={canAdd}
-            onSelect={handleSelectKind}
-          />
-        );
+        return <WidgetTypeCard key={wt.kind} wt={wt} canAdd={canAdd} onSelect={handleSelectKind} />;
       })}
     </Stack>
   );

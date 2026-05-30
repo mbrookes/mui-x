@@ -116,7 +116,10 @@ Forward `borderRadius` to every bar chart:
           slotProps: {
             grid: {
               slotProps: {
-                dataGrid: { getRowClassName: (params) => params.indexRelativeToCurrentPage % 2 === 0 ? 'even' : 'odd' },
+                dataGrid: {
+                  getRowClassName: (params) =>
+                    params.indexRelativeToCurrentPage % 2 === 0 ? 'even' : 'odd',
+                },
               },
             },
           },
@@ -196,7 +199,7 @@ import { StudioNoDataOverlay } from '@mui/x-studio';
       },
     },
   }}
-/>
+/>;
 ```
 
 #### `StudioNoDataOverlay` props
@@ -239,7 +242,7 @@ function MyKpiValue({ value, format }: { value: number | null; format?: string }
       },
     },
   }}
-/>
+/>;
 ```
 
 ### Wider AI chat panel
@@ -299,7 +302,9 @@ Or target individual widget components directly:
 ```ts
 interface StudioCanvasProps {
   slotProps?: {
-    widgetCard?: Partial<Omit<StudioWidgetCardProps, 'widgetId' | 'isFirstRow' | 'pageTheme'>>;
+    widgetCard?: Partial<
+      Omit<StudioWidgetCardProps, 'widgetId' | 'isFirstRow' | 'pageTheme'>
+    >;
   };
 }
 ```

@@ -5,7 +5,13 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import type { StudioDataSource, StudioWidget, StudioFilterState } from '../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
-import { resolveRows, resolveMetricRefs, resolveMetricRef, resolveChartRowsForAggregation, analyzeChartSupport } from '../internals/chartUtils';
+import {
+  resolveRows,
+  resolveMetricRefs,
+  resolveMetricRef,
+  resolveChartRowsForAggregation,
+  analyzeChartSupport,
+} from '../internals/chartUtils';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { collectSelectFields } from '../internals/queryDescriptor';
 import { usePageChartColors } from '../internals/usePageChartColors';
@@ -78,14 +84,20 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   // from summary cards; 'cross-filter' opts in to context-sensitivity.
   // 'cross-highlight' is not applicable to KPIs (no visual row representation), but treat
   // it as 'cross-filter' for backward compatibility with any saved dashboard configs.
-  const crossFilterMode = config.crossFilterMode === 'cross-highlight' ? 'cross-filter' : (config.crossFilterMode ?? 'none');
+  const crossFilterMode =
+    config.crossFilterMode === 'cross-highlight'
+      ? 'cross-filter'
+      : (config.crossFilterMode ?? 'none');
 
   // Current-period rows via the shared pipeline hook.
   // When crossFilterMode is 'none' (default) we deliberately use filteredRowsNoCross so
   // the KPI always shows the absolute total, ignoring chart-click selections.
   // In 'cross-filter' or 'cross-highlight' mode we use effectiveRows, which respects
   // the active cross-filter (same as the chart widget does).
-  const { filteredRowsNoCross, effectiveRows, isError, errorMessage } = useWidgetRows(widget, dataSource);
+  const { filteredRowsNoCross, effectiveRows, isError, errorMessage } = useWidgetRows(
+    widget,
+    dataSource,
+  );
   const currentRows = crossFilterMode === 'none' ? filteredRowsNoCross : effectiveRows;
 
   // Grain-aware rows for KPI value and sparkline computation.
@@ -120,7 +132,11 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       relationships,
       expressionFields,
     );
-    if (!support.supported || !support.anchorSourceId || support.anchorSourceId === widget.sourceId) {
+    if (
+      !support.supported ||
+      !support.anchorSourceId ||
+      support.anchorSourceId === widget.sourceId
+    ) {
       return { grainAnchoredRows: currentRows, isGrainAnchored: false };
     }
     return {
@@ -277,7 +293,11 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             comparisonLabel: 'target',
           };
         } else if (value !== 0) {
-          kpiTrend = { delta: Infinity, previousValue: resolvedTargetValue, comparisonLabel: 'target' };
+          kpiTrend = {
+            delta: Infinity,
+            previousValue: resolvedTargetValue,
+            comparisonLabel: 'target',
+          };
         }
       } else {
         const kpiValueField = config.kpiValueField;
@@ -336,7 +356,9 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
               value2: prevRange.end.toISOString().slice(0, 10),
               conjunction: 'and',
             };
-            const prevFilters = allFilters.map((f) => (f.id === dateFilter.id ? prevDateFilter : f));
+            const prevFilters = allFilters.map((f) =>
+              f.id === dateFilter.id ? prevDateFilter : f,
+            );
             const prevRows = resolveRows(
               preEnrichedRows,
               widget.sourceId,

@@ -55,7 +55,9 @@ function evalConditionalFormat(rule: StudioConditionalFormat, cellValue: unknown
     case 'less_than_or_equal':
       return Number(cellValue) <= Number(value);
     case 'contains':
-      return String(cellValue ?? '').toLowerCase().includes(String(value).toLowerCase());
+      return String(cellValue ?? '')
+        .toLowerCase()
+        .includes(String(value).toLowerCase());
     default:
       return false;
   }
@@ -103,10 +105,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // grouping without dynamically adding/removing column definitions (which causes
   // DataGridPremium to pollute its internal column visibility state).
   const allFieldIds = React.useMemo(
-    () => [
-      ...(dataSource?.fields.map((f) => f.id) ?? []),
-      ...expressionFields.map((f) => f.id),
-    ],
+    () => [...(dataSource?.fields.map((f) => f.id) ?? []), ...expressionFields.map((f) => f.id)],
     [dataSource?.fields, expressionFields],
   );
 
@@ -142,8 +141,14 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     });
   }, [dataSource, expressionFields, allFieldIds]);
 
-  const { filteredRows, filteredRowsNoChartCross, hasChartCrossFilters, isLoading, isError, errorMessage } =
-    useWidgetRows(widget, dataSource);
+  const {
+    filteredRows,
+    filteredRowsNoChartCross,
+    hasChartCrossFilters,
+    isLoading,
+    isError,
+    errorMessage,
+  } = useWidgetRows(widget, dataSource);
 
   const crossFilterMode = widget.config?.crossFilterMode ?? 'cross-highlight';
 
@@ -184,10 +189,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       return {};
     }
     return Object.fromEntries(
-      Object.entries(widget.config.gridAggregations).map(([field, fn]) => [
-        field,
-        toGridAggFn(fn),
-      ]),
+      Object.entries(widget.config.gridAggregations).map(([field, fn]) => [field, toGridAggFn(fn)]),
     );
   }, [widget.config.gridAggregations]);
 
@@ -198,10 +200,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const columnVisibilityModel = React.useMemo(
     () =>
       Object.fromEntries(
-        allFieldIds.map((id) => [
-          id,
-          visibleFields.includes(id) && !rowGroupingModel.includes(id),
-        ]),
+        allFieldIds.map((id) => [id, visibleFields.includes(id) && !rowGroupingModel.includes(id)]),
       ),
     [allFieldIds, visibleFields, rowGroupingModel],
   );
@@ -244,6 +243,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       };
     });
     return sx;
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- widget.id is a stable primitive
   }, [conditionalFormats, widget.id]);
 
   const getCellClassName = React.useCallback(
@@ -262,16 +262,18 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       });
       return classes.join(' ');
     },
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- widget.id is a stable primitive
     [conditionalFormats, widget.id],
   );
-
 
   // Only shown when grouping is not active (DataGridPremium aggregation handles it otherwise).
   //
   // In cross-highlight mode the grid body shows ALL baseline rows but dims non-matching ones.
   // The summary should reflect only the highlighted (cross-filter-inclusive) subset so the
   // totals agree with what the user is focusing on. In all other modes use `rows` directly.
-  const summaryConfig = widget.config.gridGroupByField ? undefined : widget.config.gridSummaryFields;
+  const summaryConfig = widget.config.gridGroupByField
+    ? undefined
+    : widget.config.gridSummaryFields;
   const summaryBasisRows =
     hasChartCrossFilters && crossFilterMode === 'cross-highlight' ? filteredRows : rows;
   const summaryValues = React.useMemo(() => {
@@ -373,6 +375,3 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     </div>
   );
 });
-
-
-

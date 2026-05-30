@@ -164,6 +164,11 @@ export function FilterBody({
   disableRankMode = false,
 }: FilterBodyProps) {
   const mode: FilterMode = filter.filterMode ?? 'condition';
+  // react-doctor-disable-next-line react-doctor/server-dedup-props -- value is a filtered subset of options; intentional Autocomplete controlled pattern
+  const selectedDependencies = React.useMemo(
+    () => (dependencyOptions ?? []).filter((opt) => (dependsOn ?? []).includes(opt.id)),
+    [dependencyOptions, dependsOn],
+  );
 
   return (
     <Stack spacing={1} sx={{ px: 1.5, pb: 1.5 }}>
@@ -216,7 +221,11 @@ export function FilterBody({
           />
           {dependencyOptions && dependencyOptions.length > 0 && onDependencyChange && (
             <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ mb: 0.5, display: 'block' }}
+              >
                 Narrow options based on:
               </Typography>
               <Autocomplete
@@ -224,7 +233,7 @@ export function FilterBody({
                 size="small"
                 options={dependencyOptions}
                 getOptionLabel={(opt) => opt.label}
-                value={dependencyOptions.filter((opt) => (dependsOn ?? []).includes(opt.id))}
+                value={selectedDependencies}
                 onChange={(_, next) => onDependencyChange(next.map((opt) => opt.id))}
                 renderInput={(params) => (
                   <TextField {...params} placeholder="Select parent filter…" />

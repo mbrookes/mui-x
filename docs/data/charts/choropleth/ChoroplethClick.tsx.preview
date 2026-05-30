@@ -1,0 +1,16 @@
+<ChoroplethChart
+  geography={demoGeography}
+  series={series}
+  height={300}
+  zAxis={[{ colorMap: { type: 'continuous', min: 0, max: 100, color: ['#ffffb2', '#b10026'] } }]}
+  onItemClick={(_event, identifier) => {
+    if (identifier.type === 'choropleth') {
+      setClickData(identifier);
+    }
+  }}
+/>
+{clickData && (
+  <Typography variant="body2" sx={{ mt: 1, textAlign: 'center' }}>
+    Clicked: <strong>{clickData.featureId}</strong> (series: {clickData.seriesId})
+  </Typography>
+)}

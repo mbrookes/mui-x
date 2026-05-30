@@ -30,7 +30,8 @@ export function StudioQuickFilterBar() {
   const localeText = useStudioLocaleText();
 
   const pageFilters = (filters as StudioFilterState[]).filter(
-    (f) => f.scope === 'page' && !f.isDashboardDateRange && (!f.pageId || f.pageId === activePageId),
+    (f) =>
+      f.scope === 'page' && !f.isDashboardDateRange && (!f.pageId || f.pageId === activePageId),
   );
 
   if (pageFilters.length === 0) {
@@ -110,7 +111,11 @@ export function StudioQuickFilterBar() {
         </Tooltip>
       )}
 
-      <Typography variant="caption" color="text.secondary" sx={{ ml: pageFilters.length > 1 ? 0 : 'auto' }}>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ ml: pageFilters.length > 1 ? 0 : 'auto' }}
+      >
         Filtered
       </Typography>
     </Box>

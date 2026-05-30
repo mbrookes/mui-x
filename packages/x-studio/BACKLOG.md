@@ -211,7 +211,8 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 ~~BL-76: When a feature is disabled in the demo app controls, widget sub feature controls should also be disabled (eg KPI disable: spakine, trend, target line toggles disabled).~~
 **Fixed** (added `parentKey` to the `WIDGET_FEATURE_FLAGS` metadata in both `SettingsDialog.tsx` files; sub-feature `Switch`es are now `disabled` and visually unchecked when their parent widget kind is off — `kpiSparkline`/`kpiTrend`/`kpiTarget` follow `kpi`; `chartAnnotations` follows `chart`; `gridGroupBy`/`gridSummary`/`gridConditionalFormats` follow `grid`)
 
-BL-77: Map value field should display any related value.
+~~BL-77: Map value field should display any related value.~~
+**Fixed** (removed `getReachableSourceIds` restriction from `numericFields` in `MapSetupPanel`; value field picker now shows numeric fields from ALL visible sources — matching the country field picker's behaviour; cross-source joins are handled at render time by `useWidgetRows`)
 
 BL-78: Make the add calculated field UI consistent across widdgets. Use table as the benchmark.
 
@@ -234,4 +235,5 @@ BL-86: Add a feature flag and example app setting for relationships, and for the
 
 BL:87: The filter panel seems a bit pointless as it stands, make it feature complete without bloating it with pointless features (releaserch what's typical), and allow it to be configured on the filters panel. It's also seems buggy - Quarterly revenue by category for shipments ship date last 12 months shows data for all time. If it's the data itself that is inconsistent, for exmaple ship dates before order dates, fix that.
 
-BL:88: Clicking a widget in the x-studio example should open the compose panel (it did in the past). It may have been removed for the x-studio-composed example that uses an edit button instead so that the edit dialog doesn't open when interacting with a widget in edit mode. Make sure that behaviour isn't affected by any fix.
+~~BL:88: Clicking a widget in the x-studio example should open the compose panel (it did in the past). It may have been removed for the x-studio-composed example that uses an edit button instead so that the edit dialog doesn't open when interacting with a widget in edit mode. Make sure that behaviour isn't affected by any fix.~~
+**Fixed** (added a `useEffect` in `StudioContent` (`Studio.tsx`) that watches `selectedWidgetId`; when a new widget is selected in edit mode with compose enabled, it calls `setDrawerOpen('compose', true)`; in tabbed layout it also closes the data and filters drawers so compose becomes the active visible tab; x-studio-composed is unaffected because it uses `StudioCanvas` directly and does not render `Studio.tsx`)

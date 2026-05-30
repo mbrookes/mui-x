@@ -39,7 +39,7 @@ import { downloadJson, uploadJson } from './utils/fileUtils';
 import { AG_SALES_DASHBOARD_STATE, PAGES } from './config/salesDashboard';
 import { AG_OS_DASHBOARD_STATE, OS_PAGES } from './config/officeSuppliesDashboard';
 import { SettingsDialog } from './components/SettingsDialog';
-import type { SidebarLayout, SidebarSide } from './components/SettingsDialog';
+import type { SidebarSide } from './components/SettingsDialog';
 import { theme } from './theme';
 
 function getUrlRowsParam(): number | undefined {
@@ -70,11 +70,12 @@ export default function App() {
   );
   const dataset = React.useMemo(() => getUrlDatasetParam(), []);
   const [mode, setMode] = React.useState<'edit' | 'view'>('edit');
-  const [sidebarLayout, setSidebarLayout] = React.useState<SidebarLayout>('tabbed');
   const [sidebarSide, setSidebarSide] = React.useState<SidebarSide>('right');
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [currentPageId, setCurrentPageId] = React.useState<string>(
-    dataset === 'ag-studio' ? AG_OS_DASHBOARD_STATE.selectedPageId : AG_SALES_DASHBOARD_STATE.selectedPageId,
+    dataset === 'ag-studio'
+      ? AG_OS_DASHBOARD_STATE.selectedPageId
+      : AG_SALES_DASHBOARD_STATE.selectedPageId,
   );
   const [snackbar, setSnackbar] = React.useState<{
     open: boolean;
@@ -161,10 +162,12 @@ export default function App() {
 
   const activeData = dataset === 'ag-studio' ? osData : salesData;
   const activePages = dataset === 'ag-studio' ? OS_PAGES : PAGES;
-  const activeInitialState = dataset === 'ag-studio' ? AG_OS_DASHBOARD_STATE : AG_SALES_DASHBOARD_STATE;
-  const studioKey = dataset === 'ag-studio'
-    ? `ag-studio-${osData ? 'ready' : 'loading'}`
-    : `sales-${getUrlRowsParam() ?? 'default'}`;
+  const activeInitialState =
+    dataset === 'ag-studio' ? AG_OS_DASHBOARD_STATE : AG_SALES_DASHBOARD_STATE;
+  const studioKey =
+    dataset === 'ag-studio'
+      ? `ag-studio-${osData ? 'ready' : 'loading'}`
+      : `sales-${getUrlRowsParam() ?? 'default'}`;
 
   const handleApiReady = React.useCallback((event: any) => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
@@ -285,7 +288,9 @@ export default function App() {
 
         {/* Loading spinner for AG Studio Data */}
         {dataset === 'ag-studio' && activeData === null ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flexGrow: 1 }}>
+          <Box
+            sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flexGrow: 1 }}
+          >
             <CircularProgress />
           </Box>
         ) : (
@@ -309,12 +314,10 @@ export default function App() {
         onClose={() => setSettingsOpen(false)}
         values={{
           dataSource: dataset,
-          sidebarLayout,
           sidebarSide,
           rowCount: getUrlRowsParam(),
           adapterEnabled: new URL(window.location.href).searchParams.has('adapter'),
         }}
-        onSidebarLayoutChange={setSidebarLayout}
         onSidebarSideChange={setSidebarSide}
       />
 

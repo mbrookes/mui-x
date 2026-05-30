@@ -700,6 +700,7 @@ These are present in the MUI X Studio implementation but are absent from or not 
 | **Feature flags**                            | A-13                                                                              | Runtime feature toggles for gradual rollout; not in AG Studio                      |
 | **AI chat assistant with streaming**         | `StudioChatPanel` (A-07)                                                          | Full AI assistant; AG Studio's `AgStudioAiModule` is more limited                  |
 | **Multi-source table columns**               | `StudioGridWidget.tsx`                                                            | Grid columns from multiple joined sources in one table                             |
+| **Custom widget API**                        | `customWidgets` prop + `StudioCustomWidgetDef` (BL-99)                            | Host apps register arbitrary React widget components; AG Studio has no equivalent  |
 
 ---
 

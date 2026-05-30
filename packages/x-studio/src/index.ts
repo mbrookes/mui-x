@@ -92,6 +92,7 @@ export {
   useStudioFeatures,
   useStudioUIConfig,
   useStudioLocaleText,
+  useCustomWidgetMap,
   CanvasScrollContext,
 } from './context/StudioContext';
 export type { StudioProviderProps } from './context/StudioContext';
@@ -194,8 +195,12 @@ export type {
   KpiFeatureFlags,
   ChartFeatureFlags,
   GridFeatureFlags,
+  BuiltinStudioWidgetKind,
   StudioChartAnnotation,
   StudioDateRangePreset,
+  StudioCustomWidgetDef,
+  StudioCustomWidgetProps,
+  StudioCustomWidgetSetupPanelProps,
 } from './models';
 
 // ─── Utility types ────────────────────────────────────────────────────────────

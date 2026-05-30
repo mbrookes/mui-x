@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Studio } from './Studio';
 import type { StudioHandle, StudioProps } from './Studio';
-import type { StudioDataSourceAdapter, StudioFeatureFlags, StudioState } from '../models';
+import type { StudioDataSourceAdapter, StudioFeatureFlags, StudioState, StudioCustomWidgetDef } from '../models';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
 
 /**
@@ -82,6 +82,11 @@ export interface StudioDashboardProps {
    * @default 'left'
    */
   sidebarSide?: 'left' | 'right';
+  /**
+   * Consumer-defined custom widget kinds shown alongside built-in widgets in the widget picker.
+   * @see StudioCustomWidgetDef
+   */
+  customWidgets?: StudioCustomWidgetDef[];
 }
 
 const DEFAULT_EMBED_FLAGS: StudioFeatureFlags = {
@@ -108,6 +113,7 @@ export const StudioDashboard = React.memo(
       localeText,
       stackBreakpoint,
       sidebarSide,
+      customWidgets,
     } = props;
 
     // Merge caller-supplied flags on top of view-only defaults
@@ -154,6 +160,7 @@ export const StudioDashboard = React.memo(
         localeText={localeText}
         stackBreakpoint={stackBreakpoint}
         sidebarSide={sidebarSide}
+        customWidgets={customWidgets}
       />
     );
   }),

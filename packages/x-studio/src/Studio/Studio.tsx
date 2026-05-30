@@ -24,6 +24,7 @@ import type {
   StudioFeatureFlags,
   StudioMode,
   StudioState,
+  StudioCustomWidgetDef,
 } from '../models';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
 import { StudioController } from '../store';
@@ -180,6 +181,24 @@ export interface StudioProps extends StudioSlots {
    * @default 600
    */
   stackBreakpoint?: number;
+  /**
+   * Consumer-defined custom widget kinds shown alongside built-in widgets in the widget picker.
+   * Each entry registers a `kind` string, a render `component`, an optional compose-drawer
+   * `setupPanel`, and optional metadata (label, icon, defaultConfig).
+   * @see StudioCustomWidgetDef
+   * @example
+   * ```tsx
+   * <Studio
+   *   customWidgets={[{
+   *     kind: 'alert-banner',
+   *     label: 'Alert Banner',
+   *     component: AlertBannerWidget,
+   *     setupPanel: AlertBannerSetupPanel,
+   *   }]}
+   * />
+   * ```
+   */
+  customWidgets?: StudioCustomWidgetDef[];
   /** Props forwarded to slot sub-components. */
   slotProps?: {
     /**
@@ -485,6 +504,7 @@ export const Studio = React.memo(
     const { initialState, onStateChange, tableSourceMode, featureFlags, localeText, ...slots } =
       props;
     const aiConfig = (slots as { aiConfig?: StudioAIConfig | null }).aiConfig;
+    const customWidgets = (slots as { customWidgets?: StudioCustomWidgetDef[] }).customWidgets;
 
     // Controller is created once at mount and never replaced.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -533,6 +553,7 @@ export const Studio = React.memo(
         featureFlags={featureFlags}
         localeText={localeText}
         aiConfig={aiConfig}
+        customWidgets={customWidgets}
       >
         <StudioContent {...slots} />
       </StudioProvider>

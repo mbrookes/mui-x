@@ -155,7 +155,7 @@ export function getWidgetSubtypeIcon(widget: StudioWidget, size = 16): React.Rea
 
 export function createDefaultWidget(
   kind: StudioWidgetKind,
-  source?: StudioDataSource,
+  overrides?: { title?: string; customConfig?: Record<string, unknown> },
 ): StudioWidget {
   const id = `widget-${kind}-${Date.now()}`;
 
@@ -163,7 +163,7 @@ export function createDefaultWidget(
     return {
       id,
       kind,
-      title: 'Text block',
+      title: overrides?.title ?? 'Text block',
       config: {
         textSubtitle: '',
         textBody: '',
@@ -175,9 +175,8 @@ export function createDefaultWidget(
     return {
       id,
       kind,
-      title: '',
-      config: { columns: source ? source.fields.map((f) => ({ fieldId: f.id })) : [] },
-      ...(source ? { sourceId: source.id } : {}),
+      title: overrides?.title ?? '',
+      config: { columns: [] },
     };
   }
 
@@ -185,9 +184,8 @@ export function createDefaultWidget(
     return {
       id,
       kind,
-      title: '',
+      title: overrides?.title ?? '',
       config: { chartType: 'bar' },
-      ...(source ? { sourceId: source.id } : {}),
     };
   }
 
@@ -195,9 +193,8 @@ export function createDefaultWidget(
     return {
       id,
       kind,
-      title: 'Filter',
+      title: overrides?.title ?? 'Filter',
       config: { filterWidgetType: 'multi-select' as const },
-      ...(source ? { sourceId: source.id } : {}),
     };
   }
 
@@ -205,9 +202,8 @@ export function createDefaultWidget(
     return {
       id,
       kind,
-      title: '',
+      title: overrides?.title ?? '',
       config: { pivotAggregation: 'sum' as const },
-      ...(source ? { sourceId: source.id } : {}),
     };
   }
 
@@ -215,9 +211,18 @@ export function createDefaultWidget(
     return {
       id,
       kind,
-      title: '',
+      title: overrides?.title ?? '',
       config: { mapAggregation: 'sum' as const },
-      ...(source ? { sourceId: source.id } : {}),
+    };
+  }
+
+  if (!['grid', 'chart', 'kpi', 'text', 'filter', 'pivot', 'map'].includes(kind)) {
+    // Custom widget kind
+    return {
+      id,
+      kind,
+      title: overrides?.title ?? kind,
+      config: { customConfig: overrides?.customConfig ?? {} },
     };
   }
 
@@ -225,9 +230,8 @@ export function createDefaultWidget(
   return {
     id,
     kind,
-    title: '',
+    title: overrides?.title ?? '',
     config: { kpiAggregation: 'sum' },
-    ...(source ? { sourceId: source.id } : {}),
   };
 }
 

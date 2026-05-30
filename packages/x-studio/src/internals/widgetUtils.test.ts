@@ -328,25 +328,10 @@ describe('createDefaultWidget', () => {
     expect(widget.sourceId).toBeUndefined();
   });
 
-  it('grid with source: config.columns is pre-populated from source field ids', () => {
-    const widget = createDefaultWidget('grid', SOURCES.orders);
-    expect(widget.config.columns).toEqual([
-      { fieldId: 'category' },
-      { fieldId: 'revenue' },
-      { fieldId: 'month' },
-    ]);
-    expect(widget.sourceId).toBe('orders');
-  });
-
   it('chart: config.chartType defaults to "bar"', () => {
     const widget = createDefaultWidget('chart');
     expect(widget.kind).toBe('chart');
     expect(widget.config.chartType).toBe('bar');
-  });
-
-  it('chart with source: sourceId is set', () => {
-    const widget = createDefaultWidget('chart', SOURCES.customers);
-    expect(widget.sourceId).toBe('customers');
   });
 
   it('kpi: config.kpiAggregation defaults to "sum"', () => {
@@ -361,15 +346,24 @@ describe('createDefaultWidget', () => {
     expect(widget.config.filterWidgetType).toBe('multi-select');
   });
 
-  it('filter with source: sourceId is set', () => {
-    const widget = createDefaultWidget('filter', SOURCES.orders);
-    expect(widget.sourceId).toBe('orders');
-    expect(widget.kind).toBe('filter');
-  });
-
   it('generates an id with a "widget-<kind>-<timestamp>" format', () => {
     const widget = createDefaultWidget('kpi');
     expect(widget.id).toMatch(/^widget-kpi-\d+$/);
+  });
+
+  it('custom kind: returns minimal widget with customConfig', () => {
+    const widget = createDefaultWidget('alert-banner', {
+      title: 'My Alert',
+      customConfig: { message: 'Hello', severity: 'info' },
+    });
+    expect(widget.kind).toBe('alert-banner');
+    expect(widget.title).toBe('My Alert');
+    expect(widget.config.customConfig).toEqual({ message: 'Hello', severity: 'info' });
+  });
+
+  it('overrides.title is used when provided', () => {
+    const widget = createDefaultWidget('text', { title: 'Custom title' });
+    expect(widget.title).toBe('Custom title');
   });
 });
 

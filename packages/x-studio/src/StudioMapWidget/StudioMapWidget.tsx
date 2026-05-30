@@ -1,10 +1,11 @@
 'use client';
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
+import { ChartsTooltip } from '@mui/x-charts/ChartsTooltip';
 import { ChoroplethChart } from '@mui/x-charts-pro/ChoroplethChart';
 import type { ExtendedFeatureCollection } from '@mui/x-charts-pro/ChoroplethChart';
 import type { StudioDataSource, StudioWidget } from '../models';
-import { useStudioLocaleText } from '../context';
+import { useStudioController, useStudioLocaleText, useStudioSelector, selectActivePageId, makeSelectActiveCrossFilter } from '../context';
 import { useWidgetRows } from '../internals/useWidgetRows';
 import { normalizeToAlpha2, normalizeToStateAbbr } from './countryUtils';
 import { BUILT_IN_GEOGRAPHIES, type GeographyLoader } from './geographyLoaders';
@@ -69,6 +70,13 @@ function aggregateValues(values: number[], fn: AggFn): number {
 
 export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWidgetProps) {
   const localeText = useStudioLocaleText();
+  const controller = useStudioController();
+  const activePageId = useStudioSelector(selectActivePageId);
+  const selectActiveCrossFilter = React.useMemo(
+    () => makeSelectActiveCrossFilter(widget.id, activePageId),
+    [widget.id, activePageId],
+  );
+  const activeCrossFilter = useStudioSelector(selectActiveCrossFilter);
 
   const { effectiveRows: rows, isLoading, isError } = useWidgetRows(widget, dataSource);
 
@@ -79,6 +87,8 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
   const colorScheme = config.mapColorScheme ?? 'blues';
   const mapGeography = config.mapGeography ?? 'world';
   const legendPosition = config.mapLegendPosition ?? 'bottom';
+  const legendZeroMin = config.mapLegendZeroMin ?? false;
+  const crossFilterEmit = config.mapCrossFilterEmit ?? false;
 
   // Merge built-in loaders with consumer-provided overrides
   const allGeographies: Record<string, GeographyLoader> = React.useMemo(
@@ -94,16 +104,22 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
     return normalizeToAlpha2;
   }, [mapGeography]);
 
-  // Build region → aggregated value map
-  const regionData = React.useMemo<Map<string, number>>(() => {
+  // Build region → aggregated value map, plus reverse lookup featureId → first raw key
+  const [regionData, rawKeyByFeatureId] = React.useMemo<
+    [Map<string, number>, Map<string, unknown>]
+  >(() => {
     if (!countryField || !rows.length) {
-      return new Map();
+      return [new Map(), new Map()];
     }
     const groups = new Map<string, number[]>();
+    const rawKeys = new Map<string, unknown>();
     for (const row of rows) {
       const id = normalize(row[countryField]);
       if (!id) {
         continue;
+      }
+      if (!rawKeys.has(id)) {
+        rawKeys.set(id, row[countryField]);
       }
       const rawValue = valueField != null ? row[valueField] : 1;
       const numValue = typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue ?? 0));
@@ -121,7 +137,7 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
     for (const [id, values] of groups) {
       result.set(id, aggregateValues(values, aggFn));
     }
-    return result;
+    return [result, rawKeys];
   }, [rows, countryField, valueField, aggFn, normalize]);
 
   // Compute min/max for color scale
@@ -130,10 +146,10 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
     if (!values.length) {
       return [0, 1];
     }
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    return [min, min === max ? min + 1 : max];
-  }, [regionData]);
+    const dataMin = legendZeroMin ? 0 : Math.min(...values);
+    const dataMax = Math.max(...values);
+    return [dataMin, dataMin === dataMax ? dataMin + 1 : dataMax];
+  }, [regionData, legendZeroMin]);
 
   // Lazy-load geography — async resource loading requires useEffect; the null-reset
   // on prop change and the .then(setGeography) are both intentional and correct here.
@@ -156,6 +172,37 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
   }, [mapGeography, allGeographies]);
 
   const isConfigured = !!countryField;
+
+  const handleFeatureClick = React.useCallback(
+    (_event: React.MouseEvent, params: { featureId: string }) => {
+      if (!crossFilterEmit || !countryField) {
+        return;
+      }
+      const rawValue = rawKeyByFeatureId.get(params.featureId);
+      if (rawValue == null) {
+        return;
+      }
+      const filterSourceId = config.mapCountrySourceId ?? widget.sourceId;
+      const isActive =
+        activeCrossFilter?.sourceWidgetId === widget.id &&
+        String(activeCrossFilter?.value) === String(rawValue);
+      if (isActive) {
+        controller.clearCrossFilter(widget.id);
+      } else {
+        controller.applyCrossFilter(widget.id, countryField, rawValue, filterSourceId);
+      }
+    },
+    [
+      crossFilterEmit,
+      countryField,
+      rawKeyByFeatureId,
+      config.mapCountrySourceId,
+      widget.sourceId,
+      widget.id,
+      activeCrossFilter,
+      controller,
+    ],
+  );
 
   if (isError) {
     return (
@@ -248,10 +295,12 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
           },
         ]}
         hideLegend={hideLegend}
+        slots={{ tooltip: ChartsTooltip }}
         slotProps={hideLegend ? undefined : legendSlotProps}
+        onItemClick={crossFilterEmit ? handleFeatureClick : undefined}
         loading={isLoading || !geography}
         margin={{ top: 8, bottom: 32, left: 8, right: 8 }}
-        sx={{ width: '100%', height: '100%' }}
+        sx={{ width: '100%', height: '100%', ...(crossFilterEmit && { cursor: 'pointer' }) }}
       />
     </Box>
   );

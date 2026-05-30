@@ -10,7 +10,13 @@ import {
 } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { Studio, createBatchingAdapter, deserializeState, migrateState, serializeState } from '@mui/x-studio';
+import {
+  Studio,
+  createBatchingAdapter,
+  deserializeState,
+  migrateState,
+  serializeState,
+} from '@mui/x-studio';
 import type {
   StudioHandle,
   StudioMode,
@@ -18,8 +24,10 @@ import type {
   StudioState,
   StudioAIConfig,
   StudioFeatureFlags,
+  StudioCustomWidgetDef,
   SerializedStudioState,
 } from '@mui/x-studio';
+import NotificationsIcon from '@mui/icons-material/Notifications';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { OS_INITIAL_STATE } from './config/officeSuppliesDashboard';
 import { loadOfficeSuppliesData } from './officeSuppliesData';
@@ -27,6 +35,8 @@ import type { OfficeSuppliesData } from './officeSuppliesData';
 import { AppToolbar } from './components/AppToolbar';
 import { SettingsDialog } from './components/SettingsDialog';
 import type { SidebarLayout, SidebarSide, TableSourceMode } from './components/SettingsDialog';
+import { AlertBannerWidget } from './components/AlertBannerWidget';
+import { AlertBannerSetupPanel } from './components/AlertBannerSetupPanel';
 import { downloadJson, uploadJson } from 'x-studio-shared';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
@@ -205,16 +215,17 @@ export default function App() {
   // Phase 1: render the shell immediately with the static demo data so FCP
   // is not blocked by data generation.
   const baseInitialState = React.useMemo<Partial<StudioState>>(() => {
-    const baseDataSources = (dataset === 'ag-studio' && osData
-      ? {
-          [osData.storesSource.id]: osData.storesSource,
-          [osData.productsSource.id]: osData.productsSource,
-          [osData.customersSource.id]: osData.customersSource,
-          [osData.ordersSource.id]: osData.ordersSource,
-          [osData.orderItemsSource.id]: osData.orderItemsSource,
-          [osData.shipmentsSource.id]: osData.shipmentsSource,
-        }
-      : INITIAL_STATE.dataSources) ?? {};
+    const baseDataSources =
+      (dataset === 'ag-studio' && osData
+        ? {
+            [osData.storesSource.id]: osData.storesSource,
+            [osData.productsSource.id]: osData.productsSource,
+            [osData.customersSource.id]: osData.customersSource,
+            [osData.ordersSource.id]: osData.ordersSource,
+            [osData.orderItemsSource.id]: osData.orderItemsSource,
+            [osData.shipmentsSource.id]: osData.shipmentsSource,
+          }
+        : INITIAL_STATE.dataSources) ?? {};
     const baseConfig = dataset === 'ag-studio' && osData ? OS_INITIAL_STATE : INITIAL_STATE;
 
     // Restore from localStorage if available, merging with the live data sources.
@@ -299,7 +310,8 @@ export default function App() {
       : 'static';
   // When a large dataset is being generated (?rows=N) or AG Studio data is loading,
   // suppress the static demo render entirely.
-  const isGenerating = (rowCount !== undefined && generatedState === null) ||
+  const isGenerating =
+    (rowCount !== undefined && generatedState === null) ||
     (dataset === 'ag-studio' && osData === null);
   const [mode, setMode] = React.useState<StudioMode>('edit');
   const [title, setTitle] = React.useState('');
@@ -325,6 +337,22 @@ export default function App() {
     setUrlBreakpoint(bp);
   }
   const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({});
+
+  // Demo custom widgets — an Alert Banner example showing the custom widget API
+  const customWidgets = React.useMemo<StudioCustomWidgetDef[]>(
+    () => [
+      {
+        kind: 'alert-banner',
+        label: 'Alert Banner',
+        description: 'Coloured alert box with configurable message and severity',
+        icon: <NotificationsIcon sx={{ fontSize: 28 }} />,
+        component: AlertBannerWidget,
+        setupPanel: AlertBannerSetupPanel,
+        defaultConfig: { title: '', message: 'Enter your message here.', severity: 'info' },
+      },
+    ],
+    [],
+  );
 
   // AI config — read from Vite env vars set by the developer
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
@@ -494,7 +522,11 @@ export default function App() {
 
   const handleReset = React.useCallback(() => {
     clearLocalState();
-    setSnackbar({ open: true, message: 'Local changes cleared — reloading demo…', severity: 'info' });
+    setSnackbar({
+      open: true,
+      message: 'Local changes cleared — reloading demo…',
+      severity: 'info',
+    });
     setTimeout(() => window.location.reload(), 800);
   }, []);
 
@@ -598,6 +630,7 @@ export default function App() {
                 stackBreakpoint={stackBreakpoint}
                 featureFlags={featureFlags}
                 aiConfig={aiConfig}
+                customWidgets={customWidgets}
               />
             )}
           </Box>

@@ -19,6 +19,7 @@ import {
   CanvasScrollContext,
   useStudioController,
   useStudioSelector,
+  useCustomWidgetMap,
   selectShell,
   selectActivePage,
   selectWidgets,
@@ -409,6 +410,7 @@ export function AddWidgetView() {
   const dataSources = useStudioSelector(selectDataSources);
   const features = useStudioFeatures();
   const canvasScrollRef = React.use(CanvasScrollContext);
+  const customWidgetMap = useCustomWidgetMap();
   const [selectedKind, setSelectedKind] = React.useState<StudioWidgetKind | null>(null);
 
   const scrollToBottom = React.useCallback(() => {
@@ -427,13 +429,23 @@ export function AddWidgetView() {
   const handleAdd = React.useCallback(
     (kind: StudioWidgetKind) => {
       const sources = Object.values(dataSources).filter((s) => !s.hidden);
-      if (widgetKindRequiresDataSource(kind) && sources.length === 0) {
+      const customDef = customWidgetMap.get(kind);
+      const requiresSource = customDef
+        ? (customDef.requiresDataSource ?? false)
+        : widgetKindRequiresDataSource(kind);
+      if (requiresSource && sources.length === 0) {
         return;
       }
-      controller.addWidget(createDefaultWidget(kind));
+      if (customDef) {
+        controller.addWidget(
+          createDefaultWidget(kind, { title: customDef.label ?? kind, customConfig: customDef.defaultConfig ?? {} }),
+        );
+      } else {
+        controller.addWidget(createDefaultWidget(kind));
+      }
       scrollToBottom();
     },
-    [controller, dataSources, scrollToBottom],
+    [controller, customWidgetMap, dataSources, scrollToBottom],
   );
 
   const handleSelectKind = React.useCallback((kind: StudioWidgetKind) => {
@@ -442,31 +454,36 @@ export function AddWidgetView() {
 
   const hasSources = Object.values(dataSources).some((s) => !s.hidden);
 
-  // Filter widget types by kind feature flags
-  const visibleWidgetTypes = React.useMemo(
-    () =>
-      WIDGET_TYPES.filter((wt) => {
-        switch (wt.kind) {
-          case 'grid':
-            return features.grid !== false;
-          case 'chart':
-            return features.chart !== false;
-          case 'kpi':
-            return features.kpi !== false;
-          case 'text':
-            return features.text !== false;
-          case 'filter':
-            return features.filter !== false;
-          case 'pivot':
-            return features.pivot !== false;
-          case 'map':
-            return features.map !== false;
-          default:
-            return true;
-        }
-      }),
-    [features],
-  );
+  // Combine built-in widget types with consumer-registered custom widget types
+  const allWidgetTypes = React.useMemo(() => {
+    const builtins = WIDGET_TYPES.filter((wt) => {
+      switch (wt.kind) {
+        case 'grid':
+          return features.grid !== false;
+        case 'chart':
+          return features.chart !== false;
+        case 'kpi':
+          return features.kpi !== false;
+        case 'text':
+          return features.text !== false;
+        case 'filter':
+          return features.filter !== false;
+        case 'pivot':
+          return features.pivot !== false;
+        case 'map':
+          return features.map !== false;
+        default:
+          return true;
+      }
+    });
+    const customs = Array.from(customWidgetMap.values()).map((def) => ({
+      kind: def.kind,
+      label: def.label ?? def.kind,
+      description: def.description ?? 'Custom widget',
+      icon: def.icon ?? null,
+    }));
+    return [...builtins, ...customs];
+  }, [features, customWidgetMap]);
 
   if (selectedKind) {
     return (
@@ -492,8 +509,12 @@ export function AddWidgetView() {
           No data sources available yet. Only text widgets can be added until one is connected.
         </Alert>
       )}
-      {visibleWidgetTypes.map((wt) => {
-        const canAdd = !widgetKindRequiresDataSource(wt.kind) || hasSources;
+      {allWidgetTypes.map((wt) => {
+        const customDef = customWidgetMap.get(wt.kind);
+        const requiresSource = customDef
+          ? (customDef.requiresDataSource ?? false)
+          : widgetKindRequiresDataSource(wt.kind);
+        const canAdd = !requiresSource || hasSources;
         return <WidgetTypeCard key={wt.kind} wt={wt} canAdd={canAdd} onSelect={handleSelectKind} />;
       })}
     </Stack>

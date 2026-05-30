@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Box, Tab, Tabs } from '@mui/material';
 import { useDrawerSubheader } from '../Studio/DrawerPanelContext';
-import { useStudioSelector, selectWidgets, selectShell } from '../context';
+import { useStudioSelector, selectWidgets, selectShell, useCustomWidgetMap } from '../context';
 import { StudioUIConfigContext } from '../internals/StudioUIConfigContext';
 import { AddWidgetView } from './AddWidgetView';
 import { ChartSetupPanel } from './ChartSetupPanel';
@@ -40,6 +40,10 @@ function WidgetConfigView(props: { widgetId: string }) {
   const { widgetId } = props;
   const [tab, setTab] = React.useState(0);
   const widget = useStudioSelector(selectWidgets)[widgetId];
+  const customWidgetMap = useCustomWidgetMap();
+  const customDef = widget
+    ? customWidgetMap.get(widget.kind) ?? null
+    : null;
 
   const handleTabChange = React.useCallback(
     (_event: React.SyntheticEvent, v: number) => setTab(v),
@@ -78,6 +82,7 @@ function WidgetConfigView(props: { widgetId: string }) {
         {widget.kind === 'filter' && <FilterSetupPanel widgetId={widgetId} />}
         {widget.kind === 'pivot' && <PivotSetupPanel widgetId={widgetId} />}
         {widget.kind === 'map' && <MapSetupPanel widgetId={widgetId} />}
+        {customDef?.setupPanel && <customDef.setupPanel widgetId={widgetId} />}
       </TabPanel>
       <TabPanel value={tab} index={1}>
         {widget.kind === 'text' ? (

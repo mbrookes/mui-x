@@ -566,7 +566,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         if (widgetKindRequiresDataSource(data.kind) && sources.length === 0) {
           return;
         }
-        const newWidget = createDefaultWidget(data.kind, sources[0]);
+        const newWidget = createDefaultWidget(data.kind);
         const rows = currentRows.map((r) => [...r]);
         if (orientation === 'horizontal') {
           rows.splice(rowIndex, 0, [newWidget.id]);

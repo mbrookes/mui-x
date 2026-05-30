@@ -624,6 +624,28 @@
 
 ---
 
+### UX-19 · Disable non-editable field rows in DataDialog (BL-114)
+
+- `PhysicalFieldRow` in `DataSourceSection.tsx` now accepts `isEditMode` prop
+- When `!isEditMode`: `disableRipple`, `onClick` cleared, `cursor: 'default'`, hover background transparent, `selected` cleared — fields cannot be clicked or highlighted in view mode (DataDialog)
+- `ExpressionFieldRow` receives the same cursor/hover suppression alongside the existing `disableRipple` guard
+
+### UX-20 · Nested feature flag visual hierarchy (BL-113)
+
+- `FeatureFlagSettings` (x-studio-shared) restructured to render proper parent→child hierarchy
+- Widget sub-flags (sparkline, trend, target, annotations, groupBy, summary, conditionalFormats, calculatedFields variants) now appear indented under their parent widget kind toggle
+- Top-level child flags (savedFilterViews under filters, relationships under dataManagement) are indented under their parent
+- Disabled items render at 0.5 opacity in addition to the Switch being disabled — visually clear which children are blocked by their parent
+- Shared `FlagRow` helper component keeps rendering consistent across all toggles
+- Used by all three example apps (x-studio, x-studio-composed, ag-studio) via x-studio-shared
+
+### UX-21 · Remove inapplicable sidebar layout setting from ag-studio (BL-116)
+
+- Removed `SidebarLayout` type, `sidebarLayout` state, `onSidebarLayoutChange` prop, and the Sidebar layout radio group from `ag-studio/src/components/SettingsDialog.tsx` and `App.tsx`
+- ag-studio uses AG Grid's own sidebar; x-studio's compose/data/filter drawer layout is not applicable
+
+---
+
 ## 📋 Planned
 
 _Nothing remaining — all tracked requirements are complete or WONTFIX._

@@ -351,16 +351,22 @@ BL109: Widget resize vertical grid lines still aren't correctly spaced. This was
 
 **Done** — `StudioWidgetCard.handleDragStart` sets `document.body.dataset.studioDraggingWidgetId`; `handleDragEnd` clears it. Module-level `isAdjacentToDraggingWidget()` helper checks the attribute against `widgetRowsRef` to detect flanking positions. Both `InsertionPoint` (vertical only) and `WidgetGap` skip `preventDefault`/`setIsOver` when adjacent to the drag source.
 
-BL-113: The demo app config dialogs need to be updated to reflect the nested feature flags -  turning off a parent feature should disable the child flags switches (preserving but ignoring thier current state).
+~~BL-113: The demo app config dialogs need to be updated to reflect the nested feature flags -  turning off a parent feature should disable the child flags switches (preserving but ignoring thier current state).~~
 
-BL-114: BL-102 isn't completely fixed: Non-editible fields in the data dialog can still be clicked (with ripple) and selected (grey highlight). Disable this.
+**Done** — `FeatureFlagSettings` (x-studio-shared) now renders a proper visual hierarchy. Widget sub-flags (sparkline, trend, annotations, groupBy, etc.) appear indented under their parent widget kind toggle. Top-level child flags (savedFilterViews, relationships) are indented under their parent (filters, dataManagement). Disabled flags render at 0.5 opacity in addition to the Switch being disabled. A shared `FlagRow` helper keeps rendering consistent.
+
+~~BL-114: BL-102 isn't completely fixed: Non-editible fields in the data dialog can still be clicked (with ripple) and selected (grey highlight). Disable this.~~
+
+**Done** — `PhysicalFieldRow` and `ExpressionFieldRow` in `StudioDataDrawer/DataSourceSection.tsx` now accept/use `isEditMode`. When false: `disableRipple`, `onClick` cleared, `cursor: 'default'`, hover `bgcolor: transparent`. `PhysicalFieldRow` also clears `selected` when not in edit mode.
 
 BL-115: Map tooltip should show the country/state etc name.
 
-BL-116: The ag-studio example doesn't need a setting for for sidebar layout, that's an x-studio feature.
+~~BL-116: The ag-studio example doesn't need a setting for for sidebar layout, that's an x-studio feature.~~
+
+**Done** — Removed `SidebarLayout` type, `sidebarLayout` state, `onSidebarLayoutChange` prop, and the Sidebar layout `RadioGroup` from `examples/ag-studio/src/components/SettingsDialog.tsx` and `App.tsx`.
 
 BL-117: THe ag-studio example dashboard config for the AG Studio Data Dataset setting was supposed to have been scraped from https://www.ag-grid.com/studio/example/. Figure out how to access the underlying JSON and clone it in our app.
 
 BL-118: Make sure the chat agent tools are updated for all the new chart types and widgets. MAke sure it can understand and insert custom widgets.
 
-BL-119: /research AG Studio AI assistant, and /plan and implement enhancements to ours to make it feature complete. 
+BL-119: /research AG Studio AI assistant, and /plan and implement enhancements to ours to make it feature complete.

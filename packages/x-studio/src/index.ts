@@ -147,11 +147,7 @@ export { StudioController, createStudioController } from './store/StudioControll
 export { createDefaultStudioState } from './models';
 
 // ─── State persistence ────────────────────────────────────────────────────────
-export {
-  serializeState,
-  deserializeState,
-  migrateState,
-} from './store/statePersistence';
+export { serializeState, deserializeState, migrateState } from './store/statePersistence';
 export type { SerializedStudioState, MigrationResult } from './store/statePersistence';
 
 // ─── Models / domain types ────────────────────────────────────────────────────

@@ -481,8 +481,14 @@ export class StudioController {
     if (!activePage) {
       return;
     }
-    const clampedLeft = Math.max(MIN_SPAN_COLS, Math.min(GRID_COLS - MIN_SPAN_COLS, Math.round(leftSpan)));
-    const clampedRight = Math.max(MIN_SPAN_COLS, Math.min(GRID_COLS - MIN_SPAN_COLS, Math.round(rightSpan)));
+    const clampedLeft = Math.max(
+      MIN_SPAN_COLS,
+      Math.min(GRID_COLS - MIN_SPAN_COLS, Math.round(leftSpan)),
+    );
+    const clampedRight = Math.max(
+      MIN_SPAN_COLS,
+      Math.min(GRID_COLS - MIN_SPAN_COLS, Math.round(rightSpan)),
+    );
     const newSpans: Record<string, number> = { ...(activePage.widgetColSpans ?? {}) };
     newSpans[leftId] = clampedLeft;
     newSpans[rightId] = clampedRight;

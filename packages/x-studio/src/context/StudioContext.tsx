@@ -1,13 +1,14 @@
 'use client';
 import * as React from 'react';
 
-import type { StudioState, StudioFeatureFlags } from '../models';
+import type { StudioState, StudioFeatureFlags, StudioCustomWidgetDef } from '../models';
 import type { StudioController } from '../store';
 import {
   StudioUIConfigContext,
   useStudioFeatures,
   useStudioUIConfig,
   useStudioLocaleText,
+  useCustomWidgetMap,
   DEFAULT_STUDIO_LOCALE_TEXT,
 } from '../internals/StudioUIConfigContext';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
@@ -43,6 +44,12 @@ export interface StudioProviderProps {
    * the "Describe a widget" prompt appears in the compose drawer and the AI assistant panel is available.
    */
   aiConfig?: StudioAIConfig | null;
+  /**
+   * Consumer-defined custom widget kinds shown alongside the built-in widgets in the widget picker.
+   * Each entry registers a `kind` identifier, a render `component`, and optional compose-drawer
+   * `setupPanel`. See {@link StudioCustomWidgetDef} for the full registration shape.
+   */
+  customWidgets?: StudioCustomWidgetDef[];
 }
 
 export function StudioProvider(props: StudioProviderProps) {
@@ -53,6 +60,7 @@ export function StudioProvider(props: StudioProviderProps) {
     featureFlags = {},
     localeText,
     aiConfig,
+    customWidgets,
   } = props;
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -68,10 +76,11 @@ export function StudioProvider(props: StudioProviderProps) {
         ? { ...DEFAULT_STUDIO_LOCALE_TEXT, ...localeText }
         : DEFAULT_STUDIO_LOCALE_TEXT,
       aiConfig: aiConfig ?? null,
+      customWidgets,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // react-doctor-disable-next-line react-doctor/exhaustive-deps -- featureFlagsKey/localeTextKey are JSON.stringify proxies for deep equality
-    [tableSourceMode, featureFlagsKey, localeTextKey, aiConfig],
+    [tableSourceMode, featureFlagsKey, localeTextKey, aiConfig, customWidgets],
   );
 
   return (
@@ -101,4 +110,4 @@ export function useStudioSelector<Value>(selector: (state: StudioState) => Value
   return controller.store.use(selector) as Value;
 }
 
-export { useStudioFeatures, useStudioUIConfig, useStudioLocaleText };
+export { useStudioFeatures, useStudioUIConfig, useStudioLocaleText, useCustomWidgetMap };

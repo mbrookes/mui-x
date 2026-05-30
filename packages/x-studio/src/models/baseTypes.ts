@@ -4,7 +4,24 @@ export type StudioMode = 'edit' | 'view';
 
 export type StudioDrawer = 'data' | 'compose' | 'filters';
 
-export type StudioWidgetKind = 'grid' | 'chart' | 'kpi' | 'text' | 'filter' | 'pivot' | 'map';
+/**
+ * Built-in widget kinds. Use this type for exhaustive switches over built-in widget logic.
+ * For code that must also handle consumer-defined custom widget kinds, use {@link StudioWidgetKind}.
+ */
+export type BuiltinStudioWidgetKind =
+  | 'grid'
+  | 'chart'
+  | 'kpi'
+  | 'text'
+  | 'filter'
+  | 'pivot'
+  | 'map';
+
+/**
+ * All widget kinds: built-in kinds plus any consumer-defined custom kind identifier.
+ * Use namespaced strings for custom kinds (e.g. `'acme-weather'`) to avoid collisions.
+ */
+export type StudioWidgetKind = BuiltinStudioWidgetKind | (string & {});
 
 export type StudioFilterWidgetType = 'date-range' | 'multi-select' | 'toggle' | 'slider';
 

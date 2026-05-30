@@ -3,3 +3,4 @@ export * from './widgetTypes';
 export * from './dataTypes';
 export * from './expressionTypes';
 export * from './stateTypes';
+export * from './customWidgetTypes';

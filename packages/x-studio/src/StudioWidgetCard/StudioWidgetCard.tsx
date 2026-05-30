@@ -24,6 +24,7 @@ import {
   useStudioController,
   useStudioSelector,
   useStudioLocaleText,
+  useCustomWidgetMap,
   selectMode,
   selectPages,
   selectActivePageId,
@@ -176,6 +177,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const pages = useStudioSelector(selectPages);
   const activePageId = useStudioSelector(selectActivePageId);
   const localeText = useStudioLocaleText();
+  const customWidgetMap = useCustomWidgetMap();
+  // Look up the custom widget definition for non-builtin widget kinds
+  const customDef = widget && !['grid', 'chart', 'kpi', 'text', 'filter', 'pivot', 'map'].includes(widget.kind)
+    ? customWidgetMap.get(widget.kind) ?? null
+    : null;
 
   // Pages the user can move this widget to (all pages except the current one)
   const moveToPageOptions = React.useMemo(
@@ -573,6 +579,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                 sx={{ borderRadius: 1 }}
               />
             ))}
+          {customDef &&
+            (showContent ? (
+              <customDef.component widget={widget} dataSource={source ?? undefined} />
+            ) : (
+              <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 1 }} />
+            ))}
         </Stack>
         {/* Chart full-screen overlay dialog */}
         {isChart && expanded && (
@@ -653,6 +665,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                 {source && <StudioMapWidget widget={widget} dataSource={source} />}
               </Box>
             )}
+            {customDef && <customDef.component widget={widget} dataSource={source ?? undefined} />}
           </StudioWidgetEditDialog>
         )}
       </Paper>

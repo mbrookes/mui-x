@@ -145,7 +145,7 @@ export async function createWidgetFromDescription(
   const sources = Object.values(state.dataSources).filter((s) => !s.hidden);
   const source = args.sourceId ? state.dataSources[String(args.sourceId)] : sources[0];
 
-  const base = createDefaultWidget(kind, source);
+  const base = createDefaultWidget(kind);
   const widget: StudioWidget = {
     ...base,
     title: args.title ? String(args.title) : base.title,

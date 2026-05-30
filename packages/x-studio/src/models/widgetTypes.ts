@@ -1,6 +1,7 @@
 import type {
   StudioFilterWidgetType,
   StudioWidgetKind,
+  BuiltinStudioWidgetKind,
   StudioFilterOperator,
   StudioGridColumn,
   StudioGridSummaryAggregation,
@@ -18,6 +19,7 @@ import type {
 export type {
   StudioFilterWidgetType,
   StudioWidgetKind,
+  BuiltinStudioWidgetKind,
   StudioFilterOperator,
   StudioGridColumn,
   StudioGridSummaryAggregation,
@@ -280,6 +282,16 @@ export interface StudioWidgetConfig {
   // Shared
   measures?: string[];
   dimensions?: string[];
+
+  // ── Custom widget configuration ────────────────────────────────────────────
+
+  /**
+   * Arbitrary JSON-serializable configuration for consumer-defined custom widget kinds.
+   * Built-in widget kinds never write to this field.
+   * Must be plain JSON (no functions, class instances, Date objects, etc.) to survive
+   * state serialization/deserialization.
+   */
+  customConfig?: Record<string, unknown>;
 }
 
 export interface StudioWidget {

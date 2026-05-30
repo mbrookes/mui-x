@@ -290,6 +290,14 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 
 BL-99: Research, plan and then add support for custom widgets.
 
+~~BL-99~~ **Done** — Added `StudioCustomWidgetDef`, `StudioCustomWidgetProps`, `StudioCustomWidgetSetupPanelProps` interfaces.
+`<Studio customWidgets={[...]}/>` accepts an array of `StudioCustomWidgetDef` — each entry registers a `kind`, render `component`,
+optional `setupPanel`, `label`, `description`, `icon`, `requiresDataSource`, and `defaultConfig`.
+Custom widgets appear in the widget picker alongside built-ins, render on the canvas, and (if `setupPanel` is provided)
+get a full Setup tab in the compose drawer just like built-in widgets.
+`useCustomWidgetMap()` hook exported for consumers who need O(1) lookup.
+`BuiltinStudioWidgetKind` literal union exported for exhaustive type checks.
+Example `AlertBannerWidget` + `AlertBannerSetupPanel` added to `examples/x-studio`.
 ~~BL-100: Plan and then implement nesting for feature flags, for example KPI can either be false, or have an object of features that are false. This can be a breaking change, but fix the example apps.~~
 **Done** — Added `KpiFeatureFlags`, `ChartFeatureFlags`, `GridFeatureFlags` sub-flag interfaces.
 `featureFlags.kpi` now accepts `false | KpiFeatureFlags` (e.g. `{ sparkline: false, trend: false }`);

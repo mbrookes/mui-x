@@ -190,16 +190,26 @@ interface PhysicalFieldRowProps {
   field: StudioDataSource['fields'][number];
   rows: StudioDataSource['rows'];
   isSelected: boolean;
+  isEditMode: boolean;
   onSelect: () => void;
 }
 
-function PhysicalFieldRow({ field, rows, isSelected, onSelect }: PhysicalFieldRowProps) {
+function PhysicalFieldRow({ field, rows, isSelected, isEditMode, onSelect }: PhysicalFieldRowProps) {
   return (
     <FieldPreviewTooltip field={field} rows={rows}>
       <ListItemButton
-        selected={isSelected}
-        onClick={onSelect}
-        sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
+        selected={isEditMode && isSelected}
+        disableRipple={!isEditMode}
+        onClick={isEditMode ? onSelect : undefined}
+        sx={{
+          borderRadius: 1,
+          py: 0.25,
+          px: 0.75,
+          ...(!isEditMode && {
+            cursor: 'default',
+            '&:hover': { bgcolor: 'transparent' },
+          }),
+        }}
       >
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexGrow: 1, minWidth: 0 }}>
           <FieldTypeIcon type={field.type} generated={field.generated} size={15} />
@@ -255,7 +265,15 @@ function ExpressionFieldRow({
   return (
     <FieldPreviewTooltip field={field} rows={previewRows}>
       <ListItemButton
-        sx={{ borderRadius: 1, py: 0.25, px: 0.75 }}
+        sx={{
+          borderRadius: 1,
+          py: 0.25,
+          px: 0.75,
+          ...(!isEditMode && {
+            cursor: 'default',
+            '&:hover': { bgcolor: 'transparent' },
+          }),
+        }}
         disableRipple={!isEditMode}
         onClick={isEditMode ? onEdit : undefined}
       >
@@ -374,6 +392,7 @@ export function DataSourceSection(props: {
                 field={field}
                 rows={source.rows}
                 isSelected={isSelected}
+                isEditMode={isEditMode}
                 onSelect={() => controller.selectField(source.id, field.id)}
               />,
             ];

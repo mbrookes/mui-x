@@ -24,12 +24,12 @@ Choose the composed approach when you need to:
 
 ## Building blocks
 
-| Component / hook      | Role                                                                    |
+### Components
+
+| Component             | Role                                                                    |
 | :-------------------- | :---------------------------------------------------------------------- |
 | `StudioController`    | Owns the state machine. Create once at mount.                           |
 | `StudioProvider`      | React context provider — wraps everything that accesses Studio state.   |
-| `useStudioController` | Returns the controller inside a provider.                               |
-| `useStudioSelector`   | Subscribes to a state slice; re-renders only when that slice changes.   |
 | `StudioCanvas`        | Renders the grid of widget cards.                                       |
 | `StudioDataDrawer`    | Data sources sidebar panel.                                             |
 | `StudioComposeDrawer` | Widget configuration sidebar panel. Accepts `StudioComposeDrawerProps`. |
@@ -37,6 +37,13 @@ Choose the composed approach when you need to:
 | `DrawerPanel`         | Collapsible sidebar strip that wraps a drawer component.                |
 | `TabbedSidebar`       | Tabbed sidebar that shows one panel at a time.                          |
 | `StudioChatPanel`     | Floating AI assistant overlay.                                          |
+
+### Hooks
+
+| Hook                  | Role                                                                    |
+| :-------------------- | :---------------------------------------------------------------------- |
+| `useStudioController` | Returns the controller inside a provider.                               |
+| `useStudioSelector`   | Subscribes to a state slice; re-renders only when that slice changes.   |
 
 ## Minimal example
 

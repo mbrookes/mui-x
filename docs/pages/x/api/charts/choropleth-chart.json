@@ -16,6 +16,7 @@
       "default": "rainbowSurgePalette"
     },
     "dataset": { "type": { "name": "arrayOf", "description": "Array&lt;object&gt;" } },
+    "defaultFeatureColor": { "type": { "name": "string" }, "default": "'#d4d4d4'" },
     "desc": { "type": { "name": "string" } },
     "disableKeyboardNavigation": { "type": { "name": "bool" } },
     "experimentalFeatures": { "type": { "name": "object" } },

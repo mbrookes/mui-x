@@ -28,7 +28,7 @@ const ref = React.useRef<StudioHandle>(null);
     setTitle(state.dashboard.title);
     setCanUndo(ref.current?.canUndo() ?? false);
   }}
-/>
+/>;
 ```
 
 Studio fills its container — wrap it in a sized element (for example, `height: 100vh` or `flexGrow: 1`).
@@ -57,7 +57,7 @@ const initialState: Partial<StudioState> = {
 };
 ```
 
-See [Inline data sources](/x/react-studio/data/data-sources  for the full `StudioDataSource` shape.
+See [Inline data sources](/x/react-studio/data/data-sources/) for the full `StudioDataSource` shape.
 
 ### `onStateChange`
 
@@ -152,7 +152,61 @@ const aiConfig: StudioAIConfig = {
 };
 ```
 
-See [AI assistant](/x/react-studio/ai/setup  for detailed setup.
+See [AI assistant](/x/react-studio/ai/setup/) for detailed setup.
+
+### `featureFlags`
+
+```ts
+featureFlags?: StudioFeatureFlags
+```
+
+Controls which Studio features are visible to the end user. All flags default to `true`, so you can pass a partial object to disable specific UI capabilities. This prop is available on `Studio`, `StudioDashboard`, and `StudioProvider`.
+
+```ts
+interface StudioFeatureFlags {
+  // Panel visibility
+  compose?: boolean; // Show compose/edit panel (locks to view-only when false)
+  filters?: boolean; // Show filters panel + quick filter bar
+  savedFilterViews?: boolean; // Allow saving named filter presets
+  dataManagement?: boolean; // Show data drawer
+  aiChat?: boolean; // Enable AI chat panel (requires aiConfig too)
+
+  // Widget kinds (hides from widget picker when false)
+  grid?: boolean;
+  chart?: boolean;
+  kpi?: boolean;
+  text?: boolean;
+  filter?: boolean;
+  pivot?: boolean;
+  map?: boolean;
+
+  // KPI features
+  kpiSparkline?: boolean; // KPI sparkline section
+  kpiTrend?: boolean; // KPI trend badge
+  kpiTarget?: boolean; // KPI target line
+
+  // Chart features
+  chartAnnotations?: boolean; // Chart reference-line annotations
+
+  // Grid features
+  gridGroupBy?: boolean; // Grid group-by field picker
+  gridSummary?: boolean; // Grid summary (totals) row
+  gridConditionalFormats?: boolean; // Grid conditional formatting
+}
+```
+
+```tsx
+// View-only dashboard with no editing, no data management, no AI
+<Studio
+  featureFlags={{
+    compose: false,
+    dataManagement: false,
+    aiChat: false,
+  }}
+/>
+```
+
+`StudioDashboard` uses embed-first defaults with `compose: false` and `dataManagement: false`; pass `featureFlags={{ compose: true }}` to re-enable authoring features there. Feature flags only control what users can _see_ in the UI — they are not a server-side access-control mechanism.
 
 ### `slotProps`
 
@@ -188,25 +242,23 @@ Forwards extra props to internally-rendered subcomponents.
 />
 ```
 
-See [Slot props](/x/react-studio/customization/slot-props  for the full hierarchy.
+See [Slot props](/x/react-studio/customization/slot-props/) for the full hierarchy.
 
 ### Slots (ReactNode overrides)
 
 The `Studio` component accepts four ReactNode slot props that replace entire panels:
 
-| Prop | Default | Description |
-| :--- | :--- | :--- |
-| `canvas` | `<StudioCanvas />` | The main widget canvas |
-| `dataDrawer` | `<StudioDataDrawer />` | The data sources panel |
+| Prop            | Default                   | Description                    |
+| :-------------- | :------------------------ | :----------------------------- |
+| `canvas`        | `<StudioCanvas />`        | The main widget canvas         |
+| `dataDrawer`    | `<StudioDataDrawer />`    | The data sources panel         |
 | `composeDrawer` | `<StudioComposeDrawer />` | The widget configuration panel |
-| `filtersDrawer` | `<StudioFiltersDrawer />` | The filters panel |
+| `filtersDrawer` | `<StudioFiltersDrawer />` | The filters panel              |
 
 Use these when you need a fully custom panel UI but still want Studio to own the canvas and state:
 
 ```tsx
-<Studio
-  dataDrawer={<MyCustomDataPanel />}
-/>
+<Studio dataDrawer={<MyCustomDataPanel />} />
 ```
 
 ## `StudioHandle` — the imperative API
@@ -216,10 +268,10 @@ Obtain a reference to the `StudioHandle` via `React.useRef<StudioHandle>(null)`.
 ### Undo / redo
 
 ```ts
-ref.current.undo()         // Undo the last action
-ref.current.redo()         // Redo the last undone action
-ref.current.canUndo()      // true if there is an action to undo
-ref.current.canRedo()      // true if there is an action to redo
+ref.current.undo(); // Undo the last action
+ref.current.redo(); // Redo the last undone action
+ref.current.canUndo(); // true if there is an action to undo
+ref.current.canRedo(); // true if there is an action to redo
 ```
 
 Studio maintains its own undo/redo stack.
@@ -238,7 +290,7 @@ See `useStudioKeyboardShortcuts` if you compose Studio manually.
 ### Mode
 
 ```ts
-ref.current.setMode('edit' | 'view')
+ref.current.setMode('edit' | 'view');
 ```
 
 Switches between edit mode (sidebar visible, widgets draggable) and view mode (clean read-only presentation).
@@ -265,18 +317,18 @@ setActivePageId(state.dashboard.activePageId);
   {Object.values(pages).map((page) => (
     <Tab key={page.id} value={page.id} label={page.title} />
   ))}
-</Tabs>
+</Tabs>;
 ```
 
 ### State
 
 ```ts
-ref.current.getState()                   // Returns a snapshot of StudioState
-ref.current.serializeState()             // Returns a JSON-safe SerializedStudioState
-ref.current.loadSerializedState(data)    // Restores state; returns MigrationResult
+ref.current.getState(); // Returns a snapshot of StudioState
+ref.current.serializeState(); // Returns a JSON-safe SerializedStudioState
+ref.current.loadSerializedState(data); // Restores state; returns MigrationResult
 ```
 
-See [Save & load](/x/react-studio/persistence/save-and-load  for the full persistence API.
+See [Save & load](/x/react-studio/persistence/save-and-load/) for the full persistence API.
 
 ### Data source adapters
 
@@ -304,10 +356,12 @@ export default function App() {
 
   const handleStateChange = React.useCallback((state: StudioState) => {
     setMode((prev) => (prev === state.mode ? prev : state.mode));
-    setTitle((prev) => (prev === state.dashboard.title ? prev : state.dashboard.title));
+    setTitle((prev) =>
+      prev === state.dashboard.title ? prev : state.dashboard.title,
+    );
     setPages((prev) => (prev === state.pages ? prev : state.pages));
     setActivePageId((prev) =>
-      prev === state.dashboard.activePageId ? prev : state.dashboard.activePageId
+      prev === state.dashboard.activePageId ? prev : state.dashboard.activePageId,
     );
     setCanUndo(studioRef.current?.canUndo() ?? false);
     setCanRedo(studioRef.current?.canRedo() ?? false);
@@ -324,11 +378,17 @@ export default function App() {
         canRedo={canRedo}
         onUndo={() => studioRef.current?.undo()}
         onRedo={() => studioRef.current?.redo()}
-        onModeChange={(_, checked) => studioRef.current?.setMode(checked ? 'edit' : 'view')}
+        onModeChange={(_, checked) =>
+          studioRef.current?.setMode(checked ? 'edit' : 'view')
+        }
         onPageChange={(_, pageId) => studioRef.current?.setActivePage(pageId)}
       />
       <Box sx={{ flexGrow: 1, minHeight: 0 }}>
-        <Studio ref={studioRef} initialState={myState} onStateChange={handleStateChange} />
+        <Studio
+          ref={studioRef}
+          initialState={myState}
+          onStateChange={handleStateChange}
+        />
       </Box>
     </Box>
   );

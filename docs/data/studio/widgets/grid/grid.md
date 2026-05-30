@@ -22,7 +22,7 @@ Each column in the `columns` array is described by a `StudioGridColumn`:
 
 ```ts
 interface StudioGridColumn {
-  fieldId: string;   // field ID from the data source
+  fieldId: string; // field ID from the data source
   sourceId?: string; // omit for the primary source; set for cross-source columns
 }
 ```
@@ -65,6 +65,65 @@ Pin a per-column aggregation row at the bottom of the table using `gridSummaryFi
 ```
 
 Supported aggregations: `'sum'`, `'avg'`, `'count'`, `'min'`, `'max'`.
+
+## Conditional formatting
+
+Use `gridConditionalFormats` to apply rule-based styles to cells. Each rule targets
+one field, checks a condition, and applies a style when the condition matches.
+
+```ts
+interface StudioConditionalFormat {
+  fieldId: string;
+  operator:
+    | 'equals'
+    | 'not_equals'
+    | 'greater_than'
+    | 'less_than'
+    | 'greater_than_or_equal'
+    | 'less_than_or_equal'
+    | 'contains'
+    | 'is_empty'
+    | 'is_not_empty';
+  value?: unknown;
+  style: {
+    backgroundColor?: string;
+    color?: string;
+    fontWeight?: 'bold' | 'normal';
+  };
+}
+
+{
+  gridConditionalFormats: [
+    {
+      fieldId: 'margin',
+      operator: 'less_than',
+      value: 0,
+      style: {
+        backgroundColor: '#fde8e8',
+        color: '#c62828',
+        fontWeight: 'bold',
+      },
+    },
+    {
+      fieldId: 'margin',
+      operator: 'greater_than_or_equal',
+      value: 0.2,
+      style: {
+        backgroundColor: '#e8f5e9',
+        color: '#2e7d32',
+      },
+    },
+  ],
+}
+```
+
+Rules are evaluated in order, and the first matching rule wins. Use `is_empty` and
+`is_not_empty` when you only need to test whether a cell has a value — these
+operators do not use the `value` field.
+
+:::info
+Set `featureFlags.gridConditionalFormats` to `false` to hide this feature in the UI.
+:::
 
 ## Group by
 

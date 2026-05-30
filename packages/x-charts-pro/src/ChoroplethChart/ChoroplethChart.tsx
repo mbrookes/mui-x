@@ -79,6 +79,11 @@ ChoroplethChart.propTypes = {
    */
   dataset: PropTypes.arrayOf(PropTypes.object),
   /**
+   * The fill color for features that have no corresponding data value.
+   * @default '#d4d4d4'
+   */
+  defaultFeatureColor: PropTypes.string,
+  /**
    * The description of the chart.
    * Used to provide an accessible description for the chart.
    */

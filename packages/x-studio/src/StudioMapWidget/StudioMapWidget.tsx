@@ -135,21 +135,25 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
     return [min, min === max ? min + 1 : max];
   }, [regionData]);
 
-  // Lazy-load geography
+  // Lazy-load geography — async resource loading requires useEffect; the null-reset
+  // on prop change and the .then(setGeography) are both intentional and correct here.
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- intentional: clear stale geography when map type changes
   const [geography, setGeography] = React.useState<ExtendedFeatureCollection | null>(null);
-  const [geoKey, setGeoKey] = React.useState<string | null>(null);
+  const loadedGeoRef = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (geoKey === mapGeography) {
+    if (loadedGeoRef.current === mapGeography) {
       return;
     }
     const loader = allGeographies[mapGeography];
     if (!loader) {
       return;
     }
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- async load requires useEffect; null reset clears stale geography before new data arrives
     setGeography(null);
-    setGeoKey(mapGeography);
+    loadedGeoRef.current = mapGeography;
+    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent -- setGeography is local state, not a parent callback; geography must be loaded asynchronously
     loader().then(setGeography);
-  }, [mapGeography, allGeographies, geoKey]);
+  }, [mapGeography, allGeographies]);
 
   const isConfigured = !!countryField;
 

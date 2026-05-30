@@ -85,6 +85,9 @@ function operatorsForField(
 
 const NO_VALUE_OPERATORS = new Set<StudioFilterOperator>(['is_empty', 'is_not_empty']);
 
+// Encode field selection as "sourceId::fieldId" when cross-source to keep Select value unique
+const encodeValue = (f: FieldOption) => (f.sourceId ? `${f.sourceId}::${f.id}` : f.id);
+
 // ── Filter row ────────────────────────────────────────────────────────────────
 
 function FilterRow(props: {
@@ -100,8 +103,6 @@ function FilterRow(props: {
   const operators = operatorsForField(fieldMeta);
   const noValue = NO_VALUE_OPERATORS.has(filter.operator);
 
-  // Encode field selection as "sourceId::fieldId" when cross-source to keep Select value unique
-  const encodeValue = (f: FieldOption) => (f.sourceId ? `${f.sourceId}::${f.id}` : f.id);
   const currentValue = filter.filterSourceId
     ? `${filter.filterSourceId}::${filter.field}`
     : filter.field;

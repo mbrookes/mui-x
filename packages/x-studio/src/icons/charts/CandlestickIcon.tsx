@@ -1,19 +1,20 @@
 import * as React from 'react';
 import { ChartSvg, type IconProps } from '../utils';
 
+const CANDLES = [
+  { x: 7, wickTop: 5, wickBot: 27, bodyTop: 10, bodyH: 10, bull: true },
+  { x: 16, wickTop: 8, wickBot: 24, bodyTop: 12, bodyH: 9, bull: false },
+  { x: 25, wickTop: 6, wickBot: 26, bodyTop: 9, bodyH: 12, bull: true },
+];
+
 export function CandlestickIcon({
   size,
   color = 'currentColor',
   secondaryColor = 'currentColor',
 }: IconProps) {
-  const candles = [
-    { x: 7, wickTop: 5, wickBot: 27, bodyTop: 10, bodyH: 10, bull: true },
-    { x: 16, wickTop: 8, wickBot: 24, bodyTop: 12, bodyH: 9, bull: false },
-    { x: 25, wickTop: 6, wickBot: 26, bodyTop: 9, bodyH: 12, bull: true },
-  ];
   return (
     <ChartSvg size={size}>
-      {candles.map((c, i) => (
+      {CANDLES.map((c, i) => (
         // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- static SVG paths never reorder
         <React.Fragment key={`shape-${i}`}>
           <line

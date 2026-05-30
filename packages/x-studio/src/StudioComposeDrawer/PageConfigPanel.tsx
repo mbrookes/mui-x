@@ -19,6 +19,13 @@ import { ColorInput } from './ColorInput';
 /** Stable empty theme used as fallback so the selector never returns a new object reference. */
 const EMPTY_PAGE_THEME: StudioPageTheme = {};
 
+const PADDING_OPTIONS = [
+  { value: 0, label: 'None' },
+  { value: 1, label: 'Small (8px)' },
+  { value: 2, label: 'Medium (16px)' },
+  { value: 3, label: 'Large (24px)' },
+];
+
 export function PageConfigPanel() {
   const controller = useStudioController();
   const pageTheme = useStudioSelector(selectActivePage)?.theme ?? EMPTY_PAGE_THEME;
@@ -35,13 +42,6 @@ export function PageConfigPanel() {
   );
 
   const cardBorder = pageTheme.cardBorder !== false; // default true
-
-  const PADDING_OPTIONS = [
-    { value: 0, label: 'None' },
-    { value: 1, label: 'Small (8px)' },
-    { value: 2, label: 'Medium (16px)' },
-    { value: 3, label: 'Large (24px)' },
-  ];
 
   return (
     <Stack spacing={2.5} sx={{ pt: 1 }}>

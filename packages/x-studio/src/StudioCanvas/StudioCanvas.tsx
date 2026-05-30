@@ -2,7 +2,13 @@
 import * as React from 'react';
 import { Box, GlobalStyles, Paper, Typography } from '@mui/material';
 
-import { useStudioController, useStudioSelector, selectMode, selectActivePage, selectWidgets } from '../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectMode,
+  selectActivePage,
+  selectWidgets,
+} from '../context';
 import { StudioWidgetCard } from '../StudioWidgetCard';
 import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../internals/widgetUtils';

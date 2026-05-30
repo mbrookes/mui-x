@@ -4,10 +4,17 @@ import { Box, Typography } from '@mui/material';
 import { ChoroplethChart, ChoroplethTooltip } from '@mui/x-charts-pro/ChoroplethChart';
 import type { ExtendedFeatureCollection } from '@mui/x-charts-pro/ChoroplethChart';
 import type { StudioDataSource, StudioWidget } from '../models';
-import { useStudioController, useStudioLocaleText, useStudioSelector, selectActivePageId, makeSelectActiveCrossFilter } from '../context';
+import {
+  useStudioController,
+  useStudioLocaleText,
+  useStudioSelector,
+  selectActivePageId,
+  makeSelectActiveCrossFilter,
+} from '../context';
+import { useStudioGeographies } from '../internals/StudioUIConfigContext';
 import { useWidgetRows } from '../internals/useWidgetRows';
-import { normalizeToAlpha2, normalizeToStateAbbr } from './countryUtils';
-import { BUILT_IN_GEOGRAPHIES, type GeographyLoader } from './geographyLoaders';
+import { normalizeToAlpha2 } from './countryUtils';
+import type { StudioMapGeographyDefinition } from './geographyLoaders';
 import { StudioNoDataOverlay } from '../internals/StudioNoDataOverlay';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -16,23 +23,31 @@ export interface StudioMapWidgetProps {
   widget: StudioWidget;
   dataSource: StudioDataSource;
   /**
-   * Additional geography loaders keyed by name.
-   * Merges with the built-in `'world'`, `'usa'`, and `'europe'` geographies,
-   * allowing consumers to register custom map regions.
+   * Additional geography definitions keyed by name.
+   * Merges with the built-in `'world'`, `'usa'`, and `'europe'` geographies and any
+   * geographies registered on the `Studio` component via its `geographies` prop.
+   *
+   * Each definition includes a loader, display label, field label, help text, and an
+   * optional normalizer function.
    *
    * @example
    * ```tsx
-   * const loaders = {
-   *   canada: async () => {
-   *     const { feature } = await import('topojson-client');
-   *     const topo = await import('./canada-provinces.json');
-   *     return feature(topo, topo.objects.provinces);
+   * const geographies = {
+   *   canada: {
+   *     label: 'Canada',
+   *     fieldLabel: 'Province field',
+   *     fieldHint: 'A field containing Canadian province names or 2-letter codes.',
+   *     loader: async () => {
+   *       const topo = await import('./canada-provinces.json');
+   *       const { feature } = await import('topojson-client');
+   *       return feature(topo, topo.objects.provinces);
+   *     },
    *   },
    * };
-   * <StudioMapWidget widget={widget} dataSource={ds} geographies={loaders} />
+   * <StudioMapWidget widget={widget} dataSource={ds} geographies={geographies} />
    * ```
    */
-  geographies?: Record<string, GeographyLoader>;
+  geographies?: Record<string, StudioMapGeographyDefinition>;
 }
 
 // ─── Color ramps (first stop → last stop for ContinuousColorLegend) ──────────
@@ -67,7 +82,11 @@ function aggregateValues(values: number[], fn: AggFn): number {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWidgetProps) {
+export function StudioMapWidget({
+  widget,
+  dataSource,
+  geographies: geographiesProp,
+}: StudioMapWidgetProps) {
   const localeText = useStudioLocaleText();
   const controller = useStudioController();
   const activePageId = useStudioSelector(selectActivePageId);
@@ -89,19 +108,21 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
   const legendZeroMin = config.mapLegendZeroMin ?? false;
   const crossFilterEmit = config.mapCrossFilterEmit ?? false;
 
-  // Merge built-in loaders with consumer-provided overrides
-  const allGeographies: Record<string, GeographyLoader> = React.useMemo(
-    () => ({ ...BUILT_IN_GEOGRAPHIES, ...geographies }),
-    [geographies],
+  // Merge built-in definitions (from context) with any prop-level overrides
+  const contextGeographies = useStudioGeographies();
+  const allGeographies: Record<string, StudioMapGeographyDefinition> = React.useMemo(
+    () => ({ ...contextGeographies, ...geographiesProp }),
+    [contextGeographies, geographiesProp],
   );
 
+  // Resolve the active geography definition
+  const geographyDef: StudioMapGeographyDefinition | undefined = allGeographies[mapGeography];
+
   // Identify the normalizer for the current map type
-  const normalize = React.useMemo<(v: unknown) => string | null>(() => {
-    if (mapGeography === 'usa') {
-      return normalizeToStateAbbr;
-    }
-    return normalizeToAlpha2;
-  }, [mapGeography]);
+  const normalize = React.useMemo<(v: unknown) => string | null>(
+    () => geographyDef?.normalizer ?? normalizeToAlpha2,
+    [geographyDef],
+  );
 
   // Build region → aggregated value map, plus reverse lookup featureId → first raw key
   const [regionData, rawKeyByFeatureId] = React.useMemo<
@@ -150,7 +171,17 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
     // Degenerate case: all values are equal (common when cross-filter shows only one country).
     // Use [0, max] so the value renders at full color intensity rather than the lightest shade.
     if (dataMin === dataMax) {
-      return [0, dataMax > 0 ? dataMax : dataMax < 0 ? 0 : 1];
+      // Degenerate: single value. Use [0, max] so it renders at full intensity.
+      // If max is negative use [max, 0]; if zero use [0, 1] to avoid a zero-length scale.
+      let scaleMax: number;
+      if (dataMax > 0) {
+        scaleMax = dataMax;
+      } else if (dataMax < 0) {
+        scaleMax = 0;
+      } else {
+        scaleMax = 1;
+      }
+      return [0, scaleMax];
     }
     return [dataMin, dataMax];
   }, [regionData, legendZeroMin]);
@@ -164,7 +195,7 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
     if (loadedGeoRef.current === mapGeography) {
       return;
     }
-    const loader = allGeographies[mapGeography];
+    const loader = geographyDef?.loader;
     if (!loader) {
       return;
     }
@@ -173,7 +204,7 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
     loadedGeoRef.current = mapGeography;
     // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent -- setGeography is local state, not a parent callback; geography must be loaded asynchronously
     loader().then(setGeography);
-  }, [mapGeography, allGeographies]);
+  }, [mapGeography, geographyDef]);
 
   const isConfigured = !!countryField;
 
@@ -219,6 +250,8 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
   }
 
   if (!isConfigured) {
+    const fieldLabel = geographyDef?.fieldLabel ?? 'Region field';
+    const fieldLabelLower = fieldLabel.charAt(0).toLowerCase() + fieldLabel.slice(1);
     return (
       <Box
         sx={{
@@ -230,7 +263,7 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
         }}
       >
         <Typography variant="body2" color="text.secondary">
-          {localeText.widgetConfigureMapHint}
+          {`Use the Setup tab to choose a ${fieldLabelLower} and a value field.`}
         </Typography>
       </Box>
     );
@@ -283,7 +316,7 @@ export function StudioMapWidget({ widget, dataSource, geographies }: StudioMapWi
               featureId,
               value,
             })),
-            valueFormatter: (v) =>
+            valueFormatter: (v: number | null) =>
               v == null ? '' : v.toLocaleString(undefined, { maximumFractionDigits: 2 }),
           },
         ]}

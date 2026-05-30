@@ -259,6 +259,7 @@ function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }: EdgeLa
 export interface DataLineageGraphProps {
   sources: Record<string, StudioDataSource>;
   relationships: StudioRelationship[];
+  onNodeClick?: (sourceId: string) => void;
 }
 
 /**
@@ -266,7 +267,7 @@ export interface DataLineageGraphProps {
  * Source nodes are laid out in a grid; relationship edges are cubic bezier curves.
  * Click an edge label to see join key details.
  */
-export function DataLineageGraph({ sources, relationships }: DataLineageGraphProps) {
+export function DataLineageGraph({ sources, relationships, onNodeClick }: DataLineageGraphProps) {
   const theme = useTheme();
   const nodeColor = theme.palette.primary.main;
   const edgeColor = theme.palette.text.secondary;
@@ -330,7 +331,24 @@ export function DataLineageGraph({ sources, relationships }: DataLineageGraphPro
 
         {/* Source nodes */}
         {nodes.map((node) => (
-          <g key={node.id}>
+          <g
+            key={node.id}
+            onClick={onNodeClick ? () => onNodeClick(node.id) : undefined}
+            onKeyDown={
+              onNodeClick
+                ? (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onNodeClick(node.id);
+                    }
+                  }
+                : undefined
+            }
+            role={onNodeClick ? 'button' : undefined}
+            tabIndex={onNodeClick ? 0 : undefined}
+            aria-label={onNodeClick ? `Preview ${node.label}` : undefined}
+            style={onNodeClick ? { cursor: 'pointer' } : undefined}
+          >
             <rect
               x={node.x}
               y={node.y}

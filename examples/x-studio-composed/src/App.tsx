@@ -27,6 +27,9 @@ import type {
   StudioState,
 } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
+import { OS_INITIAL_STATE } from './config/officeSuppliesDashboard';
+import { loadOfficeSuppliesData } from './officeSuppliesData';
+import type { OfficeSuppliesData } from './officeSuppliesData';
 import { AppToolbar } from './components/AppToolbar';
 import { ComposeDialog } from './components/ComposeDialog';
 import { DataDialog } from './components/DataDialog';
@@ -96,6 +99,16 @@ function getUrlAdapterParam(): boolean {
   return new URL(window.location.href).searchParams.has('adapter');
 }
 
+/** Read ?dataset=ag-studio to select the AG Studio Data dataset. */
+function getUrlDatasetParam(): 'sales' | 'ag-studio' {
+  if (typeof window === 'undefined') {
+    return 'sales';
+  }
+  return new URL(window.location.href).searchParams.get('dataset') === 'ag-studio'
+    ? 'ag-studio'
+    : 'sales';
+}
+
 function setUrlPageId(pageId: string, pages: Record<string, StudioPage> | undefined) {
   if (typeof window === 'undefined') {
     return;
@@ -150,7 +163,29 @@ function getUrlFilterValuesParam(): string | null {
 
 // ── Build initial state ───────────────────────────────────────────────────────
 
-function buildInitialState(): Partial<StudioState> {
+function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
+  const dataset = getUrlDatasetParam();
+
+  // AG Studio Data: use OS dashboard config + runtime data sources
+  if (dataset === 'ag-studio' && osData) {
+    const urlPageId = resolvePageIdFromQuery(getUrlPageParam(), OS_INITIAL_STATE.pages);
+    const base: Partial<StudioState> = {
+      ...OS_INITIAL_STATE,
+      dataSources: {
+        [osData.storesSource.id]: osData.storesSource,
+        [osData.productsSource.id]: osData.productsSource,
+        [osData.customersSource.id]: osData.customersSource,
+        [osData.ordersSource.id]: osData.ordersSource,
+        [osData.orderItemsSource.id]: osData.orderItemsSource,
+        [osData.shipmentsSource.id]: osData.shipmentsSource,
+      },
+    };
+    if (!urlPageId) {
+      return base;
+    }
+    return { ...base, dashboard: { ...base.dashboard, activePageId: urlPageId } } as Partial<StudioState>;
+  }
+
   const urlPageId = resolvePageIdFromQuery(getUrlPageParam(), INITIAL_STATE.pages);
   const rowCount = getUrlRowsParam();
 
@@ -300,6 +335,10 @@ function DashboardLayout({
 
   const handlePageClose = React.useCallback((pageId: string) => {
     controller.removePage(pageId);
+  }, [controller]);
+
+  const handlePageReorder = React.useCallback((pageIds: string[]) => {
+    controller.reorderPages(pageIds);
   }, [controller]);
 
   // Close chat when switching to view mode
@@ -471,6 +510,7 @@ function DashboardLayout({
         onChatToggle={aiConfig && mode === 'edit' ? handleChatToggle : undefined}
         onAddPage={mode === 'edit' ? handleAddPage : undefined}
         onPageClose={mode === 'edit' ? handlePageClose : undefined}
+        onPageReorder={mode === 'edit' ? handlePageReorder : undefined}
         hasEmptyPage={hasEmptyPage}
         onRefresh={handleRefresh}
         onCopyLink={handleCopyLink}
@@ -484,6 +524,7 @@ function DashboardLayout({
       <SettingsDialog
         open={settingsOpen}
         onClose={handleSettingsClose}
+        dataSource={getUrlDatasetParam()}
         featureFlags={featureFlags}
         onFeatureFlagsChange={onFeatureFlagsChange}
       />

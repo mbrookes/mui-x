@@ -1036,6 +1036,28 @@ export class StudioController {
   };
 
   /**
+   * Reorders pages according to the provided ordered list of page IDs.
+   * Any page IDs not in the list are appended at the end in their original order.
+   * The active page is not changed.
+   */
+  reorderPages = (pageIds: string[]) => {
+    const state = this.store.state;
+    const reordered: Record<string, StudioPage> = {};
+    pageIds.forEach((id) => {
+      if (state.pages[id]) {
+        reordered[id] = state.pages[id];
+      }
+    });
+    // Append any pages omitted from the list (safety fallback)
+    Object.keys(state.pages).forEach((id) => {
+      if (!reordered[id]) {
+        reordered[id] = state.pages[id];
+      }
+    });
+    this.commitState({ ...state, pages: reordered });
+  };
+
+  /**
    * Moves a widget from the active page to the specified target page.
    * The widget is appended as a new row on the target page.
    * Widget filters scoped to the current page are re-scoped to the target page.

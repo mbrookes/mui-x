@@ -5,6 +5,9 @@
     "dataset": {
       "description": "An array of objects that can be used to populate series and axes data using their <code>dataKey</code> property."
     },
+    "defaultFeatureColor": {
+      "description": "The fill color for features that have no corresponding data value."
+    },
     "desc": {
       "description": "The description of the chart. Used to provide an accessible description for the chart."
     },

@@ -1157,6 +1157,7 @@ const pages: MuiPage[] = [
           { pathname: '/x/react-studio/widgets/kpi', title: 'KPI' },
           { pathname: '/x/react-studio/widgets/grid', title: 'Grid' },
           { pathname: '/x/react-studio/widgets/pivot', title: 'Pivot table' },
+          { pathname: '/x/react-studio/widgets/map', title: 'Map' },
           { pathname: '/x/react-studio/widgets/filter', title: 'Filter' },
           { pathname: '/x/react-studio/widgets/text', title: 'Text' },
         ],
@@ -1166,7 +1167,10 @@ const pages: MuiPage[] = [
         subheader: 'Behaviors',
         children: [
           { pathname: '/x/react-studio/behaviors/edit-and-view-mode', title: 'Edit & view mode' },
-          { pathname: '/x/react-studio/behaviors/canvas-interactions', title: 'Canvas interactions' },
+          {
+            pathname: '/x/react-studio/behaviors/canvas-interactions',
+            title: 'Canvas interactions',
+          },
           { pathname: '/x/react-studio/behaviors/undo-redo', title: 'Undo & redo' },
         ],
       },
@@ -1177,6 +1181,7 @@ const pages: MuiPage[] = [
           { pathname: '/x/react-studio/data/data-sources', title: 'Inline data sources' },
           { pathname: '/x/react-studio/data/async-adapters', title: 'Async adapters' },
           { pathname: '/x/react-studio/data/relationships', title: 'Relationships' },
+          { pathname: '/x/react-studio/data/lineage', title: 'Data lineage' },
           { pathname: '/x/react-studio/data/server-middleware', title: 'Server middleware' },
         ],
       },
@@ -1186,6 +1191,10 @@ const pages: MuiPage[] = [
         children: [
           { pathname: '/x/react-studio/features/cross-filters', title: 'Cross-filters' },
           { pathname: '/x/react-studio/features/global-filters', title: 'Global filters' },
+          { pathname: '/x/react-studio/features/date-range-filter', title: 'Date range filter' },
+          { pathname: '/x/react-studio/features/drilldown', title: 'Drill-down' },
+          { pathname: '/x/react-studio/features/shareable-links', title: 'Shareable links' },
+          { pathname: '/x/react-studio/features/saved-views', title: 'Saved views' },
           { pathname: '/x/react-studio/features/calculated-columns', title: 'Calculated columns' },
           { pathname: '/x/react-studio/features/measures', title: 'Measures' },
           { pathname: '/x/react-studio/features/multi-page', title: 'Multi-page' },
@@ -1194,9 +1203,7 @@ const pages: MuiPage[] = [
       {
         pathname: '/x/react-studio/persistence',
         subheader: 'Persistence',
-        children: [
-          { pathname: '/x/react-studio/persistence/save-and-load', title: 'Save & load' },
-        ],
+        children: [{ pathname: '/x/react-studio/persistence/save-and-load', title: 'Save & load' }],
       },
       {
         pathname: '/x/react-studio/ai',

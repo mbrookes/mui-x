@@ -128,6 +128,14 @@ export function collectSelectFields(widget: StudioWidget): string[] {
     fields.add(config.pivotValueField);
   }
 
+  // Map / choropleth fields
+  if (config.mapCountryField) {
+    fields.add(config.mapCountryField);
+  }
+  if (config.mapValueField) {
+    fields.add(config.mapValueField);
+  }
+
   return [...fields].filter(Boolean);
 }
 

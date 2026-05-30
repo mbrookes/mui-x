@@ -44,23 +44,38 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
 
   // All string fields from every visible source — country pickers show the full universe
   // so the widget can be configured even before a sourceId is established.
+  // Includes string expression fields (e.g. a joined country field).
   const allStringFields = React.useMemo<DataSourceFieldEntry[]>(() => {
-    return Object.values(dataSources).flatMap((ds) => {
-      if (ds.hidden) return [];
-      return ds.fields.flatMap((f) => {
-        if (f.hidden || f.type !== 'string') return [];
-        return [
-          {
-            id: f.id,
-            label: f.label,
-            type: f.type as DataSourceFieldEntry['type'],
-            sourceId: ds.id,
-            sourceLabel: ds.label,
-          },
-        ];
+    const all: DataSourceFieldEntry[] = [];
+    Object.values(dataSources).forEach((ds) => {
+      if (ds.hidden) return;
+      ds.fields.forEach((f) => {
+        if (f.hidden || f.type !== 'string') return;
+        all.push({
+          id: f.id,
+          label: f.label,
+          type: f.type as DataSourceFieldEntry['type'],
+          sourceId: ds.id,
+          sourceLabel: ds.label,
+        });
       });
     });
-  }, [dataSources]);
+    // Include string expression fields (e.g. expr-order-country via join)
+    expressionFields.forEach((ef) => {
+      if (ef.hidden || ef.type !== 'string') return;
+      const ds = dataSources[ef.sourceId];
+      if (ds?.hidden) return;
+      all.push({
+        id: ef.id,
+        label: ef.label,
+        type: 'string',
+        sourceId: ef.sourceId,
+        sourceLabel: ds?.label ?? ef.sourceId,
+        generated: true,
+      });
+    });
+    return all;
+  }, [dataSources, expressionFields]);
 
   // Numeric fields: from all visible sources + expression fields.
   // Similar to allStringFields, we show the full universe so the value field

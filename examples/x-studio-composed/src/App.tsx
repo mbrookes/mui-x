@@ -619,6 +619,7 @@ function DashboardLayout({
       <SettingsDialog
         open={settingsOpen}
         onClose={handleSettingsClose}
+        dataset={dataset}
         featureFlags={featureFlags}
         onFeatureFlagsChange={onFeatureFlagsChange}
       />

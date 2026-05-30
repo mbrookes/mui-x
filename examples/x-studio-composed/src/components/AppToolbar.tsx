@@ -25,6 +25,7 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import LinkIcon from '@mui/icons-material/Link';
 import RedoIcon from '@mui/icons-material/Redo';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import RestoreIcon from '@mui/icons-material/Restore';
 import SettingsIcon from '@mui/icons-material/Settings';
 import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';
@@ -55,6 +56,7 @@ export interface AppToolbarProps {
   onPageReorder?: (pageIds: string[]) => void;
   hasEmptyPage?: boolean;
   onRefresh?: () => void;
+  onReset?: () => void;
   onCopyLink?: () => void;
   onSettingsOpen?: () => void;
 }
@@ -83,6 +85,7 @@ export function AppToolbar(props: AppToolbarProps) {
     onPageReorder,
     hasEmptyPage,
     onRefresh,
+    onReset,
     onCopyLink,
     onSettingsOpen,
   } = props;
@@ -308,6 +311,13 @@ export function AppToolbar(props: AppToolbarProps) {
           <FileUploadIcon fontSize="small" />
         </IconButton>
       </Tooltip>
+      {onReset && (
+        <Tooltip title="Reset to demo">
+          <IconButton size="small" onClick={onReset} aria-label="Reset to demo">
+            <RestoreIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
       {onSettingsOpen && (
         <Tooltip title="Settings">
           <IconButton size="small" onClick={onSettingsOpen} aria-label="Settings">

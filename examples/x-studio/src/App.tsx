@@ -97,6 +97,32 @@ function getUrlServerParam(): string | undefined {
   return new URL(window.location.href).searchParams.get('server') ?? undefined;
 }
 
+/** Read ?bp=N to set the responsive stack breakpoint (e.g. ?bp=800). */
+function getUrlBreakpointParam(): number | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  const raw = new URL(window.location.href).searchParams.get('bp');
+  if (!raw) {
+    return undefined;
+  }
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+function setUrlBreakpoint(bp: number) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const url = new URL(window.location.href);
+  if (bp === 600) {
+    url.searchParams.delete('bp');
+  } else {
+    url.searchParams.set('bp', String(bp));
+  }
+  window.history.replaceState(window.history.state, '', url);
+}
+
 function setUrlPageId(pageId: string, pages: Record<string, StudioPage> | undefined) {
   if (typeof window === 'undefined') {
     return;
@@ -208,7 +234,14 @@ export default function App() {
   const [sidebarLayout, setSidebarLayout] = React.useState<SidebarLayout>('tabbed');
   const [sidebarSide, setSidebarSide] = React.useState<SidebarSide>('left');
   const [tableSourceMode, setTableSourceMode] = React.useState<TableSourceMode>('explicit');
-  const [stackBreakpoint, setStackBreakpoint] = React.useState(600);
+  const [stackBreakpoint, setStackBreakpoint] = React.useState(
+    () => getUrlBreakpointParam() ?? 600,
+  );
+
+  function handleStackBreakpointChange(bp: number) {
+    setStackBreakpoint(bp);
+    setUrlBreakpoint(bp);
+  }
   const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({});
 
   // AI config — read from Vite env vars set by the developer
@@ -485,7 +518,7 @@ export default function App() {
           onSidebarLayoutChange={setSidebarLayout}
           onSidebarSideChange={setSidebarSide}
           onTableSourceModeChange={setTableSourceMode}
-          onStackBreakpointChange={setStackBreakpoint}
+          onStackBreakpointChange={handleStackBreakpointChange}
           featureFlags={featureFlags}
           onFeatureFlagsChange={setFeatureFlags}
         />

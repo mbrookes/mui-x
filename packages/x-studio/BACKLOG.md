@@ -223,7 +223,9 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 ~~BL-80: Add close buttons to the tabs in the example apps that removes the page and its config from the model. Have a confirmation dialog. Undo should restore the page.~~
 **Fixed** (added `removePage(pageId)` to `StudioHandle`; added `onPageClose` prop to both `AppToolbar` components; in edit mode with 2+ pages each tab gets an × button; clicking it opens a confirmation dialog with Cancel/Remove; Remove calls `controller.removePage()` which commits to undo history so ⌘Z restores the page)
 
-BL-81: Add a querystring for the responsive breakpoint setting in the two demo apps, and make sure settings are working. DRY the settings panel between the two demo apps.
+~~BL-81: Add a querystring for the responsive breakpoint setting in the two demo apps, and make sure settings are working. DRY the settings panel between the two demo apps.~~
+
+**Fixed** (added `?bp=N` querystring support in x-studio App; breakpoint initializes from URL and syncs on change via `replaceState`; extracted `FeatureFlagSettings` component + `WIDGET_KIND_FLAGS` / `WIDGET_FEATURE_FLAGS` arrays into `x-studio-shared`; both settings dialogs now import the shared component eliminating ~60 lines of duplication each)
 
 BL-82: Is there anything we can resue from x-data-grid-pro's server-side data handling for x-studio (without creating a hard dependancy on the data-grid component? (dependancy on the package is fine)
 

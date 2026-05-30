@@ -26,6 +26,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   const aggFn = config.mapAggregation ?? 'sum';
   const colorScheme = config.mapColorScheme ?? 'blues';
   const mapGeography = config.mapGeography ?? 'world';
+  const legendPosition = config.mapLegendPosition ?? 'bottom';
 
   // All string fields from every visible source — country pickers show the full universe
   // so the widget can be configured even before a sourceId is established.
@@ -193,6 +194,21 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           <MenuItem value="greens">Greens</MenuItem>
           <MenuItem value="oranges">Oranges</MenuItem>
           <MenuItem value="purples">Purples</MenuItem>
+        </Select>
+      </FormControl>
+
+      <FormControl size="small" fullWidth>
+        <InputLabel>Legend position</InputLabel>
+        <Select
+          label="Legend position"
+          value={legendPosition}
+          onChange={(e) => update({ mapLegendPosition: e.target.value as typeof legendPosition })}
+        >
+          <MenuItem value="bottom">Bottom</MenuItem>
+          <MenuItem value="top">Top</MenuItem>
+          <MenuItem value="left">Left</MenuItem>
+          <MenuItem value="right">Right</MenuItem>
+          <MenuItem value="hidden">Hidden</MenuItem>
         </Select>
       </FormControl>
     </Stack>

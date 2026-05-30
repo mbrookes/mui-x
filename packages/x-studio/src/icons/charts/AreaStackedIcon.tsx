@@ -18,8 +18,7 @@ export function AreaStackedIcon({
   const pts1Line = XS.map((x, i) => `${x},${YS1[i]}`).join(' ');
   const pts1Area = `${XS[0]},${bottom} ${pts1Line} ${XS[XS.length - 1]},${bottom}`;
   const pts2Line = XS.map((x, i) => `${x},${YS2[i]}`).join(' ');
-  const pts2Area = `${XS[0]},${YS1[0]} ${pts2Line} ${XS[XS.length - 1]},${YS1[XS.length - 1]} ${XS
-    .slice()
+  const pts2Area = `${XS[0]},${YS1[0]} ${pts2Line} ${XS[XS.length - 1]},${YS1[XS.length - 1]} ${XS.slice()
     .reverse()
     .map((x, i) => `${x},${YS1[XS.length - 1 - i]}`)
     .join(' ')}`;

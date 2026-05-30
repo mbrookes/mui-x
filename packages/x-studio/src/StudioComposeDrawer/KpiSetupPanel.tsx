@@ -420,175 +420,177 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
   return (
     <React.Fragment>
-    <Stack spacing={2}>
-      <DataSourceFieldSelect
-        value={config.kpiValueField ?? ''}
-        onChange={(fieldId, fSourceId) => {
-          const newField = allFields.find((f) => f.id === fieldId && f.sourceId === fSourceId);
-          const newFieldType = newField?.type ?? null;
-          const newAggOptions = newFieldType
-            ? (AGGREGATIONS[newFieldType] ?? [
-                { value: 'count' as StudioKpiAggregation, label: 'Count' },
-              ])
-            : AGGREGATIONS.number;
-          const currentAggValid = newAggOptions.some((a) => a.value === config.kpiAggregation);
-          const configUpdate: Partial<import('../models').StudioWidgetConfig> = {
-            kpiValueField: fieldId,
-            // Reset aggregation when the current one isn't valid for the new field type
-            ...(!currentAggValid && { kpiAggregation: newAggOptions[0].value }),
-          };
-          controller.updateWidgetConfig(widgetId, configUpdate);
-          if (fSourceId && fSourceId !== widget?.sourceId) {
-            controller.updateWidget(widgetId, { sourceId: fSourceId });
-          }
-        }}
-        fields={allFields}
-        label="Value field"
-        helperText="Field to aggregate"
-      />
+      <Stack spacing={2}>
+        <DataSourceFieldSelect
+          value={config.kpiValueField ?? ''}
+          onChange={(fieldId, fSourceId) => {
+            const newField = allFields.find((f) => f.id === fieldId && f.sourceId === fSourceId);
+            const newFieldType = newField?.type ?? null;
+            const newAggOptions = newFieldType
+              ? (AGGREGATIONS[newFieldType] ?? [
+                  { value: 'count' as StudioKpiAggregation, label: 'Count' },
+                ])
+              : AGGREGATIONS.number;
+            const currentAggValid = newAggOptions.some((a) => a.value === config.kpiAggregation);
+            const configUpdate: Partial<import('../models').StudioWidgetConfig> = {
+              kpiValueField: fieldId,
+              // Reset aggregation when the current one isn't valid for the new field type
+              ...(!currentAggValid && { kpiAggregation: newAggOptions[0].value }),
+            };
+            controller.updateWidgetConfig(widgetId, configUpdate);
+            if (fSourceId && fSourceId !== widget?.sourceId) {
+              controller.updateWidget(widgetId, { sourceId: fSourceId });
+            }
+          }}
+          fields={allFields}
+          label="Value field"
+          helperText="Field to aggregate"
+        />
 
-      {/* Calculated field button — opens full expression dialog for new measure fields */}
-      {showCalcFieldButton && (
-        <Button
-          size="small"
-          variant="text"
-          startIcon={<FunctionsIcon fontSize="small" />}
-          onClick={() => setCalcDialogOpen(true)}
-          sx={{ fontSize: '0.75rem', textTransform: 'none', alignSelf: 'flex-start', color: 'text.secondary' }}
-        >
-          Calculated field…
-        </Button>
-      )}
+        {/* Calculated field button — opens full expression dialog for new measure fields */}
+        {showCalcFieldButton && (
+          <Button
+            size="small"
+            variant="text"
+            startIcon={<FunctionsIcon fontSize="small" />}
+            onClick={() => setCalcDialogOpen(true)}
+            sx={{
+              fontSize: '0.75rem',
+              textTransform: 'none',
+              alignSelf: 'flex-start',
+              color: 'text.secondary',
+            }}
+          >
+            Calculated field…
+          </Button>
+        )}
 
-      <FormControl size="small" fullWidth disabled={onlyOneAgg}>
-        <InputLabel>Aggregation</InputLabel>
-        <Select
-          label="Aggregation"
-          value={selectedAgg}
-          onChange={(event) =>
-            controller.updateWidgetConfig(widgetId, {
-              kpiAggregation: event.target.value as StudioKpiAggregation,
-            })
-          }
-        >
-          {aggregationOptions.map((opt) => (
-            <MenuItem key={opt.value} value={opt.value}>
-              {opt.label}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+        <FormControl size="small" fullWidth disabled={onlyOneAgg}>
+          <InputLabel>Aggregation</InputLabel>
+          <Select
+            label="Aggregation"
+            value={selectedAgg}
+            onChange={(event) =>
+              controller.updateWidgetConfig(widgetId, {
+                kpiAggregation: event.target.value as StudioKpiAggregation,
+              })
+            }
+          >
+            {aggregationOptions.map((opt) => (
+              <MenuItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
 
-      {features.kpiSparkline !== false && (
-        <CollapsibleFeatureSection
-          label="Sparkline"
-          enabled={config.kpiSparkline ?? false}
-          onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiSparkline: next })}
-        >
-          <KpiSparklineOptions widgetId={widgetId} config={config} />
-        </CollapsibleFeatureSection>
-      )}
+        {features.kpiSparkline !== false && (
+          <CollapsibleFeatureSection
+            label="Sparkline"
+            enabled={config.kpiSparkline ?? false}
+            onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiSparkline: next })}
+          >
+            <KpiSparklineOptions widgetId={widgetId} config={config} />
+          </CollapsibleFeatureSection>
+        )}
 
-      {features.kpiTarget !== false && (
-        <CollapsibleFeatureSection
-          label="Target"
-          enabled={config.kpiTarget ?? false}
-          onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTarget: next })}
-        >
-          <Typography variant="caption" color="text.secondary">
-            Reference value for the target line on the sparkline. When Trend is also enabled, the
-            delta badge compares the current value against this target.
-          </Typography>
-          <MetricRefInput
-            value={config.kpiTargetRef}
-            onChange={(ref) => controller.updateWidgetConfig(widgetId, { kpiTargetRef: ref })}
-          />
-        </CollapsibleFeatureSection>
-      )}
-
-      {features.kpiTrend !== false && (
-        <CollapsibleFeatureSection
-          label="Trend"
-          enabled={config.kpiTrend ?? false}
-          onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTrend: next })}
-        >
-          <FormControl size="small" fullWidth>
-            <InputLabel>Comparison period</InputLabel>
-            <Select
-              label="Comparison period"
-              value={config.kpiTrendComparison ?? 'previous-period'}
-              onChange={(event) =>
-                controller.updateWidgetConfig(widgetId, {
-                  kpiTrendComparison: event.target.value as
-                    | 'previous-period'
-                    | 'previous-calendar-period'
-                    | 'year-over-year',
-                })
-              }
-            >
-              <MenuItem value="previous-period">Previous period (matching duration)</MenuItem>
-              <MenuItem value="previous-calendar-period">Previous calendar period</MenuItem>
-              <MenuItem value="year-over-year">Same period last year</MenuItem>
-            </Select>
-          </FormControl>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="body2">Invert colours (lower is better)</Typography>
-            <Switch
-              size="small"
-              checked={config.kpiTrendInvert ?? false}
-              onChange={(event) =>
-                controller.updateWidgetConfig(widgetId, { kpiTrendInvert: event.target.checked })
-              }
+        {features.kpiTarget !== false && (
+          <CollapsibleFeatureSection
+            label="Target"
+            enabled={config.kpiTarget ?? false}
+            onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTarget: next })}
+          >
+            <Typography variant="caption" color="text.secondary">
+              Reference value for the target line on the sparkline. When Trend is also enabled, the
+              delta badge compares the current value against this target.
+            </Typography>
+            <MetricRefInput
+              value={config.kpiTargetRef}
+              onChange={(ref) => controller.updateWidgetConfig(widgetId, { kpiTargetRef: ref })}
             />
-          </Box>
-        </CollapsibleFeatureSection>
-      )}
+          </CollapsibleFeatureSection>
+        )}
 
-      {/* Interactions — cross-filter mode. KPIs are summary metrics with no visual row
+        {features.kpiTrend !== false && (
+          <CollapsibleFeatureSection
+            label="Trend"
+            enabled={config.kpiTrend ?? false}
+            onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTrend: next })}
+          >
+            <FormControl size="small" fullWidth>
+              <InputLabel>Comparison period</InputLabel>
+              <Select
+                label="Comparison period"
+                value={config.kpiTrendComparison ?? 'previous-period'}
+                onChange={(event) =>
+                  controller.updateWidgetConfig(widgetId, {
+                    kpiTrendComparison: event.target.value as
+                      | 'previous-period'
+                      | 'previous-calendar-period'
+                      | 'year-over-year',
+                  })
+                }
+              >
+                <MenuItem value="previous-period">Previous period (matching duration)</MenuItem>
+                <MenuItem value="previous-calendar-period">Previous calendar period</MenuItem>
+                <MenuItem value="year-over-year">Same period last year</MenuItem>
+              </Select>
+            </FormControl>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography variant="body2">Invert colours (lower is better)</Typography>
+              <Switch
+                size="small"
+                checked={config.kpiTrendInvert ?? false}
+                onChange={(event) =>
+                  controller.updateWidgetConfig(widgetId, { kpiTrendInvert: event.target.checked })
+                }
+              />
+            </Box>
+          </CollapsibleFeatureSection>
+        )}
+
+        {/* Interactions — cross-filter mode. KPIs are summary metrics with no visual row
         representation, so "cross-highlight" (dim non-matching rows) does not apply.
         Only "Filter" (re-aggregate over the selection) and "None" (grand total) make sense. */}
-      <SetupSection
-        title="Interactions"
-        description="When other widgets are clicked, this KPI…"
-      >
-        <ToggleButtonGroup
-          value={
-            ((config.crossFilterMode === 'cross-highlight'
-              ? 'cross-filter'
-              : config.crossFilterMode) ?? 'none') as StudioCrossFilterMode
-          }
-          exclusive
-          onChange={(_e, value: StudioCrossFilterMode | null) => {
-            controller.updateWidgetConfig(widgetId, {
-              crossFilterMode: value ?? 'none',
-            });
-          }}
-          size="small"
-          fullWidth
-        >
-          <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
-            Filter
-          </ToggleButton>
-          <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
-            None
-          </ToggleButton>
-        </ToggleButtonGroup>
+        <SetupSection title="Interactions" description="When other widgets are clicked, this KPI…">
+          <ToggleButtonGroup
+            value={
+              ((config.crossFilterMode === 'cross-highlight'
+                ? 'cross-filter'
+                : config.crossFilterMode) ?? 'none') as StudioCrossFilterMode
+            }
+            exclusive
+            onChange={(_e, value: StudioCrossFilterMode | null) => {
+              controller.updateWidgetConfig(widgetId, {
+                crossFilterMode: value ?? 'none',
+              });
+            }}
+            size="small"
+            fullWidth
+          >
+            <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
+              Filter
+            </ToggleButton>
+            <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
+              None
+            </ToggleButton>
+          </ToggleButtonGroup>
         </SetupSection>
-    </Stack>
+      </Stack>
 
-    {/* Calculated field dialog */}
-    {widgetSource && (
-      <StudioExpressionFieldDialog
-        key={calcDialogOpen ? 'open' : 'closed'}
-        open={calcDialogOpen}
-        onClose={() => setCalcDialogOpen(false)}
-        dataSource={widgetSource}
-        expressionFields={expressionFields}
-        onSaved={(fieldId) => {
-          controller.updateWidgetConfig(widgetId, { kpiValueField: fieldId });
-        }}
-      />
-    )}
+      {/* Calculated field dialog */}
+      {widgetSource && (
+        <StudioExpressionFieldDialog
+          key={calcDialogOpen ? 'open' : 'closed'}
+          open={calcDialogOpen}
+          onClose={() => setCalcDialogOpen(false)}
+          dataSource={widgetSource}
+          expressionFields={expressionFields}
+          onSaved={(fieldId) => {
+            controller.updateWidgetConfig(widgetId, { kpiValueField: fieldId });
+          }}
+        />
+      )}
     </React.Fragment>
   );
 }

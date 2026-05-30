@@ -47,6 +47,7 @@ import { getReachableSourceIds } from '../internals/chartUtils';
 import { StudioUIConfigContext, useStudioFeatures } from '../internals/StudioUIConfigContext';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
+import { SetupSection } from './SetupSection';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
 const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = [
@@ -735,11 +736,8 @@ export function GridSetupPanel(props: { widgetId: string }) {
       {source && features.gridConditionalFormats !== false && (
         <React.Fragment>
           {/* Conditional formatting rules */}
-          <Divider />
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-            Conditional formatting
-          </Typography>
-          <Stack spacing={1}>
+          <SetupSection title="Conditional formatting">
+            <Stack spacing={1}>
             {conditionalFormats.map((rule, i) => {
               const noValueOp = rule.operator === 'is_empty' || rule.operator === 'is_not_empty';
               const fieldEntry = source.fields.find((f) => f.id === rule.fieldId);
@@ -870,40 +868,40 @@ export function GridSetupPanel(props: { widgetId: string }) {
               Add rule
             </Button>
           </Stack>
+          </SetupSection>
         </React.Fragment>
       )}
 
       {source && (
         <React.Fragment>
           {/* Interactions — cross-filter mode */}
-          <Divider />
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-            Interactions
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-            When other widgets are clicked, this table…
-          </Typography>
-          <ToggleButtonGroup
-            value={(widget.config?.crossFilterMode ?? 'cross-highlight') as StudioCrossFilterMode}
-            exclusive
-            onChange={(_e, value: StudioCrossFilterMode | null) => {
-              controller.updateWidgetConfig(widgetId, {
-                crossFilterMode: value ?? 'cross-highlight',
-              });
-            }}
-            size="small"
-            fullWidth
+          <SetupSection
+            title="Interactions"
+            description="When other widgets are clicked, this table…"
+            dividerMb={0}
           >
-            <ToggleButton value="cross-highlight" sx={{ fontSize: 11, textTransform: 'none' }}>
-              Highlight
-            </ToggleButton>
-            <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
-              Filter
-            </ToggleButton>
-            <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
-              None
-            </ToggleButton>
-          </ToggleButtonGroup>
+            <ToggleButtonGroup
+              value={(widget.config?.crossFilterMode ?? 'cross-highlight') as StudioCrossFilterMode}
+              exclusive
+              onChange={(_e, value: StudioCrossFilterMode | null) => {
+                controller.updateWidgetConfig(widgetId, {
+                  crossFilterMode: value ?? 'cross-highlight',
+                });
+              }}
+              size="small"
+              fullWidth
+            >
+              <ToggleButton value="cross-highlight" sx={{ fontSize: 11, textTransform: 'none' }}>
+                Highlight
+              </ToggleButton>
+              <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
+                Filter
+              </ToggleButton>
+              <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
+                None
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </SetupSection>
         </React.Fragment>
       )}
 

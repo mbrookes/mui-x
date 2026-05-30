@@ -6,10 +6,8 @@ import {
   useStudioSelector,
   selectWidgets,
   selectDataSources,
-  selectRelationships,
   selectExpressionFields,
 } from '../context';
-import { getReachableSourceIds } from '../internals/chartUtils';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
@@ -21,7 +19,6 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   const controller = useStudioController();
   const widgets = useStudioSelector(selectWidgets);
   const dataSources = useStudioSelector(selectDataSources);
-  const relationships = useStudioSelector(selectRelationships);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const widget = widgets[widgetId];
   const config = widget?.config ?? {};
@@ -50,17 +47,15 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
     });
   }, [dataSources]);
 
-  // Numeric fields: from the widget's primary source + reachable related sources + expression fields.
-  // Falls back to ALL numeric fields when no sourceId is set.
+  // Numeric fields: from all visible sources + expression fields.
+  // Similar to allStringFields, we show the full universe so the value field
+  // can be picked from any source (including related ones). The join enrichment
+  // in useWidgetRows handles the actual data binding for cross-source fields.
   const numericFields = React.useMemo<DataSourceFieldEntry[]>(() => {
     const all: DataSourceFieldEntry[] = [];
-    const reachableIds = widget?.sourceId
-      ? getReachableSourceIds(widget.sourceId, relationships)
-      : null;
 
     Object.values(dataSources).forEach((ds) => {
       if (ds.hidden) return;
-      if (reachableIds && !reachableIds.has(ds.id)) return;
       ds.fields.forEach((f) => {
         if (f.hidden || f.type !== 'number') return;
         all.push({
@@ -74,7 +69,6 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
     });
     expressionFields.forEach((ef) => {
       if (ef.hidden) return;
-      if (reachableIds && !reachableIds.has(ef.sourceId)) return;
       const ds = dataSources[ef.sourceId];
       if (ds?.hidden) return;
       all.push({
@@ -87,7 +81,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       });
     });
     return all;
-  }, [widget?.sourceId, dataSources, relationships, expressionFields]);
+  }, [dataSources, expressionFields]);
 
   function update(changes: Partial<typeof config>) {
     controller.updateWidget(widgetId, { config: { ...config, ...changes } });

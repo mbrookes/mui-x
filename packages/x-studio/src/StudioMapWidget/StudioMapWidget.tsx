@@ -13,7 +13,7 @@ import {
 } from '../context';
 import { useStudioGeographies } from '../internals/StudioUIConfigContext';
 import { useWidgetRows } from '../internals/useWidgetRows';
-import { normalizeToAlpha2 } from './countryUtils';
+import { normalizeToAlpha2, alpha2ToName, STATE_ABBR_TO_NAME } from './countryUtils';
 import type { StudioMapGeographyDefinition } from './geographyLoaders';
 import { StudioNoDataOverlay } from '../internals/StudioNoDataOverlay';
 
@@ -117,6 +117,18 @@ export function StudioMapWidget({
 
   // Resolve the active geography definition
   const geographyDef: StudioMapGeographyDefinition | undefined = allGeographies[mapGeography];
+
+  // Resolve a human-readable display name for a featureId based on the geography type
+  const featureIdToLabel = React.useCallback(
+    (featureId: string): string => {
+      if (mapGeography === 'usa') {
+        return STATE_ABBR_TO_NAME[featureId] ?? featureId;
+      }
+      // world / europe / custom geography: try Intl.DisplayNames (alpha-2)
+      return alpha2ToName(featureId);
+    },
+    [mapGeography],
+  );
 
   // Identify the normalizer for the current map type
   const normalize = React.useMemo<(v: unknown) => string | null>(
@@ -315,6 +327,7 @@ export function StudioMapWidget({
             data: Array.from(regionData.entries()).map(([featureId, value]) => ({
               featureId,
               value,
+              label: featureIdToLabel(featureId),
             })),
             valueFormatter: (v: number | null) =>
               v == null ? '' : v.toLocaleString(undefined, { maximumFractionDigits: 2 }),

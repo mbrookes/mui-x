@@ -14,6 +14,96 @@ export type StudioFilterWidgetType = 'date-range' | 'multi-select' | 'toggle' | 
  *
  * Pass via the `featureFlags` prop on `<Studio>` or `<StudioProvider>`.
  */
+
+/**
+ * Feature sub-flags for KPI widgets.
+ * Passed as the value of `featureFlags.kpi` to selectively disable individual KPI features
+ * while keeping the KPI widget kind available in the widget picker.
+ *
+ * @example
+ * // Disable sparkline and trend but keep KPI otherwise enabled:
+ * <Studio featureFlags={{ kpi: { sparkline: false, trend: false } }} />
+ */
+export interface KpiFeatureFlags {
+  /**
+   * Show the sparkline configuration section in the KPI setup panel.
+   * @default true
+   */
+  sparkline?: boolean;
+  /**
+   * Show the period-over-period trend indicator configuration in the KPI setup panel.
+   * @default true
+   */
+  trend?: boolean;
+  /**
+   * Show the target line configuration in the KPI setup panel.
+   * @default true
+   */
+  target?: boolean;
+  /**
+   * Show the "Add calculated field" button in the KPI setup panel.
+   * Has no effect when the global `calculatedFields` flag is `false`.
+   * @default true
+   */
+  calculatedFields?: boolean;
+}
+
+/**
+ * Feature sub-flags for chart widgets.
+ * Passed as the value of `featureFlags.chart` to selectively disable individual chart features
+ * while keeping the chart widget kind available.
+ *
+ * @example
+ * // Disable annotations but keep charts otherwise enabled:
+ * <Studio featureFlags={{ chart: { annotations: false } }} />
+ */
+export interface ChartFeatureFlags {
+  /**
+   * Show the reference-line annotations configuration in the chart setup panel.
+   * @default true
+   */
+  annotations?: boolean;
+  /**
+   * Show the "Add calculated field" button in the chart setup panel.
+   * Has no effect when the global `calculatedFields` flag is `false`.
+   * @default true
+   */
+  calculatedFields?: boolean;
+}
+
+/**
+ * Feature sub-flags for table/grid widgets.
+ * Passed as the value of `featureFlags.grid` to selectively disable individual grid features
+ * while keeping the table widget kind available.
+ *
+ * @example
+ * // Disable group-by and conditional formats but keep grid otherwise enabled:
+ * <Studio featureFlags={{ grid: { groupBy: false, conditionalFormats: false } }} />
+ */
+export interface GridFeatureFlags {
+  /**
+   * Show the "Group by" field picker in the grid setup panel.
+   * @default true
+   */
+  groupBy?: boolean;
+  /**
+   * Show the summary (totals) row configuration in the grid setup panel.
+   * @default true
+   */
+  summary?: boolean;
+  /**
+   * Show the conditional formatting configuration in the grid setup panel.
+   * @default true
+   */
+  conditionalFormats?: boolean;
+  /**
+   * Show the "Calculated column…" option in the table/grid setup panel's "Add column" menu.
+   * Has no effect when the global `calculatedFields` flag is `false`.
+   * @default true
+   */
+  calculatedFields?: boolean;
+}
+
 export interface StudioFeatureFlags {
   /**
    * Show the compose (edit) panel and data drawer, and allow switching to edit mode.
@@ -61,20 +151,29 @@ export interface StudioFeatureFlags {
   // ── Widget kind availability ───────────────────────────────────────────────
 
   /**
-   * Allow adding table/grid widgets. Set to `false` to hide grid from the widget picker.
+   * Allow adding table/grid widgets.
+   * - `false`: hides grid from the widget picker entirely.
+   * - An object: enables the widget kind but selectively disables sub-features.
+   *   See {@link GridFeatureFlags} for available sub-flags.
    * @default true
    */
-  grid?: boolean;
+  grid?: boolean | GridFeatureFlags;
   /**
-   * Allow adding chart widgets. Set to `false` to hide chart from the widget picker.
+   * Allow adding chart widgets.
+   * - `false`: hides chart from the widget picker entirely.
+   * - An object: enables the widget kind but selectively disables sub-features.
+   *   See {@link ChartFeatureFlags} for available sub-flags.
    * @default true
    */
-  chart?: boolean;
+  chart?: boolean | ChartFeatureFlags;
   /**
-   * Allow adding KPI widgets. Set to `false` to hide KPI from the widget picker.
+   * Allow adding KPI widgets.
+   * - `false`: hides KPI from the widget picker entirely.
+   * - An object: enables the widget kind but selectively disables sub-features.
+   *   See {@link KpiFeatureFlags} for available sub-flags.
    * @default true
    */
-  kpi?: boolean;
+  kpi?: boolean | KpiFeatureFlags;
   /**
    * Allow adding text/markdown widgets. Set to `false` to hide text from the widget picker.
    * @default true
@@ -96,59 +195,6 @@ export interface StudioFeatureFlags {
    */
   map?: boolean;
 
-  // ── KPI widget features ────────────────────────────────────────────────────
-
-  /**
-   * Show the sparkline configuration section in the KPI setup panel.
-   * Set to `false` to hide sparkline controls from editors and to prevent the
-   * sparkline from rendering on existing widgets.
-   * @default true
-   */
-  kpiSparkline?: boolean;
-  /**
-   * Show the period-over-period trend indicator configuration in the KPI setup panel.
-   * Set to `false` to hide trend controls and suppress trend badge rendering.
-   * @default true
-   */
-  kpiTrend?: boolean;
-  /**
-   * Show the target line configuration in the KPI setup panel.
-   * Set to `false` to hide target controls and suppress target line rendering.
-   * @default true
-   */
-  kpiTarget?: boolean;
-
-  // ── Chart widget features ──────────────────────────────────────────────────
-
-  /**
-   * Show the reference-line annotations configuration in the chart setup panel.
-   * Set to `false` to hide annotation controls and suppress annotation rendering.
-   * @default true
-   */
-  chartAnnotations?: boolean;
-
-  // ── Grid widget features ────────────────────────────────────────────────────
-
-  /**
-   * Show the "Group by" field picker in the grid setup panel.
-   * Set to `false` to hide groupBy controls from editors.
-   * @default true
-   */
-  gridGroupBy?: boolean;
-  /**
-   * Show the summary (totals) row configuration in the grid setup panel.
-   * Set to `false` to hide summary controls from editors and suppress the pinned footer row.
-   * @default true
-   */
-  gridSummary?: boolean;
-  /**
-   * Show the conditional formatting configuration in the grid setup panel.
-   * Set to `false` to hide conditional format controls from editors and suppress conditional
-   * formatting in the rendered table.
-   * @default true
-   */
-  gridConditionalFormats?: boolean;
-
   // ── Calculated fields ──────────────────────────────────────────────────────
 
   /**
@@ -159,24 +205,6 @@ export interface StudioFeatureFlags {
    * @default true
    */
   calculatedFields?: boolean;
-  /**
-   * Show the "Add calculated field" button in the KPI setup panel.
-   * Has no effect when `calculatedFields` is `false`.
-   * @default true
-   */
-  kpiCalculatedFields?: boolean;
-  /**
-   * Show the "Add calculated field" button in the chart setup panel.
-   * Has no effect when `calculatedFields` is `false`.
-   * @default true
-   */
-  chartCalculatedFields?: boolean;
-  /**
-   * Show the "Calculated column…" option in the table/grid setup panel's "Add column" menu.
-   * Has no effect when `calculatedFields` is `false`.
-   * @default true
-   */
-  gridCalculatedFields?: boolean;
 }
 
 /**

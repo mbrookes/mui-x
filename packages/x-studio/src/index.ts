@@ -95,7 +95,7 @@ export {
   CanvasScrollContext,
 } from './context/StudioContext';
 export type { StudioProviderProps } from './context/StudioContext';
-export type { StudioLocaleText } from './internals/StudioUIConfigContext';
+export type { StudioLocaleText, ResolvedStudioFeatures } from './internals/StudioUIConfigContext';
 export { DEFAULT_STUDIO_LOCALE_TEXT } from './internals/StudioUIConfigContext';
 
 // ─── Locales ─────────────────────────────────────────────────────────────────
@@ -191,6 +191,9 @@ export type {
   StudioQueryResult,
   StudioDataSourceAdapter,
   StudioFeatureFlags,
+  KpiFeatureFlags,
+  ChartFeatureFlags,
+  GridFeatureFlags,
   StudioChartAnnotation,
   StudioDateRangePreset,
 } from './models';

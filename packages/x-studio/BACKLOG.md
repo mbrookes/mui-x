@@ -290,6 +290,18 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 
 BL-99: Research, plan and then add support for custom widgets.
 
-BL-100: Plan and then implement nesting for feature flags, for example KPI can either be false, or have an object of features that are false. This can be a breaking change, but fix the example apps.
+~~BL-100: Plan and then implement nesting for feature flags, for example KPI can either be false, or have an object of features that are false. This can be a breaking change, but fix the example apps.~~
+**Done** — Added `KpiFeatureFlags`, `ChartFeatureFlags`, `GridFeatureFlags` sub-flag interfaces.
+`featureFlags.kpi` now accepts `false | KpiFeatureFlags` (e.g. `{ sparkline: false, trend: false }`);
+similarly for `chart` and `grid`. Removed flat `kpiSparkline`, `kpiTrend`, `kpiTarget`,
+`kpiCalculatedFields`, `chartAnnotations`, `chartCalculatedFields`, `gridGroupBy`, `gridSummary`,
+`gridConditionalFormats`, `gridCalculatedFields` top-level flags (breaking change).
+`useStudioFeatures()` now returns `ResolvedStudioFeatures` (flat booleans) — internal consumers unchanged.
+`FeatureFlagSettings` in x-studio-shared updated to read/write the new nested structure.
 
-BL-101: When dragging a widget the pointer changes to a closed hand, but when the pointer crosses an insertion point it changers to a +, and then back to a normal pointer. It should change back to a closed hand until the button is released. We also need to drag the widget from where it was click, not the top-left corner. It will need to be made more transparent to be able to see the insertion points. There's also a white bar above the widget when dragging. Remove it without breaking anything else.
+~~BL-101: When dragging a widget the pointer changes to a closed hand, but when the pointer crosses an insertion point it changers to a +, and then back to a normal pointer. It should change back to a closed hand until the button is released. We also need to drag the widget from where it was click, not the top-left corner. It will need to be made more transparent to be able to see the insertion points. There's also a white bar above the widget when dragging. Remove it without breaking anything else.~~
+**Done** — Added global CSS rule (`body.x-studio-dragging-widget * { cursor: grabbing !important }`) toggled
+during drag; recorded mousedown offset in `dragOffsetRef` and passed to `setDragImage` so the ghost card
+is grabbed from where the user clicked; set `requestAnimationFrame`-deferred `opacity: 0.4` on the original
+card element after the browser captures the ghost (ghost stays opaque, original fades to reveal insertion
+points); set `effectAllowed = 'move'` and `dropEffect = 'move'` on all drag sources and drop targets.

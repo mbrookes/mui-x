@@ -488,7 +488,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                         scatterMinRadius: Number(evt.target.value) || 4,
                       })
                     }
-                    inputProps={{ min: 1, max: 50 }}
+                    slotProps={{ htmlInput: { min: 1, max: 50 } }}
                     sx={{ flex: 1 }}
                   />
                   <TextField
@@ -501,7 +501,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                         scatterMaxRadius: Number(evt.target.value) || 40,
                       })
                     }
-                    inputProps={{ min: 1, max: 100 }}
+                    slotProps={{ htmlInput: { min: 1, max: 100 } }}
                     sx={{ flex: 1 }}
                   />
                 </Stack>

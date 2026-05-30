@@ -81,6 +81,12 @@ export interface StudioWidgetCardProps {
     /** Extra props spread onto the outer MUI `Paper` card shell. The `sx` prop is merged additively. */
     paper?: Omit<import('@mui/material').PaperProps, 'sx'> & { sx?: object };
   };
+  /**
+   * Called when a widget that has no data source configured is clicked.
+   * Use this in composed layouts to open a configuration panel automatically,
+   * guiding users to complete the widget setup.
+   */
+  onUnconfiguredClick?: (widgetId: string) => void;
 }
 
 // Module-level set survives component unmount/remount (e.g. drag-and-drop repositioning).
@@ -146,7 +152,7 @@ function DefaultLoadingOverlay() {
 
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
-  const { widgetId, isFirstRow = false, pageTheme, slots, slotProps } = props;
+  const { widgetId, isFirstRow = false, pageTheme, slots, slotProps, onUnconfiguredClick } = props;
   const controller = useStudioController();
   // Create stable selector functions scoped to this widgetId.
   // Using React.useMemo ensures the selector identity is preserved across renders
@@ -376,7 +382,17 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         ref={ref}
         variant="outlined"
         {...slotProps?.paper}
-        onClick={() => controller.setSelectedWidget(widgetId)}
+        onClick={() => {
+          controller.setSelectedWidget(widgetId);
+          if (
+            mode === 'edit' &&
+            onUnconfiguredClick &&
+            widget.kind !== 'text' &&
+            !widget.sourceId
+          ) {
+            onUnconfiguredClick(widgetId);
+          }
+        }}
         aria-selected={isSelected}
         aria-label={`Widget: ${widget.title}`}
         data-widget-card
@@ -384,6 +400,14 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             controller.setSelectedWidget(widgetId);
+            if (
+              mode === 'edit' &&
+              onUnconfiguredClick &&
+              widget.kind !== 'text' &&
+              !widget.sourceId
+            ) {
+              onUnconfiguredClick(widgetId);
+            }
           }
         }}
         onMouseEnter={() => setHovered(true)}

@@ -27,7 +27,7 @@ The most notable differences are:
 
 - **Layout:** AG Studio uses a 24-column free-placement grid (configurable) — dragging positions a widget at explicit coordinates; no other widgets move. MUI X Studio uses ordered rows of widgets with drag-to-reorder that auto-reflows the layout.
 - **Composition:** MUI X Studio exports every building block independently for custom layouts; AG Studio exposes a single component with a `panels` prop.
-- **Filtering:** MUI X Studio has a richer filter system with relative dates, metric references, rank/Top-N, and selection mode; AG Studio's filter API is simpler.
+- **Filtering:** MUI X Studio has a richer filter system with relative dates, metric references, rank/Top-N, and selection mode, plus dedicated filter bar components (`StudioDateRangeBar`, `StudioQuickFilterBar`) that sit above the canvas; AG Studio's filter API is simpler.
 - **AI:** AG Studio uses a multi-agent pipeline with structured planning; MUI X Studio uses simple tool calls via any OpenAI-compatible endpoint.
 
 ## Widget Types

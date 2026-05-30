@@ -1,6 +1,9 @@
 import * as React from 'react';
 import { ChartSvg, type IconProps } from '../utils';
 
+const XS = [3, 12, 21];
+const SPLITS = [0.6, 0.45, 0.7];
+
 export function Bar100Icon({
   size,
   color = 'currentColor',
@@ -12,12 +15,10 @@ export function Bar100Icon({
   const bottom = 28;
   const h = bottom - top;
   const w = 5;
-  const xs = [3, 12, 21];
-  const splits = [0.6, 0.45, 0.7];
   return (
     <ChartSvg size={size}>
-      {xs.map((x, i) => {
-        const h1 = Math.round(h * splits[i]);
+      {XS.map((x, i) => {
+        const h1 = Math.round(h * SPLITS[i]);
         const h2 = h - h1;
         return (
           // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- static SVG paths never reorder

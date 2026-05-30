@@ -182,9 +182,7 @@ export function FeatureFlagSettings(props: FeatureFlagSettingsProps) {
                 <Switch
                   size="small"
                   checked={
-                    !kindDisabled &&
-                    !alsoDisabled &&
-                    getSubFlag(featureFlags, parentKey, subKey)
+                    !kindDisabled && !alsoDisabled && getSubFlag(featureFlags, parentKey, subKey)
                   }
                   disabled={kindDisabled || alsoDisabled}
                   onChange={(_evt, checked) => handleSubFlagToggle(parentKey, subKey, checked)}

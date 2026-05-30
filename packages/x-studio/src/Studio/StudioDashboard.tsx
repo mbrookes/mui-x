@@ -2,7 +2,12 @@
 import * as React from 'react';
 import { Studio } from './Studio';
 import type { StudioHandle, StudioProps } from './Studio';
-import type { StudioDataSourceAdapter, StudioFeatureFlags, StudioState, StudioCustomWidgetDef } from '../models';
+import type {
+  StudioDataSourceAdapter,
+  StudioFeatureFlags,
+  StudioState,
+  StudioCustomWidgetDef,
+} from '../models';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
 
 /**

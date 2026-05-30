@@ -24,6 +24,12 @@
       "description": "Defines the mark type for the series.<br /><br />There is a default mark type for each series type."
     },
     "markerSize": { "description": "Size of the markers in the scatter plot, in pixels." },
+    "maxBubbleRadius": {
+      "description": "Maximum marker radius in pixels when per-point <code>size</code> values are provided (bubble chart mode)."
+    },
+    "minBubbleRadius": {
+      "description": "Minimum marker radius in pixels when per-point <code>size</code> values are provided (bubble chart mode)."
+    },
     "preview": { "description": "" },
     "sizeAxisId": {
       "description": "The id of the size axis used to compute the size of the scatter points.<br />It points to the id of an axis defined with the <code>zAxis</code> prop."

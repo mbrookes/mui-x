@@ -1,6 +1,22 @@
 import * as React from 'react';
-import { Box, Divider, IconButton, Switch, Tab, Tabs, Tooltip, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  Divider,
+  IconButton,
+  Switch,
+  Tab,
+  Tabs,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import type { SwitchProps } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import RedoIcon from '@mui/icons-material/Redo';
@@ -19,6 +35,7 @@ export interface AppToolbarProps {
   pages: StudioPage[];
   activePageId: string;
   onPageChange: (event: React.SyntheticEvent, pageId: string) => void;
+  onPageClose?: (pageId: string) => void;
   canUndo?: boolean;
   canRedo?: boolean;
   onUndo?: () => void;
@@ -36,11 +53,16 @@ export function AppToolbar(props: AppToolbarProps) {
     pages,
     activePageId,
     onPageChange,
+    onPageClose,
     canUndo,
     canRedo,
     onUndo,
     onRedo,
   } = props;
+
+  const [confirmPageId, setConfirmPageId] = React.useState<string | null>(null);
+  const confirmPage = confirmPageId ? pages.find((p) => p.id === confirmPageId) : null;
+  const showCloseButtons = mode === 'edit' && pages.length > 1 && Boolean(onPageClose);
 
   return (
     <Box
@@ -86,11 +108,58 @@ export function AppToolbar(props: AppToolbarProps) {
           sx={{ flexGrow: 1, minWidth: 0 }}
         >
           {pages.map((page) => (
-            <Tab key={page.id} label={page.title} value={page.id} sx={{ minHeight: 48 }} />
+            <Tab
+              key={page.id}
+              value={page.id}
+              sx={{ minHeight: 48 }}
+              label={
+                showCloseButtons ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <span>{page.title}</span>
+                    <IconButton
+                      size="small"
+                      aria-label={`Remove page ${page.title}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmPageId(page.id);
+                      }}
+                      sx={{ p: 0.25, ml: 0.25 }}
+                    >
+                      <CloseIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
+                ) : page.title
+              }
+            />
           ))}
         </Tabs>
       )}
       {pages.length <= 1 && <Box sx={{ flexGrow: 1 }} />}
+
+      {/* Confirmation dialog for page removal */}
+      <Dialog open={Boolean(confirmPage)} onClose={() => setConfirmPageId(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Remove page?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Remove &ldquo;{confirmPage?.title}&rdquo; and all its widgets? This action can be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmPageId(null)}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              if (confirmPageId) {
+                onPageClose?.(confirmPageId);
+              }
+              setConfirmPageId(null);
+            }}
+          >
+            Remove
+          </Button>
+        </DialogActions>
+      </Dialog>
       {mode === 'edit' && (
         <React.Fragment>
           <Tooltip title="Undo (⌘Z)">

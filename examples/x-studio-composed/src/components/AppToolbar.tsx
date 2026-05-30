@@ -1,8 +1,24 @@
 import * as React from 'react';
-import { Box, Divider, IconButton, Switch, Tab, Tabs, Tooltip, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  Divider,
+  IconButton,
+  Switch,
+  Tab,
+  Tabs,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import type { SwitchProps } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import CloseIcon from '@mui/icons-material/Close';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import FilterListIcon from '@mui/icons-material/FilterList';
@@ -35,6 +51,7 @@ export interface AppToolbarProps {
   chatOpen?: boolean;
   onChatToggle?: () => void;
   onAddPage?: () => void;
+  onPageClose?: (pageId: string) => void;
   hasEmptyPage?: boolean;
   onRefresh?: () => void;
   onCopyLink?: () => void;
@@ -61,6 +78,7 @@ export function AppToolbar(props: AppToolbarProps) {
     chatOpen,
     onChatToggle,
     onAddPage,
+    onPageClose,
     hasEmptyPage,
     onRefresh,
     onCopyLink,
@@ -68,6 +86,9 @@ export function AppToolbar(props: AppToolbarProps) {
   } = props;
 
   const [linkCopied, setLinkCopied] = React.useState(false);
+  const [confirmPageId, setConfirmPageId] = React.useState<string | null>(null);
+  const confirmPage = confirmPageId ? pages.find((p) => p.id === confirmPageId) : null;
+  const showCloseButtons = mode === 'edit' && pages.length > 1 && Boolean(onPageClose);
 
   const handleCopyLink = React.useCallback(() => {
     if (onCopyLink) {
@@ -122,7 +143,29 @@ export function AppToolbar(props: AppToolbarProps) {
             sx={{ minWidth: 0 }}
           >
             {pages.map((page) => (
-              <Tab key={page.id} label={page.title} value={page.id} sx={{ minHeight: 48 }} />
+              <Tab
+                key={page.id}
+                value={page.id}
+                sx={{ minHeight: 48 }}
+                label={
+                  showCloseButtons ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <span>{page.title}</span>
+                      <IconButton
+                        size="small"
+                        aria-label={`Remove page ${page.title}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmPageId(page.id);
+                        }}
+                        sx={{ p: 0.25, ml: 0.25 }}
+                      >
+                        <CloseIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                    </Box>
+                  ) : page.title
+                }
+              />
             ))}
           </Tabs>
           {mode === 'edit' && onAddPage && !hasEmptyPage && (
@@ -135,6 +178,31 @@ export function AppToolbar(props: AppToolbarProps) {
         </Box>
       )}
       {pages.length <= 1 && mode !== 'edit' && <Box sx={{ flexGrow: 1 }} />}
+
+      {/* Confirmation dialog for page removal */}
+      <Dialog open={Boolean(confirmPage)} onClose={() => setConfirmPageId(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Remove page?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Remove &ldquo;{confirmPage?.title}&rdquo; and all its widgets? This action can be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmPageId(null)}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              if (confirmPageId) {
+                onPageClose?.(confirmPageId);
+              }
+              setConfirmPageId(null);
+            }}
+          >
+            Remove
+          </Button>
+        </DialogActions>
+      </Dialog>
       {mode === 'edit' && (
         <React.Fragment>
           <Tooltip title="Undo (⌘Z)">

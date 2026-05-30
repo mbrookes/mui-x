@@ -673,7 +673,11 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     <React.Fragment>
       {/* Force grabbing cursor across all elements during a widget drag */}
       <GlobalStyles
-        styles={{ 'body.x-studio-dragging-widget, body.x-studio-dragging-widget *': { cursor: 'grabbing !important' } }}
+        styles={{
+          'body.x-studio-dragging-widget, body.x-studio-dragging-widget *': {
+            cursor: 'grabbing !important',
+          },
+        }}
       />
       <Box
         ref={canvasRef}
@@ -683,190 +687,190 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           backgroundColor: pageTheme?.pageBackground ?? undefined,
           minHeight: '100%',
         }}
-      onMouseDown={(event) => {
-        // Deselect when clicking the canvas background (not a widget card)
-        const target = event.target as HTMLElement;
-        if (!target.closest('[data-widget-card]')) {
-          controller.setSelectedWidget(null);
-        }
-      }}
-    >
-      {/* Date range bar — shown in both modes when the page has date/datetime fields */}
-      <StudioDateRangeBar />
+        onMouseDown={(event) => {
+          // Deselect when clicking the canvas background (not a widget card)
+          const target = event.target as HTMLElement;
+          if (!target.closest('[data-widget-card]')) {
+            controller.setSelectedWidget(null);
+          }
+        }}
+      >
+        {/* Date range bar — shown in both modes when the page has date/datetime fields */}
+        <StudioDateRangeBar />
 
-      {/* Quick filter bar — view mode only, shown when page filters are active */}
-      {mode !== 'edit' && <StudioQuickFilterBar />}
+        {/* Quick filter bar — view mode only, shown when page filters are active */}
+        {mode !== 'edit' && <StudioQuickFilterBar />}
 
-      {/* Insertion point above the first row — inset by the vertical drop zone width (16px) on each side */}
-      {mode === 'edit' && (
-        <InsertionPoint
-          rowIndex={0}
-          colIndex={0}
-          onDrop={handleDrop}
-          orientation="horizontal"
-          mode={mode}
-        />
-      )}
-      {widgetRows.map((row, rowIndex) => (
-        <Box key={row.join('-')} sx={rowIndex > 0 && mode !== 'edit' ? { mt: 1 } : undefined}>
-          <Box
-            sx={{
-              display: 'flex',
-              flexWrap: mode === 'edit' ? 'nowrap' : 'wrap',
-              gap: mode === 'edit' ? 0 : 1,
-              width: '100%',
-              alignItems: 'stretch',
-              position: 'relative',
-            }}
-          >
-            {/* Insertion point before first widget in row */}
+        {/* Insertion point above the first row — inset by the vertical drop zone width (16px) on each side */}
+        {mode === 'edit' && (
+          <InsertionPoint
+            rowIndex={0}
+            colIndex={0}
+            onDrop={handleDrop}
+            orientation="horizontal"
+            mode={mode}
+          />
+        )}
+        {widgetRows.map((row, rowIndex) => (
+          <Box key={row.join('-')} sx={rowIndex > 0 && mode !== 'edit' ? { mt: 1 } : undefined}>
+            <Box
+              sx={{
+                display: 'flex',
+                flexWrap: mode === 'edit' ? 'nowrap' : 'wrap',
+                gap: mode === 'edit' ? 0 : 1,
+                width: '100%',
+                alignItems: 'stretch',
+                position: 'relative',
+              }}
+            >
+              {/* Insertion point before first widget in row */}
+              {mode === 'edit' && (
+                <InsertionPoint
+                  rowIndex={rowIndex}
+                  colIndex={0}
+                  onDrop={handleDrop}
+                  orientation="vertical"
+                  mode={mode}
+                />
+              )}
+              {row.map((widgetId, colIndex) => {
+                // Compute flex value, using live drag for the two resizing widgets
+                const storedSpan = widgetColSpans?.[widgetId] ?? null;
+                let liveSpan: number | null = null;
+                if (liveDrag) {
+                  if (widgetId === liveDrag.leftId) {
+                    liveSpan = liveDrag.leftSpanLive;
+                  } else if (widgetId === liveDrag.rightId) {
+                    liveSpan = liveDrag.totalSpan - liveDrag.leftSpanLive;
+                  }
+                }
+                const span = liveSpan ?? storedSpan;
+
+                // Edit mode: use flex-grow proportional to column span (flex-basis: 0).
+                // Insertion points have a fixed 8px width each; percentage-based flex-basis
+                // would sum to 100% *before* those, causing overflow.  Flex-grow distributes
+                // only the remaining space after fixed items, so the row fills correctly.
+                // Default flex-grow: 12/rowLength so unsized widgets match the same ratio.
+                // View mode: use percentage flex-basis (no insertion points present).
+                // Stacked mode: force full width regardless of stored span.
+                const defaultFlexGrow = Math.round(GRID_COLS / row.length);
+                let flexValue: string | number;
+                if (isStacked) {
+                  flexValue = '0 0 100%';
+                } else if (mode === 'edit') {
+                  flexValue = `${span ?? defaultFlexGrow} 0 0`;
+                } else if (span != null) {
+                  flexValue = `0 0 ${(span / GRID_COLS) * 100}%`;
+                } else {
+                  flexValue = 1;
+                }
+                let maxWidth: string | undefined;
+                if (isStacked) {
+                  maxWidth = '100%';
+                } else if (mode !== 'edit' && span != null) {
+                  maxWidth = `${(span / GRID_COLS) * 100}%`;
+                }
+
+                // Spans for the resize handle on the right of this widget
+                const nextId = row[colIndex + 1];
+                const nextStoredSpan = nextId ? (widgetColSpans?.[nextId] ?? null) : null;
+                const myEffectiveSpan = storedSpan ?? defaultFlexGrow;
+                const nextEffectiveSpan = nextId
+                  ? (nextStoredSpan ?? Math.round(GRID_COLS / row.length))
+                  : 0;
+
+                const isResizing =
+                  liveDrag && (widgetId === liveDrag.leftId || widgetId === liveDrag.rightId);
+
+                return (
+                  <React.Fragment key={widgetId}>
+                    <Box
+                      sx={{
+                        flex: flexValue,
+                        maxWidth: maxWidth ?? undefined,
+                        minWidth: mode === 'edit' ? 0 : 280,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        // Outline during active resize drag
+                        outline: isResizing ? '2px solid' : 'none',
+                        outlineColor: 'primary.main',
+                        outlineOffset: -1,
+                        borderRadius: 1,
+                        transition: isResizing ? 'none' : 'flex 0.1s ease',
+                      }}
+                    >
+                      <StudioWidgetCard
+                        widgetId={widgetId}
+                        isFirstRow={rowIndex === 0}
+                        pageTheme={pageTheme}
+                        {...slotProps?.widgetCard}
+                      />
+                    </Box>
+                    {/* Gap: DnD drop zone + resize handle (between/after widgets) */}
+                    {mode === 'edit' && (
+                      <WidgetGap
+                        rowIndex={rowIndex}
+                        colIndex={colIndex + 1}
+                        onDrop={handleDrop}
+                        showResizeHandle={colIndex < row.length - 1}
+                        leftId={widgetId}
+                        rightId={nextId}
+                        leftSpan={myEffectiveSpan}
+                        rightSpan={nextEffectiveSpan}
+                        onDragMove={(lId, rId, leftSpanLive) => {
+                          setLiveDrag({
+                            leftId: lId,
+                            rightId: rId,
+                            leftSpanLive,
+                            totalSpan: myEffectiveSpan + nextEffectiveSpan,
+                          });
+                        }}
+                        onDragEnd={(lId, rId, snappedLeft, snappedRight) => {
+                          setLiveDrag(null);
+                          controller.setAdjacentWidgetColSpans(lId, snappedLeft, rId, snappedRight);
+                        }}
+                      />
+                    )}
+                  </React.Fragment>
+                );
+              })}
+              {/* Column grid lines overlay — shown during a resize drag on this row.
+                Lines are offset to align with the widget area, accounting for the
+                8px insertion point at the left and the 8px gap(s) within and after. */}
+              {liveDrag &&
+                row.includes(liveDrag.leftId) &&
+                Array.from({ length: GRID_COLS - 1 }).map((_, i) => (
+                  <Box
+                    key={i}
+                    sx={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      // Widget area starts at 8px (left IP) and ends at rowWidth − 8px (trailing gap).
+                      // Internal gaps add (row.length − 1) × 8px; total fixed = (row.length + 1) × 8px.
+                      left: `calc(8px + ${(i + 1) / GRID_COLS} * (100% - ${(row.length + 1) * 8}px))`,
+                      width: '1px',
+                      bgcolor: 'divider',
+                      opacity: 0.6,
+                      pointerEvents: 'none',
+                      zIndex: 15,
+                    }}
+                  />
+                ))}
+            </Box>
+            {/* Insertion point below this row */}
             {mode === 'edit' && (
               <InsertionPoint
-                rowIndex={rowIndex}
+                rowIndex={rowIndex + 1}
                 colIndex={0}
                 onDrop={handleDrop}
-                orientation="vertical"
+                orientation="horizontal"
                 mode={mode}
               />
             )}
-            {row.map((widgetId, colIndex) => {
-              // Compute flex value, using live drag for the two resizing widgets
-              const storedSpan = widgetColSpans?.[widgetId] ?? null;
-              let liveSpan: number | null = null;
-              if (liveDrag) {
-                if (widgetId === liveDrag.leftId) {
-                  liveSpan = liveDrag.leftSpanLive;
-                } else if (widgetId === liveDrag.rightId) {
-                  liveSpan = liveDrag.totalSpan - liveDrag.leftSpanLive;
-                }
-              }
-              const span = liveSpan ?? storedSpan;
-
-              // Edit mode: use flex-grow proportional to column span (flex-basis: 0).
-              // Insertion points have a fixed 8px width each; percentage-based flex-basis
-              // would sum to 100% *before* those, causing overflow.  Flex-grow distributes
-              // only the remaining space after fixed items, so the row fills correctly.
-              // Default flex-grow: 12/rowLength so unsized widgets match the same ratio.
-              // View mode: use percentage flex-basis (no insertion points present).
-              // Stacked mode: force full width regardless of stored span.
-              const defaultFlexGrow = Math.round(GRID_COLS / row.length);
-              let flexValue: string | number;
-              if (isStacked) {
-                flexValue = '0 0 100%';
-              } else if (mode === 'edit') {
-                flexValue = `${span ?? defaultFlexGrow} 0 0`;
-              } else if (span != null) {
-                flexValue = `0 0 ${(span / GRID_COLS) * 100}%`;
-              } else {
-                flexValue = 1;
-              }
-              let maxWidth: string | undefined;
-              if (isStacked) {
-                maxWidth = '100%';
-              } else if (mode !== 'edit' && span != null) {
-                maxWidth = `${(span / GRID_COLS) * 100}%`;
-              }
-
-              // Spans for the resize handle on the right of this widget
-              const nextId = row[colIndex + 1];
-              const nextStoredSpan = nextId ? (widgetColSpans?.[nextId] ?? null) : null;
-              const myEffectiveSpan = storedSpan ?? defaultFlexGrow;
-              const nextEffectiveSpan = nextId
-                ? (nextStoredSpan ?? Math.round(GRID_COLS / row.length))
-                : 0;
-
-              const isResizing =
-                liveDrag && (widgetId === liveDrag.leftId || widgetId === liveDrag.rightId);
-
-              return (
-                <React.Fragment key={widgetId}>
-                  <Box
-                    sx={{
-                      flex: flexValue,
-                      maxWidth: maxWidth ?? undefined,
-                      minWidth: mode === 'edit' ? 0 : 280,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      // Outline during active resize drag
-                      outline: isResizing ? '2px solid' : 'none',
-                      outlineColor: 'primary.main',
-                      outlineOffset: -1,
-                      borderRadius: 1,
-                      transition: isResizing ? 'none' : 'flex 0.1s ease',
-                    }}
-                  >
-                    <StudioWidgetCard
-                      widgetId={widgetId}
-                      isFirstRow={rowIndex === 0}
-                      pageTheme={pageTheme}
-                      {...slotProps?.widgetCard}
-                    />
-                  </Box>
-                  {/* Gap: DnD drop zone + resize handle (between/after widgets) */}
-                  {mode === 'edit' && (
-                    <WidgetGap
-                      rowIndex={rowIndex}
-                      colIndex={colIndex + 1}
-                      onDrop={handleDrop}
-                      showResizeHandle={colIndex < row.length - 1}
-                      leftId={widgetId}
-                      rightId={nextId}
-                      leftSpan={myEffectiveSpan}
-                      rightSpan={nextEffectiveSpan}
-                      onDragMove={(lId, rId, leftSpanLive) => {
-                        setLiveDrag({
-                          leftId: lId,
-                          rightId: rId,
-                          leftSpanLive,
-                          totalSpan: myEffectiveSpan + nextEffectiveSpan,
-                        });
-                      }}
-                      onDragEnd={(lId, rId, snappedLeft, snappedRight) => {
-                        setLiveDrag(null);
-                        controller.setAdjacentWidgetColSpans(lId, snappedLeft, rId, snappedRight);
-                      }}
-                    />
-                  )}
-                </React.Fragment>
-              );
-            })}
-            {/* Column grid lines overlay — shown during a resize drag on this row.
-                Lines are offset to align with the widget area, accounting for the
-                8px insertion point at the left and the 8px gap(s) within and after. */}
-            {liveDrag &&
-              row.includes(liveDrag.leftId) &&
-              Array.from({ length: GRID_COLS - 1 }).map((_, i) => (
-                <Box
-                  key={i}
-                  sx={{
-                    position: 'absolute',
-                    top: 0,
-                    bottom: 0,
-                    // Widget area starts at 8px (left IP) and ends at rowWidth − 8px (trailing gap).
-                    // Internal gaps add (row.length − 1) × 8px; total fixed = (row.length + 1) × 8px.
-                    left: `calc(8px + ${(i + 1) / GRID_COLS} * (100% - ${(row.length + 1) * 8}px))`,
-                    width: '1px',
-                    bgcolor: 'divider',
-                    opacity: 0.6,
-                    pointerEvents: 'none',
-                    zIndex: 15,
-                  }}
-                />
-              ))}
           </Box>
-          {/* Insertion point below this row */}
-          {mode === 'edit' && (
-            <InsertionPoint
-              rowIndex={rowIndex + 1}
-              colIndex={0}
-              onDrop={handleDrop}
-              orientation="horizontal"
-              mode={mode}
-            />
-          )}
-        </Box>
-      ))}
-    </Box>
+        ))}
+      </Box>
     </React.Fragment>
   );
 });

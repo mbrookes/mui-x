@@ -41,9 +41,7 @@ function WidgetConfigView(props: { widgetId: string }) {
   const [tab, setTab] = React.useState(0);
   const widget = useStudioSelector(selectWidgets)[widgetId];
   const customWidgetMap = useCustomWidgetMap();
-  const customDef = widget
-    ? customWidgetMap.get(widget.kind) ?? null
-    : null;
+  const customDef = widget ? (customWidgetMap.get(widget.kind) ?? null) : null;
 
   const handleTabChange = React.useCallback(
     (_event: React.SyntheticEvent, v: number) => setTab(v),

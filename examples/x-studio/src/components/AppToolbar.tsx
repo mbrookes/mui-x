@@ -36,6 +36,7 @@ export interface AppToolbarProps {
   activePageId: string;
   onPageChange: (event: React.SyntheticEvent, pageId: string) => void;
   onPageClose?: (pageId: string) => void;
+  onPageReorder?: (pageIds: string[]) => void;
   canUndo?: boolean;
   canRedo?: boolean;
   onUndo?: () => void;
@@ -54,6 +55,7 @@ export function AppToolbar(props: AppToolbarProps) {
     activePageId,
     onPageChange,
     onPageClose,
+    onPageReorder,
     canUndo,
     canRedo,
     onUndo,
@@ -63,6 +65,23 @@ export function AppToolbar(props: AppToolbarProps) {
   const [confirmPageId, setConfirmPageId] = React.useState<string | null>(null);
   const confirmPage = confirmPageId ? pages.find((p) => p.id === confirmPageId) : null;
   const showCloseButtons = mode === 'edit' && pages.length > 1 && Boolean(onPageClose);
+  const [tabDragIndex, setTabDragIndex] = React.useState<number | null>(null);
+  const [tabDragOverIndex, setTabDragOverIndex] = React.useState<number | null>(null);
+  const showDragHandles = mode === 'edit' && pages.length > 1 && Boolean(onPageReorder);
+
+  function handleTabDrop(dropIndex: number) {
+    if (tabDragIndex === null || tabDragIndex === dropIndex) {
+      setTabDragIndex(null);
+      setTabDragOverIndex(null);
+      return;
+    }
+    const newOrder = pages.map((p) => p.id);
+    const [moved] = newOrder.splice(tabDragIndex, 1);
+    newOrder.splice(dropIndex, 0, moved);
+    onPageReorder?.(newOrder);
+    setTabDragIndex(null);
+    setTabDragOverIndex(null);
+  }
 
   return (
     <Box
@@ -107,11 +126,22 @@ export function AppToolbar(props: AppToolbarProps) {
           allowScrollButtonsMobile
           sx={{ flexGrow: 1, minWidth: 0 }}
         >
-          {pages.map((page) => (
+          {pages.map((page, index) => (
             <Tab
               key={page.id}
               value={page.id}
-              sx={{ minHeight: 48 }}
+              draggable={showDragHandles}
+              onDragStart={showDragHandles ? () => setTabDragIndex(index) : undefined}
+              onDragOver={showDragHandles ? (e) => { e.preventDefault(); setTabDragOverIndex(index); } : undefined}
+              onDrop={showDragHandles ? () => handleTabDrop(index) : undefined}
+              onDragEnd={showDragHandles ? () => { setTabDragIndex(null); setTabDragOverIndex(null); } : undefined}
+              sx={{
+                minHeight: 48,
+                opacity: tabDragIndex === index ? 0.4 : 1,
+                borderLeft: tabDragOverIndex === index && tabDragIndex !== index ? 2 : 0,
+                borderColor: 'primary.main',
+                cursor: showDragHandles ? 'grab' : undefined,
+              }}
               label={
                 showCloseButtons ? (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>

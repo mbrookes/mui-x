@@ -20,6 +20,9 @@ import type {
   StudioFeatureFlags,
 } from '@mui/x-studio';
 import { INITIAL_STATE } from './config/salesDashboard';
+import { OS_INITIAL_STATE } from './config/officeSuppliesDashboard';
+import { loadOfficeSuppliesData } from './officeSuppliesData';
+import type { OfficeSuppliesData } from './officeSuppliesData';
 import { AppToolbar } from './components/AppToolbar';
 import { SettingsDialog } from './components/SettingsDialog';
 import type { SidebarLayout, SidebarSide, TableSourceMode } from './components/SettingsDialog';
@@ -85,6 +88,16 @@ function getUrlAdapterParam(): boolean {
   return new URL(window.location.href).searchParams.has('adapter');
 }
 
+/** Read ?dataset=ag-studio to select the AG Studio Data dataset. */
+function getUrlDatasetParam(): 'sales' | 'ag-studio' {
+  if (typeof window === 'undefined') {
+    return 'sales';
+  }
+  return new URL(window.location.href).searchParams.get('dataset') === 'ag-studio'
+    ? 'ag-studio'
+    : 'sales';
+}
+
 /**
  * Read ?server=<url> to route queries through a real server instead of
  * simulatedServer.ts. Example: ?server=http://localhost:3001/api/studio-data
@@ -139,25 +152,58 @@ export default function App() {
 
   // Compute URL params once — stable across renders.
   const rowCount = React.useMemo(() => getUrlRowsParam(), []);
+  const dataset = React.useMemo(() => getUrlDatasetParam(), []);
   const urlPageId = React.useMemo(
-    () => resolvePageIdFromQuery(getUrlPageParam(), INITIAL_STATE.pages),
-    [],
+    () =>
+      resolvePageIdFromQuery(
+        getUrlPageParam(),
+        dataset === 'ag-studio' ? OS_INITIAL_STATE.pages : INITIAL_STATE.pages,
+      ),
+    [dataset],
   );
+
+  // AG Studio Data: async-loaded office supplies dataset
+  const [osData, setOsData] = React.useState<OfficeSuppliesData | null>(null);
+
+  React.useEffect(() => {
+    if (dataset !== 'ag-studio') {
+      return;
+    }
+    loadOfficeSuppliesData().then((data) => {
+      React.startTransition(() => {
+        setOsData(data);
+      });
+    });
+  }, [dataset]);
 
   // Phase 1: render the shell immediately with the static demo data so FCP
   // is not blocked by data generation.
   const baseInitialState = React.useMemo<Partial<StudioState>>(() => {
+    const baseState = dataset === 'ag-studio' && osData
+      ? {
+          ...OS_INITIAL_STATE,
+          dataSources: {
+            [osData.storesSource.id]: osData.storesSource,
+            [osData.productsSource.id]: osData.productsSource,
+            [osData.customersSource.id]: osData.customersSource,
+            [osData.ordersSource.id]: osData.ordersSource,
+            [osData.orderItemsSource.id]: osData.orderItemsSource,
+            [osData.shipmentsSource.id]: osData.shipmentsSource,
+          },
+        }
+      : INITIAL_STATE;
+
     if (!urlPageId) {
-      return INITIAL_STATE;
+      return baseState;
     }
     return {
-      ...INITIAL_STATE,
+      ...baseState,
       dashboard: {
-        ...INITIAL_STATE.dashboard,
+        ...baseState.dashboard,
         activePageId: urlPageId,
       },
     } as Partial<StudioState>;
-  }, [urlPageId]);
+  }, [dataset, osData, urlPageId]);
 
   // Phase 2: if ?rows=N is in the URL, generate the large dataset after first
   // paint so the main thread is not blocked during initial render.
@@ -214,11 +260,15 @@ export default function App() {
   // Use the generated state once ready; fall back to static data for FCP.
   // Re-key Studio when switching from static → generated so initialState is re-applied.
   const initialState = generatedState ?? baseInitialState;
-  const studioKey = generatedState ? `generated-${rowCount}` : 'static';
-  // When a large dataset is being generated (?rows=N), suppress the static demo
-  // render entirely so users don't see a flash of built-in data before the
-  // generated rows appear.
-  const isGenerating = rowCount !== undefined && generatedState === null;
+  const studioKey = generatedState
+    ? `generated-${rowCount}`
+    : dataset === 'ag-studio'
+      ? `ag-studio-${osData ? 'ready' : 'loading'}`
+      : 'static';
+  // When a large dataset is being generated (?rows=N) or AG Studio data is loading,
+  // suppress the static demo render entirely.
+  const isGenerating = (rowCount !== undefined && generatedState === null) ||
+    (dataset === 'ag-studio' && osData === null);
   const [mode, setMode] = React.useState<StudioMode>('edit');
   const [title, setTitle] = React.useState('');
   const [pages, setPages] = React.useState<Record<string, StudioPage>>({});
@@ -337,6 +387,9 @@ export default function App() {
   const handlePageClose = React.useCallback((pageId: string) => {
     studioRef.current?.removePage(pageId);
   }, []);
+  const handlePageReorder = React.useCallback((pageIds: string[]) => {
+    studioRef.current?.reorderPages(pageIds);
+  }, []);
 
   const handleSave = React.useCallback(() => {
     const serialized = studioRef.current?.serializeState();
@@ -431,6 +484,7 @@ export default function App() {
             activePageId={activePageId}
             onPageChange={handlePageChange}
             onPageClose={handlePageClose}
+            onPageReorder={handlePageReorder}
             canUndo={canUndo}
             canRedo={canRedo}
             onUndo={handleUndo}
@@ -514,6 +568,7 @@ export default function App() {
             stackBreakpoint,
             rowCount: getUrlRowsParam(),
             adapterEnabled: adapterMode,
+            dataSource: dataset,
           }}
           onSidebarLayoutChange={setSidebarLayout}
           onSidebarSideChange={setSidebarSide}

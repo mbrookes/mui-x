@@ -233,7 +233,9 @@ BL-82: Is there anything we can resue from x-data-grid-pro's server-side data ha
 
 **Fixed** (added HTML5 drag-and-drop to the columns list in `GridSetupPanel`: each row has a `DragIndicatorIcon` handle, `draggable` attribute, and `onDragStart`/`onDragOver`/`onDrop`/`onDragEnd` handlers; dropping reorders via `controller.updateWidgetConfig()`; the dragged item is faded and the drop target gets a primary-coloured border; no extra library needed)
 
-BL-84: Add drag-and-drop tab ordering to the x-studio-composed example. It should update the studio config so that the ordering can be persisted. Ideally the active/dragged/dropped tab/page shouldn't rerender, and definitely shouldn't reload, recalculate/sort/filter etc the data.
+~~BL-84: Add drag-and-drop tab ordering to the x-studio-composed example. It should update the studio config so that the ordering can be persisted. Ideally the active/dragged/dropped tab/page shouldn't rerender, and definitely shouldn't reload, recalculate/sort/filter etc the data.~~
+
+**Fixed** (added `reorderPages(pageIds)` to `StudioController` and to `StudioHandle` imperative API; added `onPageReorder` prop to both `AppToolbar` components; in edit mode with 2+ pages each tab becomes `draggable`; `onDragStart`/`onDragOver`/`onDrop`/`onDragEnd` manage local drag state and call `onPageReorder` on drop; dragged tab fades; drop-target tab gets a primary-coloured left border; active page does not change during drag — no data reload)
 
 ~~BL-85: Make the edit/delete buttons for data fields in the data panel right aligned. Edit/delete buttons for relationships overlap the relationship name (Shipment Items → Shipments).~~
 **Fixed** (added `flexGrow: 1; minWidth: 0` to `ExpressionFieldRow` primary-content Stack so edit/delete buttons are always right-aligned; added `flexShrink: 0` to relationship edit/delete `IconButton`s so they no longer overlap long relationship names)
@@ -241,12 +243,12 @@ BL-84: Add drag-and-drop tab ordering to the x-studio-composed example. It shoul
 ~~BL-86: Add a feature flag and example app setting for relationships, and for the filter panel.~~
 **Fixed** (added `relationships` flag — gates `RelationshipPanel` in `StudioDataDrawer`; added `widgetFilters` flag — gates the "Filters" tab in `StudioWidgetEditDialog`; both default to `true`; both settings dialogs expose the new toggles with appropriate `parentKey` links)
 
-BL:87: The filter panel seems a bit pointless as it stands, make it feature complete without bloating it with pointless features (releaserch what's typical), and allow it to be configured on the filters panel. It's also seems buggy - Quarterly revenue by category for shipments ship date last 12 months shows data for all time. If it's the data itself that is inconsistent, for exmaple ship dates before order dates, fix that.
+BL:87: The filter panel seems a bit pointless as it stands, make it feature complete without bloating it with excess features (/reaserch what's typical for dashboard/BI tools), and allow it to be configured on the filters panel. It's also seems buggy - Quarterly revenue by category for shipments ship date last 12 months shows data for all time. If it's the data itself that is inconsistent, for exmaple ship dates before order dates, fix that. Put it behind a feature flag.
 
 ~~BL:88: Clicking a widget in the x-studio example should open the compose panel (it did in the past). It may have been removed for the x-studio-composed example that uses an edit button instead so that the edit dialog doesn't open when interacting with a widget in edit mode. Make sure that behaviour isn't affected by any fix.~~
 **Fixed** (added a `useEffect` in `StudioContent` (`Studio.tsx`) that watches `selectedWidgetId`; when a new widget is selected in edit mode with compose enabled, it calls `setDrawerOpen('compose', true)`; in tabbed layout it also closes the data and filters drawers so compose becomes the active visible tab; x-studio-composed is unaffected because it uses `StudioCanvas` directly and does not render `Studio.tsx`)
 
-BL-89: re-run the UI performance tests and compare with the previous run.
+BL-89: re-run the UI performance tests and compare with the previous run. Save the results to a markdown file in the x-studio folder.
 
 BL-90: Make config changes persist locally in the browser, so that if the page reloads when the state isn't saved by the containing server, the user doesn't loose changes. 
 

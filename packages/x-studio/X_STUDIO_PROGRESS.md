@@ -613,6 +613,15 @@
 - Fixed off-by-one in `handleTabDrop`: after `splice(tabDragIndex, 1)` removes the source tab, the remaining array is one element shorter, so `adjustedIndex = tabDragIndex < dropIndex ? dropIndex - 1 : dropIndex` corrects the insertion position
 - `Array.from()` used throughout for cross-browser safety (`DOMStringList` in older Safari lacks `Array.prototype.includes`)
 
+### UX-18 · Drag widget over tab to navigate pages (BL-107)
+
+- Added `onPageDragNavigate?: (pageId: string) => void` prop to `AppToolbar` in both example apps
+- Hovering a widget drag over a page tab for 600ms fires `onPageDragNavigate(pageId)`, switching to that page so the widget can be dropped on an insertion point there
+- Uses tab-scoped counter + timer refs: counter increments on `dragEnter`, decrements on `dragLeave`; timer cancels only when counter reaches 0 (handles child-element enter/leave churn correctly)
+- Entering a new tab while a timer is in-flight cancels the old timer and starts a fresh one for the new page — prevents navigation to the wrong tab on fast moves
+- Global `document.addEventListener('dragend', cancelDragNavTimer)` ensures cleanup when drag ends or cancels outside the tabs area; unmount effect removes the listener
+- Wired via `handlePageDragNavigate` callback in both `App.tsx` files
+
 ---
 
 ## 📋 Planned

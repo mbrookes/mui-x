@@ -20,19 +20,19 @@ it, and optionally plots a sparkline using a secondary time-series field.
 ```ts
 interface StudioKpiConfig {
   dataSourceId: string;
-  valueField: string;              // numeric or measure field id
-  aggregation: StudioAggregation;  // 'sum' | 'avg' | 'count' | 'min' | 'max'
-  label?: string;                  // card title text (defaults to field label)
-  prefix?: string;                 // rendered before the value, e.g. '$'
-  suffix?: string;                 // rendered after the value, e.g. '%'
-  compact?: boolean;               // abbreviate large numbers (1 200 000 → 1.2M)
-  invertTrend?: boolean;           // treat decrease as positive (e.g. for costs)
+  valueField: string; // numeric or measure field id
+  aggregation: StudioAggregation; // 'sum' | 'avg' | 'count' | 'min' | 'max'
+  label?: string; // card title text (defaults to field label)
+  prefix?: string; // rendered before the value, e.g. '$'
+  suffix?: string; // rendered after the value, e.g. '%'
+  compact?: boolean; // abbreviate large numbers (1 200 000 → 1.2M)
+  invertTrend?: boolean; // treat decrease as positive (e.g. for costs)
   sparkline?: StudioKpiSparkline;
 }
 
 interface StudioKpiSparkline {
   enabled: boolean;
-  xField: string;     // date or ordinal field for the time axis
+  xField: string; // date or ordinal field for the time axis
   groupBy?: StudioGroupBy;
 }
 
@@ -74,12 +74,12 @@ const kpiConfig: StudioKpiConfig = {
 Set `compact: true` to abbreviate large numbers using SI suffixes (K, M, B).
 The threshold is 10 000 — numbers below that are shown in full.
 
-| Raw value | Compact display |
-| :--- | :--- |
-| 999 | 999 |
-| 1 234 | 1.23K |
-| 1 200 000 | 1.2M |
-| 4 500 000 000 | 4.5B |
+| Raw value     | Compact display |
+| :------------ | :-------------- |
+| 999           | 999             |
+| 1 234         | 1.23K           |
+| 1 200 000     | 1.2M            |
+| 4 500 000 000 | 4.5B            |
 
 ## Trend badge
 
@@ -95,7 +95,7 @@ const kpiConfig: StudioKpiConfig = {
   dataSourceId: 'incidents',
   valueField: 'errorRate',
   aggregation: 'avg',
-  invertTrend: true,  // decrease in error rate → green trend badge
+  invertTrend: true, // decrease in error rate → green trend badge
 };
 ```
 
@@ -122,16 +122,49 @@ The sparkline uses the same data source and applies the same active filters. It 
 not emit cross-filter events when clicked.
 :::
 
+## Target line
+
+Enable `kpiTarget` to draw a horizontal reference line on the sparkline at a target
+value. Set `kpiTargetRef` to a `StudioMetricRef`, the same reference type used for
+dynamic filter thresholds.
+
+```ts
+interface StudioMetricRef {
+  sourceId: string;   // ID of the data source containing the metric
+  fieldId: string;    // field to read the value from
+  rowId?: string;     // optional: specific row ID (for example, a business metric row)
+}
+
+{
+  kind: 'kpi',
+  config: {
+    kpiValueField: 'revenue',
+    kpiAggregation: 'sum',
+    kpiSparkline: true,
+    kpiTarget: true,
+    kpiTargetRef: {
+      sourceId: 'businessMetrics',
+      fieldId: 'value',
+      rowId: 'BM-REVENUE-TARGET',
+    },
+  },
+}
+```
+
+When both `kpiTrend` and `kpiTarget` are enabled, the trend badge compares the
+headline value against the target instead of the previous period. The reference line
+still appears on the sparkline even when `kpiTrend` is disabled.
+
+:::info
+Set `featureFlags.kpiTarget` to `false` to hide this feature in the UI.
+:::
+
 ## Rendering with `StudioKpiWidget`
 
 ```tsx
 import { StudioKpiWidget } from '@mui/x-studio';
 
-<StudioKpiWidget
-  config={kpiConfig}
-  width={300}
-  height={160}
-/>
+<StudioKpiWidget config={kpiConfig} width={300} height={160} />;
 ```
 
 ## See also

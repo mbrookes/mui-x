@@ -22,8 +22,8 @@ interface StudioExpressionField {
   id: string;
   label: string;
   description?: string;
-  sourceId: string;           // which data source owns these rows
-  isMeasure: false;           // calculated column (per-row)
+  sourceId: string; // which data source owns these rows
+  isMeasure: false; // calculated column (per-row)
   expression: StudioExpression;
   type?: 'string' | 'number' | 'date' | 'datetime' | 'boolean'; // inferred if omitted
   format?: StudioNumberFormat;
@@ -41,7 +41,9 @@ An expression is one of four node types that compose into a tree.
 Returns the value of a field on the current row:
 
 ```ts
-{ id: 'revenue' }
+{
+  id: 'revenue';
+}
 ```
 
 ### Literal value (`StudioValueExpression`)
@@ -65,42 +67,42 @@ Applies an operator to one or more sub-expressions:
 }
 ```
 
-| Operator | Arity | Description |
-| :--- | :--- | :--- |
-| `add` | 2 | `a + b` |
-| `subtract` | 2 | `a - b` |
-| `multiply` | 2 | `a * b` |
-| `divide` | 2 | `a / b` (returns `null` for divide-by-zero) |
-| `negate` | 1 | `-a` |
-| `abs` | 1 | Absolute value |
-| `round` | 1 | Round to nearest integer |
-| `floor` | 1 | Floor |
-| `ceil` | 1 | Ceiling |
-| `equals` | 2 | `a === b` → boolean |
-| `not_equals` | 2 | `a !== b` → boolean |
-| `greater_than` | 2 | `a > b` → boolean |
-| `less_than` | 2 | `a < b` → boolean |
-| `greater_than_or_equal` | 2 | `a >= b` → boolean |
-| `less_than_or_equal` | 2 | `a <= b` → boolean |
-| `and` | 2 | Logical AND |
-| `or` | 2 | Logical OR |
-| `not` | 1 | Logical NOT |
-| `if` | 3 | `if condition then a else b` |
-| `coalesce` | 2 | Returns `a` if not null/undefined, otherwise `b` |
-| `concat` | 2 | String concatenation |
-| `lower` | 1 | Lowercase string |
-| `upper` | 1 | Uppercase string |
-| `trim` | 1 | Trim whitespace |
-| `length` | 1 | String length |
-| `year` | 1 | Year component of a date |
-| `month` | 1 | Month component of a date (1–12) |
-| `day` | 1 | Day of month (1–31) |
-| `date_diff_days` | 2 | Difference in days between two dates |
-| `sum` | 1 | Measure: sum of field across all (filtered) rows |
-| `avg` | 1 | Measure: average |
-| `count` | 1 | Measure: count of non-null values |
-| `min` | 1 | Measure: minimum |
-| `max` | 1 | Measure: maximum |
+| Operator                | Arity | Description                                      |
+| :---------------------- | :---- | :----------------------------------------------- |
+| `add`                   | 2     | `a + b`                                          |
+| `subtract`              | 2     | `a - b`                                          |
+| `multiply`              | 2     | `a * b`                                          |
+| `divide`                | 2     | `a / b` (returns `null` for divide-by-zero)      |
+| `negate`                | 1     | `-a`                                             |
+| `abs`                   | 1     | Absolute value                                   |
+| `round`                 | 1     | Round to nearest integer                         |
+| `floor`                 | 1     | Floor                                            |
+| `ceil`                  | 1     | Ceiling                                          |
+| `equals`                | 2     | `a === b` → boolean                              |
+| `not_equals`            | 2     | `a !== b` → boolean                              |
+| `greater_than`          | 2     | `a > b` → boolean                                |
+| `less_than`             | 2     | `a < b` → boolean                                |
+| `greater_than_or_equal` | 2     | `a >= b` → boolean                               |
+| `less_than_or_equal`    | 2     | `a <= b` → boolean                               |
+| `and`                   | 2     | Logical AND                                      |
+| `or`                    | 2     | Logical OR                                       |
+| `not`                   | 1     | Logical NOT                                      |
+| `if`                    | 3     | `if condition then a else b`                     |
+| `coalesce`              | 2     | Returns `a` if not null/undefined, otherwise `b` |
+| `concat`                | 2     | String concatenation                             |
+| `lower`                 | 1     | Lowercase string                                 |
+| `upper`                 | 1     | Uppercase string                                 |
+| `trim`                  | 1     | Trim whitespace                                  |
+| `length`                | 1     | String length                                    |
+| `year`                  | 1     | Year component of a date                         |
+| `month`                 | 1     | Month component of a date (1–12)                 |
+| `day`                   | 1     | Day of month (1–31)                              |
+| `date_diff_days`        | 2     | Difference in days between two dates             |
+| `sum`                   | 1     | Measure: sum of field across all (filtered) rows |
+| `avg`                   | 1     | Measure: average                                 |
+| `count`                 | 1     | Measure: count of non-null values                |
+| `min`                   | 1     | Measure: minimum                                 |
+| `max`                   | 1     | Measure: maximum                                 |
 
 ### Join field (`StudioJoinFieldExpression`)
 
@@ -187,6 +189,35 @@ const initialState = createDefaultStudioState({
 ```
 
 They appear alongside physical fields in every picker (chart axis, KPI value, grid column) for the matching source.
+
+## Ad-hoc formula bar
+
+The `InlineFormulaBar` is embedded in the Chart and KPI setup panels in the compose drawer. It lets editors create a one-off expression field inline without opening the full expression dialog.
+
+In chart setup, the formula bar appears below the Y-series pickers. In KPI setup, it appears below the value field picker. Editors expand **Add formula**, choose two operands, select an operator (`+`, `-`, `×`, or `÷`), and enter a label for the resulting field.
+
+When confirmed, Studio calls `addExpressionField` internally. The new field is added to the current source immediately and becomes available in all field pickers right away.
+
+In a composed layout, you can render the same component directly:
+
+```tsx
+import { InlineFormulaBar } from '@mui/x-studio';
+
+<InlineFormulaBar
+  sourceId="orders"
+  onAddField={(field) => controller.addExpressionField(field)}
+/>;
+```
+
+## Expression builder (visual editor)
+
+The `StudioExpressionFieldDialog`, opened from the data drawer, includes a visual expression builder for creating calculated columns. It supports fully recursive expression trees using the `'Function'` node kind, where each function node stores an operator and two operand nodes.
+
+Each operand can itself be another function expression, so you can build nested formulas without switching to a code-oriented representation. The editor shows nested branches inside a collapsible section with a left-border visual indicator, making the depth of the sub-expression easier to scan.
+
+The live preview panel updates as you build the expression, so you can verify the computed result before saving the field.
+
+This is a UI enhancement to the existing expression dialog and does not add any new public API.
 
 ## See also
 

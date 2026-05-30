@@ -15,12 +15,12 @@ githubLabel: 'scope: studio'
 
 Every `StudioFilterState` has a `scope` that determines which widgets it affects:
 
-| Scope | Description |
-| :--- | :--- |
-| `'page'` | Applied to every widget on the current page that has the matching field. |
-| `'widget'` | Applied to a single widget, identified by `widgetId`. |
+| Scope            | Description                                                                                                                                                 |
+| :--------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `'page'`         | Applied to every widget on the current page that has the matching field.                                                                                    |
+| `'widget'`       | Applied to a single widget, identified by `widgetId`.                                                                                                       |
 | `'cross-filter'` | Emitted by a user click on a chart or grid. Automatically cleared when the user clicks again. See [Cross-filters](/x/react-studio/features/cross-filters/). |
-| `'interactive'` | Emitted by a filter widget (slider, toggle, date range, multi-select). Managed automatically by Studio. |
+| `'interactive'`  | Emitted by a filter widget (slider, toggle, date range, multi-select). Managed automatically by Studio.                                                     |
 
 Use `page` for global constraints (for example, restrict all charts to the current fiscal year). Use `widget` for per-chart overrides (for example, a "Top 5" rank filter on one chart only).
 
@@ -42,24 +42,24 @@ The most common filter type. Compares a field value against a literal using one 
 
 ### Operators
 
-| Operator | Applies to | Description |
-| :--- | :--- | :--- |
-| `equals` | all | Field equals value. |
-| `not_equals` | all | Field does not equal value. |
-| `in` | string, number | Field value is one of an array of values. |
-| `contains` | string | Field contains the substring. |
-| `does_not_contain` | string | Field does not contain the substring. |
-| `starts_with` | string | Field starts with the substring. |
-| `not_starts_with` | string | Negated starts-with. |
-| `ends_with` | string | Field ends with the substring. |
-| `not_ends_with` | string | Negated ends-with. |
-| `is_empty` | all | Field is null, undefined, or empty string. |
-| `is_not_empty` | all | Field is not null/undefined/empty. |
-| `greater_than` | number, date | Field > value. |
-| `less_than` | number, date | Field < value. |
-| `greater_than_or_equal` | number, date | Field ≥ value. |
-| `less_than_or_equal` | number, date | Field ≤ value. |
-| `between` | number, date | `value ≤ field ≤ value2`. |
+| Operator                | Applies to     | Description                                |
+| :---------------------- | :------------- | :----------------------------------------- |
+| `equals`                | all            | Field equals value.                        |
+| `not_equals`            | all            | Field does not equal value.                |
+| `in`                    | string, number | Field value is one of an array of values.  |
+| `contains`              | string         | Field contains the substring.              |
+| `does_not_contain`      | string         | Field does not contain the substring.      |
+| `starts_with`           | string         | Field starts with the substring.           |
+| `not_starts_with`       | string         | Negated starts-with.                       |
+| `ends_with`             | string         | Field ends with the substring.             |
+| `not_ends_with`         | string         | Negated ends-with.                         |
+| `is_empty`              | all            | Field is null, undefined, or empty string. |
+| `is_not_empty`          | all            | Field is not null/undefined/empty.         |
+| `greater_than`          | number, date   | Field > value.                             |
+| `less_than`             | number, date   | Field < value.                             |
+| `greater_than_or_equal` | number, date   | Field ≥ value.                             |
+| `less_than_or_equal`    | number, date   | Field ≤ value.                             |
+| `between`               | number, date   | `value ≤ field ≤ value2`.                  |
 
 ### Compound conditions
 
@@ -95,12 +95,12 @@ Use `filterMode: 'rank'` to keep only the top or bottom N items by a numeric mea
 }
 ```
 
-| Property | Description |
-| :--- | :--- |
-| `rankDirection` | `'top'` keeps the highest values; `'bottom'` keeps the lowest. |
-| `value` | How many items to keep. |
-| `rankByField` | Numeric field to rank by. Required when the filtered field is non-numeric (for example rank product names by their total revenue). |
-| `rankMultiSeriesBy` | How to aggregate multi-series values for ranking: `'__sum'`, `'__avg'`, `'__max'`, `'__min'`, or a specific series field ID. |
+| Property            | Description                                                                                                                        |
+| :------------------ | :--------------------------------------------------------------------------------------------------------------------------------- |
+| `rankDirection`     | `'top'` keeps the highest values; `'bottom'` keeps the lowest.                                                                     |
+| `value`             | How many items to keep.                                                                                                            |
+| `rankByField`       | Numeric field to rank by. Required when the filtered field is non-numeric (for example rank product names by their total revenue). |
+| `rankMultiSeriesBy` | How to aggregate multi-series values for ranking: `'__sum'`, `'__avg'`, `'__max'`, `'__min'`, or a specific series field ID.       |
 
 ## Metric references (dynamic values)
 
@@ -158,14 +158,72 @@ const initialState = createDefaultStudioState({
 ## Reading filter state
 
 ```tsx
-import { useStudioSelector, selectFilters, selectPartitionedFilters } from '@mui/x-studio';
+import {
+  useStudioSelector,
+  selectFilters,
+  selectPartitionedFilters,
+} from '@mui/x-studio';
 
 // All filters
 const allFilters = useStudioSelector(selectFilters);
 
 // Pre-bucketed by scope (more efficient for components that only care about one scope)
-const { page, byWidgetId, cross, interactive } = useStudioSelector(selectPartitionedFilters);
+const { page, byWidgetId, cross, interactive } = useStudioSelector(
+  selectPartitionedFilters,
+);
 ```
+
+## Quick filter bar
+
+`StudioQuickFilterBar` renders automatically above the canvas in view mode when page filters are active. Each chip shows the field label and a value summary. Clicking a chip opens the Filters drawer, and each chip's delete button removes just that filter. When multiple page filters are active, a **Clear all** button removes them together.
+
+The bar is hidden when there are no active page filters. Disable it together with the Filters drawer via `featureFlags.filters`:
+
+```tsx
+<Studio featureFlags={{ filters: false }} />
+```
+
+## Global filter search
+
+When the Filters drawer already contains page or widget filters, a search field appears at the top of the drawer. It matches the filter field name and the value summary, making long filter lists easier to scan. The field includes a built-in clear button.
+
+When a search query is active and no filters match, Studio shows `No matching filters.` instead of the default empty-state text.
+
+```tsx
+// Built in — no extra setup required.
+<Studio />
+```
+
+## Filter dependency (cascading filters)
+
+Selection-mode page filters can declare dependencies with `dependsOn` so their picker options are narrowed by other active page filters.
+
+```ts
+interface StudioFilterState {
+  // ...
+  dependsOn?: string[]; // IDs of other page filters this filter depends on
+}
+```
+
+In the compose UI, selection-mode page filters show a **Narrow options based on** multi-select Autocomplete. The options are limited to other page filters that already have a configured field.
+
+For example, a `State` filter can depend on a `Country` filter. When the country is set to `US`, the state picker only shows US states.
+
+Programmatic setup:
+
+```ts
+controller.addFilter({
+  id: 'filter-state',
+  field: 'state',
+  filterMode: 'selection',
+  operator: 'in',
+  value: [],
+  scope: 'page',
+  dependsOn: ['filter-country'], // cascade: narrow to values matching country filter
+});
+```
+
+Important: `dependsOn` only narrows the picker UI. It does **not** change how filters are applied to widget rows — both filters are still evaluated independently against the data.
 
 ## See also
 

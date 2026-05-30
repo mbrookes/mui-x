@@ -18,18 +18,18 @@ prompts, and Studio executes them to mutate the dashboard state.
 
 ## Built-in tools
 
-| Tool | Action |
-| :--- | :--- |
-| `add_widget` | Add a new widget of a specified type to the active page |
-| `configure_widget` | Update an existing widget's configuration by ID |
-| `remove_widget` | Remove a widget from the active page by ID |
-| `add_page` | Add a new page to the dashboard |
-| `remove_page` | Remove a page from the dashboard by ID |
-| `rename_page` | Rename an existing page |
-| `set_active_page` | Switch the visible page |
-| `add_data_source` | Register a new inline data source |
-| `update_dashboard_title` | Change the top-level dashboard title |
-| `add_filter` | Add a global filter condition to the active page |
+| Tool                     | Action                                                  |
+| :----------------------- | :------------------------------------------------------ |
+| `add_widget`             | Add a new widget of a specified type to the active page |
+| `configure_widget`       | Update an existing widget's configuration by ID         |
+| `remove_widget`          | Remove a widget from the active page by ID              |
+| `add_page`               | Add a new page to the dashboard                         |
+| `remove_page`            | Remove a page from the dashboard by ID                  |
+| `rename_page`            | Rename an existing page                                 |
+| `set_active_page`        | Switch the visible page                                 |
+| `add_data_source`        | Register a new inline data source                       |
+| `update_dashboard_title` | Change the top-level dashboard title                    |
+| `add_filter`             | Add a global filter condition to the active page        |
 
 ## Tool-to-controller mapping
 
@@ -102,6 +102,21 @@ You can observe tool call errors via the `onToolError` callback:
 />
 ```
 
+## Natural language widget creation
+
+When `aiConfig` is set and `featureFlags.aiChat !== false`, the compose drawer's add-widget view shows a **Describe a widget** text field. Editors can enter a prompt such as "Show me revenue by country as a bar chart for last year" and let Studio create the initial widget configuration.
+
+Studio handles this flow with `createWidgetFromDescription()`:
+
+1. Make a single non-streaming AI call
+2. Parse the returned JSON for the widget kind, selected fields, and widget config
+3. Normalize the result through `createDefaultWidget()`
+4. Call `controller.addWidget()` to insert the new widget
+
+This uses the same `aiConfig` object that powers the chat assistant, so no additional AI setup is required.
+
+The underlying `add_widget` AI tool schema accepts every `StudioWidgetKind`, including `pivot` and `map`.
+
 ## Adding custom tools
 
 Pass additional tools in the `extraTools` array. Each tool must conform to the
@@ -111,7 +126,7 @@ controller:
 ```ts
 interface StudioAiTool<TArgs = unknown> {
   name: string;
-  description: string;  // shown to the LLM in the system prompt
+  description: string; // shown to the LLM in the system prompt
   parameters: JSONSchema;
   execute: (args: TArgs, controller: StudioController) => void | Promise<void>;
 }

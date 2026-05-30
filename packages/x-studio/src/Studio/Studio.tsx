@@ -19,7 +19,12 @@ import {
   selectWidgets,
   selectDataSources,
 } from '../context';
-import type { StudioDataSourceAdapter, StudioFeatureFlags, StudioMode, StudioState } from '../models';
+import type {
+  StudioDataSourceAdapter,
+  StudioFeatureFlags,
+  StudioMode,
+  StudioState,
+} from '../models';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
 import { StudioController } from '../store';
 import type { SerializedStudioState, MigrationResult } from '../store/statePersistence';
@@ -37,11 +42,10 @@ import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
 
 // Lazy-load the chat panel so @base-ui/react/menu (and the full @mui/x-chat
 // bundle) are not downloaded until the user opens the AI panel for the first time.
-const StudioChatPanel = React.lazy(
-  () =>
-    import('../StudioChatPanel/StudioChatPanel').then((m) => ({
-      default: m.StudioChatPanel,
-    })),
+const StudioChatPanel = React.lazy(() =>
+  import('../StudioChatPanel/StudioChatPanel').then((m) => ({
+    default: m.StudioChatPanel,
+  })),
 );
 
 const MIN_CANVAS_WIDTH = 480;
@@ -235,11 +239,28 @@ const StudioContent = React.memo(function StudioContent(
     return dataSources[selectedSourceId]?.fields.find((f) => f.id === selectedFieldId) ?? null;
   }, [dataSources, selectedSourceId, selectedFieldId]);
 
-  const composePanelTitle = selectedWidget?.title ?? selectedField?.label ?? localeText.composeDrawerTitle;
+  const composePanelTitle =
+    selectedWidget?.title ?? selectedField?.label ?? localeText.composeDrawerTitle;
   const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
   const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
 
   useStudioKeyboardShortcuts();
+
+  // Auto-switch to the compose panel when a new widget is selected in edit mode.
+  // Tracks the previous selection so only *new* selections trigger the switch.
+  const prevSelectedWidgetIdRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const prevId = prevSelectedWidgetIdRef.current;
+    prevSelectedWidgetIdRef.current = selectedWidgetId ?? null;
+    if (!selectedWidgetId || selectedWidgetId === prevId || mode !== 'edit' || !showCompose) {
+      return;
+    }
+    controller.setDrawerOpen('compose', true);
+    if (sidebarLayout === 'tabbed') {
+      controller.setDrawerOpen('data', false);
+      controller.setDrawerOpen('filters', false);
+    }
+  }, [selectedWidgetId, mode, showCompose, controller, sidebarLayout]);
 
   const [chatOpen, setChatOpen] = React.useState(false);
 
@@ -291,7 +312,12 @@ const StudioContent = React.memo(function StudioContent(
       // from right to left (Data closest to the screen edge, Filters adjacent to the canvas).
       <React.Fragment>
         {showFilters && (
-          <DrawerPanel side={sidebarSide} drawer="filters" title={localeText.filtersDrawerTitle} icon={<FilterListIcon fontSize="small" />}>
+          <DrawerPanel
+            side={sidebarSide}
+            drawer="filters"
+            title={localeText.filtersDrawerTitle}
+            icon={<FilterListIcon fontSize="small" />}
+          >
             {filtersDrawer ?? <StudioFiltersDrawer />}
           </DrawerPanel>
         )}
@@ -307,7 +333,12 @@ const StudioContent = React.memo(function StudioContent(
           </DrawerPanel>
         )}
         {mode === 'edit' && showCompose && showDataManagement && (
-          <DrawerPanel side={sidebarSide} drawer="data" title={localeText.dataDrawerTitle} icon={<StorageIcon fontSize="small" />}>
+          <DrawerPanel
+            side={sidebarSide}
+            drawer="data"
+            title={localeText.dataDrawerTitle}
+            icon={<StorageIcon fontSize="small" />}
+          >
             {dataDrawer ?? <StudioDataDrawer />}
           </DrawerPanel>
         )}
@@ -315,7 +346,12 @@ const StudioContent = React.memo(function StudioContent(
     ) : (
       <React.Fragment>
         {mode === 'edit' && showCompose && showDataManagement && (
-          <DrawerPanel side={sidebarSide} drawer="data" title={localeText.dataDrawerTitle} icon={<StorageIcon fontSize="small" />}>
+          <DrawerPanel
+            side={sidebarSide}
+            drawer="data"
+            title={localeText.dataDrawerTitle}
+            icon={<StorageIcon fontSize="small" />}
+          >
             {dataDrawer ?? <StudioDataDrawer />}
           </DrawerPanel>
         )}
@@ -331,7 +367,12 @@ const StudioContent = React.memo(function StudioContent(
           </DrawerPanel>
         )}
         {showFilters && (
-          <DrawerPanel side={sidebarSide} drawer="filters" title={localeText.filtersDrawerTitle} icon={<FilterListIcon fontSize="small" />}>
+          <DrawerPanel
+            side={sidebarSide}
+            drawer="filters"
+            title={localeText.filtersDrawerTitle}
+            icon={<FilterListIcon fontSize="small" />}
+          >
             {filtersDrawer ?? <StudioFiltersDrawer />}
           </DrawerPanel>
         )}
@@ -373,11 +414,18 @@ const StudioContent = React.memo(function StudioContent(
       {/* AI chat button + panel */}
       {features.aiChat && aiConfig?.endpoint && (
         <React.Fragment>
-          <Tooltip title={chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip} placement="left">
+          <Tooltip
+            title={
+              chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip
+            }
+            placement="left"
+          >
             <IconButton
               onClick={() => setChatOpen((prev) => !prev)}
               color={chatOpen ? 'primary' : 'default'}
-              aria-label={chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip}
+              aria-label={
+                chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip
+              }
               sx={{
                 position: 'absolute',
                 bottom: 20,
@@ -394,7 +442,13 @@ const StudioContent = React.memo(function StudioContent(
             </IconButton>
           </Tooltip>
           <React.Suspense fallback={null}>
-            <StudioChatPanel {...slotProps?.chatPanel} aiConfig={aiConfig} open={chatOpen} onClose={() => setChatOpen(false)} overlay />
+            <StudioChatPanel
+              {...slotProps?.chatPanel}
+              aiConfig={aiConfig}
+              open={chatOpen}
+              onClose={() => setChatOpen(false)}
+              overlay
+            />
           </React.Suspense>
         </React.Fragment>
       )}
@@ -424,11 +478,13 @@ const StudioContent = React.memo(function StudioContent(
 export const Studio = React.memo(
   // react-doctor-disable-next-line react-doctor/no-react19-deprecated-apis
   React.forwardRef<StudioHandle, StudioProps>(function Studio(props, ref) {
-    const { initialState, onStateChange, tableSourceMode, featureFlags, localeText, ...slots } = props;
+    const { initialState, onStateChange, tableSourceMode, featureFlags, localeText, ...slots } =
+      props;
     const aiConfig = (slots as { aiConfig?: StudioAIConfig | null }).aiConfig;
 
     // Controller is created once at mount and never replaced.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- controller is intentionally created once
     const controller = React.useMemo(() => new StudioController(initialState), []);
 
     // Wire onStateChange — re-subscribe whenever the callback identity changes.

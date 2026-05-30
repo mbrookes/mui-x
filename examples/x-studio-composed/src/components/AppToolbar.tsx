@@ -106,7 +106,9 @@ export function AppToolbar(props: AppToolbarProps) {
     }
     const newOrder = pages.map((p) => p.id);
     const [moved] = newOrder.splice(tabDragIndex, 1);
-    newOrder.splice(dropIndex, 0, moved);
+    // After removing the dragged tab, the target index shifts left when dragging forward
+    const adjustedIndex = tabDragIndex < dropIndex ? dropIndex - 1 : dropIndex;
+    newOrder.splice(adjustedIndex, 0, moved);
     onPageReorder?.(newOrder);
     setTabDragIndex(null);
     setTabDragOverIndex(null);
@@ -169,10 +171,39 @@ export function AppToolbar(props: AppToolbarProps) {
                 key={page.id}
                 value={page.id}
                 draggable={showDragHandles}
-                onDragStart={showDragHandles ? () => setTabDragIndex(index) : undefined}
-                onDragOver={showDragHandles ? (e) => { e.preventDefault(); setTabDragOverIndex(index); } : undefined}
-                onDrop={showDragHandles ? () => handleTabDrop(index) : undefined}
-                onDragEnd={showDragHandles ? () => { setTabDragIndex(null); setTabDragOverIndex(null); } : undefined}
+                onDragStart={
+                  showDragHandles
+                    ? (e) => {
+                        setTabDragIndex(index);
+                        e.dataTransfer.setData('text/x-studio-tab', page.id);
+                      }
+                    : undefined
+                }
+                onDragOver={
+                  showDragHandles
+                    ? (e) => {
+                        if (!Array.from(e.dataTransfer.types).includes('text/x-studio-tab')) return;
+                        e.preventDefault();
+                        setTabDragOverIndex(index);
+                      }
+                    : undefined
+                }
+                onDrop={
+                  showDragHandles
+                    ? (e) => {
+                        if (!Array.from(e.dataTransfer.types).includes('text/x-studio-tab')) return;
+                        handleTabDrop(index);
+                      }
+                    : undefined
+                }
+                onDragEnd={
+                  showDragHandles
+                    ? () => {
+                        setTabDragIndex(null);
+                        setTabDragOverIndex(null);
+                      }
+                    : undefined
+                }
                 sx={{
                   minHeight: 48,
                   opacity: tabDragIndex === index ? 0.4 : 1,
@@ -196,7 +227,9 @@ export function AppToolbar(props: AppToolbarProps) {
                         <CloseIcon sx={{ fontSize: 14 }} />
                       </IconButton>
                     </Box>
-                  ) : page.title
+                  ) : (
+                    page.title
+                  )
                 }
               />
             ))}
@@ -213,11 +246,17 @@ export function AppToolbar(props: AppToolbarProps) {
       {pages.length <= 1 && mode !== 'edit' && <Box sx={{ flexGrow: 1 }} />}
 
       {/* Confirmation dialog for page removal */}
-      <Dialog open={Boolean(confirmPage)} onClose={() => setConfirmPageId(null)} maxWidth="xs" fullWidth>
+      <Dialog
+        open={Boolean(confirmPage)}
+        onClose={() => setConfirmPageId(null)}
+        maxWidth="xs"
+        fullWidth
+      >
         <DialogTitle>Remove page?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Remove &ldquo;{confirmPage?.title}&rdquo; and all its widgets? This action can be undone.
+            Remove &ldquo;{confirmPage?.title}&rdquo; and all its widgets? This action can be
+            undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -312,7 +351,7 @@ export function AppToolbar(props: AppToolbarProps) {
         </IconButton>
       </Tooltip>
       {onReset && (
-        <Tooltip title="Reset to demo">
+        <Tooltip title="Reset demo">
           <IconButton size="small" onClick={onReset} aria-label="Reset to demo">
             <RestoreIcon fontSize="small" />
           </IconButton>

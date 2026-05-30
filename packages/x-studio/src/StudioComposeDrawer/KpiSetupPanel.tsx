@@ -4,19 +4,20 @@ import {
   Box,
   Button,
   Collapse,
-  Divider,
   FormControl,
   InputLabel,
   MenuItem,
   Select,
   Stack,
   Switch,
+  TextField,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import FunctionsIcon from '@mui/icons-material/Functions';
 import {
   useStudioController,
   useStudioSelector,
@@ -34,7 +35,17 @@ import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFi
 import { SetupSection } from './SetupSection';
 import { MetricRefInput } from '../StudioFiltersDrawer/MetricRefInput';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
-import FunctionsIcon from '@mui/icons-material/Functions';
+
+const GRANULARITIES: {
+  value: NonNullable<StudioWidgetConfig['kpiSparklineGranularity']>;
+  label: string;
+}[] = [
+  { value: 'day', label: 'Day' },
+  { value: 'week', label: 'Week' },
+  { value: 'month', label: 'Month' },
+  { value: 'quarter', label: 'Quarter' },
+  { value: 'year', label: 'Year' },
+];
 
 /**
  * A collapsible section with a labeled header row containing a switch toggle on the
@@ -220,49 +231,54 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
   // — kept for reference but no longer used by the Select (now Autocomplete uses fieldId directly)
 
   const plotType = config.kpiSparklinePlotType ?? 'line';
+  const isGauge = plotType === 'gauge';
 
   return (
     <React.Fragment>
-      {autoDateFilter ? (
-        <Typography variant="caption" color="text.secondary">
-          Using date filter: <strong>{autoFieldLabel}</strong>
-        </Typography>
-      ) : (
-        <DataSourceFieldSelect
-          value={config.kpiSparklineField ?? ''}
-          onChange={(fieldId, fSourceId) => {
-            controller.updateWidgetConfig(widgetId, {
-              kpiSparklineField: fieldId || undefined,
-              kpiSparklineSourceId: fieldId && fSourceId !== sourceId ? fSourceId : undefined,
-            });
-          }}
-          fields={allDateFieldsWithJoined}
-          label="Time field"
-        />
-      )}
+      {!isGauge &&
+        (autoDateFilter ? (
+          <Typography variant="caption" color="text.secondary">
+            Using date filter: <strong>{autoFieldLabel}</strong>
+          </Typography>
+        ) : (
+          <DataSourceFieldSelect
+            value={config.kpiSparklineField ?? ''}
+            onChange={(fieldId, fSourceId) => {
+              controller.updateWidgetConfig(widgetId, {
+                kpiSparklineField: fieldId || undefined,
+                kpiSparklineSourceId: fieldId && fSourceId !== sourceId ? fSourceId : undefined,
+              });
+            }}
+            fields={allDateFieldsWithJoined}
+            label="Time field"
+          />
+        ))}
 
-      <FormControl size="small" fullWidth>
-        <InputLabel>Granularity</InputLabel>
-        <Select
-          label="Granularity"
-          value={config.kpiSparklineGranularity ?? ''}
-          onChange={(event) =>
-            controller.updateWidgetConfig(widgetId, {
-              kpiSparklineGranularity:
-                (event.target.value as StudioWidgetConfig['kpiSparklineGranularity']) || undefined,
-            })
-          }
-        >
-          <MenuItem value="">
-            <em>Auto</em>
-          </MenuItem>
-          {GRANULARITIES.map((g) => (
-            <MenuItem key={g.value} value={g.value}>
-              {g.label}
+      {!isGauge && (
+        <FormControl size="small" fullWidth>
+          <InputLabel>Granularity</InputLabel>
+          <Select
+            label="Granularity"
+            value={config.kpiSparklineGranularity ?? ''}
+            onChange={(event) =>
+              controller.updateWidgetConfig(widgetId, {
+                kpiSparklineGranularity:
+                  (event.target.value as StudioWidgetConfig['kpiSparklineGranularity']) ||
+                  undefined,
+              })
+            }
+          >
+            <MenuItem value="">
+              <em>Auto</em>
             </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+            {GRANULARITIES.map((g) => (
+              <MenuItem key={g.value} value={g.value}>
+                {g.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      )}
 
       <FormControl size="small" fullWidth>
         <InputLabel>Plot type</InputLabel>
@@ -271,14 +287,46 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
           value={plotType}
           onChange={(event) =>
             controller.updateWidgetConfig(widgetId, {
-              kpiSparklinePlotType: event.target.value as 'line' | 'bar',
+              kpiSparklinePlotType: event.target.value as 'line' | 'bar' | 'gauge',
             })
           }
         >
           <MenuItem value="line">Line</MenuItem>
           <MenuItem value="bar">Bar</MenuItem>
+          <MenuItem value="gauge">Gauge</MenuItem>
         </Select>
       </FormControl>
+
+      {plotType === 'gauge' && (
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <TextField
+            size="small"
+            label="Min"
+            type="number"
+            value={config.kpiSparklineGaugeMin ?? 0}
+            onChange={(event) => {
+              const n = Number(event.target.value);
+              if (Number.isFinite(n)) {
+                controller.updateWidgetConfig(widgetId, { kpiSparklineGaugeMin: n });
+              }
+            }}
+            sx={{ flex: 1 }}
+          />
+          <TextField
+            size="small"
+            label="Max"
+            type="number"
+            value={config.kpiSparklineGaugeMax ?? 100}
+            onChange={(event) => {
+              const n = Number(event.target.value);
+              if (Number.isFinite(n)) {
+                controller.updateWidgetConfig(widgetId, { kpiSparklineGaugeMax: n });
+              }
+            }}
+            sx={{ flex: 1 }}
+          />
+        </Box>
+      )}
 
       {plotType === 'line' && (
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -295,32 +343,23 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
         </Box>
       )}
 
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="body2">Cumulative (running total)</Typography>
-        <Switch
-          size="small"
-          checked={config.kpiSparklineCumulative ?? false}
-          onChange={(event) =>
-            controller.updateWidgetConfig(widgetId, {
-              kpiSparklineCumulative: event.target.checked,
-            })
-          }
-        />
-      </Box>
+      {!isGauge && (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography variant="body2">Cumulative (running total)</Typography>
+          <Switch
+            size="small"
+            checked={config.kpiSparklineCumulative ?? false}
+            onChange={(event) =>
+              controller.updateWidgetConfig(widgetId, {
+                kpiSparklineCumulative: event.target.checked,
+              })
+            }
+          />
+        </Box>
+      )}
     </React.Fragment>
   );
 }
-
-const GRANULARITIES: {
-  value: NonNullable<StudioWidgetConfig['kpiSparklineGranularity']>;
-  label: string;
-}[] = [
-  { value: 'day', label: 'Day' },
-  { value: 'week', label: 'Week' },
-  { value: 'month', label: 'Month' },
-  { value: 'quarter', label: 'Quarter' },
-  { value: 'year', label: 'Year' },
-];
 
 const AGGREGATIONS: Record<string, { value: StudioKpiAggregation; label: string }[]> = {
   number: [

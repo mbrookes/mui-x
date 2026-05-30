@@ -1,6 +1,15 @@
 'use client';
 import * as React from 'react';
-import { FormControl, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
+import {
+  FormControl,
+  FormControlLabel,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
+  Switch,
+  Typography,
+} from '@mui/material';
 import {
   useStudioController,
   useStudioSelector,
@@ -8,6 +17,7 @@ import {
   selectDataSources,
   selectExpressionFields,
 } from '../context';
+import { useStudioGeographies } from '../internals/StudioUIConfigContext';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
@@ -20,6 +30,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   const widgets = useStudioSelector(selectWidgets);
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
+  const allGeographies = useStudioGeographies();
   const widget = widgets[widgetId];
   const config = widget?.config ?? {};
 
@@ -27,6 +38,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   const colorScheme = config.mapColorScheme ?? 'blues';
   const mapGeography = config.mapGeography ?? 'world';
   const legendPosition = config.mapLegendPosition ?? 'bottom';
+  const legendZeroMin = config.mapLegendZeroMin ?? false;
+  const crossFilterEmit = config.mapCrossFilterEmit ?? false;
+  const crossFilterMode = config.crossFilterMode ?? 'cross-highlight';
 
   // All string fields from every visible source — country pickers show the full universe
   // so the widget can be configured even before a sourceId is established.
@@ -116,6 +130,12 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
 
   if (!widget) return null;
 
+  const geoDef = allGeographies[mapGeography];
+  const fieldLabel = geoDef?.fieldLabel ?? 'Region field';
+  const fieldHint =
+    geoDef?.fieldHint ??
+    'A field containing region identifiers matching the geography feature IDs.';
+
   return (
     <Stack spacing={2} sx={{ p: 1.5 }}>
       <FormControl size="small" fullWidth>
@@ -125,23 +145,23 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           value={mapGeography}
           onChange={(e) => update({ mapGeography: e.target.value as typeof mapGeography })}
         >
-          <MenuItem value="world">World</MenuItem>
-          <MenuItem value="usa">United States</MenuItem>
-          <MenuItem value="europe">Europe</MenuItem>
+          {Object.entries(allGeographies).map(([key, def]) => (
+            <MenuItem key={key} value={key}>
+              {def.label}
+            </MenuItem>
+          ))}
         </Select>
       </FormControl>
 
       <div>
         <Typography variant="subtitle2" gutterBottom>
-          {mapGeography === 'usa' ? 'State field' : 'Country field'}
+          {fieldLabel}
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          {mapGeography === 'usa'
-            ? 'A field containing US state names or 2-letter postal abbreviations.'
-            : 'A field containing ISO alpha-2 codes, alpha-3 codes, or full country names.'}
+          {fieldHint}
         </Typography>
         <DataSourceFieldSelect
-          label={mapGeography === 'usa' ? 'State field' : 'Country field'}
+          label={fieldLabel}
           value={config.mapCountryField ?? ''}
           valueSourceId={config.mapCountrySourceId ?? widget?.sourceId}
           fields={allStringFields}
@@ -211,6 +231,41 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           <MenuItem value="hidden">Hidden</MenuItem>
         </Select>
       </FormControl>
+
+      <FormControlLabel
+        control={
+          <Switch
+            size="small"
+            checked={legendZeroMin}
+            onChange={(event) => update({ mapLegendZeroMin: event.target.checked })}
+          />
+        }
+        label="Scale from zero"
+      />
+
+      <FormControlLabel
+        control={
+          <Switch
+            size="small"
+            checked={crossFilterEmit}
+            onChange={(event) => update({ mapCrossFilterEmit: event.target.checked })}
+          />
+        }
+        label="Clickable (filter source)"
+      />
+
+      <FormControlLabel
+        control={
+          <Switch
+            size="small"
+            checked={crossFilterMode !== 'none'}
+            onChange={(event) =>
+              update({ crossFilterMode: event.target.checked ? 'cross-highlight' : 'none' })
+            }
+          />
+        }
+        label="Respond to cross-filters"
+      />
     </Stack>
   );
 }

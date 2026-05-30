@@ -8,11 +8,13 @@ import {
   useStudioFeatures,
   useStudioUIConfig,
   useStudioLocaleText,
+  useStudioGeographies,
   useCustomWidgetMap,
   DEFAULT_STUDIO_LOCALE_TEXT,
 } from '../internals/StudioUIConfigContext';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
 import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
+import type { StudioMapGeographyDefinition } from '../StudioMapWidget/geographyLoaders';
 
 /** Ref to the canvas scroll container, used to scroll to bottom after adding a widget. */
 export const CanvasScrollContext =
@@ -50,6 +52,14 @@ export interface StudioProviderProps {
    * `setupPanel`. See {@link StudioCustomWidgetDef} for the full registration shape.
    */
   customWidgets?: StudioCustomWidgetDef[];
+  /**
+   * Additional map geography definitions to register alongside the built-in `'world'`,
+   * `'usa'`, and `'europe'` geographies.
+   *
+   * Each entry defines how to load the topology, how to normalise raw data values to
+   * feature IDs, and how the geography appears in the Map Setup panel.
+   */
+  geographies?: Record<string, StudioMapGeographyDefinition>;
 }
 
 export function StudioProvider(props: StudioProviderProps) {
@@ -61,6 +71,7 @@ export function StudioProvider(props: StudioProviderProps) {
     localeText,
     aiConfig,
     customWidgets,
+    geographies,
   } = props;
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -77,10 +88,11 @@ export function StudioProvider(props: StudioProviderProps) {
         : DEFAULT_STUDIO_LOCALE_TEXT,
       aiConfig: aiConfig ?? null,
       customWidgets,
+      geographies,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // react-doctor-disable-next-line react-doctor/exhaustive-deps -- featureFlagsKey/localeTextKey are JSON.stringify proxies for deep equality
-    [tableSourceMode, featureFlagsKey, localeTextKey, aiConfig, customWidgets],
+    [tableSourceMode, featureFlagsKey, localeTextKey, aiConfig, customWidgets, geographies],
   );
 
   return (
@@ -110,4 +122,10 @@ export function useStudioSelector<Value>(selector: (state: StudioState) => Value
   return controller.store.use(selector) as Value;
 }
 
-export { useStudioFeatures, useStudioUIConfig, useStudioLocaleText, useCustomWidgetMap };
+export {
+  useStudioFeatures,
+  useStudioUIConfig,
+  useStudioLocaleText,
+  useStudioGeographies,
+  useCustomWidgetMap,
+};

@@ -288,3 +288,8 @@ BL-73: Expand `StudioFeatureFlags` to cover widget kinds and all per-widget feat
 
 **Done** — `GRID_COLS = 24` constant introduced in `StudioCanvas.tsx`, `MIN_SPAN = 6` (GRID_COLS/4). All flex-width calculations, grid-line positions, overflow checks, and defaultFlexGrow updated. `setAdjacentWidgetColSpans` in `StudioController.ts` clamp updated to `[MIN_SPAN_COLS, GRID_COLS - MIN_SPAN_COLS]` = `[6, 18]`. Grid lines now render 23 lines at positions `(i+1)/GRID_COLS`.
 
+BL-99: Research, plan and then add support for custom widgets.
+
+BL-100: Plan and then implement nesting for feature flags, for example KPI can either be false, or have an object of features that are false. This can be a breaking change, but fix the example apps.
+
+BL-101: When dragging a widget the pointer changes to a closed hand, but when the pointer crosses an insertion point it changers to a +, and then back to a normal pointer. It should change back to a closed hand until the button is released. We also need to drag the widget from where it was click, not the top-left corner. It will need to be made more transparent to be able to see the insertion points. There's also a white bar above the widget when dragging. Remove it without breaking anything else.

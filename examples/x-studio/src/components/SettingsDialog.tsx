@@ -23,6 +23,7 @@ import { FeatureFlagSettings } from 'x-studio-shared';
 export type SidebarLayout = 'stacked' | 'tabbed';
 export type SidebarSide = 'left' | 'right';
 export type TableSourceMode = 'explicit' | 'implicit';
+export type DatasetMode = 'sales' | 'ag-studio';
 
 export interface SettingsValues {
   sidebarLayout: SidebarLayout;
@@ -31,6 +32,7 @@ export interface SettingsValues {
   stackBreakpoint: number;
   rowCount: number | undefined;
   adapterEnabled: boolean;
+  dataset: DatasetMode;
 }
 
 export interface SettingsDialogProps {
@@ -63,6 +65,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
   );
   const [pendingRowCount, setPendingRowCount] = React.useState<number | undefined>(values.rowCount);
   const [pendingAdapter, setPendingAdapter] = React.useState(values.adapterEnabled);
+  const [pendingDataset, setPendingDataset] = React.useState<DatasetMode>(values.dataset);
 
   // Sync local state when dialog re-opens
   React.useEffect(() => {
@@ -70,11 +73,14 @@ export function SettingsDialog(props: SettingsDialogProps) {
       setRowInput(values.rowCount !== undefined ? String(values.rowCount) : '');
       setPendingRowCount(values.rowCount);
       setPendingAdapter(values.adapterEnabled);
+      setPendingDataset(values.dataset);
     }
-  }, [open, values.rowCount, values.adapterEnabled]);
+  }, [open, values.rowCount, values.adapterEnabled, values.dataset]);
 
   const needsReload =
-    pendingRowCount !== values.rowCount || pendingAdapter !== values.adapterEnabled;
+    pendingRowCount !== values.rowCount ||
+    pendingAdapter !== values.adapterEnabled ||
+    pendingDataset !== values.dataset;
 
   function handleRowInputChange(evt: React.ChangeEvent<HTMLInputElement>) {
     const raw = evt.target.value;
@@ -100,6 +106,11 @@ export function SettingsDialog(props: SettingsDialogProps) {
       url.searchParams.set('adapter', '');
     } else {
       url.searchParams.delete('adapter');
+    }
+    if (pendingDataset === 'ag-studio') {
+      url.searchParams.set('dataset', 'ag-studio');
+    } else {
+      url.searchParams.delete('dataset');
     }
     window.location.href = url.toString();
   }
@@ -176,6 +187,28 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
         <Divider />
 
+        {/* Dataset — requires reload */}
+        <FormControl>
+          <FormLabel>Dataset</FormLabel>
+          <RadioGroup
+            value={pendingDataset}
+            onChange={(_evt, val) => setPendingDataset(val as DatasetMode)}
+          >
+            <FormControlLabel
+              value="sales"
+              control={<Radio size="small" />}
+              label="MUI X Sales (generated)"
+            />
+            <FormControlLabel
+              value="ag-studio"
+              control={<Radio size="small" />}
+              label="AG Studio Office Supplies"
+            />
+          </RadioGroup>
+        </FormControl>
+
+        <Divider />
+
         {/* Data rows — requires reload */}
         <TextField
           label="Generated row count"
@@ -211,7 +244,10 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
         <Divider />
 
-        <FeatureFlagSettings featureFlags={featureFlags} onFeatureFlagsChange={onFeatureFlagsChange} />
+        <FeatureFlagSettings
+          featureFlags={featureFlags}
+          onFeatureFlagsChange={onFeatureFlagsChange}
+        />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>

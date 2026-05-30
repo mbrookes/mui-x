@@ -660,6 +660,7 @@ export default function App() {
             stackBreakpoint,
             rowCount: getUrlRowsParam(),
             adapterEnabled: adapterMode,
+            dataset: getUrlDatasetParam(),
           }}
           onSidebarLayoutChange={setSidebarLayout}
           onSidebarSideChange={setSidebarSide}

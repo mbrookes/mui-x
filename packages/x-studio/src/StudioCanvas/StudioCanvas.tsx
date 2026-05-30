@@ -65,6 +65,10 @@ function InsertionPoint({
       return undefined;
     }
     function handleDragOver(event: DragEvent) {
+      // Only respond to widget drags — ignore tab reorder and other drag types
+      if (!Array.from(event.dataTransfer?.types ?? []).includes('application/json')) {
+        return;
+      }
       event.preventDefault();
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = 'move';
@@ -79,6 +83,9 @@ function InsertionPoint({
       setIsOver(false);
     }
     function handleDropEvent(event: DragEvent) {
+      if (!Array.from(event.dataTransfer?.types ?? []).includes('application/json')) {
+        return;
+      }
       setIsOver(false);
       try {
         const data = JSON.parse(event.dataTransfer?.getData('application/json') || '{}');
@@ -325,6 +332,10 @@ function WidgetGap({
   posRef.current = { rowIndex, colIndex };
 
   const handleDragOver = React.useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    // Only respond to widget drags — ignore tab reorder and other drag types
+    if (!Array.from(e.dataTransfer.types).includes('application/json')) {
+      return;
+    }
     e.preventDefault();
     if (e.dataTransfer) {
       e.dataTransfer.dropEffect = 'move';
@@ -342,6 +353,9 @@ function WidgetGap({
 
   const handleDrop = React.useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
+      if (!Array.from(e.dataTransfer.types).includes('application/json')) {
+        return;
+      }
       setIsOver(false);
       try {
         const data = JSON.parse(e.dataTransfer?.getData('application/json') || '{}');

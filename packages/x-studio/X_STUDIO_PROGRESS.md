@@ -83,6 +83,8 @@
 | UX-08 | UX        | SetupSection shared section component        | ✅ Completed |
 | UX-09 | UX        | Canvas DnD drops between/after widgets       | ✅ Completed |
 | UX-10 | UX        | 24-column widget resize grid                 | ✅ Completed |
+| UX-11 | UX        | Nested feature flags for kpi/chart/grid      | ✅ Completed |
+| UX-12 | UX        | DnD cursor, grab offset, transparency        | ✅ Completed |
 
 ---
 
@@ -555,6 +557,24 @@
 - All flex/width calculations, grid-line positions, overflow checks, and default span calculations updated to use `GRID_COLS`
 - `setAdjacentWidgetColSpans` clamp updated from `[3, 9]` to `[MIN_SPAN_COLS, GRID_COLS − MIN_SPAN_COLS]` = `[6, 18]`
 - Finer 24-col grid gives more layout precision (smallest snap unit = 4.17% of row width)
+
+### UX-11 · Nested feature flags for kpi/chart/grid (BL-100)
+
+- **Breaking change**: flat per-widget feature flags (`kpiSparkline`, `kpiTrend`, `kpiTarget`, `kpiCalculatedFields`, `chartAnnotations`, `chartCalculatedFields`, `gridGroupBy`, `gridSummary`, `gridConditionalFormats`, `gridCalculatedFields`) removed from `StudioFeatureFlags`
+- `kpi`, `chart`, and `grid` now accept `boolean | KpiFeatureFlags | ChartFeatureFlags | GridFeatureFlags`:
+  - `kpi: false` — disables KPI widget kind entirely (unchanged behaviour)
+  - `kpi: { sparkline: false, trend: false }` — KPI enabled, sparkline and trend disabled
+- New sub-flag interfaces `KpiFeatureFlags`, `ChartFeatureFlags`, `GridFeatureFlags` exported from the package
+- `useStudioFeatures()` now returns `ResolvedStudioFeatures` (flat booleans); internal consumers (`GridSetupPanel`, `KpiSetupPanel`, etc.) unchanged
+- `resolveSubFlag<T>()` helper handles the `boolean | object | undefined` union cleanly
+- `FeatureFlagSettings` component in `x-studio-shared` updated to read/write the new nested structure with helper functions `isKindEnabled`, `getSubFlag`, `setSubFlag`
+
+### UX-12 · DnD cursor, grab offset, and transparency (BL-101)
+
+- **Grabbing cursor**: added global CSS rule `body.x-studio-dragging-widget * { cursor: grabbing !important }` (via MUI `GlobalStyles` in `StudioCanvas`); class is toggled on `document.body` in `dragstart`/`dragend` handlers — eliminates the cursor flickering to `+` or `default` as the pointer crosses insertion points or resize handles
+- **Correct grab offset**: `handleMouseDown` records the click position relative to the element in `dragOffsetRef`; `handleDragStart` passes this as the `setDragImage(node, offsetX, offsetY)` offset so the ghost card appears grabbed from where the user clicked rather than from the top-left corner; also eliminates the "white bar above widget" artefact
+- **Card transparency**: `requestAnimationFrame`-deferred `opacity: 0.4` is applied to the original card element _after_ the browser captures the ghost image — the ghost stays fully opaque (visible drag feedback) while the in-place card fades, making nearby insertion points visible
+- **Move semantics**: `effectAllowed = 'move'` on drag source; `dropEffect = 'move'` set in all `dragover` handlers (`InsertionPoint`, `WidgetGap`)
 
 ---
 

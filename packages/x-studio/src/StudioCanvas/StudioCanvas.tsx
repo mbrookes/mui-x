@@ -1,5 +1,6 @@
 'use client';
 import * as React from 'react';
+import type { SxProps, Theme } from '@mui/material';
 import { Box, GlobalStyles, Paper, Typography } from '@mui/material';
 
 import {
@@ -41,6 +42,8 @@ export interface StudioCanvasProps {
    * @default 600
    */
   stackBreakpoint?: number;
+  /** Custom styles applied to the canvas root element. */
+  sx?: SxProps<Theme>;
   slotProps?: {
     /** Forwarded to every `StudioWidgetCard` rendered on the canvas. */
     widgetCard?: Partial<Omit<StudioWidgetCardProps, 'widgetId' | 'isFirstRow' | 'pageTheme'>>;
@@ -500,7 +503,7 @@ function WidgetGap({
 }
 
 export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvasProps) {
-  const { slotProps, stackBreakpoint: stackBreakpointProp = 600 } = props;
+  const { slotProps, stackBreakpoint: stackBreakpointProp = 600, sx } = props;
   const mode = useStudioSelector(selectMode);
   const features = useStudioFeatures();
   // Defer page transitions so the browser stays responsive while new page widgets mount.
@@ -770,7 +773,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
 
   if (!widgetRows || widgetRows.length === 0) {
     return (
-      <Box ref={canvasRef} sx={{ p: mode === 'edit' ? 0 : '8px' }}>
+      <Box ref={canvasRef} sx={[{ p: mode === 'edit' ? 0 : '8px' }, ...(Array.isArray(sx) ? sx : [sx])]}>
         <Paper
           variant="outlined"
           sx={{
@@ -811,12 +814,15 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
       />
       <Box
         ref={canvasRef}
-        sx={{
-          width: '100%',
-          p: mode === 'edit' ? 0 : '8px',
-          backgroundColor: pageTheme?.pageBackground ?? undefined,
-          minHeight: '100%',
-        }}
+        sx={[
+          {
+            width: '100%',
+            p: mode === 'edit' ? 0 : '8px',
+            backgroundColor: pageTheme?.pageBackground ?? undefined,
+            minHeight: '100%',
+          },
+          ...(Array.isArray(sx) ? sx : [sx]),
+        ]}
         onMouseDown={(event) => {
           // Deselect when clicking the canvas background (not a widget card)
           const target = event.target as HTMLElement;

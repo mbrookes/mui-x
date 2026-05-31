@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import type { SxProps, Theme } from '@mui/material';
 import { Box, Grow, IconButton, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { ChatBox, ChatConfirmation } from '@mui/x-chat';
@@ -180,6 +181,12 @@ export interface StudioChatPanelProps {
   overlay?: boolean;
   /** Slot props for sub-components. */
   slotProps?: StudioChatPanelSlotProps;
+  /**
+   * Custom styles applied to the panel root element.
+   * In persistent mode this targets the chat container; in overlay mode it
+   * targets the fixed-position overlay panel (merged with Studio's defaults).
+   */
+  sx?: SxProps<Theme>;
 }
 
 export function StudioChatPanel(props: StudioChatPanelProps) {
@@ -191,6 +198,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     onClose,
     overlay = false,
     slotProps,
+    sx,
   } = props;
 
   const controller = useStudioController();
@@ -262,7 +270,12 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   }
 
   const chatBox = (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <Box
+      sx={[
+        { display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' },
+        ...(!overlay ? (Array.isArray(sx) ? sx : sx ? [sx] : []) : []),
+      ]}
+    >
       {/* Chat box */}
       <Box sx={{ flexGrow: 1, minHeight: 0 }}>
         <ChatBox
@@ -306,28 +319,36 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     return chatBox;
   }
 
-  // Overlay mode: fixed-position panel that grows from the FAB corner
+  // Overlay mode: fixed-position panel that grows from the FAB corner.
+  // Destructure sx from panel slot props so we can merge it explicitly.
+  const { sx: panelSx, ...panelRestProps } = (slotProps?.panel ?? {}) as {
+    sx?: SxProps<Theme>;
+    [key: string]: unknown;
+  };
   return (
     <Grow in={open} mountOnEnter unmountOnExit style={{ transformOrigin: 'bottom right' }}>
       <Box
-        {...slotProps?.panel}
-        sx={{
-          position: 'fixed',
-          bottom: 80,
-          right: 16,
-          width: 380,
-          height: 'clamp(320px, 50vh, calc(100vh - 96px))',
-          bgcolor: 'background.paper',
-          border: 1,
-          borderColor: 'divider',
-          borderRadius: 2,
-          boxShadow: 8,
-          zIndex: (theme) => theme.zIndex.drawer + 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          ...((slotProps?.panel as { sx?: object })?.sx ?? {}),
-        }}
+        {...panelRestProps}
+        sx={[
+          {
+            position: 'fixed',
+            bottom: 80,
+            right: 16,
+            width: 380,
+            height: 'clamp(320px, 50vh, calc(100vh - 96px))',
+            bgcolor: 'background.paper',
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: 2,
+            boxShadow: 8,
+            zIndex: (theme) => theme.zIndex.drawer + 1,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          },
+          ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
+          ...(Array.isArray(panelSx) ? panelSx : panelSx ? [panelSx] : []),
+        ]}
       >
         {/* Overlay header with close button */}
         <Box

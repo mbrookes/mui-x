@@ -1,5 +1,6 @@
 'use client';
 import * as React from 'react';
+import type { SxProps, Theme } from '@mui/material';
 import { Box, CircularProgress, IconButton, Paper, Tooltip, Typography } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloseIcon from '@mui/icons-material/Close';
@@ -25,6 +26,8 @@ export interface StudioInsightPanelProps {
   activeType: StudioInsightOptions['type'];
   /** When true, the forecast option is shown. */
   showForecast?: boolean;
+  /** Custom styles applied to the panel root element. */
+  sx?: SxProps<Theme>;
 }
 
 const TYPE_LABELS: Record<StudioInsightOptions['type'], string> = {
@@ -43,6 +46,7 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
     onRegenerate,
     activeType,
     showForecast = false,
+    sx,
   } = props;
 
   const [copied, setCopied] = React.useState(false);
@@ -64,20 +68,23 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
   return (
     <Paper
       elevation={3}
-      sx={{
-        position: 'absolute',
-        bottom: 8,
-        left: 8,
-        right: 8,
-        zIndex: 10,
-        borderRadius: 1,
-        p: 1.5,
-        maxHeight: '60%',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 1,
-      }}
+      sx={[
+        {
+          position: 'absolute',
+          bottom: 8,
+          left: 8,
+          right: 8,
+          zIndex: 10,
+          borderRadius: 1,
+          p: 1.5,
+          maxHeight: '60%',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1,
+        },
+        ...(Array.isArray(sx) ? sx : [sx]),
+      ]}
     >
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>

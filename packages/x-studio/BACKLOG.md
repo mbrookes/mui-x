@@ -463,12 +463,19 @@ BL-161. When a widget is dragged and dropped on a different page, it isn't being
 
 BL-162: Move dataset selection to the top of the app configuration widget, and move feature selection to a separate tab in the config dialog (both examples).
 
-BL-163: The filter panel page filter field select isn't using the shared field select that has field type icons etc.
+~~BL-163: The filter panel page filter field select isn't using the shared field select that has field type icons etc.~~ **Fixed** (replaced plain MUI `Select` + `ListSubheader` in `PageFilterRow` phase-1 picker with `DataSourceFieldSelect`, which groups by source and shows field-type icons)
 
 ~~BL-164: Something seems to have gone wrong with the relationship display in the data panel. Before, only user defined relationships were shown. I asked for those defined in the data to be displayed (read only), but now they appear to have been added as editable relationships. Deleting them through the UI breaks widget rendering, when the widgets should be using the predefined relationships.~~ **Fixed** (added `predefined?: boolean` to `StudioRelationship`; RelationshipPanel hides Edit and Delete buttons when `rel.predefined === true`)
 
 BL-165: In x-studio-composed, after adding a new widget with the FAB, it should open the composed preview/edit widget, not the edit only one. The preview should include the entire widget (including title etc.), and not just the chart. For example you can't see edits to a text widget.
 
 ~~BL-166: In the x-studio-composed demo, the per-widget AI assistant dialog is way too narrow. The dialog grows with added content, and can't be scrolled.~~ **Fixed** (switched from fixed 440px width to `maxWidth="sm" fullWidth`; height is now `80vh` capped at 720px, fully scrollable)
+
+
+BL-167: In the x-studio example, the ag-studio data loads (visible in the data panel), and the widget layout looks largely the same as the ag-studio example, but all the widgets are zero/no data instead of rendering the ag-studio data.
+
+BL-168: Fix BL-167 first, then in the x-studio-composed example, when the ag-studio data is selected, it still loads the sales data and dashboard layout instead.
+
+BL-169: Composable components should support the sx prop.
 
 ~~BL-XXX: For all changes in this session, update the docs pages found in ./docs on all relevant pages, including the specific feature's page, and x/react-studio/comparison/, and anywhere else appropriate, and creating a new page as needed for larger features.~~ **Fixed** (updated comparison.md, localization.md, map.md, kpi.md for BL-109/152/154/155 changes)

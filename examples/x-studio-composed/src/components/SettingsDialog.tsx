@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {
+  Box,
   Button,
   Dialog,
   DialogActions,
@@ -11,6 +12,8 @@ import {
   FormLabel,
   Radio,
   RadioGroup,
+  Tab,
+  Tabs,
   Typography,
 } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
@@ -34,6 +37,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
   const { open, onClose, dataset, featureFlags, onFeatureFlagsChange, locale, onLocaleChange } =
     props;
 
+  const [tab, setTab] = React.useState(0);
   const [pendingDataset, setPendingDataset] = React.useState<DatasetMode>(dataset);
 
   React.useEffect(() => {
@@ -56,61 +60,71 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>Settings</DialogTitle>
+      <DialogTitle sx={{ pb: 0 }}>Settings</DialogTitle>
+      <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ px: 3 }}>
+        <Tab label="Settings" />
+        <Tab label="Features" />
+      </Tabs>
       <DialogContent
-        sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 1, overflowY: 'auto' }}
+        sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 2, overflowY: 'auto' }}
       >
-        {/* Dataset — requires reload */}
-        <FormControl>
-          <FormLabel>Dataset</FormLabel>
-          <RadioGroup
-            value={pendingDataset}
-            onChange={(_evt, val) => setPendingDataset(val as DatasetMode)}
-          >
-            <FormControlLabel
-              value="sales"
-              control={<Radio size="small" />}
-              label="MUI X Sales (generated)"
-            />
-            <FormControlLabel
-              value="ag-studio"
-              control={<Radio size="small" />}
-              label="AG Studio Office Supplies"
-            />
-          </RadioGroup>
-        </FormControl>
+        {tab === 0 && (
+          <React.Fragment>
+            {/* Dataset — requires reload (top) */}
+            <FormControl>
+              <FormLabel>Dataset</FormLabel>
+              <RadioGroup
+                value={pendingDataset}
+                onChange={(_evt, val) => setPendingDataset(val as DatasetMode)}
+              >
+                <FormControlLabel
+                  value="sales"
+                  control={<Radio size="small" />}
+                  label="MUI X Sales (generated)"
+                />
+                <FormControlLabel
+                  value="ag-studio"
+                  control={<Radio size="small" />}
+                  label="AG Studio Office Supplies"
+                />
+              </RadioGroup>
+            </FormControl>
 
-        {needsReload && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', gap: 0.5 }}>
-            <InfoOutlinedIcon sx={{ fontSize: 14, mt: '1px' }} />
-            Dataset changes take effect after reload.
-          </Typography>
+            {needsReload && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', gap: 0.5 }}>
+                <InfoOutlinedIcon sx={{ fontSize: 14, mt: '1px' }} />
+                Dataset changes take effect after reload.
+              </Typography>
+            )}
+
+            <Divider />
+
+            {/* Language — immediate, no reload needed */}
+            <FormControl>
+              <FormLabel>Language</FormLabel>
+              <RadioGroup
+                value={locale}
+                onChange={(_evt, val) => onLocaleChange(val as SupportedLocale)}
+              >
+                {(Object.entries(LOCALE_LABELS) as [SupportedLocale, string][]).map(([key, label]) => (
+                  <FormControlLabel key={key} value={key} control={<Radio size="small" />} label={label} />
+                ))}
+              </RadioGroup>
+            </FormControl>
+          </React.Fragment>
         )}
 
-        <Divider />
-
-        {/* Language — immediate, no reload needed */}
-        <FormControl>
-          <FormLabel>Language</FormLabel>
-          <RadioGroup
-            value={locale}
-            onChange={(_evt, val) => onLocaleChange(val as SupportedLocale)}
-          >
-            {(Object.entries(LOCALE_LABELS) as [SupportedLocale, string][]).map(([key, label]) => (
-              <FormControlLabel key={key} value={key} control={<Radio size="small" />} label={label} />
-            ))}
-          </RadioGroup>
-        </FormControl>
-
-        <Divider />
-
-        <FeatureFlagSettings
-          featureFlags={featureFlags}
-          onFeatureFlagsChange={onFeatureFlagsChange}
-        />
+        {tab === 1 && (
+          <Box>
+            <FeatureFlagSettings
+              featureFlags={featureFlags}
+              onFeatureFlagsChange={onFeatureFlagsChange}
+            />
+          </Box>
+        )}
       </DialogContent>
       <DialogActions>
-        {needsReload && (
+        {tab === 0 && needsReload && (
           <Button variant="contained" onClick={applyAndReload}>
             Apply &amp; reload
           </Button>

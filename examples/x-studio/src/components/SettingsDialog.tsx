@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {
+  Box,
   Button,
   Dialog,
   DialogActions,
@@ -13,6 +14,8 @@ import {
   Radio,
   RadioGroup,
   Switch,
+  Tab,
+  Tabs,
   TextField,
   Typography,
 } from '@mui/material';
@@ -65,6 +68,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
     onLocaleChange,
   } = props;
 
+  const [tab, setTab] = React.useState(0);
   const [rowInput, setRowInput] = React.useState(
     values.rowCount !== undefined ? String(values.rowCount) : '',
   );
@@ -122,156 +126,166 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>Settings</DialogTitle>
-      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 1 }}>
-        {/* Sidebar layout — immediate */}
-        <FormControl>
-          <FormLabel>Sidebar layout</FormLabel>
-          <RadioGroup
-            row
-            value={values.sidebarLayout}
-            onChange={(_evt, val) => onSidebarLayoutChange(val as SidebarLayout)}
-          >
-            <FormControlLabel value="tabbed" control={<Radio size="small" />} label="Tabbed" />
-            <FormControlLabel value="stacked" control={<Radio size="small" />} label="Stacked" />
-          </RadioGroup>
-        </FormControl>
+      <DialogTitle sx={{ pb: 0 }}>Settings</DialogTitle>
+      <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ px: 3 }}>
+        <Tab label="Settings" />
+        <Tab label="Features" />
+      </Tabs>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 2 }}>
+        {tab === 0 && (
+          <React.Fragment>
+            {/* Dataset — requires reload (top) */}
+            <FormControl>
+              <FormLabel>Dataset</FormLabel>
+              <RadioGroup
+                value={pendingDataset}
+                onChange={(_evt, val) => setPendingDataset(val as DatasetMode)}
+              >
+                <FormControlLabel
+                  value="sales"
+                  control={<Radio size="small" />}
+                  label="MUI X Sales (generated)"
+                />
+                <FormControlLabel
+                  value="ag-studio"
+                  control={<Radio size="small" />}
+                  label="AG Studio Office Supplies"
+                />
+              </RadioGroup>
+            </FormControl>
 
-        {/* Sidebar side — immediate */}
-        <FormControl>
-          <FormLabel>Sidebar position</FormLabel>
-          <RadioGroup
-            row
-            value={values.sidebarSide}
-            onChange={(_evt, val) => onSidebarSideChange(val as SidebarSide)}
-          >
-            <FormControlLabel value="left" control={<Radio size="small" />} label="Left" />
-            <FormControlLabel value="right" control={<Radio size="small" />} label="Right" />
-          </RadioGroup>
-        </FormControl>
+            <Divider />
 
-        {/* Table source mode — immediate */}
-        <FormControl>
-          <FormLabel>Table source mode</FormLabel>
-          <RadioGroup
-            row
-            value={values.tableSourceMode}
-            onChange={(_evt, val) => onTableSourceModeChange(val as TableSourceMode)}
-          >
-            <FormControlLabel
-              value="explicit"
-              control={<Radio size="small" />}
-              label="Explicit (picker)"
-            />
-            <FormControlLabel
-              value="implicit"
-              control={<Radio size="small" />}
-              label="Implicit (inferred)"
-            />
-          </RadioGroup>
-        </FormControl>
+            {/* Language — immediate */}
+            <FormControl>
+              <FormLabel>Language</FormLabel>
+              <RadioGroup
+                value={locale}
+                onChange={(_evt, val) => onLocaleChange(val as SupportedLocale)}
+              >
+                {(Object.entries(LOCALE_LABELS) as [SupportedLocale, string][]).map(([key, label]) => (
+                  <FormControlLabel key={key} value={key} control={<Radio size="small" />} label={label} />
+                ))}
+              </RadioGroup>
+            </FormControl>
 
-        {/* Responsive stack breakpoint — immediate */}
-        <TextField
-          label="Responsive stack breakpoint"
-          helperText="Canvas width (px) below which widgets stack. Set to 0 to disable."
-          value={values.stackBreakpoint}
-          onChange={(evt) => {
-            const n = Number.parseInt(evt.target.value, 10);
-            if (Number.isFinite(n) && n >= 0) {
-              onStackBreakpointChange(n);
-            }
-          }}
-          size="small"
-          type="number"
-          slotProps={{
-            input: { endAdornment: <InputAdornment position="end">px</InputAdornment> },
-            htmlInput: { min: 0, step: 100 },
-          }}
-        />
+            <Divider />
 
-        <Divider />
+            {/* Sidebar layout — immediate */}
+            <FormControl>
+              <FormLabel>Sidebar layout</FormLabel>
+              <RadioGroup
+                row
+                value={values.sidebarLayout}
+                onChange={(_evt, val) => onSidebarLayoutChange(val as SidebarLayout)}
+              >
+                <FormControlLabel value="tabbed" control={<Radio size="small" />} label="Tabbed" />
+                <FormControlLabel value="stacked" control={<Radio size="small" />} label="Stacked" />
+              </RadioGroup>
+            </FormControl>
 
-        {/* Dataset — requires reload */}
-        <FormControl>
-          <FormLabel>Dataset</FormLabel>
-          <RadioGroup
-            value={pendingDataset}
-            onChange={(_evt, val) => setPendingDataset(val as DatasetMode)}
-          >
-            <FormControlLabel
-              value="sales"
-              control={<Radio size="small" />}
-              label="MUI X Sales (generated)"
-            />
-            <FormControlLabel
-              value="ag-studio"
-              control={<Radio size="small" />}
-              label="AG Studio Office Supplies"
-            />
-          </RadioGroup>
-        </FormControl>
+            {/* Sidebar side — immediate */}
+            <FormControl>
+              <FormLabel>Sidebar position</FormLabel>
+              <RadioGroup
+                row
+                value={values.sidebarSide}
+                onChange={(_evt, val) => onSidebarSideChange(val as SidebarSide)}
+              >
+                <FormControlLabel value="left" control={<Radio size="small" />} label="Left" />
+                <FormControlLabel value="right" control={<Radio size="small" />} label="Right" />
+              </RadioGroup>
+            </FormControl>
 
-        <Divider />
+            {/* Table source mode — immediate */}
+            <FormControl>
+              <FormLabel>Table source mode</FormLabel>
+              <RadioGroup
+                row
+                value={values.tableSourceMode}
+                onChange={(_evt, val) => onTableSourceModeChange(val as TableSourceMode)}
+              >
+                <FormControlLabel
+                  value="explicit"
+                  control={<Radio size="small" />}
+                  label="Explicit (picker)"
+                />
+                <FormControlLabel
+                  value="implicit"
+                  control={<Radio size="small" />}
+                  label="Implicit (inferred)"
+                />
+              </RadioGroup>
+            </FormControl>
 
-        {/* Data rows — requires reload */}
-        <TextField
-          label="Generated row count"
-          helperText="Leave blank to use the default bundled data"
-          value={rowInput}
-          onChange={handleRowInputChange}
-          size="small"
-          type="number"
-          slotProps={{
-            input: { endAdornment: <InputAdornment position="end">rows</InputAdornment> },
-            htmlInput: { min: 1, step: 1 },
-          }}
-        />
-
-        {/* Adapter mode — requires reload */}
-        <FormControlLabel
-          control={
-            <Switch
-              checked={pendingAdapter}
-              onChange={(_evt, checked) => setPendingAdapter(checked)}
+            {/* Responsive stack breakpoint — immediate */}
+            <TextField
+              label="Responsive stack breakpoint"
+              helperText="Canvas width (px) below which widgets stack. Set to 0 to disable."
+              value={values.stackBreakpoint}
+              onChange={(evt) => {
+                const n = Number.parseInt(evt.target.value, 10);
+                if (Number.isFinite(n) && n >= 0) {
+                  onStackBreakpointChange(n);
+                }
+              }}
               size="small"
+              type="number"
+              slotProps={{
+                input: { endAdornment: <InputAdornment position="end">px</InputAdornment> },
+                htmlInput: { min: 0, step: 100 },
+              }}
             />
-          }
-          label="Simulated server adapter"
-        />
 
-        {needsReload && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', gap: 0.5 }}>
-            <InfoOutlinedIcon sx={{ fontSize: 14, mt: '1px' }} />
-            Row count and adapter changes take effect after reload.
-          </Typography>
+            <Divider />
+
+            {/* Data rows — requires reload */}
+            <TextField
+              label="Generated row count"
+              helperText="Leave blank to use the default bundled data"
+              value={rowInput}
+              onChange={handleRowInputChange}
+              size="small"
+              type="number"
+              slotProps={{
+                input: { endAdornment: <InputAdornment position="end">rows</InputAdornment> },
+                htmlInput: { min: 1, step: 1 },
+              }}
+            />
+
+            {/* Adapter mode — requires reload */}
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={pendingAdapter}
+                  onChange={(_evt, checked) => setPendingAdapter(checked)}
+                  size="small"
+                />
+              }
+              label="Simulated server adapter"
+            />
+
+            {needsReload && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', gap: 0.5 }}>
+                <InfoOutlinedIcon sx={{ fontSize: 14, mt: '1px' }} />
+                Dataset, row count and adapter changes take effect after reload.
+              </Typography>
+            )}
+          </React.Fragment>
         )}
 
-        <Divider />
-
-        {/* Language — immediate, no reload needed */}
-        <FormControl>
-          <FormLabel>Language</FormLabel>
-          <RadioGroup
-            value={locale}
-            onChange={(_evt, val) => onLocaleChange(val as SupportedLocale)}
-          >
-            {(Object.entries(LOCALE_LABELS) as [SupportedLocale, string][]).map(([key, label]) => (
-              <FormControlLabel key={key} value={key} control={<Radio size="small" />} label={label} />
-            ))}
-          </RadioGroup>
-        </FormControl>
-
-        <Divider />
-
-        <FeatureFlagSettings
-          featureFlags={featureFlags}
-          onFeatureFlagsChange={onFeatureFlagsChange}
-        />
+        {tab === 1 && (
+          <Box>
+            <FeatureFlagSettings
+              featureFlags={featureFlags}
+              onFeatureFlagsChange={onFeatureFlagsChange}
+            />
+          </Box>
+        )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
-        {needsReload && (
+        {tab === 0 && needsReload && (
           <Button variant="contained" onClick={applyAndReload}>
             Apply &amp; Reload
           </Button>

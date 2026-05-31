@@ -28,19 +28,22 @@ import type {
   SerializedStudioState,
 } from '@mui/x-studio';
 import NotificationsIcon from '@mui/icons-material/Notifications';
-import { downloadJson, uploadJson } from 'x-studio-shared';
+import {
+  downloadJson,
+  uploadJson,
+  INITIAL_STATE,
+  OS_INITIAL_STATE,
+  loadOfficeSuppliesData,
+  generateSalesData,
+} from 'x-studio-shared';
+import type { OfficeSuppliesData } from 'x-studio-shared';
 import dayjs from 'dayjs';
-import { INITIAL_STATE } from './config/salesDashboard';
-import { OS_INITIAL_STATE } from './config/officeSuppliesDashboard';
-import { loadOfficeSuppliesData } from './officeSuppliesData';
-import type { OfficeSuppliesData } from './officeSuppliesData';
 import { AppToolbar } from './components/AppToolbar';
 import { SettingsDialog } from './components/SettingsDialog';
 import type { SidebarLayout, SidebarSide, TableSourceMode } from './components/SettingsDialog';
 import { AlertBannerWidget } from './components/AlertBannerWidget';
 import { AlertBannerSetupPanel } from './components/AlertBannerSetupPanel';
 import { theme } from './theme';
-import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
 import { type SupportedLocale, LOCALE_BUNDLES } from './locales';
 
@@ -336,7 +339,9 @@ export default function App() {
     setStackBreakpoint(bp);
     setUrlBreakpoint(bp);
   }
-  const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({ quickFilter: false });
+  const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({
+    quickFilter: false,
+  });
   const [locale, setLocale] = React.useState<SupportedLocale>('en');
   const localeBundle = LOCALE_BUNDLES[locale];
 
@@ -567,10 +572,10 @@ export default function App() {
   return (
     <ThemeProvider theme={theme}>
       <LocalizationProvider
-          dateAdapter={AdapterDayjs}
-          adapterLocale={localeBundle.dayjsLocale}
-          localeText={localeBundle.pickersLocaleText}
-        >
+        dateAdapter={AdapterDayjs}
+        adapterLocale={localeBundle.dayjsLocale}
+        localeText={localeBundle.pickersLocaleText}
+      >
         <CssBaseline />
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
           <AppToolbar

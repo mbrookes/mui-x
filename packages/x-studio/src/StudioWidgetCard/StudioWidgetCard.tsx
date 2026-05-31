@@ -88,6 +88,14 @@ export interface StudioWidgetCardProps {
    * @param {string} widgetId The ID of the widget that needs configuration.
    */
   onUnconfiguredClick?: (widgetId: string) => void;
+  /**
+   * Called when the user clicks the "Edit" action on a widget card.
+   * When provided, the built-in `StudioWidgetEditDialog` is NOT rendered — the
+   * caller is responsible for opening a configuration UI for the given widget.
+   * When omitted, the card opens `StudioWidgetEditDialog` internally.
+   * @param {string} widgetId The ID of the widget to edit.
+   */
+  onEditRequest?: (widgetId: string) => void;
 }
 
 // Module-level set survives component unmount/remount (e.g. drag-and-drop repositioning).
@@ -153,7 +161,7 @@ function DefaultLoadingOverlay() {
 
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
-  const { widgetId, isFirstRow = false, pageTheme, slots, slotProps, onUnconfiguredClick } = props;
+  const { widgetId, isFirstRow = false, pageTheme, slots, slotProps, onUnconfiguredClick, onEditRequest } = props;
   const controller = useStudioController();
   // Create stable selector functions scoped to this widgetId.
   // Using React.useMemo ensures the selector identity is preserved across renders
@@ -215,7 +223,16 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const LoadingOverlay = slots?.loadingOverlay ?? DefaultLoadingOverlay;
   const [isDragging, setIsDragging] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
+  // Built-in edit dialog — only used when onEditRequest is not provided
   const [editDialogOpen, setEditDialogOpen] = React.useState(false);
+
+  const handleEditClick = React.useCallback(() => {
+    if (onEditRequest) {
+      onEditRequest(widgetId);
+    } else {
+      setEditDialogOpen(true);
+    }
+  }, [onEditRequest, widgetId]);
   // Tracks the pointer position within the element at mousedown, used to position
   // the drag ghost so the card appears grabbed from where the user clicked.
   const dragOffsetRef = React.useRef({ x: 0, y: 0 });
@@ -457,7 +474,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           moveToPageOptions={moveToPageOptions}
           onExport={handleExport}
           onExpand={() => setExpanded(true)}
-          onEdit={() => setEditDialogOpen(true)}
+          onEdit={handleEditClick}
           onDuplicate={() => controller.duplicateWidget(widgetId)}
           onDelete={() => controller.removeWidget(widgetId)}
           onMoveToPage={(pageId) => controller.moveWidgetToPage(widgetId, pageId)}
@@ -689,8 +706,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             </DialogActions>
           </Dialog>
         )}
-        {/* Widget edit dialog */}
-        {editDialogOpen && (
+        {/* Widget edit dialog — only when no external onEditRequest handler */}
+        {!onEditRequest && editDialogOpen && (
           <StudioWidgetEditDialog
             open={editDialogOpen}
             onClose={() => setEditDialogOpen(false)}

@@ -73,6 +73,7 @@ export type {
 
 // ─── StudioDataDrawer ─────────────────────────────────────────────────────────
 export { StudioDataDrawer } from './StudioDataDrawer/StudioDataDrawer';
+export type { StudioDataDrawerProps } from './StudioDataDrawer/StudioDataDrawer';
 
 // ─── StudioComposeDrawer ──────────────────────────────────────────────────────
 export { StudioComposeDrawer } from './StudioComposeDrawer/StudioComposeDrawer';
@@ -82,6 +83,7 @@ export type { InlineFormulaBarProps } from './StudioComposeDrawer/InlineFormulaB
 
 // ─── StudioFiltersDrawer ──────────────────────────────────────────────────────
 export { StudioFiltersDrawer } from './StudioFiltersDrawer/StudioFiltersDrawer';
+export type { StudioFiltersDrawerProps } from './StudioFiltersDrawer/StudioFiltersDrawer';
 
 // ─── StudioDrilldownDrawer ────────────────────────────────────────────────────
 export { StudioDrilldownDrawer } from './StudioDrilldownDrawer/StudioDrilldownDrawer';

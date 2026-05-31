@@ -560,8 +560,9 @@ similarly for `chart` and `grid`. Removed flat `kpiSparkline`, `kpiTrend`, `kpiT
 
 **Done** — Fixed `MapSetupPanel` to include string expression fields (e.g. `expr-order-country`) in the country field picker. Fixed `PivotSetupPanel` to use `ef.type` instead of hardcoded `'number'`, so string expression fields appear in category pickers. Fixed `queryDescriptor.collectSelectFields()` to include `mapCountryField`/`mapValueField` so map widget expression fields are enriched. Added "Revenue by Country" world choropleth map to the Overview page and a new "Analytics" page with a "Revenue by Segment × Status" pivot table to both `x-studio` and `x-studio-composed` configs. ag-studio uses a different widget system (N/A).
 
-BL-109: Widget resize vertical grid lines still aren't correctly spaced. This was supposed to be fixed in BL-96. Use a browser to check if you can and need to see for yourself.
+✅ BL-109: Widget resize vertical grid lines still aren't correctly spaced. This was supposed to be fixed in BL-96. Use a browser to check if you can and need to see for yourself.
 
+**Fixed** (via BL-156: root cause was that grid line formula used constant 8px offset instead of accounting for widget boundary; fix computes cumSpans[] array and finds which widget each column falls in, using (j+1)×8px offset per widget; 21 regression tests added in BL-157)
 
 ✅ BL-110: KPI cards are supposed to have a minsize of 2 when they don't have a sparkline enabled.
 
@@ -802,6 +803,8 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 ✅ BL-167: In the x-studio example, the ag-studio data loads (visible in the data panel), and the widget layout looks largely the same as the ag-studio example, but all the widgets are zero/no data instead of rendering the ag-studio data.
 
 **Fixed** (`filterUtils.ts` date comparisons used `String(rv)` which compared numeric timestamps as strings — `"1735689600000" >= "2024-12-01"` is false because `"1" < "2"`. Changed to `toComparable(rv, fieldType)` which normalises timestamps to ISO strings before comparing. Affects `greater_than`, `less_than`, `greater_than_or_equal`, `less_than_or_equal`, and `between` operators.)
+
+**Additional improvement**: `officeSuppliesData/index.ts` now converts all raw Unix ms timestamps to ISO date strings at load time (cleaner data at source); `kpi-on-time-rate` widget override added so it correctly uses `os-shipments` source on the executive page; `mapGridColumn` normalised `order_items` snake_case alias to camelCase `orderItems` for correct column source resolution.
 
 ✅ BL-168: Fix BL-167 first, then in the x-studio-composed example, when the ag-studio data is selected, it still loads the sales data and dashboard layout instead.
 

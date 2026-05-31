@@ -1,6 +1,10 @@
 import * as React from 'react';
 import { createRenderer } from '@mui/internal-test-utils';
-import { ChoroplethChart, ChoroplethPlot, choroplethChartClasses } from '@mui/x-charts-pro/ChoroplethChart';
+import {
+  ChoroplethChart,
+  ChoroplethPlot,
+  choroplethChartClasses,
+} from '@mui/x-charts-pro/ChoroplethChart';
 
 const minimalGeography = {
   type: 'FeatureCollection' as const,
@@ -11,7 +15,15 @@ const minimalGeography = {
       properties: { name: 'United States' },
       geometry: {
         type: 'Polygon' as const,
-        coordinates: [[[-125, 24], [-66, 24], [-66, 49], [-125, 49], [-125, 24]]],
+        coordinates: [
+          [
+            [-125, 24],
+            [-66, 24],
+            [-66, 49],
+            [-125, 49],
+            [-125, 24],
+          ],
+        ],
       },
     },
     {
@@ -20,7 +32,15 @@ const minimalGeography = {
       properties: { name: 'Canada' },
       geometry: {
         type: 'Polygon' as const,
-        coordinates: [[[-140, 49], [-52, 49], [-52, 72], [-140, 72], [-140, 49]]],
+        coordinates: [
+          [
+            [-140, 49],
+            [-52, 49],
+            [-52, 72],
+            [-140, 72],
+            [-140, 49],
+          ],
+        ],
       },
     },
   ],
@@ -50,9 +70,7 @@ describe('<ChoroplethPlot />', () => {
       </ChoroplethChart>,
     );
 
-    const root = container.querySelector(
-      `.${choroplethChartClasses.root}.custom-choropleth`,
-    );
+    const root = container.querySelector(`.${choroplethChartClasses.root}.custom-choropleth`);
     expect(root).not.to.equal(null);
   });
 
@@ -66,12 +84,7 @@ describe('<ChoroplethPlot />', () => {
 
   it('should render without crashing when data is empty', () => {
     expect(() =>
-      render(
-        <ChoroplethChart
-          {...defaultProps}
-          series={[{ data: [] }]}
-        />,
-      ),
+      render(<ChoroplethChart {...defaultProps} series={[{ data: [] }]} />),
     ).not.toThrow();
   });
 });

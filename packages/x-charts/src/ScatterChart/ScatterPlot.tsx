@@ -139,7 +139,8 @@ function ScatterPlot(props: ScatterPlotProps) {
         // Bubble chart mode (per-point sizes) is incompatible with the batch renderer
         // which uses a single SVG path per colour group. Fall back to per-point rendering.
         const hasBubbleSizes = series[seriesId].sizeScale != null;
-        const ItemsComponent = hasBubbleSizes && ScatterItems === BatchScatter ? Scatter : ScatterItems;
+        const ItemsComponent =
+          hasBubbleSizes && ScatterItems === BatchScatter ? Scatter : ScatterItems;
 
         return (
           <ItemsComponent

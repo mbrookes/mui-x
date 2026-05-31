@@ -396,25 +396,28 @@ export function RelationshipPanel(props: {
                   )}
                 </Stack>
               </Box>
-              <Tooltip title={localeText.relationshipEditTooltip}>
-                <IconButton
-                  size="small"
-                  sx={{ flexShrink: 0, p: '2px' }}
-                  onClick={() => handleEdit(rel)}
-                >
-                  <EditIcon sx={{ fontSize: 14 }} />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title={localeText.relationshipRemoveTooltip}>
-                <IconButton
-                  size="small"
-                  sx={{ flexShrink: 0, p: '2px' }}
-                  onClick={() => controller.removeRelationship(rel.id)}
-                >
-                  <DeleteIcon sx={{ fontSize: 14 }} />
-                </IconButton>
-              </Tooltip>
-            </Stack>
+              {!rel.predefined && (
+                <React.Fragment>
+                  <Tooltip title={localeText.relationshipEditTooltip}>
+                    <IconButton
+                      size="small"
+                      sx={{ flexShrink: 0, p: '2px' }}
+                      onClick={() => handleEdit(rel)}
+                    >
+                      <EditIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title={localeText.relationshipRemoveTooltip}>
+                    <IconButton
+                      size="small"
+                      sx={{ flexShrink: 0, p: '2px' }}
+                      onClick={() => controller.removeRelationship(rel.id)}
+                    >
+                      <DeleteIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Tooltip>
+                </React.Fragment>
+              )}            </Stack>
           );
         })}
       </Stack>

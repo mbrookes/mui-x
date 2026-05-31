@@ -948,6 +948,19 @@ export class StudioController {
   };
 
   /**
+   * Renames a saved filter preset.
+   */
+  renameFilterPreset = (presetId: string, name: string) => {
+    const state = this.store.state;
+    this.commitState({
+      ...state,
+      filterPresets: (state.filterPresets ?? []).map((p) =>
+        p.id === presetId ? { ...p, name } : p,
+      ),
+    });
+  };
+
+  /**
    * Clears all cross-filters.
    */
   clearAllCrossFilters = () => {

@@ -22,7 +22,7 @@ const GRID_COLS = 24;
 /** Minimum column span any widget can be resized to (~12.5% of full width in a 2-widget row). */
 const MIN_SPAN = Math.round(GRID_COLS / 4);
 /** Minimum column span for a KPI widget without a sparkline (narrower is fine without the chart). */
-const KPI_NO_SPARKLINE_MIN_SPAN = 2;
+const KPI_NO_SPARKLINE_MIN_SPAN = 4;
 
 /** Return the minimum resize column span for a widget based on its kind and config. */
 function getWidgetMinSpan(widget: StudioWidget | undefined): number {

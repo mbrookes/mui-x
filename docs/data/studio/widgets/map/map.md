@@ -54,8 +54,18 @@ Studio resolves the join path through the declared [relationships](/x/react-stud
 ## Colour scale and tooltip
 
 The map ships with five sequential colour ramps and linearly interpolates between ramp stops.
-Countries with no data use a neutral fill.
-Hovering a country shows a tooltip with the normalised country code and the aggregated value.
+Regions with no data use a neutral fill and show **no tooltip** when hovered.
+
+Hovering a region with data shows a tooltip with two rows:
+
+- **Region name** — derived from the normalised feature identifier (for example, "France" or "California").
+- **Value field label** — the name of the `mapValueField` formatted in Title Case, followed by the aggregated value.
+
+The tooltip is provided by `StudioMapTooltip`, which is exported from `@mui/x-studio` for consumers who need to use it in custom layouts.
+
+```tsx
+import { StudioMapTooltip, StudioMapTooltipContext } from '@mui/x-studio';
+```
 
 ## Full config example
 

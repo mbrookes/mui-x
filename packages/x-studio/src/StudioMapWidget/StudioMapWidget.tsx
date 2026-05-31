@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
-import { ChoroplethChart, ChoroplethTooltip } from '@mui/x-charts-pro/ChoroplethChart';
+import { ChoroplethChart } from '@mui/x-charts-pro/ChoroplethChart';
 import type { ExtendedFeatureCollection } from '@mui/x-charts-pro/ChoroplethChart';
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
@@ -16,6 +16,7 @@ import { useWidgetRows } from '../internals/useWidgetRows';
 import { normalizeToAlpha2, alpha2ToName, STATE_ABBR_TO_NAME } from './countryUtils';
 import type { StudioMapGeographyDefinition } from './geographyLoaders';
 import { StudioNoDataOverlay } from '../internals/StudioNoDataOverlay';
+import { StudioMapTooltip, StudioMapTooltipContext } from './StudioMapTooltip';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -107,6 +108,18 @@ export function StudioMapWidget({
   const legendPosition = config.mapLegendPosition ?? 'bottom';
   const legendZeroMin = config.mapLegendZeroMin ?? false;
   const crossFilterEmit = config.mapCrossFilterEmit ?? false;
+
+  // Derive a human-readable label for the value field to display in the tooltip.
+  // Convert snake_case / camelCase field names to Title Case words.
+  const valueFieldLabel = React.useMemo(() => {
+    if (!valueField) {
+      return null;
+    }
+    return valueField
+      .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase → words
+      .replace(/[_-]+/g, ' ') // snake_case / kebab-case → spaces
+      .replace(/\b\w/g, (c) => c.toUpperCase()); // Title Case
+  }, [valueField]);
 
   // Merge built-in definitions (from context) with any prop-level overrides
   const contextGeographies = useStudioGeographies();
@@ -319,39 +332,41 @@ export function StudioMapWidget({
   const projection = { type: projectionType };
 
   return (
-    <Box sx={{ width: '100%', height: '100%', minHeight: 200 }}>
-      <ChoroplethChart
-        geography={geography ?? { type: 'FeatureCollection', features: [] }}
-        series={[
-          {
-            data: Array.from(regionData.entries()).map(([featureId, value]) => ({
-              featureId,
-              value,
-              label: featureIdToLabel(featureId),
-            })),
-            valueFormatter: (v: number | null) =>
-              v == null ? '' : v.toLocaleString(undefined, { maximumFractionDigits: 2 }),
-          },
-        ]}
-        projection={projection}
-        zAxis={[
-          {
-            colorMap: {
-              type: 'continuous',
-              min: minVal,
-              max: maxVal,
-              color: [colorStart, colorEnd],
+    <StudioMapTooltipContext.Provider value={{ valueFieldLabel }}>
+      <Box sx={{ width: '100%', height: '100%', minHeight: 200 }}>
+        <ChoroplethChart
+          geography={geography ?? { type: 'FeatureCollection', features: [] }}
+          series={[
+            {
+              data: Array.from(regionData.entries()).map(([featureId, value]) => ({
+                featureId,
+                value,
+                label: featureIdToLabel(featureId),
+              })),
+              valueFormatter: (v: number | null) =>
+                v == null ? '' : v.toLocaleString(undefined, { maximumFractionDigits: 2 }),
             },
-          },
-        ]}
-        hideLegend={hideLegend}
-        slots={{ tooltip: ChoroplethTooltip }}
-        slotProps={hideLegend ? undefined : legendSlotProps}
-        onItemClick={crossFilterEmit ? handleFeatureClick : undefined}
-        loading={isLoading || !geography}
-        margin={{ top: 8, bottom: 32, left: 8, right: 8 }}
-        sx={{ width: '100%', height: '100%', ...(crossFilterEmit && { cursor: 'pointer' }) }}
-      />
-    </Box>
+          ]}
+          projection={projection}
+          zAxis={[
+            {
+              colorMap: {
+                type: 'continuous',
+                min: minVal,
+                max: maxVal,
+                color: [colorStart, colorEnd],
+              },
+            },
+          ]}
+          hideLegend={hideLegend}
+          slots={{ tooltip: StudioMapTooltip }}
+          slotProps={hideLegend ? undefined : legendSlotProps}
+          onItemClick={crossFilterEmit ? handleFeatureClick : undefined}
+          loading={isLoading || !geography}
+          margin={{ top: 8, bottom: 32, left: 8, right: 8 }}
+          sx={{ width: '100%', height: '100%', ...(crossFilterEmit && { cursor: 'pointer' }) }}
+        />
+      </Box>
+    </StudioMapTooltipContext.Provider>
   );
 }

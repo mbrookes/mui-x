@@ -23,6 +23,14 @@ const PAGE_WIDGET_SOURCE = {
   returns: 'orderItems',
 } as const;
 
+/**
+ * Some widgets on a page use a different primary source than the page default.
+ * This map provides per-widget overrides applied before the page-level lookup.
+ */
+const WIDGET_SOURCE_OVERRIDES = {
+  'kpi-on-time-rate': 'shipments',
+};
+
 function titleFromWidget(widget) {
   return widget.format?.title?.text ?? widget.format?.caption?.text ?? widget.id;
 }
@@ -127,14 +135,20 @@ function mapChartCategory(fieldId, sourceId) {
   return { fieldId: mapFieldId(fieldId, sourceId) };
 }
 
+/** Maps vendor snake_case table aliases to the camelCase keys used in sourceIds. */
+const SOURCE_ALIAS_TO_KEY: Record<string, string> = {
+  order_items: 'orderItems',
+};
+
 function mapGridColumn(column, sourceId, sourceIds) {
   const mapped = {};
   const aggregationFn = mapAggregation(column.aggregation);
 
   if (column.id.includes('.')) {
     const [sourceAlias, fieldId] = column.id.split('.');
+    const sourceKey = SOURCE_ALIAS_TO_KEY[sourceAlias] ?? sourceAlias;
     mapped.fieldId = fieldId;
-    mapped.sourceId = sourceIds[sourceAlias];
+    mapped.sourceId = sourceIds[sourceKey];
   } else {
     mapped.fieldId = mapFieldId(column.id, sourceId);
   }
@@ -151,7 +165,7 @@ function mapGridColumn(column, sourceId, sourceIds) {
 }
 
 function convertWidget(widgetId, widget, pageId, sourceIds) {
-  const widgetSourceKey = PAGE_WIDGET_SOURCE[pageId];
+  const widgetSourceKey = WIDGET_SOURCE_OVERRIDES[widgetId] ?? PAGE_WIDGET_SOURCE[pageId];
   const widgetSourceId = widgetSourceKey ? sourceIds[widgetSourceKey] : undefined;
 
   if (widget.type === 'text') {

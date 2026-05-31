@@ -540,6 +540,15 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     return () => observer.disconnect();
   }, [mode, effectiveBreakpoint]);
 
+  // isHalfStacked: canvas is between 1× and 2× the stack breakpoint — double each widget's
+  // column span (capped at GRID_COLS) so 4-wide becomes 2-up before going to 1-up.
+  const isHalfStacked =
+    mode !== 'edit' &&
+    effectiveBreakpoint > 0 &&
+    canvasWidth !== null &&
+    canvasWidth >= effectiveBreakpoint &&
+    canvasWidth < effectiveBreakpoint * 2;
+
   const isStacked =
     mode !== 'edit' &&
     effectiveBreakpoint > 0 &&
@@ -854,24 +863,44 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                 // would sum to 100% *before* those, causing overflow.  Flex-grow distributes
                 // only the remaining space after fixed items, so the row fills correctly.
                 // Default flex-grow: 12/rowLength so unsized widgets match the same ratio.
-                // View mode: use percentage flex-basis (no insertion points present).
-                // Stacked mode: force full width regardless of stored span.
+                //
+                // View mode: three responsive tiers based on canvasWidth vs stackBreakpoint (B):
+                //   • canvasWidth ≥ 2B  → normal spans (e.g. 25% for a 6-col widget)
+                //   • B ≤ canvasWidth < 2B → isHalfStacked: double each span (capped at GRID_COLS)
+                //                           so 4-wide widgets become 2-up before going full-width
+                //   • canvasWidth < B   → isStacked: all widgets full-width (1-up)
+                //
+                // Flex-basis is gap-adjusted so N equal-width items + (N−1)×8px gaps = 100%.
+                // Formula: calc(pct% − 8×(1−pct/100)px) where pct = effectiveSpan/GRID_COLS×100.
                 const defaultFlexGrow = Math.round(GRID_COLS / row.length);
+                // Compute the effective span for this responsive tier.
+                let effectiveViewSpan: number | null = null;
+                if (span != null) {
+                  if (isStacked) {
+                    effectiveViewSpan = GRID_COLS; // 100%
+                  } else if (isHalfStacked) {
+                    effectiveViewSpan = Math.min(span * 2, GRID_COLS);
+                  } else {
+                    effectiveViewSpan = span;
+                  }
+                }
+                // Gap-adjusted flex value for view mode.
+                const viewFlexBasis = (s: number): string => {
+                  const pct = (s / GRID_COLS) * 100;
+                  const gapAdj = 8 * (1 - s / GRID_COLS);
+                  return gapAdj > 0.001 ? `calc(${pct}% - ${gapAdj}px)` : `${pct}%`;
+                };
                 let flexValue: string | number;
-                if (isStacked) {
-                  flexValue = '0 0 100%';
-                } else if (mode === 'edit') {
+                if (mode === 'edit') {
                   flexValue = `${span ?? defaultFlexGrow} 0 0`;
-                } else if (span != null) {
-                  flexValue = `0 0 ${(span / GRID_COLS) * 100}%`;
+                } else if (effectiveViewSpan != null) {
+                  flexValue = `0 0 ${viewFlexBasis(effectiveViewSpan)}`;
                 } else {
                   flexValue = 1;
                 }
                 let maxWidth: string | undefined;
-                if (isStacked) {
-                  maxWidth = '100%';
-                } else if (mode !== 'edit' && span != null) {
-                  maxWidth = `${(span / GRID_COLS) * 100}%`;
+                if (mode !== 'edit' && effectiveViewSpan != null) {
+                  maxWidth = viewFlexBasis(effectiveViewSpan);
                 }
 
                 // Spans for the resize handle on the right of this widget

@@ -44,14 +44,33 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
       // No source yet — build a flat list of all non-hidden fields from every source
       const entries: DataSourceFieldEntry[] = [];
       Object.values(dataSources).forEach((ds) => {
-        if (ds.hidden) return;
+        if (ds.hidden) {
+          return;
+        }
         ds.fields.forEach((f) => {
-          if (f.hidden) return;
-          entries.push({ id: f.id, label: f.label, type: f.type, sourceId: ds.id, sourceLabel: ds.label });
+          if (f.hidden) {
+            return;
+          }
+          entries.push({
+            id: f.id,
+            label: f.label,
+            type: f.type,
+            sourceId: ds.id,
+            sourceLabel: ds.label,
+          });
         });
         expressionFields.forEach((ef) => {
-          if (ef.sourceId !== ds.id || ef.hidden) return;
-          entries.push({ id: ef.id, label: ef.label, type: ef.type as DataSourceFieldEntry['type'], sourceId: ds.id, sourceLabel: ds.label, generated: true });
+          if (ef.sourceId !== ds.id || ef.hidden) {
+            return;
+          }
+          entries.push({
+            id: ef.id,
+            label: ef.label,
+            type: ef.type as DataSourceFieldEntry['type'],
+            sourceId: ds.id,
+            sourceLabel: ds.label,
+            generated: true,
+          });
         });
       });
       return entries;
@@ -63,7 +82,9 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
     const entries: DataSourceFieldEntry[] = [];
 
     source.fields.forEach((f) => {
-      if (f.hidden) return;
+      if (f.hidden) {
+        return;
+      }
       entries.push({
         id: f.id,
         label: f.label,
@@ -77,7 +98,9 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
     // intentionally excluded: pivot has no per-field source metadata, so
     // mixing sources would cause silent data mismatches.
     expressionFields.forEach((ef) => {
-      if (ef.sourceId !== widget.sourceId || ef.hidden) return;
+      if (ef.sourceId !== widget.sourceId || ef.hidden) {
+        return;
+      }
       entries.push({
         id: ef.id,
         label: ef.label,
@@ -107,7 +130,9 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
     fieldId: string,
     sourceId: string,
   ) {
-    if (!widget) return;
+    if (!widget) {
+      return;
+    }
     if (!fieldId) {
       controller.updateWidgetConfig(widgetId, { [fieldKey]: undefined });
       return;
@@ -184,8 +209,8 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
           <Switch
             size="small"
             checked={showTotals}
-            onChange={(e) =>
-              controller.updateWidgetConfig(widgetId, { pivotShowTotals: e.target.checked })
+            onChange={(event) =>
+              controller.updateWidgetConfig(widgetId, { pivotShowTotals: event.target.checked })
             }
           />
         }

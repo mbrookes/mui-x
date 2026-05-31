@@ -576,7 +576,7 @@ describe('StudioController.moveWidgetToPage', () => {
     const targetPage = state.pages[targetPageId];
     expect(sourcePage.widgetRows.flat()).not.toContain('w1');
     expect(targetPage.widgetRows.flat()).toContain('w1');
-    expect(state.widgets['w1']).toBeDefined();
+    expect(state.widgets.w1).toBeDefined();
   });
 
   it('is a no-op when source and target page are the same', () => {

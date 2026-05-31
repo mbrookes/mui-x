@@ -122,13 +122,12 @@ export function StudioComposeDrawer(props: StudioComposeDrawerProps = {}) {
     [parentConfig, resolvedTableSourceMode],
   );
 
-  const content = selectedWidgetId ? (
-    <WidgetConfigView widgetId={selectedWidgetId} />
-  ) : selectedFieldId ? (
-    <FieldDetailView />
-  ) : (
-    <AddWidgetView />
-  );
+  let content: React.ReactNode = <AddWidgetView />;
+  if (selectedWidgetId) {
+    content = <WidgetConfigView widgetId={selectedWidgetId} />;
+  } else if (selectedFieldId) {
+    content = <FieldDetailView />;
+  }
 
   if (tableSourceMode !== undefined) {
     return (

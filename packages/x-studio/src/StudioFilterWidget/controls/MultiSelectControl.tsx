@@ -23,7 +23,10 @@ export interface StudioFilterMultiSelectControlProps {
   onClear: () => void;
   /** Whether the filter is in exclude (NOT IN) mode. @default false */
   exclude?: boolean;
-  /** Called when the user toggles include/exclude mode. */
+  /**
+   * Called when the user toggles include/exclude mode.
+   * @param {boolean} exclude Whether the option should be excluded from the selected set.
+   */
   onExcludeChange?: (exclude: boolean) => void;
 }
 

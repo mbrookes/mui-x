@@ -190,7 +190,7 @@ export function StudioDateRangeBar() {
           labelId="date-range-field-label"
           label="Field"
           value={effectiveFieldKey}
-          onChange={(e) => handleFieldChange(e.target.value)}
+          onChange={(event) => handleFieldChange(event.target.value)}
           sx={{ fontSize: '0.8rem' }}
         >
           {dateFields.map((f) => (

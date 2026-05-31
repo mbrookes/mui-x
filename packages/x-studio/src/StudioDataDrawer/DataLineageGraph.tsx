@@ -188,7 +188,7 @@ function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }: EdgeLa
         stroke="transparent"
         strokeWidth={12}
         style={{ cursor: 'pointer' }}
-        onClick={(e) => setAnchorEl(e.currentTarget as SVGElement)}
+        onClick={(event) => setAnchorEl(event.currentTarget as SVGElement)}
       />
       {/* Visible edge */}
       <path
@@ -200,7 +200,10 @@ function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }: EdgeLa
         style={{ pointerEvents: 'none' }}
       />
       {/* Label badge */}
-      <g style={{ cursor: 'pointer' }} onClick={(e) => setAnchorEl(e.currentTarget as SVGElement)}>
+      <g
+        style={{ cursor: 'pointer' }}
+        onClick={(event) => setAnchorEl(event.currentTarget as SVGElement)}
+      >
         <rect
           x={mid.x - 14}
           y={mid.y - 9}

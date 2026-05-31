@@ -137,7 +137,10 @@ export interface FilterBodyProps {
   dependencyOptions?: { id: string; label: string }[];
   /** Current set of dependency filter IDs for this filter. */
   dependsOn?: string[];
-  /** Called when the user adds or removes a dependency. */
+  /**
+   * Called when the user adds or removes a dependency.
+   * @param {string[]} ids Filter value IDs to convert into a label string.
+   */
   onDependencyChange?: (ids: string[]) => void;
   onModeChange: (mode: FilterMode) => void;
   onChange: (changes: Partial<StudioFilterState>) => void;
@@ -220,7 +223,7 @@ export function FilterBody({
             onChange={(v) => onChange({ value: v })}
           />
           {dependencyOptions && dependencyOptions.length > 0 && onDependencyChange && (
-            <Box>
+            <div>
               <Typography
                 variant="caption"
                 color="text.secondary"
@@ -241,7 +244,7 @@ export function FilterBody({
                 isOptionEqualToValue={(opt, val) => opt.id === val.id}
                 disableCloseOnSelect
               />
-            </Box>
+            </div>
           )}
         </React.Fragment>
       )}

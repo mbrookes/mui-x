@@ -20,6 +20,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import FunctionsIcon from '@mui/icons-material/Functions';
 import {
   useStudioController,
   useStudioSelector,
@@ -44,7 +45,6 @@ import type {
 import { ChartTypePicker } from './ChartTypePicker';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
-import FunctionsIcon from '@mui/icons-material/Functions';
 
 function generateAnnotationId() {
   return `ann-${Math.random().toString(36).slice(2, 9)}`;
@@ -258,6 +258,12 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   };
 
   const isPieOrDonut = chartType === 'pie' || chartType === 'donut';
+  let seriesFieldHelperText = 'Divides data into a separate series per value';
+  if (seriesFieldDisabled) {
+    seriesFieldHelperText = 'Not available when multiple measure fields are configured';
+  } else if (isPieOrDonut) {
+    seriesFieldHelperText = 'Adds a concentric inner ring grouped by this field';
+  }
   const isGauge = chartType === 'gauge';
   const isMixed = chartType === 'mixed';
   const isHeatmap = chartType === 'heatmap';
@@ -535,7 +541,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   }
                   fields={categoryFields}
                   label="Row axis field"
-                  helperText="Categorical field for the vertical (row) axis, e.g. hour of day"
+                  helperText="Categorical field for the vertical (row) axis, event.g. hour of day"
                 />
                 <DataSourceFieldSelect
                   value={config.yField ?? ySeries[0]?.fieldId ?? ''}
@@ -708,8 +714,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   <Checkbox
                     size="small"
                     checked={config.dualYAxis ?? false}
-                    onChange={(e) =>
-                      controller.updateWidgetConfig(widgetId, { dualYAxis: e.target.checked })
+                    onChange={(event) =>
+                      controller.updateWidgetConfig(widgetId, { dualYAxis: event.target.checked })
                     }
                   />
                 }
@@ -755,13 +761,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       }}
                       disabled={seriesFieldDisabled}
                       label={isPieOrDonut ? 'Inner ring category' : 'Split by (series field)'}
-                      helperText={
-                        seriesFieldDisabled
-                          ? 'Not available when multiple measure fields are configured'
-                          : isPieOrDonut
-                            ? 'Adds a concentric inner ring grouped by this field'
-                            : 'Divides data into a separate series per value'
-                      }
+                      helperText={seriesFieldHelperText}
                     />
                   </span>
                 </Tooltip>
@@ -824,7 +824,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               }
               fields={allFields}
               label="Label field"
-              helperText="Field shown as the row label on the Y axis (e.g. task or order name)"
+              helperText="Field shown as the row label on the Y axis (event.g. task or order name)"
             />
             <DataSourceFieldSelect
               value={config.ganttStartField ?? ''}
@@ -851,7 +851,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               }
               fields={categoryFields}
               label="Colour by (optional)"
-              helperText="Categorical field used to colour-code bars (e.g. status or category)"
+              helperText="Categorical field used to colour-code bars (event.g. status or category)"
             />
           </Stack>
         )}
@@ -907,10 +907,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     <FormControl size="small" sx={{ width: 56 }}>
                       <Select
                         value={ann.axis}
-                        onChange={(e) => {
+                        onChange={(event) => {
                           controller.updateWidgetConfig(widgetId, {
                             annotations: (config.annotations ?? []).map((a) =>
-                              a.id === ann.id ? { ...a, axis: e.target.value as 'y' | 'x' } : a,
+                              a.id === ann.id ? { ...a, axis: event.target.value as 'y' | 'x' } : a,
                             ),
                           });
                         }}
@@ -923,8 +923,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       size="small"
                       label="Value"
                       value={ann.value}
-                      onChange={(e) => {
-                        const raw = e.target.value;
+                      onChange={(event) => {
+                        const raw = event.target.value;
                         const num = Number(raw);
                         controller.updateWidgetConfig(widgetId, {
                           annotations: (config.annotations ?? []).map((a) =>
@@ -938,10 +938,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       size="small"
                       label="Label"
                       value={ann.label ?? ''}
-                      onChange={(e) => {
+                      onChange={(event) => {
                         controller.updateWidgetConfig(widgetId, {
                           annotations: (config.annotations ?? []).map((a) =>
-                            a.id === ann.id ? { ...a, label: e.target.value } : a,
+                            a.id === ann.id ? { ...a, label: event.target.value } : a,
                           ),
                         });
                       }}

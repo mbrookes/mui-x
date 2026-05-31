@@ -116,8 +116,7 @@ export function StudioDataDrawer() {
                     {selectedSource.rows?.length ?? 0} rows ·{' '}
                     {selectedSource.fields.filter((f) => !f.hidden).length +
                       expressionFields.filter(
-                        (ef) =>
-                          ef.sourceId === selectedSource.id && !ef.hidden && !ef.isMeasure,
+                        (ef) => ef.sourceId === selectedSource.id && !ef.hidden && !ef.isMeasure,
                       ).length}{' '}
                     fields
                   </Typography>

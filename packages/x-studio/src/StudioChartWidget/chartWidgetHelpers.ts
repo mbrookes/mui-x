@@ -15,7 +15,6 @@ export function alignFilteredToAllLabels(
   return allLabels.map((l) => filteredByLabel.get(String(l)) ?? null);
 }
 
-// eslint-disable-next-line jsdoc/require-param
 /**
  * Wraps a base valueFormatter to show "filtered / total" when a cross-filter is active.
  * @param {((number | null)[]} filteredValues - Array of filtered values aligned to bar chart label indices.

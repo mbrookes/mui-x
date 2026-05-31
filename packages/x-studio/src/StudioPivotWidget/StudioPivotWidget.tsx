@@ -69,7 +69,6 @@ function buildPivotMatrix(
   rowField: string,
   colField: string,
   valueField: string | undefined,
-  aggFn: 'sum' | 'avg' | 'count' | 'min' | 'max',
 ): PivotMatrix {
   const rowSet = new Set<string>();
   const colSet = new Set<string>();
@@ -183,7 +182,6 @@ interface PivotTableProps {
   aggFn: 'sum' | 'avg' | 'count' | 'min' | 'max';
   showTotals: boolean;
   height: number;
-  valueFieldLabel?: string;
 }
 
 const fmt = (v: number | null) => {
@@ -257,12 +255,10 @@ function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProps) {
         <tbody>
           {matrix.rowValues.map((rv, ri) => {
             const rowCells = matrix.cells.get(rv);
-            const rowBg =
-              ri % 2 === 1
-                ? theme.palette.mode === 'dark'
-                  ? 'rgba(255,255,255,0.03)'
-                  : 'rgba(0,0,0,0.02)'
-                : theme.palette.background.paper;
+            let rowBg = theme.palette.background.paper;
+            if (ri % 2 === 1) {
+              rowBg = theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)';
+            }
             return (
               <tr key={rv}>
                 <td style={{ ...labelStyle, background: rowBg }}>{rv || '(blank)'}</td>
@@ -322,14 +318,8 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
     if (!pivotRowField || !pivotColField || filteredRows.length === 0) {
       return null;
     }
-    return buildPivotMatrix(
-      filteredRows,
-      pivotRowField,
-      pivotColField,
-      pivotValueField,
-      pivotAggregation,
-    );
-  }, [filteredRows, pivotRowField, pivotColField, pivotValueField, pivotAggregation]);
+    return buildPivotMatrix(filteredRows, pivotRowField, pivotColField, pivotValueField);
+  }, [filteredRows, pivotRowField, pivotColField, pivotValueField]);
 
   const handleExport = React.useCallback(() => {
     if (!matrix) {

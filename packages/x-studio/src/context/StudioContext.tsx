@@ -74,11 +74,6 @@ export function StudioProvider(props: StudioProviderProps) {
     geographies,
   } = props;
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const featureFlagsKey = JSON.stringify(featureFlags);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const localeTextKey = JSON.stringify(localeText);
-
   const uiConfig = React.useMemo(
     () => ({
       tableSourceMode,
@@ -90,9 +85,7 @@ export function StudioProvider(props: StudioProviderProps) {
       customWidgets,
       geographies,
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- featureFlagsKey/localeTextKey are JSON.stringify proxies for deep equality
-    [tableSourceMode, featureFlagsKey, localeTextKey, aiConfig, customWidgets, geographies],
+    [tableSourceMode, featureFlags, localeText, aiConfig, customWidgets, geographies],
   );
 
   return (

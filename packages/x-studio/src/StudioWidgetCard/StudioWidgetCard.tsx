@@ -429,7 +429,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       }
       // Force the grabbing cursor globally so it doesn't flicker to + or default
       // as the pointer moves over insertion points or other non-draggable areas.
+      // CSS alone cannot override the native HTML5 DnD cursor on macOS/Chrome,
+      // so we also set an inline style on <html> which has the highest cascade
+      // priority and suppresses the OS cursor on most modern browsers.
       document.body.classList.add('x-studio-dragging-widget');
+      document.documentElement.style.setProperty('cursor', 'grabbing', 'important');
       // Record which widget is being dragged so insertion points adjacent to it
       // can disable themselves during dragover (BL-112).
       document.body.dataset.studioDraggingWidgetId = widgetId;
@@ -437,6 +441,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     function handleDragEnd() {
       setIsDragging(false);
       document.body.classList.remove('x-studio-dragging-widget');
+      document.documentElement.style.removeProperty('cursor');
       delete document.body.dataset.studioDraggingWidgetId;
     }
     // Temporarily remove draggable when the pointer goes down inside a

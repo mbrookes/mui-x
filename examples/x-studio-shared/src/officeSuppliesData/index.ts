@@ -1,5 +1,5 @@
 import type { StudioDataSource } from '@mui/x-studio';
-import { loadRawOfficeSuppliesData } from 'x-studio-shared';
+import { loadRawOfficeSuppliesData } from '../loadRawOfficeSuppliesData.js';
 
 export const OS_STORES_SOURCE_ID = 'os-stores';
 export const OS_PRODUCTS_SOURCE_ID = 'os-products';

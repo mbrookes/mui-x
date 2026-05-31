@@ -31,11 +31,15 @@ import type {
   StudioState,
   SerializedStudioState,
 } from '@mui/x-studio';
-import { downloadJson, uploadJson } from 'x-studio-shared';
+import {
+  downloadJson,
+  uploadJson,
+  INITIAL_STATE,
+  OS_INITIAL_STATE,
+  generateSalesData,
+} from 'x-studio-shared';
+import type { OfficeSuppliesData } from 'x-studio-shared';
 import dayjs from 'dayjs';
-import { INITIAL_STATE } from './config/salesDashboard';
-import { OS_INITIAL_STATE } from './config/officeSuppliesDashboard';
-import type { OfficeSuppliesData } from './officeSuppliesData';
 import { AppToolbar } from './components/AppToolbar';
 import { ComposeDialog } from './components/ComposeDialog';
 import { DataDialog } from './components/DataDialog';
@@ -46,7 +50,6 @@ import { WidgetAiDialog } from './components/WidgetAiDialog';
 import { EmptyPagePrompt } from './components/EmptyPagePrompt';
 import { SettingsDialog } from './components/SettingsDialog';
 import { theme } from './theme';
-import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
 import { ukRegionsGeography } from './config/geographies/ukRegions';
 import { type SupportedLocale, LOCALE_BUNDLES } from './locales';
@@ -729,7 +732,9 @@ export default function App() {
     severity: 'success' | 'error' | 'info';
   }>({ open: false, message: '', severity: 'info' });
 
-  const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({ quickFilter: false });
+  const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({
+    quickFilter: false,
+  });
   const [locale, setLocale] = React.useState<SupportedLocale>('en');
   const localeBundle = LOCALE_BUNDLES[locale];
 

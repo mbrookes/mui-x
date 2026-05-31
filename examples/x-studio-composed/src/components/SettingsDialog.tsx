@@ -53,7 +53,9 @@ export function SettingsDialog(props: SettingsDialogProps) {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle>Settings</DialogTitle>
-      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 1 }}>
+      <DialogContent
+        sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 1, overflowY: 'auto' }}
+      >
         {/* Dataset — requires reload */}
         <FormControl>
           <FormLabel>Dataset</FormLabel>

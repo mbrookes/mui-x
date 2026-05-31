@@ -44,7 +44,10 @@ export interface AppToolbarProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
-  /** Called with the target pageId after a widget is held over a tab for 600ms (BL-107). */
+  /**
+   * Called with the target pageId after a widget is held over a tab for 600ms (BL-107).
+   * @param {string} pageId - The ID of the page to navigate to.
+   */
   onPageDragNavigate?: (pageId: string) => void;
 }
 
@@ -92,15 +95,21 @@ export function AppToolbar(props: AppToolbarProps) {
   React.useEffect(
     () => () => {
       dragCleanupRef.current?.();
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
     },
     [],
   );
 
   function getTabTransform(index: number): string {
-    if (!activeDrag) return 'none';
+    if (!activeDrag) {
+      return 'none';
+    }
     const { draggedIndex, targetIndex, tabWidth } = activeDrag;
-    if (index === draggedIndex) return 'none';
+    if (index === draggedIndex) {
+      return 'none';
+    }
     if (draggedIndex < targetIndex && index > draggedIndex && index <= targetIndex) {
       return `translateX(-${tabWidth}px)`;
     }
@@ -110,21 +119,27 @@ export function AppToolbar(props: AppToolbarProps) {
     return 'none';
   }
 
-  function handleTabPointerDown(e: React.PointerEvent, index: number) {
-    if (!showDragHandles) return;
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest('.MuiIconButton-root')) return;
+  function handleTabPointerDown(event: React.PointerEvent, index: number) {
+    if (!showDragHandles) {
+      return;
+    }
+    if (event.button !== 0) {
+      return;
+    }
+    if ((event.target as HTMLElement).closest('.MuiIconButton-root')) {
+      return;
+    }
 
     const tabEls = Array.from(tabsRef.current?.querySelectorAll<HTMLElement>('.MuiTab-root') ?? []);
     const tabRects = tabEls.map((t) => t.getBoundingClientRect());
     const tabBarRect = tabsRef.current?.getBoundingClientRect();
 
-    const startX = e.clientX;
+    const startX = event.clientX;
     const grabOffsetX = startX - (tabRects[index]?.left ?? 0);
     let currentTarget = index;
     let triggered = false;
-    const pointerId = e.pointerId;
-    const el = e.currentTarget as HTMLElement;
+    const pointerId = event.pointerId;
+    const el = event.currentTarget as HTMLElement;
     el.setPointerCapture(pointerId);
 
     function computeTarget(ghostLeft: number): number {
@@ -143,10 +158,14 @@ export function AppToolbar(props: AppToolbarProps) {
     }
 
     function onMove(me: PointerEvent) {
-      if (me.pointerId !== pointerId) return;
+      if (me.pointerId !== pointerId) {
+        return;
+      }
       const deltaX = me.clientX - startX;
       if (!triggered) {
-        if (Math.abs(deltaX) < 5) return;
+        if (Math.abs(deltaX) < 5) {
+          return;
+        }
         triggered = true;
         didDragRef.current = true;
         const ghostLeft = me.clientX - grabOffsetX;
@@ -161,7 +180,9 @@ export function AppToolbar(props: AppToolbarProps) {
       }
 
       const ghostLeft = me.clientX - grabOffsetX;
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
       rafRef.current = requestAnimationFrame(() => {
         if (ghostElRef.current) {
           ghostElRef.current.style.left = `${ghostLeft}px`;
@@ -176,7 +197,9 @@ export function AppToolbar(props: AppToolbarProps) {
     }
 
     function onUp(ue: PointerEvent) {
-      if (ue.pointerId !== pointerId) return;
+      if (ue.pointerId !== pointerId) {
+        return;
+      }
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onUp);
@@ -233,7 +256,9 @@ export function AppToolbar(props: AppToolbarProps) {
   }, [cancelDragNavTimer]);
 
   function handleTabWidgetDragEnter(event: React.DragEvent, pageId: string) {
-    if (!Array.from(event.dataTransfer.types).includes('application/json')) return;
+    if (!Array.from(event.dataTransfer.types).includes('application/json')) {
+      return;
+    }
     // If entering a different tab, cancel any in-flight timer for the previous tab
     if (dragNavPageIdRef.current !== pageId) {
       cancelDragNavTimer();
@@ -249,9 +274,13 @@ export function AppToolbar(props: AppToolbarProps) {
   }
 
   function handleTabWidgetDragLeave(event: React.DragEvent, pageId: string) {
-    if (!Array.from(event.dataTransfer.types).includes('application/json')) return;
+    if (!Array.from(event.dataTransfer.types).includes('application/json')) {
+      return;
+    }
     // Ignore stale leave events from previously hovered tabs
-    if (dragNavPageIdRef.current !== pageId) return;
+    if (dragNavPageIdRef.current !== pageId) {
+      return;
+    }
     dragNavCounterRef.current -= 1;
     if (dragNavCounterRef.current <= 0) {
       cancelDragNavTimer();
@@ -301,10 +330,10 @@ export function AppToolbar(props: AppToolbarProps) {
           scrollButtons="auto"
           allowScrollButtonsMobile
           sx={{ flexGrow: 1, minWidth: 0 }}
-          onClickCapture={(e) => {
+          onClickCapture={(event) => {
             if (didDragRef.current) {
-              e.stopPropagation();
-              e.preventDefault();
+              event.stopPropagation();
+              event.preventDefault();
               didDragRef.current = false;
             }
           }}
@@ -313,9 +342,11 @@ export function AppToolbar(props: AppToolbarProps) {
             <Tab
               key={page.id}
               value={page.id}
-              onPointerDown={showDragHandles ? (e) => handleTabPointerDown(e, index) : undefined}
-              onDragEnter={(e) => handleTabWidgetDragEnter(e, page.id)}
-              onDragLeave={(e) => handleTabWidgetDragLeave(e, page.id)}
+              onPointerDown={
+                showDragHandles ? (event) => handleTabPointerDown(event, index) : undefined
+              }
+              onDragEnter={(event) => handleTabWidgetDragEnter(event, page.id)}
+              onDragLeave={(event) => handleTabWidgetDragLeave(event, page.id)}
               sx={{
                 minHeight: 48,
                 opacity: activeDrag?.draggedIndex === index ? 0 : 1,
@@ -330,8 +361,8 @@ export function AppToolbar(props: AppToolbarProps) {
                     <IconButton
                       size="small"
                       aria-label={`Remove page ${page.title}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
+                      onClick={(event) => {
+                        event.stopPropagation();
                         setConfirmPageId(page.id);
                       }}
                       sx={{ p: 0.25, ml: 0.25 }}

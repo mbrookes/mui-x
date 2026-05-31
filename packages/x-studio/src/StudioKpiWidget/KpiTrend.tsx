@@ -38,8 +38,12 @@ export function KpiTrend(props: KpiTrendProps) {
 
     /** Resolve the semantic color token to an actual color string for alpha/border. */
     const getColor = (theme: Theme): string => {
-      if (trendFlat) return theme.palette.text.secondary;
-      if (isPositiveTrend) return theme.palette.success.main;
+      if (trendFlat) {
+        return theme.palette.text.secondary;
+      }
+      if (isPositiveTrend) {
+        return theme.palette.success.main;
+      }
       return theme.palette.error.main;
     };
     // Keep trendColor as a MUI token for sx color resolution on inner elements

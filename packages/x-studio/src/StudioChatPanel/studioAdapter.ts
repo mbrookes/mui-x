@@ -53,6 +53,8 @@ export interface StudioAIConfig {
   /**
    * Called when a tool execution throws an error.
    * Use this to log or surface errors without interrupting the chat stream.
+   * @param {string} toolName - The name of the tool that threw.
+   * @param {Error} error - The error thrown by the tool.
    */
   onToolError?: (toolName: string, error: Error) => void;
 }
@@ -73,6 +75,9 @@ export interface StudioAiTool {
    * Called when the model invokes this tool.
    * Return a result string to send back to the model, or `void`/`undefined`
    * to send a generic success response.
+   * @param {unknown} args - The parsed arguments object matching the tool's parameters schema.
+   * @param {StudioController} controller - The studio controller for reading/mutating dashboard state.
+   * @returns {Promise<string | void> | string | void} A result string or void.
    */
   execute: (args: unknown, controller: StudioController) => Promise<string | void> | string | void;
 }
@@ -749,6 +754,8 @@ export function createStudioChatAdapter(
                 let output: string;
                 try {
                   if (extraTool) {
+                    // Tools must execute sequentially — parallel execution would cause state conflicts.
+                    // eslint-disable-next-line no-await-in-loop
                     const result = await extraTool.execute(toolInput, controller);
                     output = result != null ? String(result) : JSON.stringify({ success: true });
                   } else {

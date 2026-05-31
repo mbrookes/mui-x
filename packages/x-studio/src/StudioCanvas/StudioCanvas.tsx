@@ -14,6 +14,7 @@ import { StudioWidgetCard } from '../StudioWidgetCard';
 import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../internals/widgetUtils';
 import type { StudioWidget } from '../models/widgetTypes';
+import type { StudioPage } from '../models/widgetTypes';
 import { StudioQuickFilterBar } from './StudioQuickFilterBar';
 import { StudioDateRangeBar } from './StudioDateRangeBar';
 
@@ -695,6 +696,11 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         });
       } else if (data?.type === 'canvas-widget' && data.widgetId) {
         const widgetId: string = data.widgetId;
+        const sourcePageId: string | undefined = data.sourcePageId;
+        const isCrossPage = sourcePageId != null && sourcePageId !== activePageId;
+
+        // Build the target page rows: start from currentRows (already the target page)
+        // and place the widget in the correct position.
         const rows = currentRows.map((r) => r.filter((id) => id !== widgetId));
         if (orientation === 'horizontal') {
           rows.splice(rowIndex, 0, [widgetId]);
@@ -732,9 +738,23 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         }
 
         const state = controller.getState();
+
+        // When dropping onto a different page, also remove the widget from the source page.
+        const sourcePageUpdate: Record<string, StudioPage> = {};
+        if (isCrossPage && sourcePageId && state.pages[sourcePageId]) {
+          const srcRows = (state.pages[sourcePageId].widgetRows ?? [])
+            .map((r) => r.filter((id) => id !== widgetId))
+            .filter((r) => r.length > 0);
+          sourcePageUpdate[sourcePageId] = {
+            ...state.pages[sourcePageId],
+            widgetRows: srcRows,
+          };
+        }
+
         controller.updateState({
           pages: {
             ...state.pages,
+            ...sourcePageUpdate,
             [activePageId]: {
               ...state.pages[activePageId],
               widgetRows: cleaned,

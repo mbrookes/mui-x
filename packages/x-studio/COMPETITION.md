@@ -1,0 +1,10 @@
+https://www.highcharts.com/products/dashboards
+https://www.revealbi.io/
+https://www.ag-grid.com/studio/react/
+https://www.qlik.com/us/products/qlik-cloud-analytics  
+https://www.qlik.com/us/products/qlik-answers
+https://embeddable.com/
+https://www.luzmo.com/products/embedded-analytics
+https://www.highcharts.com/products/orbit
+https://www.highcharts.com/blog/post/introducing-highcharts-orbit-a-full-analytics-layer-for-any-highchart/
+https://www.highcharts.com/products/dashboards/

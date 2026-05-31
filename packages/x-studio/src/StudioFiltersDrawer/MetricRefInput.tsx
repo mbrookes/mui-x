@@ -11,7 +11,7 @@ import {
   Typography,
 } from '@mui/material';
 import type { StudioMetricRef } from '../models';
-import { useStudioSelector, selectDataSources } from '../context';
+import { useStudioSelector, selectDataSources, useStudioLocaleText } from '../context';
 import { fieldsForCapability, fieldHasCapability } from '../utils/fieldCapabilities';
 
 interface MetricRefInputProps {
@@ -26,6 +26,7 @@ interface MetricRefInputProps {
 export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
   const dataSources = useStudioSelector(selectDataSources);
   const sourceList = Object.values(dataSources);
+  const localeText = useStudioLocaleText();
 
   const selectedSource = value?.sourceId ? dataSources[value.sourceId] : undefined;
 
@@ -82,7 +83,7 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
       <FormControl size="small" fullWidth>
         <InputLabel>Source</InputLabel>
         <Select
-          label="Source"
+          label={localeText.filterSourceLabel}
           value={value?.sourceId ?? ''}
           onChange={(event) => handleSourceChange(event.target.value)}
         >
@@ -105,7 +106,7 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
           renderInput={(params) => (
             <TextField
               {...params}
-              label="Metric row"
+              label={localeText.filterMetricRowLabel}
               helperText="Identifies the row in the business metrics table"
             />
           )}

@@ -32,6 +32,7 @@ import type {
   SerializedStudioState,
 } from '@mui/x-studio';
 import { downloadJson, uploadJson } from 'x-studio-shared';
+import dayjs from 'dayjs';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { OS_INITIAL_STATE } from './config/officeSuppliesDashboard';
 import type { OfficeSuppliesData } from './officeSuppliesData';
@@ -48,6 +49,7 @@ import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
 import { ukRegionsGeography } from './config/geographies/ukRegions';
+import { type SupportedLocale, LOCALE_BUNDLES } from './locales';
 
 // ── Custom geography registrations ────────────────────────────────────────────
 // This is where developers register additional map geographies beyond the
@@ -314,6 +316,8 @@ interface DashboardLayoutProps {
   onSnackbar: (message: string, severity: 'success' | 'error' | 'info') => void;
   featureFlags: StudioFeatureFlags;
   onFeatureFlagsChange: (flags: StudioFeatureFlags) => void;
+  locale: SupportedLocale;
+  onLocaleChange: (locale: SupportedLocale) => void;
 }
 
 /**
@@ -339,6 +343,8 @@ function DashboardLayout({
   onSnackbar,
   featureFlags,
   onFeatureFlagsChange,
+  locale,
+  onLocaleChange,
 }: DashboardLayoutProps) {
   const controller = useStudioController();
   const localStorageKeyRef = React.useRef(getLocalStorageKey(dataset));
@@ -608,6 +614,8 @@ function DashboardLayout({
         dataset={dataset}
         featureFlags={featureFlags}
         onFeatureFlagsChange={onFeatureFlagsChange}
+        locale={locale}
+        onLocaleChange={onLocaleChange}
       />
       {editWidgetId && (
         <StudioWidgetEditDialog
@@ -722,6 +730,13 @@ export default function App() {
   }>({ open: false, message: '', severity: 'info' });
 
   const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({});
+  const [locale, setLocale] = React.useState<SupportedLocale>('en');
+  const localeBundle = LOCALE_BUNDLES[locale];
+
+  // Keep dayjs locale in sync with the selected language
+  React.useEffect(() => {
+    dayjs.locale(localeBundle.dayjsLocale);
+  }, [localeBundle.dayjsLocale]);
 
   const handleSnackbar = React.useCallback(
     (message: string, severity: 'success' | 'error' | 'info') => {
@@ -736,13 +751,18 @@ export default function App() {
 
   return (
     <ThemeProvider theme={theme}>
-      <LocalizationProvider dateAdapter={AdapterDayjs}>
+      <LocalizationProvider
+        dateAdapter={AdapterDayjs}
+        adapterLocale={localeBundle.dayjsLocale}
+        localeText={localeBundle.pickersLocaleText}
+      >
         <CssBaseline />
         {/* StudioProvider makes the controller available to all descendants */}
         <StudioProvider
           controller={controller}
           featureFlags={featureFlags}
           geographies={CUSTOM_GEOGRAPHIES}
+          localeText={localeBundle.studioLocaleText}
         >
           <DashboardLayout
             adapterMode={adapterMode}
@@ -751,6 +771,8 @@ export default function App() {
             onSnackbar={handleSnackbar}
             featureFlags={featureFlags}
             onFeatureFlagsChange={setFeatureFlags}
+            locale={locale}
+            onLocaleChange={setLocale}
           />
         </StudioProvider>
         <Snackbar

@@ -12,7 +12,7 @@ import {
 } from '@mui/material';
 import { useStudioController, useStudioSelector, selectShell, selectDataSources } from '../context';
 import type { StudioNumberFormat } from '../models';
-import { TYPE_FORMAT_LABEL } from './StudioComposeDrawerLabels';
+import { useDataTypeLabels } from './StudioComposeDrawerLabels';
 
 const NUMBER_FORMAT_OPTIONS: { value: StudioNumberFormat; label: string }[] = [
   { value: 'integer', label: 'Integer' },
@@ -26,6 +26,7 @@ export function FieldDetailView() {
   const shell = useStudioSelector(selectShell);
   const dataSources = useStudioSelector(selectDataSources);
   const selectedFieldId = shell.selectedFieldId;
+  const dataTypeLabels = useDataTypeLabels();
   const source = shell.selectedSourceId ? dataSources[shell.selectedSourceId] : null;
   const field = source?.fields.find((f) => f.id === selectedFieldId) ?? null;
 
@@ -37,9 +38,9 @@ export function FieldDetailView() {
     { label: 'Source ID', value: `${source.id}.${field.id}` },
     { label: 'Name', value: field.label },
     { label: 'Description', value: field.description ?? field.label },
-    { label: 'Data Type', value: field.type.charAt(0).toUpperCase() + field.type.slice(1) },
+    { label: 'Data Type', value: dataTypeLabels[field.type] ?? field.type.charAt(0).toUpperCase() + field.type.slice(1) },
     { label: 'Calculation Type', value: 'No Calculation' },
-    { label: 'Format', value: TYPE_FORMAT_LABEL[field.type] ?? field.type },
+    { label: 'Format', value: dataTypeLabels[field.type] ?? field.type },
   ];
 
   return (

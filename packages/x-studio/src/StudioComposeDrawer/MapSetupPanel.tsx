@@ -10,13 +10,7 @@ import {
   Switch,
   Typography,
 } from '@mui/material';
-import {
-  useStudioController,
-  useStudioSelector,
-  selectWidgets,
-  selectDataSources,
-  selectExpressionFields,
-} from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectExpressionFields, useStudioLocaleText } from '../context';
 import { useStudioGeographies } from '../internals/StudioUIConfigContext';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
@@ -31,6 +25,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const allGeographies = useStudioGeographies();
+  const localeText = useStudioLocaleText();
   const widget = widgets[widgetId];
   const config = widget?.config ?? {};
 
@@ -227,11 +222,11 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           value={config.mapValueField ? aggFn : 'count'}
           onChange={(event) => update({ mapAggregation: event.target.value as typeof aggFn })}
         >
-          <MenuItem value="sum">Sum</MenuItem>
-          <MenuItem value="count">Count</MenuItem>
-          <MenuItem value="avg">Average</MenuItem>
-          <MenuItem value="min">Min</MenuItem>
-          <MenuItem value="max">Max</MenuItem>
+          <MenuItem value="sum">{localeText.aggFnSum}</MenuItem>
+          <MenuItem value="count">{localeText.aggFnCount}</MenuItem>
+          <MenuItem value="avg">{localeText.aggFnAverage}</MenuItem>
+          <MenuItem value="min">{localeText.aggFnMin}</MenuItem>
+          <MenuItem value="max">{localeText.aggFnMax}</MenuItem>
         </Select>
       </FormControl>
 
@@ -242,11 +237,11 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           value={colorScheme}
           onChange={(event) => update({ mapColorScheme: event.target.value as typeof colorScheme })}
         >
-          <MenuItem value="blues">Blues</MenuItem>
-          <MenuItem value="reds">Reds</MenuItem>
-          <MenuItem value="greens">Greens</MenuItem>
-          <MenuItem value="oranges">Oranges</MenuItem>
-          <MenuItem value="purples">Purples</MenuItem>
+          <MenuItem value="blues">{localeText.mapSetupColorBlues}</MenuItem>
+          <MenuItem value="reds">{localeText.mapSetupColorReds}</MenuItem>
+          <MenuItem value="greens">{localeText.mapSetupColorGreens}</MenuItem>
+          <MenuItem value="oranges">{localeText.mapSetupColorOranges}</MenuItem>
+          <MenuItem value="purples">{localeText.mapSetupColorPurples}</MenuItem>
         </Select>
       </FormControl>
 
@@ -259,11 +254,11 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
             update({ mapLegendPosition: event.target.value as typeof legendPosition })
           }
         >
-          <MenuItem value="bottom">Bottom</MenuItem>
-          <MenuItem value="top">Top</MenuItem>
-          <MenuItem value="left">Left</MenuItem>
-          <MenuItem value="right">Right</MenuItem>
-          <MenuItem value="hidden">Hidden</MenuItem>
+          <MenuItem value="bottom">{localeText.mapSetupLegendBottom}</MenuItem>
+          <MenuItem value="top">{localeText.mapSetupLegendTop}</MenuItem>
+          <MenuItem value="left">{localeText.mapSetupLegendLeft}</MenuItem>
+          <MenuItem value="right">{localeText.mapSetupLegendRight}</MenuItem>
+          <MenuItem value="hidden">{localeText.mapSetupLegendHidden}</MenuItem>
         </Select>
       </FormControl>
 

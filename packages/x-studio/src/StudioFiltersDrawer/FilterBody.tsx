@@ -26,6 +26,7 @@ import { FilterModeToggle } from './FilterModeToggle';
 import { FilterValueInput } from './FilterValueInput';
 import { SelectionFilterInput } from './SelectionFilterInput';
 import { RankFilterInput } from './RankFilterInput';
+import { useStudioLocaleText } from '../context';
 
 interface SecondConditionProps {
   filter: StudioFilterState;
@@ -38,6 +39,7 @@ interface SecondConditionProps {
 
 function SecondCondition(props: SecondConditionProps) {
   const { filter, operators, activeOperator2, fieldType, fieldValues, onChange } = props;
+  const localeText = useStudioLocaleText();
 
   if (!filter.operator2) {
     return (
@@ -71,18 +73,18 @@ function SecondCondition(props: SecondConditionProps) {
             <FormControlLabel
               value="and"
               control={<Radio size="small" sx={{ p: 0.5 }} />}
-              label="AND"
+              label={localeText.filterConditionAnd}
               sx={{ '& .MuiFormControlLabel-label': { fontSize: 12, fontWeight: 600 } }}
             />
             <FormControlLabel
               value="or"
               control={<Radio size="small" sx={{ p: 0.5 }} />}
-              label="OR"
+              label={localeText.filterConditionOr}
               sx={{ '& .MuiFormControlLabel-label': { fontSize: 12, fontWeight: 600 } }}
             />
           </RadioGroup>
         </Box>
-        <Tooltip title="Remove second condition">
+        <Tooltip title={localeText.filterRemoveSecondCondition}>
           <IconButton
             size="small"
             onClick={() =>
@@ -96,7 +98,7 @@ function SecondCondition(props: SecondConditionProps) {
       <FormControl size="small">
         <InputLabel>Operator</InputLabel>
         <Select
-          label="Operator"
+          label={localeText.filterOperatorLabel}
           value={activeOperator2}
           onChange={(event) => onChange({ operator2: event.target.value as StudioFilterOperator })}
         >
@@ -166,6 +168,7 @@ export function FilterBody({
   onChange,
   disableRankMode = false,
 }: FilterBodyProps) {
+  const localeText = useStudioLocaleText();
   const mode: FilterMode = filter.filterMode ?? 'condition';
   // react-doctor-disable-next-line react-doctor/server-dedup-props -- value is a filtered subset of options; intentional Autocomplete controlled pattern
   const selectedDependencies = React.useMemo(
@@ -181,7 +184,7 @@ export function FilterBody({
           <FormControl size="small">
             <InputLabel>Operator</InputLabel>
             <Select
-              label="Operator"
+              label={localeText.filterOperatorLabel}
               value={activeOperator}
               onChange={(event) =>
                 onChange({ operator: event.target.value as StudioFilterOperator })

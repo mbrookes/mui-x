@@ -17,18 +17,47 @@ Tokens you do not provide fall back to the English defaults.
 
 ## Built-in translations
 
-Studio ships with a Brazilian Portuguese translation out of the box:
+Studio ships with the following built-in translations:
+
+| Import name | Locale  | Language             |
+| :---------- | :------ | :------------------- |
+| `enUS`      | `en-US` | English (default)    |
+| `ptBR`      | `pt-BR` | Brazilian Portuguese |
+
+### `localeText` prop
+
+Pass a locale's `localeText` directly to the component:
 
 ```tsx
-import { Studio } from '@mui/x-studio';
-import { ptBRLocaleText } from '@mui/x-studio';
+import { Studio, ptBRLocaleText } from '@mui/x-studio';
 
 <Studio localeText={ptBRLocaleText} initialState={myState} />;
 ```
 
-| Import name      | Language                     |
-| :--------------- | :--------------------------- |
-| `ptBRLocaleText` | Brazilian Portuguese (pt-BR) |
+### Theme-level locale
+
+Use `getStudioLocalization()` with MUI's `createTheme()` to apply a locale to your entire theme, consistent with other MUI X packages:
+
+```tsx
+import { createTheme, ThemeProvider } from '@mui/material/styles';
+import { ptBR } from '@mui/x-studio';
+
+const theme = createTheme(ptBR);
+
+<ThemeProvider theme={theme}>
+  <Studio initialState={myState} />
+</ThemeProvider>;
+```
+
+You can combine multiple MUI X locales in a single `createTheme()` call:
+
+```tsx
+import { createTheme, ThemeProvider } from '@mui/material/styles';
+import { ptBR as datePtBR } from '@mui/x-date-pickers/locales';
+import { ptBR as studioPtBR } from '@mui/x-studio';
+
+const theme = createTheme(studioPtBR, datePtBR);
+```
 
 ## Partial override
 
@@ -85,13 +114,14 @@ Defaults are the English strings shown in the right column.
 
 ### Widget states
 
-| Token                      | Default                                                           |
-| :------------------------- | :---------------------------------------------------------------- |
-| `widgetConfigureChartHint` | `'Use the Setup tab to configure this chart.'`                    |
-| `widgetConfigureGaugeHint` | `'Use the Setup tab to choose a gauge value field.'`              |
-| `widgetConfigurePivotHint` | `'Use the Setup tab to configure row, column, and value fields.'` |
-| `widgetNoData`             | `'No data to display.'`                                           |
-| `widgetLoadError`          | `'Failed to load data'`                                           |
+| Token                      | Default                                                            |
+| :------------------------- | :----------------------------------------------------------------- |
+| `widgetConfigureChartHint` | `'Use the Setup tab to configure this chart.'`                     |
+| `widgetConfigureGaugeHint` | `'Use the Setup tab to choose a gauge value field.'`               |
+| `widgetConfigurePivotHint` | `'Use the Setup tab to configure row, column, and value fields.'`  |
+| `widgetConfigureMapHint`   | `'Use the Setup tab to choose a country field and a value field.'` |
+| `widgetNoData`             | `'No data to display.'`                                            |
+| `widgetLoadError`          | `'Failed to load data'`                                            |
 
 ### Quick filter bar
 
@@ -99,16 +129,34 @@ Defaults are the English strings shown in the right column.
 | :-------------------------- | :------------------------- |
 | `quickFilterBarOpenFilters` | `'Open filters panel'`     |
 | `quickFilterBarClearAll`    | `'Clear all page filters'` |
+| `quickFilterBarFiltered`    | `'Filtered'`               |
 
 ### Widget card actions
 
-| Token                    | Default           |
-| :----------------------- | :---------------- |
-| `widgetEditTooltip`      | `'Edit widget'`   |
-| `widgetExportCsvTooltip` | `'Export as CSV'` |
-| `widgetExportPngTooltip` | `'Export as PNG'` |
-| `widgetExpandTooltip`    | `'Expand chart'`  |
-| `widgetMoveToPageLabel`  | `'Move to page'`  |
+| Token                         | Default               |
+| :---------------------------- | :-------------------- |
+| `widgetEditTooltip`           | `'Edit widget'`       |
+| `widgetExportCsvTooltip`      | `'Export as CSV'`     |
+| `widgetExportPngTooltip`      | `'Export as PNG'`     |
+| `widgetExpandTooltip`         | `'Expand chart'`      |
+| `widgetMoveToPageLabel`       | `'Move to page'`      |
+| `widgetDuplicateTooltip`      | `'Duplicate widget'`  |
+| `widgetDeleteTooltip`         | `'Delete widget'`     |
+| `widgetAiAssistantTooltip`    | `'AI assistant'`      |
+| `widgetAiInsightTooltip`      | `'AI insight'`        |
+| `widgetDetectAnomalyTooltip`  | `'Detect anomalies'`  |
+| `widgetHideAnomalyTooltip`    | `'Hide anomalies'`    |
+| `widgetExplainAnomalyTooltip` | `'Explain anomalies'` |
+
+### Widget edit dialog
+
+| Token                            | Default                                               |
+| :------------------------------- | :---------------------------------------------------- |
+| `widgetEditDialogTabSetup`       | `'Setup'`                                             |
+| `widgetEditDialogTabFilters`     | `'Filters'`                                           |
+| `widgetEditDialogTabFormat`      | `'Format'`                                            |
+| `widgetEditDialogCloseAriaLabel` | `'Close edit dialog'`                                 |
+| `widgetUntitledLabel`            | `(kindLabel: string) => string`                       |
 
 ### AI assistant
 
@@ -116,6 +164,305 @@ Defaults are the English strings shown in the right column.
 | :------------------------ | :--------------------- |
 | `aiAssistantOpenTooltip`  | `'Open AI assistant'`  |
 | `aiAssistantCloseTooltip` | `'Close AI assistant'` |
+
+### Natural language widget creation
+
+| Token                       | Default                                        |
+| :-------------------------- | :--------------------------------------------- |
+| `aiCreateWidgetLabel`       | `'Describe a widget'`                          |
+| `aiCreateWidgetPlaceholder` | `'e.g. Bar chart showing revenue by country…'` |
+| `aiCreateWidgetButton`      | `'Create'`                                     |
+| `aiCreateWidgetLoading`     | `'Creating…'`                                  |
+| `aiCreateWidgetError`       | `'Failed to create widget'`                    |
+
+### AI dashboard summary panel
+
+| Token                 | Default                 |
+| :-------------------- | :---------------------- |
+| `aiSummaryTitle`      | `'Dashboard Summary'`   |
+| `aiSummarizeTooltip`  | `'Summarise dashboard'` |
+| `aiRegenerateTooltip` | `'Regenerate'`          |
+| `aiCopyTooltip`       | `'Copy'`                |
+| `aiCopiedTooltip`     | `'Copied!'`             |
+| `aiCloseTooltip`      | `'Close'`               |
+
+### Widget type names
+
+| Token              | Default         |
+| :----------------- | :-------------- |
+| `widgetKindGrid`   | `'Table'`       |
+| `widgetKindChart`  | `'Chart'`       |
+| `widgetKindKpi`    | `'KPI'`         |
+| `widgetKindText`   | `'Text'`        |
+| `widgetKindFilter` | `'Filter'`      |
+| `widgetKindPivot`  | `'Pivot Table'` |
+| `widgetKindMap`    | `'Map'`         |
+
+### Data type labels
+
+| Token              | Default         |
+| :----------------- | :-------------- |
+| `dataTypeString`   | `'Text'`        |
+| `dataTypeNumber`   | `'Number'`      |
+| `dataTypeBoolean`  | `'Boolean'`     |
+| `dataTypeDate`     | `'Date'`        |
+| `dataTypeDatetime` | `'Date & Time'` |
+
+### Compose drawer / widget picker
+
+| Token                               | Default                                                             |
+| :---------------------------------- | :------------------------------------------------------------------ |
+| `composeDrawerTabSetup`             | `'Setup'`                                                           |
+| `composeChooseWidgetType`           | `'Choose a widget type'`                                            |
+| `composeNoDataSources`              | `'No data sources available yet. Only text widgets can be added.'`  |
+| `composeOnThisPage`                 | `'On this page'`                                                    |
+| `composeAddWidgetLabel`             | `(widgetTypeLabel: string) => string`                               |
+| `composeCloseAriaLabel`             | `'Close'`                                                           |
+| `composeBackToWidgetTypesAriaLabel` | `'Back to widget types'`                                            |
+| `composeCancel`                     | `'Cancel'`                                                          |
+
+### Format panel
+
+| Token                 | Default                              |
+| :-------------------- | :----------------------------------- |
+| `formatAutoTitle`     | `'Auto-generated title'`             |
+| `formatResetTitle`    | `'Reset to auto-generated title'`    |
+| `formatAutoSubtitle`  | `'Auto-generated subtitle'`          |
+| `formatResetSubtitle` | `'Reset to auto-generated subtitle'` |
+
+### Data drawer
+
+| Token                      | Default                                                                           |
+| :------------------------- | :-------------------------------------------------------------------------------- |
+| `dataDrawerNoSources`      | `'No data sources configured. Add a widget from the canvas to load sample data.'` |
+| `dataDrawerViewLineage`    | `'View data lineage'`                                                             |
+| `dataDrawerLineageTitle`   | `'Data lineage'`                                                                  |
+| `dataDrawerLineageHelper`  | `'Click a node to preview its data. Click an edge to inspect join key fields.'`   |
+| `dataDrawerRowsLabel`      | `'rows'`                                                                          |
+| `dataDrawerFieldsLabel`    | `'fields'`                                                                        |
+| `dataDrawerBackAriaLabel`  | `'Back to lineage graph'`                                                         |
+| `dataDrawerCloseAriaLabel` | `'Close data lineage'`                                                            |
+| `dataDrawerEditTooltip`    | `'Edit'`                                                                          |
+| `dataDrawerDeleteTooltip`  | `'Delete'`                                                                        |
+
+### Relationship management
+
+| Token                        | Default          |
+| :--------------------------- | :--------------- |
+| `relationshipEditTooltip`    | `'Edit'`         |
+| `relationshipRemoveTooltip`  | `'Remove'`       |
+| `relationshipCancel`         | `'Cancel'`       |
+| `relationshipTypeManyToOne`  | `'Many-to-one'`  |
+| `relationshipTypeOneToOne`   | `'One-to-one'`   |
+| `relationshipTypeManyToMany` | `'Many-to-many'` |
+
+### Filter conditions and values
+
+| Token                           | Default                      |
+| :------------------------------ | :--------------------------- |
+| `filterConditionAnd`            | `'AND'`                      |
+| `filterConditionOr`             | `'OR'`                       |
+| `filterOperatorLabel`           | `'Operator'`                 |
+| `filterRemoveSecondCondition`   | `'Remove second condition'`  |
+| `filterAbsoluteDate`            | `'Absolute date'`            |
+| `filterRelativeDate`            | `'Relative date'`            |
+| `filterLinkToField`             | `'Link to field'`            |
+| `filterRemoveFieldLink`         | `'Remove field link'`        |
+| `filterBooleanTrue`             | `'True'`                     |
+| `filterBooleanFalse`            | `'False'`                    |
+| `filterRemoveAriaLabel`         | `'Remove filter'`            |
+| `filterInteractiveSectionTitle` | `'Interactive filters'`      |
+| `filterCrossSectionTitle`       | `'Cross-filters'`            |
+| `filterClearFilter`             | `'Clear filter'`             |
+| `filterClearAllCrossFilters`    | `'Clear all cross-filters'`  |
+| `filterRemoveCrossFilter`       | `'Remove cross-filter'`      |
+| `filterSearchValues`            | `'Search values…'`           |
+| `filterSelectField`             | `'Select a field…'`          |
+| `filterValueLabel`              | `'Value'`                    |
+| `filterValueHelper`             | `'Value to compare against'` |
+| `filterSelectParent`            | `'Select parent filter…'`    |
+| `filterSourceLabel`             | `'Source'`                   |
+| `filterMetricRowLabel`          | `'Metric row'`               |
+| `filterFieldLabel`              | `'Field'`                    |
+| `filterRankByLabel`             | `'Rank by'`                  |
+
+### Expression field dialog
+
+| Token                    | Default          |
+| :----------------------- | :--------------- |
+| `exprNodeTypeField`      | `'Field'`        |
+| `exprNodeTypeLiteral`    | `'Literal'`      |
+| `exprNodeTypeFunction`   | `'Function'`     |
+| `exprDataTypeNumber`     | `'Number'`       |
+| `exprDataTypeText`       | `'Text'`         |
+| `exprDataTypeBoolean`    | `'Boolean'`      |
+| `exprBooleanTrue`        | `'True'`         |
+| `exprBooleanFalse`       | `'False'`        |
+| `exprExpandTooltip`      | `'Expand'`       |
+| `exprCollapseTooltip`    | `'Collapse'`     |
+| `exprRemoveInputTooltip` | `'Remove input'` |
+| `exprCancel`             | `'Cancel'`       |
+| `exprSave`               | `'Save'`         |
+| `exprAddField`           | `'Add Field'`    |
+
+### Aggregation functions
+
+| Token            | Default          |
+| :--------------- | :--------------- |
+| `aggFnSum`       | `'Sum'`          |
+| `aggFnCount`     | `'Count'`        |
+| `aggFnCountRows` | `'Count (rows)'` |
+| `aggFnAverage`   | `'Average'`      |
+| `aggFnMin`       | `'Min'`          |
+| `aggFnMax`       | `'Max'`          |
+
+### Time granularity
+
+| Token             | Default               |
+| :---------------- | :-------------------- |
+| `timeGranNone`    | `'None (raw values)'` |
+| `timeGranDay`     | `'Day'`               |
+| `timeGranWeek`    | `'Week'`              |
+| `timeGranMonth`   | `'Month'`             |
+| `timeGranQuarter` | `'Quarter'`           |
+| `timeGranYear`    | `'Year'`              |
+
+### Sort direction
+
+| Token                     | Default        |
+| :------------------------ | :------------- |
+| `sortAscendingAriaLabel`  | `'Ascending'`  |
+| `sortDescendingAriaLabel` | `'Descending'` |
+
+### Chart setup panel
+
+| Token                               | Default                                         |
+| :---------------------------------- | :---------------------------------------------- |
+| `chartSetupValueFieldLabel`         | `'Value field'`                                 |
+| `chartSetupAggregationLabel`        | `'Aggregation'`                                 |
+| `chartSetupMinLabel`                | `'Min'`                                         |
+| `chartSetupMaxLabel`                | `'Max'`                                         |
+| `chartSetupGroupByLabel`            | `'Group by'`                                    |
+| `chartSetupSortByLabel`             | `'Sort by'`                                     |
+| `chartSetupSortCategory`            | `'Category'`                                    |
+| `chartSetupSortValue`               | `'Value'`                                       |
+| `chartSetupSortNone`                | `'None'`                                        |
+| `chartSetupSortPercent`             | `'Percent'`                                     |
+| `chartSetupAnnotationsTitle`        | `'Annotations'`                                 |
+| `chartSetupInteractionsTitle`       | `'Interactions'`                                |
+| `chartSetupInteractionsDescription` | `'When other widgets are clicked, this chart…'` |
+| `chartSetupAddSeries`               | `'Add series'`                                  |
+| `chartSetupNoMoreFields`            | `'No more fields to add'`                       |
+| `chartSetupRemoveSeries`            | `'Remove series'`                               |
+| `chartSetupAddReferenceLine`        | `'Add reference line'`                          |
+| `chartSetupRemoveAnnotation`        | `'Remove annotation'`                           |
+| `chartSetupNoReferenceLines`        | `'No reference lines. Click + to add one.'`     |
+| `chartSetupDualYAxis`               | `'Dual Y axis (line series on right axis)'`     |
+
+### KPI setup panel
+
+| Token                             | Default                                                              |
+| :-------------------------------- | :------------------------------------------------------------------- |
+| `kpiSetupChartLine`               | `'Line'`                                                             |
+| `kpiSetupChartBar`                | `'Bar'`                                                              |
+| `kpiSetupChartGauge`              | `'Gauge'`                                                            |
+| `kpiSetupCompPrevPeriod`          | `'Previous period (matching duration)'`                              |
+| `kpiSetupCompPrevCalendarPeriod`  | `'Previous calendar period'`                                         |
+| `kpiSetupCompSameLastYear`        | `'Same period last year'`                                            |
+| `kpiSetupInteractionsTitle`       | `'Interactions'`                                                     |
+| `kpiSetupInteractionsDescription` | `'When other widgets are clicked, this KPI…'`                        |
+| `kpiGrandTotalTooltip`            | `'Grand total — active filter widgets are not applied to this KPI…'` |
+
+### Grid setup panel
+
+| Token                                 | Default                                                          |
+| :------------------------------------ | :--------------------------------------------------------------- |
+| `gridSetupDataSourceLabel`            | `'Data source'`                                                  |
+| `gridSetupAllColumnsAdded`            | `'All available columns added'`                                  |
+| `gridSetupCrossFilterFieldLabel`      | `'Cross-filter field'`                                           |
+| `gridSetupCrossFilterFieldHelper`     | `'Field applied to other widgets when a row is selected…'`       |
+| `gridSetupGroupByLabel`               | `'Group by'`                                                     |
+| `gridSetupGroupByHelper`              | `'Collapse rows into groups — set per-column aggregation below'` |
+| `gridSetupDefaultSortLabel`           | `'Default sort'`                                                 |
+| `gridSetupConditionalFormattingTitle` | `'Conditional formatting'`                                       |
+| `gridSetupConditionalCustom`          | `'Custom'`                                                       |
+| `gridSetupRemoveRuleAriaLabel`        | `'Remove rule'`                                                  |
+| `gridSetupInteractionsTitle`          | `'Interactions'`                                                 |
+| `gridSetupInteractionsDescription`    | `'When other widgets are clicked, this table…'`                  |
+
+### Map setup panel
+
+| Token                  | Default     |
+| :--------------------- | :---------- |
+| `mapSetupColorBlues`   | `'Blues'`   |
+| `mapSetupColorReds`    | `'Reds'`    |
+| `mapSetupColorGreens`  | `'Greens'`  |
+| `mapSetupColorOranges` | `'Oranges'` |
+| `mapSetupColorPurples` | `'Purples'` |
+| `mapSetupLegendBottom` | `'Bottom'`  |
+| `mapSetupLegendTop`    | `'Top'`     |
+| `mapSetupLegendLeft`   | `'Left'`    |
+| `mapSetupLegendRight`  | `'Right'`   |
+| `mapSetupLegendHidden` | `'Hidden'`  |
+
+### Pivot setup panel
+
+| Token                        | Default                                                                                |
+| :--------------------------- | :------------------------------------------------------------------------------------- |
+| `pivotSetupDescription`      | `'Build a cross-tabulation by choosing a row field, column field, and value measure.'` |
+| `pivotSetupRowFieldLabel`    | `'Row field'`                                                                          |
+| `pivotSetupRowFieldHelper`   | `'Categorical field shown as row groups on the left'`                                  |
+| `pivotSetupColFieldLabel`    | `'Column field'`                                                                       |
+| `pivotSetupColFieldHelper`   | `'Categorical field spread across column headers'`                                     |
+| `pivotSetupValueFieldLabel`  | `'Value field'`                                                                        |
+| `pivotSetupValueFieldHelper` | `'Numeric field aggregated into each cell'`                                            |
+| `pivotSetupShowTotals`       | `'Show totals row and column'`                                                         |
+
+### Filter setup panel
+
+| Token                               | Default                                             |
+| :---------------------------------- | :-------------------------------------------------- |
+| `filterSetupControlTypeLabel`       | `'Control type'`                                    |
+| `filterSetupMultiSelect`            | `'Multi-select'`                                    |
+| `filterSetupMultiSelectDescription` | `'Dropdown with checkboxes for categorical values'` |
+| `filterSetupToggleChips`            | `'Toggle chips'`                                    |
+| `filterSetupToggleChipsDescription` | `'Inline chip buttons for categorical values'`      |
+| `filterSetupDateRange`              | `'Date range'`                                      |
+| `filterSetupDateRangeDescription`   | `'From / to date pickers'`                          |
+| `filterSetupSlider`                 | `'Slider'`                                          |
+| `filterSetupSliderDescription`      | `'Range slider for numeric or date fields'`         |
+| `filterSetupMinLabel`               | `'Min'`                                             |
+| `filterSetupMaxLabel`               | `'Max'`                                             |
+| `filterSetupStepLabel`              | `'Step'`                                            |
+| `filterSetupSelectFieldAlert`       | `'Select a field to configure the filter control.'` |
+
+### Text setup panel
+
+| Token                     | Default                                             |
+| :------------------------ | :-------------------------------------------------- |
+| `textSetupTitleLabel`     | `'Title'`                                           |
+| `textSetupTitleHelper`    | `'Heading displayed at the top of the widget'`      |
+| `textSetupSubtitleLabel`  | `'Subtitle'`                                        |
+| `textSetupSubtitleHelper` | `'Smaller text below the heading'`                  |
+| `textSetupBodyLabel`      | `'Body'`                                            |
+| `textSetupBodyHelper`     | `'Main content of the widget; supports plain text'` |
+
+### Page config panel
+
+| Token                                   | Default                |
+| :-------------------------------------- | :--------------------- |
+| `pageConfigPageSectionTitle`            | `'Page'`               |
+| `pageConfigCardsSectionTitle`           | `'Cards'`              |
+| `pageConfigBackgroundColourLabel`       | `'Background colour'`  |
+| `pageConfigBackgroundColourPlaceholder` | `'e.g. #f5f5f5'`       |
+| `pageConfigCardBackgroundLabel`         | `'Card background'`    |
+| `pageConfigCardBackgroundPlaceholder`   | `'e.g. #ffffff'`       |
+| `pageConfigPaddingLabel`                | `'Padding'`            |
+| `pageConfigCornerRadiusLabel`           | `'Corner radius (px)'` |
+| `pageConfigCardBorderLabel`             | `'Card border'`        |
+| `pageConfigBorderColourLabel`           | `'Border colour'`      |
+| `pageConfigBorderColourPlaceholder`     | `'e.g. #e0e0e0'`       |
+| `pageConfigBorderWidthLabel`            | `'Border width (px)'`  |
 
 ## Adding a custom translation
 

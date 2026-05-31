@@ -21,16 +21,11 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
-import { useStudioController } from '../context';
+import { useStudioController, useStudioLocaleText } from '../context';
 import type { StudioDataSource, StudioRelationship } from '../models';
 
 // ─── Relationship editor ──────────────────────────────────────────────────────
 
-const RELATIONSHIP_TYPE_LABELS: Record<string, string> = {
-  'many-to-one': 'Many-to-one',
-  'one-to-one': 'One-to-one',
-  'many-to-many': 'Many-to-many',
-};
 
 function generateRelId() {
   return `rel-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -68,6 +63,12 @@ function RelationshipDialog(props: {
   dataSources: Record<string, StudioDataSource>;
 }) {
   const { open, onClose, onSave, initial, dataSources } = props;
+  const localeText = useStudioLocaleText();
+  const relationshipTypeLabels = {
+    'many-to-one': localeText.relationshipTypeManyToOne,
+    'one-to-one': localeText.relationshipTypeOneToOne,
+    'many-to-many': localeText.relationshipTypeManyToMany,
+  };
   const [form, setForm] = React.useState<RelationshipFormState>(initial ?? emptyRelForm());
 
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change, react-doctor/no-derived-state-effect -- form is intentionally buffered locally and synced when dialog re-opens or initial value changes
@@ -105,9 +106,9 @@ function RelationshipDialog(props: {
               value={form.type}
               onChange={(event) => field('type')(event.target.value)}
             >
-              <MenuItem value="many-to-one">Many-to-one</MenuItem>
-              <MenuItem value="one-to-one">One-to-one</MenuItem>
-              <MenuItem value="many-to-many">Many-to-many</MenuItem>
+              <MenuItem value="many-to-one">{localeText.relationshipTypeManyToOne}</MenuItem>
+              <MenuItem value="one-to-one">{localeText.relationshipTypeOneToOne}</MenuItem>
+              <MenuItem value="many-to-many">{localeText.relationshipTypeManyToMany}</MenuItem>
             </Select>
           </FormControl>
 
@@ -267,6 +268,12 @@ export function RelationshipPanel(props: {
 }) {
   const { relationships, dataSources } = props;
   const controller = useStudioController();
+  const localeText = useStudioLocaleText();
+  const relationshipTypeLabels = {
+    'many-to-one': localeText.relationshipTypeManyToOne,
+    'one-to-one': localeText.relationshipTypeOneToOne,
+    'many-to-many': localeText.relationshipTypeManyToMany,
+  };
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingRel, setEditingRel] = React.useState<
     { id: string; form: RelationshipFormState } | undefined
@@ -360,7 +367,7 @@ export function RelationshipPanel(props: {
           const jctLabel = rel.junctionSourceId
             ? (dataSources[rel.junctionSourceId]?.label ?? rel.junctionSourceId)
             : null;
-          const typeLabel = RELATIONSHIP_TYPE_LABELS[rel.type] ?? rel.type;
+          const typeLabel = relationshipTypeLabels[rel.type] ?? rel.type;
           return (
             <Stack
               key={rel.id}
@@ -389,7 +396,7 @@ export function RelationshipPanel(props: {
                   )}
                 </Stack>
               </Box>
-              <Tooltip title="Edit">
+              <Tooltip title={localeText.relationshipEditTooltip}>
                 <IconButton
                   size="small"
                   sx={{ flexShrink: 0, p: '2px' }}
@@ -398,7 +405,7 @@ export function RelationshipPanel(props: {
                   <EditIcon sx={{ fontSize: 14 }} />
                 </IconButton>
               </Tooltip>
-              <Tooltip title="Remove">
+              <Tooltip title={localeText.relationshipRemoveTooltip}>
                 <IconButton
                   size="small"
                   sx={{ flexShrink: 0, p: '2px' }}

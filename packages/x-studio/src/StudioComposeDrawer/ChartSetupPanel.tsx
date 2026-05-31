@@ -21,14 +21,7 @@ import {
   Typography,
 } from '@mui/material';
 import FunctionsIcon from '@mui/icons-material/Functions';
-import {
-  useStudioController,
-  useStudioSelector,
-  selectWidgets,
-  selectDataSources,
-  selectExpressionFields,
-  selectRelationships,
-} from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectExpressionFields, selectRelationships, useStudioLocaleText } from '../context';
 import { useStudioFeatures } from '../internals/StudioUIConfigContext';
 import { fieldsForCapability } from '../utils/fieldCapabilities';
 import {
@@ -58,6 +51,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const features = useStudioFeatures();
+  const localeText = useStudioLocaleText();
   const allWidgets = useStudioSelector(selectWidgets);
   const widget = allWidgets[widgetId];
   const dataSources = useStudioSelector(selectDataSources);
@@ -348,14 +342,14 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 }
               }}
               fields={fieldsForCapability(allFields, 'numeric')}
-              label="Value field"
+              label={localeText.chartSetupValueFieldLabel}
               helperText="Numeric field to aggregate"
             />
 
             <FormControl size="small" fullWidth>
-              <InputLabel>Aggregation</InputLabel>
+              <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>
               <Select
-                label="Aggregation"
+                label={localeText.chartSetupAggregationLabel}
                 value={config.yAggregation ?? 'sum'}
                 onChange={(evt) =>
                   controller.updateWidgetConfig(widgetId, {
@@ -363,18 +357,18 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   })
                 }
               >
-                <MenuItem value="sum">Sum</MenuItem>
-                <MenuItem value="count">Count</MenuItem>
-                <MenuItem value="avg">Average</MenuItem>
-                <MenuItem value="min">Min</MenuItem>
-                <MenuItem value="max">Max</MenuItem>
+                <MenuItem value="sum">{localeText.aggFnSum}</MenuItem>
+                <MenuItem value="count">{localeText.aggFnCount}</MenuItem>
+                <MenuItem value="avg">{localeText.aggFnAverage}</MenuItem>
+                <MenuItem value="min">{localeText.aggFnMin}</MenuItem>
+                <MenuItem value="max">{localeText.aggFnMax}</MenuItem>
               </Select>
             </FormControl>
 
             <Stack direction="row" spacing={1}>
               <TextField
                 size="small"
-                label="Min"
+                label={localeText.chartSetupMinLabel}
                 type="number"
                 value={config.gaugeMin ?? 0}
                 onChange={(evt) =>
@@ -384,7 +378,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               />
               <TextField
                 size="small"
-                label="Max"
+                label={localeText.chartSetupMaxLabel}
                 type="number"
                 value={config.gaugeMax ?? 100}
                 onChange={(evt) =>
@@ -422,9 +416,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             {/* Group by — shown only when x field is a date/datetime type */}
             {(selectedXField?.type === 'date' || selectedXField?.type === 'datetime') && (
               <FormControl size="small" fullWidth>
-                <InputLabel>Group by</InputLabel>
+                <InputLabel>{localeText.chartSetupGroupByLabel}</InputLabel>
                 <Select
-                  label="Group by"
+                  label={localeText.chartSetupGroupByLabel}
                   value={config.xGroupBy ?? ''}
                   onChange={(evt) => {
                     const val = evt.target.value as string;
@@ -435,12 +429,12 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     });
                   }}
                 >
-                  <MenuItem value="">None (raw values)</MenuItem>
-                  <MenuItem value="day">Day</MenuItem>
-                  <MenuItem value="week">Week</MenuItem>
-                  <MenuItem value="month">Month</MenuItem>
-                  <MenuItem value="quarter">Quarter</MenuItem>
-                  <MenuItem value="year">Year</MenuItem>
+                  <MenuItem value="">{localeText.timeGranNone}</MenuItem>
+                  <MenuItem value="day">{localeText.timeGranDay}</MenuItem>
+                  <MenuItem value="week">{localeText.timeGranWeek}</MenuItem>
+                  <MenuItem value="month">{localeText.timeGranMonth}</MenuItem>
+                  <MenuItem value="quarter">{localeText.timeGranQuarter}</MenuItem>
+                  <MenuItem value="year">{localeText.timeGranYear}</MenuItem>
                 </Select>
               </FormControl>
             )}
@@ -449,9 +443,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             {config.xField && !isScatter && (
               <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                 <FormControl size="small" sx={{ flex: 1 }}>
-                  <InputLabel>Sort by</InputLabel>
+                  <InputLabel>{localeText.chartSetupSortByLabel}</InputLabel>
                   <Select
-                    label="Sort by"
+                    label={localeText.chartSetupSortByLabel}
                     value={config.chartSortBy ?? 'category'}
                     onChange={(evt) => {
                       controller.updateWidgetConfig(widgetId, {
@@ -459,8 +453,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       });
                     }}
                   >
-                    <MenuItem value="category">Category</MenuItem>
-                    <MenuItem value="value">Value</MenuItem>
+                    <MenuItem value="category">{localeText.chartSetupSortCategory}</MenuItem>
+                    <MenuItem value="value">{localeText.chartSetupSortValue}</MenuItem>
                   </Select>
                 </FormControl>
                 <ToggleButtonGroup
@@ -476,10 +470,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   size="small"
                   aria-label="Sort direction"
                 >
-                  <ToggleButton value="asc" aria-label="Ascending">
+                  <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
                     ↑ Asc
                   </ToggleButton>
-                  <ToggleButton value="desc" aria-label="Descending">
+                  <ToggleButton value="desc" aria-label={localeText.sortDescendingAriaLabel}>
                     ↓ Desc
                   </ToggleButton>
                 </ToggleButtonGroup>
@@ -567,7 +561,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   });
                 }}
                 fields={numericFields}
-                label="Value field"
+                label={localeText.chartSetupValueFieldLabel}
                 helperText="Numeric field summed per stage — stages are sorted by value (largest first)"
               />
             )}
@@ -631,8 +625,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     <Tooltip
                       title={
                         usedYFieldIds.length >= numericFields.length
-                          ? 'No more fields to add'
-                          : 'Add series'
+                          ? '{localeText.chartSetupNoMoreFields}'
+                          : '{localeText.chartSetupAddSeries}'
                       }
                     >
                       <span>
@@ -674,7 +668,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                           }
                         />
                         {ySeries.length > 1 && (
-                          <Tooltip title="Remove series">
+                          <Tooltip title={localeText.chartSetupRemoveSeries}>
                             <IconButton
                               size="small"
                               onClick={() => handleRemoveSeries(index)}
@@ -761,7 +755,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   />
                 }
                 label={
-                  <Typography variant="caption">Dual Y axis (line series on right axis)</Typography>
+                  <Typography variant="caption">{localeText.chartSetupDualYAxis}</Typography>
                 }
                 sx={{ ml: 0 }}
               />
@@ -830,9 +824,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       })
                     }
                   >
-                    <MenuItem value="none">None</MenuItem>
-                    <MenuItem value="value">Value</MenuItem>
-                    <MenuItem value="percent">Percent</MenuItem>
+                    <MenuItem value="none">{localeText.chartSetupSortNone}</MenuItem>
+                    <MenuItem value="value">{localeText.chartSetupSortValue}</MenuItem>
+                    <MenuItem value="percent">{localeText.chartSetupSortPercent}</MenuItem>
                   </Select>
                 </FormControl>
                 {(config.pieArcLabel ?? 'none') !== 'none' && (
@@ -911,9 +905,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   color="text.secondary"
                   sx={{ flexGrow: 1, fontWeight: 600 }}
                 >
-                  Annotations
+                  {localeText.chartSetupAnnotationsTitle}
                 </Typography>
-                <Tooltip title="Add reference line">
+                <Tooltip title={localeText.chartSetupAddReferenceLine}>
                   <IconButton
                     size="small"
                     onClick={() => {
@@ -934,7 +928,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               </Stack>
               {(config.annotations ?? []).length === 0 && (
                 <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
-                  No reference lines. Click + to add one.
+                  {localeText.chartSetupNoReferenceLines}
                 </Typography>
               )}
               <Stack spacing={1}>
@@ -988,7 +982,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       }}
                       sx={{ flexGrow: 1 }}
                     />
-                    <Tooltip title="Remove annotation">
+                    <Tooltip title={localeText.chartSetupRemoveAnnotation}>
                       <IconButton
                         size="small"
                         onClick={() => {
@@ -1009,10 +1003,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         <div>
           <Divider sx={{ mb: 1.5 }} />
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-            Interactions
+            {localeText.chartSetupInteractionsTitle}
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-            When other widgets are clicked, this chart…
+            {localeText.chartSetupInteractionsDescription}
           </Typography>
           <ToggleButtonGroup
             value={(config.crossFilterMode ?? 'cross-highlight') as StudioCrossFilterMode}

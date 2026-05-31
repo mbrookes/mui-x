@@ -29,6 +29,7 @@ import type {
 } from '@mui/x-studio';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import { downloadJson, uploadJson } from 'x-studio-shared';
+import dayjs from 'dayjs';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { OS_INITIAL_STATE } from './config/officeSuppliesDashboard';
 import { loadOfficeSuppliesData } from './officeSuppliesData';
@@ -41,6 +42,7 @@ import { AlertBannerSetupPanel } from './components/AlertBannerSetupPanel';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
+import { type SupportedLocale, LOCALE_BUNDLES } from './locales';
 
 function slugifyPageTitle(title: string) {
   return title
@@ -335,6 +337,13 @@ export default function App() {
     setUrlBreakpoint(bp);
   }
   const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({});
+  const [locale, setLocale] = React.useState<SupportedLocale>('en');
+  const localeBundle = LOCALE_BUNDLES[locale];
+
+  // Keep dayjs locale in sync with the selected language
+  React.useEffect(() => {
+    dayjs.locale(localeBundle.dayjsLocale);
+  }, [localeBundle.dayjsLocale]);
 
   // Demo custom widgets — an Alert Banner example showing the custom widget API
   const customWidgets = React.useMemo<StudioCustomWidgetDef[]>(
@@ -557,7 +566,11 @@ export default function App() {
 
   return (
     <ThemeProvider theme={theme}>
-      <LocalizationProvider dateAdapter={AdapterDayjs}>
+      <LocalizationProvider
+          dateAdapter={AdapterDayjs}
+          adapterLocale={localeBundle.dayjsLocale}
+          localeText={localeBundle.pickersLocaleText}
+        >
         <CssBaseline />
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
           <AppToolbar
@@ -634,6 +647,7 @@ export default function App() {
                 featureFlags={featureFlags}
                 aiConfig={aiConfig}
                 customWidgets={customWidgets}
+                localeText={localeBundle.studioLocaleText}
               />
             )}
           </Box>
@@ -666,6 +680,8 @@ export default function App() {
           onStackBreakpointChange={handleStackBreakpointChange}
           featureFlags={featureFlags}
           onFeatureFlagsChange={setFeatureFlags}
+          locale={locale}
+          onLocaleChange={setLocale}
         />
       </LocalizationProvider>
     </ThemeProvider>

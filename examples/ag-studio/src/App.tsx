@@ -170,12 +170,12 @@ export default function App() {
       : `sales-${getUrlRowsParam() ?? 'default'}`;
 
   const handleApiReady = React.useCallback((event: any) => {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+     
     apiRef.current = event.api;
   }, []);
 
   const handleStateUpdated = React.useCallback((event: any) => {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+     
     const newPageId: string | undefined = event?.state?.selectedPageId;
     if (newPageId) {
       setCurrentPageId(newPageId);

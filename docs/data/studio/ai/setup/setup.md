@@ -84,20 +84,26 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 
 The AI can call the following tools (exported as `STUDIO_AI_TOOLS`):
 
-| Tool                     | What it does                                                                    |
-| :----------------------- | :------------------------------------------------------------------------------ |
-| `add_widget`             | Adds a new widget to the active page                                            |
-| `configure_widget`       | Updates a widget's type, title, data source, series, dimensions, or aggregation |
-| `remove_widget`          | Removes a widget by ID                                                          |
-| `add_page`               | Adds a new dashboard page                                                       |
-| `remove_page`            | Removes a page                                                                  |
-| `rename_page`            | Renames a page                                                                  |
-| `set_active_page`        | Navigates to a specific page                                                    |
-| `add_data_source`        | Adds a new data source (with provided rows)                                     |
-| `update_dashboard_title` | Sets the dashboard title                                                        |
-| `add_filter`             | Adds a global filter to the active page                                         |
+| Tool                   | What it does                                                                    |
+| :--------------------- | :------------------------------------------------------------------------------ |
+| `set_dashboard_title`  | Sets the dashboard title                                                        |
+| `add_page`             | Adds a new dashboard page                                                       |
+| `rename_page`          | Renames a page                                                                  |
+| `remove_page`          | Removes a page (requires confirmation)                                          |
+| `set_active_page`      | Navigates to a specific page                                                    |
+| `add_widget`           | Adds a new widget to the active page                                            |
+| `update_widget`        | Updates a widget's type, title, data source, series, dimensions, or aggregation |
+| `remove_widget`        | Removes a widget by ID (requires confirmation)                                  |
+| `set_widget_layout`    | Rearranges widgets by specifying row groupings                                  |
+| `set_widget_width`     | Sets the column span of a widget (3–12 columns)                                 |
+| `add_page_filter`      | Adds a filter scoped to the active page                                         |
+| `remove_page_filter`   | Removes a page-scoped filter by ID                                              |
+| `add_widget_filter`    | Adds a filter scoped to a specific widget                                       |
+| `remove_widget_filter` | Removes a widget-scoped filter by ID                                            |
+| `get_dashboard_state`  | Returns the current dashboard state (pages, widgets, data sources)              |
 
-You can restrict which tools are available using `slotProps.chatPanel` or by configuring the adapter.
+You can restrict which tools are available using `allowedTools` in `aiConfig`.
+See [AI tools](/x/react-studio/ai/tools/) for details.
 
 ## `createStudioChatAdapter`
 
@@ -203,15 +209,15 @@ function MyComposedLayout({ aiConfig }: { aiConfig: StudioAIConfig }) {
 
 ### Props
 
-| Prop                | Type                    | Description                                                  |
-| :------------------ | :---------------------- | :----------------------------------------------------------- |
-| `aiConfig`          | `StudioAIConfig`        | LLM endpoint configuration.                                  |
-| `open`              | `boolean`               | Whether the panel is visible.                                |
-| `onClose`           | `() => void`            | Called when the user closes the panel (overlay mode).        |
-| `overlay`           | `boolean`               | Render as a fixed-position overlay instead of inline.        |
-| `focusedWidgetId`   | `string`                | Widget to focus the AI on (see _Per-widget AI_ below).       |
-| `slotProps.chatBox` | `Partial<ChatBoxProps>` | Props forwarded to the inner `ChatBox`.                      |
-| `slotProps.panel`   | `Partial<BoxProps>`     | Props for the overlay container (width, position, `sx`).     |
+| Prop                | Type                    | Description                                              |
+| :------------------ | :---------------------- | :------------------------------------------------------- |
+| `aiConfig`          | `StudioAIConfig`        | LLM endpoint configuration.                              |
+| `open`              | `boolean`               | Whether the panel is visible.                            |
+| `onClose`           | `() => void`            | Called when the user closes the panel (overlay mode).    |
+| `overlay`           | `boolean`               | Render as a fixed-position overlay instead of inline.    |
+| `focusedWidgetId`   | `string`                | Widget to focus the AI on (see _Per-widget AI_ below).   |
+| `slotProps.chatBox` | `Partial<ChatBoxProps>` | Props forwarded to the inner `ChatBox`.                  |
+| `slotProps.panel`   | `Partial<BoxProps>`     | Props for the overlay container (width, position, `sx`). |
 
 ## Per-widget AI assistant
 
@@ -224,7 +230,7 @@ function WidgetAiDialog({ widgetId, aiConfig, onClose }: WidgetAiDialogProps) {
   return (
     <Dialog open onClose={onClose}>
       <StudioChatPanel
-        key={widgetId}   // reset chat history for each widget
+        key={widgetId} // reset chat history for each widget
         aiConfig={aiConfig}
         focusedWidgetId={widgetId}
       />

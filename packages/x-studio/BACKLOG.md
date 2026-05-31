@@ -790,7 +790,9 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 **Fixed** (added `predefined?: boolean` to `StudioRelationship`; RelationshipPanel hides Edit and Delete buttons when `rel.predefined === true`)
 
 
-BL-165: In x-studio-composed, after adding a new widget with the FAB, it should open the composed preview/edit widget, not the edit only one. The preview should include the entire widget (including title etc.), and not just the chart. For example you can't see edits to a text widget.
+✅ BL-165: In x-studio-composed, after adding a new widget with the FAB, it should open the composed preview/edit widget, not the edit only one. The preview should include the entire widget (including title etc.), and not just the chart. For example you can't see edits to a text widget.
+
+**Fixed** (the FAB's `onWidgetAdded` was calling `handleEditRequest` which opens `StudioWidgetEditDialog` — panels only, no preview. Changed to `handleComposeOpen` so it opens the full `ComposeDialog`. `controller.addWidget` already sets `shell.selectedWidgetId`, so the dialog opens on the correct widget.)
 
 
 ✅ BL-166: In the x-studio-composed demo, the per-widget AI assistant dialog is way too narrow. The dialog grows with added content, and can't be scrolled.

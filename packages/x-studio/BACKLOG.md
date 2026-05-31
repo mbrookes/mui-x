@@ -427,11 +427,9 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 
 ~~BL-144: Make the edit/delete buttons for data fields in the data panel closer together (say 2px between them).~~ **Fixed** (removed default MUI padding from IconButtons in DataSourceSection and RelationshipPanel; added `gap: '2px'` between buttons)
 
-BL-144: Make the edit/delete buttons for data fields in the data panel closer together (say 2px between them).
+~~BL-145: The drag pointer icon issue still isn't fixed - the pointer only changes to a hand when you drop a widget, instead of when it's grabbed.~~ **Fixed** (apply `x-studio-dragging-widget` class on mousedown in StudioWidgetCard and AddWidgetView so cursor changes to `grabbing` immediately when the button is pressed, not after dragstart fires)
 
-BL-145: The drag pointer icon issue still isn't fixed - the pointer only changes to a hand when you drop a widget, instead of when it's grabbed.
-
-BL-146: The ghost widget when dragging needs much more transparency so that you can see the insertion points and tabs under it.
+~~BL-146: The ghost widget when dragging needs much more transparency so that you can see the insertion points and tabs under it.~~ **Fixed** (ghost opacity reduced from 0.4 to 0.2)
 
 BL-147: When dragging tabs, don't capture the ckick ripple in the ghost. Make the real tab invisible. Constrain the dragging to horizontal only. When the tab is dragged over its peer, swap that tab into the dragged tabs postion with an animation. Remove the drop indicator, it will no longer be needed with this approach (which copies Chrome browser tabs).
 

@@ -770,7 +770,9 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 
 **Fixed** (added `renameFilterPreset(id, name)` to `StudioController`; each saved view row in `StudioFiltersDrawer` now has a pencil `IconButton` that switches to an inline `TextField`; Enter/blur confirms, Escape cancels)
 
-BL-161: When a widget is dragged and dropped on a different page, it isn't being removed from the source page. Make sure other items on the same row that it was moved from take the available row space (they may already, no way for me to test at the moment).
+✅ BL-161: When a widget is dragged and dropped on a different page, it isn't being removed from the source page. Make sure other items on the same row that it was moved from take the available row space (they may already, no way for me to test at the moment).
+
+**Fixed** (added `sourcePageId` to the drag data payload in `StudioWidgetCard`; in `StudioCanvas` `handleDrop`, when `sourcePageId !== activePageId`, the widget is removed from the source page's `widgetRows` in the same `updateState` call — remaining row items take the freed space automatically)
 
 
 ✅ BL-162: Move dataset selection to the top of the app configuration widget, and move feature selection to a separate tab in the config dialog (both examples).
@@ -788,9 +790,7 @@ BL-161: When a widget is dragged and dropped on a different page, it isn't being
 **Fixed** (added `predefined?: boolean` to `StudioRelationship`; RelationshipPanel hides Edit and Delete buttons when `rel.predefined === true`)
 
 
-✅ BL-165: In x-studio-composed, after adding a new widget with the FAB, it should open the composed preview/edit widget, not the edit only one. The preview should include the entire widget (including title etc.), and not just the chart. For example you can't see edits to a text widget.
-
-**Fixed** (FAB now opens the composed preview/edit dialog with full widget preview, including title and all widget content)
+BL-165: In x-studio-composed, after adding a new widget with the FAB, it should open the composed preview/edit widget, not the edit only one. The preview should include the entire widget (including title etc.), and not just the chart. For example you can't see edits to a text widget.
 
 
 ✅ BL-166: In the x-studio-composed demo, the per-widget AI assistant dialog is way too narrow. The dialog grows with added content, and can't be scrolled.

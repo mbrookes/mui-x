@@ -1,7 +1,9 @@
 'use client';
 import * as React from 'react';
-import { Autocomplete, TextField } from '@mui/material';
+import { Autocomplete, IconButton, InputAdornment, TextField } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import { FieldOption } from './FieldOption';
+import { FieldTypeIcon, type FieldType } from '../internals/FieldTypeIcon';
 import type { StudioDataSource, StudioDataField } from '../models';
 import { fieldHasCapability, type FieldCapability } from '../utils/fieldCapabilities';
 
@@ -121,7 +123,43 @@ export function DataSourceFieldSelect({
     [hasMultipleSources],
   );
 
-  return (
+  return selectedOption ? (
+    // BL-148: selected field shown as read-only with a clear icon
+    <TextField
+      size={size}
+      fullWidth={fullWidth}
+      label={label}
+      value={selectedOption.label}
+      slotProps={{
+        input: {
+          readOnly: true,
+          startAdornment: (
+            <InputAdornment position="start" sx={{ mr: 0.5 }}>
+              <FieldTypeIcon
+                type={(selectedOption.type as FieldType) ?? 'string'}
+                generated={selectedOption.generated}
+                size={14}
+              />
+            </InputAdornment>
+          ),
+          endAdornment: (
+            <InputAdornment position="end">
+              <IconButton
+                size="small"
+                edge="end"
+                aria-label="Clear field"
+                onClick={() => onChange('', '')}
+                disabled={disabled}
+              >
+                <CloseIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </InputAdornment>
+          ),
+        },
+      }}
+      helperText={helperText}
+    />
+  ) : (
     <Autocomplete
       size={size}
       fullWidth={fullWidth}

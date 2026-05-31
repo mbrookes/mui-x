@@ -480,7 +480,7 @@ function DashboardLayout({
     setUrlPageId(activePageId, pages);
   }, [activePageId, pages]);
 
-  // Sync page-filter values to the URL ?fv= query param (debounced 300 ms)
+  // Sync page-filter values to the URL ?fv= query param (debounced 300 ms, view mode only)
   const filterSyncTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(() => {
     if (filterSyncTimer.current) {
@@ -491,6 +491,11 @@ function DashboardLayout({
         return;
       }
       const url = new URL(window.location.href);
+      if (mode !== 'view') {
+        url.searchParams.delete('fv');
+        window.history.replaceState(window.history.state, '', url);
+        return;
+      }
       const encoded = encodeFilterValues(filters);
       if (encoded) {
         url.searchParams.set('fv', encoded);
@@ -504,7 +509,7 @@ function DashboardLayout({
         clearTimeout(filterSyncTimer.current);
       }
     };
-  }, [filters]);
+  }, [filters, mode]);
 
   // Toolbar handlers
   const handleModeChange = React.useCallback(

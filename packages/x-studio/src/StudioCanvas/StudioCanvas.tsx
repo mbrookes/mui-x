@@ -65,14 +65,20 @@ function isAdjacentToDraggingWidget(
   if (!rows) {
     return false;
   }
-  for (let dRow = 0; dRow < rows.length; dRow += 1) {
-    const dCol = rows[dRow].indexOf(draggingId);
-    if (dCol >= 0) {
-      // Adjacent left: colIndex === dCol; adjacent right: colIndex === dCol + 1
-      return dRow === rowIndex && (colIndex === dCol || colIndex === dCol + 1);
+  // Build a position index for O(1) lookup instead of indexOf in loop
+  const positionMap = new Map<string, [number, number]>();
+  for (let r = 0; r < rows.length; r += 1) {
+    for (let c = 0; c < rows[r].length; c += 1) {
+      positionMap.set(rows[r][c], [r, c]);
     }
   }
-  return false;
+  const pos = positionMap.get(draggingId);
+  if (!pos) {
+    return false;
+  }
+  const [dRow, dCol] = pos;
+  // Adjacent left: colIndex === dCol; adjacent right: colIndex === dCol + 1
+  return dRow === rowIndex && (colIndex === dCol || colIndex === dCol + 1);
 }
 
 // Plain JS DnD insertion point component — must live at module level

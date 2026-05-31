@@ -38,23 +38,19 @@ export function DataSourcePreview({
   }, [source.rows, expressionFields, source.id, dataSources, relationships]);
 
   const columns = React.useMemo<GridColDef[]>(() => {
-    const physicalCols: GridColDef[] = source.fields
-      .filter((f) => !f.hidden)
-      .map((f) => ({
-        field: f.id,
-        headerName: f.label,
-        flex: 1,
-        minWidth: 100,
-      }));
+    const physicalCols = source.fields.reduce<GridColDef[]>((acc, f) => {
+      if (!f.hidden) {
+        acc.push({ field: f.id, headerName: f.label, flex: 1, minWidth: 100 });
+      }
+      return acc;
+    }, []);
 
-    const exprCols: GridColDef[] = expressionFields
-      .filter((ef) => ef.sourceId === source.id && !ef.hidden && !ef.isMeasure)
-      .map((ef) => ({
-        field: ef.id,
-        headerName: ef.label,
-        flex: 1,
-        minWidth: 100,
-      }));
+    const exprCols = expressionFields.reduce<GridColDef[]>((acc, ef) => {
+      if (ef.sourceId === source.id && !ef.hidden && !ef.isMeasure) {
+        acc.push({ field: ef.id, headerName: ef.label, flex: 1, minWidth: 100 });
+      }
+      return acc;
+    }, []);
 
     return [...physicalCols, ...exprCols];
   }, [source.fields, expressionFields, source.id]);

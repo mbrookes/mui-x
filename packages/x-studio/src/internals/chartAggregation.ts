@@ -667,6 +667,8 @@ export function aggregateByField(
   yField: string,
   xGroupBy?: XGroupBy,
   yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
+  sortBy?: 'category' | 'value',
+  sortDirection?: 'asc' | 'desc',
 ): AggregatedData {
   const grouped = new Map<string | number, number>();
   const counts = new Map<string | number, number>();
@@ -702,7 +704,21 @@ export function aggregateByField(
   }
 
   const labels = sortLabels(Array.from(grouped.keys()));
-  const values = labels.map((label) => grouped.get(label) ?? 0);
+  let values = labels.map((label) => grouped.get(label) ?? 0);
+
+  if (sortBy === 'value') {
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    const pairs = labels.map((label, i) => ({ label, value: values[i] }));
+    pairs.sort((a, b) => (a.value - b.value) * dir);
+    return {
+      labels: pairs.map((p) => p.label),
+      values: pairs.map((p) => p.value),
+    };
+  }
+  if (sortDirection === 'desc') {
+    labels.reverse();
+    values = labels.map((label) => grouped.get(label) ?? 0);
+  }
 
   return { labels, values };
 }
@@ -725,6 +741,8 @@ export function aggregateByTwoFields(
   seriesField: string,
   yField: string,
   xGroupBy?: XGroupBy,
+  sortBy?: 'category' | 'value',
+  sortDirection?: 'asc' | 'desc',
 ): MultiSeriesData {
   // First pass: collect all unique x values and series values
   const xValuesSet = new Set<string | number>();
@@ -749,7 +767,7 @@ export function aggregateByTwoFields(
     seriesMap.set(seriesVal, (seriesMap.get(seriesVal) ?? 0) + yVal);
   }
 
-  const labels = sortLabels(Array.from(xValuesSet));
+  let labels = sortLabels(Array.from(xValuesSet));
   const seriesNames = sortLabels(Array.from(seriesValuesSet));
 
   // Build series data arrays — use null (not 0) for missing points so that
@@ -761,6 +779,36 @@ export function aggregateByTwoFields(
       const val = seriesMap?.get(seriesName);
       return val !== undefined ? val : null;
     });
+  }
+
+  // Apply sort — for multi-series, 'value' sorts by the total across all series
+  if (sortBy === 'value') {
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    const totals = labels.map((label) => {
+      let sum = 0;
+      for (const seriesName of seriesNames) {
+        sum += seriesData[seriesName][labels.indexOf(label)] ?? 0;
+      }
+      return { label, sum };
+    });
+    totals.sort((a, b) => (a.sum - b.sum) * dir);
+    labels = totals.map((t) => t.label);
+    for (const seriesName of seriesNames) {
+      seriesData[seriesName] = labels.map((label) => {
+        const seriesMap = dataMap.get(label);
+        const val = seriesMap?.get(seriesName);
+        return val !== undefined ? val : null;
+      });
+    }
+  } else if (sortDirection === 'desc') {
+    labels = [...labels].reverse();
+    for (const seriesName of seriesNames) {
+      seriesData[seriesName] = labels.map((label) => {
+        const seriesMap = dataMap.get(label);
+        const val = seriesMap?.get(seriesName);
+        return val !== undefined ? val : null;
+      });
+    }
   }
 
   return { labels, seriesNames, seriesData };
@@ -779,6 +827,8 @@ export function aggregateMultipleSeries(
   xField: string,
   yFields: string[],
   xGroupBy?: XGroupBy,
+  sortBy?: 'category' | 'value',
+  sortDirection?: 'asc' | 'desc',
 ): MultiYSeriesData {
   const labelOrder: (string | number)[] = [];
   const labelSet = new Set<string | number>();
@@ -800,7 +850,21 @@ export function aggregateMultipleSeries(
     }
   }
 
-  const sortedLabels = sortLabels(labelOrder);
+  let sortedLabels = sortLabels(labelOrder);
+
+  if (sortBy === 'value') {
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    sortedLabels = sortedLabels
+      .map((label) => ({
+        label,
+        total: yFields.reduce((sum, fId) => sum + (dataMap.get(label)?.get(fId) ?? 0), 0),
+      }))
+      .sort((a, b) => (a.total - b.total) * dir)
+      .map((p) => p.label);
+  } else if (sortDirection === 'desc') {
+    sortedLabels = [...sortedLabels].reverse();
+  }
+
   const series = yFields.map((fieldId) => ({
     fieldId,
     values: sortedLabels.map((label) => dataMap.get(label)?.get(fieldId) ?? 0),

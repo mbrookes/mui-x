@@ -256,6 +256,7 @@ export interface ResolvedStudioFeatures {
   // ── Top-level flags ────────────────────────────────────────────────────────
   compose: boolean;
   filters: boolean;
+  dateRangeBar: boolean;
   savedFilterViews: boolean;
   dataManagement: boolean;
   relationships: boolean;
@@ -312,6 +313,7 @@ export function useStudioFeatures(): ResolvedStudioFeatures {
   return {
     compose: featureFlags.compose ?? true,
     filters: featureFlags.filters ?? true,
+    dateRangeBar: featureFlags.dateRangeBar ?? true,
     savedFilterViews: featureFlags.savedFilterViews ?? true,
     dataManagement: featureFlags.dataManagement ?? true,
     relationships: featureFlags.relationships ?? true,

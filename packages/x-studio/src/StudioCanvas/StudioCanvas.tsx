@@ -9,6 +9,7 @@ import {
   selectActivePage,
   selectWidgets,
 } from '../context';
+import { useStudioFeatures } from '../internals/StudioUIConfigContext';
 import { StudioWidgetCard } from '../StudioWidgetCard';
 import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../internals/widgetUtils';
@@ -494,6 +495,7 @@ function WidgetGap({
 export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvasProps) {
   const { slotProps, stackBreakpoint: stackBreakpointProp = 600 } = props;
   const mode = useStudioSelector(selectMode);
+  const features = useStudioFeatures();
   // Defer page transitions so the browser stays responsive while new page widgets mount.
   // useSyncExternalStore updates are synchronous, so startTransition alone doesn't help;
   // useDeferredValue explicitly schedules the expensive new-page render at low priority.
@@ -787,7 +789,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         }}
       >
         {/* Date range bar — shown in both modes when the page has date/datetime fields */}
-        <StudioDateRangeBar />
+        {features.dateRangeBar && <StudioDateRangeBar />}
 
         {/* Quick filter bar — view mode only, shown when page filters are active */}
         {mode !== 'edit' && <StudioQuickFilterBar />}

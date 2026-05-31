@@ -734,6 +734,41 @@
 - Reduced `IconButton` padding to `2px` for edit/delete buttons in `DataSourceSection` field rows and `RelationshipPanel` relationship rows
 - Added `gap: '2px'` between the two buttons; buttons are visually tighter without overlapping hit targets
 
+### UX-36 · Immediate grabbing cursor on mousedown (BL-145)
+
+- Applied `x-studio-dragging-widget` class to `document.body` on `mousedown` in `StudioWidgetCard` (edit mode) and `AddWidgetView`
+- The CSS rule `body.x-studio-dragging-widget * { cursor: grabbing !important; }` takes effect instantly on press, not after the browser fires `dragstart`
+- Class is removed on `mouseup` and `dragend`
+
+### UX-37 · Ghost widget transparency (BL-146)
+
+- Reduced drag ghost opacity from `0.4` to `0.2` so insertion points and tabs remain visible underneath
+- Applied in both `StudioWidgetCard` (canvas drag) and `AddWidgetView` (new-widget drag)
+
+### UX-38 · Chrome-style tab drag (BL-147)
+
+- Replaced HTML5 `draggable` tab reordering with pointer-event capture for smooth, native-feel tab dragging
+- 5 px drag threshold separates clicks from drags; dragged tab becomes invisible while a `position: fixed` ghost follows the cursor (rendered via React portal)
+- Peer tabs slide horizontally with a `translateX` CSS transition when the ghost crosses their midpoint — identical to Chrome's tab drag behaviour
+- Nearest-midpoint algorithm determines the target slot using original tab rects captured at drag start (unaffected by sibling animations)
+- `onClickCapture` with `stopPropagation` prevents click events from firing after a completed drag
+- Implemented in both `examples/x-studio` and `examples/x-studio-composed` `AppToolbar`
+
+### UX-39 · Read-only selected field with clear icon (BL-148)
+
+- `DataSourceFieldSelect` now displays the selected field as a read-only `TextField` with the field's type icon as a start adornment and a `CloseIcon` button as end adornment
+- Clicking the clear button calls `onChange('', '')`, reverting to the empty `Autocomplete` picker
+- Prevents accidental re-selection and gives a cleaner "locked in" state for configured fields
+
+### UX-40 · Chart sort by category or value (BL-149)
+
+- Added `chartSortBy: 'category' | 'value'` and `chartSortDirection: 'asc' | 'desc'` to `StudioWidgetConfig`
+- `'category'` sorts x-axis labels alphabetically/numerically; `'value'` sorts bars/lines by their aggregated y-value
+- Both sort directions are supported for each sort key
+- Implemented in `aggregateByField`, `aggregateByTwoFields`, and `aggregateMultipleSeries` — covers single-series, split-series, and multi-measure charts
+- `ChartSetupPanel` renders a "Sort by" dropdown and an Asc/Desc toggle button group whenever an x-field is configured on a non-scatter chart
+- All aggregation cache keys include the sort parameters to prevent stale data
+
 ---
 
 ## 📋 Planned

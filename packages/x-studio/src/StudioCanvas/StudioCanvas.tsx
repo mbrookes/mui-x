@@ -770,7 +770,9 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
 
   return (
     <React.Fragment>
-      {/* Force grabbing cursor across all elements during a widget drag */}
+      {/* Force grabbing cursor across all elements during a widget drag.
+          CSS alone cannot override the native HTML5 DnD cursor, so we also
+          set an inline style on <html> via JS (see StudioWidgetCard handleDragStart). */}
       <GlobalStyles
         styles={{
           'body.x-studio-dragging-widget, body.x-studio-dragging-widget *': {

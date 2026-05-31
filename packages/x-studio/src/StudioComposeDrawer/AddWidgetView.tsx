@@ -204,10 +204,12 @@ function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
         event.dataTransfer?.setDragImage(node, 0, 0);
       }
       document.body.classList.add('x-studio-dragging-widget');
+      document.documentElement.style.setProperty('cursor', 'grabbing', 'important');
     }
     function handleDragEnd() {
       setIsDragging(false);
       document.body.classList.remove('x-studio-dragging-widget');
+      document.documentElement.style.removeProperty('cursor');
     }
     function handleMouseDown() {
       document.body.classList.add('x-studio-dragging-widget');

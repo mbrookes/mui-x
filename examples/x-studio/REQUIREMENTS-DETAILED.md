@@ -175,7 +175,6 @@ For component-level planned features see the root `BACKLOG.md`.
   | A-03 | Arch | Expression field system | ✅ Done |
   | A-04 | Arch | Field capability system | ✅ Done |
   | A-05 | Arch | Embeddable SDK / zero-config consumer API | 🔭 Future |
-  | A-06 | Arch | Multi-user / permissions | 🔭 Future |
 
 ---
 
@@ -489,12 +488,6 @@ _Nothing actively in flight._
 - Zero-config mode: auto-discover sources and render a grid of KPIs
 - Published as a standalone npm package separate from the MUI X monorepo
 
-### A-06 · Multi-user / permissions
-
-- View-only mode (no compose/filter drawers)
-- Per-page and per-widget visibility rules
-- User roles: viewer, editor, admin
-
 ---
 
 ## Priority Order for Planned Work
@@ -543,5 +536,4 @@ Ordered by impact on demo credibility and implementation feasibility:
 - W-09 Gantt / timeline
 - W-10 Heatmap
 - W-11 Funnel
-- A-06 Multi-user / permissions
 - D-05 Pivot table

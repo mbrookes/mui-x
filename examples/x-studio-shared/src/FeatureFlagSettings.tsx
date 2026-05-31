@@ -114,7 +114,12 @@ function FlagRow({
     <Box sx={indented ? { ml: 3 } : undefined}>
       <FormControlLabel
         control={
-          <Switch size="small" checked={checked} disabled={disabled} onChange={(_evt, val) => onChange(val)} />
+          <Switch
+            size="small"
+            checked={checked}
+            disabled={disabled}
+            onChange={(_evt, val) => onChange(val)}
+          />
         }
         label={label}
         sx={disabled ? { opacity: 0.5 } : undefined}
@@ -184,7 +189,9 @@ export function FeatureFlagSettings(props: FeatureFlagSettingsProps) {
                     checked={!disabled && getSubFlag(featureFlags, key as NestedKindKey, subKey)}
                     disabled={disabled}
                     indented
-                    onChange={(checked) => handleSubFlagToggle(key as NestedKindKey, subKey, checked)}
+                    onChange={(checked) =>
+                      handleSubFlagToggle(key as NestedKindKey, subKey, checked)
+                    }
                   />
                 );
               })}

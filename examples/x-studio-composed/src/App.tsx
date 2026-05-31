@@ -31,6 +31,7 @@ import type {
   StudioState,
   SerializedStudioState,
 } from '@mui/x-studio';
+import { downloadJson, uploadJson } from 'x-studio-shared';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { OS_INITIAL_STATE } from './config/officeSuppliesDashboard';
 import type { OfficeSuppliesData } from './officeSuppliesData';
@@ -43,7 +44,6 @@ import { ChatSidePanel } from './components/ChatSidePanel';
 import { WidgetAiDialog } from './components/WidgetAiDialog';
 import { EmptyPagePrompt } from './components/EmptyPagePrompt';
 import { SettingsDialog } from './components/SettingsDialog';
-import { uploadJson, downloadJson } from 'x-studio-shared';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
@@ -179,9 +179,13 @@ function getUrlFilterValuesParam(): string | null {
 
 const LOCAL_STORAGE_KEY = 'x-studio-composed-state';
 
-function readLocalState(): SerializedStudioState | null {
+function getLocalStorageKey(dataset: 'sales' | 'ag-studio') {
+  return `${LOCAL_STORAGE_KEY}-${dataset}`;
+}
+
+function readLocalState(dataset: 'sales' | 'ag-studio'): SerializedStudioState | null {
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const raw = localStorage.getItem(getLocalStorageKey(dataset));
     if (!raw) {
       return null;
     }
@@ -189,14 +193,6 @@ function readLocalState(): SerializedStudioState | null {
     return result.success && result.state ? result.state : null;
   } catch {
     return null;
-  }
-}
-
-function clearLocalState(): void {
-  try {
-    localStorage.removeItem(LOCAL_STORAGE_KEY);
-  } catch {
-    // ignore
   }
 }
 
@@ -220,7 +216,7 @@ function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
   ) as Record<string, import('@mui/x-studio').StudioDataSource>;
 
   // Restore from localStorage if available, merging with the live data sources.
-  const saved = readLocalState();
+  const saved = readLocalState(dataset);
   if (saved) {
     return deserializeState(saved, baseDataSources);
   }
@@ -314,6 +310,7 @@ function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
 interface DashboardLayoutProps {
   adapterMode: boolean;
   aiConfig: StudioAIConfig | undefined;
+  dataset: 'sales' | 'ag-studio';
   onSnackbar: (message: string, severity: 'success' | 'error' | 'info') => void;
   featureFlags: StudioFeatureFlags;
   onFeatureFlagsChange: (flags: StudioFeatureFlags) => void;
@@ -338,11 +335,13 @@ interface DashboardLayoutProps {
 function DashboardLayout({
   adapterMode,
   aiConfig,
+  dataset,
   onSnackbar,
   featureFlags,
   onFeatureFlagsChange,
 }: DashboardLayoutProps) {
   const controller = useStudioController();
+  const localStorageKeyRef = React.useRef(getLocalStorageKey(dataset));
 
   // Register Cmd+Z / Cmd+Shift+Z keyboard shortcuts
   useStudioKeyboardShortcuts();
@@ -373,7 +372,7 @@ function DashboardLayout({
           try {
             const state = controller.getState();
             const serialized = serializeState(state);
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(serialized));
+            localStorage.setItem(localStorageKeyRef.current, JSON.stringify(serialized));
           } catch {
             // Ignore storage quota errors
           }
@@ -391,15 +390,21 @@ function DashboardLayout({
   const [editWidgetId, setEditWidgetId] = React.useState<string | null>(null);
   const [aiWidgetId, setAiWidgetId] = React.useState<string | null>(null);
 
-  const handleEditRequest = React.useCallback((widgetId: string) => {
-    setEditWidgetId(widgetId);
-    controller.setSelectedWidget(widgetId);
-  }, [controller]);
+  const handleEditRequest = React.useCallback(
+    (widgetId: string) => {
+      setEditWidgetId(widgetId);
+      controller.setSelectedWidget(widgetId);
+    },
+    [controller],
+  );
 
-  const handleAiRequest = React.useCallback((widgetId: string) => {
-    setAiWidgetId(widgetId);
-    controller.setSelectedWidget(widgetId);
-  }, [controller]);
+  const handleAiRequest = React.useCallback(
+    (widgetId: string) => {
+      setAiWidgetId(widgetId);
+      controller.setSelectedWidget(widgetId);
+    },
+    [controller],
+  );
 
   const handleComposeOpen = React.useCallback(() => setComposeOpen(true), []);
   const handleComposeClose = React.useCallback(() => setComposeOpen(false), []);
@@ -504,7 +509,7 @@ function DashboardLayout({
   const handleRedo = React.useCallback(() => controller.redo(), [controller]);
 
   const handleReset = React.useCallback(() => {
-    clearLocalState();
+    localStorage.removeItem(localStorageKeyRef.current);
     onSnackbar('Local changes cleared — reloading demo…', 'info');
     setTimeout(() => window.location.reload(), 800);
   }, [onSnackbar]);
@@ -686,6 +691,7 @@ function DashboardLayout({
 
 export default function App() {
   const adapterMode = React.useMemo(() => getUrlAdapterParam(), []);
+  const dataset = React.useMemo(() => getUrlDatasetParam(), []);
 
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
     const endpoint = import.meta.env.LLM_ENDPOINT as string | undefined;
@@ -741,6 +747,7 @@ export default function App() {
           <DashboardLayout
             adapterMode={adapterMode}
             aiConfig={aiConfig}
+            dataset={dataset}
             onSnackbar={handleSnackbar}
             featureFlags={featureFlags}
             onFeatureFlagsChange={setFeatureFlags}

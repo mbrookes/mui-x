@@ -504,15 +504,15 @@ export function AppToolbar(props: AppToolbarProps) {
               </IconButton>
             </Tooltip>
           )}
-          {onFiltersOpen && (
-            <Tooltip title="Filters">
-              <IconButton size="small" onClick={onFiltersOpen} aria-label="Filters">
-                <FilterListIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
           <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
         </React.Fragment>
+      )}
+      {onFiltersOpen && (
+        <Tooltip title="Filters">
+          <IconButton size="small" onClick={onFiltersOpen} aria-label="Filters">
+            <FilterListIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       )}
       {onChatToggle && (
         <Tooltip title={chatOpen ? 'Close AI assistant' : 'Open AI assistant'}>

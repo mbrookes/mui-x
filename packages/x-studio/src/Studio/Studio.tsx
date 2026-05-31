@@ -1,8 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import { Box, IconButton, Tooltip } from '@mui/material';
+import { Box, Drawer, IconButton, Tooltip, Typography, CircularProgress } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import CloseIcon from '@mui/icons-material/Close';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';
@@ -40,6 +42,10 @@ import { StudioFiltersDrawer } from '../StudioFiltersDrawer';
 // StudioDrilldownDrawer is kept as an exported composable component but no longer mounted by default.
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
+import {
+  generateDashboardSummary,
+  type StudioInsightResult,
+} from '../StudioChatPanel/generateInsight';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
 
 // Lazy-load the chat panel so @base-ui/react/menu (and the full @mui/x-chat
@@ -300,6 +306,48 @@ const StudioContent = React.memo(function StudioContent(
 
   const [chatOpen, setChatOpen] = React.useState(false);
 
+  // ── Dashboard summary state ────────────────────────────────────────────────
+  const [summaryOpen, setSummaryOpen] = React.useState(false);
+  const [summaryLoading, setSummaryLoading] = React.useState(false);
+  const [summaryError, setSummaryError] = React.useState<string | null>(null);
+  const [summaryResult, setSummaryResult] = React.useState<StudioInsightResult | null>(null);
+  const summaryAbortRef = React.useRef<AbortController | null>(null);
+  const [summaryCopied, setSummaryCopied] = React.useState(false);
+
+  const handleSummariseDashboard = React.useCallback(() => {
+    if (!aiConfig?.endpoint) {
+      return;
+    }
+    summaryAbortRef.current?.abort();
+    const abortCtrl = new AbortController();
+    summaryAbortRef.current = abortCtrl;
+
+    setSummaryOpen(true);
+    setSummaryLoading(true);
+    setSummaryError(null);
+    setSummaryResult(null);
+
+    generateDashboardSummary(controller, aiConfig, { signal: abortCtrl.signal })
+      .then((result) => {
+        setSummaryResult(result);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
+        setSummaryError(err instanceof Error ? err.message : 'Failed to generate summary.');
+      })
+      .finally(() => {
+        setSummaryLoading(false);
+      });
+  }, [controller, aiConfig]);
+
+  React.useEffect(() => {
+    return () => {
+      summaryAbortRef.current?.abort();
+    };
+  }, []);
+
   const showCompose = features.compose;
   const showFilters = features.filters;
   const showDataManagement = features.dataManagement;
@@ -461,6 +509,104 @@ const StudioContent = React.memo(function StudioContent(
       {/* AI chat button + panel */}
       {features.aiChat && aiConfig?.endpoint && (
         <React.Fragment>
+          {/* Summarise dashboard button */}
+          <Tooltip title="Summarise dashboard" placement="left">
+            <IconButton
+              onClick={handleSummariseDashboard}
+              aria-label="Summarise dashboard"
+              sx={{
+                position: 'absolute',
+                bottom: 76,
+                right: 20,
+                zIndex: (theme) => theme.zIndex.speedDial,
+                bgcolor: 'background.paper',
+                boxShadow: 4,
+                '&:hover': { bgcolor: 'action.hover' },
+                width: 40,
+                height: 40,
+              }}
+            >
+              <AutoAwesomeIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
+          {/* Dashboard summary slide-in panel */}
+          <Drawer
+            anchor="bottom"
+            open={summaryOpen}
+            onClose={() => {
+              setSummaryOpen(false);
+              summaryAbortRef.current?.abort();
+            }}
+            slotProps={{
+              paper: {
+                sx: {
+                  maxHeight: '40vh',
+                  p: 2,
+                  borderTopLeftRadius: 8,
+                  borderTopRightRadius: 8,
+                },
+              },
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              <AutoAwesomeIcon sx={{ fontSize: 18, mr: 1, color: 'primary.main' }} />
+              <Typography variant="subtitle2" sx={{ flex: 1 }}>
+                Dashboard Summary
+              </Typography>
+              {summaryResult && (
+                <Tooltip title={summaryCopied ? 'Copied!' : 'Copy'}>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      navigator.clipboard.writeText(summaryResult.text).then(() => {
+                        setSummaryCopied(true);
+                        setTimeout(() => setSummaryCopied(false), 1500);
+                      });
+                    }}
+                  >
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              <Tooltip title="Regenerate">
+                <IconButton
+                  size="small"
+                  onClick={handleSummariseDashboard}
+                  disabled={summaryLoading}
+                >
+                  <AutoAwesomeIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Close">
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    setSummaryOpen(false);
+                    summaryAbortRef.current?.abort();
+                  }}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+            {summaryLoading && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                <CircularProgress size={24} />
+              </Box>
+            )}
+            {!summaryLoading && summaryError && (
+              <Typography variant="body2" color="error">
+                {summaryError}
+              </Typography>
+            )}
+            {!summaryLoading && !summaryError && summaryResult && (
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                {summaryResult.text}
+              </Typography>
+            )}
+          </Drawer>
+
           <Tooltip
             title={
               chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip

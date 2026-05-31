@@ -4,11 +4,6 @@ import type { StudioFeatureFlags } from '@mui/x-studio';
 
 type NestedKindKey = 'kpi' | 'chart' | 'grid';
 
-/** Returns true if the widget kind is enabled (flag is not `false`). */
-function isKindEnabled(flags: StudioFeatureFlags, key: NestedKindKey): boolean {
-  return flags[key] !== false;
-}
-
 /** Reads a sub-flag from a nested widget-kind flag. Defaults to `true`. */
 function getSubFlag(flags: StudioFeatureFlags, parentKey: NestedKindKey, subKey: string): boolean {
   const parent = flags[parentKey];
@@ -54,7 +49,7 @@ const TOP_LEVEL_FLAGS: {
 }[] = [
   { key: 'compose', label: 'Compose panel' },
   { key: 'filters', label: 'Filters panel' },
-  { key: 'dateRangeBar', label: 'Date range bar' },
+  { key: 'quickFilter', label: 'Quick filter bar' },
   { key: 'savedFilterViews', label: 'Saved filter views', parentKey: 'filters' },
   { key: 'dataManagement', label: 'Data management drawer' },
   { key: 'relationships', label: 'Relationships panel', parentKey: 'dataManagement' },

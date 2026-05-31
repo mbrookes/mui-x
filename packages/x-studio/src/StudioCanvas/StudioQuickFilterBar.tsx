@@ -13,6 +13,7 @@ import {
 } from '../context';
 import type { StudioFilterState } from '../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
+import { useStudioFeatures } from '../internals/StudioUIConfigContext';
 
 /**
  * Compact row of chips pinned above the canvas showing active page filters.
@@ -28,10 +29,15 @@ export function StudioQuickFilterBar() {
   const dataSources = useStudioSelector(selectDataSources);
   const activePageId = useStudioSelector(selectActivePageId);
   const localeText = useStudioLocaleText();
+  const features = useStudioFeatures();
 
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f) =>
-      f.scope === 'page' && !f.isDashboardDateRange && (!f.pageId || f.pageId === activePageId),
+      f.scope === 'page' &&
+      // When the date range bar is disabled, still show dashboard date-range filters
+      // so they remain visible and clearable (avoids hidden active filters).
+      (!f.isDashboardDateRange || !features.dateRangeBar) &&
+      (!f.pageId || f.pageId === activePageId),
   );
 
   if (pageFilters.length === 0) {

@@ -175,6 +175,159 @@ export const STUDIO_AI_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'rename_page',
+      description: 'Renames an existing dashboard page.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pageId: { type: 'string', description: 'ID of the page to rename.' },
+          title: { type: 'string', description: 'New title for the page.' },
+        },
+        required: ['pageId', 'title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_page',
+      description:
+        'Removes a page and all widgets on it from the dashboard. This action requires user confirmation before executing.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pageId: { type: 'string', description: 'ID of the page to remove.' },
+          pageTitle: {
+            type: 'string',
+            description: 'Human-readable title, used in the confirmation message.',
+          },
+        },
+        required: ['pageId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_active_page',
+      description: 'Switches the visible (active) page of the dashboard.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pageId: { type: 'string', description: 'ID of the page to make active.' },
+        },
+        required: ['pageId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_page_filter',
+      description:
+        'Adds a filter condition scoped to the active page. All widgets on the page that use the specified data source will be filtered.',
+      parameters: {
+        type: 'object',
+        properties: {
+          field: {
+            type: 'string',
+            description: 'The field ID to filter on (from a data source in the dashboard state).',
+          },
+          sourceId: {
+            type: 'string',
+            description: 'The data source ID that owns this field.',
+          },
+          operator: {
+            type: 'string',
+            description:
+              'Filter operator. One of: equals, not_equals, in, not_in, contains, does_not_contain, starts_with, not_starts_with, ends_with, not_ends_with, is_empty, is_not_empty, greater_than, less_than, greater_than_or_equal, less_than_or_equal, between.',
+          },
+          value: {
+            description:
+              'Filter value. For "in"/"not_in" use an array. For "between" use an array of [min, max]. For "is_empty"/"is_not_empty" omit this field.',
+          },
+          fieldType: {
+            type: 'string',
+            description:
+              'Data type of the field: string, number, date, datetime, or boolean. Helps the UI render the correct filter input.',
+          },
+        },
+        required: ['field', 'sourceId', 'operator'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_page_filter',
+      description:
+        'Removes a page-scoped filter by its ID. The active filter IDs are listed in the dashboard state.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filterId: { type: 'string', description: 'ID of the filter to remove.' },
+        },
+        required: ['filterId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_widget_filter',
+      description:
+        'Adds a filter condition scoped to a specific widget. Only that widget is affected.',
+      parameters: {
+        type: 'object',
+        properties: {
+          widgetId: {
+            type: 'string',
+            description: 'ID of the widget to filter.',
+          },
+          field: {
+            type: 'string',
+            description: 'The field ID to filter on.',
+          },
+          sourceId: {
+            type: 'string',
+            description: 'The data source ID that owns this field.',
+          },
+          operator: {
+            type: 'string',
+            description:
+              'Filter operator. One of: equals, not_equals, in, not_in, contains, does_not_contain, starts_with, not_starts_with, ends_with, not_ends_with, is_empty, is_not_empty, greater_than, less_than, greater_than_or_equal, less_than_or_equal, between.',
+          },
+          value: {
+            description:
+              'Filter value. For "in"/"not_in" use an array. For "between" use an array of [min, max]. For "is_empty"/"is_not_empty" omit this field.',
+          },
+          fieldType: {
+            type: 'string',
+            description: 'Data type of the field: string, number, date, datetime, or boolean.',
+          },
+        },
+        required: ['widgetId', 'field', 'sourceId', 'operator'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_widget_filter',
+      description:
+        'Removes a widget-scoped filter by its ID. The active filter IDs are listed in the dashboard state.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filterId: { type: 'string', description: 'ID of the filter to remove.' },
+        },
+        required: ['filterId'],
+      },
+    },
+  },
 ] as const;
 
 export type StudioAIToolName =
@@ -185,4 +338,11 @@ export type StudioAIToolName =
   | 'update_widget'
   | 'remove_widget'
   | 'set_widget_layout'
-  | 'set_widget_width';
+  | 'set_widget_width'
+  | 'rename_page'
+  | 'remove_page'
+  | 'set_active_page'
+  | 'add_page_filter'
+  | 'remove_page_filter'
+  | 'add_widget_filter'
+  | 'remove_widget_filter';

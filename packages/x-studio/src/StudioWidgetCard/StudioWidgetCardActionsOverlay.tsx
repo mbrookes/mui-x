@@ -24,6 +24,11 @@ export interface StudioWidgetCardActionsOverlayProps {
   moveToPageOptions: Array<{ id: string; title: string }>;
   /** Called when the "AI assistant" button is clicked. When omitted, the button is hidden. */
   onAiRequest?: () => void;
+  /**
+   * Called when the user selects an AI insight type. When provided, an AI Insight
+   * button appears in the overlay (visible in both edit and view modes when `aiConfig` is set).
+   */
+  onInsightRequest?: (type: 'summary' | 'analysis' | 'forecast') => void;
   onExport: (event: React.MouseEvent) => void;
   onExpand: () => void;
   onEdit: () => void;
@@ -46,6 +51,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
     overlayTopSx,
     moveToPageOptions,
     onAiRequest,
+    onInsightRequest,
     onExport,
     onExpand,
     onEdit,
@@ -55,6 +61,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
   } = props;
 
   const [moveMenuAnchor, setMoveMenuAnchor] = React.useState<HTMLElement | null>(null);
+  const [insightMenuAnchor, setInsightMenuAnchor] = React.useState<HTMLElement | null>(null);
   const localeText = useStudioLocaleText();
 
   if (mode === 'edit') {
@@ -124,6 +131,44 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               <AutoAwesomeIcon />
             </IconButton>
           </Tooltip>
+        )}
+        {onInsightRequest && (
+          <React.Fragment>
+            <Tooltip title="AI insight">
+              <IconButton
+                size="small"
+                sx={actionButtonSx}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setInsightMenuAnchor(event.currentTarget);
+                }}
+                aria-label="AI insight"
+                tabIndex={showEditActions ? 0 : -1}
+              >
+                <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={insightMenuAnchor}
+              open={Boolean(insightMenuAnchor)}
+              onClose={() => setInsightMenuAnchor(null)}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {(['summary', 'analysis', 'forecast'] as const).map((type) => (
+                <MenuItem
+                  key={type}
+                  dense
+                  sx={{ textTransform: 'capitalize' }}
+                  onClick={() => {
+                    onInsightRequest(type);
+                    setInsightMenuAnchor(null);
+                  }}
+                >
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </MenuItem>
+              ))}
+            </Menu>
+          </React.Fragment>
         )}
         <Tooltip title={localeText.widgetEditTooltip}>
           <IconButton
@@ -208,7 +253,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
     );
   }
 
-  if (mode === 'view' && (canExport || isChart)) {
+  if (mode === 'view' && (canExport || isChart || onInsightRequest)) {
     return (
       <Stack
         data-widget-overlay
@@ -223,8 +268,10 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           borderColor: 'divider',
           borderRadius: 1,
           boxShadow: '0 2px 6px rgba(0,0,0,0.10)',
-          visibility: showViewExport || showViewExpand ? 'visible' : 'hidden',
-          pointerEvents: showViewExport || showViewExpand ? 'auto' : 'none',
+          visibility:
+            showViewExport || showViewExpand || Boolean(onInsightRequest) ? 'visible' : 'hidden',
+          pointerEvents:
+            showViewExport || showViewExpand || Boolean(onInsightRequest) ? 'auto' : 'none',
         }}
       >
         {canExport && (
@@ -255,6 +302,43 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               <OpenInFullIcon />
             </IconButton>
           </Tooltip>
+        )}
+        {onInsightRequest && (
+          <React.Fragment>
+            <Tooltip title="AI insight">
+              <IconButton
+                size="small"
+                sx={actionButtonSx}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setInsightMenuAnchor(event.currentTarget);
+                }}
+                aria-label="AI insight"
+              >
+                <AutoAwesomeIcon />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={insightMenuAnchor}
+              open={Boolean(insightMenuAnchor)}
+              onClose={() => setInsightMenuAnchor(null)}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {(['summary', 'analysis', 'forecast'] as const).map((type) => (
+                <MenuItem
+                  key={type}
+                  dense
+                  sx={{ textTransform: 'capitalize' }}
+                  onClick={() => {
+                    onInsightRequest(type);
+                    setInsightMenuAnchor(null);
+                  }}
+                >
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </MenuItem>
+              ))}
+            </Menu>
+          </React.Fragment>
         )}
       </Stack>
     );

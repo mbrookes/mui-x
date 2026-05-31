@@ -15,6 +15,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import type { SxProps, Theme } from '@mui/material/styles';
 import { useStudioSelector, selectDataSources, selectExpressionFields, selectRelationships, selectMode, useStudioLocaleText } from '../context';
 import { DataSourceSection } from './DataSourceSection';
 import { RelationshipPanel } from './RelationshipPanel';
@@ -24,7 +25,15 @@ import { useStudioFeatures } from '../internals/StudioUIConfigContext';
 
 // ─── Drawer ───────────────────────────────────────────────────────────────────
 
-export function StudioDataDrawer() {
+export interface StudioDataDrawerProps {
+  /**
+   * System prop that allows defining system overrides and additional CSS styles applied to the
+   * root element. Accepts valid CSS properties and MUI system values.
+   */
+  sx?: SxProps<Theme>;
+}
+
+export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const relationships = useStudioSelector(selectRelationships);
@@ -44,7 +53,7 @@ export function StudioDataDrawer() {
 
   if (sourceList.length === 0) {
     return (
-      <Alert severity="info" sx={{ mt: 1 }}>
+      <Alert severity="info" sx={[{ mt: 1 }, ...(Array.isArray(sx) ? sx : [sx])]}>
         {localeText.dataDrawerNoSources}
       </Alert>
     );
@@ -53,7 +62,7 @@ export function StudioDataDrawer() {
   const selectedSource = lineageSourceId ? dataSources[lineageSourceId] : null;
 
   return (
-    <Stack spacing={0}>
+    <Stack spacing={0} sx={sx}>
       {sourceList.map((source) => (
         <DataSourceSection
           key={source.id}

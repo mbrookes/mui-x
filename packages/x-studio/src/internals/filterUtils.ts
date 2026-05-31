@@ -276,12 +276,13 @@ function compileSingleCondition(
     case 'greater_than': {
       const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'date' || fieldType === 'datetime') {
-        // Row values are already normalized ISO strings from normalizeDataSourceRows.
-        // Direct string comparison is correct (ISO sorts lexicographically) and avoids
-        // new Date() per row.
+        // Use toComparable on row values so numeric timestamps (e.g. from columnar data
+        // sources) are normalized to ISO strings before comparison. toComparable has a
+        // fast path for already-canonical ISO strings so there is no perf regression
+        // when rows have been pre-normalized by normalizeDataSourceRows.
         return (row) => {
           const rv = row[field];
-          return rv != null && String(rv) > cmpVal;
+          return rv != null && toComparable(rv, fieldType) > cmpVal;
         };
       }
       if (fieldType === 'number') {
@@ -295,7 +296,7 @@ function compileSingleCondition(
       if (fieldType === 'date' || fieldType === 'datetime') {
         return (row) => {
           const rv = row[field];
-          return rv != null && String(rv) < cmpVal;
+          return rv != null && toComparable(rv, fieldType) < cmpVal;
         };
       }
       if (fieldType === 'number') {
@@ -309,7 +310,7 @@ function compileSingleCondition(
       if (fieldType === 'date' || fieldType === 'datetime') {
         return (row) => {
           const rv = row[field];
-          return rv != null && String(rv) >= cmpVal;
+          return rv != null && toComparable(rv, fieldType) >= cmpVal;
         };
       }
       if (fieldType === 'number') {
@@ -323,7 +324,7 @@ function compileSingleCondition(
       if (fieldType === 'date' || fieldType === 'datetime') {
         return (row) => {
           const rv = row[field];
-          return rv != null && String(rv) <= cmpVal;
+          return rv != null && toComparable(rv, fieldType) <= cmpVal;
         };
       }
       if (fieldType === 'number') {
@@ -345,7 +346,7 @@ function compileSingleCondition(
           if (rv == null) {
             return false;
           }
-          const s = String(rv);
+          const s = toComparable(rv, fieldType);
           if (from !== null && s < from) {
             return false;
           }

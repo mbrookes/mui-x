@@ -259,6 +259,7 @@ AG Studio exposes `getState()`/`setState()` and similarly leaves file I/O to the
 | Per-page background colour                    | ✅                                            | ✅                                 |
 | Per-page card colour, padding, radius, border | ✅                                            | ❌                                 |
 | Slot props (deep sub-component customisation) | ✅                                            | ❌                                 |
+| `sx` prop on composable components            | ✅ (`StudioCanvas`, `StudioChatPanel`, etc.)  | ❌                                 |
 | Custom sidebar layout                         | ✅ (stacked / tabbed; left / right)           | ✅ (left/right panel config)       |
 | Headless composition                          | ✅                                            | ❌                                 |
 | Custom widget API                             | ❌                                            | ✅                                 |

@@ -268,10 +268,11 @@ for full documentation.
 ## StudioCanvas
 
 `StudioCanvas` renders the scrollable grid of widget cards.
-It accepts `slotProps.widgetCard` to customize every card on the canvas:
+It accepts an `sx` prop for layout overrides and `slotProps.widgetCard` to customize every card on the canvas:
 
 ```tsx
 <StudioCanvas
+  sx={{ minWidth: 480, minHeight: '100%' }}
   slotProps={{
     widgetCard: {
       slotProps: {

@@ -96,6 +96,13 @@ export interface StudioWidgetCardProps {
    * @param {string} widgetId The ID of the widget to edit.
    */
   onEditRequest?: (widgetId: string) => void;
+  /**
+   * Called when the user clicks the "AI assistant" action on a widget card.
+   * When provided, an AI icon button appears in the widget's action overlay.
+   * When omitted, the AI button is not shown.
+   * @param {string} widgetId The ID of the widget to assist with.
+   */
+  onAiRequest?: (widgetId: string) => void;
 }
 
 // Module-level set survives component unmount/remount (e.g. drag-and-drop repositioning).
@@ -161,7 +168,7 @@ function DefaultLoadingOverlay() {
 
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
-  const { widgetId, isFirstRow = false, pageTheme, slots, slotProps, onUnconfiguredClick, onEditRequest } = props;
+  const { widgetId, isFirstRow = false, pageTheme, slots, slotProps, onUnconfiguredClick, onEditRequest, onAiRequest } = props;
   const controller = useStudioController();
   // Create stable selector functions scoped to this widgetId.
   // Using React.useMemo ensures the selector identity is preserved across renders
@@ -472,6 +479,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           showViewExpand={showViewExpand}
           overlayTopSx={overlayTopSx}
           moveToPageOptions={moveToPageOptions}
+          onAiRequest={onAiRequest ? () => onAiRequest(widgetId) : undefined}
           onExport={handleExport}
           onExpand={() => setExpanded(true)}
           onEdit={handleEditClick}

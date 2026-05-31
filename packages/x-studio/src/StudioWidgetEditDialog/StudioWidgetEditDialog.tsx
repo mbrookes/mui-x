@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Box, Dialog, DialogTitle, IconButton, Stack, Tab, Tabs, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioSelector, selectWidgets } from '../context';
+import { useStudioSelector, selectWidgets, makeSelectWidgetSource, useCustomWidgetMap } from '../context';
 import { useStudioFeatures } from '../internals/StudioUIConfigContext';
 import { KIND_LABEL } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
 import { ChartSetupPanel } from '../StudioComposeDrawer/ChartSetupPanel';
@@ -15,6 +15,15 @@ import { PivotSetupPanel } from '../StudioComposeDrawer/PivotSetupPanel';
 import { TextFormatPanel } from '../StudioComposeDrawer/TextFormatPanel';
 import { TextSetupPanel } from '../StudioComposeDrawer/TextSetupPanel';
 import { WidgetFiltersPanel } from './WidgetFiltersPanel';
+import { StudioGridWidget } from '../StudioGridWidget';
+import { StudioChartWidget, CHART_MIN_HEIGHT } from '../StudioChartWidget';
+import { StudioKpiWidget } from '../StudioKpiWidget';
+import { StudioTextWidget } from '../StudioTextWidget';
+import { StudioFilterWidget } from '../StudioFilterWidget';
+import { StudioPivotWidget } from '../StudioPivotWidget/StudioPivotWidget';
+import { StudioMapWidget } from '../StudioMapWidget';
+
+const MAP_WIDGET_DEFAULT_HEIGHT = 400;
 
 // ── Tab panel ─────────────────────────────────────────────────────────────────
 
@@ -31,14 +40,51 @@ function TabPanel(props: { children: React.ReactNode; value: number; index: numb
   );
 }
 
+// ── Built-in widget preview ───────────────────────────────────────────────────
+
+function BuiltinWidgetPreview({ widgetId }: { widgetId: string }) {
+  const widgets = useStudioSelector(selectWidgets);
+  const widget = widgets[widgetId];
+  const selectSource = React.useMemo(() => makeSelectWidgetSource(widgetId), [widgetId]);
+  const source = useStudioSelector(selectSource);
+  const customWidgetMap = useCustomWidgetMap();
+  const customDef = widget ? (customWidgetMap.get(widget.kind) ?? null) : null;
+
+  if (!widget) {
+    return null;
+  }
+
+  return (
+    <React.Fragment>
+      {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
+      {widget.kind === 'chart' && (
+        <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} />
+      )}
+      {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
+      {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
+      {widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
+      {widget.kind === 'pivot' && <StudioPivotWidget widget={widget} dataSource={source} />}
+      {widget.kind === 'map' && (
+        <Box sx={{ height: MAP_WIDGET_DEFAULT_HEIGHT }}>
+          {source && <StudioMapWidget widget={widget} dataSource={source} />}
+        </Box>
+      )}
+      {customDef && <customDef.component widget={widget} dataSource={source ?? undefined} />}
+    </React.Fragment>
+  );
+}
+
 // ── Main dialog ───────────────────────────────────────────────────────────────
 
 export interface StudioWidgetEditDialogProps {
   open: boolean;
   onClose: () => void;
   widgetId: string;
-  /** The live-rendered widget content to show in the preview panel. */
-  children: React.ReactNode;
+  /**
+   * The live-rendered widget content to show in the preview panel.
+   * When omitted, the dialog renders the widget automatically based on its kind.
+   */
+  children?: React.ReactNode;
 }
 
 export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
@@ -112,7 +158,9 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
         </Stack>
 
         {/* Live widget */}
-        <Box sx={{ flex: 1, overflow: 'hidden', p: 2 }}>{children}</Box>
+        <Box sx={{ flex: 1, overflow: 'hidden', p: 2 }}>
+          {children ?? <BuiltinWidgetPreview widgetId={widgetId} />}
+        </Box>
       </Box>
 
       {/* ── Right: config panel ─────────────────────────────────────────── */}

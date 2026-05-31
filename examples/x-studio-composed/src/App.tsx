@@ -729,7 +729,7 @@ export default function App() {
     severity: 'success' | 'error' | 'info';
   }>({ open: false, message: '', severity: 'info' });
 
-  const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({});
+  const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({ quickFilter: false });
   const [locale, setLocale] = React.useState<SupportedLocale>('en');
   const localeBundle = LOCALE_BUNDLES[locale];
 

@@ -178,17 +178,17 @@ export function StudioDateRangeBar() {
       <CalendarMonthIcon fontSize="small" color="action" sx={{ flexShrink: 0 }} />
 
       <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
-        Date range
+        {localeText.dateRangeBarFieldLabel}
       </Typography>
 
       {/* Field selector */}
       <FormControl size="small" sx={{ minWidth: 160 }}>
         <InputLabel id="date-range-field-label" sx={{ fontSize: '0.8rem' }}>
-          Field
+          {localeText.filterFieldLabel}
         </InputLabel>
         <Select
           labelId="date-range-field-label"
-          label="Field"
+          label={localeText.filterFieldLabel}
           value={effectiveFieldKey}
           onChange={(event) => handleFieldChange(event.target.value)}
           sx={{ fontSize: '0.8rem' }}

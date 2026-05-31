@@ -137,9 +137,9 @@ export interface StudioFeatureFlags {
    * This top-of-canvas bar provides quick date presets and active filter pills.
    * Set to `false` to hide the bar entirely (useful in composed layouts where
    * a custom filter toolbar is provided).
-   * @default true
+   * @default false
    */
-  dateRangeBar?: boolean;
+  quickFilter?: boolean;
   /**
    * Allow saving and loading named filter presets ("Saved Views") in the filters panel.
    * @default true

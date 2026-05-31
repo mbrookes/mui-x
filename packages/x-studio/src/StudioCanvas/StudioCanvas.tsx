@@ -795,7 +795,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         }}
       >
         {/* Date range bar — shown in both modes when the page has date/datetime fields */}
-        {features.dateRangeBar && <StudioDateRangeBar />}
+        {features.quickFilter && <StudioDateRangeBar />}
 
         {/* Quick filter bar — view mode only, shown when page filters are active */}
         {mode !== 'edit' && <StudioQuickFilterBar />}

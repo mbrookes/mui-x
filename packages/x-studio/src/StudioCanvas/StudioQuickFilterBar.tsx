@@ -122,7 +122,7 @@ export function StudioQuickFilterBar() {
         color="text.secondary"
         sx={{ ml: pageFilters.length > 1 ? 0 : 'auto' }}
       >
-        Filtered
+        {localeText.quickFilterBarFiltered}
       </Typography>
     </Box>
   );

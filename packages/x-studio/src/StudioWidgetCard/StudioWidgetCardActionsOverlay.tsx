@@ -23,7 +23,7 @@ export interface StudioWidgetCardActionsOverlayProps {
   overlayTopSx: SxProps;
   /** Pages the widget can be moved to (excludes the current page). */
   moveToPageOptions: Array<{ id: string; title: string }>;
-  /** Called when the "AI assistant" button is clicked. When omitted, the button is hidden. */
+  /** Called when the {localeText.widgetAiAssistantTooltip} button is clicked. When omitted, the button is hidden. */
   onAiRequest?: () => void;
   /**
    * Called when the user selects an AI insight type. When provided, an AI Insight
@@ -116,7 +116,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           </Tooltip>
         )}
         {isChart && (
-          <Tooltip title="Expand chart">
+          <Tooltip title={localeText.widgetExpandTooltip}>
             <IconButton
               size="small"
               sx={actionButtonSx}
@@ -132,7 +132,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           </Tooltip>
         )}
         {onAiRequest && (
-          <Tooltip title="AI assistant">
+          <Tooltip title={localeText.widgetAiAssistantTooltip}>
             <IconButton
               size="small"
               sx={actionButtonSx}
@@ -140,7 +140,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 event.stopPropagation();
                 onAiRequest();
               }}
-              aria-label="AI assistant"
+              aria-label={localeText.widgetAiAssistantTooltip}
               tabIndex={showEditActions ? 0 : -1}
             >
               <AutoAwesomeIcon />
@@ -149,7 +149,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
         )}
         {onInsightRequest && (
           <React.Fragment>
-            <Tooltip title="AI insight">
+            <Tooltip title={localeText.widgetAiInsightTooltip}>
               <IconButton
                 size="small"
                 sx={actionButtonSx}
@@ -157,7 +157,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                   event.stopPropagation();
                   setInsightMenuAnchor(event.currentTarget);
                 }}
-                aria-label="AI insight"
+                aria-label={localeText.widgetAiInsightTooltip}
                 tabIndex={showEditActions ? 0 : -1}
               >
                 <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
@@ -186,7 +186,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           </React.Fragment>
         )}
         {isChart && onAnomalyToggle && (
-          <Tooltip title={anomalyEnabled ? 'Hide anomalies' : 'Detect anomalies'}>
+          <Tooltip title={anomalyEnabled ? localeText.widgetHideAnomalyTooltip : localeText.widgetDetectAnomalyTooltip}>
             <IconButton
               size="small"
               sx={{
@@ -197,7 +197,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 event.stopPropagation();
                 onAnomalyToggle();
               }}
-              aria-label={anomalyEnabled ? 'Hide anomalies' : 'Detect anomalies'}
+              aria-label={anomalyEnabled ? localeText.widgetHideAnomalyTooltip : localeText.widgetDetectAnomalyTooltip}
               tabIndex={showEditActions ? 0 : -1}
             >
               <Badge
@@ -211,7 +211,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           </Tooltip>
         )}
         {anomalyEnabled && onAnomalyExplain && (
-          <Tooltip title="Explain anomalies">
+          <Tooltip title={localeText.widgetExplainAnomalyTooltip}>
             <IconButton
               size="small"
               sx={{ ...actionButtonSx }}
@@ -219,7 +219,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 event.stopPropagation();
                 onAnomalyExplain();
               }}
-              aria-label="Explain anomalies"
+              aria-label={localeText.widgetExplainAnomalyTooltip}
               tabIndex={showEditActions ? 0 : -1}
             >
               <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
@@ -240,7 +240,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
             <EditIcon />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Duplicate widget">
+        <Tooltip title={localeText.widgetDuplicateTooltip}>
           <IconButton
             size="small"
             sx={actionButtonSx}
@@ -248,7 +248,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               event.stopPropagation();
               onDuplicate();
             }}
-            aria-label="Duplicate widget"
+            aria-label={localeText.widgetDuplicateTooltip}
             tabIndex={showEditActions ? 0 : -1}
           >
             <ContentCopyIcon />
@@ -291,7 +291,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
             </Menu>
           </React.Fragment>
         )}
-        <Tooltip title="Delete widget">
+        <Tooltip title={localeText.widgetDeleteTooltip}>
           <IconButton
             size="small"
             sx={actionButtonSx}
@@ -299,7 +299,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               event.stopPropagation();
               onDelete();
             }}
-            aria-label="Delete widget"
+            aria-label={localeText.widgetDeleteTooltip}
             tabIndex={showEditActions ? 0 : -1}
           >
             <CloseIcon />
@@ -354,7 +354,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           </Tooltip>
         )}
         {isChart && (
-          <Tooltip title="Expand chart">
+          <Tooltip title={localeText.widgetExpandTooltip}>
             <IconButton
               size="small"
               sx={actionButtonSx}
@@ -371,7 +371,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
         )}
         {onInsightRequest && (
           <React.Fragment>
-            <Tooltip title="AI insight">
+            <Tooltip title={localeText.widgetAiInsightTooltip}>
               <IconButton
                 size="small"
                 sx={actionButtonSx}
@@ -379,7 +379,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                   event.stopPropagation();
                   setInsightMenuAnchor(event.currentTarget);
                 }}
-                aria-label="AI insight"
+                aria-label={localeText.widgetAiInsightTooltip}
               >
                 <AutoAwesomeIcon />
               </IconButton>
@@ -407,7 +407,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           </React.Fragment>
         )}
         {isChart && onAnomalyToggle && (
-          <Tooltip title={anomalyEnabled ? 'Hide anomalies' : 'Detect anomalies'}>
+          <Tooltip title={anomalyEnabled ? localeText.widgetHideAnomalyTooltip : localeText.widgetDetectAnomalyTooltip}>
             <IconButton
               size="small"
               sx={{
@@ -418,7 +418,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 event.stopPropagation();
                 onAnomalyToggle();
               }}
-              aria-label={anomalyEnabled ? 'Hide anomalies' : 'Detect anomalies'}
+              aria-label={anomalyEnabled ? localeText.widgetHideAnomalyTooltip : localeText.widgetDetectAnomalyTooltip}
             >
               <Badge
                 badgeContent={anomalyEnabled && anomalyCount ? anomalyCount : 0}
@@ -431,7 +431,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           </Tooltip>
         )}
         {anomalyEnabled && onAnomalyExplain && (
-          <Tooltip title="Explain anomalies">
+          <Tooltip title={localeText.widgetExplainAnomalyTooltip}>
             <IconButton
               size="small"
               sx={actionButtonSx}
@@ -439,7 +439,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 event.stopPropagation();
                 onAnomalyExplain();
               }}
-              aria-label="Explain anomalies"
+              aria-label={localeText.widgetExplainAnomalyTooltip}
             >
               <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
             </IconButton>

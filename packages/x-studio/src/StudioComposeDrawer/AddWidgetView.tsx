@@ -24,6 +24,7 @@ import {
   selectActivePage,
   selectWidgets,
   selectDataSources,
+  useStudioLocaleText,
 } from '../context';
 import {
   createDefaultWidget,
@@ -32,12 +33,8 @@ import {
   getWidgetSubtypeIcon,
 } from '../internals/widgetUtils';
 import type { StudioWidget, StudioWidgetKind } from '../models';
-import { KIND_LABEL } from './StudioComposeDrawerLabels';
-import {
-  useStudioUIConfig,
-  useStudioLocaleText,
-  useStudioFeatures,
-} from '../internals/StudioUIConfigContext';
+import { useWidgetKindLabels } from './StudioComposeDrawerLabels';
+import { useStudioUIConfig, useStudioFeatures } from '../internals/StudioUIConfigContext';
 import { createWidgetFromDescription } from '../StudioChatPanel/createWidgetFromDescription';
 
 function getCursor(isDragging: boolean) {
@@ -155,7 +152,7 @@ function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) {
                 setPrompt('');
               }}
             >
-              Cancel
+              {localeText.composeCancel}
             </Button>
           </Stack>
           {status === 'error' && (
@@ -284,6 +281,8 @@ interface WidgetInstanceItemProps {
 }
 
 function WidgetInstanceItem({ widget, isSelected, onSelect }: WidgetInstanceItemProps) {
+  const widgetKindLabels = useWidgetKindLabels();
+
   return (
     <Paper
       variant="outlined"
@@ -317,7 +316,7 @@ function WidgetInstanceItem({ widget, isSelected, onSelect }: WidgetInstanceItem
       </Box>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
         <Typography variant="body2" noWrap>
-          {widget.title || KIND_LABEL[widget.kind]}
+          {widget.title || widgetKindLabels[widget.kind]}
         </Typography>
         {widget.subtitle && (
           <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
@@ -336,6 +335,7 @@ interface WidgetInstanceListProps {
 }
 
 function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
+  const localeText = useStudioLocaleText();
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);
   const selectedWidgetId = shell.selectedWidgetId;
@@ -355,7 +355,7 @@ function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
   return (
     <Stack spacing={1.5}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <IconButton size="small" onClick={onBack} aria-label="Back to widget types">
+        <IconButton size="small" onClick={onBack} aria-label={localeText.composeBackToWidgetTypesAriaLabel}>
           <ArrowBackIcon fontSize="small" />
         </IconButton>
         <Box sx={{ color: 'primary.main', display: 'flex' }}>{wt.icon}</Box>
@@ -367,7 +367,7 @@ function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
       {widgetsOfKind.length > 0 && (
         <Stack spacing={0.75}>
           <Typography variant="caption" color="text.secondary">
-            On this page
+            {localeText.composeOnThisPage}
           </Typography>
           {widgetsOfKind.map((widget) => (
             <WidgetInstanceItem
@@ -387,7 +387,7 @@ function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
         onClick={() => onAdd(kind)}
         fullWidth
       >
-        Add {wt.label} widget
+        {localeText.composeAddWidgetLabel(wt.label)}
       </Button>
     </Stack>
   );
@@ -424,6 +424,7 @@ export function AddWidgetView() {
   const controller = useStudioController();
   const dataSources = useStudioSelector(selectDataSources);
   const features = useStudioFeatures();
+  const localeText = useStudioLocaleText();
   const canvasScrollRef = React.use(CanvasScrollContext);
   const customWidgetMap = useCustomWidgetMap();
   const [selectedKind, setSelectedKind] = React.useState<StudioWidgetKind | null>(null);
@@ -520,11 +521,11 @@ export function AddWidgetView() {
     <Stack spacing={1.5}>
       <DescribeWidgetSection onCreated={scrollToBottom} />
       <Typography variant="caption" color="text.secondary">
-        Choose a widget type
+        {localeText.composeChooseWidgetType}
       </Typography>
       {!hasSources && (
         <Alert severity="warning" sx={{ fontSize: 12 }}>
-          No data sources available yet. Only text widgets can be added until one is connected.
+          {localeText.composeNoDataSources}
         </Alert>
       )}
       {allWidgetTypes.map((wt) => {

@@ -4,6 +4,7 @@ import { Box, Collapse, IconButton, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { useStudioLocaleText } from '../context';
 
 export interface FilterCardProps {
   /** Primary label shown in the card header (field name or "Rank by Revenue"). */
@@ -32,6 +33,7 @@ export function FilterCard({
   initialExpanded = false,
 }: FilterCardProps) {
   const [expanded, setExpanded] = React.useState(initialExpanded);
+  const localeText = useStudioLocaleText();
 
   return (
     <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
@@ -69,7 +71,7 @@ export function FilterCard({
             event.stopPropagation();
             onRemove();
           }}
-          aria-label="Remove filter"
+          aria-label={localeText.filterRemoveAriaLabel}
           sx={{ flexShrink: 0 }}
         >
           <CloseIcon fontSize="small" />

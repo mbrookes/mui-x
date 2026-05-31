@@ -10,38 +10,41 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import {
-  useStudioController,
-  useStudioSelector,
-  selectWidgets,
-  selectDataSources,
-} from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, useStudioLocaleText } from '../context';
 import type { StudioFilterWidgetType } from '../models';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
-const FILTER_WIDGET_TYPES: { value: StudioFilterWidgetType; label: string; description: string }[] =
-  [
-    {
-      value: 'multi-select',
-      label: 'Multi-select',
-      description: 'Dropdown with checkboxes for categorical values',
-    },
-    {
-      value: 'toggle',
-      label: 'Toggle chips',
-      description: 'Chip buttons for low-cardinality categories',
-    },
-    { value: 'date-range', label: 'Date range', description: 'From / to date pickers' },
-    { value: 'slider', label: 'Slider', description: 'Range slider for numeric or date fields' },
-  ];
 
 export function FilterSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const widget = useStudioSelector(selectWidgets)[widgetId];
   const dataSources = useStudioSelector(selectDataSources);
+  const localeText = useStudioLocaleText();
 
   const config = widget?.config ?? {};
+  const filterWidgetTypes: { value: StudioFilterWidgetType; label: string; description: string }[] = [
+    {
+      value: 'multi-select',
+      label: localeText.filterSetupMultiSelect,
+      description: localeText.filterSetupMultiSelectDescription,
+    },
+    {
+      value: 'toggle',
+      label: localeText.filterSetupToggleChips,
+      description: localeText.filterSetupToggleChipsDescription,
+    },
+    {
+      value: 'date-range',
+      label: localeText.filterSetupDateRange,
+      description: localeText.filterSetupDateRangeDescription,
+    },
+    {
+      value: 'slider',
+      label: localeText.filterSetupSlider,
+      description: localeText.filterSetupSliderDescription,
+    },
+  ];
 
   const filterType: StudioFilterWidgetType = config.filterWidgetType ?? 'multi-select';
   const fieldId = config.filterWidgetField ?? '';
@@ -106,10 +109,10 @@ export function FilterSetupPanel(props: { widgetId: string }) {
         <InputLabel>Control type</InputLabel>
         <Select
           value={filterType}
-          label="Control type"
+          label={localeText.filterSetupControlTypeLabel}
           onChange={(evt) => handleTypeChange(evt.target.value as StudioFilterWidgetType)}
         >
-          {FILTER_WIDGET_TYPES.map((opt) => (
+          {filterWidgetTypes.map((opt) => (
             <MenuItem key={opt.value} value={opt.value}>
               <div>
                 <Typography variant="body2">{opt.label}</Typography>
@@ -141,7 +144,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
           <Stack direction="row" spacing={1}>
             <TextField
               size="small"
-              label="Min"
+              label={localeText.filterSetupMinLabel}
               type="number"
               value={config.filterWidgetMin ?? ''}
               onChange={(evt) =>
@@ -153,7 +156,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
             />
             <TextField
               size="small"
-              label="Max"
+              label={localeText.filterSetupMaxLabel}
               type="number"
               value={config.filterWidgetMax ?? ''}
               onChange={(evt) =>
@@ -165,7 +168,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
             />
             <TextField
               size="small"
-              label="Step"
+              label={localeText.filterSetupStepLabel}
               type="number"
               value={config.filterWidgetStep ?? ''}
               onChange={(evt) =>
@@ -179,7 +182,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
         </Stack>
       )}
 
-      {!fieldId && <Alert severity="info">Select a field to configure the filter control.</Alert>}
+      {!fieldId && <Alert severity="info">{localeText.filterSetupSelectFieldAlert}</Alert>}
     </Stack>
   );
 }

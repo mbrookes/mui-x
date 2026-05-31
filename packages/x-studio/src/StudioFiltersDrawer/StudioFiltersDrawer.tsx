@@ -15,6 +15,7 @@ import {
 } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
+import EditIcon from '@mui/icons-material/Edit';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import SearchIcon from '@mui/icons-material/Search';
@@ -60,6 +61,27 @@ export function StudioFiltersDrawer() {
 
   const [savingPreset, setSavingPreset] = React.useState(false);
   const [presetName, setPresetName] = React.useState('');
+
+  const [renamingPresetId, setRenamingPresetId] = React.useState<string | null>(null);
+  const [renameValue, setRenameValue] = React.useState('');
+
+  const handleRenameStart = (presetId: string, currentName: string) => {
+    setRenamingPresetId(presetId);
+    setRenameValue(currentName);
+  };
+
+  const handleRenameConfirm = () => {
+    if (renamingPresetId && renameValue.trim()) {
+      controller.renameFilterPreset(renamingPresetId, renameValue.trim());
+    }
+    setRenamingPresetId(null);
+    setRenameValue('');
+  };
+
+  const handleRenameCancel = () => {
+    setRenamingPresetId(null);
+    setRenameValue('');
+  };
 
   const allFields = React.useMemo(() => {
     const fieldMap = new Map<string, SimpleField>();
@@ -352,14 +374,42 @@ export function StudioFiltersDrawer() {
             <Stack spacing={0.5}>
               {filterPresets.map((preset) => (
                 <Stack key={preset.id} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                  <Chip
-                    icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
-                    label={preset.name}
-                    size="small"
-                    clickable
-                    onClick={() => controller.applyFilterPreset(preset.id)}
-                    sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
-                  />
+                  {renamingPresetId === preset.id ? (
+                    <TextField
+                      size="small"
+                      value={renameValue}
+                      autoFocus
+                      sx={{ flexGrow: 1 }}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleRenameConfirm();
+                        } else if (e.key === 'Escape') {
+                          handleRenameCancel();
+                        }
+                      }}
+                      onBlur={handleRenameConfirm}
+                      slotProps={{ input: { 'aria-label': 'Rename saved view' } }}
+                    />
+                  ) : (
+                    <Chip
+                      icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
+                      label={preset.name}
+                      size="small"
+                      clickable
+                      onClick={() => controller.applyFilterPreset(preset.id)}
+                      sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
+                    />
+                  )}
+                  <Tooltip title="Rename view">
+                    <IconButton
+                      size="small"
+                      onClick={() => handleRenameStart(preset.id, preset.name)}
+                      aria-label={`Rename view "${preset.name}"`}
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                   <Tooltip title={localeText.filtersDeleteViewTooltip}>
                     <IconButton
                       size="small"

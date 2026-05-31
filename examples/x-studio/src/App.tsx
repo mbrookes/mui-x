@@ -28,6 +28,7 @@ import type {
   SerializedStudioState,
 } from '@mui/x-studio';
 import NotificationsIcon from '@mui/icons-material/Notifications';
+import { downloadJson, uploadJson } from 'x-studio-shared';
 import { INITIAL_STATE } from './config/salesDashboard';
 import { OS_INITIAL_STATE } from './config/officeSuppliesDashboard';
 import { loadOfficeSuppliesData } from './officeSuppliesData';
@@ -37,7 +38,6 @@ import { SettingsDialog } from './components/SettingsDialog';
 import type { SidebarLayout, SidebarSide, TableSourceMode } from './components/SettingsDialog';
 import { AlertBannerWidget } from './components/AlertBannerWidget';
 import { AlertBannerSetupPanel } from './components/AlertBannerSetupPanel';
-import { downloadJson, uploadJson } from 'x-studio-shared';
 import { theme } from './theme';
 import { generateSalesData } from './salesData/generator';
 import { createAdapter } from './simulatedServer';
@@ -162,9 +162,13 @@ function setUrlPageId(pageId: string, pages: Record<string, StudioPage> | undefi
 
 const LOCAL_STORAGE_KEY = 'x-studio-state';
 
-function readLocalState(): SerializedStudioState | null {
+function getLocalStorageKey(dataset: 'sales' | 'ag-studio') {
+  return `${LOCAL_STORAGE_KEY}-${dataset}`;
+}
+
+function readLocalState(dataset: 'sales' | 'ag-studio'): SerializedStudioState | null {
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const raw = localStorage.getItem(getLocalStorageKey(dataset));
     if (!raw) {
       return null;
     }
@@ -175,20 +179,13 @@ function readLocalState(): SerializedStudioState | null {
   }
 }
 
-function clearLocalState(): void {
-  try {
-    localStorage.removeItem(LOCAL_STORAGE_KEY);
-  } catch {
-    // ignore
-  }
-}
-
 export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);
 
   // Compute URL params once — stable across renders.
   const rowCount = React.useMemo(() => getUrlRowsParam(), []);
   const dataset = React.useMemo(() => getUrlDatasetParam(), []);
+  const localStorageKeyRef = React.useRef(getLocalStorageKey(dataset));
   const urlPageId = React.useMemo(
     () =>
       resolvePageIdFromQuery(
@@ -229,7 +226,7 @@ export default function App() {
     const baseConfig = dataset === 'ag-studio' && osData ? OS_INITIAL_STATE : INITIAL_STATE;
 
     // Restore from localStorage if available, merging with the live data sources.
-    const saved = readLocalState();
+    const saved = readLocalState(dataset);
     if (saved) {
       return deserializeState(saved, baseDataSources);
     }
@@ -303,11 +300,12 @@ export default function App() {
   // Use the generated state once ready; fall back to static data for FCP.
   // Re-key Studio when switching from static → generated so initialState is re-applied.
   const initialState = generatedState ?? baseInitialState;
-  const studioKey = generatedState
-    ? `generated-${rowCount}`
-    : dataset === 'ag-studio'
-      ? `ag-studio-${osData ? 'ready' : 'loading'}`
-      : 'static';
+  let studioKey = 'static';
+  if (generatedState) {
+    studioKey = `generated-${rowCount}`;
+  } else if (dataset === 'ag-studio') {
+    studioKey = `ag-studio-${osData ? 'ready' : 'loading'}`;
+  }
   // When a large dataset is being generated (?rows=N) or AG Studio data is loading,
   // suppress the static demo render entirely.
   const isGenerating =
@@ -439,7 +437,7 @@ export default function App() {
     localSaveTimer.current = setTimeout(() => {
       try {
         const serialized = serializeState(state);
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(serialized));
+        localStorage.setItem(localStorageKeyRef.current, JSON.stringify(serialized));
       } catch {
         // Ignore storage quota errors
       }
@@ -525,7 +523,7 @@ export default function App() {
   };
 
   const handleReset = React.useCallback(() => {
-    clearLocalState();
+    localStorage.removeItem(localStorageKeyRef.current);
     setSnackbar({
       open: true,
       message: 'Local changes cleared — reloading demo…',

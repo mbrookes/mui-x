@@ -1,6 +1,8 @@
 'use client';
 /* eslint-disable react/no-unused-prop-types */
 import * as React from 'react';
+import { Box } from '@mui/material';
+import type { SxProps, Theme } from '@mui/material/styles';
 import { Studio } from './Studio';
 import type { StudioHandle, StudioProps } from './Studio';
 import type {
@@ -100,6 +102,11 @@ export interface StudioDashboardProps {
    * @see Studio.geographies for full documentation.
    */
   geographies?: Record<string, StudioMapGeographyDefinition>;
+  /**
+   * System prop that allows defining system overrides and additional CSS styles applied to the
+   * root element. Accepts valid CSS properties and MUI system values.
+   */
+  sx?: SxProps<Theme>;
 }
 
 const DEFAULT_EMBED_FLAGS: StudioFeatureFlags = {
@@ -128,6 +135,7 @@ export const StudioDashboard = React.memo(
       sidebarSide,
       customWidgets,
       geographies,
+      sx,
     } = props;
 
     // Merge caller-supplied flags on top of view-only defaults
@@ -163,17 +171,19 @@ export const StudioDashboard = React.memo(
     }, [dataAdapters]);
 
     return (
-      <Studio
-        ref={innerRef}
-        initialState={config}
-        onStateChange={onStateChange}
-        featureFlags={mergedFlags}
-        localeText={localeText}
-        stackBreakpoint={stackBreakpoint}
-        sidebarSide={sidebarSide}
-        customWidgets={customWidgets}
-        geographies={geographies}
-      />
+      <Box sx={sx}>
+        <Studio
+          ref={innerRef}
+          initialState={config}
+          onStateChange={onStateChange}
+          featureFlags={mergedFlags}
+          localeText={localeText}
+          stackBreakpoint={stackBreakpoint}
+          sidebarSide={sidebarSide}
+          customWidgets={customWidgets}
+          geographies={geographies}
+        />
+      </Box>
     );
   }),
 );

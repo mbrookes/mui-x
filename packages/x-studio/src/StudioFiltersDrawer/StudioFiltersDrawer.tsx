@@ -19,6 +19,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import SearchIcon from '@mui/icons-material/Search';
+import type { SxProps, Theme } from '@mui/material/styles';
 import {
   useStudioController,
   useStudioSelector,
@@ -44,7 +45,15 @@ import {
 } from './FilterSection';
 
 // react-doctor-disable-next-line react-doctor/no-giant-component -- filter drawer orchestrates many filter types and cannot be easily split
-export function StudioFiltersDrawer() {
+export interface StudioFiltersDrawerProps {
+  /**
+   * System prop that allows defining system overrides and additional CSS styles applied to the
+   * root element. Accepts valid CSS properties and MUI system values.
+   */
+  sx?: SxProps<Theme>;
+}
+
+export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);
   const selectedWidgetId = shell.selectedWidgetId;
@@ -218,7 +227,7 @@ export function StudioFiltersDrawer() {
   };
 
   return (
-    <Stack spacing={2}>
+    <Stack spacing={2} sx={sx}>
       {allFields.length === 0 && (
         <Alert severity="info">{localeText.filtersAddDataSourceHint}</Alert>
       )}

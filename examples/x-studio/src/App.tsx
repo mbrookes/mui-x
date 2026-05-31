@@ -336,7 +336,7 @@ export default function App() {
     setStackBreakpoint(bp);
     setUrlBreakpoint(bp);
   }
-  const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({});
+  const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({ quickFilter: false });
   const [locale, setLocale] = React.useState<SupportedLocale>('en');
   const localeBundle = LOCALE_BUNDLES[locale];
 

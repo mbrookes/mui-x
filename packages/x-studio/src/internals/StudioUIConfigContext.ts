@@ -60,6 +60,7 @@ export interface StudioLocaleText {
   quickFilterBarOpenFilters: string;
   quickFilterBarClearAll: string;
   quickFilterBarFiltered: string;
+  dateRangeBarFieldLabel: string;
 
   // ── Widget card actions ────────────────────────────────────────────────────
   widgetEditTooltip: string;
@@ -375,6 +376,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   quickFilterBarOpenFilters: 'Open filters panel',
   quickFilterBarClearAll: 'Clear all page filters',
   quickFilterBarFiltered: 'Filtered',
+  dateRangeBarFieldLabel: 'Date range',
 
   // Widget card actions
   widgetEditTooltip: 'Edit widget',
@@ -764,7 +766,7 @@ export interface ResolvedStudioFeatures {
   // ── Top-level flags ────────────────────────────────────────────────────────
   compose: boolean;
   filters: boolean;
-  dateRangeBar: boolean;
+  quickFilter: boolean;
   savedFilterViews: boolean;
   dataManagement: boolean;
   relationships: boolean;
@@ -821,7 +823,7 @@ export function useStudioFeatures(): ResolvedStudioFeatures {
   return {
     compose: featureFlags.compose ?? true,
     filters: featureFlags.filters ?? true,
-    dateRangeBar: featureFlags.dateRangeBar ?? true,
+    quickFilter: featureFlags.quickFilter ?? false,
     savedFilterViews: featureFlags.savedFilterViews ?? true,
     dataManagement: featureFlags.dataManagement ?? true,
     relationships: featureFlags.relationships ?? true,

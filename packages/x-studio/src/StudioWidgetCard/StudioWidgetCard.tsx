@@ -361,7 +361,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         if (overlayEl) {
           overlayEl.style.visibility = 'hidden';
         }
-        ghost.style.opacity = '0.4';
+        ghost.style.opacity = '0.2';
         ghost.style.position = 'fixed';
         ghost.style.left = '-9999px';
         ghost.style.top = '0';
@@ -408,6 +408,19 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,
       };
+      // Apply grabbing cursor immediately on mousedown so the cursor changes
+      // as soon as the user presses the button (not only after dragstart fires,
+      // which can lag on macOS/Chrome due to OS-level cursor management).
+      document.body.classList.add('x-studio-dragging-widget');
+      const removeOnUp = () => {
+        // Only remove the class if no actual drag started (handleDragStart will
+        // re-add it if a drag does occur, so the class survives the transition).
+        if (!document.body.dataset.studioDraggingWidgetId) {
+          document.body.classList.remove('x-studio-dragging-widget');
+        }
+        document.removeEventListener('mouseup', removeOnUp, { capture: true });
+      };
+      document.addEventListener('mouseup', removeOnUp, { capture: true });
     }
     node.setAttribute('draggable', 'true');
     node.addEventListener('mousedown', handleMouseDown, { capture: true });

@@ -1,1 +1,2539 @@
-const Nt="20260122",Be=new Date("2026-01-21T23:59:59Z"),de=Be.getTime(),Bt=50,Rt=2e5,Et=15e4,Ot=15e5,Lt=1125e3,Ie=.04;function Ut(){if(typeof window>"u")return Ie;const e=window.agStudioOpts?.scaleFactor;if(typeof e=="number"&&Number.isFinite(e)&&e>0)return e;const t=new URLSearchParams(window.location.search).get("sf");if(t==null)return Ie;const n=parseFloat(t);return Number.isFinite(n)&&n>0?n:Ie}const Wt=Ut();function I(e,t,n){return Math.floor(e()*(n-t))+t|0}function B(e,t,n){return e()*(n-t)+t}function N(e,t){return t[I(e,0,t.length)]}function P(e){const t=e.length,n=new Float64Array(t);let r=0;for(let s=0;s<t;++s)n[s]=r+=e[s];const o=n[t-1];if(o!==1)for(let s=0;s<t;++s)n[s]/=o;return n[t-1]=1,n}function J(e,t){const n=e();let r=0,o=t.length-1;for(;r<o;){const s=r+o>>1;t[s]<n?r=s+1:o=s}return r}function z(e,t,n){return t[J(e,n)]}function _e(e,t){for(let n=t.length-1;n>0;--n){const r=I(e,0,n+1),o=t[n];t[n]=t[r],t[r]=o}return t}function $t(e,t){const n=new Int32Array(t);for(let r=0;r<t;++r)n[r]=r;for(let r=t-1;r>0;--r){const o=I(e,0,r+1),s=n[r];n[r]=n[o],n[o]=s}return n}function Vt(e,t,n){let r,o,s;do r=e()*2-1,o=e()*2-1,s=r*r+o*o;while(s>=1||s===0);return t+n*r*Math.sqrt(-2*Math.log(s)/s)}function Gt(e){return e<10?`0${e}`:`${e}`}function Ht(e){const n=Math.floor(e/864e5)+719468,r=Math.floor((n>=0?n:n-146096)/146097),o=n-r*146097,s=Math.floor((o-Math.floor(o/1460)+Math.floor(o/36524)-Math.floor(o/146096))/365),u=o-(365*s+Math.floor(s/4)-Math.floor(s/100)),i=Math.floor((5*u+2)/153);return i<10?i+3:i-9}function he(e){return e*864e5}const le=["UK","DACH","Nordics","US East","US West"],Yt=[.3,.2,.1,.2,.2],at=P(Yt),it={UK:["London","Manchester","Birmingham","Leeds","Bristol","Edinburgh","Glasgow"],DACH:["Berlin","Munich","Hamburg","Frankfurt","Vienna","Zurich"],Nordics:["Stockholm","Copenhagen","Oslo","Helsinki"],"US East":["New York","Boston","Washington","Philadelphia","Atlanta","Miami"],"US West":["San Francisco","Los Angeles","Seattle","San Diego","Portland","San Jose"]},re=["Paper & Notebooks","Writing Instruments","Filing & Organisation","Desk Accessories","Labels & Mailing","Printing & Imaging","Binders & Presentation","Cleaning & Facilities (Office)"],qt={"Paper & Notebooks":"Paper & Print","Printing & Imaging":"Paper & Print","Writing Instruments":"Writing & Drawing","Filing & Organisation":"Filing & Binding","Binders & Presentation":"Filing & Binding","Desk Accessories":"Desk & Office","Labels & Mailing":"Packaging & Mailing","Cleaning & Facilities (Office)":"Facilities"},jt=[.22,.2,.15,.12,.1,.1,.07,.04],dt=P(jt),ct=["PaperLine","StapleForge","Inkwell & Co","DeskMate","FileCraft","LabelWorks","PrintSure","BindRight","CleanSlate Office","NoteNest","Clipster","OfficeBasics"],ut=ct.map((e,t)=>1/(t+1)),Kt=ut.reduce((e,t)=>e+t,0),Jt=ut.map(e=>e/Kt),zt=P(Jt),Re={"Paper & Notebooks":["Copy Paper {v} 80gsm","Recycled Paper {v} 75gsm","Notebook {v} Ruled","Notepad {v} Plain","Sticky Notes {v}"],"Writing Instruments":["Ballpoint Pens {v}","Gel Pens {v}","Highlighters {v}","Permanent Markers {v}","Whiteboard Markers {v}"],"Filing & Organisation":["Document Wallets {v}","Lever Arch Files {v}","File Folders {v}","Desk Trays {v}","Ring Folders {v}"],"Desk Accessories":["Stapler {v}","Staples {v}","Tape Dispenser {v}","Paper Clips {v}","Desk Organiser {v}"],"Labels & Mailing":["Address Labels {v}","Shipping Labels {v}","Mailing Envelopes {v}","Padded Envelopes {v}","Packing Tape {v}"],"Printing & Imaging":["Printer Toner {v} Compatible","Ink Cartridge {v} Compatible","Photo Paper {v}","Thermal Receipt Rolls {v}","Printer Drum Unit {v} Compatible"],"Binders & Presentation":["Presentation Folders {v}","Binder Dividers {v}","Plastic Pockets {v}","Spiral Binding Coils {v}","Laminating Pouches {v}"],"Cleaning & Facilities (Office)":["Surface Wipes {v}","Hand Towels {v}","Bin Liners {v}","Hand Sanitiser {v}","Air Freshener {v}"]},Ee={"Paper & Notebooks":["A4","A5","Letter","Legal"],"Writing Instruments":["Blue","Black","Red","Assorted"],"Filing & Organisation":["A4","A5","Letter"],"Desk Accessories":["Small","Medium","Large"],"Labels & Mailing":["Small","Medium","Large"],"Printing & Imaging":["Black","Cyan","Magenta","Yellow"],"Binders & Presentation":["A4","A5","Letter"],"Cleaning & Facilities (Office)":["Pack-10","Pack-50","Pack-200"]},Qt=["Standard","Pro","Plus","Bulk","Eco","Premium"],Xt=["Technology","Healthcare","Education","Finance","Retail","Manufacturing","Hospitality","Public Sector"],Zt=[.16,.14,.12,.12,.14,.12,.1,.1],en=P(Zt),tn=["SMB","Mid-Market","Enterprise"],nn=[.6,.3,.1],rn=P(nn),on=["Alex","Sam","Jordan","Taylor","Morgan","Casey","Jamie","Riley","Charlie","Avery","Robin","Cameron","Drew","Quinn","Harper","Rowan","Elliot","Finley","Parker","Reese","Nina","Maya","Amir","Omar","Leah","Hannah","Oliver","Noah","Sophia","Isla"],sn=["Johnson","Smith","Brown","Wilson","Taylor","Davies","Evans","Thomas","Roberts","Walker","White","Hall","Allen","Young","King","Wright","Scott","Green","Baker","Adams","Miller","Jones","Hughes","Clarke","Ward","Turner","Cox","Price","Cooper","Reid"],an=["procurement","purchasing","finance","accounts","operations","facilities","it","admin","office"],dn={UK:["co.uk","uk"],DACH:["de","at","ch"],Nordics:["se","dk","no","fi"],"US East":["com","us"],"US West":["com","us"]},cn={UK:[.85,.15],DACH:[.7,.15,.15],Nordics:[.28,.26,.23,.23],"US East":[.92,.08],"US West":[.92,.08]},lt={};for(const e of le)lt[e]=P(cn[e]);const un=["first.last","firstlast","f.last","dept","dept.firstlast"],ln=[.3,.22,.18,.2,.1],mn=P(ln);function pn(e){const t=e.toLowerCase();return t.includes("printer toner")||t.includes("printer drum unit")||t.includes("ink cartridge")?["each",1]:t.includes("thermal receipt rolls")?["box",20]:t.includes("photo paper")?["pack",100]:t.includes("copy paper")||t.includes("recycled paper")?["case",5]:t.includes("notebook")?["pack",5]:t.includes("notepad")?["pack",6]:t.includes("sticky notes")?["pack",12]:t.includes("ballpoint pens")||t.includes("gel pens")?["box",12]:t.includes("highlighters")||t.includes("permanent markers")||t.includes("whiteboard markers")?["box",8]:t.includes("lever arch files")||t.includes("ring folders")||t.includes("stapler")||t.includes("tape dispenser")||t.includes("desk organiser")||t.includes("desk trays")?["each",1]:t.includes("file folders")||t.includes("document wallets")||t.includes("presentation folders")?["pack",25]:t.includes("plastic pockets")?["pack",100]:t.includes("binder dividers")?["pack",20]:t.includes("spiral binding coils")?["box",50]:t.includes("laminating pouches")?["pack",100]:t.includes("staples")?["box",5e3]:t.includes("paper clips")?["box",1e3]:t.includes("address labels")||t.includes("shipping labels")?["roll",1]:t.includes("mailing envelopes")||t.includes("padded envelopes")?["box",250]:t.includes("packing tape")?["pack",6]:t.includes("surface wipes")?["case",12]:t.includes("hand towels")?["case",16]:t.includes("bin liners")?["case",10]:t.includes("hand sanitiser")||t.includes("air freshener")?["case",12]:["each",1]}function fn(e,t){const n=e.toLowerCase();return n.includes("printer toner")?[30,220]:n.includes("printer drum unit")?[40,280]:n.includes("ink cartridge")?[12,140]:n.includes("thermal receipt rolls")?[12,90]:n.includes("photo paper")?[8,70]:n.includes("copy paper")||n.includes("recycled paper")?[20,95]:n.includes("notebook")?[5,40]:n.includes("notepad")?[4,30]:n.includes("sticky notes")?[3,25]:n.includes("ballpoint pens")||n.includes("gel pens")?[4,35]:n.includes("highlighters")?[4,38]:n.includes("permanent markers")||n.includes("whiteboard markers")?[5,45]:n.includes("lever arch files")?[2.5,20]:n.includes("ring folders")?[2,18]:n.includes("document wallets")||n.includes("file folders")||n.includes("presentation folders")?[6,45]:n.includes("desk trays")?[3.5,28]:n.includes("stapler")?[3,30]:n.includes("tape dispenser")?[2.5,24]:n.includes("desk organiser")?[5,55]:n.includes("staples")?[2,18]:n.includes("paper clips")?[1.5,14]:n.includes("address labels")?[3,22]:n.includes("shipping labels")?[4,35]:n.includes("mailing envelopes")?[7,55]:n.includes("padded envelopes")?[12,85]:n.includes("packing tape")?[5,40]:n.includes("plastic pockets")?[5,40]:n.includes("binder dividers")?[2.5,22]:n.includes("spiral binding coils")?[7,60]:n.includes("laminating pouches")?[8,70]:n.includes("surface wipes")?[10,85]:n.includes("hand towels")?[12,95]:n.includes("bin liners")?[9,75]:n.includes("hand sanitiser")?[10,85]:n.includes("air freshener")?[7,70]:t==="each"?[2.5,40]:t==="roll"?[3,35]:t==="box"?[4,60]:t==="pack"?[3,60]:[5,95]}const mt=re.map(e=>Re[e].map(t=>{const n=t.replace("{v}",Ee[e][0])+" Standard";return pn(n)})),_n=re.map((e,t)=>Re[e].map((n,r)=>{const[o]=mt[t][r],s=n.replace("{v}",Ee[e][0])+" Standard";return fn(s,o)}));function hn(e){return e.toLowerCase().replace(/[.,&]/g," ").replace(/\b(ltd|gmbh|ab|inc|llc|plc|sas|bv)\b/g,"").replace(/[^a-z0-9]+/g,"").slice(0,30)||"company"}function gn(e){const t=[],n=[],r=[],o=[],s=[],u=[];let i=1;for(const d of le)for(let b=0;b<2;++b){const F=N(e,it[d]);t.push(`S${i}`),n.push(`${F} Fulfilment Hub`),r.push(d),o.push(F),s.push(de-he(I(e,365,3650))),u.push("Fulfilment"),++i}const g=Bt-t.length,M=Math.floor(g*.6),m=[...Array(M).fill("Sales Office"),...Array(g-M).fill("Partner Depot")];_e(e,m);for(const d of m){const b=z(e,le,at),F=N(e,it[b]);t.push(`S${i}`),n.push(`${F} ${d}`),r.push(b),o.push(F),s.push(de-he(I(e,365,3650))),u.push(d),++i}return{store_id:t,store_name:n,region:r,city:o,opened_date:new Float64Array(s),store_type:u}}const yn={Standard:1,Pro:1.06,Plus:1.03,Bulk:.92,Eco:.95,Premium:1.1};function Mn(e,t){const n=new me(32*t),r=new Array(t),o=new Array(t),s=new Array(t),u=new Array(t),i=new Array(t),g=n.float64(t),M=n.float64(t),m=n.float64(t),d=new Array(t),b=new Array(t),F=n.float64(t),_=new Array(t);for(let h=0;h<t;++h){const c=z(e,re,dt),y=z(e,ct,zt),x=Ee[c],p=N(e,x),C=re.indexOf(c),A=Re[c],k=I(e,0,A.length),D=A[k],W=N(e,Qt),E=D.replace("{v}",p)+" "+W,[Q,$]=mt[C][k],[G,H]=_n[C][k],w=e(),j=Math.floor(w*w*36*30),Y=de-he(j);let l=B(e,G,H);l*=yn[W];const T=Math.round(Math.min(Math.max(l,.99),320)*100)/100,O=c==="Printing & Imaging"?B(e,.65,.85):B(e,.45,.72),L=Math.round(Math.min(T*O,T-.01)*100)/100,v=e()<.06;r[h]=`P${h+1}`,o[h]=E,s[h]=qt[c],u[h]=c,i[h]=y,g[h]=Y,M[h]=T,m[h]=L,d[h]=v,b[h]=Q,F[h]=$,_[h]=p}return{product_id:r,product_name:o,category:s,subcategory:u,brand:i,launch_date:g,list_price:M,unit_cost:m,is_discontinued:d,uom:b,pack_size:F,variant:_}}function Sn(e,t,n){const r=hn(t),o=dn[n]??["com"],s=lt[n],u=s!=null?z(e,o,s):o[0],i=N(e,on).toLowerCase(),g=N(e,sn).toLowerCase(),M=N(e,an),m=z(e,un,mn);let d;return m==="first.last"?d=`${i}.${g}`:m==="firstlast"?d=`${i}${g}`:m==="f.last"?d=`${i[0]}.${g}`:m==="dept"?d=M:d=`${M}.${i}${g}`,e()<.12&&(d=`${d}${I(e,2,99)}`),`${d}@${r}.${u}`}const Cn=["North","Green","Blue","Prime","Metro","Summit","Crescent","Vertex","Silver","Beacon","Apex","Harbour","Oak"],bn=["Systems","Group","Holdings","Solutions","Partners","Industries","Labs","Networks","Care","Logistics","Foods","Energy","Services"],xn=["Ltd","GmbH","AB","Inc","LLC","PLC","SAS","BV"];function vn(e,t){const n=new me(8*t),r=new Array(t),o=new Array(t),s=new Array(t),u=n.float64(t),i=new Array(t),g=new Array(t),M=new Array(t),m=new Array(t);for(let d=0;d<t;++d){const b=z(e,le,at),F=z(e,Xt,en),_=z(e,tn,rn),h=e(),c=de-he(Math.floor(h*h*2100)),y=`${N(e,Cn)} ${N(e,bn)} ${N(e,xn)}`,x=Sn(e,y,b),p=_==="Enterprise"?.96:_==="Mid-Market"?.93:.88,C=e()<p;r[d]=`C${d+1}`,o[d]=y,s[d]=x,u[d]=c,i[d]=b,g[d]=_,M[d]=C,m[d]=F}return{customer_id:r,customer_name:o,email:s,signup_date:u,region:i,segment:g,is_active:M,industry:m}}function Fn(e,t,n,r){const o=new me(31*r),s=["Completed","Cancelled","Returned","Processing"],u=Math.round(r*(2200/6e4)),i=Math.round(r*(600/6e4)),g=Math.round(r*(1e3/6e4)),M=r-u-i-g,m=[...Array(M).fill(0),...Array(u).fill(1),...Array(i).fill(2),...Array(g).fill(3)];_e(e,m);const d=t.customer_id.length,b=t.segment.reduce((a,f)=>a+(f==="SMB"?1:f==="Mid-Market"?2:5),0),F=new Float64Array(d);{let a=0;for(let f=0;f<d;++f){const S=t.segment[f];a+=(S==="SMB"?1:S==="Mid-Market"?2:5)/b,F[f]=a}}function _(){const a=e();let f=0,S=F.length-1;for(;f<S;){const U=f+S>>1;F[U]<a?f=U+1:S=U}return f}const h=[];{let a=Be.getUTCFullYear(),f=Be.getUTCMonth()+1;const S=2021,U=1;for(;a>S||a===S&&f>=U;)h.unshift({year:a,month:f}),--f===0&&(f=12,--a)}const c={2021:.55,2022:.7,2023:.85},y=h.map(({year:a,month:f})=>{let S=c[a]??1;return(f===10||f===11||f===12)&&(S*=1.2),f===12&&(S*=1.1),(f===7||f===8)&&(S*=.9),f===1&&(S*=1.05),S}),x=y.reduce((a,f)=>a+f,0),p=y.length,C=new Float64Array(p);{let a=0;for(let f=0;f<p;++f)a+=y[f]/x,C[f]=a}const A=h.map(({year:a,month:f})=>new Date(a,f,0).getDate()),k=new Float64Array(24);{let f=0;for(let S=0;S<24;++S){const U=S>=8&&S<18?2.2:S>=18&&S<21?.6:.3;f+=U/27.1,k[S]=f}}const D={},W={},E={};for(const a of le)D[a]=[],E[a]=[],W[a]=[];const Q=n.store_id.length;for(let a=0;a<Q;++a){const f=n.region[a],S=n.store_type[a];W[f].push(a),S==="Fulfilment"?D[f].push(a):S==="Partner Depot"&&E[f].push(a)}const $=["Portal","Sales-Assisted","Partner","In-person"],G=[.7,.2,.08,.02],H=[.55,.25,.15,.05],w=[.35,.35,.25,.05],j=P(G),Y=P(H),l=P(w),T=["Contract","Volume","List"],O=[.6,.25,.15],L=[.45,.2,.35],v=[.2,.15,.65],V=P(O),ue=P(L),ye=P(v),Me=["Invoice","Bank Transfer","Card"],oe=P([.78,.15,.07]),Ce=["Net 30","Net 45","Net 60"],be=P([.55,.3,.15]),Z=["PO required","Deliver to goods-in","Leave at reception","Urgent replacement"],xe=P([.8,.12,.08]),ve=["Contract","Renewal","Bundle","Volume","None"],Fe=["GBP","EUR","USD"],K=o.float64(r),pe=o.uint32(r),$e=new Array(r),Ve=o.uint32(r),Ge=o.uint32(r),ke=o.uint8(r),He=o.uint8(r),Ye=o.uint8(r),qe=o.uint8(r),je=o.uint8(r),Ke=o.uint8(r),Je=o.uint8(r),ze=o.uint8(r),Qe=o.uint8(r);let Xe=0;for(let a=0;a<r;++a){const f=_(),S=t.region[f],U=t.segment[f],At=S==="UK"?0:S==="DACH"||S==="Nordics"?1:2,tt=J(e,U==="SMB"?j:U==="Mid-Market"?Y:l),we=J(e,C),{year:Dt,month:It}=h[we],Pt=I(e,1,A[we]+1),Tt=J(e,k);let Ae=Date.UTC(Dt,It-1,Pt,Tt,I(e,0,60),I(e,0,60));Ae>de&&(Ae=de-I(e,0,86400)*1e3);let De;if($[tt]==="Partner"){const st=E[S];De=st.length>0&&e()<.7?N(e,st):N(e,D[S])}else De=e()<.85?N(e,D[S]):N(e,W[S]);const nt=J(e,U==="Enterprise"?V:U==="Mid-Market"?ue:ye),rt=T[nt];let fe;rt==="Contract"?fe=J(e,xe):rt==="Volume"?fe=e()<.85?3:2:fe=4;const ot=e()<.04?N(e,Z):null;$e[a]=`O${a+1}`,pe[a]=a,Ve[a]=f,Ge[a]=De,K[a]=Ae,ke[a]=we,He[a]=tt,Ye[a]=m[a],qe[a]=At,je[a]=nt,Ke[a]=fe,Je[a]=J(e,oe),ze[a]=J(e,be),ot!=null?Qe[a]=Z.indexOf(ot):++Xe}const Ft=h.map(({year:a,month:f})=>`${a}-${Gt(f)}`),Ze=[...new Set(h.map(({year:a})=>a))].sort((a,f)=>a-f),kt=Ze.map(String),wt=h.map(({year:a})=>Ze.indexOf(a)),et=o.uint8(r);for(let a=0;a<r;++a)et[a]=wt[ke[a]];return{order_id:{indices:pe,indexToValue:$e,nullCount:0},customer_id:{indices:Ve,indexToValue:t.customer_id,nullCount:0},store_id:{indices:Ge,indexToValue:n.store_id,nullCount:0},order_datetime:K,order_month:{indices:ke,indexToValue:Ft,nullCount:0},order_year:{indices:et,indexToValue:kt,nullCount:0},channel:{indices:He,indexToValue:[...$],nullCount:0},status:{indices:Ye,indexToValue:[...s],nullCount:0},currency:{indices:qe,indexToValue:[...Fe],nullCount:0},price_list:{indices:je,indexToValue:[...T],nullCount:0},discount_reason:{indices:Ke,indexToValue:[...ve],nullCount:0},payment_method:{indices:Je,indexToValue:[...Me],nullCount:0},payment_terms:{indices:ze,indexToValue:[...Ce],nullCount:0},notes:{indices:Qe,indexToValue:[...Z],nullCount:Xe},promo_code:{indices:o.uint8(r),indexToValue:[],nullCount:r}}}const kn={case:70,box:90,pack:110,roll:80},wn={"Paper & Notebooks":[6,14,28],"Labels & Mailing":[4,12,24],"Cleaning & Facilities (Office)":[4,12,22],"Writing Instruments":[3,10,18],"Filing & Organisation":[3,9,16],"Binders & Presentation":[3,9,16],"Printing & Imaging":[2,5,10],"Desk Accessories":[1,3,6]},An=[3,8,14];function Dn(e,t,n){const r=wn[e]??An,o=t==="Enterprise"?r[2]:t==="Mid-Market"?r[1]:r[0],s=n==="each"?t==="Enterprise"?12:6:kn[n]??25;return Math.min(o*2,s)}const Pe=["Damaged","Incorrect spec","Over-ordered","Warranty claim"];function In(e,t,n,r){const o=t.order_id.indices.length,s=On(o),u=new me(45*s),i=Math.round(o*(2e4/6e4)),g=Math.round(o*(45e3/6e4)),M=Math.round(o*(55e3/6e4)),m=new Uint8Array(o),d=$t(e,o);for(let l=0;l<i;++l)m[d[l]]=2;for(let l=i;l<g;++l)m[d[l]]=3;for(let l=g;l<M;++l)m[d[l]]=4;for(let l=M;l<o;++l)m[d[l]]=5;const b=new Int32Array(o);for(let l=1;l<o;++l)b[l]=b[l-1]+m[l-1];const F=r.product_id,_=r.subcategory,h=r.uom,c=r.list_price,y=F.length,x={};for(const l of re)x[l]=[];for(let l=0;l<y;++l)x[_[l]].push(l);const p=u.float64(s),C=u.float64(s),A=u.float64(s),k=u.float64(s),D=u.uint32(s),W=new Array(s),E=u.uint32(s),Q=u.uint32(s),$=u.uint8(s),G=new Array(s).fill(!1);let H=s,w=0;const j=new Int32Array(s);for(let l=0;l<o;++l){const T=m[l],O=z(e,re,dt),L=x[O];j[w]=L[I(e,0,L.length)];for(let v=1;v<T;++v)j[w+v]=e()<.7?L[I(e,0,L.length)]:I(e,0,y);w+=T}w=0;for(let l=0;l<o;++l){const T=m[l],O=t.customer_id.indices[l],L=n.segment[O],v=q(t.price_list,l),V=q(t.currency,l),ue=q(t.status,l),ye=V==="EUR"?1.12:V==="USD"?1.25:1,Me=v==="Contract"?B(e,.9,.98):v==="Volume"?B(e,.88,.96):B(e,.98,1.03);for(let Se=0;Se<T;++Se){const oe=j[w],Ce=_[oe],We=h[oe],be=c[oe]*ye,Z=I(e,1,Dn(Ce,L,We)+1),xe=1-Math.min(Math.max((Z-10)/200,0),.18),ve=B(e,.985,1.02),Fe=Math.round(be*Me*xe*ve*100)/100;let K=v==="Contract"?B(e,.04,.14):v==="Volume"?B(e,.06,.2):B(e,0,.06);K+=Math.min(Math.max((Z-20)/260,0),.1)*B(e,.6,1),ue==="Cancelled"&&(K=Math.min(K,B(e,0,.04))),K=Math.round(Math.min(K,.55)*1e4)/1e4;const pe=V==="USD"?0:.2;D[w]=w,W[w]=`I${w+1}`,E[w]=l,Q[w]=oe,p[w]=Z,C[w]=Fe,A[w]=K,k[w]=pe,++w}}H=s;const Y=[0,1,2,3,4];for(let l=0;l<o;++l){if(q(t.status,l)!=="Returned")continue;const T=m[l],O=b[l],L=e()<.85?1:2;for(let v=0;v<T;++v)Y[v]=v;for(let v=T-1;v>0;--v){const V=I(e,0,v+1),ue=Y[v];Y[v]=Y[V],Y[V]=ue}for(let v=0;v<L&&v<T;++v){const V=O+Y[v];G[V]=!0,$[V]=I(e,0,Pe.length),--H}G[O]||(G[O]=!0,$[O]=I(e,0,Pe.length),--H)}return{order_item_id:{indices:D,indexToValue:W,nullCount:0},order_id:{indices:E,indexToValue:t.order_id.indexToValue,nullCount:0},product_id:{indices:Q,indexToValue:r.product_id,nullCount:0},quantity:p,unit_price:C,discount_pct:A,tax_rate:k,returned:G,return_reason:{indices:$,indexToValue:[...Pe],nullCount:H}}}const Pn=["DHL","DPD","Royal Mail","UPS"],Tn=[.3,.3,.25,.15],Nn=P(Tn),Bn={GBP:2.5,EUR:3,USD:3.5},Rn={GBP:4.5,EUR:4.5,USD:5.5};function En(e,t,n){const r=new me(25*n),o=t.order_id.indices.length,s=[],u=[],i=[];for(let p=0;p<o;++p){const C=q(t.status,p);C==="Returned"?s.push(p):C==="Processing"?u.push(p):C==="Completed"&&i.push(p)}const g=n-s.length-u.length;_e(e,i);const M=i.slice(0,g),m=[...s,...u,...M];_e(e,m);const d=m.length,b=r.float64(d),F=r.float64(d),_=r.uint32(d),h=new Array(d),c=r.uint32(d),y=r.uint8(d),x=new Array(d);for(let p=0;p<d;++p){const C=m[p],A=J(e,Nn),k=q(t.status,C),D=q(t.currency,C);if(_[p]=p,h[p]=`SH${p+1}`,c[p]=C,y[p]=A,k==="Processing"&&e()<.35){b[p]=NaN,F[p]=NaN,x[p]=!1;continue}const W=k==="Processing"?B(e,0,36):B(e,2,60),E=t.order_datetime[C]+W*36e5,Q=Bn[D]??3,$=Math.min(Math.max(Vt(e,Q,1.1),.6),9),G=E+$*864e5,H=Rn[D]??5,w=Ht(E),j=$>H||e()<(w===11||w===12?.1:.07);b[p]=E,F[p]=G,x[p]=j}return{shipment_id:{indices:_,indexToValue:h,nullCount:0},order_id:{indices:c,indexToValue:t.order_id.indexToValue,nullCount:0},ship_datetime:b,delivery_datetime:F,carrier:{indices:y,indexToValue:[...Pn],nullCount:0},delayed:x}}function On(e){const t=Math.round(e*.3333333333333333),n=Math.round(e*(45e3/6e4)),r=Math.round(e*(55e3/6e4));return t*2+(n-t)*3+(r-n)*4+(e-r)*5}function Ln(e=()=>()=>Math.random(),t=Nt,n=Wt){const r=e(t),o=Math.max(Math.round(Rt*n),re.length),s=Math.max(Math.round(Et*n),1),u=Math.max(Math.round(Ot*n),1),i=Math.round(Lt*n);ee("gen:data"),ee("gen:data:stores");const g=gn(r);te("gen:data:stores"),ne("gen:data:stores",{rows:g.store_id.length}),ee("gen:data:products");const M=Mn(r,o);te("gen:data:products"),ne("gen:data:products",{rows:o}),ee("gen:data:customers");const m=vn(r,s);te("gen:data:customers"),ne("gen:data:customers",{rows:s}),ee("gen:data:orders");const d=Fn(r,m,g,u);te("gen:data:orders"),ne("gen:data:orders",{rows:u}),ee("gen:data:order-items");const b=In(r,d,m,M);te("gen:data:order-items"),ne("gen:data:order-items",{rows:b.order_item_id.indices.length}),ee("gen:data:shipments");const F=En(r,d,i);return te("gen:data:shipments"),ne("gen:data:shipments",{rows:i}),te("gen:data"),ne("gen:data"),{stores:g,products:M,customers:m,orders:d,order_items:b,shipments:F}}function Un(e){const t=[],n=new Map;let r=0;for(const i of e)i==null?++r:n.has(i)||(n.set(i,t.length),t.push(i));const o=t.length,s=o<=256?Uint8Array:o<=65536?Uint16Array:Uint32Array,u=new s(e.length);for(let i=0;i<e.length;++i){const g=e[i];g!=null&&(u[i]=n.get(g))}return{indices:u,indexToValue:t,nullCount:r}}function q(e,t){return e.indexToValue[e.indices[t]]}function Te(e,t){const n={...e};for(const r of t){const o=e[r];o!=null&&(n[r]=Un(o))}return n}function Wn(e){return{stores:Te(e.stores,["store_id","store_name","region","city","store_type"]),products:Te(e.products,["product_id","product_name","category","subcategory","brand","uom","variant"]),customers:Te(e.customers,["customer_id","customer_name","email","region","segment","industry"]),orders:e.orders,order_items:e.order_items,shipments:e.shipments}}function Ne(e,t){return e+t-1&~(t-1)}class me{buffer;offset=0;constructor(t){this.buffer=new ArrayBuffer(t)}float64(t){this.offset=Ne(this.offset,8);const n=new Float64Array(this.buffer,this.offset,t);return this.offset+=t*8,n}uint32(t){this.offset=Ne(this.offset,4);const n=new Uint32Array(this.buffer,this.offset,t);return this.offset+=t*4,n}uint16(t){this.offset=Ne(this.offset,2);const n=new Uint16Array(this.buffer,this.offset,t);return this.offset+=t*2,n}uint8(t){const n=new Uint8Array(this.buffer,this.offset,t);return this.offset+=t,n}}const Oe=(globalThis.agStudioDebug??[]).includes("traceMarkers"),Le=(e,t)=>{const n=e.split(":"),r=n[2]?n[3]?"tertiary":"secondary":"primary",o=Object.keys(t??{}).map(s=>`${s}=${(t??{})[s]}`).join(":");return{...t,devtools:{dataType:"track-entry",color:r,track:n[0],tooltipText:`${e} (${o})`,properties:t&&Object.entries(t)}}},Ue=()=>{},ee=Oe?(e,t)=>performance.mark(`ag:${e}-start`,{...t,detail:Le(e,t)}):Ue,te=Oe?(e,t)=>performance.mark(`ag:${e}-end`,{...t,detail:Le(e,t)}):Ue,ne=Oe?(e,t)=>{const n=t?Object.values(t)[0]:null;return performance.measure(`ag:${e}${n?`:${n}`:""}`,{detail:Le(e,t),start:`ag:${e}-start`,end:`ag:${e}-end`})}:Ue,ge=new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",currencyDisplay:"narrowSymbol"}),X=new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",currencyDisplay:"narrowSymbol",maximumFractionDigits:2}),R=new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",currencyDisplay:"narrowSymbol",notation:"compact",compactDisplay:"short",maximumFractionDigits:1}),$n=new Intl.NumberFormat("en-GB",{maximumFractionDigits:0}),Vn=new Intl.NumberFormat("en-GB",{maximumFractionDigits:1}),se=new Intl.NumberFormat("en-GB",{notation:"compact",compactDisplay:"short",maximumFractionDigits:0}),Gn=new Intl.NumberFormat("en-GB",{style:"percent",maximumFractionDigits:0}),ae=new Intl.NumberFormat("en-GB",{style:"percent",maximumFractionDigits:1}),pt=[{id:"store_id",name:"Store ID",format:"textFormat",cardinality:"low",notBlank:!0},{id:"store_name",name:"Store",format:"textFormat",cardinality:"low",notBlank:!0},{id:"region",name:"Region",format:"textFormat",cardinality:"low",notBlank:!0},{id:"city",name:"City",format:"textFormat",cardinality:"low",notBlank:!0},{id:"opened_date",name:"Opened Date",format:"dateFormat",cardinality:"medium",notBlank:!0},{id:"store_type",name:"Store Type",format:"textFormat",cardinality:"low",notBlank:!0}],ft=[{id:"product_id",name:"Product ID",format:"textFormat",cardinality:"high",notBlank:!0,hide:!1},{id:"product_name",name:"Product",format:"textFormat",cardinality:"high",notBlank:!0},{id:"category",name:"Category",format:"textFormat",cardinality:"low",notBlank:!0},{id:"subcategory",name:"Subcategory",format:"textFormat",cardinality:"medium",notBlank:!0},{id:"brand",name:"Brand",format:"textFormat",cardinality:"medium",notBlank:!0},{id:"launch_date",name:"Launch Date",format:"dateFormat",cardinality:"high",notBlank:!0},{id:"list_price",name:"List Price",format:"currencyFormat",cardinality:"high",notBlank:!0,options:{format:ge}},{id:"unit_cost",name:"Unit Cost",format:"currencyFormat",cardinality:"high",notBlank:!0,options:{format:ge}},{id:"is_discontinued",name:"Discontinued",format:"booleanFormat",cardinality:"low",notBlank:!0}],_t=[{id:"customer_id",name:"Customer ID",format:"textFormat",cardinality:"high",notBlank:!0,hide:!1},{id:"customer_name",name:"Customer",format:"textFormat",cardinality:"high",notBlank:!0},{id:"signup_date",name:"Signup Date",format:"dateFormat",cardinality:"high",notBlank:!0},{id:"region",name:"Region",format:"textFormat",cardinality:"low",notBlank:!0},{id:"segment",name:"Segment",format:"textFormat",cardinality:"low",notBlank:!0},{id:"is_active",name:"Active",format:"booleanFormat",cardinality:"low",notBlank:!0},{id:"marketing_opt_in",name:"Marketing Opt-in",format:"booleanFormat",cardinality:"low",notBlank:!0}],ht=[{id:"order_id",name:"Order ID",format:"textFormat",cardinality:"high",notBlank:!0,hide:!1},{id:"customer_id",name:"Customer ID",format:"textFormat",cardinality:"high",notBlank:!0},{id:"store_id",name:"Store ID",format:"textFormat",cardinality:"low",notBlank:!0},{id:"order_datetime",name:"Order Date/Time",format:"dateTimeFormat",cardinality:"high",notBlank:!0},{id:"channel",name:"Channel",format:"textFormat",cardinality:"low",notBlank:!0},{id:"status",name:"Status",format:"textFormat",cardinality:"low",notBlank:!0},{id:"payment_method",name:"Payment Method",format:"textFormat",cardinality:"low",notBlank:!0},{id:"currency",name:"Currency",format:"textFormat",cardinality:"low",notBlank:!0,hide:!1},{id:"promo_code",name:"Promo Code",format:"textFormat",cardinality:"medium",notBlank:!1,hide:!1},{id:"notes",name:"Notes",format:"textFormat",cardinality:"high",notBlank:!1,hide:!1},{id:"order_month",name:"Order Month",format:"textFormat",cardinality:"low",notBlank:!0,hide:!1,accessor:e=>{const t=new Date(e.order_datetime);return Number.isNaN(t.getTime())?null:`${String(t.getUTCFullYear())}-${String(t.getUTCMonth()+1).padStart(2,"0")}`}},{id:"order_year",name:"Order Year",format:"textFormat",cardinality:"low",notBlank:!0,hide:!0}],gt=[{id:"order_item_id",name:"Order Item ID",format:"textFormat",cardinality:"high",notBlank:!0},{id:"order_id",name:"Order ID",format:"textFormat",cardinality:"high",notBlank:!0},{id:"product_id",name:"Product ID",format:"textFormat",cardinality:"high",notBlank:!0},{id:"quantity",name:"Qty",format:"integerFormat",cardinality:"medium",notBlank:!0,options:{format:$n}},{id:"unit_price",name:"Unit Price",format:"currencyFormat",cardinality:"high",notBlank:!0,options:{format:ge}},{id:"discount_pct",name:"Discount",format:"percentageFormat",cardinality:"medium",notBlank:!0,options:{format:ae}},{id:"tax_rate",name:"Tax Rate",format:"percentageFormat",cardinality:"low",notBlank:!0,options:{format:Gn}},{id:"returned",name:"Returned",format:"booleanFormat",cardinality:"low",notBlank:!0},{id:"return_reason",name:"Return Reason",format:"textFormat",cardinality:"low",notBlank:!1}],yt=[{id:"shipment_id",name:"Shipment ID",format:"textFormat",cardinality:"high",notBlank:!0},{id:"order_id",name:"Order ID",format:"textFormat",cardinality:"high",notBlank:!0},{id:"ship_datetime",name:"Shipped Date/Time",format:"dateTimeFormat",cardinality:"high",notBlank:!1},{id:"delivery_datetime",name:"Delivered Date/Time",format:"dateTimeFormat",cardinality:"high",notBlank:!1},{id:"carrier",name:"Carrier",format:"textFormat",cardinality:"low",notBlank:!0},{id:"delayed",name:"Delayed",format:"booleanFormat",cardinality:"low",notBlank:!1}],Mt=[{id:"year",name:"Year",format:"textFormat",cardinality:"low",notBlank:!0},{id:"month",name:"Month",format:"textFormat",cardinality:"medium",notBlank:!0},{id:"subcategory",name:"Subcategory",format:"textFormat",cardinality:"low",notBlank:!0},{id:"return_reason",name:"Return Reason",format:"textFormat",cardinality:"low",notBlank:!0},{id:"refunds",name:"Refunds",format:"currencyFormat",cardinality:"medium",notBlank:!0,options:{format:R}},{id:"shipping",name:"Shipping",format:"currencyFormat",cardinality:"medium",notBlank:!0,options:{format:R}},{id:"write_offs",name:"Write-offs",format:"currencyFormat",cardinality:"medium",notBlank:!0,options:{format:R}}];async function ce(e,t){const n=`${e}/${t}`,r=await fetch(n);return r.ok?await r.json():(console.error(`Failed to load ${t}: ${r.status}`),[])}let Hn=null;const Yn=e=>Hn??=ce(e,"stores.json");let qn=null;const St=e=>qn??=ce(e,"products.json");let jn=null;const Kn=e=>jn??=ce(e,"customers.json");let Jn=null;const Ct=e=>Jn??=ce(e,"orders.json");let zn=null;const bt=e=>zn??=ce(e,"order_items.json");let Qn=null;const Xn=e=>Qn??=ce(e,"shipments.json"),xt=[{id:"line_gross",isMeasure:!1,name:"Line Gross",hide:!1,format:"currencyFormat",options:{format:X},expression:{operator:"multiply",inputs:[{id:"order_items.quantity"},{id:"order_items.unit_price"}]}},{id:"line_discount_amount",isMeasure:!1,name:"Discount Amount",hide:!1,format:"currencyFormat",options:{format:X},expression:{operator:"multiply",inputs:[{operator:"multiply",inputs:[{id:"order_items.quantity"},{id:"order_items.unit_price"}]},{id:"order_items.discount_pct"}]}},{id:"line_net",isMeasure:!1,name:"Line Net",hide:!1,format:"currencyFormat",options:{format:X},expression:{operator:"subtract",inputs:[{operator:"multiply",inputs:[{id:"order_items.quantity"},{id:"order_items.unit_price"}]},{operator:"multiply",inputs:[{operator:"multiply",inputs:[{id:"order_items.quantity"},{id:"order_items.unit_price"}]},{id:"order_items.discount_pct"}]}]}},{id:"line_cogs",isMeasure:!1,name:"Line COGS",hide:!1,format:"currencyFormat",options:{format:X},expression:{operator:"multiply",inputs:[{id:"order_items.quantity"},{id:"products.unit_cost"}]}},{id:"line_margin",isMeasure:!1,name:"Line Margin",hide:!1,format:"currencyFormat",options:{format:X},expression:{operator:"subtract",inputs:[{operator:"subtract",inputs:[{operator:"multiply",inputs:[{id:"order_items.quantity"},{id:"order_items.unit_price"}]},{operator:"multiply",inputs:[{operator:"multiply",inputs:[{id:"order_items.quantity"},{id:"order_items.unit_price"}]},{id:"order_items.discount_pct"}]}]},{operator:"multiply",inputs:[{id:"order_items.quantity"},{id:"products.unit_cost"}]}]}},{id:"return_flag",isMeasure:!1,name:"Return Flag",hide:!0,expression:{operator:"isTrue",inputs:[{id:"order_items.returned"}]}},{id:"returned_line_flag",isMeasure:!1,name:"Returned Line Flag",hide:!0,expression:{operator:"if",inputs:[{id:"return_flag"},{type:"number",value:1},{type:"number",value:0}]}},{id:"returned_line_net",isMeasure:!1,name:"Returned Line Net",hide:!0,format:"currencyFormat",options:{format:X},expression:{operator:"if",inputs:[{id:"return_flag"},{id:"line_net"},{type:"number",value:0}]}},{id:"returned_line_margin",isMeasure:!1,name:"Returned Line Margin",hide:!0,format:"currencyFormat",options:{format:X},expression:{operator:"if",inputs:[{id:"return_flag"},{id:"line_margin"},{type:"number",value:0}]}},{id:"returned_line_cogs",isMeasure:!1,name:"Returned Line COGS",hide:!0,format:"currencyFormat",options:{format:X},expression:{operator:"if",inputs:[{id:"return_flag"},{id:"line_cogs"},{type:"number",value:0}]}},{id:"return_refunds",isMeasure:!1,name:"Refunds",hide:!0,format:"currencyFormat",options:{format:R},expression:{operator:"multiply",inputs:[{id:"returned_line_net"},{type:"number",value:.45}]}},{id:"return_shipping",isMeasure:!1,name:"Shipping",hide:!0,format:"currencyFormat",options:{format:R},expression:{operator:"multiply",inputs:[{id:"returned_line_margin"},{type:"number",value:.65}]}},{id:"return_write_offs",isMeasure:!1,name:"Write-offs",hide:!0,format:"currencyFormat",options:{format:R},expression:{operator:"multiply",inputs:[{id:"returned_line_cogs"},{type:"number",value:.35}]}},{id:"gross_margin_pct",isMeasure:!0,name:"Gross Margin %",hide:!1,expression:{operator:"divide",inputs:[{operator:"subtract",inputs:[{id:"line_net",aggregation:"sum"},{id:"line_cogs",aggregation:"sum"}]},{id:"line_net",aggregation:"sum"}]},format:"percentageFormat",options:{format:ae}},{id:"order_status_group",isMeasure:!1,name:"Status Group",expression:{operator:"if",inputs:[{operator:"equals",inputs:[{id:"orders.status"},{type:"string",value:"Processing"}]},{type:"string",value:"Open"},{type:"string",value:"Closed"}]}},{id:"is_closed",isMeasure:!1,name:"Is Closed",expression:{operator:"or",inputs:[{operator:"equals",inputs:[{id:"orders.status"},{type:"string",value:"Completed"}]},{operator:"or",inputs:[{operator:"equals",inputs:[{id:"orders.status"},{type:"string",value:"Returned"}]},{operator:"equals",inputs:[{id:"orders.status"},{type:"string",value:"Cancelled"}]}]}]}},{id:"ship_to_delivery_days",isMeasure:!1,name:"Ship to Delivery Days",expression:{operator:"datediff",inputs:[{type:"string",value:"day"},{id:"shipments.ship_datetime"},{id:"shipments.delivery_datetime"}]}},{id:"order_to_ship_hours",isMeasure:!1,name:"Order to Ship Hours",expression:{operator:"datediff",inputs:[{type:"string",value:"hour"},{id:"orders.order_datetime"},{id:"shipments.ship_datetime"}]}},{id:"is_shipped",isMeasure:!1,name:"Is Shipped",hide:!0,expression:{operator:"isNotNull",inputs:[{id:"shipments.ship_datetime"}]}},{id:"is_delivered",isMeasure:!1,name:"Is Delivered",hide:!0,expression:{operator:"isNotNull",inputs:[{id:"shipments.delivery_datetime"}]}},{id:"is_on_time",isMeasure:!1,name:"Is On Time",hide:!0,expression:{operator:"if",inputs:[{id:"is_delivered"},{operator:"equals",inputs:[{id:"shipments.delayed"},{type:"boolean",value:!1}]},{type:"boolean",value:!1}]}},{id:"is_delayed",isMeasure:!1,name:"Is Delayed",hide:!0,expression:{operator:"if",inputs:[{id:"is_delivered"},{operator:"equals",inputs:[{id:"shipments.delayed"},{type:"boolean",value:!0}]},{type:"boolean",value:!1}]}},{id:"delayed_shipments",isMeasure:!1,name:"Delayed Shipments",hide:!0,expression:{operator:"if",inputs:[{id:"is_delayed"},{type:"number",value:1},{type:"number",value:0}]}},{id:"on_time_shipments",isMeasure:!1,name:"On-time Shipments",hide:!0,expression:{operator:"if",inputs:[{id:"is_on_time"},{type:"number",value:1},{type:"number",value:0}]}},{id:"delivered_shipments",isMeasure:!1,name:"Delivered Shipments",hide:!0,expression:{operator:"if",inputs:[{id:"is_delivered"},{type:"number",value:1},{type:"number",value:0}]}},{id:"delay_rate",isMeasure:!0,name:"Delay Rate",hide:!1,expression:{operator:"divide",inputs:[{id:"delayed_shipments",aggregation:"sum"},{id:"delivered_shipments",aggregation:"sum"}]},format:"percentageFormat",options:{format:ae}},{id:"shipped_order_id",isMeasure:!1,hide:!0,expression:{operator:"if",inputs:[{id:"is_shipped"},{id:"shipments.order_id"},{type:"string",value:null}]}},{id:"on_time_order_id",isMeasure:!1,hide:!0,expression:{operator:"if",inputs:[{id:"is_on_time"},{id:"shipments.order_id"},{type:"string",value:null}]}},{id:"delivered_order_id",isMeasure:!1,hide:!0,expression:{operator:"if",inputs:[{id:"is_delivered"},{id:"shipments.order_id"},{type:"string",value:null}]}},{id:"delivery_status",isMeasure:!1,name:"Delivery Status",expression:{operator:"if",inputs:[{operator:"not",inputs:[{id:"is_shipped"}]},{type:"string",value:"Not shipped"},{operator:"if",inputs:[{id:"shipments.delayed"},{type:"string",value:"Delayed"},{type:"string",value:"On time"}]}]}},{id:"returned_order_id",isMeasure:!1,hide:!0,expression:{operator:"if",inputs:[{id:"return_flag"},{id:"order_items.order_id"},{type:"string",value:null}]}},{id:"net_sales",isMeasure:!0,name:"Net Sales",expression:{id:"line_net",aggregation:"sum"},format:"currencyFormat",options:{format:R}},{id:"gross_sales",isMeasure:!0,name:"Gross Sales",expression:{id:"line_gross",aggregation:"sum"},format:"currencyFormat",options:{format:R}},{id:"discount_amount",isMeasure:!0,name:"Discount Amount",expression:{id:"line_discount_amount",aggregation:"sum"},format:"currencyFormat",options:{format:R}},{id:"COGS",isMeasure:!0,name:"COGS",expression:{id:"line_cogs",aggregation:"sum"},format:"currencyFormat",options:{format:R}},{id:"gross_margin",isMeasure:!0,name:"Gross Margin",expression:{id:"line_margin",aggregation:"sum"},format:"currencyFormat",options:{format:R}},{id:"gross_margin_percentage",isMeasure:!0,name:"Gross Margin %",expression:{operator:"divide",inputs:[{id:"gross_margin"},{id:"net_sales"}]},format:"percentageFormat",options:{format:ae}},{id:"order_count",isMeasure:!0,name:"Order Count",expression:{id:"orders.order_id",aggregation:"countd"},format:"integerFormat",options:{format:se}},{id:"average_order_value",isMeasure:!0,name:"Average Order Value",expression:{operator:"divide",inputs:[{id:"net_sales"},{id:"order_count"}]},format:"currencyFormat",options:{format:ge}},{id:"active_customers",isMeasure:!0,name:"Active Customers",expression:{id:"orders.customer_id",aggregation:"countd"},format:"integerFormat",options:{format:se}},{id:"returned_lines",isMeasure:!0,name:"Returned Lines",expression:{id:"returned_line_flag",aggregation:"sum"},format:"integerFormat",options:{format:se}},{id:"returned_orders",isMeasure:!0,name:"Returned Orders",expression:{id:"returned_order_id",aggregation:"countd"},format:"integerFormat",options:{format:se}},{id:"return_rate",isMeasure:!0,name:"Return Rate (Lines)",expression:{operator:"divide",inputs:[{id:"returned_lines"},{id:"order_items.order_item_id",aggregation:"count"}]},format:"percentageFormat",options:{format:ae}},{id:"return_value",isMeasure:!0,name:"Return Value",expression:{id:"returned_line_net",aggregation:"sum"},format:"currencyFormat",options:{format:R}},{id:"return_margin_impact",isMeasure:!0,name:"Return Margin Impact",expression:{operator:"subtract",inputs:[{type:"number",value:0},{id:"returned_line_margin",aggregation:"sum"}]},format:"currencyFormat",options:{format:R}},{id:"shipped_orders",isMeasure:!0,name:"Shipped Orders",expression:{id:"shipped_order_id",aggregation:"countd"},format:"integerFormat"},{id:"delivered_orders",isMeasure:!0,name:"Delivered Orders",expression:{id:"delivered_order_id",aggregation:"countd"},format:"integerFormat"},{id:"delivered_not_returned_orders",isMeasure:!0,name:"Delivered (Not Returned)",expression:{operator:"subtract",inputs:[{id:"delivered_orders"},{id:"returned_orders"}]},format:"integerFormat",options:{format:se}},{id:"on_time_deliveries",isMeasure:!0,name:"On-time Deliveries",expression:{id:"on_time_order_id",aggregation:"countd"},format:"integerFormat",options:{format:se}},{id:"on_time_rate",isMeasure:!0,name:"On-time Rate",expression:{operator:"divide",inputs:[{id:"on_time_deliveries"},{id:"delivered_orders"}]},format:"percentageFormat",options:{format:ae}},{id:"avg_ship_to_delivery_days",isMeasure:!0,name:"Avg Ship to Delivery Days",expression:{id:"ship_to_delivery_days",aggregation:"avg"},format:"decimalFormat",options:{format:Vn}}];let Zn=null;function er(e){return Zn??=tr(e)}async function tr(e){const[t,n,r]=await Promise.all([Ct(e),bt(e),St(e)]),o=c=>{const y=c instanceof Date?c:c!=null&&c!==""?new Date(c):null;if(!y||Number.isNaN(y.getTime()))return null;const x=String(y.getUTCFullYear()),p=String(y.getUTCMonth()+1).padStart(2,"0");return`${x}-${p}`},s=new Map;for(const c of t){const y=o(c.order_datetime);y&&s.set(String(c.order_id),y)}const u=c=>{const y=Number(c.quantity??0),x=Number(c.unit_price??0),p=Number(c.discount_pct??0),C=y*x;return C-C*p},i=new Map;for(const c of r)i.set(String(c.product_id),Number(c.unit_cost??0));const g=c=>{const y=Number(c.quantity??0),x=i.get(String(c.product_id))??0;return y*x},M=new Map;for(const c of r)M.set(String(c.product_id),String(c.subcategory));const m=new Map,d=new Map;for(const c of n){if(c.returned!==!0)continue;const y=s.get(String(c.order_id));if(!y)continue;const x=M.get(String(c.product_id));if(!x)continue;const p=String(c.return_reason??"");if(!p)continue;const C=u(c),A=g(c),k=`${y}|${x}|${p}`;m.set(k,(m.get(k)??0)+C),d.set(k,(d.get(k)??0)+A)}const b=new Set,F=new Set;for(const c of m.keys()){const y=c.split("|");b.add(y[1]),F.add(y[2])}const _=Array.from(new Set(Array.from(m.keys()).map(c=>c.split("|")[0]))).sort(),h=[];for(const c of _){const y=c.substring(0,4);for(const x of b)for(const p of F){const C=`${c}|${x}|${p}`,A=m.get(C)??0,k=d.get(C)??0;if(A===0&&k===0)continue;const D=A-k;h.push({year:y,month:c,subcategory:x,return_reason:p,refunds:Math.round(A*.45),shipping:Math.round(D*.65),write_offs:Math.round(k*.35)})}}return{returnCosts:h}}const vt=[{id:"orders-customers",source:{tableId:"orders",fieldId:"customer_id"},target:{tableId:"customers",fieldId:"customer_id"},type:"many-to-one"},{id:"orders-stores",source:{tableId:"orders",fieldId:"store_id"},target:{tableId:"stores",fieldId:"store_id"},type:"many-to-one"},{id:"order_items-orders",source:{tableId:"order_items",fieldId:"order_id"},target:{tableId:"orders",fieldId:"order_id"},type:"many-to-one"},{id:"order_items-products",source:{tableId:"order_items",fieldId:"product_id"},target:{tableId:"products",fieldId:"product_id"},type:"many-to-one"},{id:"shipments-orders",source:{tableId:"shipments",fieldId:"order_id"},target:{tableId:"orders",fieldId:"order_id"},type:"many-to-one"},{id:"return_costs-orders",source:{tableId:"return_costs",fieldId:"year"},target:{tableId:"orders",fieldId:"order_year"},type:"many-to-many"},{id:"return_costs-products",source:{tableId:"return_costs",fieldId:"subcategory"},target:{tableId:"products",fieldId:"subcategory"},type:"many-to-many"}];function ar(e){const t=`${e}/main-demo`;return{sources:[{id:"stores",name:"Stores",dataShape:"row",tables:[{id:"stores",name:"Stores",fields:pt}],getData:async()=>({data:await Yn(t)})},{id:"products",name:"Products",dataShape:"row",tables:[{id:"products",name:"Products",fields:ft}],getData:async()=>({data:await St(t)})},{id:"customers",name:"Customers",dataShape:"row",tables:[{id:"customers",name:"Customers",fields:_t}],getData:async()=>({data:await Kn(t)})},{id:"orders",name:"Orders",dataShape:"row",tables:[{id:"orders",name:"Orders",fields:ht}],getData:async()=>({data:await Ct(t)})},{id:"order_items",name:"Order Items",dataShape:"row",tables:[{id:"order_items",name:"Order Items",fields:gt}],getData:async()=>({data:await bt(t)})},{id:"shipments",name:"Shipments",dataShape:"row",tables:[{id:"shipments",name:"Shipments",fields:yt}],getData:async()=>({data:await Xn(t)})},{id:"return_costs",name:"Return Costs",dataShape:"row",tables:[{id:"return_costs",name:"Return Costs",fields:Mt}],getData:async()=>({data:(await er(t)).returnCosts})}],relationships:vt,expressions:xt}}function nr(e){const{orders:t,order_items:n,products:r}=e,o=t.order_id.indices.length,s=new Array(o);for(let _=0;_<o;++_)s[_]=q(t.order_month,_);const u=new Map,i=new Map;for(let _=0;_<r.product_id.length;++_)u.set(r.product_id[_],r.unit_cost[_]),i.set(r.product_id[_],r.subcategory[_]);const g=new Map,M=new Map;for(let _=0;_<n.returned.length;++_){if(!n.returned[_])continue;const h=n.quantity[_]*n.unit_price[_],c=h-h*n.discount_pct[_],y=q(n.product_id,_),x=n.quantity[_]*(u.get(y)??0),p=q(n.return_reason,_),C=n.order_id.indices[_],A=s[C],k=i.get(y);if(!A||!k||!p)continue;const D=`${A}|${k}|${p}`;g.set(D,(g.get(D)??0)+c),M.set(D,(M.get(D)??0)+x)}const m=new Set,d=new Set;for(const _ of g.keys()){const h=_.split("|");m.add(h[1]),d.add(h[2])}const b=[],F=Array.from(new Set(Array.from(g.keys()).map(_=>_.split("|")[0]))).sort();for(const _ of F){const h=_.substring(0,4);for(const c of m)for(const y of d){const x=`${_}|${c}|${y}`,p=g.get(x)??0,C=M.get(x)??0;if(p===0&&C===0)continue;const A=p-C;b.push({year:h,month:_,subcategory:c,return_reason:y,refunds:Math.round(p*.45),shipping:Math.round(A*.65),write_offs:Math.round(C*.35)})}}return{return_costs:b}}function rr(e){return e!=null&&typeof e=="object"&&"indices"in e&&"indexToValue"in e}function ie(e,t){const n=[],r=[],o=[];for(const s of t){const u=e[s]??[];if(rr(u))n.push(u.indices),r.push(null),o.push({indexToValue:u.indexToValue,nullCount:u.nullCount});else{const i=u;if(n.push(i),i instanceof Float64Array){let g=0;for(let M=0,m=i.length;M<m;++M)i[M]!==i[M]&&++g;if(g>0){const M=new Uint8Array(Math.ceil(i.length/8));M.fill(255);for(let m=0,d=i.length;m<d;++m)i[m]!==i[m]&&(M[m>>3]&=~(1<<(m&7)));r.push(M),o.push({nullCount:g})}else r.push(null),o.push({nullCount:0})}else r.push(null),o.push(null)}}return{data:n,nullMasks:r,statsHints:o}}function dr(e){const n=(globalThis.agStudioDebug??[]).includes("traceMarkers")?u=>performance.mark(`ag:${u}`):u=>{};n("data-gen-start");const r=Ln(e);n("encode-start");const o=Wn(r);n("precompute-start");const s=nr(r);return n("data-ready"),{sources:[{id:"stores",name:"Stores",dataShape:"column",tables:[{id:"stores",name:"Stores",fields:pt}],getData:(u,i)=>Promise.resolve(ie(o.stores,i))},{id:"products",name:"Products",dataShape:"column",tables:[{id:"products",name:"Products",fields:ft}],getData:(u,i)=>Promise.resolve(ie(o.products,i))},{id:"customers",name:"Customers",dataShape:"column",tables:[{id:"customers",name:"Customers",fields:_t}],getData:(u,i)=>Promise.resolve(ie(o.customers,i))},{id:"orders",name:"Orders",dataShape:"column",tables:[{id:"orders",name:"Orders",fields:ht}],getData:(u,i)=>Promise.resolve(ie(o.orders,i))},{id:"order_items",name:"Order Items",dataShape:"column",tables:[{id:"order_items",name:"Order Items",fields:gt}],getData:(u,i)=>Promise.resolve(ie(o.order_items,i))},{id:"shipments",name:"Shipments",dataShape:"column",tables:[{id:"shipments",name:"Shipments",fields:yt}],getData:(u,i)=>Promise.resolve(ie(o.shipments,i))},{id:"return_costs",name:"Return Costs",dataShape:"row",tables:[{id:"return_costs",name:"Return Costs",fields:Mt}],getData:()=>Promise.resolve({data:s.return_costs})}],relationships:vt,expressions:xt}}export{_t as customersFields,xt as expressions,ar as getMainDemoData,dr as getMainDemoDataGenerated,gt as orderItemsFields,ht as ordersFields,ft as productsFields,vt as relationships,yt as shipmentsFields,pt as storesFields};
+const Nt = '20260122',
+  Be = new Date('2026-01-21T23:59:59Z'),
+  de = Be.getTime(),
+  Bt = 50,
+  Rt = 2e5,
+  Et = 15e4,
+  Ot = 15e5,
+  Lt = 1125e3,
+  Ie = 0.04;
+function Ut() {
+  if (typeof window > 'u') return Ie;
+  const e = window.agStudioOpts?.scaleFactor;
+  if (typeof e == 'number' && Number.isFinite(e) && e > 0) return e;
+  const t = new URLSearchParams(window.location.search).get('sf');
+  if (t == null) return Ie;
+  const n = parseFloat(t);
+  return Number.isFinite(n) && n > 0 ? n : Ie;
+}
+const Wt = Ut();
+function I(e, t, n) {
+  return (Math.floor(e() * (n - t)) + t) | 0;
+}
+function B(e, t, n) {
+  return e() * (n - t) + t;
+}
+function N(e, t) {
+  return t[I(e, 0, t.length)];
+}
+function P(e) {
+  const t = e.length,
+    n = new Float64Array(t);
+  let r = 0;
+  for (let s = 0; s < t; ++s) n[s] = r += e[s];
+  const o = n[t - 1];
+  if (o !== 1) for (let s = 0; s < t; ++s) n[s] /= o;
+  return ((n[t - 1] = 1), n);
+}
+function J(e, t) {
+  const n = e();
+  let r = 0,
+    o = t.length - 1;
+  for (; r < o; ) {
+    const s = (r + o) >> 1;
+    t[s] < n ? (r = s + 1) : (o = s);
+  }
+  return r;
+}
+function z(e, t, n) {
+  return t[J(e, n)];
+}
+function _e(e, t) {
+  for (let n = t.length - 1; n > 0; --n) {
+    const r = I(e, 0, n + 1),
+      o = t[n];
+    ((t[n] = t[r]), (t[r] = o));
+  }
+  return t;
+}
+function $t(e, t) {
+  const n = new Int32Array(t);
+  for (let r = 0; r < t; ++r) n[r] = r;
+  for (let r = t - 1; r > 0; --r) {
+    const o = I(e, 0, r + 1),
+      s = n[r];
+    ((n[r] = n[o]), (n[o] = s));
+  }
+  return n;
+}
+function Vt(e, t, n) {
+  let r, o, s;
+  do ((r = e() * 2 - 1), (o = e() * 2 - 1), (s = r * r + o * o));
+  while (s >= 1 || s === 0);
+  return t + n * r * Math.sqrt((-2 * Math.log(s)) / s);
+}
+function Gt(e) {
+  return e < 10 ? `0${e}` : `${e}`;
+}
+function Ht(e) {
+  const n = Math.floor(e / 864e5) + 719468,
+    r = Math.floor((n >= 0 ? n : n - 146096) / 146097),
+    o = n - r * 146097,
+    s = Math.floor(
+      (o - Math.floor(o / 1460) + Math.floor(o / 36524) - Math.floor(o / 146096)) / 365,
+    ),
+    u = o - (365 * s + Math.floor(s / 4) - Math.floor(s / 100)),
+    i = Math.floor((5 * u + 2) / 153);
+  return i < 10 ? i + 3 : i - 9;
+}
+function he(e) {
+  return e * 864e5;
+}
+const le = ['UK', 'DACH', 'Nordics', 'US East', 'US West'],
+  Yt = [0.3, 0.2, 0.1, 0.2, 0.2],
+  at = P(Yt),
+  it = {
+    UK: ['London', 'Manchester', 'Birmingham', 'Leeds', 'Bristol', 'Edinburgh', 'Glasgow'],
+    DACH: ['Berlin', 'Munich', 'Hamburg', 'Frankfurt', 'Vienna', 'Zurich'],
+    Nordics: ['Stockholm', 'Copenhagen', 'Oslo', 'Helsinki'],
+    'US East': ['New York', 'Boston', 'Washington', 'Philadelphia', 'Atlanta', 'Miami'],
+    'US West': ['San Francisco', 'Los Angeles', 'Seattle', 'San Diego', 'Portland', 'San Jose'],
+  },
+  re = [
+    'Paper & Notebooks',
+    'Writing Instruments',
+    'Filing & Organisation',
+    'Desk Accessories',
+    'Labels & Mailing',
+    'Printing & Imaging',
+    'Binders & Presentation',
+    'Cleaning & Facilities (Office)',
+  ],
+  qt = {
+    'Paper & Notebooks': 'Paper & Print',
+    'Printing & Imaging': 'Paper & Print',
+    'Writing Instruments': 'Writing & Drawing',
+    'Filing & Organisation': 'Filing & Binding',
+    'Binders & Presentation': 'Filing & Binding',
+    'Desk Accessories': 'Desk & Office',
+    'Labels & Mailing': 'Packaging & Mailing',
+    'Cleaning & Facilities (Office)': 'Facilities',
+  },
+  jt = [0.22, 0.2, 0.15, 0.12, 0.1, 0.1, 0.07, 0.04],
+  dt = P(jt),
+  ct = [
+    'PaperLine',
+    'StapleForge',
+    'Inkwell & Co',
+    'DeskMate',
+    'FileCraft',
+    'LabelWorks',
+    'PrintSure',
+    'BindRight',
+    'CleanSlate Office',
+    'NoteNest',
+    'Clipster',
+    'OfficeBasics',
+  ],
+  ut = ct.map((e, t) => 1 / (t + 1)),
+  Kt = ut.reduce((e, t) => e + t, 0),
+  Jt = ut.map((e) => e / Kt),
+  zt = P(Jt),
+  Re = {
+    'Paper & Notebooks': [
+      'Copy Paper {v} 80gsm',
+      'Recycled Paper {v} 75gsm',
+      'Notebook {v} Ruled',
+      'Notepad {v} Plain',
+      'Sticky Notes {v}',
+    ],
+    'Writing Instruments': [
+      'Ballpoint Pens {v}',
+      'Gel Pens {v}',
+      'Highlighters {v}',
+      'Permanent Markers {v}',
+      'Whiteboard Markers {v}',
+    ],
+    'Filing & Organisation': [
+      'Document Wallets {v}',
+      'Lever Arch Files {v}',
+      'File Folders {v}',
+      'Desk Trays {v}',
+      'Ring Folders {v}',
+    ],
+    'Desk Accessories': [
+      'Stapler {v}',
+      'Staples {v}',
+      'Tape Dispenser {v}',
+      'Paper Clips {v}',
+      'Desk Organiser {v}',
+    ],
+    'Labels & Mailing': [
+      'Address Labels {v}',
+      'Shipping Labels {v}',
+      'Mailing Envelopes {v}',
+      'Padded Envelopes {v}',
+      'Packing Tape {v}',
+    ],
+    'Printing & Imaging': [
+      'Printer Toner {v} Compatible',
+      'Ink Cartridge {v} Compatible',
+      'Photo Paper {v}',
+      'Thermal Receipt Rolls {v}',
+      'Printer Drum Unit {v} Compatible',
+    ],
+    'Binders & Presentation': [
+      'Presentation Folders {v}',
+      'Binder Dividers {v}',
+      'Plastic Pockets {v}',
+      'Spiral Binding Coils {v}',
+      'Laminating Pouches {v}',
+    ],
+    'Cleaning & Facilities (Office)': [
+      'Surface Wipes {v}',
+      'Hand Towels {v}',
+      'Bin Liners {v}',
+      'Hand Sanitiser {v}',
+      'Air Freshener {v}',
+    ],
+  },
+  Ee = {
+    'Paper & Notebooks': ['A4', 'A5', 'Letter', 'Legal'],
+    'Writing Instruments': ['Blue', 'Black', 'Red', 'Assorted'],
+    'Filing & Organisation': ['A4', 'A5', 'Letter'],
+    'Desk Accessories': ['Small', 'Medium', 'Large'],
+    'Labels & Mailing': ['Small', 'Medium', 'Large'],
+    'Printing & Imaging': ['Black', 'Cyan', 'Magenta', 'Yellow'],
+    'Binders & Presentation': ['A4', 'A5', 'Letter'],
+    'Cleaning & Facilities (Office)': ['Pack-10', 'Pack-50', 'Pack-200'],
+  },
+  Qt = ['Standard', 'Pro', 'Plus', 'Bulk', 'Eco', 'Premium'],
+  Xt = [
+    'Technology',
+    'Healthcare',
+    'Education',
+    'Finance',
+    'Retail',
+    'Manufacturing',
+    'Hospitality',
+    'Public Sector',
+  ],
+  Zt = [0.16, 0.14, 0.12, 0.12, 0.14, 0.12, 0.1, 0.1],
+  en = P(Zt),
+  tn = ['SMB', 'Mid-Market', 'Enterprise'],
+  nn = [0.6, 0.3, 0.1],
+  rn = P(nn),
+  on = [
+    'Alex',
+    'Sam',
+    'Jordan',
+    'Taylor',
+    'Morgan',
+    'Casey',
+    'Jamie',
+    'Riley',
+    'Charlie',
+    'Avery',
+    'Robin',
+    'Cameron',
+    'Drew',
+    'Quinn',
+    'Harper',
+    'Rowan',
+    'Elliot',
+    'Finley',
+    'Parker',
+    'Reese',
+    'Nina',
+    'Maya',
+    'Amir',
+    'Omar',
+    'Leah',
+    'Hannah',
+    'Oliver',
+    'Noah',
+    'Sophia',
+    'Isla',
+  ],
+  sn = [
+    'Johnson',
+    'Smith',
+    'Brown',
+    'Wilson',
+    'Taylor',
+    'Davies',
+    'Evans',
+    'Thomas',
+    'Roberts',
+    'Walker',
+    'White',
+    'Hall',
+    'Allen',
+    'Young',
+    'King',
+    'Wright',
+    'Scott',
+    'Green',
+    'Baker',
+    'Adams',
+    'Miller',
+    'Jones',
+    'Hughes',
+    'Clarke',
+    'Ward',
+    'Turner',
+    'Cox',
+    'Price',
+    'Cooper',
+    'Reid',
+  ],
+  an = [
+    'procurement',
+    'purchasing',
+    'finance',
+    'accounts',
+    'operations',
+    'facilities',
+    'it',
+    'admin',
+    'office',
+  ],
+  dn = {
+    UK: ['co.uk', 'uk'],
+    DACH: ['de', 'at', 'ch'],
+    Nordics: ['se', 'dk', 'no', 'fi'],
+    'US East': ['com', 'us'],
+    'US West': ['com', 'us'],
+  },
+  cn = {
+    UK: [0.85, 0.15],
+    DACH: [0.7, 0.15, 0.15],
+    Nordics: [0.28, 0.26, 0.23, 0.23],
+    'US East': [0.92, 0.08],
+    'US West': [0.92, 0.08],
+  },
+  lt = {};
+for (const e of le) lt[e] = P(cn[e]);
+const un = ['first.last', 'firstlast', 'f.last', 'dept', 'dept.firstlast'],
+  ln = [0.3, 0.22, 0.18, 0.2, 0.1],
+  mn = P(ln);
+function pn(e) {
+  const t = e.toLowerCase();
+  return t.includes('printer toner') ||
+    t.includes('printer drum unit') ||
+    t.includes('ink cartridge')
+    ? ['each', 1]
+    : t.includes('thermal receipt rolls')
+      ? ['box', 20]
+      : t.includes('photo paper')
+        ? ['pack', 100]
+        : t.includes('copy paper') || t.includes('recycled paper')
+          ? ['case', 5]
+          : t.includes('notebook')
+            ? ['pack', 5]
+            : t.includes('notepad')
+              ? ['pack', 6]
+              : t.includes('sticky notes')
+                ? ['pack', 12]
+                : t.includes('ballpoint pens') || t.includes('gel pens')
+                  ? ['box', 12]
+                  : t.includes('highlighters') ||
+                      t.includes('permanent markers') ||
+                      t.includes('whiteboard markers')
+                    ? ['box', 8]
+                    : t.includes('lever arch files') ||
+                        t.includes('ring folders') ||
+                        t.includes('stapler') ||
+                        t.includes('tape dispenser') ||
+                        t.includes('desk organiser') ||
+                        t.includes('desk trays')
+                      ? ['each', 1]
+                      : t.includes('file folders') ||
+                          t.includes('document wallets') ||
+                          t.includes('presentation folders')
+                        ? ['pack', 25]
+                        : t.includes('plastic pockets')
+                          ? ['pack', 100]
+                          : t.includes('binder dividers')
+                            ? ['pack', 20]
+                            : t.includes('spiral binding coils')
+                              ? ['box', 50]
+                              : t.includes('laminating pouches')
+                                ? ['pack', 100]
+                                : t.includes('staples')
+                                  ? ['box', 5e3]
+                                  : t.includes('paper clips')
+                                    ? ['box', 1e3]
+                                    : t.includes('address labels') || t.includes('shipping labels')
+                                      ? ['roll', 1]
+                                      : t.includes('mailing envelopes') ||
+                                          t.includes('padded envelopes')
+                                        ? ['box', 250]
+                                        : t.includes('packing tape')
+                                          ? ['pack', 6]
+                                          : t.includes('surface wipes')
+                                            ? ['case', 12]
+                                            : t.includes('hand towels')
+                                              ? ['case', 16]
+                                              : t.includes('bin liners')
+                                                ? ['case', 10]
+                                                : t.includes('hand sanitiser') ||
+                                                    t.includes('air freshener')
+                                                  ? ['case', 12]
+                                                  : ['each', 1];
+}
+function fn(e, t) {
+  const n = e.toLowerCase();
+  return n.includes('printer toner')
+    ? [30, 220]
+    : n.includes('printer drum unit')
+      ? [40, 280]
+      : n.includes('ink cartridge')
+        ? [12, 140]
+        : n.includes('thermal receipt rolls')
+          ? [12, 90]
+          : n.includes('photo paper')
+            ? [8, 70]
+            : n.includes('copy paper') || n.includes('recycled paper')
+              ? [20, 95]
+              : n.includes('notebook')
+                ? [5, 40]
+                : n.includes('notepad')
+                  ? [4, 30]
+                  : n.includes('sticky notes')
+                    ? [3, 25]
+                    : n.includes('ballpoint pens') || n.includes('gel pens')
+                      ? [4, 35]
+                      : n.includes('highlighters')
+                        ? [4, 38]
+                        : n.includes('permanent markers') || n.includes('whiteboard markers')
+                          ? [5, 45]
+                          : n.includes('lever arch files')
+                            ? [2.5, 20]
+                            : n.includes('ring folders')
+                              ? [2, 18]
+                              : n.includes('document wallets') ||
+                                  n.includes('file folders') ||
+                                  n.includes('presentation folders')
+                                ? [6, 45]
+                                : n.includes('desk trays')
+                                  ? [3.5, 28]
+                                  : n.includes('stapler')
+                                    ? [3, 30]
+                                    : n.includes('tape dispenser')
+                                      ? [2.5, 24]
+                                      : n.includes('desk organiser')
+                                        ? [5, 55]
+                                        : n.includes('staples')
+                                          ? [2, 18]
+                                          : n.includes('paper clips')
+                                            ? [1.5, 14]
+                                            : n.includes('address labels')
+                                              ? [3, 22]
+                                              : n.includes('shipping labels')
+                                                ? [4, 35]
+                                                : n.includes('mailing envelopes')
+                                                  ? [7, 55]
+                                                  : n.includes('padded envelopes')
+                                                    ? [12, 85]
+                                                    : n.includes('packing tape')
+                                                      ? [5, 40]
+                                                      : n.includes('plastic pockets')
+                                                        ? [5, 40]
+                                                        : n.includes('binder dividers')
+                                                          ? [2.5, 22]
+                                                          : n.includes('spiral binding coils')
+                                                            ? [7, 60]
+                                                            : n.includes('laminating pouches')
+                                                              ? [8, 70]
+                                                              : n.includes('surface wipes')
+                                                                ? [10, 85]
+                                                                : n.includes('hand towels')
+                                                                  ? [12, 95]
+                                                                  : n.includes('bin liners')
+                                                                    ? [9, 75]
+                                                                    : n.includes('hand sanitiser')
+                                                                      ? [10, 85]
+                                                                      : n.includes('air freshener')
+                                                                        ? [7, 70]
+                                                                        : t === 'each'
+                                                                          ? [2.5, 40]
+                                                                          : t === 'roll'
+                                                                            ? [3, 35]
+                                                                            : t === 'box'
+                                                                              ? [4, 60]
+                                                                              : t === 'pack'
+                                                                                ? [3, 60]
+                                                                                : [5, 95];
+}
+const mt = re.map((e) =>
+    Re[e].map((t) => {
+      const n = t.replace('{v}', Ee[e][0]) + ' Standard';
+      return pn(n);
+    }),
+  ),
+  _n = re.map((e, t) =>
+    Re[e].map((n, r) => {
+      const [o] = mt[t][r],
+        s = n.replace('{v}', Ee[e][0]) + ' Standard';
+      return fn(s, o);
+    }),
+  );
+function hn(e) {
+  return (
+    e
+      .toLowerCase()
+      .replace(/[.,&]/g, ' ')
+      .replace(/\b(ltd|gmbh|ab|inc|llc|plc|sas|bv)\b/g, '')
+      .replace(/[^a-z0-9]+/g, '')
+      .slice(0, 30) || 'company'
+  );
+}
+function gn(e) {
+  const t = [],
+    n = [],
+    r = [],
+    o = [],
+    s = [],
+    u = [];
+  let i = 1;
+  for (const d of le)
+    for (let b = 0; b < 2; ++b) {
+      const F = N(e, it[d]);
+      (t.push(`S${i}`),
+        n.push(`${F} Fulfilment Hub`),
+        r.push(d),
+        o.push(F),
+        s.push(de - he(I(e, 365, 3650))),
+        u.push('Fulfilment'),
+        ++i);
+    }
+  const g = Bt - t.length,
+    M = Math.floor(g * 0.6),
+    m = [...Array(M).fill('Sales Office'), ...Array(g - M).fill('Partner Depot')];
+  _e(e, m);
+  for (const d of m) {
+    const b = z(e, le, at),
+      F = N(e, it[b]);
+    (t.push(`S${i}`),
+      n.push(`${F} ${d}`),
+      r.push(b),
+      o.push(F),
+      s.push(de - he(I(e, 365, 3650))),
+      u.push(d),
+      ++i);
+  }
+  return {
+    store_id: t,
+    store_name: n,
+    region: r,
+    city: o,
+    opened_date: new Float64Array(s),
+    store_type: u,
+  };
+}
+const yn = { Standard: 1, Pro: 1.06, Plus: 1.03, Bulk: 0.92, Eco: 0.95, Premium: 1.1 };
+function Mn(e, t) {
+  const n = new me(32 * t),
+    r = new Array(t),
+    o = new Array(t),
+    s = new Array(t),
+    u = new Array(t),
+    i = new Array(t),
+    g = n.float64(t),
+    M = n.float64(t),
+    m = n.float64(t),
+    d = new Array(t),
+    b = new Array(t),
+    F = n.float64(t),
+    _ = new Array(t);
+  for (let h = 0; h < t; ++h) {
+    const c = z(e, re, dt),
+      y = z(e, ct, zt),
+      x = Ee[c],
+      p = N(e, x),
+      C = re.indexOf(c),
+      A = Re[c],
+      k = I(e, 0, A.length),
+      D = A[k],
+      W = N(e, Qt),
+      E = D.replace('{v}', p) + ' ' + W,
+      [Q, $] = mt[C][k],
+      [G, H] = _n[C][k],
+      w = e(),
+      j = Math.floor(w * w * 36 * 30),
+      Y = de - he(j);
+    let l = B(e, G, H);
+    l *= yn[W];
+    const T = Math.round(Math.min(Math.max(l, 0.99), 320) * 100) / 100,
+      O = c === 'Printing & Imaging' ? B(e, 0.65, 0.85) : B(e, 0.45, 0.72),
+      L = Math.round(Math.min(T * O, T - 0.01) * 100) / 100,
+      v = e() < 0.06;
+    ((r[h] = `P${h + 1}`),
+      (o[h] = E),
+      (s[h] = qt[c]),
+      (u[h] = c),
+      (i[h] = y),
+      (g[h] = Y),
+      (M[h] = T),
+      (m[h] = L),
+      (d[h] = v),
+      (b[h] = Q),
+      (F[h] = $),
+      (_[h] = p));
+  }
+  return {
+    product_id: r,
+    product_name: o,
+    category: s,
+    subcategory: u,
+    brand: i,
+    launch_date: g,
+    list_price: M,
+    unit_cost: m,
+    is_discontinued: d,
+    uom: b,
+    pack_size: F,
+    variant: _,
+  };
+}
+function Sn(e, t, n) {
+  const r = hn(t),
+    o = dn[n] ?? ['com'],
+    s = lt[n],
+    u = s != null ? z(e, o, s) : o[0],
+    i = N(e, on).toLowerCase(),
+    g = N(e, sn).toLowerCase(),
+    M = N(e, an),
+    m = z(e, un, mn);
+  let d;
+  return (
+    m === 'first.last'
+      ? (d = `${i}.${g}`)
+      : m === 'firstlast'
+        ? (d = `${i}${g}`)
+        : m === 'f.last'
+          ? (d = `${i[0]}.${g}`)
+          : m === 'dept'
+            ? (d = M)
+            : (d = `${M}.${i}${g}`),
+    e() < 0.12 && (d = `${d}${I(e, 2, 99)}`),
+    `${d}@${r}.${u}`
+  );
+}
+const Cn = [
+    'North',
+    'Green',
+    'Blue',
+    'Prime',
+    'Metro',
+    'Summit',
+    'Crescent',
+    'Vertex',
+    'Silver',
+    'Beacon',
+    'Apex',
+    'Harbour',
+    'Oak',
+  ],
+  bn = [
+    'Systems',
+    'Group',
+    'Holdings',
+    'Solutions',
+    'Partners',
+    'Industries',
+    'Labs',
+    'Networks',
+    'Care',
+    'Logistics',
+    'Foods',
+    'Energy',
+    'Services',
+  ],
+  xn = ['Ltd', 'GmbH', 'AB', 'Inc', 'LLC', 'PLC', 'SAS', 'BV'];
+function vn(e, t) {
+  const n = new me(8 * t),
+    r = new Array(t),
+    o = new Array(t),
+    s = new Array(t),
+    u = n.float64(t),
+    i = new Array(t),
+    g = new Array(t),
+    M = new Array(t),
+    m = new Array(t);
+  for (let d = 0; d < t; ++d) {
+    const b = z(e, le, at),
+      F = z(e, Xt, en),
+      _ = z(e, tn, rn),
+      h = e(),
+      c = de - he(Math.floor(h * h * 2100)),
+      y = `${N(e, Cn)} ${N(e, bn)} ${N(e, xn)}`,
+      x = Sn(e, y, b),
+      p = _ === 'Enterprise' ? 0.96 : _ === 'Mid-Market' ? 0.93 : 0.88,
+      C = e() < p;
+    ((r[d] = `C${d + 1}`),
+      (o[d] = y),
+      (s[d] = x),
+      (u[d] = c),
+      (i[d] = b),
+      (g[d] = _),
+      (M[d] = C),
+      (m[d] = F));
+  }
+  return {
+    customer_id: r,
+    customer_name: o,
+    email: s,
+    signup_date: u,
+    region: i,
+    segment: g,
+    is_active: M,
+    industry: m,
+  };
+}
+function Fn(e, t, n, r) {
+  const o = new me(31 * r),
+    s = ['Completed', 'Cancelled', 'Returned', 'Processing'],
+    u = Math.round(r * (2200 / 6e4)),
+    i = Math.round(r * (600 / 6e4)),
+    g = Math.round(r * (1e3 / 6e4)),
+    M = r - u - i - g,
+    m = [...Array(M).fill(0), ...Array(u).fill(1), ...Array(i).fill(2), ...Array(g).fill(3)];
+  _e(e, m);
+  const d = t.customer_id.length,
+    b = t.segment.reduce((a, f) => a + (f === 'SMB' ? 1 : f === 'Mid-Market' ? 2 : 5), 0),
+    F = new Float64Array(d);
+  {
+    let a = 0;
+    for (let f = 0; f < d; ++f) {
+      const S = t.segment[f];
+      ((a += (S === 'SMB' ? 1 : S === 'Mid-Market' ? 2 : 5) / b), (F[f] = a));
+    }
+  }
+  function _() {
+    const a = e();
+    let f = 0,
+      S = F.length - 1;
+    for (; f < S; ) {
+      const U = (f + S) >> 1;
+      F[U] < a ? (f = U + 1) : (S = U);
+    }
+    return f;
+  }
+  const h = [];
+  {
+    let a = Be.getUTCFullYear(),
+      f = Be.getUTCMonth() + 1;
+    const S = 2021,
+      U = 1;
+    for (; a > S || (a === S && f >= U); )
+      (h.unshift({ year: a, month: f }), --f === 0 && ((f = 12), --a));
+  }
+  const c = { 2021: 0.55, 2022: 0.7, 2023: 0.85 },
+    y = h.map(({ year: a, month: f }) => {
+      let S = c[a] ?? 1;
+      return (
+        (f === 10 || f === 11 || f === 12) && (S *= 1.2),
+        f === 12 && (S *= 1.1),
+        (f === 7 || f === 8) && (S *= 0.9),
+        f === 1 && (S *= 1.05),
+        S
+      );
+    }),
+    x = y.reduce((a, f) => a + f, 0),
+    p = y.length,
+    C = new Float64Array(p);
+  {
+    let a = 0;
+    for (let f = 0; f < p; ++f) ((a += y[f] / x), (C[f] = a));
+  }
+  const A = h.map(({ year: a, month: f }) => new Date(a, f, 0).getDate()),
+    k = new Float64Array(24);
+  {
+    let f = 0;
+    for (let S = 0; S < 24; ++S) {
+      const U = S >= 8 && S < 18 ? 2.2 : S >= 18 && S < 21 ? 0.6 : 0.3;
+      ((f += U / 27.1), (k[S] = f));
+    }
+  }
+  const D = {},
+    W = {},
+    E = {};
+  for (const a of le) ((D[a] = []), (E[a] = []), (W[a] = []));
+  const Q = n.store_id.length;
+  for (let a = 0; a < Q; ++a) {
+    const f = n.region[a],
+      S = n.store_type[a];
+    (W[f].push(a), S === 'Fulfilment' ? D[f].push(a) : S === 'Partner Depot' && E[f].push(a));
+  }
+  const $ = ['Portal', 'Sales-Assisted', 'Partner', 'In-person'],
+    G = [0.7, 0.2, 0.08, 0.02],
+    H = [0.55, 0.25, 0.15, 0.05],
+    w = [0.35, 0.35, 0.25, 0.05],
+    j = P(G),
+    Y = P(H),
+    l = P(w),
+    T = ['Contract', 'Volume', 'List'],
+    O = [0.6, 0.25, 0.15],
+    L = [0.45, 0.2, 0.35],
+    v = [0.2, 0.15, 0.65],
+    V = P(O),
+    ue = P(L),
+    ye = P(v),
+    Me = ['Invoice', 'Bank Transfer', 'Card'],
+    oe = P([0.78, 0.15, 0.07]),
+    Ce = ['Net 30', 'Net 45', 'Net 60'],
+    be = P([0.55, 0.3, 0.15]),
+    Z = ['PO required', 'Deliver to goods-in', 'Leave at reception', 'Urgent replacement'],
+    xe = P([0.8, 0.12, 0.08]),
+    ve = ['Contract', 'Renewal', 'Bundle', 'Volume', 'None'],
+    Fe = ['GBP', 'EUR', 'USD'],
+    K = o.float64(r),
+    pe = o.uint32(r),
+    $e = new Array(r),
+    Ve = o.uint32(r),
+    Ge = o.uint32(r),
+    ke = o.uint8(r),
+    He = o.uint8(r),
+    Ye = o.uint8(r),
+    qe = o.uint8(r),
+    je = o.uint8(r),
+    Ke = o.uint8(r),
+    Je = o.uint8(r),
+    ze = o.uint8(r),
+    Qe = o.uint8(r);
+  let Xe = 0;
+  for (let a = 0; a < r; ++a) {
+    const f = _(),
+      S = t.region[f],
+      U = t.segment[f],
+      At = S === 'UK' ? 0 : S === 'DACH' || S === 'Nordics' ? 1 : 2,
+      tt = J(e, U === 'SMB' ? j : U === 'Mid-Market' ? Y : l),
+      we = J(e, C),
+      { year: Dt, month: It } = h[we],
+      Pt = I(e, 1, A[we] + 1),
+      Tt = J(e, k);
+    let Ae = Date.UTC(Dt, It - 1, Pt, Tt, I(e, 0, 60), I(e, 0, 60));
+    Ae > de && (Ae = de - I(e, 0, 86400) * 1e3);
+    let De;
+    if ($[tt] === 'Partner') {
+      const st = E[S];
+      De = st.length > 0 && e() < 0.7 ? N(e, st) : N(e, D[S]);
+    } else De = e() < 0.85 ? N(e, D[S]) : N(e, W[S]);
+    const nt = J(e, U === 'Enterprise' ? V : U === 'Mid-Market' ? ue : ye),
+      rt = T[nt];
+    let fe;
+    rt === 'Contract' ? (fe = J(e, xe)) : rt === 'Volume' ? (fe = e() < 0.85 ? 3 : 2) : (fe = 4);
+    const ot = e() < 0.04 ? N(e, Z) : null;
+    (($e[a] = `O${a + 1}`),
+      (pe[a] = a),
+      (Ve[a] = f),
+      (Ge[a] = De),
+      (K[a] = Ae),
+      (ke[a] = we),
+      (He[a] = tt),
+      (Ye[a] = m[a]),
+      (qe[a] = At),
+      (je[a] = nt),
+      (Ke[a] = fe),
+      (Je[a] = J(e, oe)),
+      (ze[a] = J(e, be)),
+      ot != null ? (Qe[a] = Z.indexOf(ot)) : ++Xe);
+  }
+  const Ft = h.map(({ year: a, month: f }) => `${a}-${Gt(f)}`),
+    Ze = [...new Set(h.map(({ year: a }) => a))].sort((a, f) => a - f),
+    kt = Ze.map(String),
+    wt = h.map(({ year: a }) => Ze.indexOf(a)),
+    et = o.uint8(r);
+  for (let a = 0; a < r; ++a) et[a] = wt[ke[a]];
+  return {
+    order_id: { indices: pe, indexToValue: $e, nullCount: 0 },
+    customer_id: { indices: Ve, indexToValue: t.customer_id, nullCount: 0 },
+    store_id: { indices: Ge, indexToValue: n.store_id, nullCount: 0 },
+    order_datetime: K,
+    order_month: { indices: ke, indexToValue: Ft, nullCount: 0 },
+    order_year: { indices: et, indexToValue: kt, nullCount: 0 },
+    channel: { indices: He, indexToValue: [...$], nullCount: 0 },
+    status: { indices: Ye, indexToValue: [...s], nullCount: 0 },
+    currency: { indices: qe, indexToValue: [...Fe], nullCount: 0 },
+    price_list: { indices: je, indexToValue: [...T], nullCount: 0 },
+    discount_reason: { indices: Ke, indexToValue: [...ve], nullCount: 0 },
+    payment_method: { indices: Je, indexToValue: [...Me], nullCount: 0 },
+    payment_terms: { indices: ze, indexToValue: [...Ce], nullCount: 0 },
+    notes: { indices: Qe, indexToValue: [...Z], nullCount: Xe },
+    promo_code: { indices: o.uint8(r), indexToValue: [], nullCount: r },
+  };
+}
+const kn = { case: 70, box: 90, pack: 110, roll: 80 },
+  wn = {
+    'Paper & Notebooks': [6, 14, 28],
+    'Labels & Mailing': [4, 12, 24],
+    'Cleaning & Facilities (Office)': [4, 12, 22],
+    'Writing Instruments': [3, 10, 18],
+    'Filing & Organisation': [3, 9, 16],
+    'Binders & Presentation': [3, 9, 16],
+    'Printing & Imaging': [2, 5, 10],
+    'Desk Accessories': [1, 3, 6],
+  },
+  An = [3, 8, 14];
+function Dn(e, t, n) {
+  const r = wn[e] ?? An,
+    o = t === 'Enterprise' ? r[2] : t === 'Mid-Market' ? r[1] : r[0],
+    s = n === 'each' ? (t === 'Enterprise' ? 12 : 6) : (kn[n] ?? 25);
+  return Math.min(o * 2, s);
+}
+const Pe = ['Damaged', 'Incorrect spec', 'Over-ordered', 'Warranty claim'];
+function In(e, t, n, r) {
+  const o = t.order_id.indices.length,
+    s = On(o),
+    u = new me(45 * s),
+    i = Math.round(o * (2e4 / 6e4)),
+    g = Math.round(o * (45e3 / 6e4)),
+    M = Math.round(o * (55e3 / 6e4)),
+    m = new Uint8Array(o),
+    d = $t(e, o);
+  for (let l = 0; l < i; ++l) m[d[l]] = 2;
+  for (let l = i; l < g; ++l) m[d[l]] = 3;
+  for (let l = g; l < M; ++l) m[d[l]] = 4;
+  for (let l = M; l < o; ++l) m[d[l]] = 5;
+  const b = new Int32Array(o);
+  for (let l = 1; l < o; ++l) b[l] = b[l - 1] + m[l - 1];
+  const F = r.product_id,
+    _ = r.subcategory,
+    h = r.uom,
+    c = r.list_price,
+    y = F.length,
+    x = {};
+  for (const l of re) x[l] = [];
+  for (let l = 0; l < y; ++l) x[_[l]].push(l);
+  const p = u.float64(s),
+    C = u.float64(s),
+    A = u.float64(s),
+    k = u.float64(s),
+    D = u.uint32(s),
+    W = new Array(s),
+    E = u.uint32(s),
+    Q = u.uint32(s),
+    $ = u.uint8(s),
+    G = new Array(s).fill(!1);
+  let H = s,
+    w = 0;
+  const j = new Int32Array(s);
+  for (let l = 0; l < o; ++l) {
+    const T = m[l],
+      O = z(e, re, dt),
+      L = x[O];
+    j[w] = L[I(e, 0, L.length)];
+    for (let v = 1; v < T; ++v) j[w + v] = e() < 0.7 ? L[I(e, 0, L.length)] : I(e, 0, y);
+    w += T;
+  }
+  w = 0;
+  for (let l = 0; l < o; ++l) {
+    const T = m[l],
+      O = t.customer_id.indices[l],
+      L = n.segment[O],
+      v = q(t.price_list, l),
+      V = q(t.currency, l),
+      ue = q(t.status, l),
+      ye = V === 'EUR' ? 1.12 : V === 'USD' ? 1.25 : 1,
+      Me =
+        v === 'Contract' ? B(e, 0.9, 0.98) : v === 'Volume' ? B(e, 0.88, 0.96) : B(e, 0.98, 1.03);
+    for (let Se = 0; Se < T; ++Se) {
+      const oe = j[w],
+        Ce = _[oe],
+        We = h[oe],
+        be = c[oe] * ye,
+        Z = I(e, 1, Dn(Ce, L, We) + 1),
+        xe = 1 - Math.min(Math.max((Z - 10) / 200, 0), 0.18),
+        ve = B(e, 0.985, 1.02),
+        Fe = Math.round(be * Me * xe * ve * 100) / 100;
+      let K =
+        v === 'Contract' ? B(e, 0.04, 0.14) : v === 'Volume' ? B(e, 0.06, 0.2) : B(e, 0, 0.06);
+      ((K += Math.min(Math.max((Z - 20) / 260, 0), 0.1) * B(e, 0.6, 1)),
+        ue === 'Cancelled' && (K = Math.min(K, B(e, 0, 0.04))),
+        (K = Math.round(Math.min(K, 0.55) * 1e4) / 1e4));
+      const pe = V === 'USD' ? 0 : 0.2;
+      ((D[w] = w),
+        (W[w] = `I${w + 1}`),
+        (E[w] = l),
+        (Q[w] = oe),
+        (p[w] = Z),
+        (C[w] = Fe),
+        (A[w] = K),
+        (k[w] = pe),
+        ++w);
+    }
+  }
+  H = s;
+  const Y = [0, 1, 2, 3, 4];
+  for (let l = 0; l < o; ++l) {
+    if (q(t.status, l) !== 'Returned') continue;
+    const T = m[l],
+      O = b[l],
+      L = e() < 0.85 ? 1 : 2;
+    for (let v = 0; v < T; ++v) Y[v] = v;
+    for (let v = T - 1; v > 0; --v) {
+      const V = I(e, 0, v + 1),
+        ue = Y[v];
+      ((Y[v] = Y[V]), (Y[V] = ue));
+    }
+    for (let v = 0; v < L && v < T; ++v) {
+      const V = O + Y[v];
+      ((G[V] = !0), ($[V] = I(e, 0, Pe.length)), --H);
+    }
+    G[O] || ((G[O] = !0), ($[O] = I(e, 0, Pe.length)), --H);
+  }
+  return {
+    order_item_id: { indices: D, indexToValue: W, nullCount: 0 },
+    order_id: { indices: E, indexToValue: t.order_id.indexToValue, nullCount: 0 },
+    product_id: { indices: Q, indexToValue: r.product_id, nullCount: 0 },
+    quantity: p,
+    unit_price: C,
+    discount_pct: A,
+    tax_rate: k,
+    returned: G,
+    return_reason: { indices: $, indexToValue: [...Pe], nullCount: H },
+  };
+}
+const Pn = ['DHL', 'DPD', 'Royal Mail', 'UPS'],
+  Tn = [0.3, 0.3, 0.25, 0.15],
+  Nn = P(Tn),
+  Bn = { GBP: 2.5, EUR: 3, USD: 3.5 },
+  Rn = { GBP: 4.5, EUR: 4.5, USD: 5.5 };
+function En(e, t, n) {
+  const r = new me(25 * n),
+    o = t.order_id.indices.length,
+    s = [],
+    u = [],
+    i = [];
+  for (let p = 0; p < o; ++p) {
+    const C = q(t.status, p);
+    C === 'Returned' ? s.push(p) : C === 'Processing' ? u.push(p) : C === 'Completed' && i.push(p);
+  }
+  const g = n - s.length - u.length;
+  _e(e, i);
+  const M = i.slice(0, g),
+    m = [...s, ...u, ...M];
+  _e(e, m);
+  const d = m.length,
+    b = r.float64(d),
+    F = r.float64(d),
+    _ = r.uint32(d),
+    h = new Array(d),
+    c = r.uint32(d),
+    y = r.uint8(d),
+    x = new Array(d);
+  for (let p = 0; p < d; ++p) {
+    const C = m[p],
+      A = J(e, Nn),
+      k = q(t.status, C),
+      D = q(t.currency, C);
+    if (
+      ((_[p] = p), (h[p] = `SH${p + 1}`), (c[p] = C), (y[p] = A), k === 'Processing' && e() < 0.35)
+    ) {
+      ((b[p] = NaN), (F[p] = NaN), (x[p] = !1));
+      continue;
+    }
+    const W = k === 'Processing' ? B(e, 0, 36) : B(e, 2, 60),
+      E = t.order_datetime[C] + W * 36e5,
+      Q = Bn[D] ?? 3,
+      $ = Math.min(Math.max(Vt(e, Q, 1.1), 0.6), 9),
+      G = E + $ * 864e5,
+      H = Rn[D] ?? 5,
+      w = Ht(E),
+      j = $ > H || e() < (w === 11 || w === 12 ? 0.1 : 0.07);
+    ((b[p] = E), (F[p] = G), (x[p] = j));
+  }
+  return {
+    shipment_id: { indices: _, indexToValue: h, nullCount: 0 },
+    order_id: { indices: c, indexToValue: t.order_id.indexToValue, nullCount: 0 },
+    ship_datetime: b,
+    delivery_datetime: F,
+    carrier: { indices: y, indexToValue: [...Pn], nullCount: 0 },
+    delayed: x,
+  };
+}
+function On(e) {
+  const t = Math.round(e * 0.3333333333333333),
+    n = Math.round(e * (45e3 / 6e4)),
+    r = Math.round(e * (55e3 / 6e4));
+  return t * 2 + (n - t) * 3 + (r - n) * 4 + (e - r) * 5;
+}
+function Ln(e = () => () => Math.random(), t = Nt, n = Wt) {
+  const r = e(t),
+    o = Math.max(Math.round(Rt * n), re.length),
+    s = Math.max(Math.round(Et * n), 1),
+    u = Math.max(Math.round(Ot * n), 1),
+    i = Math.round(Lt * n);
+  (ee('gen:data'), ee('gen:data:stores'));
+  const g = gn(r);
+  (te('gen:data:stores'),
+    ne('gen:data:stores', { rows: g.store_id.length }),
+    ee('gen:data:products'));
+  const M = Mn(r, o);
+  (te('gen:data:products'), ne('gen:data:products', { rows: o }), ee('gen:data:customers'));
+  const m = vn(r, s);
+  (te('gen:data:customers'), ne('gen:data:customers', { rows: s }), ee('gen:data:orders'));
+  const d = Fn(r, m, g, u);
+  (te('gen:data:orders'), ne('gen:data:orders', { rows: u }), ee('gen:data:order-items'));
+  const b = In(r, d, m, M);
+  (te('gen:data:order-items'),
+    ne('gen:data:order-items', { rows: b.order_item_id.indices.length }),
+    ee('gen:data:shipments'));
+  const F = En(r, d, i);
+  return (
+    te('gen:data:shipments'),
+    ne('gen:data:shipments', { rows: i }),
+    te('gen:data'),
+    ne('gen:data'),
+    { stores: g, products: M, customers: m, orders: d, order_items: b, shipments: F }
+  );
+}
+function Un(e) {
+  const t = [],
+    n = new Map();
+  let r = 0;
+  for (const i of e) i == null ? ++r : n.has(i) || (n.set(i, t.length), t.push(i));
+  const o = t.length,
+    s = o <= 256 ? Uint8Array : o <= 65536 ? Uint16Array : Uint32Array,
+    u = new s(e.length);
+  for (let i = 0; i < e.length; ++i) {
+    const g = e[i];
+    g != null && (u[i] = n.get(g));
+  }
+  return { indices: u, indexToValue: t, nullCount: r };
+}
+function q(e, t) {
+  return e.indexToValue[e.indices[t]];
+}
+function Te(e, t) {
+  const n = { ...e };
+  for (const r of t) {
+    const o = e[r];
+    o != null && (n[r] = Un(o));
+  }
+  return n;
+}
+function Wn(e) {
+  return {
+    stores: Te(e.stores, ['store_id', 'store_name', 'region', 'city', 'store_type']),
+    products: Te(e.products, [
+      'product_id',
+      'product_name',
+      'category',
+      'subcategory',
+      'brand',
+      'uom',
+      'variant',
+    ]),
+    customers: Te(e.customers, [
+      'customer_id',
+      'customer_name',
+      'email',
+      'region',
+      'segment',
+      'industry',
+    ]),
+    orders: e.orders,
+    order_items: e.order_items,
+    shipments: e.shipments,
+  };
+}
+function Ne(e, t) {
+  return (e + t - 1) & ~(t - 1);
+}
+class me {
+  buffer;
+  offset = 0;
+  constructor(t) {
+    this.buffer = new ArrayBuffer(t);
+  }
+  float64(t) {
+    this.offset = Ne(this.offset, 8);
+    const n = new Float64Array(this.buffer, this.offset, t);
+    return ((this.offset += t * 8), n);
+  }
+  uint32(t) {
+    this.offset = Ne(this.offset, 4);
+    const n = new Uint32Array(this.buffer, this.offset, t);
+    return ((this.offset += t * 4), n);
+  }
+  uint16(t) {
+    this.offset = Ne(this.offset, 2);
+    const n = new Uint16Array(this.buffer, this.offset, t);
+    return ((this.offset += t * 2), n);
+  }
+  uint8(t) {
+    const n = new Uint8Array(this.buffer, this.offset, t);
+    return ((this.offset += t), n);
+  }
+}
+const Oe = (globalThis.agStudioDebug ?? []).includes('traceMarkers'),
+  Le = (e, t) => {
+    const n = e.split(':'),
+      r = n[2] ? (n[3] ? 'tertiary' : 'secondary') : 'primary',
+      o = Object.keys(t ?? {})
+        .map((s) => `${s}=${(t ?? {})[s]}`)
+        .join(':');
+    return {
+      ...t,
+      devtools: {
+        dataType: 'track-entry',
+        color: r,
+        track: n[0],
+        tooltipText: `${e} (${o})`,
+        properties: t && Object.entries(t),
+      },
+    };
+  },
+  Ue = () => {},
+  ee = Oe ? (e, t) => performance.mark(`ag:${e}-start`, { ...t, detail: Le(e, t) }) : Ue,
+  te = Oe ? (e, t) => performance.mark(`ag:${e}-end`, { ...t, detail: Le(e, t) }) : Ue,
+  ne = Oe
+    ? (e, t) => {
+        const n = t ? Object.values(t)[0] : null;
+        return performance.measure(`ag:${e}${n ? `:${n}` : ''}`, {
+          detail: Le(e, t),
+          start: `ag:${e}-start`,
+          end: `ag:${e}-end`,
+        });
+      }
+    : Ue,
+  ge = new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    currencyDisplay: 'narrowSymbol',
+  }),
+  X = new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    currencyDisplay: 'narrowSymbol',
+    maximumFractionDigits: 2,
+  }),
+  R = new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    currencyDisplay: 'narrowSymbol',
+    notation: 'compact',
+    compactDisplay: 'short',
+    maximumFractionDigits: 1,
+  }),
+  $n = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 0 }),
+  Vn = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 1 }),
+  se = new Intl.NumberFormat('en-GB', {
+    notation: 'compact',
+    compactDisplay: 'short',
+    maximumFractionDigits: 0,
+  }),
+  Gn = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 0 }),
+  ae = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 1 }),
+  pt = [
+    { id: 'store_id', name: 'Store ID', format: 'textFormat', cardinality: 'low', notBlank: !0 },
+    { id: 'store_name', name: 'Store', format: 'textFormat', cardinality: 'low', notBlank: !0 },
+    { id: 'region', name: 'Region', format: 'textFormat', cardinality: 'low', notBlank: !0 },
+    { id: 'city', name: 'City', format: 'textFormat', cardinality: 'low', notBlank: !0 },
+    {
+      id: 'opened_date',
+      name: 'Opened Date',
+      format: 'dateFormat',
+      cardinality: 'medium',
+      notBlank: !0,
+    },
+    {
+      id: 'store_type',
+      name: 'Store Type',
+      format: 'textFormat',
+      cardinality: 'low',
+      notBlank: !0,
+    },
+  ],
+  ft = [
+    {
+      id: 'product_id',
+      name: 'Product ID',
+      format: 'textFormat',
+      cardinality: 'high',
+      notBlank: !0,
+      hide: !1,
+    },
+    {
+      id: 'product_name',
+      name: 'Product',
+      format: 'textFormat',
+      cardinality: 'high',
+      notBlank: !0,
+    },
+    { id: 'category', name: 'Category', format: 'textFormat', cardinality: 'low', notBlank: !0 },
+    {
+      id: 'subcategory',
+      name: 'Subcategory',
+      format: 'textFormat',
+      cardinality: 'medium',
+      notBlank: !0,
+    },
+    { id: 'brand', name: 'Brand', format: 'textFormat', cardinality: 'medium', notBlank: !0 },
+    {
+      id: 'launch_date',
+      name: 'Launch Date',
+      format: 'dateFormat',
+      cardinality: 'high',
+      notBlank: !0,
+    },
+    {
+      id: 'list_price',
+      name: 'List Price',
+      format: 'currencyFormat',
+      cardinality: 'high',
+      notBlank: !0,
+      options: { format: ge },
+    },
+    {
+      id: 'unit_cost',
+      name: 'Unit Cost',
+      format: 'currencyFormat',
+      cardinality: 'high',
+      notBlank: !0,
+      options: { format: ge },
+    },
+    {
+      id: 'is_discontinued',
+      name: 'Discontinued',
+      format: 'booleanFormat',
+      cardinality: 'low',
+      notBlank: !0,
+    },
+  ],
+  _t = [
+    {
+      id: 'customer_id',
+      name: 'Customer ID',
+      format: 'textFormat',
+      cardinality: 'high',
+      notBlank: !0,
+      hide: !1,
+    },
+    {
+      id: 'customer_name',
+      name: 'Customer',
+      format: 'textFormat',
+      cardinality: 'high',
+      notBlank: !0,
+    },
+    {
+      id: 'signup_date',
+      name: 'Signup Date',
+      format: 'dateFormat',
+      cardinality: 'high',
+      notBlank: !0,
+    },
+    { id: 'region', name: 'Region', format: 'textFormat', cardinality: 'low', notBlank: !0 },
+    { id: 'segment', name: 'Segment', format: 'textFormat', cardinality: 'low', notBlank: !0 },
+    { id: 'is_active', name: 'Active', format: 'booleanFormat', cardinality: 'low', notBlank: !0 },
+    {
+      id: 'marketing_opt_in',
+      name: 'Marketing Opt-in',
+      format: 'booleanFormat',
+      cardinality: 'low',
+      notBlank: !0,
+    },
+  ],
+  ht = [
+    {
+      id: 'order_id',
+      name: 'Order ID',
+      format: 'textFormat',
+      cardinality: 'high',
+      notBlank: !0,
+      hide: !1,
+    },
+    {
+      id: 'customer_id',
+      name: 'Customer ID',
+      format: 'textFormat',
+      cardinality: 'high',
+      notBlank: !0,
+    },
+    { id: 'store_id', name: 'Store ID', format: 'textFormat', cardinality: 'low', notBlank: !0 },
+    {
+      id: 'order_datetime',
+      name: 'Order Date/Time',
+      format: 'dateTimeFormat',
+      cardinality: 'high',
+      notBlank: !0,
+    },
+    { id: 'channel', name: 'Channel', format: 'textFormat', cardinality: 'low', notBlank: !0 },
+    { id: 'status', name: 'Status', format: 'textFormat', cardinality: 'low', notBlank: !0 },
+    {
+      id: 'payment_method',
+      name: 'Payment Method',
+      format: 'textFormat',
+      cardinality: 'low',
+      notBlank: !0,
+    },
+    {
+      id: 'currency',
+      name: 'Currency',
+      format: 'textFormat',
+      cardinality: 'low',
+      notBlank: !0,
+      hide: !1,
+    },
+    {
+      id: 'promo_code',
+      name: 'Promo Code',
+      format: 'textFormat',
+      cardinality: 'medium',
+      notBlank: !1,
+      hide: !1,
+    },
+    {
+      id: 'notes',
+      name: 'Notes',
+      format: 'textFormat',
+      cardinality: 'high',
+      notBlank: !1,
+      hide: !1,
+    },
+    {
+      id: 'order_month',
+      name: 'Order Month',
+      format: 'textFormat',
+      cardinality: 'low',
+      notBlank: !0,
+      hide: !1,
+      accessor: (e) => {
+        const t = new Date(e.order_datetime);
+        return Number.isNaN(t.getTime())
+          ? null
+          : `${String(t.getUTCFullYear())}-${String(t.getUTCMonth() + 1).padStart(2, '0')}`;
+      },
+    },
+    {
+      id: 'order_year',
+      name: 'Order Year',
+      format: 'textFormat',
+      cardinality: 'low',
+      notBlank: !0,
+      hide: !0,
+    },
+  ],
+  gt = [
+    {
+      id: 'order_item_id',
+      name: 'Order Item ID',
+      format: 'textFormat',
+      cardinality: 'high',
+      notBlank: !0,
+    },
+    { id: 'order_id', name: 'Order ID', format: 'textFormat', cardinality: 'high', notBlank: !0 },
+    {
+      id: 'product_id',
+      name: 'Product ID',
+      format: 'textFormat',
+      cardinality: 'high',
+      notBlank: !0,
+    },
+    {
+      id: 'quantity',
+      name: 'Qty',
+      format: 'integerFormat',
+      cardinality: 'medium',
+      notBlank: !0,
+      options: { format: $n },
+    },
+    {
+      id: 'unit_price',
+      name: 'Unit Price',
+      format: 'currencyFormat',
+      cardinality: 'high',
+      notBlank: !0,
+      options: { format: ge },
+    },
+    {
+      id: 'discount_pct',
+      name: 'Discount',
+      format: 'percentageFormat',
+      cardinality: 'medium',
+      notBlank: !0,
+      options: { format: ae },
+    },
+    {
+      id: 'tax_rate',
+      name: 'Tax Rate',
+      format: 'percentageFormat',
+      cardinality: 'low',
+      notBlank: !0,
+      options: { format: Gn },
+    },
+    { id: 'returned', name: 'Returned', format: 'booleanFormat', cardinality: 'low', notBlank: !0 },
+    {
+      id: 'return_reason',
+      name: 'Return Reason',
+      format: 'textFormat',
+      cardinality: 'low',
+      notBlank: !1,
+    },
+  ],
+  yt = [
+    {
+      id: 'shipment_id',
+      name: 'Shipment ID',
+      format: 'textFormat',
+      cardinality: 'high',
+      notBlank: !0,
+    },
+    { id: 'order_id', name: 'Order ID', format: 'textFormat', cardinality: 'high', notBlank: !0 },
+    {
+      id: 'ship_datetime',
+      name: 'Shipped Date/Time',
+      format: 'dateTimeFormat',
+      cardinality: 'high',
+      notBlank: !1,
+    },
+    {
+      id: 'delivery_datetime',
+      name: 'Delivered Date/Time',
+      format: 'dateTimeFormat',
+      cardinality: 'high',
+      notBlank: !1,
+    },
+    { id: 'carrier', name: 'Carrier', format: 'textFormat', cardinality: 'low', notBlank: !0 },
+    { id: 'delayed', name: 'Delayed', format: 'booleanFormat', cardinality: 'low', notBlank: !1 },
+  ],
+  Mt = [
+    { id: 'year', name: 'Year', format: 'textFormat', cardinality: 'low', notBlank: !0 },
+    { id: 'month', name: 'Month', format: 'textFormat', cardinality: 'medium', notBlank: !0 },
+    {
+      id: 'subcategory',
+      name: 'Subcategory',
+      format: 'textFormat',
+      cardinality: 'low',
+      notBlank: !0,
+    },
+    {
+      id: 'return_reason',
+      name: 'Return Reason',
+      format: 'textFormat',
+      cardinality: 'low',
+      notBlank: !0,
+    },
+    {
+      id: 'refunds',
+      name: 'Refunds',
+      format: 'currencyFormat',
+      cardinality: 'medium',
+      notBlank: !0,
+      options: { format: R },
+    },
+    {
+      id: 'shipping',
+      name: 'Shipping',
+      format: 'currencyFormat',
+      cardinality: 'medium',
+      notBlank: !0,
+      options: { format: R },
+    },
+    {
+      id: 'write_offs',
+      name: 'Write-offs',
+      format: 'currencyFormat',
+      cardinality: 'medium',
+      notBlank: !0,
+      options: { format: R },
+    },
+  ];
+async function ce(e, t) {
+  const n = `${e}/${t}`,
+    r = await fetch(n);
+  return r.ok ? await r.json() : (console.error(`Failed to load ${t}: ${r.status}`), []);
+}
+let Hn = null;
+const Yn = (e) => (Hn ??= ce(e, 'stores.json'));
+let qn = null;
+const St = (e) => (qn ??= ce(e, 'products.json'));
+let jn = null;
+const Kn = (e) => (jn ??= ce(e, 'customers.json'));
+let Jn = null;
+const Ct = (e) => (Jn ??= ce(e, 'orders.json'));
+let zn = null;
+const bt = (e) => (zn ??= ce(e, 'order_items.json'));
+let Qn = null;
+const Xn = (e) => (Qn ??= ce(e, 'shipments.json')),
+  xt = [
+    {
+      id: 'line_gross',
+      isMeasure: !1,
+      name: 'Line Gross',
+      hide: !1,
+      format: 'currencyFormat',
+      options: { format: X },
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'order_items.quantity' }, { id: 'order_items.unit_price' }],
+      },
+    },
+    {
+      id: 'line_discount_amount',
+      isMeasure: !1,
+      name: 'Discount Amount',
+      hide: !1,
+      format: 'currencyFormat',
+      options: { format: X },
+      expression: {
+        operator: 'multiply',
+        inputs: [
+          {
+            operator: 'multiply',
+            inputs: [{ id: 'order_items.quantity' }, { id: 'order_items.unit_price' }],
+          },
+          { id: 'order_items.discount_pct' },
+        ],
+      },
+    },
+    {
+      id: 'line_net',
+      isMeasure: !1,
+      name: 'Line Net',
+      hide: !1,
+      format: 'currencyFormat',
+      options: { format: X },
+      expression: {
+        operator: 'subtract',
+        inputs: [
+          {
+            operator: 'multiply',
+            inputs: [{ id: 'order_items.quantity' }, { id: 'order_items.unit_price' }],
+          },
+          {
+            operator: 'multiply',
+            inputs: [
+              {
+                operator: 'multiply',
+                inputs: [{ id: 'order_items.quantity' }, { id: 'order_items.unit_price' }],
+              },
+              { id: 'order_items.discount_pct' },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      id: 'line_cogs',
+      isMeasure: !1,
+      name: 'Line COGS',
+      hide: !1,
+      format: 'currencyFormat',
+      options: { format: X },
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'order_items.quantity' }, { id: 'products.unit_cost' }],
+      },
+    },
+    {
+      id: 'line_margin',
+      isMeasure: !1,
+      name: 'Line Margin',
+      hide: !1,
+      format: 'currencyFormat',
+      options: { format: X },
+      expression: {
+        operator: 'subtract',
+        inputs: [
+          {
+            operator: 'subtract',
+            inputs: [
+              {
+                operator: 'multiply',
+                inputs: [{ id: 'order_items.quantity' }, { id: 'order_items.unit_price' }],
+              },
+              {
+                operator: 'multiply',
+                inputs: [
+                  {
+                    operator: 'multiply',
+                    inputs: [{ id: 'order_items.quantity' }, { id: 'order_items.unit_price' }],
+                  },
+                  { id: 'order_items.discount_pct' },
+                ],
+              },
+            ],
+          },
+          {
+            operator: 'multiply',
+            inputs: [{ id: 'order_items.quantity' }, { id: 'products.unit_cost' }],
+          },
+        ],
+      },
+    },
+    {
+      id: 'return_flag',
+      isMeasure: !1,
+      name: 'Return Flag',
+      hide: !0,
+      expression: { operator: 'isTrue', inputs: [{ id: 'order_items.returned' }] },
+    },
+    {
+      id: 'returned_line_flag',
+      isMeasure: !1,
+      name: 'Returned Line Flag',
+      hide: !0,
+      expression: {
+        operator: 'if',
+        inputs: [{ id: 'return_flag' }, { type: 'number', value: 1 }, { type: 'number', value: 0 }],
+      },
+    },
+    {
+      id: 'returned_line_net',
+      isMeasure: !1,
+      name: 'Returned Line Net',
+      hide: !0,
+      format: 'currencyFormat',
+      options: { format: X },
+      expression: {
+        operator: 'if',
+        inputs: [{ id: 'return_flag' }, { id: 'line_net' }, { type: 'number', value: 0 }],
+      },
+    },
+    {
+      id: 'returned_line_margin',
+      isMeasure: !1,
+      name: 'Returned Line Margin',
+      hide: !0,
+      format: 'currencyFormat',
+      options: { format: X },
+      expression: {
+        operator: 'if',
+        inputs: [{ id: 'return_flag' }, { id: 'line_margin' }, { type: 'number', value: 0 }],
+      },
+    },
+    {
+      id: 'returned_line_cogs',
+      isMeasure: !1,
+      name: 'Returned Line COGS',
+      hide: !0,
+      format: 'currencyFormat',
+      options: { format: X },
+      expression: {
+        operator: 'if',
+        inputs: [{ id: 'return_flag' }, { id: 'line_cogs' }, { type: 'number', value: 0 }],
+      },
+    },
+    {
+      id: 'return_refunds',
+      isMeasure: !1,
+      name: 'Refunds',
+      hide: !0,
+      format: 'currencyFormat',
+      options: { format: R },
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'returned_line_net' }, { type: 'number', value: 0.45 }],
+      },
+    },
+    {
+      id: 'return_shipping',
+      isMeasure: !1,
+      name: 'Shipping',
+      hide: !0,
+      format: 'currencyFormat',
+      options: { format: R },
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'returned_line_margin' }, { type: 'number', value: 0.65 }],
+      },
+    },
+    {
+      id: 'return_write_offs',
+      isMeasure: !1,
+      name: 'Write-offs',
+      hide: !0,
+      format: 'currencyFormat',
+      options: { format: R },
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'returned_line_cogs' }, { type: 'number', value: 0.35 }],
+      },
+    },
+    {
+      id: 'gross_margin_pct',
+      isMeasure: !0,
+      name: 'Gross Margin %',
+      hide: !1,
+      expression: {
+        operator: 'divide',
+        inputs: [
+          {
+            operator: 'subtract',
+            inputs: [
+              { id: 'line_net', aggregation: 'sum' },
+              { id: 'line_cogs', aggregation: 'sum' },
+            ],
+          },
+          { id: 'line_net', aggregation: 'sum' },
+        ],
+      },
+      format: 'percentageFormat',
+      options: { format: ae },
+    },
+    {
+      id: 'order_status_group',
+      isMeasure: !1,
+      name: 'Status Group',
+      expression: {
+        operator: 'if',
+        inputs: [
+          {
+            operator: 'equals',
+            inputs: [{ id: 'orders.status' }, { type: 'string', value: 'Processing' }],
+          },
+          { type: 'string', value: 'Open' },
+          { type: 'string', value: 'Closed' },
+        ],
+      },
+    },
+    {
+      id: 'is_closed',
+      isMeasure: !1,
+      name: 'Is Closed',
+      expression: {
+        operator: 'or',
+        inputs: [
+          {
+            operator: 'equals',
+            inputs: [{ id: 'orders.status' }, { type: 'string', value: 'Completed' }],
+          },
+          {
+            operator: 'or',
+            inputs: [
+              {
+                operator: 'equals',
+                inputs: [{ id: 'orders.status' }, { type: 'string', value: 'Returned' }],
+              },
+              {
+                operator: 'equals',
+                inputs: [{ id: 'orders.status' }, { type: 'string', value: 'Cancelled' }],
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      id: 'ship_to_delivery_days',
+      isMeasure: !1,
+      name: 'Ship to Delivery Days',
+      expression: {
+        operator: 'datediff',
+        inputs: [
+          { type: 'string', value: 'day' },
+          { id: 'shipments.ship_datetime' },
+          { id: 'shipments.delivery_datetime' },
+        ],
+      },
+    },
+    {
+      id: 'order_to_ship_hours',
+      isMeasure: !1,
+      name: 'Order to Ship Hours',
+      expression: {
+        operator: 'datediff',
+        inputs: [
+          { type: 'string', value: 'hour' },
+          { id: 'orders.order_datetime' },
+          { id: 'shipments.ship_datetime' },
+        ],
+      },
+    },
+    {
+      id: 'is_shipped',
+      isMeasure: !1,
+      name: 'Is Shipped',
+      hide: !0,
+      expression: { operator: 'isNotNull', inputs: [{ id: 'shipments.ship_datetime' }] },
+    },
+    {
+      id: 'is_delivered',
+      isMeasure: !1,
+      name: 'Is Delivered',
+      hide: !0,
+      expression: { operator: 'isNotNull', inputs: [{ id: 'shipments.delivery_datetime' }] },
+    },
+    {
+      id: 'is_on_time',
+      isMeasure: !1,
+      name: 'Is On Time',
+      hide: !0,
+      expression: {
+        operator: 'if',
+        inputs: [
+          { id: 'is_delivered' },
+          {
+            operator: 'equals',
+            inputs: [{ id: 'shipments.delayed' }, { type: 'boolean', value: !1 }],
+          },
+          { type: 'boolean', value: !1 },
+        ],
+      },
+    },
+    {
+      id: 'is_delayed',
+      isMeasure: !1,
+      name: 'Is Delayed',
+      hide: !0,
+      expression: {
+        operator: 'if',
+        inputs: [
+          { id: 'is_delivered' },
+          {
+            operator: 'equals',
+            inputs: [{ id: 'shipments.delayed' }, { type: 'boolean', value: !0 }],
+          },
+          { type: 'boolean', value: !1 },
+        ],
+      },
+    },
+    {
+      id: 'delayed_shipments',
+      isMeasure: !1,
+      name: 'Delayed Shipments',
+      hide: !0,
+      expression: {
+        operator: 'if',
+        inputs: [{ id: 'is_delayed' }, { type: 'number', value: 1 }, { type: 'number', value: 0 }],
+      },
+    },
+    {
+      id: 'on_time_shipments',
+      isMeasure: !1,
+      name: 'On-time Shipments',
+      hide: !0,
+      expression: {
+        operator: 'if',
+        inputs: [{ id: 'is_on_time' }, { type: 'number', value: 1 }, { type: 'number', value: 0 }],
+      },
+    },
+    {
+      id: 'delivered_shipments',
+      isMeasure: !1,
+      name: 'Delivered Shipments',
+      hide: !0,
+      expression: {
+        operator: 'if',
+        inputs: [
+          { id: 'is_delivered' },
+          { type: 'number', value: 1 },
+          { type: 'number', value: 0 },
+        ],
+      },
+    },
+    {
+      id: 'delay_rate',
+      isMeasure: !0,
+      name: 'Delay Rate',
+      hide: !1,
+      expression: {
+        operator: 'divide',
+        inputs: [
+          { id: 'delayed_shipments', aggregation: 'sum' },
+          { id: 'delivered_shipments', aggregation: 'sum' },
+        ],
+      },
+      format: 'percentageFormat',
+      options: { format: ae },
+    },
+    {
+      id: 'shipped_order_id',
+      isMeasure: !1,
+      hide: !0,
+      expression: {
+        operator: 'if',
+        inputs: [
+          { id: 'is_shipped' },
+          { id: 'shipments.order_id' },
+          { type: 'string', value: null },
+        ],
+      },
+    },
+    {
+      id: 'on_time_order_id',
+      isMeasure: !1,
+      hide: !0,
+      expression: {
+        operator: 'if',
+        inputs: [
+          { id: 'is_on_time' },
+          { id: 'shipments.order_id' },
+          { type: 'string', value: null },
+        ],
+      },
+    },
+    {
+      id: 'delivered_order_id',
+      isMeasure: !1,
+      hide: !0,
+      expression: {
+        operator: 'if',
+        inputs: [
+          { id: 'is_delivered' },
+          { id: 'shipments.order_id' },
+          { type: 'string', value: null },
+        ],
+      },
+    },
+    {
+      id: 'delivery_status',
+      isMeasure: !1,
+      name: 'Delivery Status',
+      expression: {
+        operator: 'if',
+        inputs: [
+          { operator: 'not', inputs: [{ id: 'is_shipped' }] },
+          { type: 'string', value: 'Not shipped' },
+          {
+            operator: 'if',
+            inputs: [
+              { id: 'shipments.delayed' },
+              { type: 'string', value: 'Delayed' },
+              { type: 'string', value: 'On time' },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      id: 'returned_order_id',
+      isMeasure: !1,
+      hide: !0,
+      expression: {
+        operator: 'if',
+        inputs: [
+          { id: 'return_flag' },
+          { id: 'order_items.order_id' },
+          { type: 'string', value: null },
+        ],
+      },
+    },
+    {
+      id: 'net_sales',
+      isMeasure: !0,
+      name: 'Net Sales',
+      expression: { id: 'line_net', aggregation: 'sum' },
+      format: 'currencyFormat',
+      options: { format: R },
+    },
+    {
+      id: 'gross_sales',
+      isMeasure: !0,
+      name: 'Gross Sales',
+      expression: { id: 'line_gross', aggregation: 'sum' },
+      format: 'currencyFormat',
+      options: { format: R },
+    },
+    {
+      id: 'discount_amount',
+      isMeasure: !0,
+      name: 'Discount Amount',
+      expression: { id: 'line_discount_amount', aggregation: 'sum' },
+      format: 'currencyFormat',
+      options: { format: R },
+    },
+    {
+      id: 'COGS',
+      isMeasure: !0,
+      name: 'COGS',
+      expression: { id: 'line_cogs', aggregation: 'sum' },
+      format: 'currencyFormat',
+      options: { format: R },
+    },
+    {
+      id: 'gross_margin',
+      isMeasure: !0,
+      name: 'Gross Margin',
+      expression: { id: 'line_margin', aggregation: 'sum' },
+      format: 'currencyFormat',
+      options: { format: R },
+    },
+    {
+      id: 'gross_margin_percentage',
+      isMeasure: !0,
+      name: 'Gross Margin %',
+      expression: { operator: 'divide', inputs: [{ id: 'gross_margin' }, { id: 'net_sales' }] },
+      format: 'percentageFormat',
+      options: { format: ae },
+    },
+    {
+      id: 'order_count',
+      isMeasure: !0,
+      name: 'Order Count',
+      expression: { id: 'orders.order_id', aggregation: 'countd' },
+      format: 'integerFormat',
+      options: { format: se },
+    },
+    {
+      id: 'average_order_value',
+      isMeasure: !0,
+      name: 'Average Order Value',
+      expression: { operator: 'divide', inputs: [{ id: 'net_sales' }, { id: 'order_count' }] },
+      format: 'currencyFormat',
+      options: { format: ge },
+    },
+    {
+      id: 'active_customers',
+      isMeasure: !0,
+      name: 'Active Customers',
+      expression: { id: 'orders.customer_id', aggregation: 'countd' },
+      format: 'integerFormat',
+      options: { format: se },
+    },
+    {
+      id: 'returned_lines',
+      isMeasure: !0,
+      name: 'Returned Lines',
+      expression: { id: 'returned_line_flag', aggregation: 'sum' },
+      format: 'integerFormat',
+      options: { format: se },
+    },
+    {
+      id: 'returned_orders',
+      isMeasure: !0,
+      name: 'Returned Orders',
+      expression: { id: 'returned_order_id', aggregation: 'countd' },
+      format: 'integerFormat',
+      options: { format: se },
+    },
+    {
+      id: 'return_rate',
+      isMeasure: !0,
+      name: 'Return Rate (Lines)',
+      expression: {
+        operator: 'divide',
+        inputs: [
+          { id: 'returned_lines' },
+          { id: 'order_items.order_item_id', aggregation: 'count' },
+        ],
+      },
+      format: 'percentageFormat',
+      options: { format: ae },
+    },
+    {
+      id: 'return_value',
+      isMeasure: !0,
+      name: 'Return Value',
+      expression: { id: 'returned_line_net', aggregation: 'sum' },
+      format: 'currencyFormat',
+      options: { format: R },
+    },
+    {
+      id: 'return_margin_impact',
+      isMeasure: !0,
+      name: 'Return Margin Impact',
+      expression: {
+        operator: 'subtract',
+        inputs: [
+          { type: 'number', value: 0 },
+          { id: 'returned_line_margin', aggregation: 'sum' },
+        ],
+      },
+      format: 'currencyFormat',
+      options: { format: R },
+    },
+    {
+      id: 'shipped_orders',
+      isMeasure: !0,
+      name: 'Shipped Orders',
+      expression: { id: 'shipped_order_id', aggregation: 'countd' },
+      format: 'integerFormat',
+    },
+    {
+      id: 'delivered_orders',
+      isMeasure: !0,
+      name: 'Delivered Orders',
+      expression: { id: 'delivered_order_id', aggregation: 'countd' },
+      format: 'integerFormat',
+    },
+    {
+      id: 'delivered_not_returned_orders',
+      isMeasure: !0,
+      name: 'Delivered (Not Returned)',
+      expression: {
+        operator: 'subtract',
+        inputs: [{ id: 'delivered_orders' }, { id: 'returned_orders' }],
+      },
+      format: 'integerFormat',
+      options: { format: se },
+    },
+    {
+      id: 'on_time_deliveries',
+      isMeasure: !0,
+      name: 'On-time Deliveries',
+      expression: { id: 'on_time_order_id', aggregation: 'countd' },
+      format: 'integerFormat',
+      options: { format: se },
+    },
+    {
+      id: 'on_time_rate',
+      isMeasure: !0,
+      name: 'On-time Rate',
+      expression: {
+        operator: 'divide',
+        inputs: [{ id: 'on_time_deliveries' }, { id: 'delivered_orders' }],
+      },
+      format: 'percentageFormat',
+      options: { format: ae },
+    },
+    {
+      id: 'avg_ship_to_delivery_days',
+      isMeasure: !0,
+      name: 'Avg Ship to Delivery Days',
+      expression: { id: 'ship_to_delivery_days', aggregation: 'avg' },
+      format: 'decimalFormat',
+      options: { format: Vn },
+    },
+  ];
+let Zn = null;
+function er(e) {
+  return (Zn ??= tr(e));
+}
+async function tr(e) {
+  const [t, n, r] = await Promise.all([Ct(e), bt(e), St(e)]),
+    o = (c) => {
+      const y = c instanceof Date ? c : c != null && c !== '' ? new Date(c) : null;
+      if (!y || Number.isNaN(y.getTime())) return null;
+      const x = String(y.getUTCFullYear()),
+        p = String(y.getUTCMonth() + 1).padStart(2, '0');
+      return `${x}-${p}`;
+    },
+    s = new Map();
+  for (const c of t) {
+    const y = o(c.order_datetime);
+    y && s.set(String(c.order_id), y);
+  }
+  const u = (c) => {
+      const y = Number(c.quantity ?? 0),
+        x = Number(c.unit_price ?? 0),
+        p = Number(c.discount_pct ?? 0),
+        C = y * x;
+      return C - C * p;
+    },
+    i = new Map();
+  for (const c of r) i.set(String(c.product_id), Number(c.unit_cost ?? 0));
+  const g = (c) => {
+      const y = Number(c.quantity ?? 0),
+        x = i.get(String(c.product_id)) ?? 0;
+      return y * x;
+    },
+    M = new Map();
+  for (const c of r) M.set(String(c.product_id), String(c.subcategory));
+  const m = new Map(),
+    d = new Map();
+  for (const c of n) {
+    if (c.returned !== !0) continue;
+    const y = s.get(String(c.order_id));
+    if (!y) continue;
+    const x = M.get(String(c.product_id));
+    if (!x) continue;
+    const p = String(c.return_reason ?? '');
+    if (!p) continue;
+    const C = u(c),
+      A = g(c),
+      k = `${y}|${x}|${p}`;
+    (m.set(k, (m.get(k) ?? 0) + C), d.set(k, (d.get(k) ?? 0) + A));
+  }
+  const b = new Set(),
+    F = new Set();
+  for (const c of m.keys()) {
+    const y = c.split('|');
+    (b.add(y[1]), F.add(y[2]));
+  }
+  const _ = Array.from(new Set(Array.from(m.keys()).map((c) => c.split('|')[0]))).sort(),
+    h = [];
+  for (const c of _) {
+    const y = c.substring(0, 4);
+    for (const x of b)
+      for (const p of F) {
+        const C = `${c}|${x}|${p}`,
+          A = m.get(C) ?? 0,
+          k = d.get(C) ?? 0;
+        if (A === 0 && k === 0) continue;
+        const D = A - k;
+        h.push({
+          year: y,
+          month: c,
+          subcategory: x,
+          return_reason: p,
+          refunds: Math.round(A * 0.45),
+          shipping: Math.round(D * 0.65),
+          write_offs: Math.round(k * 0.35),
+        });
+      }
+  }
+  return { returnCosts: h };
+}
+const vt = [
+  {
+    id: 'orders-customers',
+    source: { tableId: 'orders', fieldId: 'customer_id' },
+    target: { tableId: 'customers', fieldId: 'customer_id' },
+    type: 'many-to-one',
+  },
+  {
+    id: 'orders-stores',
+    source: { tableId: 'orders', fieldId: 'store_id' },
+    target: { tableId: 'stores', fieldId: 'store_id' },
+    type: 'many-to-one',
+  },
+  {
+    id: 'order_items-orders',
+    source: { tableId: 'order_items', fieldId: 'order_id' },
+    target: { tableId: 'orders', fieldId: 'order_id' },
+    type: 'many-to-one',
+  },
+  {
+    id: 'order_items-products',
+    source: { tableId: 'order_items', fieldId: 'product_id' },
+    target: { tableId: 'products', fieldId: 'product_id' },
+    type: 'many-to-one',
+  },
+  {
+    id: 'shipments-orders',
+    source: { tableId: 'shipments', fieldId: 'order_id' },
+    target: { tableId: 'orders', fieldId: 'order_id' },
+    type: 'many-to-one',
+  },
+  {
+    id: 'return_costs-orders',
+    source: { tableId: 'return_costs', fieldId: 'year' },
+    target: { tableId: 'orders', fieldId: 'order_year' },
+    type: 'many-to-many',
+  },
+  {
+    id: 'return_costs-products',
+    source: { tableId: 'return_costs', fieldId: 'subcategory' },
+    target: { tableId: 'products', fieldId: 'subcategory' },
+    type: 'many-to-many',
+  },
+];
+function ar(e) {
+  const t = `${e}/main-demo`;
+  return {
+    sources: [
+      {
+        id: 'stores',
+        name: 'Stores',
+        dataShape: 'row',
+        tables: [{ id: 'stores', name: 'Stores', fields: pt }],
+        getData: async () => ({ data: await Yn(t) }),
+      },
+      {
+        id: 'products',
+        name: 'Products',
+        dataShape: 'row',
+        tables: [{ id: 'products', name: 'Products', fields: ft }],
+        getData: async () => ({ data: await St(t) }),
+      },
+      {
+        id: 'customers',
+        name: 'Customers',
+        dataShape: 'row',
+        tables: [{ id: 'customers', name: 'Customers', fields: _t }],
+        getData: async () => ({ data: await Kn(t) }),
+      },
+      {
+        id: 'orders',
+        name: 'Orders',
+        dataShape: 'row',
+        tables: [{ id: 'orders', name: 'Orders', fields: ht }],
+        getData: async () => ({ data: await Ct(t) }),
+      },
+      {
+        id: 'order_items',
+        name: 'Order Items',
+        dataShape: 'row',
+        tables: [{ id: 'order_items', name: 'Order Items', fields: gt }],
+        getData: async () => ({ data: await bt(t) }),
+      },
+      {
+        id: 'shipments',
+        name: 'Shipments',
+        dataShape: 'row',
+        tables: [{ id: 'shipments', name: 'Shipments', fields: yt }],
+        getData: async () => ({ data: await Xn(t) }),
+      },
+      {
+        id: 'return_costs',
+        name: 'Return Costs',
+        dataShape: 'row',
+        tables: [{ id: 'return_costs', name: 'Return Costs', fields: Mt }],
+        getData: async () => ({ data: (await er(t)).returnCosts }),
+      },
+    ],
+    relationships: vt,
+    expressions: xt,
+  };
+}
+function nr(e) {
+  const { orders: t, order_items: n, products: r } = e,
+    o = t.order_id.indices.length,
+    s = new Array(o);
+  for (let _ = 0; _ < o; ++_) s[_] = q(t.order_month, _);
+  const u = new Map(),
+    i = new Map();
+  for (let _ = 0; _ < r.product_id.length; ++_)
+    (u.set(r.product_id[_], r.unit_cost[_]), i.set(r.product_id[_], r.subcategory[_]));
+  const g = new Map(),
+    M = new Map();
+  for (let _ = 0; _ < n.returned.length; ++_) {
+    if (!n.returned[_]) continue;
+    const h = n.quantity[_] * n.unit_price[_],
+      c = h - h * n.discount_pct[_],
+      y = q(n.product_id, _),
+      x = n.quantity[_] * (u.get(y) ?? 0),
+      p = q(n.return_reason, _),
+      C = n.order_id.indices[_],
+      A = s[C],
+      k = i.get(y);
+    if (!A || !k || !p) continue;
+    const D = `${A}|${k}|${p}`;
+    (g.set(D, (g.get(D) ?? 0) + c), M.set(D, (M.get(D) ?? 0) + x));
+  }
+  const m = new Set(),
+    d = new Set();
+  for (const _ of g.keys()) {
+    const h = _.split('|');
+    (m.add(h[1]), d.add(h[2]));
+  }
+  const b = [],
+    F = Array.from(new Set(Array.from(g.keys()).map((_) => _.split('|')[0]))).sort();
+  for (const _ of F) {
+    const h = _.substring(0, 4);
+    for (const c of m)
+      for (const y of d) {
+        const x = `${_}|${c}|${y}`,
+          p = g.get(x) ?? 0,
+          C = M.get(x) ?? 0;
+        if (p === 0 && C === 0) continue;
+        const A = p - C;
+        b.push({
+          year: h,
+          month: _,
+          subcategory: c,
+          return_reason: y,
+          refunds: Math.round(p * 0.45),
+          shipping: Math.round(A * 0.65),
+          write_offs: Math.round(C * 0.35),
+        });
+      }
+  }
+  return { return_costs: b };
+}
+function rr(e) {
+  return e != null && typeof e == 'object' && 'indices' in e && 'indexToValue' in e;
+}
+function ie(e, t) {
+  const n = [],
+    r = [],
+    o = [];
+  for (const s of t) {
+    const u = e[s] ?? [];
+    if (rr(u))
+      (n.push(u.indices),
+        r.push(null),
+        o.push({ indexToValue: u.indexToValue, nullCount: u.nullCount }));
+    else {
+      const i = u;
+      if ((n.push(i), i instanceof Float64Array)) {
+        let g = 0;
+        for (let M = 0, m = i.length; M < m; ++M) i[M] !== i[M] && ++g;
+        if (g > 0) {
+          const M = new Uint8Array(Math.ceil(i.length / 8));
+          M.fill(255);
+          for (let m = 0, d = i.length; m < d; ++m) i[m] !== i[m] && (M[m >> 3] &= ~(1 << (m & 7)));
+          (r.push(M), o.push({ nullCount: g }));
+        } else (r.push(null), o.push({ nullCount: 0 }));
+      } else (r.push(null), o.push(null));
+    }
+  }
+  return { data: n, nullMasks: r, statsHints: o };
+}
+function dr(e) {
+  const n = (globalThis.agStudioDebug ?? []).includes('traceMarkers')
+    ? (u) => performance.mark(`ag:${u}`)
+    : (u) => {};
+  n('data-gen-start');
+  const r = Ln(e);
+  n('encode-start');
+  const o = Wn(r);
+  n('precompute-start');
+  const s = nr(r);
+  return (
+    n('data-ready'),
+    {
+      sources: [
+        {
+          id: 'stores',
+          name: 'Stores',
+          dataShape: 'column',
+          tables: [{ id: 'stores', name: 'Stores', fields: pt }],
+          getData: (u, i) => Promise.resolve(ie(o.stores, i)),
+        },
+        {
+          id: 'products',
+          name: 'Products',
+          dataShape: 'column',
+          tables: [{ id: 'products', name: 'Products', fields: ft }],
+          getData: (u, i) => Promise.resolve(ie(o.products, i)),
+        },
+        {
+          id: 'customers',
+          name: 'Customers',
+          dataShape: 'column',
+          tables: [{ id: 'customers', name: 'Customers', fields: _t }],
+          getData: (u, i) => Promise.resolve(ie(o.customers, i)),
+        },
+        {
+          id: 'orders',
+          name: 'Orders',
+          dataShape: 'column',
+          tables: [{ id: 'orders', name: 'Orders', fields: ht }],
+          getData: (u, i) => Promise.resolve(ie(o.orders, i)),
+        },
+        {
+          id: 'order_items',
+          name: 'Order Items',
+          dataShape: 'column',
+          tables: [{ id: 'order_items', name: 'Order Items', fields: gt }],
+          getData: (u, i) => Promise.resolve(ie(o.order_items, i)),
+        },
+        {
+          id: 'shipments',
+          name: 'Shipments',
+          dataShape: 'column',
+          tables: [{ id: 'shipments', name: 'Shipments', fields: yt }],
+          getData: (u, i) => Promise.resolve(ie(o.shipments, i)),
+        },
+        {
+          id: 'return_costs',
+          name: 'Return Costs',
+          dataShape: 'row',
+          tables: [{ id: 'return_costs', name: 'Return Costs', fields: Mt }],
+          getData: () => Promise.resolve({ data: s.return_costs }),
+        },
+      ],
+      relationships: vt,
+      expressions: xt,
+    }
+  );
+}
+export {
+  _t as customersFields,
+  xt as expressions,
+  ar as getMainDemoData,
+  dr as getMainDemoDataGenerated,
+  gt as orderItemsFields,
+  ht as ordersFields,
+  ft as productsFields,
+  vt as relationships,
+  yt as shipmentsFields,
+  pt as storesFields,
+};

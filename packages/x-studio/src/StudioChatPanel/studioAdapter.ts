@@ -2,6 +2,7 @@ import type { ChatAdapter, ChatMessage, ChatMessageChunk } from '@mui/x-chat/hea
 import type { StudioController } from '../store/StudioController';
 import type { StudioCustomWidgetDef, StudioWidget } from '../models';
 import { buildAISystemPrompt } from '../internals/buildAISystemPrompt';
+import { createDefaultWidget } from '../internals/widgetUtils';
 import { STUDIO_AI_TOOLS, type StudioAIToolName } from './studioAITools';
 
 /**
@@ -36,6 +37,44 @@ export interface StudioAIConfig {
    * ```
    */
   headers?: Record<string, string>;
+  /**
+   * Whitelist of built-in tool names the model is allowed to call.
+   * When provided, only tools in this list are sent to the model.
+   * When omitted, all built-in tools are enabled.
+   * Set to `[]` to disable all built-in tools (e.g. for a read-only AI assistant).
+   */
+  allowedTools?: StudioAIToolName[];
+  /**
+   * Additional custom tools to register with the model.
+   * Each tool must conform to the `StudioAiTool` interface and implement an
+   * `execute` method that performs the desired action on the controller.
+   */
+  extraTools?: StudioAiTool[];
+  /**
+   * Called when a tool execution throws an error.
+   * Use this to log or surface errors without interrupting the chat stream.
+   */
+  onToolError?: (toolName: string, error: Error) => void;
+}
+
+/**
+ * A custom tool that can be registered with the x-studio AI assistant via
+ * `StudioAIConfig.extraTools`. The tool is sent to the model alongside built-in
+ * tools and is executed client-side by calling `execute`.
+ */
+export interface StudioAiTool {
+  /** Unique tool name. Must not conflict with built-in tool names. */
+  name: string;
+  /** Human-readable description shown to the LLM in the tool definition. */
+  description: string;
+  /** JSON Schema object describing the tool's parameters. */
+  parameters: object;
+  /**
+   * Called when the model invokes this tool.
+   * Return a result string to send back to the model, or `void`/`undefined`
+   * to send a generic success response.
+   */
+  execute: (args: unknown, controller: StudioController) => Promise<string | void> | string | void;
 }
 
 // ── OpenAI message types (subset) ─────────────────────────────────────────────
@@ -173,16 +212,21 @@ function executeTool(
       const sourceId = args.sourceId ? String(args.sourceId) : undefined;
       const aiConfig = (args.config ?? {}) as StudioWidget['config'];
 
-      // For custom widget kinds, seed defaultConfig from the registered definition
+      // Normalize through createDefaultWidget to ensure all required defaults are seeded,
+      // then merge custom and AI-provided config on top.
       const customDef = customWidgets?.find((d) => d.kind === kind);
-      const baseConfig = customDef?.defaultConfig ?? {};
-      const config = { ...baseConfig, ...aiConfig } as StudioWidget['config'];
+      const base = createDefaultWidget(kind);
+      const config = {
+        ...base.config,
+        ...(customDef?.defaultConfig ?? {}),
+        ...aiConfig,
+      } as StudioWidget['config'];
 
       const newWidget: StudioWidget = {
+        ...base,
         id: `widget-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        kind,
         title,
-        sourceId,
+        sourceId: sourceId ?? base.sourceId,
         config,
       };
       controller.addWidget(newWidget);
@@ -245,6 +289,82 @@ function executeTool(
       }
     }
 
+    case 'rename_page': {
+      const pageId = String(args.pageId ?? '');
+      const title = String(args.title ?? '');
+      controller.renamePage(pageId, title);
+      return JSON.stringify({ success: true, pageId, title });
+    }
+
+    case 'remove_page': {
+      // remove_page is handled separately (needs confirmation) — should not reach here in normal flow
+      const pageId = String(args.pageId ?? '');
+      controller.removePage(pageId);
+      return JSON.stringify({ success: true, pageId });
+    }
+
+    case 'set_active_page': {
+      const pageId = String(args.pageId ?? '');
+      controller.setActivePage(pageId);
+      return JSON.stringify({ success: true, pageId });
+    }
+
+    case 'add_page_filter': {
+      const field = String(args.field ?? '');
+      const sourceId = String(args.sourceId ?? '');
+      const operator = String(
+        args.operator ?? 'equals',
+      ) as import('../models').StudioFilterOperator;
+      const value = args.value;
+      const fieldType = args.fieldType as import('../models').StudioDataField['type'] | undefined;
+      const filterId = `filter-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      controller.addFilter({
+        id: filterId,
+        field,
+        filterSourceId: sourceId,
+        operator,
+        value,
+        fieldType,
+        scope: 'page',
+      });
+      return JSON.stringify({ success: true, filterId });
+    }
+
+    case 'remove_page_filter': {
+      const filterId = String(args.filterId ?? '');
+      controller.removeFilter(filterId);
+      return JSON.stringify({ success: true, filterId });
+    }
+
+    case 'add_widget_filter': {
+      const widgetId = String(args.widgetId ?? '');
+      const field = String(args.field ?? '');
+      const sourceId = String(args.sourceId ?? '');
+      const operator = String(
+        args.operator ?? 'equals',
+      ) as import('../models').StudioFilterOperator;
+      const value = args.value;
+      const fieldType = args.fieldType as import('../models').StudioDataField['type'] | undefined;
+      const filterId = `filter-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      controller.addFilter({
+        id: filterId,
+        field,
+        filterSourceId: sourceId,
+        operator,
+        value,
+        fieldType,
+        scope: 'widget',
+        widgetId,
+      });
+      return JSON.stringify({ success: true, filterId });
+    }
+
+    case 'remove_widget_filter': {
+      const filterId = String(args.filterId ?? '');
+      controller.removeFilter(filterId);
+      return JSON.stringify({ success: true, filterId });
+    }
+
     default:
       return JSON.stringify({ error: `Unknown tool: ${toolName}` });
   }
@@ -298,6 +418,11 @@ async function* parseSSE(response: Response): AsyncGenerator<Record<string, unkn
  * @param controller - The `StudioController` instance (tools call methods on it directly).
  * @param onRemoveWidgetRequest - Called when the LLM requests `remove_widget`;
  *   the host should show a confirmation dialog and resolve `true` to proceed or `false` to cancel.
+ * @param customWidgets - Optional list of custom widget definitions for the AI to use.
+ * @param focusedWidgetId - Optional widget ID to focus the AI context on.
+ * @param onRemovePageRequest - Called when the LLM requests `remove_page`;
+ *   the host should show a confirmation dialog and resolve `true` to proceed or `false` to cancel.
+ *   If omitted, page removal requires confirmation and will be denied by default.
  */
 export function createStudioChatAdapter(
   config: StudioAIConfig,
@@ -305,12 +430,41 @@ export function createStudioChatAdapter(
   onRemoveWidgetRequest?: (widgetId: string, widgetTitle: string) => Promise<boolean>,
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
+  onRemovePageRequest?: (pageId: string, pageTitle: string) => Promise<boolean>,
 ): ChatAdapter {
-  const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders } = config;
+  const {
+    endpoint,
+    apiKey,
+    model = 'gpt-4o',
+    headers: extraHeaders,
+    allowedTools,
+    extraTools,
+    onToolError,
+  } = config;
+
+  // Build the effective tool list: built-in tools filtered by allowedTools, then extra tools appended
+  const builtInTools = allowedTools
+    ? STUDIO_AI_TOOLS.filter((t) => (allowedTools as string[]).includes(t.function.name))
+    : STUDIO_AI_TOOLS;
+
+  const extraToolDefs = (extraTools ?? []).map((t) => ({
+    type: 'function' as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    },
+  }));
+
+  const effectiveTools = [...builtInTools, ...extraToolDefs];
 
   return {
     async sendMessage(input: ChatSendMessageInput): Promise<ReadableStream<ChatMessageChunk>> {
-      const systemPrompt = buildAISystemPrompt(controller.getState(), customWidgets, focusedWidgetId);
+      const systemPrompt = buildAISystemPrompt(
+        controller.getState(),
+        customWidgets,
+        focusedWidgetId,
+      );
       const openAIMessages = toOpenAIMessages(systemPrompt, input.messages);
 
       const msgId = `msg-${Date.now()}`;
@@ -335,7 +489,7 @@ export function createStudioChatAdapter(
                 body: JSON.stringify({
                   model,
                   messages,
-                  tools: STUDIO_AI_TOOLS,
+                  tools: effectiveTools,
                   tool_choice: 'auto',
                   stream: true,
                 }),
@@ -528,7 +682,83 @@ export function createStudioChatAdapter(
                   }
                 }
 
-                const output = executeTool(tc.name, toolInput, controller, customWidgets);
+                // Confirmation for remove_page — deny by default if no handler is provided
+                if (tc.name === 'remove_page') {
+                  const args = toolInput as { pageId: string; pageTitle?: string };
+                  if (!onRemovePageRequest) {
+                    // No handler: always deny destructive page removal
+                    streamController.enqueue({
+                      type: 'tool-output-denied',
+                      toolCallId: tc.id,
+                      reason: 'Page removal requires user confirmation.',
+                    });
+                    toolResults.push({
+                      toolCallId: tc.id,
+                      toolName: tc.name,
+                      input: toolInput,
+                      output: JSON.stringify({
+                        cancelled: true,
+                        reason: 'No confirmation handler.',
+                      }),
+                    });
+                    continue;
+                  }
+                  // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential user confirmation; must await one at a time
+                  // eslint-disable-next-line no-await-in-loop -- sequential user confirmation; must await one at a time
+                  const confirmed = await onRemovePageRequest(
+                    args.pageId ?? '',
+                    args.pageTitle ?? args.pageId ?? 'this page',
+                  );
+                  if (!confirmed) {
+                    streamController.enqueue({
+                      type: 'tool-output-denied',
+                      toolCallId: tc.id,
+                      reason: 'User cancelled the page removal.',
+                    });
+                    toolResults.push({
+                      toolCallId: tc.id,
+                      toolName: tc.name,
+                      input: toolInput,
+                      output: JSON.stringify({ cancelled: true }),
+                    });
+                    continue;
+                  }
+                }
+
+                // Check if this is a custom extraTool
+                const extraTool = (extraTools ?? []).find((t) => t.name === tc.name);
+
+                // Enforce allowedTools: if model calls a tool not in effectiveTools, deny it
+                const isAllowed =
+                  extraTool != null || effectiveTools.some((et) => et.function.name === tc.name);
+                if (!isAllowed) {
+                  streamController.enqueue({
+                    type: 'tool-output-denied',
+                    toolCallId: tc.id,
+                    reason: `Tool '${tc.name}' is not in the allowed tools list.`,
+                  });
+                  toolResults.push({
+                    toolCallId: tc.id,
+                    toolName: tc.name,
+                    input: toolInput,
+                    output: JSON.stringify({ error: `Tool '${tc.name}' is not permitted.` }),
+                  });
+                  continue;
+                }
+
+                let output: string;
+                try {
+                  if (extraTool) {
+                    const result = await extraTool.execute(toolInput, controller);
+                    output = result != null ? String(result) : JSON.stringify({ success: true });
+                  } else {
+                    output = executeTool(tc.name, toolInput, controller, customWidgets);
+                  }
+                } catch (err) {
+                  const toolErr = err instanceof Error ? err : new Error(String(err));
+                  onToolError?.(tc.name, toolErr);
+                  output = JSON.stringify({ error: toolErr.message });
+                }
                 streamController.enqueue({
                   type: 'tool-output-available',
                   toolCallId: tc.id,

@@ -390,7 +390,11 @@ export function RelationshipPanel(props: {
                 </Stack>
               </Box>
               <Tooltip title="Edit">
-                <IconButton size="small" sx={{ flexShrink: 0, p: '2px' }} onClick={() => handleEdit(rel)}>
+                <IconButton
+                  size="small"
+                  sx={{ flexShrink: 0, p: '2px' }}
+                  onClick={() => handleEdit(rel)}
+                >
                   <EditIcon sx={{ fontSize: 14 }} />
                 </IconButton>
               </Tooltip>

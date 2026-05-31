@@ -1048,6 +1048,22 @@ export class StudioController {
   };
 
   /**
+   * Renames an existing page.
+   * Has no effect if the page does not exist.
+   */
+  renamePage = (pageId: string, title: string) => {
+    const state = this.store.state;
+    const page = state.pages[pageId];
+    if (!page) {
+      return;
+    }
+    this.commitState({
+      ...state,
+      pages: { ...state.pages, [pageId]: { ...page, title } },
+    });
+  };
+
+  /**
    * Reorders pages according to the provided ordered list of page IDs.
    * Any page IDs not in the list are appended at the end in their original order.
    * The active page is not changed.

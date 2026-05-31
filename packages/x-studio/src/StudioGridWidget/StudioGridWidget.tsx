@@ -310,8 +310,8 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         rows={rows}
         pinnedRows={pinnedRows}
         getRowId={(row) => {
-          // eslint-disable-next-line no-underscore-dangle -- summary rows use an internal synthetic identifier
           return String(
+            // eslint-disable-next-line no-underscore-dangle -- summary rows use an internal synthetic identifier
             (row as Record<string, unknown>).__rowId ?? (row as Record<string, unknown>).id,
           );
         }}

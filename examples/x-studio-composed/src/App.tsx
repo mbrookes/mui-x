@@ -7,6 +7,7 @@ import {
   StudioCanvas,
   StudioController,
   StudioProvider,
+  StudioWidgetEditDialog,
   createStudioController,
   deserializeState,
   migrateState,
@@ -386,6 +387,12 @@ function DashboardLayout({
   const [filtersOpen, setFiltersOpen] = React.useState(false);
   const [chatOpen, setChatOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [editWidgetId, setEditWidgetId] = React.useState<string | null>(null);
+
+  const handleEditRequest = React.useCallback((widgetId: string) => {
+    setEditWidgetId(widgetId);
+    controller.setSelectedWidget(widgetId);
+  }, [controller]);
 
   const handleComposeOpen = React.useCallback(() => setComposeOpen(true), []);
   const handleComposeClose = React.useCallback(() => setComposeOpen(false), []);
@@ -489,34 +496,6 @@ function DashboardLayout({
   const handleUndo = React.useCallback(() => controller.undo(), [controller]);
   const handleRedo = React.useCallback(() => controller.redo(), [controller]);
 
-  const handleRefresh = React.useCallback(() => {
-    const {
-      customersSource,
-      productsSource,
-      ordersSource,
-      orderItemsSource,
-      shipmentsSource,
-      shipmentItemsSource,
-    } = generateSalesData({ seed: Date.now() });
-    for (const source of [
-      customersSource,
-      productsSource,
-      ordersSource,
-      orderItemsSource,
-      shipmentsSource,
-      shipmentItemsSource,
-    ]) {
-      if (source.rows) {
-        controller.setDataSourceAdapter(source.id, createAdapter(source.rows));
-      }
-    }
-    onSnackbar('Data refreshed', 'success');
-  }, [controller, onSnackbar]);
-
-  const handleCopyLink = React.useCallback(() => {
-    navigator.clipboard.writeText(window.location.href).catch(() => {});
-  }, []);
-
   const handleReset = React.useCallback(() => {
     clearLocalState();
     onSnackbar('Local changes cleared — reloading demo…', 'info');
@@ -602,9 +581,7 @@ function DashboardLayout({
         onPageClose={mode === 'edit' ? handlePageClose : undefined}
         onPageReorder={mode === 'edit' ? handlePageReorder : undefined}
         hasEmptyPage={hasEmptyPage}
-        onRefresh={handleRefresh}
         onReset={handleReset}
-        onCopyLink={handleCopyLink}
         onSettingsOpen={handleSettingsOpen}
         onPageDragNavigate={handlePageDragNavigate}
       />
@@ -620,6 +597,13 @@ function DashboardLayout({
         featureFlags={featureFlags}
         onFeatureFlagsChange={onFeatureFlagsChange}
       />
+      {editWidgetId && (
+        <StudioWidgetEditDialog
+          open={Boolean(editWidgetId)}
+          onClose={() => setEditWidgetId(null)}
+          widgetId={editWidgetId}
+        />
+      )}
 
       <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         {/* Canvas takes full width — side panel slides in alongside it */}
@@ -657,7 +641,10 @@ function DashboardLayout({
                 ) : (
                   <StudioCanvas
                     slotProps={{
-                      widgetCard: { onUnconfiguredClick: handleUnconfiguredWidgetClick },
+                      widgetCard: {
+                        onUnconfiguredClick: handleUnconfiguredWidgetClick,
+                        onEditRequest: handleEditRequest,
+                      },
                     }}
                   />
                 )}

@@ -17,7 +17,7 @@ import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 import { studioRequestCache } from './StudioRequestCache';
-import { enrichWithCrossSourceColumns, enrichWithCrossSourceFields } from './crossSourceEnrichment';
+import { enrichWithCrossSourceFields } from './crossSourceEnrichment';
 
 type Row = Record<string, unknown>;
 
@@ -367,9 +367,6 @@ export function useWidgetRows(
 
   const isRecomputing = !hasAdapter && deferredBasePartitioned !== basePartitioned;
 
-  // 'none' mode: widget ignores cross-filters entirely and always shows the full baseline.
-  const effectiveRows = crossFilterMode === 'none' ? filteredRowsNoCross : filteredRows;
-
   // ── filteredRowsNoChartCross ────────────────────────────────────────────
   // Page + widget + interactive (filter-widget) filters, but WITHOUT chart-click
   // cross-filters. Used as the "all rows" baseline for table cross-highlight mode:
@@ -432,7 +429,9 @@ export function useWidgetRows(
 
   // For map widgets, collect cross-source field refs from mapCountryField / mapValueField.
   const mapCrossSourceFields = React.useMemo(() => {
-    if (widget.kind !== 'map') return [];
+    if (widget.kind !== 'map') {
+      return [];
+    }
     const refs = [];
     const { mapCountryField, mapCountrySourceId, mapValueField, mapValueSourceId } =
       widget.config ?? {};

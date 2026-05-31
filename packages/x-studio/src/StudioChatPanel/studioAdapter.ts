@@ -1,6 +1,6 @@
 import type { ChatAdapter, ChatMessage, ChatMessageChunk } from '@mui/x-chat/headless';
 import type { StudioController } from '../store/StudioController';
-import type { StudioWidget } from '../models';
+import type { StudioCustomWidgetDef, StudioWidget } from '../models';
 import { buildAISystemPrompt } from '../internals/buildAISystemPrompt';
 import { STUDIO_AI_TOOLS, type StudioAIToolName } from './studioAITools';
 
@@ -140,14 +140,19 @@ interface ToolCallResult {
  * Executes a single tool call against the studio controller.
  * Returns a result string for the OpenAI tool message.
  */
-function executeTool(toolName: string, input: unknown, controller: StudioController): string {
+function executeTool(
+  toolName: string,
+  input: unknown,
+  controller: StudioController,
+  customWidgets?: StudioCustomWidgetDef[],
+): string {
   const args = (input ?? {}) as Record<string, unknown>;
   const name = toolName as StudioAIToolName;
   const state = controller.getState();
 
   switch (name) {
     case 'get_dashboard_state': {
-      return buildAISystemPrompt(state);
+      return buildAISystemPrompt(state, customWidgets);
     }
 
     case 'add_page': {
@@ -166,7 +171,13 @@ function executeTool(toolName: string, input: unknown, controller: StudioControl
       const kind = String(args.kind ?? 'chart') as StudioWidget['kind'];
       const title = String(args.title ?? '');
       const sourceId = args.sourceId ? String(args.sourceId) : undefined;
-      const config = (args.config ?? {}) as StudioWidget['config'];
+      const aiConfig = (args.config ?? {}) as StudioWidget['config'];
+
+      // For custom widget kinds, seed defaultConfig from the registered definition
+      const customDef = customWidgets?.find((d) => d.kind === kind);
+      const baseConfig = customDef?.defaultConfig ?? {};
+      const config = { ...baseConfig, ...aiConfig } as StudioWidget['config'];
+
       const newWidget: StudioWidget = {
         id: `widget-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         kind,
@@ -222,8 +233,8 @@ function executeTool(toolName: string, input: unknown, controller: StudioControl
         return JSON.stringify({ error: 'set_widget_width requires a "widgetId" string.' });
       }
       try {
-        const state = controller.getState();
-        const activePage = state.pages[state.dashboard.activePageId];
+        const nextState = controller.getState();
+        const activePage = nextState.pages[nextState.dashboard.activePageId];
         const rowWidgetIds = activePage?.widgetRows?.find((row) => row.includes(widgetId)) ?? [
           widgetId,
         ];
@@ -251,8 +262,8 @@ async function* parseSSE(response: Response): AsyncGenerator<Record<string, unkn
   let buffer = '';
 
   while (true) {
-    // eslint-disable-next-line no-await-in-loop
     // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential streaming read; cannot be parallelized
+    // eslint-disable-next-line no-await-in-loop -- sequential streaming read; cannot be parallelized
     const { done, value } = await reader.read();
     if (done) {
       break;
@@ -292,12 +303,13 @@ export function createStudioChatAdapter(
   config: StudioAIConfig,
   controller: StudioController,
   onRemoveWidgetRequest?: (widgetId: string, widgetTitle: string) => Promise<boolean>,
+  customWidgets?: StudioCustomWidgetDef[],
 ): ChatAdapter {
   const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders } = config;
 
   return {
     async sendMessage(input: ChatSendMessageInput): Promise<ReadableStream<ChatMessageChunk>> {
-      const systemPrompt = buildAISystemPrompt(controller.getState());
+      const systemPrompt = buildAISystemPrompt(controller.getState(), customWidgets);
       const openAIMessages = toOpenAIMessages(systemPrompt, input.messages);
 
       const msgId = `msg-${Date.now()}`;
@@ -405,13 +417,13 @@ export function createStudioChatAdapter(
 
               // Tool calls accumulation
               if (delta.tool_calls) {
-                delta.tool_calls.forEach((tc, i) => {
+                for (const [i, tc] of delta.tool_calls.entries()) {
                   // Resolve the slot index for this tool-call fragment:
                   // 1. OpenAI always provides `index` — use it directly.
                   // 2. Gemini omits `index` but provides a stable `id` — look up or
                   //    assign a new auto-incrementing slot so that each distinct tool
                   //    call gets its own entry even when chunks arrive one-per-delta.
-                  // 3. Last resort: fall back to the forEach position `i`.
+                  // 3. Last resort: fall back to the current position `i`.
                   let idx: number;
                   const tcIndex = tc.index as number | undefined;
                   if (tcIndex !== undefined) {
@@ -442,7 +454,7 @@ export function createStudioChatAdapter(
                   if (tc.function?.arguments) {
                     reqToolCalls[idx].argsBuffer += tc.function.arguments;
                   }
-                });
+                }
               }
             }
 
@@ -493,8 +505,8 @@ export function createStudioChatAdapter(
                 // Confirmation for remove_widget
                 if (tc.name === 'remove_widget' && onRemoveWidgetRequest) {
                   const args = toolInput as { widgetId: string; widgetTitle?: string };
-                  // eslint-disable-next-line no-await-in-loop
                   // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential user confirmation; must await one at a time
+                  // eslint-disable-next-line no-await-in-loop -- sequential user confirmation; must await one at a time
                   const confirmed = await onRemoveWidgetRequest(
                     args.widgetId ?? '',
                     args.widgetTitle ?? args.widgetId ?? 'this widget',
@@ -515,7 +527,7 @@ export function createStudioChatAdapter(
                   }
                 }
 
-                const output = executeTool(tc.name, toolInput, controller);
+                const output = executeTool(tc.name, toolInput, controller, customWidgets);
                 streamController.enqueue({
                   type: 'tool-output-available',
                   toolCallId: tc.id,
@@ -565,7 +577,7 @@ export function createStudioChatAdapter(
             // Catch anything not handled inside doRequest (e.g. thrown by parseSSE,
             // executeTool, or a recursive doRequest call) and surface it as a stream
             // error so processStream can report it instead of hanging forever.
-            // eslint-disable-next-line no-console
+
             console.error('[StudioChatAdapter] Unhandled error in doRequest:', err);
             try {
               streamController.error(err);

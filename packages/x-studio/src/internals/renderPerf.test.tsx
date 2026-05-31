@@ -13,7 +13,7 @@ import * as React from 'react';
 import { createRenderer, act } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { StudioDataSource, StudioFilterState, StudioState } from '../models';
+import type { StudioDataSource, StudioState } from '../models';
 import { StudioController } from '../store/StudioController';
 import { selectPartitionedFilters, selectPartitionedBaseFilters } from '../context/selectors';
 import { StudioKpiWidget } from '../StudioKpiWidget';

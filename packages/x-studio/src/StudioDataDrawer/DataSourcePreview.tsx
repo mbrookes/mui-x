@@ -25,7 +25,9 @@ export function DataSourcePreview({
   relationships,
 }: DataSourcePreviewProps) {
   const enrichedRows = React.useMemo(() => {
-    if (!source.rows || source.rows.length === 0) return [];
+    if (!source.rows || source.rows.length === 0) {
+      return [];
+    }
     return enrichRowsWithExpressions(
       source.rows,
       expressionFields,
@@ -72,6 +74,7 @@ export function DataSourcePreview({
       <DataGrid
         rows={enrichedRows}
         columns={columns}
+        // eslint-disable-next-line no-underscore-dangle -- preview rows use an internal synthetic identifier
         getRowId={(row) => row.__previewRowId as string}
         density="compact"
         disableRowSelectionOnClick

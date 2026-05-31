@@ -100,7 +100,11 @@ function RelationshipDialog(props: {
         <Stack spacing={2} sx={{ mt: 1 }}>
           <FormControl size="small" fullWidth>
             <InputLabel>Type</InputLabel>
-            <Select label="Type" value={form.type} onChange={(e) => field('type')(e.target.value)}>
+            <Select
+              label="Type"
+              value={form.type}
+              onChange={(event) => field('type')(event.target.value)}
+            >
               <MenuItem value="many-to-one">Many-to-one</MenuItem>
               <MenuItem value="one-to-one">One-to-one</MenuItem>
               <MenuItem value="many-to-many">Many-to-many</MenuItem>
@@ -115,8 +119,8 @@ function RelationshipDialog(props: {
               <Select
                 label={isManyToMany ? 'Source' : 'Many side'}
                 value={form.sourceId}
-                onChange={(e) => {
-                  field('sourceId')(e.target.value);
+                onChange={(event) => {
+                  field('sourceId')(event.target.value);
                   field('sourceField')('');
                 }}
               >
@@ -132,7 +136,7 @@ function RelationshipDialog(props: {
               <Select
                 label="Join field"
                 value={form.sourceField}
-                onChange={(e) => field('sourceField')(e.target.value)}
+                onChange={(event) => field('sourceField')(event.target.value)}
                 disabled={!form.sourceId}
               >
                 {sourceFields.map((f) => (
@@ -150,8 +154,8 @@ function RelationshipDialog(props: {
               <Select
                 label={isManyToMany ? 'Target' : 'One side'}
                 value={form.targetId}
-                onChange={(e) => {
-                  field('targetId')(e.target.value);
+                onChange={(event) => {
+                  field('targetId')(event.target.value);
                   field('targetField')('');
                 }}
               >
@@ -171,7 +175,7 @@ function RelationshipDialog(props: {
               <Select
                 label="Join field"
                 value={form.targetField}
-                onChange={(e) => field('targetField')(e.target.value)}
+                onChange={(event) => field('targetField')(event.target.value)}
                 disabled={!form.targetId}
               >
                 {targetFields.map((f) => (
@@ -194,8 +198,8 @@ function RelationshipDialog(props: {
                 <Select
                   label="Junction source"
                   value={form.junctionSourceId}
-                  onChange={(e) => {
-                    field('junctionSourceId')(e.target.value);
+                  onChange={(event) => {
+                    field('junctionSourceId')(event.target.value);
                     field('junctionSourceField')('');
                     field('junctionTargetField')('');
                   }}
@@ -217,7 +221,7 @@ function RelationshipDialog(props: {
                   <Select
                     label="→ Source FK"
                     value={form.junctionSourceField}
-                    onChange={(e) => field('junctionSourceField')(e.target.value)}
+                    onChange={(event) => field('junctionSourceField')(event.target.value)}
                     disabled={!form.junctionSourceId}
                   >
                     {junctionFields.map((f) => (
@@ -232,7 +236,7 @@ function RelationshipDialog(props: {
                   <Select
                     label="→ Target FK"
                     value={form.junctionTargetField}
-                    onChange={(e) => field('junctionTargetField')(e.target.value)}
+                    onChange={(event) => field('junctionTargetField')(event.target.value)}
                     disabled={!form.junctionSourceId}
                   >
                     {junctionFields.map((f) => (

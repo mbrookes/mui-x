@@ -98,7 +98,9 @@ export function DataSourceFieldSelect({
   }, [fieldsProp, dataSources, filterCapability]);
 
   const selectedOption = React.useMemo(() => {
-    if (!value) return null;
+    if (!value) {
+      return null;
+    }
     return (
       (valueSourceId
         ? computedFields.find((f) => f.id === value && f.sourceId === valueSourceId)

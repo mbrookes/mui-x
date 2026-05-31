@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable react/no-unused-prop-types */
 import * as React from 'react';
 import { Studio } from './Studio';
 import type { StudioHandle, StudioProps } from './Studio';
@@ -130,13 +131,10 @@ export const StudioDashboard = React.memo(
     } = props;
 
     // Merge caller-supplied flags on top of view-only defaults
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const featureFlagsKey = JSON.stringify(featureFlags);
+
     const mergedFlags = React.useMemo<StudioFeatureFlags>(
       () => ({ ...DEFAULT_EMBED_FLAGS, ...featureFlags }),
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      // react-doctor-disable-next-line react-doctor/exhaustive-deps -- featureFlagsKey = JSON.stringify(featureFlags) is used as a stable deep-equality proxy
-      [featureFlagsKey],
+      [featureFlags],
     );
 
     const innerRef = React.useRef<StudioHandle>(null);

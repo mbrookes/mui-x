@@ -320,48 +320,40 @@ const StudioContent = React.memo(function StudioContent(
     }
   }, [selectedWidgetId, mode, showCompose, controller, sidebarLayout]);
 
-  const sidebar =
-    sidebarLayout === 'tabbed' ? (
-      <TabbedSidebar
-        side={sidebarSide}
-        panels={[
-          ...(mode === 'edit' && showCompose
-            ? [
-                ...(showDataManagement
-                  ? [
-                      {
-                        drawer: 'data' as const,
-                        label: localeText.dataDrawerTitle,
-                        icon: <StorageIcon fontSize="small" />,
-                        children: dataDrawer ?? <StudioDataDrawer />,
-                      },
-                    ]
-                  : []),
-                {
-                  drawer: 'compose' as const,
-                  label: localeText.composeDrawerTitle,
-                  title: composePanelTitle,
-                  icon: <TuneIcon fontSize="small" />,
-                  onBack: composeOnBack,
-                  children: composeDrawer ?? <StudioComposeDrawer />,
-                },
-              ]
-            : []),
-          ...(showFilters
-            ? [
-                {
-                  drawer: 'filters' as const,
-                  label: localeText.filtersDrawerTitle,
-                  icon: <FilterListIcon fontSize="small" />,
-                  children: filtersDrawer ?? <StudioFiltersDrawer />,
-                },
-              ]
-            : []),
-        ]}
-      />
-    ) : sidebarSide === 'right' ? (
-      // Right side: render panels in reverse order so they read Data → Compose → Filters
-      // from right to left (Data closest to the screen edge, Filters adjacent to the canvas).
+  let sidebar: React.ReactNode;
+  if (sidebarLayout === 'tabbed') {
+    const panels = [];
+    if (mode === 'edit' && showCompose) {
+      if (showDataManagement) {
+        panels.push({
+          drawer: 'data' as const,
+          label: localeText.dataDrawerTitle,
+          icon: <StorageIcon fontSize="small" />,
+          children: dataDrawer ?? <StudioDataDrawer />,
+        });
+      }
+      panels.push({
+        drawer: 'compose' as const,
+        label: localeText.composeDrawerTitle,
+        title: composePanelTitle,
+        icon: <TuneIcon fontSize="small" />,
+        onBack: composeOnBack,
+        children: composeDrawer ?? <StudioComposeDrawer />,
+      });
+    }
+    if (showFilters) {
+      panels.push({
+        drawer: 'filters' as const,
+        label: localeText.filtersDrawerTitle,
+        icon: <FilterListIcon fontSize="small" />,
+        children: filtersDrawer ?? <StudioFiltersDrawer />,
+      });
+    }
+    sidebar = <TabbedSidebar side={sidebarSide} panels={panels} />;
+  } else if (sidebarSide === 'right') {
+    // Right side: render panels in reverse order so they read Data → Compose → Filters
+    // from right to left (Data closest to the screen edge, Filters adjacent to the canvas).
+    sidebar = (
       <React.Fragment>
         {showFilters && (
           <DrawerPanel
@@ -395,7 +387,9 @@ const StudioContent = React.memo(function StudioContent(
           </DrawerPanel>
         )}
       </React.Fragment>
-    ) : (
+    );
+  } else {
+    sidebar = (
       <React.Fragment>
         {mode === 'edit' && showCompose && showDataManagement && (
           <DrawerPanel
@@ -430,6 +424,7 @@ const StudioContent = React.memo(function StudioContent(
         )}
       </React.Fragment>
     );
+  }
 
   return (
     <Box
@@ -538,9 +533,12 @@ export const Studio = React.memo(
       .geographies;
 
     // Controller is created once at mount and never replaced.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- controller is intentionally created once
-    const controller = React.useMemo(() => new StudioController(initialState), []);
+    const controller = React.useMemo(
+      () => new StudioController(initialState),
+      // react-doctor-disable-next-line react-doctor/exhaustive-deps -- controller is intentionally created once
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- controller is intentionally created once from initialState
+      [],
+    );
 
     // Wire onStateChange — re-subscribe whenever the callback identity changes.
     const onStateChangeRef = React.useRef(onStateChange);

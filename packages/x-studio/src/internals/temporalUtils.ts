@@ -1,4 +1,3 @@
-import dayjs from 'dayjs';
 import type { StudioDataSource } from '../models';
 
 export type XGroupBy = 'day' | 'week' | 'month' | 'quarter' | 'year';

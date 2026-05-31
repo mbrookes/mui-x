@@ -7,6 +7,7 @@ import {
   type GridAggregationModel,
 } from '@mui/x-data-grid-premium';
 
+import { Box, Typography } from '@mui/material';
 import type { StudioConditionalFormat, StudioDataSource, StudioWidget } from '../models';
 import {
   useStudioController,
@@ -17,7 +18,6 @@ import {
   selectActivePageId,
 } from '../context';
 import { formatFieldValue } from '../internals/numberFormat';
-import { Box, Typography } from '@mui/material';
 
 import { computeGridSummary } from '../utils/gridSummary';
 import { useWidgetRows } from '../internals/useWidgetRows';
@@ -231,7 +231,10 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   // Conditional formatting: build an index of CSS class name → style for injection.
   // Each rule gets a deterministic CSS class name based on its index.
-  const conditionalFormats = widget.config.gridConditionalFormats ?? [];
+  const conditionalFormats = React.useMemo(
+    () => widget.config.gridConditionalFormats ?? [],
+    [widget.config.gridConditionalFormats],
+  );
   const conditionalFormatSx = React.useMemo(() => {
     const sx: Record<string, Record<string, unknown>> = {};
     conditionalFormats.forEach((rule, i) => {
@@ -306,9 +309,12 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         disableColumnMenu
         rows={rows}
         pinnedRows={pinnedRows}
-        getRowId={(row) =>
-          String((row as Record<string, unknown>).__rowId ?? (row as Record<string, unknown>).id)
-        }
+        getRowId={(row) => {
+          // eslint-disable-next-line no-underscore-dangle -- summary rows use an internal synthetic identifier
+          return String(
+            (row as Record<string, unknown>).__rowId ?? (row as Record<string, unknown>).id,
+          );
+        }}
         hideFooter
         loading={isLoading}
         disableRowSelectionOnClick

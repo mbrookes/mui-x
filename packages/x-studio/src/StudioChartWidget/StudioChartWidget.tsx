@@ -1,11 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { BarChart } from '@mui/x-charts/BarChart';
-import { BarPlot } from '@mui/x-charts/BarChart';
+import { BarChart, BarPlot } from '@mui/x-charts/BarChart';
 import type { BarChartProps } from '@mui/x-charts/BarChart';
-import { LineChart } from '@mui/x-charts/LineChart';
-import { LinePlot, MarkPlot } from '@mui/x-charts/LineChart';
+import { LineChart, LinePlot, MarkPlot } from '@mui/x-charts/LineChart';
 import type { LineChartProps } from '@mui/x-charts/LineChart';
 import { ChartsDataProvider } from '@mui/x-charts/ChartsDataProvider';
 import { ChartsWrapper } from '@mui/x-charts/ChartsWrapper';
@@ -16,8 +14,7 @@ import { ChartsTooltip } from '@mui/x-charts/ChartsTooltip';
 import { ChartsLegend } from '@mui/x-charts/ChartsLegend';
 import { ChartsAxisHighlight } from '@mui/x-charts/ChartsAxisHighlight';
 import { ChartsGrid } from '@mui/x-charts/ChartsGrid';
-import { PieChart, PieArc, type PieArcProps } from '@mui/x-charts/PieChart';
-import type { PieChartProps } from '@mui/x-charts/PieChart';
+import { PieChart, PieChartProps } from '@mui/x-charts/PieChart';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { ScatterChartProps } from '@mui/x-charts/ScatterChart';
 import { Gauge } from '@mui/x-charts/Gauge';
@@ -28,14 +25,12 @@ import { Box, Typography } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../models';
 import {
-  fillTemporalLabelGaps,
-  formatTemporalAxisLabel,
   formatPeriodLabel,
-  getTemporalAxisData,
   getChartSupportMessage,
   periodKeyToDateRange,
   truncateToGranularity,
   aggregateByField,
+  aggregateHeatmap,
 } from '../internals/chartUtils';
 import {
   useStudioController,
@@ -46,8 +41,6 @@ import {
   makeSelectActiveCrossFilter,
   makeSelectIncomingCrossFilters,
 } from '../context';
-import { formatNumber } from '../internals/numberFormat';
-import type { StudioNumberFormat } from '../models';
 import { computeAggregate } from '../StudioKpiWidget/kpiUtils';
 import { useChartWidgetData } from './useChartWidgetData';
 import { buildMultiYLineSeries } from './lineSeries';
@@ -57,7 +50,17 @@ import { StudioHeatmapChart } from './StudioHeatmapChart';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
 import { StudioNoDataOverlay } from '../internals/StudioNoDataOverlay';
-import { aggregateHeatmap } from '../internals/chartUtils';
+
+import { PieHighlightContext } from './PieCrossHighlightContext';
+import { PIE_HIGHLIGHT_SLOTS } from './PieCrossHighlightSlots';
+import {
+  alignFilteredToAllLabels,
+  makeCrossFilterValueFormatter,
+  densifyBarLabels,
+  createLineXAxisConfig,
+  makeValueFormatter,
+  normalizeCrossFilterValue,
+} from './chartWidgetHelpers';
 
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
@@ -93,17 +96,6 @@ export const CHART_MIN_HEIGHT = 260;
 const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
 const GHOST_SERIES_SUFFIX = '-ghost';
-
-import { PieHighlightContext } from './PieCrossHighlightContext';
-import { PIE_HIGHLIGHT_SLOTS } from './PieCrossHighlightSlots';
-import {
-  alignFilteredToAllLabels,
-  makeCrossFilterValueFormatter,
-  densifyBarLabels,
-  createLineXAxisConfig,
-  makeValueFormatter,
-  normalizeCrossFilterValue,
-} from './chartWidgetHelpers';
 
 export const StudioChartWidget = React.memo(function StudioChartWidget(
   props: StudioChartWidgetProps,
@@ -365,12 +357,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       if (xGroupBy) {
         // For period-grouped axes, emit a `between` filter covering the full period date range
         // so downstream widgets filter by raw dates, not the formatted period label.
-        const periodKey =
-          label instanceof Date
-            ? truncateToGranularity(label, xGroupBy)
-            : typeof label === 'string'
-              ? label // band axis data now uses internal period keys directly
-              : null;
+        let periodKey: string | null = null;
+        if (label instanceof Date) {
+          periodKey = truncateToGranularity(label, xGroupBy);
+        } else if (typeof label === 'string') {
+          periodKey = label; // band axis data now uses internal period keys directly
+        }
 
         if (periodKey) {
           const range = periodKeyToDateRange(periodKey);
@@ -427,7 +419,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   // Render annotation reference lines as chart children (not supported for pie/donut/gauge).
   const annotationChildren = React.useMemo(() => {
-    if (!config.annotations?.length) return null;
+    if (!config.annotations?.length) {
+      return null;
+    }
     return config.annotations.map((ann) =>
       ann.axis === 'y' ? (
         <ChartsReferenceLine
@@ -565,7 +559,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
     return new Set<string>();
     // react-doctor-disable-next-line react-doctor/exhaustive-deps -- deps are correct; config.seriesField is a stable selector
-  }, [multiYData, normalizedChartType, seriesFieldData, config.seriesField]);
+  }, [multiYData, normalizedChartType, seriesFieldData, config.seriesField, twoRingData]);
 
   const controlledHighlightedItem =
     !hasActiveXFilter && hoveredItem && currentHighlightableSeriesIds.has(hoveredItem.seriesId)
@@ -1005,18 +999,23 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
 
     // When cross-highlight is active, render ghost (all data, dim) + highlighted (filtered) series
-    const ghostSeries = shouldShowGhost
-      ? hasColorBy && allScatterSeries
-        ? allScatterSeries.map((s) => ({
-            id: `${s.id}${GHOST_SERIES_SUFFIX}`,
-            label: s.label,
-            data: s.data,
-            markerSize: 3,
-          }))
-        : allScatterData
-          ? [{ id: `__all${GHOST_SERIES_SUFFIX}`, data: allScatterData, markerSize: 3 }]
-          : null
-      : null;
+    const ghostSeries = (() => {
+      if (!shouldShowGhost) {
+        return null;
+      }
+      if (hasColorBy && allScatterSeries) {
+        return allScatterSeries.map((s) => ({
+          id: `${s.id}${GHOST_SERIES_SUFFIX}`,
+          label: s.label,
+          data: s.data,
+          markerSize: 3,
+        }));
+      }
+      if (allScatterData) {
+        return [{ id: `__all${GHOST_SERIES_SUFFIX}`, data: allScatterData, markerSize: 3 }];
+      }
+      return null;
+    })();
 
     const highlightedSeries = hasColorBy
       ? scatterSeries!.map((s) => ({
@@ -1343,8 +1342,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   if (normalizedChartType === 'pie' || normalizedChartType === 'donut') {
     const donutHole = normalizedChartType === 'donut' ? 50 : 0;
     const maxRadius = Math.round(chartHeight * 0.38);
-    const ringGap = 6;
-
     // Arc label configuration for single-series pie/donut
     const pieArcLabelCfg = config.pieArcLabel;
     const pieArcLabelMinAngle = config.pieArcLabelMinAngle ?? 20;

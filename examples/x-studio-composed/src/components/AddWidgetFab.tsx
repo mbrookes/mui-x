@@ -10,8 +10,8 @@ import {
 import type { StudioWidgetKind } from '@mui/x-studio';
 
 export interface AddWidgetFabProps {
-  /** Called after a widget is added — use to open the ComposeDialog for configuration. */
-  onWidgetAdded?: () => void;
+  /** Called after a widget is added — use to open a configuration dialog for the new widget. */
+  onWidgetAdded?: (widgetId: string) => void;
 }
 
 /**
@@ -47,7 +47,7 @@ export function AddWidgetFab({ onWidgetAdded }: AddWidgetFabProps) {
           behavior: 'smooth',
         });
       });
-      onWidgetAdded?.();
+      onWidgetAdded?.(widget.id);
     },
     [controller, canvasScrollRef, onWidgetAdded],
   );

@@ -803,7 +803,9 @@ BL-167: In the x-studio example, the ag-studio data loads (visible in the data p
 
 BL-168: Fix BL-167 first, then in the x-studio-composed example, when the ag-studio data is selected, it still loads the sales data and dashboard layout instead.
 
-BL-169: Composable components should support the sx prop.
+✅ BL-169: Composable components should support the sx prop.
+
+**Fixed** (added `sx?: SxProps<Theme>` to `StudioDashboard`, `StudioDataDrawer`, and `StudioFiltersDrawer`; exported the new `StudioDataDrawerProps` and `StudioFiltersDrawerProps` types; `StudioCanvas` already supported sx)
 
 
 ✅ BL-XXX: For all changes in this session, update the docs pages found in ./docs on all relevant pages, including the specific feature's page, and x/react-studio/comparison/, and anywhere else appropriate, and creating a new page as needed for larger features.

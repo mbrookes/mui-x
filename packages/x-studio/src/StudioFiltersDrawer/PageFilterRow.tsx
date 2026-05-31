@@ -11,7 +11,7 @@ import {
   Stack,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioController, useStudioSelector, selectFilters } from '../context';
+import { useStudioController, useStudioSelector, selectFilters, useStudioLocaleText } from '../context';
 import type { StudioFilterState } from '../models';
 import type { FieldOption, FilterMode, SimpleField } from './filterDrawerTypes';
 import {
@@ -38,6 +38,7 @@ export interface PageFilterRowProps {
 
 export function PageFilterRow(props: PageFilterRowProps) {
   const { fields, fieldOptions, filter, onRemove, allPageFilters } = props;
+  const localeText = useStudioLocaleText();
   const controller = useStudioController();
 
   const hasField = !!filter.field;
@@ -145,7 +146,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
               ])}
             </Select>
           </FormControl>
-          <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label="Remove filter">
+          <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label={localeText.filterRemoveAriaLabel}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </Box>

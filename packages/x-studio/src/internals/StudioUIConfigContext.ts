@@ -59,6 +59,7 @@ export interface StudioLocaleText {
   // ── Quick filter bar ───────────────────────────────────────────────────────
   quickFilterBarOpenFilters: string;
   quickFilterBarClearAll: string;
+  quickFilterBarFiltered: string;
 
   // ── Widget card actions ────────────────────────────────────────────────────
   widgetEditTooltip: string;
@@ -66,6 +67,24 @@ export interface StudioLocaleText {
   widgetExportPngTooltip: string;
   widgetExpandTooltip: string;
   widgetMoveToPageLabel: string;
+  widgetDuplicateTooltip: string;
+  widgetDeleteTooltip: string;
+  widgetAiAssistantTooltip: string;
+  widgetAiInsightTooltip: string;
+  widgetDetectAnomalyTooltip: string;
+  widgetHideAnomalyTooltip: string;
+  widgetExplainAnomalyTooltip: string;
+
+  // ── Widget edit dialog ─────────────────────────────────────────────────────
+  widgetEditDialogTabSetup: string;
+  widgetEditDialogTabFilters: string;
+  widgetEditDialogTabFormat: string;
+  widgetEditDialogCloseAriaLabel: string;
+  /**
+   * Returns the title for an unconfigured widget, e.g. "Untitled Chart".
+   * @param kindLabel
+   */
+  widgetUntitledLabel: (kindLabel: string) => string;
 
   // ── AI assistant ───────────────────────────────────────────────────────────
   aiAssistantOpenTooltip: string;
@@ -77,6 +96,243 @@ export interface StudioLocaleText {
   aiCreateWidgetButton: string;
   aiCreateWidgetLoading: string;
   aiCreateWidgetError: string;
+
+  // ── AI dashboard summary panel ─────────────────────────────────────────────
+  aiSummaryTitle: string;
+  aiSummarizeTooltip: string;
+  aiRegenerateTooltip: string;
+  aiCopyTooltip: string;
+  aiCopiedTooltip: string;
+  aiCloseTooltip: string;
+
+  // ── Widget type names (used in picker, dialog titles, empty states) ────────
+  widgetKindGrid: string;
+  widgetKindChart: string;
+  widgetKindKpi: string;
+  widgetKindText: string;
+  widgetKindFilter: string;
+  widgetKindPivot: string;
+  widgetKindMap: string;
+
+  // ── Data type labels ───────────────────────────────────────────────────────
+  dataTypeString: string;
+  dataTypeNumber: string;
+  dataTypeBoolean: string;
+  dataTypeDate: string;
+  dataTypeDatetime: string;
+
+  // ── Compose drawer / widget picker ─────────────────────────────────────────
+  composeDrawerTabSetup: string;
+  composeChooseWidgetType: string;
+  composeNoDataSources: string;
+  composeOnThisPage: string;
+  /**
+   * Returns the label for the "add widget" button, e.g. "Add Chart widget".
+   * @param widgetTypeLabel
+   */
+  composeAddWidgetLabel: (widgetTypeLabel: string) => string;
+  composeCloseAriaLabel: string;
+  composeBackToWidgetTypesAriaLabel: string;
+  composeCancel: string;
+
+  // ── Format panel ──────────────────────────────────────────────────────────
+  formatAutoTitle: string;
+  formatResetTitle: string;
+  formatAutoSubtitle: string;
+  formatResetSubtitle: string;
+
+  // ── Data drawer ────────────────────────────────────────────────────────────
+  dataDrawerNoSources: string;
+  dataDrawerViewLineage: string;
+  dataDrawerLineageTitle: string;
+  dataDrawerLineageHelper: string;
+  /** Singular/plural label for the row count displayed in the data drawer, e.g. "rows". */
+  dataDrawerRowsLabel: string;
+  /** Singular/plural label for the field count displayed in the data drawer, e.g. "fields". */
+  dataDrawerFieldsLabel: string;
+  dataDrawerBackAriaLabel: string;
+  dataDrawerCloseAriaLabel: string;
+  dataDrawerEditTooltip: string;
+  dataDrawerDeleteTooltip: string;
+
+  // ── Relationship management ────────────────────────────────────────────────
+  relationshipEditTooltip: string;
+  relationshipRemoveTooltip: string;
+  relationshipCancel: string;
+  relationshipTypeManyToOne: string;
+  relationshipTypeOneToOne: string;
+  relationshipTypeManyToMany: string;
+
+  // ── Filter conditions & values ─────────────────────────────────────────────
+  filterConditionAnd: string;
+  filterConditionOr: string;
+  filterOperatorLabel: string;
+  filterRemoveSecondCondition: string;
+  filterAbsoluteDate: string;
+  filterRelativeDate: string;
+  filterLinkToField: string;
+  filterRemoveFieldLink: string;
+  filterBooleanTrue: string;
+  filterBooleanFalse: string;
+  filterRemoveAriaLabel: string;
+  filterInteractiveSectionTitle: string;
+  filterCrossSectionTitle: string;
+  filterClearFilter: string;
+  filterClearAllCrossFilters: string;
+  filterRemoveCrossFilter: string;
+  filterSearchValues: string;
+  filterSelectField: string;
+  filterValueLabel: string;
+  filterValueHelper: string;
+  filterSelectParent: string;
+  filterSourceLabel: string;
+  filterMetricRowLabel: string;
+  filterFieldLabel: string;
+  filterRankByLabel: string;
+
+  // ── Expression field dialog ────────────────────────────────────────────────
+  exprNodeTypeField: string;
+  exprNodeTypeLiteral: string;
+  exprNodeTypeFunction: string;
+  exprDataTypeNumber: string;
+  exprDataTypeText: string;
+  exprDataTypeBoolean: string;
+  exprBooleanTrue: string;
+  exprBooleanFalse: string;
+  exprExpandTooltip: string;
+  exprCollapseTooltip: string;
+  exprRemoveInputTooltip: string;
+  exprCancel: string;
+  exprSave: string;
+  exprAddField: string;
+
+  // ── Shared aggregation function labels ─────────────────────────────────────
+  aggFnSum: string;
+  aggFnCount: string;
+  aggFnCountRows: string;
+  aggFnAverage: string;
+  aggFnMin: string;
+  aggFnMax: string;
+
+  // ── Shared time granularity labels ────────────────────────────────────────
+  timeGranNone: string;
+  timeGranDay: string;
+  timeGranWeek: string;
+  timeGranMonth: string;
+  timeGranQuarter: string;
+  timeGranYear: string;
+
+  // ── Shared sort direction labels ───────────────────────────────────────────
+  sortAscendingAriaLabel: string;
+  sortDescendingAriaLabel: string;
+
+  // ── Chart setup panel ─────────────────────────────────────────────────────
+  chartSetupValueFieldLabel: string;
+  chartSetupAggregationLabel: string;
+  chartSetupMinLabel: string;
+  chartSetupMaxLabel: string;
+  chartSetupGroupByLabel: string;
+  chartSetupSortByLabel: string;
+  chartSetupSortCategory: string;
+  chartSetupSortValue: string;
+  chartSetupSortNone: string;
+  chartSetupSortPercent: string;
+  chartSetupAnnotationsTitle: string;
+  chartSetupInteractionsTitle: string;
+  chartSetupInteractionsDescription: string;
+  chartSetupAddSeries: string;
+  chartSetupNoMoreFields: string;
+  chartSetupRemoveSeries: string;
+  chartSetupAddReferenceLine: string;
+  chartSetupRemoveAnnotation: string;
+  chartSetupNoReferenceLines: string;
+  chartSetupDualYAxis: string;
+
+  // ── KPI setup panel ────────────────────────────────────────────────────────
+  kpiSetupChartLine: string;
+  kpiSetupChartBar: string;
+  kpiSetupChartGauge: string;
+  kpiSetupCompPrevPeriod: string;
+  kpiSetupCompPrevCalendarPeriod: string;
+  kpiSetupCompSameLastYear: string;
+  kpiSetupInteractionsTitle: string;
+  kpiSetupInteractionsDescription: string;
+
+  // ── KPI widget ─────────────────────────────────────────────────────────────
+  kpiGrandTotalTooltip: string;
+
+  // ── Grid setup panel ──────────────────────────────────────────────────────
+  gridSetupDataSourceLabel: string;
+  gridSetupAllColumnsAdded: string;
+  gridSetupCrossFilterFieldLabel: string;
+  gridSetupCrossFilterFieldHelper: string;
+  gridSetupGroupByLabel: string;
+  gridSetupGroupByHelper: string;
+  gridSetupDefaultSortLabel: string;
+  gridSetupConditionalFormattingTitle: string;
+  gridSetupConditionalCustom: string;
+  gridSetupRemoveRuleAriaLabel: string;
+  gridSetupInteractionsTitle: string;
+  gridSetupInteractionsDescription: string;
+
+  // ── Map setup panel ────────────────────────────────────────────────────────
+  mapSetupColorBlues: string;
+  mapSetupColorReds: string;
+  mapSetupColorGreens: string;
+  mapSetupColorOranges: string;
+  mapSetupColorPurples: string;
+  mapSetupLegendBottom: string;
+  mapSetupLegendTop: string;
+  mapSetupLegendLeft: string;
+  mapSetupLegendRight: string;
+  mapSetupLegendHidden: string;
+
+  // ── Pivot setup panel ─────────────────────────────────────────────────────
+  pivotSetupDescription: string;
+  pivotSetupRowFieldLabel: string;
+  pivotSetupRowFieldHelper: string;
+  pivotSetupColFieldLabel: string;
+  pivotSetupColFieldHelper: string;
+  pivotSetupValueFieldLabel: string;
+  pivotSetupValueFieldHelper: string;
+  pivotSetupShowTotals: string;
+
+  // ── Filter setup panel ────────────────────────────────────────────────────
+  filterSetupControlTypeLabel: string;
+  filterSetupMultiSelect: string;
+  filterSetupMultiSelectDescription: string;
+  filterSetupToggleChips: string;
+  filterSetupToggleChipsDescription: string;
+  filterSetupDateRange: string;
+  filterSetupDateRangeDescription: string;
+  filterSetupSlider: string;
+  filterSetupSliderDescription: string;
+  filterSetupMinLabel: string;
+  filterSetupMaxLabel: string;
+  filterSetupStepLabel: string;
+  filterSetupSelectFieldAlert: string;
+
+  // ── Text setup panel ──────────────────────────────────────────────────────
+  textSetupTitleLabel: string;
+  textSetupTitleHelper: string;
+  textSetupSubtitleLabel: string;
+  textSetupSubtitleHelper: string;
+  textSetupBodyLabel: string;
+  textSetupBodyHelper: string;
+
+  // ── Page config panel ─────────────────────────────────────────────────────
+  pageConfigPageSectionTitle: string;
+  pageConfigCardsSectionTitle: string;
+  pageConfigBackgroundColourLabel: string;
+  pageConfigBackgroundColourPlaceholder: string;
+  pageConfigCardBackgroundLabel: string;
+  pageConfigCardBackgroundPlaceholder: string;
+  pageConfigPaddingLabel: string;
+  pageConfigCornerRadiusLabel: string;
+  pageConfigCardBorderLabel: string;
+  pageConfigBorderColourLabel: string;
+  pageConfigBorderColourPlaceholder: string;
+  pageConfigBorderWidthLabel: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -118,6 +374,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // Quick filter bar
   quickFilterBarOpenFilters: 'Open filters panel',
   quickFilterBarClearAll: 'Clear all page filters',
+  quickFilterBarFiltered: 'Filtered',
 
   // Widget card actions
   widgetEditTooltip: 'Edit widget',
@@ -125,6 +382,20 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetExportPngTooltip: 'Export as PNG',
   widgetExpandTooltip: 'Expand chart',
   widgetMoveToPageLabel: 'Move to page',
+  widgetDuplicateTooltip: 'Duplicate widget',
+  widgetDeleteTooltip: 'Delete widget',
+  widgetAiAssistantTooltip: 'AI assistant',
+  widgetAiInsightTooltip: 'AI insight',
+  widgetDetectAnomalyTooltip: 'Detect anomalies',
+  widgetHideAnomalyTooltip: 'Hide anomalies',
+  widgetExplainAnomalyTooltip: 'Explain anomalies',
+
+  // Widget edit dialog
+  widgetEditDialogTabSetup: 'Setup',
+  widgetEditDialogTabFilters: 'Filters',
+  widgetEditDialogTabFormat: 'Format',
+  widgetEditDialogCloseAriaLabel: 'Close edit dialog',
+  widgetUntitledLabel: (kindLabel) => `Untitled ${kindLabel}`,
 
   // AI assistant
   aiAssistantOpenTooltip: 'Open AI assistant',
@@ -137,6 +408,243 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiCreateWidgetButton: 'Create',
   aiCreateWidgetLoading: 'Creating\u2026',
   aiCreateWidgetError: 'Failed to create widget',
+
+  // AI dashboard summary panel
+  aiSummaryTitle: 'Dashboard Summary',
+  aiSummarizeTooltip: 'Summarise dashboard',
+  aiRegenerateTooltip: 'Regenerate',
+  aiCopyTooltip: 'Copy',
+  aiCopiedTooltip: 'Copied!',
+  aiCloseTooltip: 'Close',
+
+  // Widget type names
+  widgetKindGrid: 'Table',
+  widgetKindChart: 'Chart',
+  widgetKindKpi: 'KPI',
+  widgetKindText: 'Text',
+  widgetKindFilter: 'Filter',
+  widgetKindPivot: 'Pivot Table',
+  widgetKindMap: 'Map',
+
+  // Data type labels
+  dataTypeString: 'Text',
+  dataTypeNumber: 'Number',
+  dataTypeBoolean: 'Boolean',
+  dataTypeDate: 'Date',
+  dataTypeDatetime: 'Date & Time',
+
+  // Compose drawer / widget picker
+  composeDrawerTabSetup: 'Setup',
+  composeChooseWidgetType: 'Choose a widget type',
+  composeNoDataSources:
+    'No data sources available yet. Only text widgets can be added.',
+  composeOnThisPage: 'On this page',
+  composeAddWidgetLabel: (widgetTypeLabel) => `Add ${widgetTypeLabel} widget`,
+  composeCloseAriaLabel: 'Close',
+  composeBackToWidgetTypesAriaLabel: 'Back to widget types',
+  composeCancel: 'Cancel',
+
+  // Format panel
+  formatAutoTitle: 'Auto-generated title',
+  formatResetTitle: 'Reset to auto-generated title',
+  formatAutoSubtitle: 'Auto-generated subtitle',
+  formatResetSubtitle: 'Reset to auto-generated subtitle',
+
+  // Data drawer
+  dataDrawerNoSources:
+    'No data sources configured. Add a widget from the canvas to load sample data.',
+  dataDrawerViewLineage: 'View data lineage',
+  dataDrawerLineageTitle: 'Data lineage',
+  dataDrawerLineageHelper:
+    'Click a node to preview its data. Click an edge to inspect join key fields.',
+  dataDrawerRowsLabel: 'rows',
+  dataDrawerFieldsLabel: 'fields',
+  dataDrawerBackAriaLabel: 'Back to lineage graph',
+  dataDrawerCloseAriaLabel: 'Close data lineage',
+  dataDrawerEditTooltip: 'Edit',
+  dataDrawerDeleteTooltip: 'Delete',
+
+  // Relationship management
+  relationshipEditTooltip: 'Edit',
+  relationshipRemoveTooltip: 'Remove',
+  relationshipCancel: 'Cancel',
+  relationshipTypeManyToOne: 'Many-to-one',
+  relationshipTypeOneToOne: 'One-to-one',
+  relationshipTypeManyToMany: 'Many-to-many',
+
+  // Filter conditions & values
+  filterConditionAnd: 'AND',
+  filterConditionOr: 'OR',
+  filterOperatorLabel: 'Operator',
+  filterRemoveSecondCondition: 'Remove second condition',
+  filterAbsoluteDate: 'Absolute date',
+  filterRelativeDate: 'Relative date',
+  filterLinkToField: 'Link to field',
+  filterRemoveFieldLink: 'Remove field link',
+  filterBooleanTrue: 'True',
+  filterBooleanFalse: 'False',
+  filterRemoveAriaLabel: 'Remove filter',
+  filterInteractiveSectionTitle: 'Interactive filters',
+  filterCrossSectionTitle: 'Cross-filters',
+  filterClearFilter: 'Clear filter',
+  filterClearAllCrossFilters: 'Clear all cross-filters',
+  filterRemoveCrossFilter: 'Remove cross-filter',
+  filterSearchValues: 'Search values\u2026',
+  filterSelectField: 'Select a field\u2026',
+  filterValueLabel: 'Value',
+  filterValueHelper: 'Value to compare against',
+  filterSelectParent: 'Select parent filter\u2026',
+  filterSourceLabel: 'Source',
+  filterMetricRowLabel: 'Metric row',
+  filterFieldLabel: 'Field',
+  filterRankByLabel: 'Rank by',
+
+  // Expression field dialog
+  exprNodeTypeField: 'Field',
+  exprNodeTypeLiteral: 'Literal',
+  exprNodeTypeFunction: 'Function',
+  exprDataTypeNumber: 'Number',
+  exprDataTypeText: 'Text',
+  exprDataTypeBoolean: 'Boolean',
+  exprBooleanTrue: 'True',
+  exprBooleanFalse: 'False',
+  exprExpandTooltip: 'Expand',
+  exprCollapseTooltip: 'Collapse',
+  exprRemoveInputTooltip: 'Remove input',
+  exprCancel: 'Cancel',
+  exprSave: 'Save',
+  exprAddField: 'Add Field',
+
+  // Shared aggregation function labels
+  aggFnSum: 'Sum',
+  aggFnCount: 'Count',
+  aggFnCountRows: 'Count (rows)',
+  aggFnAverage: 'Average',
+  aggFnMin: 'Min',
+  aggFnMax: 'Max',
+
+  // Shared time granularity labels
+  timeGranNone: 'None (raw values)',
+  timeGranDay: 'Day',
+  timeGranWeek: 'Week',
+  timeGranMonth: 'Month',
+  timeGranQuarter: 'Quarter',
+  timeGranYear: 'Year',
+
+  // Shared sort direction labels
+  sortAscendingAriaLabel: 'Ascending',
+  sortDescendingAriaLabel: 'Descending',
+
+  // Chart setup panel
+  chartSetupValueFieldLabel: 'Value field',
+  chartSetupAggregationLabel: 'Aggregation',
+  chartSetupMinLabel: 'Min',
+  chartSetupMaxLabel: 'Max',
+  chartSetupGroupByLabel: 'Group by',
+  chartSetupSortByLabel: 'Sort by',
+  chartSetupSortCategory: 'Category',
+  chartSetupSortValue: 'Value',
+  chartSetupSortNone: 'None',
+  chartSetupSortPercent: 'Percent',
+  chartSetupAnnotationsTitle: 'Annotations',
+  chartSetupInteractionsTitle: 'Interactions',
+  chartSetupInteractionsDescription: 'When other widgets are clicked, this chart\u2026',
+  chartSetupAddSeries: 'Add series',
+  chartSetupNoMoreFields: 'No more fields to add',
+  chartSetupRemoveSeries: 'Remove series',
+  chartSetupAddReferenceLine: 'Add reference line',
+  chartSetupRemoveAnnotation: 'Remove annotation',
+  chartSetupNoReferenceLines: 'No reference lines. Click + to add one.',
+  chartSetupDualYAxis: 'Dual Y axis (line series on right axis)',
+
+  // KPI setup panel
+  kpiSetupChartLine: 'Line',
+  kpiSetupChartBar: 'Bar',
+  kpiSetupChartGauge: 'Gauge',
+  kpiSetupCompPrevPeriod: 'Previous period (matching duration)',
+  kpiSetupCompPrevCalendarPeriod: 'Previous calendar period',
+  kpiSetupCompSameLastYear: 'Same period last year',
+  kpiSetupInteractionsTitle: 'Interactions',
+  kpiSetupInteractionsDescription: 'When other widgets are clicked, this KPI\u2026',
+
+  // KPI widget
+  kpiGrandTotalTooltip:
+    'Grand total \u2014 active filter widgets are not applied to this KPI. Enable Cross-filter mode in KPI settings to respect them.',
+
+  // Grid setup panel
+  gridSetupDataSourceLabel: 'Data source',
+  gridSetupAllColumnsAdded: 'All available columns added',
+  gridSetupCrossFilterFieldLabel: 'Cross-filter field',
+  gridSetupCrossFilterFieldHelper:
+    'Field applied to other widgets when a row is selected; defaults to the first visible column',
+  gridSetupGroupByLabel: 'Group by',
+  gridSetupGroupByHelper: 'Collapse rows into groups \u2014 set per-column aggregation below',
+  gridSetupDefaultSortLabel: 'Default sort',
+  gridSetupConditionalFormattingTitle: 'Conditional formatting',
+  gridSetupConditionalCustom: 'Custom',
+  gridSetupRemoveRuleAriaLabel: 'Remove rule',
+  gridSetupInteractionsTitle: 'Interactions',
+  gridSetupInteractionsDescription: 'When other widgets are clicked, this table\u2026',
+
+  // Map setup panel
+  mapSetupColorBlues: 'Blues',
+  mapSetupColorReds: 'Reds',
+  mapSetupColorGreens: 'Greens',
+  mapSetupColorOranges: 'Oranges',
+  mapSetupColorPurples: 'Purples',
+  mapSetupLegendBottom: 'Bottom',
+  mapSetupLegendTop: 'Top',
+  mapSetupLegendLeft: 'Left',
+  mapSetupLegendRight: 'Right',
+  mapSetupLegendHidden: 'Hidden',
+
+  // Pivot setup panel
+  pivotSetupDescription:
+    'Build a cross-tabulation by choosing a row field, column field, and value measure.',
+  pivotSetupRowFieldLabel: 'Row field',
+  pivotSetupRowFieldHelper: 'Categorical field shown as row groups on the left',
+  pivotSetupColFieldLabel: 'Column field',
+  pivotSetupColFieldHelper: 'Categorical field spread across column headers',
+  pivotSetupValueFieldLabel: 'Value field',
+  pivotSetupValueFieldHelper: 'Numeric field aggregated into each cell',
+  pivotSetupShowTotals: 'Show totals row and column',
+
+  // Filter setup panel
+  filterSetupControlTypeLabel: 'Control type',
+  filterSetupMultiSelect: 'Multi-select',
+  filterSetupMultiSelectDescription: 'Dropdown with checkboxes for categorical values',
+  filterSetupToggleChips: 'Toggle chips',
+  filterSetupToggleChipsDescription: 'Inline chip buttons for categorical values',
+  filterSetupDateRange: 'Date range',
+  filterSetupDateRangeDescription: 'From / to date pickers',
+  filterSetupSlider: 'Slider',
+  filterSetupSliderDescription: 'Range slider for numeric or date fields',
+  filterSetupMinLabel: 'Min',
+  filterSetupMaxLabel: 'Max',
+  filterSetupStepLabel: 'Step',
+  filterSetupSelectFieldAlert: 'Select a field to configure the filter control.',
+
+  // Text setup panel
+  textSetupTitleLabel: 'Title',
+  textSetupTitleHelper: 'Heading displayed at the top of the widget',
+  textSetupSubtitleLabel: 'Subtitle',
+  textSetupSubtitleHelper: 'Smaller text below the heading',
+  textSetupBodyLabel: 'Body',
+  textSetupBodyHelper: 'Main content of the widget; supports plain text',
+
+  // Page config panel
+  pageConfigPageSectionTitle: 'Page',
+  pageConfigCardsSectionTitle: 'Cards',
+  pageConfigBackgroundColourLabel: 'Background colour',
+  pageConfigBackgroundColourPlaceholder: 'e.g. #f5f5f5',
+  pageConfigCardBackgroundLabel: 'Card background',
+  pageConfigCardBackgroundPlaceholder: 'e.g. #ffffff',
+  pageConfigPaddingLabel: 'Padding',
+  pageConfigCornerRadiusLabel: 'Corner radius (px)',
+  pageConfigCardBorderLabel: 'Card border',
+  pageConfigBorderColourLabel: 'Border colour',
+  pageConfigBorderColourPlaceholder: 'e.g. #e0e0e0',
+  pageConfigBorderWidthLabel: 'Border width (px)',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

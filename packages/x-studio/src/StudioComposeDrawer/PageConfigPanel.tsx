@@ -11,7 +11,7 @@ import {
   Switch,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectActivePage } from '../context';
+import { useStudioController, useStudioSelector, selectActivePage, useStudioLocaleText } from '../context';
 import { NumberField } from '../internals/NumberField';
 import type { StudioPageTheme } from '../models';
 import { ColorInput } from './ColorInput';
@@ -29,6 +29,7 @@ const PADDING_OPTIONS = [
 export function PageConfigPanel() {
   const controller = useStudioController();
   const pageTheme = useStudioSelector(selectActivePage)?.theme ?? EMPTY_PAGE_THEME;
+  const localeText = useStudioLocaleText();
 
   const update = React.useCallback(
     (changes: Partial<StudioPageTheme>) => {
@@ -45,30 +46,30 @@ export function PageConfigPanel() {
 
   return (
     <Stack spacing={2.5} sx={{ pt: 1 }}>
-      <Typography variant="subtitle2">Page</Typography>
+      <Typography variant="subtitle2">{localeText.pageConfigPageSectionTitle}</Typography>
 
       <ColorInput
-        label="Background colour"
+        label={localeText.pageConfigBackgroundColourLabel}
         value={pageTheme.pageBackground ?? ''}
         onChange={(v) => update({ pageBackground: v || undefined })}
-        placeholder="e.g. #f5f5f5"
+        placeholder={localeText.pageConfigBackgroundColourPlaceholder}
       />
 
       <Divider />
 
-      <Typography variant="subtitle2">Cards</Typography>
+      <Typography variant="subtitle2">{localeText.pageConfigCardsSectionTitle}</Typography>
 
       <ColorInput
-        label="Card background"
+        label={localeText.pageConfigCardBackgroundLabel}
         value={pageTheme.cardBackground ?? ''}
         onChange={(v) => update({ cardBackground: v || undefined })}
-        placeholder="e.g. #ffffff"
+        placeholder={localeText.pageConfigCardBackgroundPlaceholder}
       />
 
       <FormControl size="small" fullWidth>
         <InputLabel>Padding</InputLabel>
         <Select
-          label="Padding"
+          label={localeText.pageConfigPaddingLabel}
           value={pageTheme.cardPadding ?? 2}
           onChange={(event) => update({ cardPadding: event.target.value as number })}
         >
@@ -82,7 +83,7 @@ export function PageConfigPanel() {
 
       <NumberField
         size="small"
-        label="Corner radius (px)"
+        label={localeText.pageConfigCornerRadiusLabel}
         value={pageTheme.cardRadius ?? null}
         min={0}
         max={64}
@@ -98,20 +99,20 @@ export function PageConfigPanel() {
             size="small"
           />
         }
-        label="Card border"
+        label={localeText.pageConfigCardBorderLabel}
       />
 
       {cardBorder && (
         <React.Fragment>
           <ColorInput
-            label="Border colour"
+            label={localeText.pageConfigBorderColourLabel}
             value={pageTheme.cardBorderColor ?? ''}
             onChange={(v) => update({ cardBorderColor: v || undefined })}
-            placeholder="e.g. #e0e0e0"
+            placeholder={localeText.pageConfigBorderColourPlaceholder}
           />
           <NumberField
             size="small"
-            label="Border width (px)"
+            label={localeText.pageConfigBorderWidthLabel}
             value={pageTheme.cardBorderWidth ?? null}
             min={1}
             max={16}

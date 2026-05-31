@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Autocomplete, Box, IconButton, Stack, TextField } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioController, useStudioSelector, selectFilters } from '../context';
+import { useStudioController, useStudioSelector, selectFilters, useStudioLocaleText } from '../context';
 import type { StudioFilterState } from '../models';
 import type { FieldOption, FilterMode } from './filterDrawerTypes';
 import {
@@ -43,6 +43,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
     availableSeries,
   } = props;
   const controller = useStudioController();
+  const localeText = useStudioLocaleText();
 
   const isChartRank = filter.filterMode === 'rank' && !!chartXField;
   // For chart rank filters, the field is always the chart's xField — treat as always "has field"
@@ -135,7 +136,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
               />
             )}
           />
-          <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label="Remove filter">
+          <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label={localeText.filterRemoveAriaLabel}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </Box>

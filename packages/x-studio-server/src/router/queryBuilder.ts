@@ -41,11 +41,11 @@ const SAFE_OPERATORS = new Set<FilterPredicate['operator']>([
  * @param descriptor - Widget query descriptor (table name and filters)
  */
 export function buildSecureQuery(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any, // Knex.Knex
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
 ): any {
   const query = db(descriptor.table);
 
@@ -73,7 +73,7 @@ export function buildSecureQuery(
  * Apply a single structured filter predicate to a Knex query.
  * Column names are bound via `??` (identifier escaping); values via `?` (value binding).
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function applyPredicate(query: any, predicate: FilterPredicate): void {
   if (!SAFE_OPERATORS.has(predicate.operator)) {
     throw new Error(

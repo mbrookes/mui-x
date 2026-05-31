@@ -11,12 +11,7 @@ import {
   TextField,
   Tooltip,
 } from '@mui/material';
-import {
-  useStudioController,
-  useStudioSelector,
-  selectWidgets,
-  selectDataSources,
-} from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, useStudioLocaleText } from '../context';
 import { inferWidgetTitles } from '../internals/widgetUtils';
 
 export function FormatPanel(props: { widgetId: string }) {
@@ -24,6 +19,7 @@ export function FormatPanel(props: { widgetId: string }) {
   const controller = useStudioController();
   const widget = useStudioSelector(selectWidgets)[widgetId];
   const dataSources = useStudioSelector(selectDataSources);
+  const localeText = useStudioLocaleText();
   const [formState, setFormState] = React.useState({
     title: widget?.title ?? '',
     subtitle: widget?.subtitle ?? '',
@@ -129,14 +125,14 @@ export function FormatPanel(props: { widgetId: string }) {
                 {(() => {
                   if (isAutoTitle && title === (widget?.title ?? '')) {
                     return (
-                      <Tooltip title="Auto-generated title">
+                      <Tooltip title={localeText.formatAutoTitle}>
                         <BoltIcon fontSize="small" color="action" />
                       </Tooltip>
                     );
                   }
                   if (!isAutoTitle) {
                     return (
-                      <Tooltip title="Reset to auto-generated title">
+                      <Tooltip title={localeText.formatResetTitle}>
                         <IconButton size="small" onClick={handleResetTitle} edge="end">
                           <AutorenewIcon fontSize="small" />
                         </IconButton>
@@ -173,14 +169,14 @@ export function FormatPanel(props: { widgetId: string }) {
                 {(() => {
                   if (isAutoSubtitle && subtitle === (widget?.subtitle ?? '')) {
                     return (
-                      <Tooltip title="Auto-generated subtitle">
+                      <Tooltip title={localeText.formatAutoSubtitle}>
                         <BoltIcon fontSize="small" color="action" />
                       </Tooltip>
                     );
                   }
                   if (!isAutoSubtitle) {
                     return (
-                      <Tooltip title="Reset to auto-generated subtitle">
+                      <Tooltip title={localeText.formatResetSubtitle}>
                         <IconButton size="small" onClick={handleResetSubtitle} edge="end">
                           <AutorenewIcon fontSize="small" />
                         </IconButton>

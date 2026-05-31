@@ -15,7 +15,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import { useStudioController, useStudioSelector, selectShell } from '../context';
+import { useStudioController, useStudioSelector, selectShell, useStudioLocaleText } from '../context';
 import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
@@ -249,6 +249,7 @@ function ExpressionFieldRow({
   enrichedRows,
   measureValue,
 }: ExpressionFieldRowProps) {
+  const localeText = useStudioLocaleText();
   const type = field.type ?? (field.isMeasure ? 'number' : 'string');
 
   // For measure fields show the aggregate value; for columns use the enriched rows
@@ -286,7 +287,7 @@ function ExpressionFieldRow({
         {primaryContent}
         {isEditMode && (
           <Stack direction="row" sx={{ gap: '2px' }}>
-            <Tooltip title="Edit">
+            <Tooltip title={localeText.dataDrawerEditTooltip}>
               <IconButton
                 size="small"
                 sx={{ p: '2px' }}
@@ -298,7 +299,7 @@ function ExpressionFieldRow({
                 <EditIcon sx={{ fontSize: 14 }} />
               </IconButton>
             </Tooltip>
-            <Tooltip title="Delete">
+            <Tooltip title={localeText.dataDrawerDeleteTooltip}>
               <IconButton
                 size="small"
                 sx={{ p: '2px' }}

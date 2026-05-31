@@ -98,6 +98,7 @@ export interface StudioChartWidgetProps {
   /**
    * Called after anomaly detection runs with the detected annotations.
    * Use this to surface the anomaly count or detected values in parent UI.
+   * @param annotations
    */
   onAnomalyDetected?: (annotations: import('../models/baseTypes').StudioChartAnnotation[]) => void;
   /**

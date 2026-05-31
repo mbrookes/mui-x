@@ -147,6 +147,7 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
 export function InteractiveFilterSection({ filters }: { filters: StudioFilterState[] }) {
   const controller = useStudioController();
   const widgets = useStudioSelector(selectWidgets);
+  const localeText = useStudioLocaleText();
 
   return (
     <CollapsibleSection title="Interactive filters">
@@ -190,7 +191,7 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
                 <Typography variant="caption" color="text.secondary">
                   {displayValue}
                 </Typography>
-                <Tooltip title="Clear filter">
+                <Tooltip title={localeText.filterClearFilter}>
                   <IconButton
                     size="small"
                     onClick={() => controller.removeFilter(filter.id)}

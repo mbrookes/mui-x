@@ -8,11 +8,11 @@ const Nt = '20260122',
   Lt = 1125e3,
   Ie = 0.04;
 function Ut() {
-  if (typeof window > 'u') return Ie;
+  if (typeof window > 'u') {return Ie;}
   const e = window.agStudioOpts?.scaleFactor;
-  if (typeof e == 'number' && Number.isFinite(e) && e > 0) return e;
+  if (typeof e === 'number' && Number.isFinite(e) && e > 0) {return e;}
   const t = new URLSearchParams(window.location.search).get('sf');
-  if (t == null) return Ie;
+  if (t == null) {return Ie;}
   const n = parseFloat(t);
   return Number.isFinite(n) && n > 0 ? n : Ie;
 }
@@ -30,9 +30,9 @@ function P(e) {
   const t = e.length,
     n = new Float64Array(t);
   let r = 0;
-  for (let s = 0; s < t; ++s) n[s] = r += e[s];
+  for (let s = 0; s < t; ++s) {n[s] = r += e[s];}
   const o = n[t - 1];
-  if (o !== 1) for (let s = 0; s < t; ++s) n[s] /= o;
+  if (o !== 1) {for (let s = 0; s < t; ++s) {n[s] /= o;}}
   return ((n[t - 1] = 1), n);
 }
 function J(e, t) {
@@ -58,7 +58,7 @@ function _e(e, t) {
 }
 function $t(e, t) {
   const n = new Int32Array(t);
-  for (let r = 0; r < t; ++r) n[r] = r;
+  for (let r = 0; r < t; ++r) {n[r] = r;}
   for (let r = t - 1; r > 0; --r) {
     const o = I(e, 0, r + 1),
       s = n[r];
@@ -68,7 +68,7 @@ function $t(e, t) {
 }
 function Vt(e, t, n) {
   let r, o, s;
-  do ((r = e() * 2 - 1), (o = e() * 2 - 1), (s = r * r + o * o));
+  do {((r = e() * 2 - 1), (o = e() * 2 - 1), (s = r * r + o * o));}
   while (s >= 1 || s === 0);
   return t + n * r * Math.sqrt((-2 * Math.log(s)) / s);
 }
@@ -313,7 +313,7 @@ const le = ['UK', 'DACH', 'Nordics', 'US East', 'US West'],
     'US West': [0.92, 0.08],
   },
   lt = {};
-for (const e of le) lt[e] = P(cn[e]);
+for (const e of le) {lt[e] = P(cn[e]);}
 const un = ['first.last', 'firstlast', 'f.last', 'dept', 'dept.firstlast'],
   ln = [0.3, 0.22, 0.18, 0.2, 0.1],
   mn = P(ln);
@@ -468,14 +468,14 @@ function fn(e, t) {
 }
 const mt = re.map((e) =>
     Re[e].map((t) => {
-      const n = t.replace('{v}', Ee[e][0]) + ' Standard';
+      const n = `${t.replace('{v}', Ee[e][0])  } Standard`;
       return pn(n);
     }),
   ),
   _n = re.map((e, t) =>
     Re[e].map((n, r) => {
       const [o] = mt[t][r],
-        s = n.replace('{v}', Ee[e][0]) + ' Standard';
+        s = `${n.replace('{v}', Ee[e][0])  } Standard`;
       return fn(s, o);
     }),
   );
@@ -498,7 +498,7 @@ function gn(e) {
     u = [];
   let i = 1;
   for (const d of le)
-    for (let b = 0; b < 2; ++b) {
+    {for (let b = 0; b < 2; ++b) {
       const F = N(e, it[d]);
       (t.push(`S${i}`),
         n.push(`${F} Fulfilment Hub`),
@@ -507,7 +507,7 @@ function gn(e) {
         s.push(de - he(I(e, 365, 3650))),
         u.push('Fulfilment'),
         ++i);
-    }
+    }}
   const g = Bt - t.length,
     M = Math.floor(g * 0.6),
     m = [...Array(M).fill('Sales Office'), ...Array(g - M).fill('Partner Depot')];
@@ -557,7 +557,7 @@ function Mn(e, t) {
       k = I(e, 0, A.length),
       D = A[k],
       W = N(e, Qt),
-      E = D.replace('{v}', p) + ' ' + W,
+      E = `${D.replace('{v}', p)  } ${  W}`,
       [Q, $] = mt[C][k],
       [G, H] = _n[C][k],
       w = e(),
@@ -728,7 +728,7 @@ function Fn(e, t, n, r) {
     const S = 2021,
       U = 1;
     for (; a > S || (a === S && f >= U); )
-      (h.unshift({ year: a, month: f }), --f === 0 && ((f = 12), --a));
+      {(h.unshift({ year: a, month: f }), --f === 0 && ((f = 12), --a));}
   }
   const c = { 2021: 0.55, 2022: 0.7, 2023: 0.85 },
     y = h.map(({ year: a, month: f }) => {
@@ -746,7 +746,7 @@ function Fn(e, t, n, r) {
     C = new Float64Array(p);
   {
     let a = 0;
-    for (let f = 0; f < p; ++f) ((a += y[f] / x), (C[f] = a));
+    for (let f = 0; f < p; ++f) {((a += y[f] / x), (C[f] = a));}
   }
   const A = h.map(({ year: a, month: f }) => new Date(a, f, 0).getDate()),
     k = new Float64Array(24);
@@ -760,7 +760,7 @@ function Fn(e, t, n, r) {
   const D = {},
     W = {},
     E = {};
-  for (const a of le) ((D[a] = []), (E[a] = []), (W[a] = []));
+  for (const a of le) {((D[a] = []), (E[a] = []), (W[a] = []));}
   const Q = n.store_id.length;
   for (let a = 0; a < Q; ++a) {
     const f = n.region[a],
@@ -820,7 +820,7 @@ function Fn(e, t, n, r) {
     if ($[tt] === 'Partner') {
       const st = E[S];
       De = st.length > 0 && e() < 0.7 ? N(e, st) : N(e, D[S]);
-    } else De = e() < 0.85 ? N(e, D[S]) : N(e, W[S]);
+    } else {De = e() < 0.85 ? N(e, D[S]) : N(e, W[S]);}
     const nt = J(e, U === 'Enterprise' ? V : U === 'Mid-Market' ? ue : ye),
       rt = T[nt];
     let fe;
@@ -846,7 +846,7 @@ function Fn(e, t, n, r) {
     kt = Ze.map(String),
     wt = h.map(({ year: a }) => Ze.indexOf(a)),
     et = o.uint8(r);
-  for (let a = 0; a < r; ++a) et[a] = wt[ke[a]];
+  for (let a = 0; a < r; ++a) {et[a] = wt[ke[a]];}
   return {
     order_id: { indices: pe, indexToValue: $e, nullCount: 0 },
     customer_id: { indices: Ve, indexToValue: t.customer_id, nullCount: 0 },
@@ -893,20 +893,20 @@ function In(e, t, n, r) {
     M = Math.round(o * (55e3 / 6e4)),
     m = new Uint8Array(o),
     d = $t(e, o);
-  for (let l = 0; l < i; ++l) m[d[l]] = 2;
-  for (let l = i; l < g; ++l) m[d[l]] = 3;
-  for (let l = g; l < M; ++l) m[d[l]] = 4;
-  for (let l = M; l < o; ++l) m[d[l]] = 5;
+  for (let l = 0; l < i; ++l) {m[d[l]] = 2;}
+  for (let l = i; l < g; ++l) {m[d[l]] = 3;}
+  for (let l = g; l < M; ++l) {m[d[l]] = 4;}
+  for (let l = M; l < o; ++l) {m[d[l]] = 5;}
   const b = new Int32Array(o);
-  for (let l = 1; l < o; ++l) b[l] = b[l - 1] + m[l - 1];
+  for (let l = 1; l < o; ++l) {b[l] = b[l - 1] + m[l - 1];}
   const F = r.product_id,
     _ = r.subcategory,
     h = r.uom,
     c = r.list_price,
     y = F.length,
     x = {};
-  for (const l of re) x[l] = [];
-  for (let l = 0; l < y; ++l) x[_[l]].push(l);
+  for (const l of re) {x[l] = [];}
+  for (let l = 0; l < y; ++l) {x[_[l]].push(l);}
   const p = u.float64(s),
     C = u.float64(s),
     A = u.float64(s),
@@ -925,7 +925,7 @@ function In(e, t, n, r) {
       O = z(e, re, dt),
       L = x[O];
     j[w] = L[I(e, 0, L.length)];
-    for (let v = 1; v < T; ++v) j[w + v] = e() < 0.7 ? L[I(e, 0, L.length)] : I(e, 0, y);
+    for (let v = 1; v < T; ++v) {j[w + v] = e() < 0.7 ? L[I(e, 0, L.length)] : I(e, 0, y);}
     w += T;
   }
   w = 0;
@@ -968,11 +968,11 @@ function In(e, t, n, r) {
   H = s;
   const Y = [0, 1, 2, 3, 4];
   for (let l = 0; l < o; ++l) {
-    if (q(t.status, l) !== 'Returned') continue;
+    if (q(t.status, l) !== 'Returned') {continue;}
     const T = m[l],
       O = b[l],
       L = e() < 0.85 ? 1 : 2;
-    for (let v = 0; v < T; ++v) Y[v] = v;
+    for (let v = 0; v < T; ++v) {Y[v] = v;}
     for (let v = T - 1; v > 0; --v) {
       const V = I(e, 0, v + 1),
         ue = Y[v];
@@ -1094,7 +1094,7 @@ function Un(e) {
   const t = [],
     n = new Map();
   let r = 0;
-  for (const i of e) i == null ? ++r : n.has(i) || (n.set(i, t.length), t.push(i));
+  for (const i of e) {i == null ? ++r : n.has(i) || (n.set(i, t.length), t.push(i));}
   const o = t.length,
     s = o <= 256 ? Uint8Array : o <= 65536 ? Uint16Array : Uint32Array,
     u = new s(e.length);
@@ -2199,7 +2199,7 @@ async function tr(e) {
   const [t, n, r] = await Promise.all([Ct(e), bt(e), St(e)]),
     o = (c) => {
       const y = c instanceof Date ? c : c != null && c !== '' ? new Date(c) : null;
-      if (!y || Number.isNaN(y.getTime())) return null;
+      if (!y || Number.isNaN(y.getTime())) {return null;}
       const x = String(y.getUTCFullYear()),
         p = String(y.getUTCMonth() + 1).padStart(2, '0');
       return `${x}-${p}`;
@@ -2217,24 +2217,24 @@ async function tr(e) {
       return C - C * p;
     },
     i = new Map();
-  for (const c of r) i.set(String(c.product_id), Number(c.unit_cost ?? 0));
+  for (const c of r) {i.set(String(c.product_id), Number(c.unit_cost ?? 0));}
   const g = (c) => {
       const y = Number(c.quantity ?? 0),
         x = i.get(String(c.product_id)) ?? 0;
       return y * x;
     },
     M = new Map();
-  for (const c of r) M.set(String(c.product_id), String(c.subcategory));
+  for (const c of r) {M.set(String(c.product_id), String(c.subcategory));}
   const m = new Map(),
     d = new Map();
   for (const c of n) {
-    if (c.returned !== !0) continue;
+    if (c.returned !== !0) {continue;}
     const y = s.get(String(c.order_id));
-    if (!y) continue;
+    if (!y) {continue;}
     const x = M.get(String(c.product_id));
-    if (!x) continue;
+    if (!x) {continue;}
     const p = String(c.return_reason ?? '');
-    if (!p) continue;
+    if (!p) {continue;}
     const C = u(c),
       A = g(c),
       k = `${y}|${x}|${p}`;
@@ -2251,11 +2251,11 @@ async function tr(e) {
   for (const c of _) {
     const y = c.substring(0, 4);
     for (const x of b)
-      for (const p of F) {
+      {for (const p of F) {
         const C = `${c}|${x}|${p}`,
           A = m.get(C) ?? 0,
           k = d.get(C) ?? 0;
-        if (A === 0 && k === 0) continue;
+        if (A === 0 && k === 0) {continue;}
         const D = A - k;
         h.push({
           year: y,
@@ -2266,7 +2266,7 @@ async function tr(e) {
           shipping: Math.round(D * 0.65),
           write_offs: Math.round(k * 0.35),
         });
-      }
+      }}
   }
   return { returnCosts: h };
 }
@@ -2376,15 +2376,15 @@ function nr(e) {
   const { orders: t, order_items: n, products: r } = e,
     o = t.order_id.indices.length,
     s = new Array(o);
-  for (let _ = 0; _ < o; ++_) s[_] = q(t.order_month, _);
+  for (let _ = 0; _ < o; ++_) {s[_] = q(t.order_month, _);}
   const u = new Map(),
     i = new Map();
   for (let _ = 0; _ < r.product_id.length; ++_)
-    (u.set(r.product_id[_], r.unit_cost[_]), i.set(r.product_id[_], r.subcategory[_]));
+    {(u.set(r.product_id[_], r.unit_cost[_]), i.set(r.product_id[_], r.subcategory[_]));}
   const g = new Map(),
     M = new Map();
   for (let _ = 0; _ < n.returned.length; ++_) {
-    if (!n.returned[_]) continue;
+    if (!n.returned[_]) {continue;}
     const h = n.quantity[_] * n.unit_price[_],
       c = h - h * n.discount_pct[_],
       y = q(n.product_id, _),
@@ -2393,7 +2393,7 @@ function nr(e) {
       C = n.order_id.indices[_],
       A = s[C],
       k = i.get(y);
-    if (!A || !k || !p) continue;
+    if (!A || !k || !p) {continue;}
     const D = `${A}|${k}|${p}`;
     (g.set(D, (g.get(D) ?? 0) + c), M.set(D, (M.get(D) ?? 0) + x));
   }
@@ -2408,11 +2408,11 @@ function nr(e) {
   for (const _ of F) {
     const h = _.substring(0, 4);
     for (const c of m)
-      for (const y of d) {
+      {for (const y of d) {
         const x = `${_}|${c}|${y}`,
           p = g.get(x) ?? 0,
           C = M.get(x) ?? 0;
-        if (p === 0 && C === 0) continue;
+        if (p === 0 && C === 0) {continue;}
         const A = p - C;
         b.push({
           year: h,
@@ -2423,12 +2423,12 @@ function nr(e) {
           shipping: Math.round(A * 0.65),
           write_offs: Math.round(C * 0.35),
         });
-      }
+      }}
   }
   return { return_costs: b };
 }
 function rr(e) {
-  return e != null && typeof e == 'object' && 'indices' in e && 'indexToValue' in e;
+  return e != null && typeof e === 'object' && 'indices' in e && 'indexToValue' in e;
 }
 function ie(e, t) {
   const n = [],
@@ -2437,21 +2437,21 @@ function ie(e, t) {
   for (const s of t) {
     const u = e[s] ?? [];
     if (rr(u))
-      (n.push(u.indices),
+      {(n.push(u.indices),
         r.push(null),
-        o.push({ indexToValue: u.indexToValue, nullCount: u.nullCount }));
+        o.push({ indexToValue: u.indexToValue, nullCount: u.nullCount }));}
     else {
       const i = u;
       if ((n.push(i), i instanceof Float64Array)) {
         let g = 0;
-        for (let M = 0, m = i.length; M < m; ++M) i[M] !== i[M] && ++g;
+        for (let M = 0, m = i.length; M < m; ++M) {i[M] !== i[M] && ++g;}
         if (g > 0) {
           const M = new Uint8Array(Math.ceil(i.length / 8));
           M.fill(255);
-          for (let m = 0, d = i.length; m < d; ++m) i[m] !== i[m] && (M[m >> 3] &= ~(1 << (m & 7)));
+          for (let m = 0, d = i.length; m < d; ++m) {i[m] !== i[m] && (M[m >> 3] &= ~(1 << (m & 7)));}
           (r.push(M), o.push({ nullCount: g }));
-        } else (r.push(null), o.push({ nullCount: 0 }));
-      } else (r.push(null), o.push(null));
+        } else {(r.push(null), o.push({ nullCount: 0 }));}
+      } else {(r.push(null), o.push(null));}
     }
   }
   return { data: n, nullMasks: r, statsHints: o };

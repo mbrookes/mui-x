@@ -13,7 +13,7 @@ import {
   ToggleButtonGroup,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectWidgets } from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, useStudioLocaleText } from '../context';
 import { CollapsibleSection } from '../internals/CollapsibleSection';
 import type { StudioWidgetConfig } from '../models';
 import { ColorInput } from './ColorInput';
@@ -125,6 +125,7 @@ export function TextFormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const config = useStudioSelector(selectWidgets)[widgetId]?.config;
+  const localeText = useStudioLocaleText();
 
   if (!config) {
     return null;
@@ -136,7 +137,7 @@ export function TextFormatPanel(props: { widgetId: string }) {
   return (
     <Stack spacing={1.5}>
       <TextSectionFormat
-        label="Title"
+        label={localeText.textSetupTitleLabel}
         fontFamily={config.textTitleFontFamily}
         fontSize={config.textTitleFontSize}
         color={config.textTitleColor}
@@ -147,7 +148,7 @@ export function TextFormatPanel(props: { widgetId: string }) {
         onAlignChange={(v) => update({ textTitleAlign: v })}
       />
       <TextSectionFormat
-        label="Subtitle"
+        label={localeText.textSetupSubtitleLabel}
         fontFamily={config.textSubtitleFontFamily}
         fontSize={config.textSubtitleFontSize}
         color={config.textSubtitleColor}
@@ -158,7 +159,7 @@ export function TextFormatPanel(props: { widgetId: string }) {
         onAlignChange={(v) => update({ textSubtitleAlign: v })}
       />
       <TextSectionFormat
-        label="Body"
+        label={localeText.textSetupBodyLabel}
         fontFamily={config.textBodyFontFamily}
         fontSize={config.textBodyFontSize}
         color={config.textBodyColor}

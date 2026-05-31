@@ -264,10 +264,62 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   );
 
   React.useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional: abort the current in-flight request at unmount time
     return () => {
       insightAbortRef.current?.abort();
     };
   }, []);
+
+  // ── Anomaly detection state ────────────────────────────────────────────────
+  const [anomalyEnabled, setAnomalyEnabled] = React.useState(false);
+  const [anomalyAnnotations, setAnomalyAnnotations] = React.useState<
+    import('../models/baseTypes').StudioChartAnnotation[]
+  >([]);
+  const anomalyExplainAbortRef = React.useRef<AbortController | null>(null);
+
+  // Toggle anomaly detection; clear annotations immediately when disabling
+  const handleAnomalyToggle = React.useCallback(() => {
+    setAnomalyEnabled((prev) => {
+      if (prev) {
+        setAnomalyAnnotations([]);
+      }
+      return !prev;
+    });
+  }, []);
+
+  React.useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional: abort the current in-flight request at unmount time
+    return () => {
+      anomalyExplainAbortRef.current?.abort();
+    };
+  }, []);
+
+  const handleAnomalyExplain = React.useCallback(() => {
+    if (!aiConfig?.endpoint || !anomalyAnnotations.length) {
+      return;
+    }
+    import('../StudioChatPanel/generateInsight').then(({ generateAnomalyExplanation }) => {
+      anomalyExplainAbortRef.current?.abort();
+      const abortCtrl = new AbortController();
+      anomalyExplainAbortRef.current = abortCtrl;
+      handleInsightRequest('anomaly' as StudioInsightOptions['type']);
+      generateAnomalyExplanation(widgetId, anomalyAnnotations, controller, aiConfig, {
+        signal: abortCtrl.signal,
+      })
+        .then((result) => {
+          setInsightResult(result);
+        })
+        .catch((err: unknown) => {
+          if (err instanceof Error && err.name === 'AbortError') {
+            return;
+          }
+          setInsightError(err instanceof Error ? err.message : 'Failed to explain anomalies.');
+        })
+        .finally(() => {
+          setInsightLoading(false);
+        });
+    });
+  }, [aiConfig, anomalyAnnotations, widgetId, controller, handleInsightRequest]);
 
   // Pages the user can move this widget to (all pages except the current one)
   const moveToPageOptions = React.useMemo(
@@ -557,6 +609,14 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           moveToPageOptions={moveToPageOptions}
           onAiRequest={onAiRequest ? () => onAiRequest(widgetId) : undefined}
           onInsightRequest={aiConfig?.endpoint ? handleInsightRequest : undefined}
+          anomalyEnabled={anomalyEnabled}
+          anomalyCount={anomalyAnnotations.length}
+          onAnomalyToggle={isChart ? handleAnomalyToggle : undefined}
+          onAnomalyExplain={
+            isChart && aiConfig?.endpoint && anomalyEnabled && anomalyAnnotations.length > 0
+              ? handleAnomalyExplain
+              : undefined
+          }
           onExport={handleExport}
           onExpand={() => setExpanded(true)}
           onEdit={handleEditClick}
@@ -684,6 +744,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                     widget={widget}
                     dataSource={source}
                     height={CHART_MIN_HEIGHT}
+                    anomalyEnabled={anomalyEnabled}
+                    onAnomalyDetected={setAnomalyAnnotations}
                     {...slotProps?.chart}
                   />
                 </Box>

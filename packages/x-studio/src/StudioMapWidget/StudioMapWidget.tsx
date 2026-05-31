@@ -200,9 +200,9 @@ export function StudioMapWidget({
 
   // Lazy-load geography — async resource loading requires useEffect; the null-reset
   // on prop change and the .then(setGeography) are both intentional and correct here.
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- intentional: clear stale geography when map type changes
   const [geography, setGeography] = React.useState<ExtendedFeatureCollection | null>(null);
   const loadedGeoRef = React.useRef<string | null>(null);
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- intentional: clear stale geography when map type changes
   React.useEffect(() => {
     if (loadedGeoRef.current === mapGeography) {
       return;

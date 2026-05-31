@@ -682,8 +682,7 @@ export const Studio = React.memo(
     const controller = React.useMemo(
       () => new StudioController(initialState),
       // react-doctor-disable-next-line react-doctor/exhaustive-deps -- controller is intentionally created once
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- controller is intentionally created once from initialState
-      [],
+      [], // eslint-disable-line react-hooks/exhaustive-deps -- controller is intentionally created once from initialState
     );
 
     // Wire onStateChange — re-subscribe whenever the callback identity changes.

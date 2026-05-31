@@ -26,6 +26,8 @@ import type {
   StudioFeatureFlags,
   StudioCustomWidgetDef,
   SerializedStudioState,
+  StudioFilterState,
+  StudioFilterOperator,
 } from '@mui/x-studio';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import {
@@ -163,6 +165,48 @@ function setUrlPageId(pageId: string, pages: Record<string, StudioPage> | undefi
   window.history.replaceState(window.history.state, '', url);
 }
 
+// ── Filter URL helpers ────────────────────────────────────────────────────────
+
+type EncodedFilterValues = Record<
+  string,
+  { operator: string; value: unknown; operator2?: string; value2?: unknown }
+>;
+
+function encodeFilterValues(filters: StudioFilterState[]): string | null {
+  const map: EncodedFilterValues = {};
+  for (const f of filters) {
+    if (f.scope === 'page' && f.value != null) {
+      const entry: EncodedFilterValues[string] = { operator: f.operator, value: f.value };
+      if (f.operator2 != null) {
+        entry.operator2 = f.operator2;
+      }
+      if (f.value2 != null) {
+        entry.value2 = f.value2;
+      }
+      map[f.id] = entry;
+    }
+  }
+  if (Object.keys(map).length === 0) {
+    return null;
+  }
+  return btoa(JSON.stringify(map));
+}
+
+function decodeFilterValues(encoded: string): EncodedFilterValues | null {
+  try {
+    return JSON.parse(atob(encoded)) as EncodedFilterValues;
+  } catch {
+    return null;
+  }
+}
+
+function getUrlFilterValuesParam(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  return new URL(window.location.href).searchParams.get('fv');
+}
+
 // ── LocalStorage persistence ──────────────────────────────────────────────────
 
 const LOCAL_STORAGE_KEY = 'x-studio-state';
@@ -233,10 +277,62 @@ export default function App() {
     // Restore from localStorage if available, merging with the live data sources.
     const saved = readLocalState(dataset);
     if (saved) {
-      return deserializeState(saved, baseDataSources);
+      const restored = deserializeState(saved, baseDataSources);
+      // Apply ?fv= filter value overrides on top of saved state
+      const fvParam = getUrlFilterValuesParam();
+      if (fvParam) {
+        const filterValues = decodeFilterValues(fvParam);
+        if (filterValues && restored.filters) {
+          return {
+            ...restored,
+            filters: restored.filters.map((f) => {
+              const patch = filterValues[f.id];
+              if (!patch) {
+                return f;
+              }
+              return {
+                ...f,
+                operator: patch.operator as StudioFilterOperator,
+                value: patch.value,
+                ...(patch.operator2 != null && {
+                  operator2: patch.operator2 as StudioFilterOperator,
+                }),
+                ...(patch.value2 != null && { value2: patch.value2 }),
+              };
+            }),
+          };
+        }
+      }
+      return restored;
     }
 
-    const baseState = { ...baseConfig, dataSources: baseDataSources };
+    let baseState: Partial<StudioState> = { ...baseConfig, dataSources: baseDataSources };
+
+    // Apply ?fv= filter value overrides from URL
+    const fvParam = getUrlFilterValuesParam();
+    if (fvParam) {
+      const filterValues = decodeFilterValues(fvParam);
+      if (filterValues && baseState.filters) {
+        baseState = {
+          ...baseState,
+          filters: baseState.filters.map((f) => {
+            const patch = filterValues[f.id];
+            if (!patch) {
+              return f;
+            }
+            return {
+              ...f,
+              operator: patch.operator as StudioFilterOperator,
+              value: patch.value,
+              ...(patch.operator2 != null && {
+                operator2: patch.operator2 as StudioFilterOperator,
+              }),
+              ...(patch.value2 != null && { value2: patch.value2 }),
+            };
+          }),
+        };
+      }
+    }
 
     if (!urlPageId) {
       return baseState;
@@ -320,6 +416,7 @@ export default function App() {
   const [title, setTitle] = React.useState('');
   const [pages, setPages] = React.useState<Record<string, StudioPage>>({});
   const [activePageId, setActivePageId] = React.useState('');
+  const [filters, setFilters] = React.useState<StudioFilterState[]>([]);
   const [canUndo, setCanUndo] = React.useState(false);
   const [canRedo, setCanRedo] = React.useState(false);
   const [snackbar, setSnackbar] = React.useState<{
@@ -434,13 +531,14 @@ export default function App() {
 
   const handleStateChange = React.useCallback((state: StudioState) => {
     // Use functional updates so React can skip if the value is unchanged,
-    // and so the 6 calls are batched into a single App re-render (React 18+).
+    // and so the calls are batched into a single App re-render (React 18+).
     setMode((prev) => (prev === state.mode ? prev : state.mode));
     setTitle((prev) => (prev === state.dashboard.title ? prev : state.dashboard.title));
     setPages((prev) => (prev === state.pages ? prev : state.pages));
     setActivePageId((prev) =>
       prev === state.dashboard.activePageId ? prev : state.dashboard.activePageId,
     );
+    setFilters((prev) => (prev === state.filters ? prev : state.filters));
     setCanUndo(studioRef.current?.canUndo() ?? false);
     setCanRedo(studioRef.current?.canRedo() ?? false);
 
@@ -457,6 +555,37 @@ export default function App() {
       }
     }, 1000);
   }, []);
+
+  // Sync page-filter values to the URL ?fv= query param (debounced 300 ms, view mode only)
+  const filterSyncTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  React.useEffect(() => {
+    if (filterSyncTimer.current) {
+      clearTimeout(filterSyncTimer.current);
+    }
+    filterSyncTimer.current = setTimeout(() => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+      const url = new URL(window.location.href);
+      if (mode !== 'view') {
+        url.searchParams.delete('fv');
+        window.history.replaceState(window.history.state, '', url);
+        return;
+      }
+      const encoded = encodeFilterValues(filters);
+      if (encoded) {
+        url.searchParams.set('fv', encoded);
+      } else {
+        url.searchParams.delete('fv');
+      }
+      window.history.replaceState(window.history.state, '', url);
+    }, 300);
+    return () => {
+      if (filterSyncTimer.current) {
+        clearTimeout(filterSyncTimer.current);
+      }
+    };
+  }, [filters, mode]);
 
   const handleModeChange = React.useCallback(
     (_event: React.ChangeEvent<HTMLInputElement>, checked: boolean) => {

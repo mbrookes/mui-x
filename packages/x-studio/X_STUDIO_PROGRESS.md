@@ -644,6 +644,96 @@
 - Removed `SidebarLayout` type, `sidebarLayout` state, `onSidebarLayoutChange` prop, and the Sidebar layout radio group from `ag-studio/src/components/SettingsDialog.tsx` and `App.tsx`
 - ag-studio uses AG Grid's own sidebar; x-studio's compose/data/filter drawer layout is not applicable
 
+### UX-22 · ag-studio example dashboard config cloned from AG Grid website (BL-117)
+
+- Scraped the live state from `https://www.ag-grid.com/studio/example/` and reproduced the exact 4-page layout in `examples/x-studio-shared/src/vendor/mainDemoState.js`
+- Pages: **Executive Overview**, **Sales Performance**, **Fulfilment**, **Returns** — each with the same widget positions (xTrack/yTrack/xSpan/ySpan on the 24-column grid), widget types, and field configs as the AG Grid reference
+- Source IDs match the mainDemoData.js generators: `orders`, `products`, `customers`, `order_items`, `shipments`, `stores`
+- Used by the `ag-studio` example and (when `?dataset=ag-studio`) by `x-studio` and `x-studio-composed`
+
+### AI-03 · Chat agent tools updated for all widget types + custom widgets (BL-118)
+
+- Updated `buildAISystemPrompt` and the chat adapter tools to describe all widget types: chart, kpi, text, grid, map, pivot, filter, and custom
+- Custom widget tool (`insert_custom_widget`) added; agent prompt lists registered custom widget kinds and their `defaultConfig` shapes
+- Tool descriptions reference the correct field names and config properties for new chart types (funnel, gantt/timeline, mixed, heatmap, gauge)
+
+### UX-23 · Composition page "Building blocks" table sorted (BL-119)
+
+- Reorganised the building blocks reference table in the composition docs: components in one group, hooks in another; each group sorted alphabetically
+
+### UX-24 · Click unconfigured widget → widget config panel (BL-120)
+
+- In `x-studio-composed`, clicking an unconfigured widget now opens the `StudioWidgetEditDialog` for that widget instead of the compose panel
+- `onUnconfiguredClick` callback in `StudioCanvas.slotProps.widgetCard` wired to `handleEditRequest` for widgets that have no `sourceId`
+
+### UX-25 · Pivot widget infers data source from row/column fields (BL-121)
+
+- `StudioPivotWidget` now infers `sourceId` from the configured `rowField` or `columnField` when `sourceId` is not explicitly set
+- Users can set up a pivot by choosing row and column fields; the data source is determined automatically
+
+### UX-26 · New widget examples for all new widget types (BL-122)
+
+- Added representative examples across all three example apps (x-studio, x-studio-composed, ag-studio) and in `salesDashboard.ts`
+- New widgets: **Mixed chart** (Revenue + Units), **Heatmap** (Revenue by Category × Month), **Funnel** (Sales funnel stages), **Gantt/Timeline** (order lifecycle), **Gauge** (on-time delivery rate)
+- Expression fields enriched in `salesDataGenerator.ts` to provide suitable data for map, pivot, heatmap, and funnel
+
+### UX-27 · Gauge as sparkline option on KPI widget (BL-123)
+
+- Added `gauge` to the KPI sparkline type enum (`StudioKpiSparklineType`)
+- `KpiSparkline` renders an inline `<Gauge>` (from `@mui/x-charts`) when `sparklineType === 'gauge'`
+- Config panel: sparkline type selector now includes "Gauge"; shows min/max fields when Gauge is active
+
+### UX-28 · AG Studio dataset option in x-studio and x-studio-composed (BL-124)
+
+- Added `?dataset=ag-studio` URL parameter support to `x-studio` and `x-studio-composed`
+- When set, initialises the Studio with the AG Grid reference dataset and the exact same dashboard layout as the `ag-studio` example
+- Settings dialog in both apps exposes the dataset selector; choosing "AG Studio data" reloads the page with the parameter
+
+### UX-29 · x-studio-composed config panel fully scrollable (BL-126)
+
+- Fixed the `SettingsDialog` in `x-studio-composed` to properly scroll; the `DialogContent` was clipping content below the viewport fold
+- All settings sections (feature flags, layout, reset) now reachable by scrolling
+
+### UX-30 · Feature flag switches replaced with checkboxes (BL-127)
+
+- `FeatureFlagSettings` (x-studio-shared) now uses `Checkbox` components instead of `Switch` for all flags
+- Indented children retain their checked/unchecked state while disabled by their parent; enabling the parent re-exposes children at their last state
+
+### UX-31 · Remove copy-link and refresh-data from x-studio-composed (BL-128)
+
+- Removed the "Copy link" and "Refresh data" toolbar buttons from `x-studio-composed/src/components/AppToolbar.tsx`
+- These actions are x-studio–example-specific; the composed example focuses on pure composition
+
+### UX-32 · "Edit widget" moved to x-studio-composed only (BL-129)
+
+- Extracted `StudioWidgetEditDialog` into `examples/x-studio-composed/src/components/`
+- The dialog composes `StudioComposeDrawer` inside a `Dialog`; it no longer exists in the `x-studio` package
+- Each widget card's edit button in x-studio-composed opens the dialog; the bare config drawer in `x-studio` is unchanged
+
+### UX-33 · Date range bar feature flag (BL-130)
+
+- Added `dateRangeBar?: boolean` to `StudioFeatureFlags` (default `true`)
+- `StudioCanvas` gates `<StudioDateRangeBar />` on the flag
+- When `dateRangeBar` is `false` and a dashboard date-range filter is active, `StudioQuickFilterBar` surfaces those filters as chips so they remain visible and removable
+- `FeatureFlagSettings` exposes the flag in the top-level list
+
+### AI-04 · Per-widget AI assistant in x-studio-composed (BL-131)
+
+- Added `onAiRequest?: (widgetId: string) => void` to `StudioWidgetCard`; triggers from a sparkle (AutoAwesome) button in the edit-mode overlay
+- `StudioChatPanel` accepts `focusedWidgetId?: string`; the value is threaded through `createStudioChatAdapter` → `buildAISystemPrompt` where a "per-widget focus" section directs the AI toward the selected widget
+- New `WidgetAiDialog` component in `x-studio-composed`: a 440 px wide dialog containing the chat panel, with `key={widgetId}` for clean per-widget conversation isolation; auto-closes if the focused widget is deleted
+
+### UX-34 · KPI trend styled as a pill chip (BL-133)
+
+- `KpiTrend` wraps the trend icon + percentage in an inline chip: semi-transparent background at 8% alpha of the trend colour, plus a 1 px solid border in the same colour
+- "vs. period" comparison text remains outside the chip for visual hierarchy
+- `getColor(theme)` helper resolves MUI palette token strings (e.g., `'success.main'`) to hex values for use with `alpha()`
+
+### UX-35 · Tighter edit/delete buttons in data panel (BL-144)
+
+- Reduced `IconButton` padding to `2px` for edit/delete buttons in `DataSourceSection` field rows and `RelationshipPanel` relationship rows
+- Added `gap: '2px'` between the two buttons; buttons are visually tighter without overlapping hit targets
+
 ---
 
 ## 📋 Planned

@@ -159,6 +159,30 @@ still appears on the sparkline even when `kpiTrend` is disabled.
 Set `featureFlags.kpiTarget` to `false` to hide this feature in the UI.
 :::
 
+## Trend badge styling
+
+The trend badge is displayed as a pill chip: a semi-transparent background in the trend colour (8% alpha) and a 1 px solid border. Green indicates a positive trend, red indicates a negative trend (or vice-versa when `invertTrend` is set).
+
+## Gauge sparkline
+
+Set `sparkline.type` to `'gauge'` to render the KPI sparkline as a radial gauge instead of a line/area chart:
+
+```ts
+const kpiConfig: StudioKpiConfig = {
+  dataSourceId: 'revenue',
+  valueField: 'amount',
+  aggregation: 'sum',
+  sparkline: {
+    enabled: true,
+    type: 'gauge',
+    min: 0,
+    max: 1000000,
+  },
+};
+```
+
+The gauge renders using `@mui/x-charts` `<Gauge>` with the current aggregated value mapped between `min` and `max`.
+
 ## Rendering with `StudioKpiWidget`
 
 ```tsx

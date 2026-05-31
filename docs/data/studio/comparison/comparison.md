@@ -210,6 +210,7 @@ Both products use a bring-your-own LLM pattern — you supply an adapter connect
 | Dashboard-from-prompt                | ✅                       | ✅                          |
 | Natural language widget creation     | ✅                       | ✅                          |
 | AI tool calls                        | ✅ (8 tools)             | ✅                          |
+| Per-widget AI assistant              | ✅ (widget-focused chat) | ❌                          |
 | Multi-agent orchestration            | ❌                       | ✅ (5 specialised agents)   |
 | Structured planning before execution | ❌                       | ✅                          |
 | Data querying (ask questions)        | ❌                       | ✅                          |
@@ -254,10 +255,10 @@ AG Studio exposes `getState()`/`setState()` and similarly leaves file I/O to the
 | Custom widget API                             | ❌                                            | ✅                                 |
 | Localisation / i18n                           | ✅ (`StudioLocaleText`; ptBR locale included) | ✅ (`localeText`; 31 locales)      |
 | RTL support                                   | ❌                                            | ✅ (`enableRtl`)                   |
-| Runtime feature flags                         | ✅ (`StudioFeatureFlags` — 25 flags)          | ❌                                 |
+| Runtime feature flags                         | ✅ (`StudioFeatureFlags` — 26 flags)          | ❌                                 |
 
 `StudioFeatureFlags` lets you gate entire feature areas at runtime — for example `{ filters: false }` hides the Filters panel entirely, `{ aiChat: false }` removes the AI button, `{ pivot: false }` removes the Pivot widget type, and so on.
-Individual flags: `compose`, `filters`, `savedFilterViews`, `dataManagement`, `aiChat`, `grid`, `chart`, `kpi`, `text`, `filter`, `pivot`, `map`, `relationships`, `widgetFilters`, `kpiSparkline`, `kpiTrend`, `kpiTarget`, `chartAnnotations`, `gridGroupBy`, `gridSummary`, `gridConditionalFormats`, `calculatedFields`, `kpiCalculatedFields`, `chartCalculatedFields`, `gridCalculatedFields`.
+Individual flags: `compose`, `filters`, `savedFilterViews`, `dataManagement`, `aiChat`, `dateRangeBar`, `grid`, `chart`, `kpi`, `text`, `filter`, `pivot`, `map`, `relationships`, `widgetFilters`, `kpiSparkline`, `kpiTrend`, `kpiTarget`, `chartAnnotations`, `gridGroupBy`, `gridSummary`, `gridConditionalFormats`, `calculatedFields`, `kpiCalculatedFields`, `chartCalculatedFields`, `gridCalculatedFields`.
 
 ### Composition API
 

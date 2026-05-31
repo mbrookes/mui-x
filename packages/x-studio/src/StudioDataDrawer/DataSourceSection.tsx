@@ -285,10 +285,11 @@ function ExpressionFieldRow({
       >
         {primaryContent}
         {isEditMode && (
-          <Stack direction="row" spacing={0}>
+          <Stack direction="row" sx={{ gap: '2px' }}>
             <Tooltip title="Edit">
               <IconButton
                 size="small"
+                sx={{ p: '2px' }}
                 onClick={(event) => {
                   event.stopPropagation();
                   onEdit();
@@ -300,6 +301,7 @@ function ExpressionFieldRow({
             <Tooltip title="Delete">
               <IconButton
                 size="small"
+                sx={{ p: '2px' }}
                 onClick={(event) => {
                   event.stopPropagation();
                   onDelete();

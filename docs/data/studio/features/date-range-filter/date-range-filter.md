@@ -72,6 +72,17 @@ See [Localization](/x/react-studio/customization/localization/) for the full tok
 
 ## Feature flags
 
+`featureFlags.dateRangeBar` (default: `true`) controls whether the date range bar is rendered by `StudioCanvas`. Set it to `false` to hide the bar:
+
+```tsx
+<Studio
+  featureFlags={{ dateRangeBar: false }}
+  // ...
+/>
+```
+
+When `dateRangeBar` is `false` and an active dashboard date-range filter exists, the quick-filter bar surfaces those filters as removable chips so they remain visible and can be cleared.
+
 `featureFlags.filters` hides the filters drawer and the quick-filter bar.
 `StudioDateRangeBar` is rendered by `StudioCanvas`, so composed apps that want to hide every filter control should omit that bar explicitly.
 

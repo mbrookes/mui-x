@@ -131,6 +131,11 @@ export interface StudioRelationship {
    * (e.g. `order_id` on `order_items`).
    */
   junctionTargetField?: string;
+  /**
+   * When `true`, this relationship is defined by the data layer (not the user) and
+   * should be displayed read-only — the Edit and Delete controls are hidden.
+   */
+  predefined?: boolean;
 }
 
 /**

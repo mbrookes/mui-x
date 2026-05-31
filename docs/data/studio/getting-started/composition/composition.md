@@ -40,10 +40,10 @@ Choose the composed approach when you need to:
 
 ### Hooks
 
-| Hook                  | Role                                                                    |
-| :-------------------- | :---------------------------------------------------------------------- |
-| `useStudioController` | Returns the controller inside a provider.                               |
-| `useStudioSelector`   | Subscribes to a state slice; re-renders only when that slice changes.   |
+| Hook                  | Role                                                                  |
+| :-------------------- | :-------------------------------------------------------------------- |
+| `useStudioController` | Returns the controller inside a provider.                             |
+| `useStudioSelector`   | Subscribes to a state slice; re-renders only when that slice changes. |
 
 ## Minimal example
 

@@ -28,7 +28,7 @@ import worldAtlas from 'world-atlas/countries-110m.json';
 
 const world = feature(worldAtlas, worldAtlas.objects.countries);
 
-<ChoroplethChart geography={world} series={[{ data }]} />
+<ChoroplethChart geography={world} series={[{ data }]} />;
 ```
 
 ### Series data

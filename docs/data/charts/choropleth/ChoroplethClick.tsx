@@ -19,7 +19,9 @@ const series = [
 ];
 
 export default function ChoroplethClick() {
-  const [clickData, setClickData] = React.useState<ChoroplethItemIdentifier | null>(null);
+  const [clickData, setClickData] = React.useState<ChoroplethItemIdentifier | null>(
+    null,
+  );
 
   return (
     <Box sx={{ width: '100%' }}>
@@ -27,7 +29,16 @@ export default function ChoroplethClick() {
         geography={demoGeography}
         series={series}
         height={300}
-        zAxis={[{ colorMap: { type: 'continuous', min: 0, max: 100, color: ['#ffffb2', '#b10026'] } }]}
+        zAxis={[
+          {
+            colorMap: {
+              type: 'continuous',
+              min: 0,
+              max: 100,
+              color: ['#ffffb2', '#b10026'],
+            },
+          },
+        ]}
         onItemClick={(_event, identifier) => {
           if (identifier.type === 'choropleth') {
             setClickData(identifier);
@@ -36,7 +47,8 @@ export default function ChoroplethClick() {
       />
       {clickData && (
         <Typography variant="body2" sx={{ mt: 1, textAlign: 'center' }}>
-          Clicked: <strong>{clickData.featureId}</strong> (series: {clickData.seriesId})
+          Clicked: <strong>{clickData.featureId}</strong> (series:{' '}
+          {clickData.seriesId})
         </Typography>
       )}
     </Box>

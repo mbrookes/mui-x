@@ -397,7 +397,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       // moment. Selection is set on click (see Paper onClick) or after a drop.
       event.dataTransfer?.setData(
         'application/json',
-        JSON.stringify({ type: 'canvas-widget', widgetId }),
+        JSON.stringify({ type: 'canvas-widget', widgetId, sourcePageId: activePageId }),
       );
       if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = 'all';

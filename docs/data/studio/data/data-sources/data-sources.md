@@ -62,26 +62,28 @@ const initialState: Partial<StudioState> = {
 
 ## `StudioDataSource`
 
-| Property | Type                        | Required | Description                                                                                              |
-| :------- | :-------------------------- | :------- | :------------------------------------------------------------------------------------------------------- |
-| `id`     | `string`                    | ✓        | Unique identifier for the source. Must be stable — used as a key in serialized state.                    |
-| `label`  | `string`                    | ✓        | Display name shown in the data drawer and widget selects.                                                |
-| `fields` | `StudioDataField[]`         | ✓        | Field definitions — see below.                                                                           |
-| `rows`   | `Record<string, unknown>[]` |          | Inline data rows. Required when no adapter is attached.                                                  |
-| `hidden` | `boolean`                   |          | When `true`, hides the source from the data drawer and widget config selects. Use for join-only sources. |
+| Property        | Type                        | Required | Description                                                                                                                      |
+| :-------------- | :-------------------------- | :------- | :------------------------------------------------------------------------------------------------------------------------------- |
+| `id`            | `string`                    | ✓        | Unique identifier for the source. Must be stable — used as a key in serialized state.                                            |
+| `label`         | `string`                    | ✓        | Display name shown in the data drawer and widget selects.                                                                        |
+| `fields`        | `StudioDataField[]`         | ✓        | Field definitions — see below.                                                                                                   |
+| `rows`          | `Record<string, unknown>[]` |          | Inline data rows. Required when no adapter is attached.                                                                          |
+| `hidden`        | `boolean`                   |          | When `true`, hides the source from the data drawer and widget config selects. Use for join-only sources.                         |
+| `aiDescription` | `string`                    |          | AI-facing description of this source's content. Included in the system prompt to help the AI understand when to use this source. |
 
 ## `StudioDataField`
 
 Each field describes one column of the data source:
 
-| Property       | Type                 | Required | Description                                                                                                     |
-| :------------- | :------------------- | :------- | :-------------------------------------------------------------------------------------------------------------- |
-| `id`           | `string`             | ✓        | Must match the row object key.                                                                                  |
-| `label`        | `string`             | ✓        | Display name in the UI.                                                                                         |
-| `type`         | `FieldType`          | ✓        | One of `'string'`, `'number'`, `'date'`, `'datetime'`, `'boolean'`.                                             |
-| `aggregatable` | `boolean`            |          | When `true`, Studio can sum, average, count, etc. this field on charts and KPIs. Usually set on numeric fields. |
-| `format`       | `StudioNumberFormat` |          | Display format for numbers: `'number'`, `'currency'`, `'percent'`, `'compact'`.                                 |
-| `currencyCode` | `string`             |          | ISO 4217 currency code used when `format` is `'currency'` (e.g. `'USD'`).                                       |
+| Property        | Type                 | Required | Description                                                                                                                                  |
+| :-------------- | :------------------- | :------- | :------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`            | `string`             | ✓        | Must match the row object key.                                                                                                               |
+| `label`         | `string`             | ✓        | Display name in the UI.                                                                                                                      |
+| `type`          | `FieldType`          | ✓        | One of `'string'`, `'number'`, `'date'`, `'datetime'`, `'boolean'`.                                                                          |
+| `aggregatable`  | `boolean`            |          | When `true`, Studio can sum, average, count, etc. this field on charts and KPIs. Usually set on numeric fields.                              |
+| `format`        | `StudioNumberFormat` |          | Display format for numbers: `'number'`, `'currency'`, `'percent'`, `'compact'`.                                                              |
+| `currencyCode`  | `string`             |          | ISO 4217 currency code used when `format` is `'currency'` (e.g. `'USD'`).                                                                    |
+| `aiDescription` | `string`             |          | AI-facing description of this field's meaning. Included in the system prompt to guide the AI in field selection for axes, KPIs, and filters. |
 
 ## Field types
 

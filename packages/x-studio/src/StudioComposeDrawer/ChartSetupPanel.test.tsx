@@ -138,8 +138,7 @@ describe('ChartSetupPanel', () => {
   it('disables unsupported cross-source X field options', async () => {
     const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
 
-    const comboboxes = screen.getAllByRole('combobox');
-    const splitByInput = comboboxes[2] as HTMLInputElement;
+    const splitByInput = screen.getByLabelText('Split by (series field)');
 
     await user.click(splitByInput);
 
@@ -183,8 +182,7 @@ describe('ChartSetupPanel', () => {
 
     const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
 
-    const comboboxes = screen.getAllByRole('combobox');
-    const splitByInput = comboboxes[2] as HTMLInputElement;
+    const splitByInput = screen.getByLabelText('Split by (series field)');
 
     await user.click(splitByInput);
 

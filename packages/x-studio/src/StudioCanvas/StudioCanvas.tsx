@@ -949,27 +949,57 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
               })}
               {/* Column grid lines overlay — shown during a resize drag on this row.
                 Lines are offset to align with the widget area, accounting for the
-                8px insertion point at the left and the 8px gap(s) within and after. */}
+                8px leading InsertionPoint and the 8px WidgetGap after each widget.
+                For a multi-widget row, columns that fall inside widget j must also
+                skip j WidgetGaps to the left of that widget, so the horizontal
+                offset is (j+1)*8px rather than a constant 8px. */}
               {liveDrag &&
                 row.includes(liveDrag.leftId) &&
-                Array.from({ length: GRID_COLS - 1 }).map((_, i) => (
-                  <Box
-                    key={i}
-                    sx={{
-                      position: 'absolute',
-                      top: 0,
-                      bottom: 0,
-                      // Widget area starts at 8px (left IP) and ends at rowWidth − 8px (trailing gap).
-                      // Internal gaps add (row.length − 1) × 8px; total fixed = (row.length + 1) × 8px.
-                      left: `calc(8px + ${(i + 1) / GRID_COLS} * (100% - ${(row.length + 1) * 8}px))`,
-                      width: '1px',
-                      bgcolor: 'divider',
-                      opacity: 0.6,
-                      pointerEvents: 'none',
-                      zIndex: 15,
-                    }}
-                  />
-                ))}
+                (() => {
+                  // Build cumulative span array: cumSpans[j] = total span before widget j.
+                  const flexGrowDefault = Math.round(GRID_COLS / row.length);
+                  let acc = 0;
+                  const cumSpans = row.map((wId) => {
+                    const start = acc;
+                    if (wId === liveDrag.leftId) {
+                      acc += liveDrag.leftSpanLive;
+                    } else if (wId === liveDrag.rightId) {
+                      acc += liveDrag.totalSpan - liveDrag.leftSpanLive;
+                    } else {
+                      acc += widgetColSpans?.[wId] ?? flexGrowDefault;
+                    }
+                    return start;
+                  });
+                  return Array.from({ length: GRID_COLS - 1 }).map((_, i) => {
+                    const col = i + 1;
+                    // Find the widget index j that this column boundary falls within.
+                    // j = the last widget whose cumulative start span ≤ col.
+                    let j = 0;
+                    for (let k = 1; k < cumSpans.length; k++) {
+                      if (cumSpans[k] <= col) {
+                        j = k;
+                      }
+                    }
+                    return (
+                      <Box
+                        key={i}
+                        sx={{
+                          position: 'absolute',
+                          top: 0,
+                          bottom: 0,
+                          // Correct offset: (j+1) fixed-width items (1 IP + j gaps) before widget j,
+                          // plus the proportional column fraction across the total flex area.
+                          left: `calc(${(j + 1) * 8}px + ${col / GRID_COLS} * (100% - ${(row.length + 1) * 8}px))`,
+                          width: '1px',
+                          bgcolor: 'divider',
+                          opacity: 0.6,
+                          pointerEvents: 'none',
+                          zIndex: 15,
+                        }}
+                      />
+                    );
+                  });
+                })()}
             </Box>
             {/* Insertion point below this row */}
             {mode === 'edit' && (

@@ -205,14 +205,28 @@ function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
       if (node) {
         event.dataTransfer?.setDragImage(node, 0, 0);
       }
+      document.body.classList.add('x-studio-dragging-widget');
     }
     function handleDragEnd() {
       setIsDragging(false);
+      document.body.classList.remove('x-studio-dragging-widget');
+    }
+    function handleMouseDown() {
+      document.body.classList.add('x-studio-dragging-widget');
+      const removeOnUp = () => {
+        if (!document.body.dataset.studioDraggingWidgetId) {
+          document.body.classList.remove('x-studio-dragging-widget');
+        }
+        document.removeEventListener('mouseup', removeOnUp, { capture: true });
+      };
+      document.addEventListener('mouseup', removeOnUp, { capture: true });
     }
     node.setAttribute('draggable', 'true');
+    node.addEventListener('mousedown', handleMouseDown, { capture: true });
     node.addEventListener('dragstart', handleDragStart);
     node.addEventListener('dragend', handleDragEnd);
     return () => {
+      node.removeEventListener('mousedown', handleMouseDown, { capture: true });
       node.removeEventListener('dragstart', handleDragStart);
       node.removeEventListener('dragend', handleDragEnd);
     };

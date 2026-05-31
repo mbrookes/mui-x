@@ -2,6 +2,7 @@ import type { StudioController } from '../store/StudioController';
 import type { StudioWidget, StudioWidgetKind } from '../models';
 import { createDefaultWidget } from '../internals/widgetUtils';
 import type { StudioAIConfig } from './studioAdapter';
+import { STUDIO_AI_TOOLS } from './studioAITools';
 
 /**
  * Focused system prompt for single-turn widget creation.
@@ -24,7 +25,8 @@ function buildWidgetCreationPrompt(controller: StudioController): string {
     `You are a dashboard widget builder. The user will describe a widget they want, ` +
     `and you MUST call add_widget exactly once to create it.\n\n` +
     `Available data sources:\n${sourceLines || '  (none yet)'}\n\n` +
-    `Widget kinds: chart (bar, line, area, pie, donut, scatter, bar-stacked, area-stacked), ` +
+    `Widget kinds: chart (bar, line, area, pie, donut, scatter, bar-stacked, bar-100, area-stacked, area-100, ` +
+    `heatmap, funnel, gantt, gauge, mixed), ` +
     `kpi (single aggregated metric), grid (data table), filter (interactive filter control), ` +
     `pivot (cross-tabulation), map (choropleth world map by country), text (static text).\n\n` +
     `Pick sensible field selections from the available sources. ` +
@@ -66,36 +68,7 @@ export async function createWidgetFromDescription(
           { role: 'system', content: systemPrompt },
           { role: 'user', content: description },
         ],
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'add_widget',
-              description: 'Adds a widget to the dashboard.',
-              parameters: {
-                type: 'object',
-                properties: {
-                  kind: {
-                    type: 'string',
-                    enum: ['chart', 'grid', 'kpi', 'text', 'filter', 'pivot', 'map'],
-                    description: 'Widget type.',
-                  },
-                  title: { type: 'string', description: 'Widget title.' },
-                  sourceId: { type: 'string', description: 'Data source ID.' },
-                  config: {
-                    type: 'object',
-                    description:
-                      'Widget config: chart: chartType, xField, yField; kpi: kpiValueField, kpiAggregation; ' +
-                      'grid: columns (field ID array); filter: filterWidgetType, filterWidgetField; ' +
-                      'pivot: pivotRowField, pivotColField, pivotValueField, pivotAggregation; ' +
-                      'map: mapCountryField, mapValueField, mapAggregation.',
-                  },
-                },
-                required: ['kind', 'title'],
-              },
-            },
-          },
-        ],
+        tools: [STUDIO_AI_TOOLS.find((t) => t.function.name === 'add_widget')!],
         tool_choice: { type: 'function', function: { name: 'add_widget' } },
       }),
     });

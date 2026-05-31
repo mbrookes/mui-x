@@ -5,11 +5,17 @@ import CloseIcon from '@mui/icons-material/Close';
 import { StudioChatPanel, useStudioSelector } from '@mui/x-studio';
 import type { StudioAIConfig } from '@mui/x-studio';
 
-function selectWidgetTitle(state: { widgets: Record<string, { title?: string }> }, widgetId: string): string {
+function selectWidgetTitle(
+  state: { widgets: Record<string, { title?: string }> },
+  widgetId: string,
+): string {
   return state.widgets[widgetId]?.title || 'Widget';
 }
 
-function selectWidgetExists(state: { widgets: Record<string, unknown> }, widgetId: string): boolean {
+function selectWidgetExists(
+  state: { widgets: Record<string, unknown> },
+  widgetId: string,
+): boolean {
   return Boolean(state.widgets[widgetId]);
 }
 
@@ -23,8 +29,12 @@ export interface WidgetAiDialogProps {
 const DIALOG_WIDTH = 440;
 
 export function WidgetAiDialog({ open, widgetId, aiConfig, onClose }: WidgetAiDialogProps) {
-  const widgetTitle = useStudioSelector((state) => (widgetId ? selectWidgetTitle(state, widgetId) : ''));
-  const widgetExists = useStudioSelector((state) => (widgetId ? selectWidgetExists(state, widgetId) : false));
+  const widgetTitle = useStudioSelector((state) =>
+    widgetId ? selectWidgetTitle(state, widgetId) : '',
+  );
+  const widgetExists = useStudioSelector((state) =>
+    widgetId ? selectWidgetExists(state, widgetId) : false,
+  );
 
   // Auto-close if the focused widget is deleted while the dialog is open
   React.useEffect(() => {
@@ -83,12 +93,10 @@ export function WidgetAiDialog({ open, widgetId, aiConfig, onClose }: WidgetAiDi
       </Box>
 
       {/* Chat */}
-      <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
-        <StudioChatPanel
-          key={widgetId}
-          aiConfig={aiConfig}
-          focusedWidgetId={widgetId}
-        />
+      <DialogContent
+        sx={{ p: 0, display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}
+      >
+        <StudioChatPanel key={widgetId} aiConfig={aiConfig} focusedWidgetId={widgetId} />
       </DialogContent>
     </Dialog>
   );

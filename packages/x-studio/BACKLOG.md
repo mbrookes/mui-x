@@ -435,6 +435,6 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 
 ~~BL-148: When a widget field is selected, make it read only with a close icon that reverts to an unselected select.~~ **Fixed** (selected field shows as read-only TextField with type icon and ✕ close button; clear button reverts to empty Autocomplete)
 
-BL-149: Add a feature for all widgets fields allowing to sort the data by one dimension, and either up, or down.
+~~BL-149: Add a feature for all widgets fields allowing to sort the data by one dimension, and either up, or down.~~ **Fixed** (added `chartSortBy: 'category' | 'value'` and `chartSortDirection: 'asc' | 'desc'` to widget config; all chart aggregation functions updated to apply sorting; ChartSetupPanel shows Sort By + Asc/Desc controls when x-field is set)
 
 BL-XXX: For all changes in this session, update the docs pages found in ./docs on all relevant pages, including the specific feature's page, and x/react-studio/comparison/, but anywhere else appropraite, and creating a new page as needed for larger features.

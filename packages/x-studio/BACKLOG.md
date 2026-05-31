@@ -799,9 +799,13 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 
 **Fixed** (switched from fixed 440px width to `maxWidth="sm" fullWidth`; height is now `80vh` capped at 720px, fully scrollable)
 
-BL-167: In the x-studio example, the ag-studio data loads (visible in the data panel), and the widget layout looks largely the same as the ag-studio example, but all the widgets are zero/no data instead of rendering the ag-studio data.
+✅ BL-167: In the x-studio example, the ag-studio data loads (visible in the data panel), and the widget layout looks largely the same as the ag-studio example, but all the widgets are zero/no data instead of rendering the ag-studio data.
 
-BL-168: Fix BL-167 first, then in the x-studio-composed example, when the ag-studio data is selected, it still loads the sales data and dashboard layout instead.
+**Fixed** (`filterUtils.ts` date comparisons used `String(rv)` which compared numeric timestamps as strings — `"1735689600000" >= "2024-12-01"` is false because `"1" < "2"`. Changed to `toComparable(rv, fieldType)` which normalises timestamps to ISO strings before comparing. Affects `greater_than`, `less_than`, `greater_than_or_equal`, `less_than_or_equal`, and `between` operators.)
+
+✅ BL-168: Fix BL-167 first, then in the x-studio-composed example, when the ag-studio data is selected, it still loads the sales data and dashboard layout instead.
+
+**Fixed** (`x-studio-composed/App.tsx` never called `loadOfficeSuppliesData()`. Added async loading with `CircularProgress` spinner; controller is created with correct `osData` once it arrives.)
 
 ✅ BL-169: Composable components should support the sx prop.
 

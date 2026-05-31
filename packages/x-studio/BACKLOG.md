@@ -431,7 +431,7 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 
 ~~BL-146: The ghost widget when dragging needs much more transparency so that you can see the insertion points and tabs under it.~~ **Fixed** (ghost opacity reduced from 0.4 to 0.2)
 
-BL-147: When dragging tabs, don't capture the ckick ripple in the ghost. Make the real tab invisible. Constrain the dragging to horizontal only. When the tab is dragged over its peer, swap that tab into the dragged tabs postion with an animation. Remove the drop indicator, it will no longer be needed with this approach (which copies Chrome browser tabs).
+~~BL-147: When dragging tabs, don't capture the ckick ripple in the ghost. Make the real tab invisible. Constrain the dragging to horizontal only. When the tab is dragged over its peer, swap that tab into the dragged tabs postion with an animation. Remove the drop indicator, it will no longer be needed with this approach (which copies Chrome browser tabs).~~ **Fixed** (switched from HTML5 DnD to pointer events: ghost rendered via portal at `position: fixed`, dragged tab opacity 0, sibling tabs animated via `translateX`, 5px drag threshold preserves click, nearest-midpoint algorithm for target index)
 
 BL-148: When a widget field is selected, make it read only with a close icon that reverts to an unselected select.
 

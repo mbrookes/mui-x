@@ -304,12 +304,13 @@ export function createStudioChatAdapter(
   controller: StudioController,
   onRemoveWidgetRequest?: (widgetId: string, widgetTitle: string) => Promise<boolean>,
   customWidgets?: StudioCustomWidgetDef[],
+  focusedWidgetId?: string,
 ): ChatAdapter {
   const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders } = config;
 
   return {
     async sendMessage(input: ChatSendMessageInput): Promise<ReadableStream<ChatMessageChunk>> {
-      const systemPrompt = buildAISystemPrompt(controller.getState(), customWidgets);
+      const systemPrompt = buildAISystemPrompt(controller.getState(), customWidgets, focusedWidgetId);
       const openAIMessages = toOpenAIMessages(systemPrompt, input.messages);
 
       const msgId = `msg-${Date.now()}`;

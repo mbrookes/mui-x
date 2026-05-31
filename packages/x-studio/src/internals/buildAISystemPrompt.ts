@@ -90,6 +90,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
 export function buildAISystemPrompt(
   state: StudioState,
   customWidgets?: StudioCustomWidgetDef[],
+  focusedWidgetId?: string,
 ): string {
   const { dashboard, pages, widgets, dataSources, mode } = state;
 
@@ -216,6 +217,21 @@ export function buildAISystemPrompt(
   lines.push(
     '- To rearrange widgets (e.g. "put the KPI widgets on the same row"), use set_widget_layout with a full rows array. Every widget on the page must appear in the new layout.',
   );
+
+  if (focusedWidgetId) {
+    const focused = state.widgets[focusedWidgetId];
+    if (focused) {
+      lines.push('');
+      lines.push('## Per-widget focus');
+      lines.push(
+        `The user is asking about widget "${focused.title}" (id: ${focusedWidgetId}, kind: ${focused.kind}).`,
+      );
+      lines.push('Focus your assistance on this specific widget.');
+      lines.push(
+        'Prefer update_widget over other tools. Only create/delete widgets if explicitly requested.',
+      );
+    }
+  }
 
   return lines.join('\n');
 }

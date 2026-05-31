@@ -40,6 +40,7 @@ import { DataDialog } from './components/DataDialog';
 import { FiltersDialog } from './components/FiltersDialog';
 import { AddWidgetFab } from './components/AddWidgetFab';
 import { ChatSidePanel } from './components/ChatSidePanel';
+import { WidgetAiDialog } from './components/WidgetAiDialog';
 import { EmptyPagePrompt } from './components/EmptyPagePrompt';
 import { SettingsDialog } from './components/SettingsDialog';
 import { uploadJson, downloadJson } from 'x-studio-shared';
@@ -388,9 +389,15 @@ function DashboardLayout({
   const [chatOpen, setChatOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [editWidgetId, setEditWidgetId] = React.useState<string | null>(null);
+  const [aiWidgetId, setAiWidgetId] = React.useState<string | null>(null);
 
   const handleEditRequest = React.useCallback((widgetId: string) => {
     setEditWidgetId(widgetId);
+    controller.setSelectedWidget(widgetId);
+  }, [controller]);
+
+  const handleAiRequest = React.useCallback((widgetId: string) => {
+    setAiWidgetId(widgetId);
     controller.setSelectedWidget(widgetId);
   }, [controller]);
 
@@ -604,6 +611,14 @@ function DashboardLayout({
           widgetId={editWidgetId}
         />
       )}
+      {aiConfig && aiWidgetId && (
+        <WidgetAiDialog
+          open={Boolean(aiWidgetId)}
+          widgetId={aiWidgetId}
+          aiConfig={aiConfig}
+          onClose={() => setAiWidgetId(null)}
+        />
+      )}
 
       <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         {/* Canvas takes full width — side panel slides in alongside it */}
@@ -644,6 +659,7 @@ function DashboardLayout({
                       widgetCard: {
                         onUnconfiguredClick: handleUnconfiguredWidgetClick,
                         onEditRequest: handleEditRequest,
+                        onAiRequest: aiConfig ? handleAiRequest : undefined,
                       },
                     }}
                   />

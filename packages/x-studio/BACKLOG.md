@@ -399,12 +399,28 @@ Done: `d07f8fdbba` — Added Dataset radio group (Sales vs AG Studio Office Supp
 
 BL-125: Once BL-117 is fixed, add a config option to the x-studio and x-studio-composed examples to the use the ag-studio data, as per the ag-studio example. Their dashboard layout should match that of https://www.ag-grid.com/studio/example/ (which BL-117 is supposed to have fixed for the ag-studio example).
 
-BL-126: The x-studio-composed example's config panel either isn't scrollable, or is missing all the controls that x-studio eample app has.
+~~BL-126: The x-studio-composed example's config panel either isn't scrollable, or is missing all the controls that x-studio eample app has.~~
+Done: `53f9f2a4b4` — Added `overflowY: 'auto'` to `DialogContent` in x-studio-composed `SettingsDialog`.
 
-BL-127: Change the feature flag settings in the x-studio and x-studio-composed examples from switches to checkboxes. Note that checkboxes disabled by thier parent should retain their setting so that enabling the parent keeps disable sub-features disabled, and vice-versa.
+~~BL-127: Change the feature flag settings in the x-studio and x-studio-composed examples from switches to checkboxes. Note that checkboxes disabled by thier parent should retain their setting so that enabling the parent keeps disable sub-features disabled, and vice-versa.~~
+Done: `658d1c00f9` — Changed `Switch` → `Checkbox` in `FeatureFlagSettings` (x-studio-shared). Disabled checkboxes retain their state.
 
-BL-128: Remove the copy link and refresh data features from the x-studio-composed example.
+~~BL-128: Remove the copy link and refresh data features from the x-studio-composed example.~~
+Done: `ac73276e13` — Removed `onCopyLink`, `onRefresh`, `LinkIcon`, `RefreshIcon` from x-studio-composed `AppToolbar` and `App.tsx`.
 
-BL-129: make the "Edit widget" button and panel a feature of the x-studio-composed example only, migrating the code from the x-studio package (composing the widget being edited, and the config panel in a dialog), and removing the composed dialog from x-studio pagage if held there. Wire the edit button on each widget and at the top of the page to that, rather than the bare config panel.
+~~BL-129: Make the "Edit widget" button and panel a feature of the x-studio-composed example only, migrating the code from the x-studio package (composing the widget being edited, and the config panel in a dialog), and removing the composed dialog from x-studio pagage if held there. Wire the edit button on each widget and at the top of the page to that, rather than the bare config panel.~~
+Done: `648bb39b5c` — Added `onEditRequest?: (widgetId: string) => void` to `StudioWidgetCard`. `StudioWidgetEditDialog` now self-renders widget preview (children optional). Exported from `@mui/x-studio`. x-studio-composed wires `onEditRequest` via `StudioCanvas slotProps.widgetCard`.
+
+~~BL-130: Add a feature flag for the simple filter bar, and remove it from the x-studio example app, leaving in in x-studio-composed.~~ **Fixed** (added `dateRangeBar?: boolean` flag defaulting to true; StudioCanvas gates `<StudioDateRangeBar />` on flag; StudioQuickFilterBar surfaces stranded date-range chips when bar is hidden; FeatureFlagSettings UI updated; commit `4c1a70bf8c`)
+
+BL-131: Add an AI assistant button to the widget toolbar in the the x-studio-composed example app that opens a dialog where the user can ask for changes to the widget. Handle user feedback the wa x-data-grid-premium does for its AI feature.
+
+BL-132: The ag-studio example's dashboard config should be identical to to that at https://www.ag-grid.com/studio/example/ when using the ag-studio data. Not just the tab names, but the entire dashboard layout, widgets, and widget configs. I've asked for this twoice before at least, and you keep getting it wrong. We already have the data, don't scrape that again. Fix the dashboard, and then make the x-studio and x-studio-composed examples look the same for this data set.
+
+Not like this: ![our local ag-studio example with the AG Studio data](image.png)
+
+Like this: ![partial screenshot from the AG Studio example](image-1.png)
+
+~~BL-133: Put the sparkline trend icon and percentage in a chip with a semi-trasparent background the color of the icon, and a solid same-colored border.~~ **Fixed** (KpiTrend now wraps icon + percentage in an inline chip with 8%-alpha background and 1px solid border in the trend color; "vs. period" text remains outside the chip)
 
 BL-XXX: For all changes in this session, update the docs pages found in ./docs on all relevant pages, including the specific feature's page, and x/react-studio/comparison/, but anywhere else appropraite, and creating a new page as needed for larger features.

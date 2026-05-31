@@ -95,6 +95,13 @@ Defaults are the English strings shown in the right column.
 | `dateRangePresetLast3Months`  | `'Last 3 months'`  |
 | `dateRangePresetLast12Months` | `'Last 12 months'` |
 
+### Quick filter date range bar
+
+| Token                      | Default        |
+| :------------------------- | :------------- |
+| `dateRangeBarFieldLabel`   | `'Date range'` |
+| `filterFieldLabel`         | `'Field'`      |
+
 ### Filters panel
 
 | Token                             | Default                                                    |

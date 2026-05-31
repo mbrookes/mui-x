@@ -26,8 +26,6 @@ export interface WidgetAiDialogProps {
   onClose: () => void;
 }
 
-const DIALOG_WIDTH = 440;
-
 export function WidgetAiDialog({ open, widgetId, aiConfig, onClose }: WidgetAiDialogProps) {
   const widgetTitle = useStudioSelector((state) =>
     widgetId ? selectWidgetTitle(state, widgetId) : '',
@@ -51,13 +49,12 @@ export function WidgetAiDialog({ open, widgetId, aiConfig, onClose }: WidgetAiDi
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth={false}
+      maxWidth="sm"
+      fullWidth
       PaperProps={{
         sx: {
-          width: DIALOG_WIDTH,
-          maxWidth: DIALOG_WIDTH,
-          height: 560,
-          maxHeight: '80vh',
+          height: '80vh',
+          maxHeight: 720,
           display: 'flex',
           flexDirection: 'column',
         },

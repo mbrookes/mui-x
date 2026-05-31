@@ -455,7 +455,7 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 
 BL-158: Saved views aren't being persisted. When the page reloads they're lost. Saved views should be part of the fv query string. Add the fv query string to the x-studio example app. In both example apps only add fv to the URL in view mode.
 
-BL-159: x-studio-composed should still show the filters icon in view mode.
+~~BL-159: x-studio-composed should still show the filters icon in view mode.~~ **Fixed** (moved FilterList IconButton out of the `mode === 'edit'` guard in AppToolbar.tsx; now renders unconditionally when `onFiltersOpen` is provided)
 
 BL-160: Saved views need an edit button to be able to rename them.
 
@@ -469,6 +469,6 @@ BL-164: Something seems to have gone wrong with the relationship display in the 
 
 BL-165: In x-studio-composed, after adding a new widget with the FAB, it should open the composed preview/edit widget, not the edit only one. The preview should include the entire widget (including title etc.), and not just the chart. For example you can't see edits to a text widget.
 
-BL-166: In the x-studio-composed demo, the per-widget AI assistant dialog is way too narrow. The dialog grows with added content, and can't be scrolled.
+~~BL-166: In the x-studio-composed demo, the per-widget AI assistant dialog is way too narrow. The dialog grows with added content, and can't be scrolled.~~ **Fixed** (switched from fixed 440px width to `maxWidth="sm" fullWidth`; height is now `80vh` capped at 720px, fully scrollable)
 
 ~~BL-XXX: For all changes in this session, update the docs pages found in ./docs on all relevant pages, including the specific feature's page, and x/react-studio/comparison/, and anywhere else appropriate, and creating a new page as needed for larger features.~~ **Fixed** (updated comparison.md, localization.md, map.md, kpi.md for BL-109/152/154/155 changes)

@@ -592,7 +592,9 @@ export function resolveChartRowsForAggregation(
 
       const junctionRows = dataSources[anchorSourceId]?.rows ?? [];
       result = junctionRows.flatMap((jRow) => {
-        if (!allowedWidgetKeys.has(jRow[junctionWidgetField])) return [];
+        if (!allowedWidgetKeys.has(jRow[junctionWidgetField])) {
+          return [];
+        }
         const widgetRow = widgetRowLookup.get(jRow[junctionWidgetField]) ?? {};
         const remoteRow = remoteRowLookup.get(jRow[junctionTargetField]) ?? {};
         return [{ ...widgetRow, ...remoteRow, ...jRow }];

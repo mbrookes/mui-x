@@ -6,9 +6,7 @@ import {
   Box,
   Button,
   Divider,
-  FormControl,
   IconButton,
-  InputLabel,
   ListItemIcon,
   ListSubheader,
   Menu,
@@ -461,14 +459,20 @@ export function GridSetupPanel(props: { widgetId: string }) {
               : summaryFields[col.fieldId];
             const isGroupByField = col.fieldId === groupByField && !col.sourceId;
             const isDraggingOver = dragOverIndex === index && dragIndex !== index;
+            let aggregationTooltipTitle = 'Set summary / remove';
+            if (currentAgg) {
+              aggregationTooltipTitle = `${groupByField ? 'Aggregate' : 'Summary'}: ${AGG_LABELS[currentAgg]}`;
+            } else if (groupByField) {
+              aggregationTooltipTitle = 'Set aggregation';
+            }
 
             return (
               <Box
                 key={colKey}
                 draggable
                 onDragStart={() => setDragIndex(index)}
-                onDragOver={(e) => {
-                  e.preventDefault();
+                onDragOver={(event) => {
+                  event.preventDefault();
                   setDragOverIndex(index);
                 }}
                 onDrop={() => handleColumnDrop(index)}
@@ -511,15 +515,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     (group)
                   </Typography>
                 )}
-                <Tooltip
-                  title={
-                    currentAgg
-                      ? `${groupByField ? 'Aggregate' : 'Summary'}: ${AGG_LABELS[currentAgg]}`
-                      : groupByField
-                        ? 'Set aggregation'
-                        : 'Set summary / remove'
-                  }
-                >
+                <Tooltip title={aggregationTooltipTitle}>
                   <IconButton
                     size="small"
                     aria-label={`Options for ${fieldInfo?.label ?? col.fieldId}`}
@@ -728,8 +724,8 @@ export function GridSetupPanel(props: { widgetId: string }) {
                 size="small"
                 value={gridHeight}
                 slotProps={{ htmlInput: { min: 200, step: 50 } }}
-                onChange={(e) => {
-                  const parsed = parseInt(e.target.value, 10);
+                onChange={(event) => {
+                  const parsed = parseInt(event.target.value, 10);
                   if (!Number.isNaN(parsed) && parsed >= 200) {
                     controller.updateWidgetConfig(widgetId, { gridHeight: parsed });
                   }
@@ -764,9 +760,9 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     <Select
                       size="small"
                       value={rule.fieldId}
-                      onChange={(e) => {
+                      onChange={(event) => {
                         const next = [...conditionalFormats];
-                        next[i] = { ...rule, fieldId: e.target.value };
+                        next[i] = { ...rule, fieldId: event.target.value };
                         controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
                       }}
                       sx={{ fontSize: 12, flex: '1 1 80px', minWidth: 60 }}
@@ -780,11 +776,11 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     <Select
                       size="small"
                       value={rule.operator}
-                      onChange={(e) => {
+                      onChange={(event) => {
                         const next = [...conditionalFormats];
                         next[i] = {
                           ...rule,
-                          operator: e.target.value as StudioConditionalFormat['operator'],
+                          operator: event.target.value as StudioConditionalFormat['operator'],
                         };
                         controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
                       }}
@@ -803,10 +799,12 @@ export function GridSetupPanel(props: { widgetId: string }) {
                           rule.value !== undefined && rule.value !== null ? String(rule.value) : ''
                         }
                         placeholder={fieldEntry?.type === 'number' ? '0' : 'value'}
-                        onChange={(e) => {
+                        onChange={(event) => {
                           const next = [...conditionalFormats];
                           const v =
-                            fieldEntry?.type === 'number' ? Number(e.target.value) : e.target.value;
+                            fieldEntry?.type === 'number'
+                              ? Number(event.target.value)
+                              : event.target.value;
                           next[i] = { ...rule, value: v };
                           controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
                         }}
@@ -816,8 +814,10 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     <Select
                       size="small"
                       value={preset?.label ?? '__custom__'}
-                      onChange={(e) => {
-                        const selected = CF_STYLE_PRESETS.find((p) => p.label === e.target.value);
+                      onChange={(event) => {
+                        const selected = CF_STYLE_PRESETS.find(
+                          (p) => p.label === event.target.value,
+                        );
                         if (selected) {
                           const next = [...conditionalFormats];
                           next[i] = { ...rule, style: selected.style };

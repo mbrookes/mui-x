@@ -44,13 +44,17 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
 
   // All string fields from every visible source — country pickers show the full universe
   // so the widget can be configured even before a sourceId is established.
-  // Includes string expression fields (e.g. a joined country field).
+  // Includes string expression fields (event.g. a joined country field).
   const allStringFields = React.useMemo<DataSourceFieldEntry[]>(() => {
     const all: DataSourceFieldEntry[] = [];
     Object.values(dataSources).forEach((ds) => {
-      if (ds.hidden) return;
+      if (ds.hidden) {
+        return;
+      }
       ds.fields.forEach((f) => {
-        if (f.hidden || f.type !== 'string') return;
+        if (f.hidden || f.type !== 'string') {
+          return;
+        }
         all.push({
           id: f.id,
           label: f.label,
@@ -60,11 +64,15 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         });
       });
     });
-    // Include string expression fields (e.g. expr-order-country via join)
+    // Include string expression fields (event.g. expr-order-country via join)
     expressionFields.forEach((ef) => {
-      if (ef.hidden || ef.type !== 'string') return;
+      if (ef.hidden || ef.type !== 'string') {
+        return;
+      }
       const ds = dataSources[ef.sourceId];
-      if (ds?.hidden) return;
+      if (ds?.hidden) {
+        return;
+      }
       all.push({
         id: ef.id,
         label: ef.label,
@@ -85,9 +93,13 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
     const all: DataSourceFieldEntry[] = [];
 
     Object.values(dataSources).forEach((ds) => {
-      if (ds.hidden) return;
+      if (ds.hidden) {
+        return;
+      }
       ds.fields.forEach((f) => {
-        if (f.hidden || f.type !== 'number') return;
+        if (f.hidden || f.type !== 'number') {
+          return;
+        }
         all.push({
           id: f.id,
           label: f.label,
@@ -98,9 +110,13 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       });
     });
     expressionFields.forEach((ef) => {
-      if (ef.hidden) return;
+      if (ef.hidden) {
+        return;
+      }
       const ds = dataSources[ef.sourceId];
-      if (ds?.hidden) return;
+      if (ds?.hidden) {
+        return;
+      }
       all.push({
         id: ef.id,
         label: ef.label,
@@ -143,7 +159,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
     }
   }
 
-  if (!widget) return null;
+  if (!widget) {
+    return null;
+  }
 
   const geoDef = allGeographies[mapGeography];
   const fieldLabel = geoDef?.fieldLabel ?? 'Region field';
@@ -158,7 +176,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         <Select
           label="Map type"
           value={mapGeography}
-          onChange={(e) => update({ mapGeography: e.target.value as typeof mapGeography })}
+          onChange={(event) => update({ mapGeography: event.target.value as typeof mapGeography })}
         >
           {Object.entries(allGeographies).map(([key, def]) => (
             <MenuItem key={key} value={key}>
@@ -207,7 +225,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         <Select
           label="Aggregation"
           value={config.mapValueField ? aggFn : 'count'}
-          onChange={(e) => update({ mapAggregation: e.target.value as typeof aggFn })}
+          onChange={(event) => update({ mapAggregation: event.target.value as typeof aggFn })}
         >
           <MenuItem value="sum">Sum</MenuItem>
           <MenuItem value="count">Count</MenuItem>
@@ -222,7 +240,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         <Select
           label="Colour scheme"
           value={colorScheme}
-          onChange={(e) => update({ mapColorScheme: e.target.value as typeof colorScheme })}
+          onChange={(event) => update({ mapColorScheme: event.target.value as typeof colorScheme })}
         >
           <MenuItem value="blues">Blues</MenuItem>
           <MenuItem value="reds">Reds</MenuItem>
@@ -237,7 +255,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         <Select
           label="Legend position"
           value={legendPosition}
-          onChange={(e) => update({ mapLegendPosition: e.target.value as typeof legendPosition })}
+          onChange={(event) =>
+            update({ mapLegendPosition: event.target.value as typeof legendPosition })
+          }
         >
           <MenuItem value="bottom">Bottom</MenuItem>
           <MenuItem value="top">Top</MenuItem>

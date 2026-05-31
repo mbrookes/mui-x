@@ -405,9 +405,13 @@ const NAME_TO_ALPHA2: Record<string, string> = {
  * Returns the alpha-2 code (upper-case) or `null` if unknown.
  */
 export function normalizeToAlpha2(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
+  if (typeof value !== 'string') {
+    return null;
+  }
   const trimmed = value.trim();
-  if (!trimmed) return null;
+  if (!trimmed) {
+    return null;
+  }
 
   const upper = trimmed.toUpperCase();
   const lower = trimmed.toLowerCase();
@@ -416,7 +420,9 @@ export function normalizeToAlpha2(value: unknown): string | null {
   // "Burma" → "MM", etc. Must run before the 2-letter shortcut so that aliases
   // like "UK" (not a valid ISO alpha-2) are resolved correctly.
   const fromName = NAME_TO_ALPHA2[lower];
-  if (fromName) return fromName;
+  if (fromName) {
+    return fromName;
+  }
 
   // Looks like a valid ISO alpha-2 code?
   if (upper.length === 2 && /^[A-Z]{2}$/.test(upper)) {
@@ -426,7 +432,9 @@ export function normalizeToAlpha2(value: unknown): string | null {
   // Alpha-3?
   if (upper.length === 3 && /^[A-Z]{3}$/.test(upper)) {
     const a2 = ALPHA3_TO_ALPHA2[upper];
-    if (a2) return a2;
+    if (a2) {
+      return a2;
+    }
   }
 
   return null;
@@ -770,7 +778,9 @@ const STATE_NAME_TO_ABBR: Record<string, string> = {
  * Returns the abbreviation (upper-case) or `null` if unknown.
  */
 export function normalizeToStateAbbr(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
+  if (value === null || value === undefined) {
+    return null;
+  }
 
   // Numeric FIPS
   if (typeof value === 'number') {
@@ -778,9 +788,13 @@ export function normalizeToStateAbbr(value: unknown): string | null {
     return FIPS_TO_STATE_ABBR[padded] ?? null;
   }
 
-  if (typeof value !== 'string') return null;
+  if (typeof value !== 'string') {
+    return null;
+  }
   const trimmed = value.trim();
-  if (!trimmed) return null;
+  if (!trimmed) {
+    return null;
+  }
 
   const upper = trimmed.toUpperCase();
   const lower = trimmed.toLowerCase();
@@ -788,7 +802,9 @@ export function normalizeToStateAbbr(value: unknown): string | null {
   // 2-letter abbreviation
   if (upper.length === 2 && /^[A-Z]{2}$/.test(upper)) {
     // Validate it's a known state
-    if (Object.values(FIPS_TO_STATE_ABBR).includes(upper)) return upper;
+    if (Object.values(FIPS_TO_STATE_ABBR).includes(upper)) {
+      return upper;
+    }
   }
 
   // Numeric FIPS as string (e.g. "06" or "6")
@@ -863,7 +879,9 @@ export const EUROPEAN_ALPHA2_CODES = new Set<string>([
 let regionDisplayNames: Intl.DisplayNames | null = null;
 
 function getRegionDisplayNames(): Intl.DisplayNames | null {
-  if (regionDisplayNames) return regionDisplayNames;
+  if (regionDisplayNames) {
+    return regionDisplayNames;
+  }
   try {
     regionDisplayNames = new Intl.DisplayNames(['en'], { type: 'region' });
     return regionDisplayNames;
@@ -886,17 +904,60 @@ export function alpha2ToName(code: string): string {
 
 /** Full US state name map (2-letter abbreviation → display name). */
 export const STATE_ABBR_TO_NAME: Record<string, string> = {
-  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California',
-  CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', DC: 'District of Columbia',
-  FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois',
-  IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana',
-  ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota',
-  MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada',
-  NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
-  NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon',
-  PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota',
-  TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia',
-  WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
-  AS: 'American Samoa', GU: 'Guam', MP: 'Northern Mariana Islands',
-  PR: 'Puerto Rico', VI: 'U.S. Virgin Islands',
+  AL: 'Alabama',
+  AK: 'Alaska',
+  AZ: 'Arizona',
+  AR: 'Arkansas',
+  CA: 'California',
+  CO: 'Colorado',
+  CT: 'Connecticut',
+  DE: 'Delaware',
+  DC: 'District of Columbia',
+  FL: 'Florida',
+  GA: 'Georgia',
+  HI: 'Hawaii',
+  ID: 'Idaho',
+  IL: 'Illinois',
+  IN: 'Indiana',
+  IA: 'Iowa',
+  KS: 'Kansas',
+  KY: 'Kentucky',
+  LA: 'Louisiana',
+  ME: 'Maine',
+  MD: 'Maryland',
+  MA: 'Massachusetts',
+  MI: 'Michigan',
+  MN: 'Minnesota',
+  MS: 'Mississippi',
+  MO: 'Missouri',
+  MT: 'Montana',
+  NE: 'Nebraska',
+  NV: 'Nevada',
+  NH: 'New Hampshire',
+  NJ: 'New Jersey',
+  NM: 'New Mexico',
+  NY: 'New York',
+  NC: 'North Carolina',
+  ND: 'North Dakota',
+  OH: 'Ohio',
+  OK: 'Oklahoma',
+  OR: 'Oregon',
+  PA: 'Pennsylvania',
+  RI: 'Rhode Island',
+  SC: 'South Carolina',
+  SD: 'South Dakota',
+  TN: 'Tennessee',
+  TX: 'Texas',
+  UT: 'Utah',
+  VT: 'Vermont',
+  VA: 'Virginia',
+  WA: 'Washington',
+  WV: 'West Virginia',
+  WI: 'Wisconsin',
+  WY: 'Wyoming',
+  AS: 'American Samoa',
+  GU: 'Guam',
+  MP: 'Northern Mariana Islands',
+  PR: 'Puerto Rico',
+  VI: 'U.S. Virgin Islands',
 };

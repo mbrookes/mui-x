@@ -45,14 +45,15 @@ export const STUDIO_AI_TOOLS = [
     function: {
       name: 'add_widget',
       description:
-        'Adds a new widget to the active dashboard page. Pick sensible defaults from the available data source fields.',
+        'Adds a new widget to the active dashboard page. Pick sensible defaults from the available data source fields. For custom widget kinds, use the kind identifier shown in the dashboard state.',
       parameters: {
         type: 'object',
         properties: {
           kind: {
             type: 'string',
-            enum: ['chart', 'grid', 'kpi', 'text', 'filter', 'pivot', 'map'],
-            description: 'Widget type.',
+            description:
+              'Widget type. Built-in kinds: chart, grid, kpi, text, filter, pivot, map. ' +
+              'App-registered custom kinds are listed in the system prompt under "Custom widget kinds" — use the exact kind string shown there.',
           },
           title: { type: 'string', description: 'Widget title.' },
           sourceId: {
@@ -63,12 +64,18 @@ export const STUDIO_AI_TOOLS = [
             type: 'object',
             description:
               'Widget configuration. Keys depend on the widget kind: ' +
-              'chart: chartType (bar|line|area|pie|donut|scatter|bar-stacked|area-stacked), xField, yField, seriesField, yAggregation (sum|count|avg|min|max); ' +
-              'kpi: kpiValueField, kpiAggregation (sum|avg|count|min|max), kpiSparkline; ' +
+              'chart: chartType (bar|line|area|pie|donut|scatter|bar-stacked|bar-100|area-stacked|area-100|heatmap|funnel|gantt|gauge|mixed), xField, yField, yAggregation (sum|count|avg|min|max), seriesField; ' +
+              'heatmap: xField (columns), heatYField (rows), yField (intensity), yAggregation; ' +
+              'funnel: xField (stages), yField (value), yAggregation; ' +
+              'gantt: ganttLabelField, ganttStartField (date), ganttEndField (date), ganttColorField (optional); ' +
+              'gauge: yField, yAggregation, gaugeMin (default 0), gaugeMax; ' +
+              'mixed: ySeries (array of {fieldId, label, type: bar|line, yAggregation}), dualYAxis (boolean); ' +
+              'kpi: kpiValueField, kpiAggregation (sum|avg|count|min|max), kpiSparkline (boolean), kpiSparklinePlotType (line|bar|gauge), kpiSparklineGaugeMin, kpiSparklineGaugeMax; ' +
               'grid: columns (array of field IDs); ' +
               'filter: filterWidgetType (date-range|multi-select|toggle|slider), filterWidgetField; ' +
               'pivot: pivotRowField, pivotColField, pivotValueField, pivotAggregation (sum|count|avg|min|max); ' +
-              'map: mapCountryField, mapValueField, mapAggregation (sum|count|avg|min|max), mapColorScheme (blues|reds|greens|oranges|purples).',
+              'map: mapCountryField, mapValueField, mapAggregation (sum|count|avg|min|max), mapColorScheme (blues|reds|greens|oranges|purples). ' +
+              'For custom widget kinds registered by the app, pass any config keys the custom widget expects.',
           },
         },
         required: ['kind', 'title'],

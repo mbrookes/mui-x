@@ -153,7 +153,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               anchorEl={moveMenuAnchor}
               open={Boolean(moveMenuAnchor)}
               onClose={() => setMoveMenuAnchor(null)}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
             >
               {moveToPageOptions.map((page) => (
                 <MenuItem

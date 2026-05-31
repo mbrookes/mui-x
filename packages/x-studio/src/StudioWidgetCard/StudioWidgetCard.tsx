@@ -85,6 +85,7 @@ export interface StudioWidgetCardProps {
    * Called when a widget that has no data source configured is clicked.
    * Use this in composed layouts to open a configuration panel automatically,
    * guiding users to complete the widget setup.
+   * @param {string} widgetId The ID of the widget that needs configuration.
    */
   onUnconfiguredClick?: (widgetId: string) => void;
 }
@@ -240,9 +241,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       setShowContent(true);
     });
     return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- runs once on mount intentionally
-  }, []);
+  }, [showContent, widgetId]);
 
   React.useEffect(() => {
     if (mode !== 'edit') {
@@ -345,11 +344,16 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         // Compute filtered rows lazily at export time — no need for a reactive subscription
         const state = controller.getState();
         const pipeline = createStudioPipeline(state);
-        const activePageId = state.dashboard.activePageId;
+        const currentActivePageId = state.dashboard.activePageId;
         const sourceRows = source?.rows ?? [];
         const rows =
           sourceRows.length > 0
-            ? pipeline.resolveWidgetRows(widget.id, widget.sourceId, sourceRows, activePageId)
+            ? pipeline.resolveWidgetRows(
+                widget.id,
+                widget.sourceId,
+                sourceRows,
+                currentActivePageId,
+              )
             : [];
         exportGridToCsv(widget, source, rows);
       } else if (widget.kind === 'chart') {
@@ -357,7 +361,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       }
     },
     // react-doctor-disable-next-line react-doctor/exhaustive-deps -- deps are correct
-    [widget, source, controller],
+    [widget, source, controller, theme.palette.background.default],
   );
 
   if (!widget) {
@@ -375,6 +379,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
   // inside the card for top-row widgets (where there's no room above to overhang).
   const overlayTopSx = isFirstRow ? { top: 6 } : { top: 0, transform: 'translateY(-50%)' };
+  let minHeight: number | undefined;
+  if (widget.kind === 'kpi') {
+    minHeight = KPI_WIDGET_MIN_HEIGHT;
+  } else if (widget.kind === 'filter') {
+    minHeight = FILTER_WIDGET_MIN_HEIGHT;
+  }
 
   return (
     <Box sx={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -424,12 +434,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           boxSizing: 'border-box',
           height: '100%',
           position: 'relative',
-          minHeight:
-            widget.kind === 'kpi'
-              ? KPI_WIDGET_MIN_HEIGHT
-              : widget.kind === 'filter'
-                ? FILTER_WIDGET_MIN_HEIGHT
-                : undefined,
+          minHeight,
           outline: isSelected ? '2px solid' : undefined,
           outlineColor: isSelected ? 'primary.main' : undefined,
           outlineOffset: -1,

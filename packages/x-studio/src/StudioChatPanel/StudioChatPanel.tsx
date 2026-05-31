@@ -14,8 +14,10 @@ import {
   selectPages,
   selectDashboard,
 } from '../context';
+import { useStudioUIConfig } from '../internals/StudioUIConfigContext';
 import type { StudioAIConfig } from './studioAdapter';
 import { createStudioChatAdapter } from './studioAdapter';
+import type { StudioCustomWidgetDef } from '../models';
 
 // ── Suggestion generator ──────────────────────────────────────────────────────
 
@@ -37,10 +39,16 @@ function generateSuggestions(
       let catField: (typeof source.fields)[0] | undefined;
       for (const f of source.fields) {
         if (!f.hidden) {
-          if (!numericField && f.type === 'number') numericField = f;
-          if (!catField && (f.type === 'string' || f.type === 'date')) catField = f;
+          if (!numericField && f.type === 'number') {
+            numericField = f;
+          }
+          if (!catField && (f.type === 'string' || f.type === 'date')) {
+            catField = f;
+          }
         }
-        if (numericField && catField) break;
+        if (numericField && catField) {
+          break;
+        }
       }
 
       if (numericField && catField) {
@@ -146,6 +154,12 @@ export interface StudioChatPanelProps {
    */
   aiConfig?: StudioAIConfig | null;
   /**
+   * Custom widget definitions to include in the AI context.
+   * If omitted, automatically reads from the Studio context (i.e., the `customWidgets` prop
+   * passed to `<Studio>`). Only set this explicitly when using `StudioChatPanel` standalone.
+   */
+  customWidgets?: StudioCustomWidgetDef[];
+  /**
    * Whether the panel is visible. Use this for overlay / slide-in mode.
    * When omitted, the panel is always rendered (persistent mode).
    */
@@ -162,13 +176,24 @@ export interface StudioChatPanelProps {
 }
 
 export function StudioChatPanel(props: StudioChatPanelProps) {
-  const { aiConfig, open = true, onClose, overlay = false, slotProps } = props;
+  const {
+    aiConfig,
+    customWidgets: customWidgetsProp,
+    open = true,
+    onClose,
+    overlay = false,
+    slotProps,
+  } = props;
 
   const controller = useStudioController();
   const dataSources = useStudioSelector(selectDataSources);
   const widgets = useStudioSelector(selectWidgets);
   const pages = useStudioSelector(selectPages);
   const dashboard = useStudioSelector(selectDashboard);
+  const { customWidgets: contextCustomWidgets } = useStudioUIConfig();
+
+  // Prefer explicit prop; fall back to Studio context
+  const customWidgets = customWidgetsProp ?? contextCustomWidgets;
 
   const activePage = pages[dashboard.activePageId];
   const activeWidgetIds = React.useMemo(() => (activePage?.widgetRows ?? []).flat(), [activePage]);
@@ -189,8 +214,8 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     if (!aiConfig?.endpoint) {
       return null;
     }
-    return createStudioChatAdapter(aiConfig, controller, onRemoveWidgetRequest);
-  }, [aiConfig, controller, onRemoveWidgetRequest]);
+    return createStudioChatAdapter(aiConfig, controller, onRemoveWidgetRequest, customWidgets);
+  }, [aiConfig, controller, onRemoveWidgetRequest, customWidgets]);
 
   // ── Dynamic suggestions ────────────────────────────────────────────────────
   const suggestions = React.useMemo(

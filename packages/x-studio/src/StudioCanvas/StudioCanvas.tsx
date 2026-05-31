@@ -160,7 +160,7 @@ function InsertionPoint({
     // onDrop is now a stable useCallback; mode changes require listener re-registration.
     // rowIndex/colIndex/orientation are read from posRef so excluded from deps.
     // react-doctor-disable-next-line react-doctor/prefer-use-effect-event
-  }, [onDrop, mode]);
+  }, [onDrop, mode, widgetRowsRef]);
   // Only show the line when hovered, otherwise invisible and non-interfering
   return (
     <Box
@@ -398,9 +398,9 @@ function WidgetGap({
   posRef.current = { rowIndex, colIndex };
 
   const handleDragOver = React.useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
+    (event: React.DragEvent<HTMLDivElement>) => {
       // Only respond to widget drags — ignore tab reorder and other drag types
-      if (!Array.from(e.dataTransfer.types).includes('application/json')) {
+      if (!Array.from(event.dataTransfer.types).includes('application/json')) {
         return;
       }
       // Don't activate the two gaps flanking the dragged widget (BL-112)
@@ -408,31 +408,31 @@ function WidgetGap({
       if (isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef)) {
         return;
       }
-      e.preventDefault();
-      if (e.dataTransfer) {
-        e.dataTransfer.dropEffect = 'copy';
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'copy';
       }
       setIsOver(true);
     },
     [widgetRowsRef],
   );
 
-  const handleDragLeave = React.useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  const handleDragLeave = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
     // Ignore moves into descendant elements to prevent indicator flicker
-    if ((e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+    if ((event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) {
       return;
     }
     setIsOver(false);
   }, []);
 
   const handleDrop = React.useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      if (!Array.from(e.dataTransfer.types).includes('application/json')) {
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!Array.from(event.dataTransfer.types).includes('application/json')) {
         return;
       }
       setIsOver(false);
       try {
-        const data = JSON.parse(e.dataTransfer?.getData('application/json') || '{}');
+        const data = JSON.parse(event.dataTransfer?.getData('application/json') || '{}');
         const { rowIndex: r, colIndex: c } = posRef.current;
         onDrop(data, r, c, 'vertical');
       } catch {

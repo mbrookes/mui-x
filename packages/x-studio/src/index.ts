@@ -236,7 +236,11 @@ export type { StudioAIConfig, StudioAiTool } from './StudioChatPanel/studioAdapt
 export { buildAISystemPrompt } from './internals/buildAISystemPrompt';
 export { STUDIO_AI_TOOLS } from './StudioChatPanel/studioAITools';
 export type { StudioAIToolName } from './StudioChatPanel/studioAITools';
-export { generateWidgetInsight, generateDashboardSummary } from './StudioChatPanel/generateInsight';
+export {
+  generateWidgetInsight,
+  generateDashboardSummary,
+  generateAnomalyExplanation,
+} from './StudioChatPanel/generateInsight';
 export type { StudioInsightOptions, StudioInsightResult } from './StudioChatPanel/generateInsight';
 
 // ─── Server adapter utilities ─────────────────────────────────────────────────

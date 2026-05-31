@@ -1,5 +1,6 @@
 import type { StudioController } from '../store/StudioController';
 import type { StudioAIConfig } from './studioAdapter';
+import type { StudioChartAnnotation } from '../models/baseTypes';
 import { buildAISystemPrompt } from '../internals/buildAISystemPrompt';
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -10,8 +11,9 @@ export interface StudioInsightOptions {
    * - `'summary'`: A brief plain-language summary of what the widget shows.
    * - `'analysis'`: A deeper analysis of trends, patterns, or notable values.
    * - `'forecast'`: A short-term forecast based on the visible data.
+   * - `'anomaly'`: An AI explanation of detected anomalies (internal use).
    */
-  type: 'summary' | 'analysis' | 'forecast';
+  type: 'summary' | 'analysis' | 'forecast' | 'anomaly';
   /**
    * Number of forecast periods to predict.
    * Only used when `type = 'forecast'`. Defaults to 6.
@@ -28,11 +30,8 @@ export interface StudioInsightResult {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-function buildInsightPrompt(
-  type: 'summary' | 'analysis' | 'forecast',
-  forecastPeriods: number,
-): string {
-  const instructions: Record<string, string> = {
+function buildInsightPrompt(type: StudioInsightOptions['type'], forecastPeriods: number): string {
+  const instructions: Record<StudioInsightOptions['type'], string> = {
     summary:
       'Write a brief 2–3 sentence plain-language summary of what this widget shows. ' +
       'Focus on the main value, trend, or comparison visible in the data.',
@@ -44,6 +43,7 @@ function buildInsightPrompt(
       `Based on the trend visible in this widget, forecast the next ${forecastPeriods} periods. ` +
       'Be concise (2–4 sentences). Acknowledge uncertainty where appropriate. ' +
       'If the data does not support a forecast, say so briefly.',
+    anomaly: 'Explain the anomalies detected in this widget. ' + 'Be concise and business-focused.',
   };
   return instructions[type];
 }
@@ -138,7 +138,7 @@ export async function generateWidgetInsight(
 }
 
 /**
- * Generates a narrative summary of the entire active dashboard page.
+ * Generates an AI narrative summary of the entire active dashboard page.
  * Describes all widgets on the active page and asks the AI for a cohesive summary.
  *
  * @param controller - The `StudioController` instance.
@@ -163,6 +163,49 @@ export async function generateDashboardSummary(
   const userPrompt =
     `Here is the current dashboard state:\n\n${dashboardState}\n\n` +
     'Write a brief executive summary of this dashboard.';
+
+  const text = await callInsightEndpoint(aiConfig, systemPrompt, userPrompt, signal);
+  return { text };
+}
+
+/**
+ * Generates an AI explanation for anomalies detected in a chart widget.
+ * Sends the anomalous category labels and values to the LLM and asks for
+ * a plain-language explanation of possible causes.
+ *
+ * @param widgetId - ID of the widget the anomalies belong to.
+ * @param anomalies - The detected anomaly annotations (x-axis reference lines).
+ * @param controller - The `StudioController` instance.
+ * @param aiConfig - LLM endpoint configuration.
+ * @param options - Optional settings (signal only).
+ */
+export async function generateAnomalyExplanation(
+  widgetId: string,
+  anomalies: StudioChartAnnotation[],
+  controller: StudioController,
+  aiConfig: StudioAIConfig,
+  options?: Pick<StudioInsightOptions, 'signal'>,
+): Promise<StudioInsightResult> {
+  const signal = options?.signal;
+  const state = controller.getState();
+  const widget = state.widgets[widgetId];
+
+  if (!widget) {
+    throw new Error(`Widget "${widgetId}" not found.`);
+  }
+
+  const anomalyLabels = anomalies.map((a) => String(a.value)).join(', ');
+
+  const systemPrompt =
+    'You are a data analyst AI assistant. ' +
+    'The user has detected statistical anomalies in a chart. ' +
+    'Provide a concise (3–5 sentence) explanation of possible causes for these outliers. ' +
+    'Be specific to the widget context. Avoid generic disclaimers.';
+
+  const userPrompt =
+    `Widget: "${widget.title}" (kind: ${widget.kind}, chart type: ${widget.config?.chartType ?? 'unknown'}).\n` +
+    `Anomalous data points detected at the following categories: ${anomalyLabels}.\n\n` +
+    'Explain briefly why these data points might be anomalous and suggest possible business or data-quality reasons.';
 
   const text = await callInsightEndpoint(aiConfig, systemPrompt, userPrompt, signal);
   return { text };

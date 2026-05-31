@@ -207,10 +207,47 @@ function MyComposedLayout({ aiConfig }: { aiConfig: StudioAIConfig }) {
 | :------------------ | :---------------------- | :----------------------------------------------------------- |
 | `aiConfig`          | `StudioAIConfig`        | LLM endpoint configuration.                                  |
 | `open`              | `boolean`               | Whether the panel is visible.                                |
-| `onClose`           | `() => void`            | Called when the user clicks the close button (overlay mode). |
+| `onClose`           | `() => void`            | Called when the user closes the panel (overlay mode).        |
 | `overlay`           | `boolean`               | Render as a fixed-position overlay instead of inline.        |
+| `focusedWidgetId`   | `string`                | Widget to focus the AI on (see _Per-widget AI_ below).       |
 | `slotProps.chatBox` | `Partial<ChatBoxProps>` | Props forwarded to the inner `ChatBox`.                      |
 | `slotProps.panel`   | `Partial<BoxProps>`     | Props for the overlay container (width, position, `sx`).     |
+
+## Per-widget AI assistant
+
+Pass `focusedWidgetId` to `StudioChatPanel` to prime the AI with context about a specific widget. The system prompt will include the widget's current configuration and direct the AI to prefer `update_widget` for that widget.
+
+This enables a per-widget AI workflow in composed layouts where each widget card can open a dedicated chat dialog:
+
+```tsx
+function WidgetAiDialog({ widgetId, aiConfig, onClose }: WidgetAiDialogProps) {
+  return (
+    <Dialog open onClose={onClose}>
+      <StudioChatPanel
+        key={widgetId}   // reset chat history for each widget
+        aiConfig={aiConfig}
+        focusedWidgetId={widgetId}
+      />
+    </Dialog>
+  );
+}
+```
+
+Use `key={widgetId}` to ensure each widget gets a fresh conversation when the dialog opens for a different widget.
+
+To expose the per-widget AI button, pass `onAiRequest` to `StudioCanvas.slotProps.widgetCard`:
+
+```tsx
+<StudioCanvas
+  slotProps={{
+    widgetCard: {
+      onAiRequest: (widgetId) => setAiWidgetId(widgetId),
+    },
+  }}
+/>
+```
+
+The button appears in the widget card's edit-mode overlay when `onAiRequest` is provided.
 
 ## Slot props
 

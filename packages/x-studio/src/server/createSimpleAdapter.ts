@@ -34,6 +34,8 @@ export interface SimpleAdapterOptions {
   /**
    * Transform the query descriptor before sending it to the server.
    * Useful for renaming fields or adding custom query parameters.
+   * @param {StudioQueryDescriptor} descriptor Query descriptor to transform before sending.
+   * @returns {unknown} Transformed descriptor payload.
    */
   transformDescriptor?: (descriptor: StudioQueryDescriptor) => unknown;
 }
@@ -44,6 +46,7 @@ export interface SimpleAdapterOptions {
  *
  * @param endpoint - URL of the POST endpoint (e.g. '/api/studio/orders')
  * @param options - Optional configuration
+ * @returns {StudioDataSourceAdapter} Adapter that resolves rows from the endpoint.
  */
 export function createSimpleAdapter(
   endpoint: string,
@@ -52,6 +55,10 @@ export function createSimpleAdapter(
   const { fetchFn = globalThis.fetch, transformDescriptor } = options;
 
   return {
+    /**
+     * @param {StudioQueryDescriptor} descriptor Query descriptor for the widget request.
+     * @returns {Promise<StudioQueryResult>} Promise resolving to the fetched rows.
+     */
     async getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult> {
       const body = transformDescriptor ? transformDescriptor(descriptor) : descriptor;
 

@@ -132,7 +132,7 @@ function OperandEditor({
           <Select
             label={label}
             value={value.fieldId}
-            onChange={(e) => onChange({ ...value, fieldId: e.target.value })}
+            onChange={(event) => onChange({ ...value, fieldId: event.target.value })}
             sx={{ fontSize: '0.8rem' }}
           >
             {fields.map((f) => (
@@ -148,7 +148,7 @@ function OperandEditor({
           label={label}
           type="number"
           value={value.constant}
-          onChange={(e) => onChange({ ...value, constant: e.target.value })}
+          onChange={(event) => onChange({ ...value, constant: event.target.value })}
           slotProps={{ htmlInput: { style: { fontSize: '0.8rem' } } }}
           fullWidth
         />
@@ -164,7 +164,10 @@ export interface InlineFormulaBarProps {
   sourceId: string;
   /** Numeric (and expression) fields available as operands. */
   fields: FieldOption[];
-  /** Called with the newly created expression field's ID after successful creation. */
+  /**
+   * Called with the newly created expression field's ID after successful creation.
+   * @param {string} fieldId The ID of the newly created expression field.
+   */
   onFieldCreated: (fieldId: string) => void;
 }
 
@@ -283,7 +286,7 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
           <FormControl size="small" sx={{ minWidth: 60 }}>
             <Select
               value={operator}
-              onChange={(e) => setOperator(e.target.value as ArithmeticOp)}
+              onChange={(event) => setOperator(event.target.value as ArithmeticOp)}
               sx={{ fontSize: '0.85rem', fontWeight: 700 }}
             >
               {OPERATORS.map((op) => (
@@ -310,7 +313,7 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
         label="Label"
         placeholder={autoLabel}
         value={labelOverride}
-        onChange={(e) => setLabelOverride(e.target.value)}
+        onChange={(event) => setLabelOverride(event.target.value)}
         fullWidth
         helperText="Auto-generated from the formula — edit to customise"
         sx={{ mb: 1 }}

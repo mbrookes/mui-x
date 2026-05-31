@@ -152,7 +152,14 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       ),
       isGrainAnchored: true,
     };
-  }, [currentRows, currentKpiValueField, widget.sourceId, expressionFields, dataSources, relationships]);
+  }, [
+    currentRows,
+    currentKpiValueField,
+    widget.sourceId,
+    expressionFields,
+    dataSources,
+    relationships,
+  ]);
 
   const resolvedTargetValue = React.useMemo(() => {
     if (!config.kpiTarget || !config.kpiTargetRef) {

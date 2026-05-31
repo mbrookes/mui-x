@@ -206,7 +206,7 @@ export function StudioFiltersDrawer() {
           size="small"
           placeholder={localeText.filterSearchPlaceholder}
           value={filterSearch}
-          onChange={(e) => setFilterSearch(e.target.value)}
+          onChange={(event) => setFilterSearch(event.target.value)}
           slotProps={{
             input: {
               startAdornment: (
@@ -309,13 +309,13 @@ export function StudioFiltersDrawer() {
                   autoFocus
                   placeholder={localeText.filtersSaveViewPlaceholder}
                   value={presetName}
-                  onChange={(e) => setPresetName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && presetName.trim()) {
+                  onChange={(event) => setPresetName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && presetName.trim()) {
                       controller.saveFilterPreset(presetName.trim());
                       setSavingPreset(false);
                     }
-                    if (e.key === 'Escape') {
+                    if (event.key === 'Escape') {
                       setSavingPreset(false);
                     }
                   }}

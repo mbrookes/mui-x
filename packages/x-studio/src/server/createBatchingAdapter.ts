@@ -52,7 +52,7 @@ function createLoader<K, V>(
   batchFn: BatchFn<K, V>,
   batchScheduleFn: (cb: () => void) => void,
 ): BatchLoader<K, V> {
-  let batch: { key: K; resolve: (v: V) => void; reject: (e: Error) => void }[] = [];
+  let batch: { key: K; resolve: (v: V) => void; reject: (error: Error) => void }[] = [];
   let scheduled = false;
 
   function dispatch() {
@@ -62,7 +62,7 @@ function createLoader<K, V>(
 
     batchFn(currentBatch.map((b) => b.key)).then(
       (results) => {
-        for (let i = 0; i < currentBatch.length; i++) {
+        for (let i = 0; i < currentBatch.length; i += 1) {
           const result = results[i];
           if (result instanceof Error) {
             currentBatch[i].reject(result);

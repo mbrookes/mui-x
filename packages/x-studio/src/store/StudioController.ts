@@ -1,10 +1,5 @@
 import { Store } from '@mui/x-internals/store';
 
-/** Total column count for the widget resize grid — must match StudioCanvas.GRID_COLS. */
-const GRID_COLS = 24;
-/** Minimum column span any widget can be clamped to. */
-const MIN_SPAN_COLS = Math.round(GRID_COLS / 4);
-
 import {
   createDefaultStudioState,
   type StudioDataField,
@@ -29,6 +24,11 @@ import {
 
 import { inferWidgetTitles } from '../internals/widgetUtils';
 import { studioRequestCache } from '../internals/StudioRequestCache';
+
+/** Total column count for the widget resize grid — must match StudioCanvas.GRID_COLS. */
+const GRID_COLS = 24;
+/** Minimum column span any widget can be clamped to. */
+const MIN_SPAN_COLS = Math.round(GRID_COLS / 4);
 
 const MAX_UNDO_HISTORY = 100;
 
@@ -379,8 +379,8 @@ export class StudioController {
     if (!activePage) {
       return;
     }
-    const { [widgetId]: _removed, ...restSpans } = activePage.widgetColSpans ?? {};
-    void _removed;
+    const { [widgetId]: removedWidgetSpan, ...restSpans } = activePage.widgetColSpans ?? {};
+    void removedWidgetSpan;
     const newSpans =
       span == null
         ? restSpans
@@ -518,8 +518,8 @@ export class StudioController {
     });
     // Clean up the removed widget's span, and also clear spans for any widgets that are
     // now the sole occupant of their row (orphaned singleton — span no longer meaningful).
-    const { [widgetId]: _span, ...remainingSpans } = activePage.widgetColSpans ?? {};
-    void _span;
+    const { [widgetId]: removedSpan, ...remainingSpans } = activePage.widgetColSpans ?? {};
+    void removedSpan;
     for (const row of newWidgetRows) {
       if (row.length === 1 && remainingSpans[row[0]] != null) {
         delete remainingSpans[row[0]];
@@ -1091,8 +1091,8 @@ export class StudioController {
       const r = row.filter((id) => id !== widgetId);
       return r.length > 0 ? [r] : [];
     });
-    const { [widgetId]: _span, ...sourceSpans } = sourcePage.widgetColSpans ?? {};
-    void _span;
+    const { [widgetId]: removedSourceSpan, ...sourceSpans } = sourcePage.widgetColSpans ?? {};
+    void removedSourceSpan;
 
     // Append as a new row on the target page
     const targetRows = [...(targetPage.widgetRows ?? []), [widgetId]];

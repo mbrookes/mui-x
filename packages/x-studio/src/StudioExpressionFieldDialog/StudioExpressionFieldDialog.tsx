@@ -165,8 +165,12 @@ function isFunctionExpr(expr: StudioExpression): expr is StudioFunctionExpressio
 type InputKind = 'field' | 'literal' | 'function';
 
 function getInputKind(expr: StudioExpression): InputKind {
-  if (isFunctionExpr(expr)) return 'function';
-  if (isFieldExpr(expr)) return 'field';
+  if (isFunctionExpr(expr)) {
+    return 'function';
+  }
+  if (isFieldExpr(expr)) {
+    return 'field';
+  }
   return 'literal';
 }
 
@@ -568,6 +572,7 @@ export interface StudioExpressionFieldDialogProps {
   /**
    * Called with the new field's ID after a successful create (not called for edits).
    * Useful for auto-selecting the new field in the parent component.
+   * @param {string} fieldId The ID of the saved expression field.
    */
   onSaved?: (fieldId: string) => void;
 }

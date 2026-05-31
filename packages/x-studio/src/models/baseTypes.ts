@@ -1,5 +1,3 @@
-import type { FieldCapability } from '../utils/fieldCapabilities';
-
 export type StudioMode = 'edit' | 'view';
 
 export type StudioDrawer = 'data' | 'compose' | 'filters';

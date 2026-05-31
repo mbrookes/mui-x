@@ -1567,9 +1567,9 @@ describe('<StudioChartWidget />', () => {
       expect(labels).toContain('France');
       // All slice values come from allChartData (stable baseline), not filtered values
       const sliceByLabel = Object.fromEntries(props.series[0].data.map((s) => [s.label, s]));
-      expect(sliceByLabel['USA']?.value).toBe(250); // USA total (all orders, not just Supplies)
-      expect(sliceByLabel['Germany']?.value).toBe(200);
-      expect(sliceByLabel['France']?.value).toBe(300);
+      expect(sliceByLabel.USA?.value).toBe(250); // USA total (all orders, not just Supplies)
+      expect(sliceByLabel.Germany?.value).toBe(200);
+      expect(sliceByLabel.France?.value).toBe(300);
       // Overlay arc rendering delegated to CrossHighlightPieArc via slots.pieArc
       expect(props.slots?.pieArc).toBeDefined();
     });

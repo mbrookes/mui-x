@@ -84,7 +84,7 @@ function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) {
   };
 
   return (
-    <Box>
+    <div>
       {!open && (
         <Button
           size="small"
@@ -125,10 +125,10 @@ function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) {
             size="small"
             placeholder={localeText.aiCreateWidgetPlaceholder}
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
+            onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
                 handleSubmit();
               }
             }}
@@ -165,7 +165,7 @@ function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) {
           )}
         </Stack>
       )}
-    </Box>
+    </div>
   );
 }
 

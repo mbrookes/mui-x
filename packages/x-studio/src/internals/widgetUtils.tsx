@@ -359,23 +359,24 @@ export function inferWidgetTitles(
     case 'pivot': {
       const rowLabel = findFieldLabel(config.pivotRowField);
       const colLabel = findFieldLabel(config.pivotColField);
-      const title =
-        rowLabel && colLabel
-          ? `${rowLabel} by ${colLabel}`
-          : source
-            ? `${source.label} pivot`
-            : 'Pivot Table';
+      let title = 'Pivot Table';
+      if (rowLabel && colLabel) {
+        title = `${rowLabel} by ${colLabel}`;
+      } else if (source) {
+        title = `${source.label} pivot`;
+      }
       return { title, subtitle: source?.label ?? '' };
     }
 
     case 'map': {
       const valueLabel = findFieldLabel(config.mapValueField);
       const aggPrefix = KPI_AGG_PREFIXES[config.mapAggregation ?? 'sum'] ?? '';
-      const title = valueLabel
-        ? `${aggPrefix} ${valueLabel} by Country`.trim()
-        : source
-          ? `${source.label} map`
-          : 'Map';
+      let title = 'Map';
+      if (valueLabel) {
+        title = `${aggPrefix} ${valueLabel} by Country`.trim();
+      } else if (source) {
+        title = `${source.label} map`;
+      }
       return { title, subtitle: source?.label ?? '' };
     }
 

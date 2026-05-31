@@ -13,7 +13,6 @@ import type {
   StudioConditionalFormat,
 } from './baseTypes';
 
-
 export interface StudioWidgetConfig {
   // Grid config
   /** Ordered list of visible columns. Use `normalizeGridColumn()` when reading persisted state. */

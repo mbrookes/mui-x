@@ -1,11 +1,18 @@
-import type { StudioDataSource, StudioState, StudioWidget, StudioWidgetKind } from '../models';
+import type {
+  StudioCustomWidgetDef,
+  StudioDataSource,
+  StudioState,
+  StudioWidget,
+  StudioWidgetKind,
+} from '../models';
 
 // ── Widget kind / chart type descriptions ─────────────────────────────────────
 
 const WIDGET_KIND_DESCRIPTIONS: Record<StudioWidgetKind, string> = {
-  chart: 'Chart (bar, line, area, pie, donut, scatter)',
+  chart:
+    'Chart (bar, line, area, pie, donut, scatter, heatmap, funnel, gantt, gauge, mixed multi-series)',
   grid: 'Data grid / table',
-  kpi: 'KPI card (single metric with optional sparkline and trend)',
+  kpi: 'KPI card (single metric with optional sparkline/gauge and trend)',
   text: 'Text / markdown card',
   filter: 'Interactive filter widget (date range, multi-select, toggle, slider)',
   pivot: 'Pivot table (cross-tabulation with row/column dimensions and value aggregation)',
@@ -80,7 +87,10 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
  * Designed to be concise (low token count) while giving the model enough
  * context to create/modify widgets and answer simple data questions.
  */
-export function buildAISystemPrompt(state: StudioState): string {
+export function buildAISystemPrompt(
+  state: StudioState,
+  customWidgets?: StudioCustomWidgetDef[],
+): string {
   const { dashboard, pages, widgets, dataSources, mode } = state;
 
   const pageList = Object.values(pages);
@@ -168,9 +178,30 @@ export function buildAISystemPrompt(state: StudioState): string {
   for (const [kind, desc] of Object.entries(WIDGET_KIND_DESCRIPTIONS)) {
     lines.push(`- ${kind}: ${desc}`);
   }
+  if (customWidgets && customWidgets.length > 0) {
+    lines.push('Custom widget kinds (registered by the app):');
+    for (const cw of customWidgets) {
+      const needsSource = cw.requiresDataSource !== false ? ' (requires sourceId)' : '';
+      const configKeys =
+        cw.defaultConfig && Object.keys(cw.defaultConfig).length > 0
+          ? ` Config keys: ${Object.keys(cw.defaultConfig).join(', ')}.`
+          : '';
+      lines.push(
+        `- ${cw.kind}: ${cw.label}${cw.description ? ` — ${cw.description}` : ''}${needsSource}.${configKeys}`,
+      );
+    }
+  }
   lines.push('');
   lines.push(
-    'Chart types: bar, bar-stacked, bar-100, line, area, area-stacked, area-100, pie, donut, scatter',
+    'Chart types: bar, bar-stacked, bar-100, line, area, area-stacked, area-100, pie, donut, scatter, ' +
+      'heatmap (xField×heatYField heat intensity), ' +
+      'funnel (xField=stages, yField+yAggregation), ' +
+      'gantt (ganttLabelField, ganttStartField, ganttEndField, ganttColorField?), ' +
+      'gauge (yField+yAggregation, gaugeMin, gaugeMax), ' +
+      'mixed (ySeries array with {fieldId, label, type: bar|line, yAggregation}; set dualYAxis:true for dual axes).',
+  );
+  lines.push(
+    'KPI sparkline plotType options: line, bar, gauge (kpiSparklineGaugeMin, kpiSparklineGaugeMax).',
   );
   lines.push('');
 

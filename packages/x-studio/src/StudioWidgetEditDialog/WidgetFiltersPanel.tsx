@@ -111,7 +111,9 @@ function FilterRow(props: {
   const ownFields = fieldOptions.filter((f) => !f.sourceId);
   const relatedSources = Array.from(
     fieldOptions.reduce((set, f) => {
-      if (f.sourceId) set.add(f.sourceId);
+      if (f.sourceId) {
+        set.add(f.sourceId);
+      }
       return set;
     }, new Set<string>()),
   );

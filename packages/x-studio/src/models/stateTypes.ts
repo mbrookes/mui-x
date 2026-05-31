@@ -1,10 +1,4 @@
-import type {
-  StudioMode,
-  StudioDrawer,
-  StudioFilterWidgetType,
-  StudioFilterOperator,
-  StudioMetricRef,
-} from './baseTypes';
+import type { StudioMode, StudioDrawer, StudioFilterOperator, StudioMetricRef } from './baseTypes';
 import type { StudioWidget, StudioPage, StudioPageTheme } from './widgetTypes';
 import type { StudioDataSource, StudioDataField } from './dataTypes';
 import type { StudioExpressionField, StudioRelationship } from './expressionTypes';

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import * as ReactDOM from 'react-dom';
 import {
   Box,
   Button,
@@ -90,9 +91,142 @@ export function AppToolbar(props: AppToolbarProps) {
   const [confirmPageId, setConfirmPageId] = React.useState<string | null>(null);
   const confirmPage = confirmPageId ? pages.find((p) => p.id === confirmPageId) : null;
   const showCloseButtons = mode === 'edit' && pages.length > 1 && Boolean(onPageClose);
-  const [tabDragIndex, setTabDragIndex] = React.useState<number | null>(null);
-  const [tabDragOverIndex, setTabDragOverIndex] = React.useState<number | null>(null);
   const showDragHandles = mode === 'edit' && pages.length > 1 && Boolean(onPageReorder);
+
+  // BL-147: Chrome-style pointer-based tab drag state
+  const tabsRef = React.useRef<HTMLDivElement>(null);
+  const [activeDrag, setActiveDrag] = React.useState<{
+    draggedIndex: number;
+    targetIndex: number;
+    tabWidth: number;
+    ghostLeft: number;
+    tabBarTop: number;
+    tabBarHeight: number;
+  } | null>(null);
+  const ghostElRef = React.useRef<HTMLDivElement | null>(null);
+  const rafRef = React.useRef<number | null>(null);
+  const didDragRef = React.useRef(false);
+  const dragCleanupRef = React.useRef<(() => void) | null>(null);
+
+  React.useEffect(
+    () => () => {
+      dragCleanupRef.current?.();
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    },
+    [],
+  );
+
+  function getTabTransform(index: number): string {
+    if (!activeDrag) return 'none';
+    const { draggedIndex, targetIndex, tabWidth } = activeDrag;
+    if (index === draggedIndex) return 'none';
+    if (draggedIndex < targetIndex && index > draggedIndex && index <= targetIndex) {
+      return `translateX(-${tabWidth}px)`;
+    }
+    if (draggedIndex > targetIndex && index < draggedIndex && index >= targetIndex) {
+      return `translateX(${tabWidth}px)`;
+    }
+    return 'none';
+  }
+
+  function handleTabPointerDown(e: React.PointerEvent, index: number) {
+    if (!showDragHandles) return;
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('.MuiIconButton-root')) return;
+
+    const tabEls = Array.from(tabsRef.current?.querySelectorAll<HTMLElement>('.MuiTab-root') ?? []);
+    const tabRects = tabEls.map((t) => t.getBoundingClientRect());
+    const tabBarRect = tabsRef.current?.getBoundingClientRect();
+
+    const startX = e.clientX;
+    const grabOffsetX = startX - (tabRects[index]?.left ?? 0);
+    let currentTarget = index;
+    let triggered = false;
+    const pointerId = e.pointerId;
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(pointerId);
+
+    function computeTarget(ghostLeft: number): number {
+      const ghostCenter = ghostLeft + (tabRects[index]?.width ?? 100) / 2;
+      let best = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < tabRects.length; i += 1) {
+        const mid = tabRects[i].left + tabRects[i].width / 2;
+        const dist = Math.abs(ghostCenter - mid);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = i;
+        }
+      }
+      return best;
+    }
+
+    function onMove(me: PointerEvent) {
+      if (me.pointerId !== pointerId) return;
+      const deltaX = me.clientX - startX;
+      if (!triggered) {
+        if (Math.abs(deltaX) < 5) return;
+        triggered = true;
+        didDragRef.current = true;
+        const ghostLeft = me.clientX - grabOffsetX;
+        setActiveDrag({
+          draggedIndex: index,
+          targetIndex: index,
+          tabWidth: tabRects[index]?.width ?? 100,
+          ghostLeft,
+          tabBarTop: tabBarRect?.top ?? 0,
+          tabBarHeight: tabBarRect?.height ?? 48,
+        });
+      }
+
+      const ghostLeft = me.clientX - grabOffsetX;
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        if (ghostElRef.current) {
+          ghostElRef.current.style.left = `${ghostLeft}px`;
+        }
+      });
+
+      const newTarget = computeTarget(ghostLeft);
+      if (newTarget !== currentTarget) {
+        currentTarget = newTarget;
+        setActiveDrag((prev) => (prev ? { ...prev, targetIndex: newTarget } : null));
+      }
+    }
+
+    function onUp(ue: PointerEvent) {
+      if (ue.pointerId !== pointerId) return;
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      dragCleanupRef.current = null;
+
+      if (triggered && currentTarget !== index) {
+        const newOrder = pages.map((p) => p.id);
+        const [moved] = newOrder.splice(index, 1);
+        // nearest-midpoint formula: currentTarget is the desired final index (no off-by-one)
+        newOrder.splice(currentTarget, 0, moved);
+        onPageReorder?.(newOrder);
+      }
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      setActiveDrag(null);
+      setTimeout(() => {
+        didDragRef.current = false;
+      }, 0);
+    }
+
+    dragCleanupRef.current = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  }
 
   // BL-107: drag-to-navigate — tab-scoped timer + enter/leave counter
   const dragNavTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -143,22 +277,6 @@ export function AppToolbar(props: AppToolbarProps) {
     }
   }
 
-  function handleTabDrop(dropIndex: number) {
-    if (tabDragIndex === null || tabDragIndex === dropIndex) {
-      setTabDragIndex(null);
-      setTabDragOverIndex(null);
-      return;
-    }
-    const newOrder = pages.map((p) => p.id);
-    const [moved] = newOrder.splice(tabDragIndex, 1);
-    // After removing the dragged tab, the target index shifts left when dragging forward
-    const adjustedIndex = tabDragIndex < dropIndex ? dropIndex - 1 : dropIndex;
-    newOrder.splice(adjustedIndex, 0, moved);
-    onPageReorder?.(newOrder);
-    setTabDragIndex(null);
-    setTabDragOverIndex(null);
-  }
-
   return (
     <Box
       sx={{
@@ -196,59 +314,33 @@ export function AppToolbar(props: AppToolbarProps) {
       {(pages.length > 1 || mode === 'edit') && (
         <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, minWidth: 0 }}>
           <Tabs
+            ref={tabsRef}
             value={activePageId}
             onChange={onPageChange}
             variant="scrollable"
             scrollButtons="auto"
             allowScrollButtonsMobile
             sx={{ minWidth: 0 }}
+            onClickCapture={(e) => {
+              if (didDragRef.current) {
+                e.stopPropagation();
+                e.preventDefault();
+                didDragRef.current = false;
+              }
+            }}
           >
             {pages.map((page, index) => (
               <Tab
                 key={page.id}
                 value={page.id}
-                draggable={showDragHandles}
-                onDragStart={
-                  showDragHandles
-                    ? (e) => {
-                        setTabDragIndex(index);
-                        e.dataTransfer.setData('text/x-studio-tab', page.id);
-                      }
-                    : undefined
-                }
+                onPointerDown={showDragHandles ? (e) => handleTabPointerDown(e, index) : undefined}
                 onDragEnter={(e) => handleTabWidgetDragEnter(e, page.id)}
                 onDragLeave={(e) => handleTabWidgetDragLeave(e, page.id)}
-                onDragOver={
-                  showDragHandles
-                    ? (e) => {
-                        if (!Array.from(e.dataTransfer.types).includes('text/x-studio-tab')) return;
-                        e.preventDefault();
-                        setTabDragOverIndex(index);
-                      }
-                    : undefined
-                }
-                onDrop={
-                  showDragHandles
-                    ? (e) => {
-                        if (!Array.from(e.dataTransfer.types).includes('text/x-studio-tab')) return;
-                        handleTabDrop(index);
-                      }
-                    : undefined
-                }
-                onDragEnd={
-                  showDragHandles
-                    ? () => {
-                        setTabDragIndex(null);
-                        setTabDragOverIndex(null);
-                        cancelDragNavTimer();
-                      }
-                    : undefined
-                }
                 sx={{
                   minHeight: 48,
-                  opacity: tabDragIndex === index ? 0.4 : 1,
-                  borderLeft: tabDragOverIndex === index && tabDragIndex !== index ? 2 : 0,
-                  borderColor: 'primary.main',
+                  opacity: activeDrag?.draggedIndex === index ? 0 : 1,
+                  transform: getTabTransform(index),
+                  transition: activeDrag ? 'transform 150ms ease' : 'none',
                   cursor: showDragHandles ? 'grab' : undefined,
                 }}
                 label={
@@ -284,6 +376,41 @@ export function AppToolbar(props: AppToolbarProps) {
         </Box>
       )}
       {pages.length <= 1 && mode !== 'edit' && <Box sx={{ flexGrow: 1 }} />}
+
+      {/* Ghost tab portal — rendered at document.body level during pointer drag */}
+      {activeDrag &&
+        ReactDOM.createPortal(
+          <Box
+            ref={(el) => {
+              ghostElRef.current = el as HTMLDivElement | null;
+            }}
+            sx={{
+              position: 'fixed',
+              top: activeDrag.tabBarTop,
+              left: activeDrag.ghostLeft,
+              height: activeDrag.tabBarHeight,
+              minWidth: activeDrag.tabWidth,
+              bgcolor: 'background.paper',
+              borderRadius: '4px 4px 0 0',
+              boxShadow: 3,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              px: 2,
+              pointerEvents: 'none',
+              zIndex: 9999,
+              fontSize: '0.875rem',
+              fontFamily: 'inherit',
+              color: 'text.primary',
+              border: 1,
+              borderColor: 'primary.main',
+              userSelect: 'none',
+            }}
+          >
+            {pages[activeDrag.draggedIndex]?.title}
+          </Box>,
+          document.body,
+        )}
 
       {/* Confirmation dialog for page removal */}
       <Dialog

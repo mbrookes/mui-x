@@ -125,8 +125,9 @@ function generateSuggestions(
 // ── Pending confirmation state ────────────────────────────────────────────────
 
 interface PendingConfirmation {
-  widgetId: string;
-  widgetTitle: string;
+  kind: 'widget' | 'page';
+  id: string;
+  title: string;
   resolve: (confirmed: boolean) => void;
 }
 
@@ -211,7 +212,15 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   const onRemoveWidgetRequest = React.useCallback(
     (widgetId: string, widgetTitle: string): Promise<boolean> =>
       new Promise<boolean>((resolve) => {
-        setPendingConfirm({ widgetId, widgetTitle, resolve });
+        setPendingConfirm({ kind: 'widget', id: widgetId, title: widgetTitle, resolve });
+      }),
+    [],
+  );
+
+  const onRemovePageRequest = React.useCallback(
+    (pageId: string, pageTitle: string): Promise<boolean> =>
+      new Promise<boolean>((resolve) => {
+        setPendingConfirm({ kind: 'page', id: pageId, title: pageTitle, resolve });
       }),
     [],
   );
@@ -221,8 +230,22 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     if (!aiConfig?.endpoint) {
       return null;
     }
-    return createStudioChatAdapter(aiConfig, controller, onRemoveWidgetRequest, customWidgets, focusedWidgetId);
-  }, [aiConfig, controller, onRemoveWidgetRequest, customWidgets, focusedWidgetId]);
+    return createStudioChatAdapter(
+      aiConfig,
+      controller,
+      onRemoveWidgetRequest,
+      customWidgets,
+      focusedWidgetId,
+      onRemovePageRequest,
+    );
+  }, [
+    aiConfig,
+    controller,
+    onRemoveWidgetRequest,
+    onRemovePageRequest,
+    customWidgets,
+    focusedWidgetId,
+  ]);
 
   // ── Dynamic suggestions ────────────────────────────────────────────────────
   const suggestions = React.useMemo(
@@ -254,11 +277,15 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
         />
       </Box>
 
-      {/* Confirmation dialog for remove_widget */}
+      {/* Confirmation dialog for remove_widget / remove_page */}
       {pendingConfirm && (
         <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
           <ChatConfirmation
-            message={`Remove "${pendingConfirm.widgetTitle}"? This cannot be undone from chat.`}
+            message={
+              pendingConfirm.kind === 'page'
+                ? `Remove page "${pendingConfirm.title}" and all its widgets? This cannot be undone from chat.`
+                : `Remove "${pendingConfirm.title}"? This cannot be undone from chat.`
+            }
             confirmLabel="Remove"
             cancelLabel="Keep"
             onConfirm={() => {

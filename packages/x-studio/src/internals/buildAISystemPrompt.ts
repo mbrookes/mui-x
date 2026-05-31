@@ -4,6 +4,7 @@ import type {
   StudioState,
   StudioWidget,
   StudioWidgetKind,
+  StudioFilterState,
 } from '../models';
 
 // ── Widget kind / chart type descriptions ─────────────────────────────────────
@@ -24,9 +25,14 @@ const WIDGET_KIND_DESCRIPTIONS: Record<StudioWidgetKind, string> = {
 function describeSource(source: StudioDataSource): string {
   const visibleFields = source.fields.filter((f) => !f.hidden);
   const fieldList = visibleFields
-    .map((f) => `${f.id} (${f.type}${f.label !== f.id ? `, label: "${f.label}"` : ''})`)
+    .map((f) => {
+      const label = f.label !== f.id ? `, label: "${f.label}"` : '';
+      const aiDesc = f.aiDescription ? ` — ${f.aiDescription}` : '';
+      return `${f.id} (${f.type}${label}${aiDesc})`;
+    })
     .join(', ');
-  return `- ${source.label} [id: ${source.id}]: ${visibleFields.length} fields: ${fieldList}`;
+  const sourceDesc = source.aiDescription ? `\n  Description: ${source.aiDescription}` : '';
+  return `- ${source.label} [id: ${source.id}]:${sourceDesc} ${visibleFields.length} fields: ${fieldList}`;
 }
 
 function describeWidget(widget: StudioWidget, sources: Record<string, StudioDataSource>): string {
@@ -73,6 +79,29 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     if (cfg.filterWidgetField) {
       parts.push(`filterField: ${cfg.filterWidgetField}`);
     }
+  } else if (widget.kind === 'pivot') {
+    const cfg2 = cfg as {
+      pivotRowField?: string;
+      pivotColField?: string;
+      pivotValueField?: string;
+    };
+    if (cfg2.pivotRowField) {
+      parts.push(`rowField: ${cfg2.pivotRowField}`);
+    }
+    if (cfg2.pivotColField) {
+      parts.push(`colField: ${cfg2.pivotColField}`);
+    }
+    if (cfg2.pivotValueField) {
+      parts.push(`valueField: ${cfg2.pivotValueField}`);
+    }
+  } else if (widget.kind === 'map') {
+    const cfg2 = cfg as { mapCountryField?: string; mapValueField?: string };
+    if (cfg2.mapCountryField) {
+      parts.push(`countryField: ${cfg2.mapCountryField}`);
+    }
+    if (cfg2.mapValueField) {
+      parts.push(`valueField: ${cfg2.mapValueField}`);
+    }
   }
 
   return `  - ${parts.join(', ')}`;
@@ -92,7 +121,7 @@ export function buildAISystemPrompt(
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
 ): string {
-  const { dashboard, pages, widgets, dataSources, mode } = state;
+  const { dashboard, pages, widgets, dataSources, filters, mode } = state;
 
   const pageList = Object.values(pages);
   const activePage = pages[dashboard.activePageId];
@@ -159,6 +188,24 @@ export function buildAISystemPrompt(
           .join(', ');
         lines.push(`Row ${i + 1}: ${rowDesc}`);
       });
+      lines.push('');
+    }
+    // Active filters on this page
+    const activeFilters = filters.filter(
+      (f: StudioFilterState) =>
+        (f.scope === 'page' && f.pageId === activePage.id) ||
+        (f.scope === 'widget' && activeWidgetIds.includes(f.widgetId ?? '')),
+    );
+    if (activeFilters.length > 0) {
+      lines.push(
+        '## Active Filters (use remove_page_filter or remove_widget_filter with the filter id to remove)',
+      );
+      for (const f of activeFilters) {
+        const scopeLabel = f.scope === 'page' ? 'page' : `widget:${f.widgetId}`;
+        lines.push(
+          `  - [id: ${f.id}] scope:${scopeLabel} — ${f.field} ${f.operator} ${JSON.stringify(f.value)}`,
+        );
+      }
       lines.push('');
     }
   }

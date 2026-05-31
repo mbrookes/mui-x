@@ -25,6 +25,7 @@ import {
   useStudioSelector,
   useStudioLocaleText,
   useCustomWidgetMap,
+  useStudioUIConfig,
   selectMode,
   selectPages,
   selectActivePageId,
@@ -54,6 +55,12 @@ import { StudioPivotWidget } from '../StudioPivotWidget/StudioPivotWidget';
 import { StudioMapWidget } from '../StudioMapWidget';
 import { exportGridToCsv, exportChartToPng } from '../internals/widgetUtils';
 import { createStudioPipeline } from '../internals/StudioPipeline';
+import { StudioInsightPanel } from '../StudioInsightPanel/StudioInsightPanel';
+import {
+  generateWidgetInsight,
+  type StudioInsightOptions,
+  type StudioInsightResult,
+} from '../StudioChatPanel/generateInsight';
 
 export interface StudioWidgetCardProps {
   widgetId: string;
@@ -168,7 +175,16 @@ function DefaultLoadingOverlay() {
 
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
-  const { widgetId, isFirstRow = false, pageTheme, slots, slotProps, onUnconfiguredClick, onEditRequest, onAiRequest } = props;
+  const {
+    widgetId,
+    isFirstRow = false,
+    pageTheme,
+    slots,
+    slotProps,
+    onUnconfiguredClick,
+    onEditRequest,
+    onAiRequest,
+  } = props;
   const controller = useStudioController();
   // Create stable selector functions scoped to this widgetId.
   // Using React.useMemo ensures the selector identity is preserved across renders
@@ -200,11 +216,58 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const activePageId = useStudioSelector(selectActivePageId);
   const localeText = useStudioLocaleText();
   const customWidgetMap = useCustomWidgetMap();
+  const { aiConfig } = useStudioUIConfig();
   // Look up the custom widget definition for non-builtin widget kinds
   const customDef =
     widget && !['grid', 'chart', 'kpi', 'text', 'filter', 'pivot', 'map'].includes(widget.kind)
       ? (customWidgetMap.get(widget.kind) ?? null)
       : null;
+
+  // ── AI Insight state ───────────────────────────────────────────────────────
+  const [insightOpen, setInsightOpen] = React.useState(false);
+  const [insightLoading, setInsightLoading] = React.useState(false);
+  const [insightError, setInsightError] = React.useState<string | null>(null);
+  const [insightResult, setInsightResult] = React.useState<StudioInsightResult | null>(null);
+  const [insightType, setInsightType] = React.useState<StudioInsightOptions['type']>('summary');
+  const insightAbortRef = React.useRef<AbortController | null>(null);
+
+  const handleInsightRequest = React.useCallback(
+    (type: StudioInsightOptions['type']) => {
+      if (!aiConfig?.endpoint) {
+        return;
+      }
+      insightAbortRef.current?.abort();
+      const controller2 = new AbortController();
+      insightAbortRef.current = controller2;
+
+      setInsightType(type);
+      setInsightOpen(true);
+      setInsightLoading(true);
+      setInsightError(null);
+      setInsightResult(null);
+
+      generateWidgetInsight(widgetId, controller, aiConfig, { type, signal: controller2.signal })
+        .then((result) => {
+          setInsightResult(result);
+        })
+        .catch((err: unknown) => {
+          if (err instanceof Error && err.name === 'AbortError') {
+            return;
+          }
+          setInsightError(err instanceof Error ? err.message : 'Failed to generate insight.');
+        })
+        .finally(() => {
+          setInsightLoading(false);
+        });
+    },
+    [widgetId, controller, aiConfig],
+  );
+
+  React.useEffect(() => {
+    return () => {
+      insightAbortRef.current?.abort();
+    };
+  }, []);
 
   // Pages the user can move this widget to (all pages except the current one)
   const moveToPageOptions = React.useMemo(
@@ -480,6 +543,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           overlayTopSx={overlayTopSx}
           moveToPageOptions={moveToPageOptions}
           onAiRequest={onAiRequest ? () => onAiRequest(widgetId) : undefined}
+          onInsightRequest={aiConfig?.endpoint ? handleInsightRequest : undefined}
           onExport={handleExport}
           onExpand={() => setExpanded(true)}
           onEdit={handleEditClick}
@@ -487,6 +551,21 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           onDelete={() => controller.removeWidget(widgetId)}
           onMoveToPage={(pageId) => controller.moveWidgetToPage(widgetId, pageId)}
         />
+        {/* AI Insight panel — floats over widget content when open */}
+        {insightOpen && (
+          <StudioInsightPanel
+            insight={insightResult}
+            loading={insightLoading}
+            error={insightError}
+            activeType={insightType}
+            showForecast={isChart || widget.kind === 'kpi'}
+            onClose={() => {
+              setInsightOpen(false);
+              insightAbortRef.current?.abort();
+            }}
+            onRegenerate={handleInsightRequest}
+          />
+        )}
         <Stack spacing={widget.kind === 'grid' ? 2 : 0.5}>
           {/* Widget header */}
           <Box sx={{ minWidth: 0 }}>

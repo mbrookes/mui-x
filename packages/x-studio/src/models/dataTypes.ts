@@ -29,6 +29,13 @@ export interface StudioDataField {
    * Omit for dimension fields (string, boolean, date) — they are never aggregated.
    */
   defaultAggregationFn?: StudioGridColumnAggFn;
+  /**
+   * AI-facing description of this field's meaning and usage.
+   * Included in the system prompt to help the AI choose the right fields
+   * for chart axes, KPI values, filters, etc.
+   * @example "Net revenue in USD excluding returns. Use for financial KPIs."
+   */
+  aiDescription?: string;
 }
 
 // Filter tree node for QueryDescriptor
@@ -108,4 +115,11 @@ export interface StudioDataSource {
    * rows can be omitted when adapter is provided.
    */
   adapter?: StudioDataSourceAdapter;
+  /**
+   * AI-facing description of this data source's content and purpose.
+   * Included in the system prompt to help the AI understand what this source
+   * represents and when to use it.
+   * @example "Quarterly sales data for all regions, 2020–present."
+   */
+  aiDescription?: string;
 }

@@ -437,6 +437,36 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 
 ~~BL-149: Add a feature for all widgets fields allowing to sort the data by one dimension, and either up, or down.~~ **Fixed** (added `chartSortBy: 'category' | 'value'` and `chartSortDirection: 'asc' | 'desc'` to widget config; all chart aggregation functions updated to apply sorting; ChartSetupPanel shows Sort By + Asc/Desc controls when x-field is set)
 
-BL-150: widget dragging ohas a closed hand pointer when clicked, but loses it as soon as dragging starts.
+BL-150: When dragging a widget it has a closed hand pointer when clicked, but loses it as soon as dragging starts. Fix that.
 
-BL-XXX: For all changes in this session, update the docs pages found in ./docs on all relevant pages, including the specific feature's page, and x/react-studio/comparison/, but anywhere else appropraite, and creating a new page as needed for larger features.
+BL-151: Switching the datasource to the ag-studio data in examples/x-studio and x-studio-composed should load the page/widget config from examples/x-studio/src/config/officeSuppliesDashboard.ts, and the data from examples/x-studio/src/officeSuppliesData/index.ts. Move both of these, and the salesData to x-studio-shared, and remove from the two examples folders. Obviously don't use browser local state from the sales dashboard for the AG Studio (office supplies) one. Make sure the dashboard using x-studio package matches the ag studio one in layout and confirguration. If x-studio is missing features for that, add them.
+
+BL-152: The tooltip for maps should show the geographic region (country/state/county etc) name. name as well as the value. If the value is a currency, it should have the currency symbol, as well as a label for what the number represents. Follow the heatmap tooltip as a guide.  Empty (grey) geographic reagions shouldn't show a tooltip. Update the ChoroplethChart component if needed for any of the fixes - it needs to work correctly for other consumers of that component.
+
+BL-153: In the quick-filter bar the text "Date range" isn't localised. I also don't see chips even when page filters are configured. Make it disabled by default in the example apps, and change the name to something like QuickFilter rather than dateFilter (or whatever it is) in the feature flags and wherever else.
+
+BL-154: Responsiveness isn't working. Fix it, and also make it so that when there isn't sufficent room for four widgets on a row, they stack 2 above two, before 1 above one when there's only room for one on a row.
+
+BL-155: I've asked for this before in another backlog item, but it wasn't fixed - when a widget has no sparkline it should be possible for the user to size it down to four columns.
+
+BL-156: As of the time of writing, BL-109 still isn't fixed. Fix it.
+
+BL-157: Review all the commits from the last week, and make sure that there are approprate tests to prevent regressions. Add more as needed.
+
+BL-158: Saved views aren't being persisted. When the page reloads they're lost. Saved views should be part of the fv query string. Add the fv query string to the x-studio example app. In both example apps only add fv to the URL in view mode.
+
+BL-159: x-studio-composed should still show the filters icon in view mode.
+
+BL-160: Saved views need an edit button to be able to rename them.
+
+BL-161. When a widget is dragged and dropped on a different page, it isn't being removed from the source page. Make sure other items on the same row that it was moved from take the available row space (they may already, no way for me to test at the moment).
+
+BL-162: Move dataset selection to the top of the app configuration widget, and move feature selection to a separate tab in the config dialog (both examples).
+
+BL-163: The filter panel page filter field select isn't using the shared field select that has field type icons etc.
+
+BL-164: Something seems to have gone wrong with the relationship display in the data panel. Before, only user defined relationships were included. I asked for those defined in the data to be displayed (read only), but now they appear to have been added as editable relationships. Deleting them breaks widget rendering, when the widgest should be using the predefined relationships.
+
+BL-165: In x-studio-composed, after adding a new widget with the FAB, it should open the composed preview/edit widget, not the edit only one. The preview should include the entire widget (including title etc.), and not just the chart. For example you can't see edits to a text widget.
+
+BL-XXX: For all changes in this session, update the docs pages found in ./docs on all relevant pages, including the specific feature's page, and x/react-studio/comparison/, and anywhere else appropriate, and creating a new page as needed for larger features.

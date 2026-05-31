@@ -188,6 +188,7 @@ function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
   const ref = React.useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = React.useState(false);
 
+  // react-doctor-disable-next-line react-doctor/no-effect-event-handler -- native mousedown/dragstart/dragend listeners required for setDragImage and capture-phase mousedown
   React.useEffect(() => {
     if (!canAdd) {
       return undefined;

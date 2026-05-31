@@ -670,13 +670,13 @@ function DashboardLayout({
                 bgcolor: (t) => (t.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
               }}
             >
-              <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
-                {aiConfig &&
+              {aiConfig &&
                 mode === 'edit' &&
                 (pages[activePageId]?.widgetRows ?? []).length === 0 ? (
                   <EmptyPagePrompt aiConfig={aiConfig} />
                 ) : (
                   <StudioCanvas
+                    sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}
                     slotProps={{
                       widgetCard: {
                         onUnconfiguredClick: handleUnconfiguredWidgetClick,
@@ -686,7 +686,6 @@ function DashboardLayout({
                     }}
                   />
                 )}
-              </Box>
             </Box>
             {/* Show FAB when in edit mode and the active page already has content */}
             {mode === 'edit' && (pages[activePageId]?.widgetRows ?? []).length > 0 && (
@@ -784,24 +783,32 @@ export default function App() {
         localeText={localeBundle.pickersLocaleText}
       >
         <CssBaseline />
-        {/* StudioProvider makes the controller available to all descendants */}
-        <StudioProvider
-          controller={controller}
-          featureFlags={featureFlags}
-          geographies={CUSTOM_GEOGRAPHIES}
-          localeText={localeBundle.studioLocaleText}
-        >
-          <DashboardLayout
-            adapterMode={adapterMode}
-            aiConfig={aiConfig}
-            dataset={dataset}
-            onSnackbar={handleSnackbar}
+        {isLoading ? (
+          <Box
+            sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}
+          >
+            <CircularProgress />
+          </Box>
+        ) : (
+          /* StudioProvider makes the controller available to all descendants */
+          <StudioProvider
+            controller={controller}
             featureFlags={featureFlags}
-            onFeatureFlagsChange={setFeatureFlags}
-            locale={locale}
-            onLocaleChange={setLocale}
-          />
-        </StudioProvider>
+            geographies={CUSTOM_GEOGRAPHIES}
+            localeText={localeBundle.studioLocaleText}
+          >
+            <DashboardLayout
+              adapterMode={adapterMode}
+              aiConfig={aiConfig}
+              dataset={dataset}
+              onSnackbar={handleSnackbar}
+              featureFlags={featureFlags}
+              onFeatureFlagsChange={setFeatureFlags}
+              locale={locale}
+              onLocaleChange={setLocale}
+            />
+          </StudioProvider>
+        )}
         <Snackbar
           open={snackbar.open}
           autoHideDuration={4000}

@@ -83,3 +83,19 @@ console.log(summary.text);
 The insight request uses the same `aiConfig.endpoint`, `aiConfig.model`, and `aiConfig.headers` settings as the chat assistant. No additional configuration is required.
 
 To limit which insight types are available, you can restrict the UI by providing a custom `StudioWidgetCardActionsOverlay` through the `slots` prop on the `Studio` component.
+
+### `StudioInsightPanel` sx prop
+
+When using `StudioInsightPanel` standalone in a composed layout, use the `sx` prop to override its default absolute positioning:
+
+```tsx
+<StudioInsightPanel
+  insight={insight}
+  loading={loading}
+  error={error}
+  activeType={type}
+  onClose={handleClose}
+  onRegenerate={handleRegenerate}
+  sx={{ position: 'relative', bottom: 'auto', left: 'auto', right: 'auto' }}
+/>
+```

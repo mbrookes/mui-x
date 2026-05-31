@@ -21,7 +21,12 @@ export default function BubbleChartDataset() {
       series={[
         {
           label: 'Net Revenue by Brand',
-          datasetKeys: { x: 'avgQty', y: 'avgDiscount', id: 'brand', size: 'netRevenue' },
+          datasetKeys: {
+            x: 'avgQty',
+            y: 'avgDiscount',
+            id: 'brand',
+            size: 'netRevenue',
+          },
           minBubbleRadius: 6,
           maxBubbleRadius: 48,
         },

@@ -1,11 +1,11 @@
-import { loadRawOfficeSuppliesData } from 'x-studio-shared';
+import { expressions, loadRawOfficeSuppliesData, relationships } from 'x-studio-shared';
 
-export const OS_STORES_SOURCE_ID = 'os-stores';
-export const OS_PRODUCTS_SOURCE_ID = 'os-products';
-export const OS_CUSTOMERS_SOURCE_ID = 'os-customers';
-export const OS_ORDERS_SOURCE_ID = 'os-orders';
-export const OS_ORDER_ITEMS_SOURCE_ID = 'os-order-items';
-export const OS_SHIPMENTS_SOURCE_ID = 'os-shipments';
+export const OS_STORES_SOURCE_ID = 'stores';
+export const OS_PRODUCTS_SOURCE_ID = 'products';
+export const OS_CUSTOMERS_SOURCE_ID = 'customers';
+export const OS_ORDERS_SOURCE_ID = 'orders';
+export const OS_ORDER_ITEMS_SOURCE_ID = 'order_items';
+export const OS_SHIPMENTS_SOURCE_ID = 'shipments';
 
 export interface AgStudioData {
   sources: Array<{ id: string; data: Record<string, unknown>[] }>;
@@ -15,10 +15,12 @@ export interface AgStudioData {
     target: { tableId: string; fieldId: string };
     type: 'many-to-one';
   }>;
+  expressions: typeof expressions;
 }
 
 export async function loadOfficeSuppliesData(): Promise<AgStudioData> {
   const raw = await loadRawOfficeSuppliesData();
+
   return {
     sources: [
       { id: OS_STORES_SOURCE_ID, data: raw.stores as unknown as Record<string, unknown>[] },
@@ -31,37 +33,7 @@ export async function loadOfficeSuppliesData(): Promise<AgStudioData> {
       },
       { id: OS_SHIPMENTS_SOURCE_ID, data: raw.shipments as unknown as Record<string, unknown>[] },
     ],
-    relationships: [
-      {
-        id: 'os-rel-orders-customers',
-        source: { tableId: OS_ORDERS_SOURCE_ID, fieldId: 'customer_id' },
-        target: { tableId: OS_CUSTOMERS_SOURCE_ID, fieldId: 'customer_id' },
-        type: 'many-to-one',
-      },
-      {
-        id: 'os-rel-orders-stores',
-        source: { tableId: OS_ORDERS_SOURCE_ID, fieldId: 'store_id' },
-        target: { tableId: OS_STORES_SOURCE_ID, fieldId: 'store_id' },
-        type: 'many-to-one',
-      },
-      {
-        id: 'os-rel-orderitems-orders',
-        source: { tableId: OS_ORDER_ITEMS_SOURCE_ID, fieldId: 'order_id' },
-        target: { tableId: OS_ORDERS_SOURCE_ID, fieldId: 'order_id' },
-        type: 'many-to-one',
-      },
-      {
-        id: 'os-rel-orderitems-products',
-        source: { tableId: OS_ORDER_ITEMS_SOURCE_ID, fieldId: 'product_id' },
-        target: { tableId: OS_PRODUCTS_SOURCE_ID, fieldId: 'product_id' },
-        type: 'many-to-one',
-      },
-      {
-        id: 'os-rel-shipments-orders',
-        source: { tableId: OS_SHIPMENTS_SOURCE_ID, fieldId: 'order_id' },
-        target: { tableId: OS_ORDERS_SOURCE_ID, fieldId: 'order_id' },
-        type: 'many-to-one',
-      },
-    ],
+    relationships: relationships as AgStudioData['relationships'],
+    expressions,
   };
 }

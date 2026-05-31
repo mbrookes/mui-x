@@ -12,3 +12,6 @@ export type {
   OrderItemRow,
   ShipmentRow,
 } from './src/types.js';
+export { MAIN_DEMO_PAGES, createXStudioOfficeSuppliesState } from './src/officeSuppliesDashboard';
+export { mainDemoState } from './src/vendor/mainDemoState';
+export { expressions, relationships } from './src/vendor/mainDemoData';

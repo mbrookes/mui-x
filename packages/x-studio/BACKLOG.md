@@ -397,7 +397,8 @@ Done: `62d5236ad2` — Added `'gauge'` plotType to KpiSparkline; renders `<Gauge
 ~~BL-124: Add a config option to the x-studio and x-studio-composed to the use ag-studio data, as per the ag-studio example.~~
 Done: `d07f8fdbba` — Added Dataset radio group (Sales vs AG Studio Office Supplies) to SettingsDialog in both example apps. Selecting AG Studio and clicking "Apply & Reload" navigates to `?dataset=ag-studio`, loading the vendored AG Grid Office Supplies dataset.
 
-BL-125: Once BL-117 is fixed, add a config option to the x-studio and x-studio-composed examples to the use the ag-studio data, as per the ag-studio example. Their dashboard layout should match that of https://www.ag-grid.com/studio/example/ (which BL-117 is supposed to have fixed for the ag-studio example).
+~~BL-125: Once BL-117 is fixed, add a config option to the x-studio and x-studio-composed examples to the use the ag-studio data, as per the ag-studio example. Their dashboard layout should match that of https://www.ag-grid.com/studio/example/ (which BL-117 is supposed to have fixed for the ag-studio example).~~
+Done: pending commit — Added shared office-supplies dashboard conversion in `examples/x-studio-shared`, rewired `x-studio` and `x-studio-composed` to use the AG Office Supplies dataset/layout, and scoped example local storage by dataset.
 
 ~~BL-126: The x-studio-composed example's config panel either isn't scrollable, or is missing all the controls that x-studio eample app has.~~
 Done: `53f9f2a4b4` — Added `overflowY: 'auto'` to `DialogContent` in x-studio-composed `SettingsDialog`.
@@ -415,7 +416,8 @@ Done: `648bb39b5c` — Added `onEditRequest?: (widgetId: string) => void` to `St
 
 ~~BL-131: Add an AI assistant button to the widget toolbar in the the x-studio-composed example app that opens a dialog where the user can ask for changes to the widget. Handle user feedback the wa x-data-grid-premium does for its AI feature.~~ **Fixed** (added `onAiRequest` prop to `StudioWidgetCard`/overlay; `focusedWidgetId` plumbed through `StudioChatPanel` → `createStudioChatAdapter` → `buildAISystemPrompt`; new `WidgetAiDialog` component in x-studio-composed; wired in App.tsx with `key={widgetId}` for per-widget chat isolation and auto-close on widget deletion)
 
-BL-132: The ag-studio example's dashboard config should be identical to to that at https://www.ag-grid.com/studio/example/ when using the ag-studio data (`?dataset=ag-studio`). Not just the tab names, but the entire dashboard layout, widgets, and widget configs. I've asked for this twoice before at least, and you keep getting it wrong. We already have the data, don't scrape that again. Fix the dashboard, and then make the x-studio and x-studio-composed examples look the same for this data set.
+~~BL-132: The ag-studio example's dashboard config should be identical to to that at https://www.ag-grid.com/studio/example/ when using the ag-studio data (`?dataset=ag-studio`). Not just the tab names, but the entire dashboard layout, widgets, and widget configs. I've asked for this twoice before at least, and you keep getting it wrong. We already have the data, don't scrape that again. Fix the dashboard, and then make the x-studio and x-studio-composed examples look the same for this data set.~~
+Done: pending commit — `ag-studio` now reuses vendored `mainDemoState` directly and loads AG alias sources plus vendored relationships/expressions so the Office Supplies dashboard matches the AG Studio example state.
 
 Not like this: ![our local ag-studio example with the AG Studio data](image.png)
 
@@ -424,5 +426,17 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 ~~BL-133: Put the sparkline trend icon and percentage in a chip with a semi-trasparent background the color of the icon, and a solid same-colored border.~~ **Fixed** (KpiTrend now wraps icon + percentage in an inline chip with 8%-alpha background and 1px solid border in the trend color; "vs. period" text remains outside the chip).
 
 ~~BL-144: Make the edit/delete buttons for data fields in the data panel closer together (say 2px between them).~~ **Fixed** (removed default MUI padding from IconButtons in DataSourceSection and RelationshipPanel; added `gap: '2px'` between buttons)
+
+BL-144: Make the edit/delete buttons for data fields in the data panel closer together (say 2px between them).
+
+BL-145: The drag pointer icon issue still isn't fixed - the pointer only changes to a hand when you drop a widget, instead of when it's grabbed.
+
+BL-146: The ghost widget when dragging needs much more transparency so that you can see the insertion points and tabs under it.
+
+BL-147: When dragging tabs, don't capture the ckick ripple in the ghost. Make the real tab invisible. Constrain the dragging to horizontal only. When the tab is dragged over its peer, swap that tab into the dragged tabs postion with an animation. Remove the drop indicator, it will no longer be needed with this approach (which copies Chrome browser tabs).
+
+BL-148: When a widget field is selected, make it read only with a close icon that reverts to an unselected select.
+
+BL-149: Add a feature for all widgets fields allowing to sort the data by one dimension, and either up, or down.
 
 BL-XXX: For all changes in this session, update the docs pages found in ./docs on all relevant pages, including the specific feature's page, and x/react-studio/comparison/, but anywhere else appropraite, and creating a new page as needed for larger features.

@@ -828,3 +828,8 @@ export function createStudioChatAdapter(
     },
   };
 }
+
+// ── Test helpers (not part of public API) ────────────────────────────────────
+
+/** @internal — exported for unit testing only */
+export { executeTool as _executeTool };

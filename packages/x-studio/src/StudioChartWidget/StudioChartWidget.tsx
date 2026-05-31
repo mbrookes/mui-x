@@ -61,6 +61,7 @@ import {
   makeValueFormatter,
   normalizeCrossFilterValue,
 } from './chartWidgetHelpers';
+import { detectWidgetAnomalies } from '../internals/anomalyDetection';
 
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
@@ -88,6 +89,22 @@ export interface StudioChartWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
   height?: number;
+  /**
+   * When true, the chart runs client-side anomaly detection (IQR method) on its
+   * computed y-axis data and overlays reference-line markers at anomalous categories.
+   * Detected annotations are merged with `widget.config.annotations`.
+   */
+  anomalyEnabled?: boolean;
+  /**
+   * Called after anomaly detection runs with the detected annotations.
+   * Use this to surface the anomaly count or detected values in parent UI.
+   */
+  onAnomalyDetected?: (annotations: import('../models/baseTypes').StudioChartAnnotation[]) => void;
+  /**
+   * Additional annotations generated outside the widget (e.g. anomaly detection markers).
+   * Merged with `widget.config.annotations` when rendering reference lines.
+   */
+  overlayAnnotations?: import('../models/baseTypes').StudioChartAnnotation[];
   slots?: StudioChartWidgetSlots;
   slotProps?: StudioChartWidgetSlotProps;
 }
@@ -100,7 +117,16 @@ const GHOST_SERIES_SUFFIX = '-ghost';
 export const StudioChartWidget = React.memo(function StudioChartWidget(
   props: StudioChartWidgetProps,
 ) {
-  const { dataSource, widget, height: heightProp, slots, slotProps } = props;
+  const {
+    dataSource,
+    widget,
+    height: heightProp,
+    anomalyEnabled,
+    onAnomalyDetected,
+    overlayAnnotations,
+    slots,
+    slotProps,
+  } = props;
   const chartHeight = heightProp ?? CHART_MIN_HEIGHT;
   const { config } = widget;
   const xGroupBy = config.xGroupBy;
@@ -418,11 +444,27 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const isHorizontalBarLayout = barLayout === 'horizontal';
 
   // Render annotation reference lines as chart children (not supported for pie/donut/gauge).
+  const detectedAnomalyAnnotations = React.useMemo(() => {
+    if (!anomalyEnabled) {
+      return [];
+    }
+    return detectWidgetAnomalies(widget, filteredRows);
+  }, [anomalyEnabled, widget, filteredRows]);
+
+  React.useEffect(() => {
+    onAnomalyDetected?.(detectedAnomalyAnnotations);
+  }, [detectedAnomalyAnnotations, onAnomalyDetected]);
+
   const annotationChildren = React.useMemo(() => {
-    if (!config.annotations?.length) {
+    const allAnnotations = [
+      ...(config.annotations ?? []),
+      ...(overlayAnnotations ?? []),
+      ...detectedAnomalyAnnotations,
+    ];
+    if (!allAnnotations.length) {
       return null;
     }
-    return config.annotations.map((ann) =>
+    return allAnnotations.map((ann) =>
       ann.axis === 'y' ? (
         <ChartsReferenceLine
           key={ann.id}
@@ -441,7 +483,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         />
       ),
     );
-  }, [config.annotations]);
+  }, [config.annotations, overlayAnnotations, detectedAnomalyAnnotations]);
 
   const getSelectedDataIndex = React.useCallback(
     (labels: Array<string | number | Date>) => {

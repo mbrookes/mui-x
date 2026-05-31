@@ -31,6 +31,7 @@ const TYPE_LABELS: Record<StudioInsightOptions['type'], string> = {
   summary: 'Summary',
   analysis: 'Analysis',
   forecast: 'Forecast',
+  anomaly: 'Anomaly Explanation',
 };
 
 export function StudioInsightPanel(props: StudioInsightPanelProps) {

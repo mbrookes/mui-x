@@ -124,8 +124,7 @@ export async function generateWidgetInsight(
 
   const widgetDesc =
     `Widget: "${widget.title}" (kind: ${widget.kind}). ` +
-    `Config: ${JSON.stringify(widget.config ?? {})}. ` +
-    sourceDesc;
+    `Config: ${JSON.stringify(widget.config ?? {})}. ${sourceDesc}`;
 
   const systemPrompt =
     'You are a data analyst AI assistant for an analytics dashboard. ' +

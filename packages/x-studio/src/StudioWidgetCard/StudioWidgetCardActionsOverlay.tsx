@@ -27,6 +27,7 @@ export interface StudioWidgetCardActionsOverlayProps {
   /**
    * Called when the user selects an AI insight type. When provided, an AI Insight
    * button appears in the overlay (visible in both edit and view modes when `aiConfig` is set).
+   * @param {'summary' | 'analysis' | 'forecast'} type - The insight type the user selected.
    */
   onInsightRequest?: (type: 'summary' | 'analysis' | 'forecast') => void;
   onExport: (event: React.MouseEvent) => void;

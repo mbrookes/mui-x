@@ -317,7 +317,9 @@ similarly for `chart` and `grid`. Removed flat `kpiSparkline`, `kpiTrend`, `kpiT
 
 **Done** — Added `userSelect: 'none'` to Typography elements for physical field rows, expression field rows, and section headers in `StudioDataDrawer/DataSourceSection.tsx`.
 
-BL-103: Clicking a data source name in the data lineage map should open a dialog with a data grid for the data (all fields as columns, including calculated).
+~~BL-103: Clicking a data source name in the data lineage map should open a dialog with a data grid for the data (all fields as columns, including calculated).~~
+
+**Done** — Added `onNodeClick?: (sourceId: string) => void` to `DataLineageGraph`; source nodes are now keyboard-accessible buttons. `StudioDataDrawer` swaps from the graph view to `DataSourcePreview` when a node is clicked, with a back button to return. `DataSourcePreview` renders a compact read-only `DataGrid` of all physical and non-measure expression fields. Row IDs use composite `${source.id}-${index}` keys. Field count in the subtitle correctly excludes measure fields.
 
 ~~BL-104: Data source dialog in the x-studio-composed app isn't scrollable.~~
 
@@ -335,7 +337,9 @@ BL-103: Clicking a data source name in the data lineage map should open a dialog
 
 **Done** — Added `onPageDragNavigate?: (pageId: string) => void` to `AppToolbar` in both example apps. Hovering a widget over a page tab for 600ms fires `onPageDragNavigate(pageId)`, navigating to that page. Uses tab-scoped counter + timer refs to handle child-element dragenter/dragleave churn. A global `document.addEventListener('dragend', cancelDragNavTimer)` cleans up if the drag ends or cancels outside the tab area. Wired in both `App.tsx` files.
 
-BL-108: Add representative examples of the the new widgets and chart types in all three example apps configs for the salesData.
+~~BL-108: Add representative examples of the the new widgets and chart types in all three example apps configs for the salesData.~~
+
+**Done** — Fixed `MapSetupPanel` to include string expression fields (e.g. `expr-order-country`) in the country field picker. Fixed `PivotSetupPanel` to use `ef.type` instead of hardcoded `'number'`, so string expression fields appear in category pickers. Fixed `queryDescriptor.collectSelectFields()` to include `mapCountryField`/`mapValueField` so map widget expression fields are enriched. Added "Revenue by Country" world choropleth map to the Overview page and a new "Analytics" page with a "Revenue by Segment × Status" pivot table to both `x-studio` and `x-studio-composed` configs. ag-studio uses a different widget system (N/A).
 
 BL109: Widget resize vertical grid lines still aren't correctly spaced. This was supposed to be fixed in BL-96. Use a browser to check if you can and need to see for yourself.
 
@@ -351,7 +355,7 @@ BL109: Widget resize vertical grid lines still aren't correctly spaced. This was
 
 **Done** — `StudioWidgetCard.handleDragStart` sets `document.body.dataset.studioDraggingWidgetId`; `handleDragEnd` clears it. Module-level `isAdjacentToDraggingWidget()` helper checks the attribute against `widgetRowsRef` to detect flanking positions. Both `InsertionPoint` (vertical only) and `WidgetGap` skip `preventDefault`/`setIsOver` when adjacent to the drag source.
 
-~~BL-113: The demo app config dialogs need to be updated to reflect the nested feature flags -  turning off a parent feature should disable the child flags switches (preserving but ignoring thier current state).~~
+~~BL-113: The demo app config dialogs need to be updated to reflect the nested feature flags - turning off a parent feature should disable the child flags switches (preserving but ignoring thier current state).~~
 
 **Done** — `FeatureFlagSettings` (x-studio-shared) now renders a proper visual hierarchy. Widget sub-flags (sparkline, trend, annotations, groupBy, etc.) appear indented under their parent widget kind toggle. Top-level child flags (savedFilterViews, relationships) are indented under their parent (filters, dataManagement). Disabled flags render at 0.5 opacity in addition to the Switch being disabled. A shared `FlagRow` helper keeps rendering consistent.
 
@@ -359,14 +363,48 @@ BL109: Widget resize vertical grid lines still aren't correctly spaced. This was
 
 **Done** — `PhysicalFieldRow` and `ExpressionFieldRow` in `StudioDataDrawer/DataSourceSection.tsx` now accept/use `isEditMode`. When false: `disableRipple`, `onClick` cleared, `cursor: 'default'`, hover `bgcolor: transparent`. `PhysicalFieldRow` also clears `selected` when not in edit mode.
 
-BL-115: Map tooltip should show the country/state etc name.
+~~BL-115: Map tooltip should show the country/state etc name.~~
+
+**Done** — Added `alpha2ToName(code)` helper using `Intl.DisplayNames('en', { type: 'region' })` for broad alpha-2 coverage. Added `STATE_ABBR_TO_NAME` map for US geography. `featureIdToLabel()` in `StudioMapWidget` routes to the correct lookup per geography type. Each series data point now carries `label: featureIdToLabel(featureId)` so `ChoroplethTooltip` shows "France" instead of "FR".
 
 ~~BL-116: The ag-studio example doesn't need a setting for for sidebar layout, that's an x-studio feature.~~
 
 **Done** — Removed `SidebarLayout` type, `sidebarLayout` state, `onSidebarLayoutChange` prop, and the Sidebar layout `RadioGroup` from `examples/ag-studio/src/components/SettingsDialog.tsx` and `App.tsx`.
 
-BL-117: THe ag-studio example dashboard config for the AG Studio Data Dataset setting was supposed to have been scraped from https://www.ag-grid.com/studio/example/. Figure out how to access the underlying JSON and clone it in our app.
+~~BL-117: THe ag-studio example dashboard config for the AG Studio Data Dataset setting was supposed to have been scraped from https://www.ag-grid.com/studio/example/. Figure out how to access the underlying JSON and clone it in our app.~~
 
-BL-118: Make sure the chat agent tools are updated for all the new chart types and widgets. MAke sure it can understand and insert custom widgets.
+**Done** — Scraped AG Grid Studio demo data into `examples/x-studio-shared/src/vendor/mainDemoData.js` and `mainDemoState.js`. `loadRawOfficeSuppliesData.ts` imports from the vendored data. The dataset is available in all three example apps via `?dataset=ag-studio`.
 
-BL-119: /research AG Studio AI assistant, and /plan and implement enhancements to ours to make it feature complete.
+~~BL-118: Make sure the chat agent tools are updated for all the new chart types and widgets. MAke sure it can understand and insert custom widgets.~~
+
+**Done** — `47efe2b09b` — `StudioChatPanel` reads `customWidgets` from `useStudioUIConfig()` context (with explicit prop override). `buildAISystemPrompt` includes custom widget metadata (kind, label, description, requiresDataSource, defaultConfig keys). `studioAdapter` seeds `defaultConfig` when AI creates a custom widget. `studioAITools` `add_widget` kind field no longer has a static enum so custom kinds are accepted.
+
+~~BL-119: Sort the table under "Building blocks" into components and hooks.~~
+Done: `45e827a75b` — Split "Building blocks" table in composition.md into Components and Hooks sub-tables.
+
+~~BL-120: In the x-studio-composed example, clicking an unconfigured widget should open the widget config panel for that widget.~~
+Done: `45e827a75b` — Added `onUnconfiguredClick` prop to StudioWidgetCard; x-studio-composed wires it to open ComposeDialog.
+
+~~BL-121: Users can't configure the pivot table, as it has no data source. Infer it from the row and column.~~
+Done: `45e827a75b` — PivotSetupPanel shows all-sources fields when no sourceId; infers sourceId atomically on first field selection.
+
+~~BL-122: Add widgets for appropriate use-cases to the example apps (same on both) on the existing pages for mixed, heatmap, funnel, gantt/timeline, and gauge. If the source data and data generator need enrichment to have suitable data to use, take care of that.~~
+Done: `62d5236ad2` — Added gauge (page-1), heatmap (page-2), Gantt (page-3), funnel+mixed (page-5) to both example apps. Fixed JSX tag mismatch in StudioGanttChart.
+
+~~BL-123: Add gauge as a sparkline option on the KPI widget.~~
+Done: `62d5236ad2` — Added `'gauge'` plotType to KpiSparkline; renders `<Gauge>` from @mui/x-charts; KpiSetupPanel shows Min/Max fields and hides time-series controls in gauge mode; widget-kpi-orders demos gauge sparkline.
+
+~~BL-124: Add a config option to the x-studio and x-studio-composed to the use ag-studio data, as per the ag-studio example.~~
+Done: `d07f8fdbba` — Added Dataset radio group (Sales vs AG Studio Office Supplies) to SettingsDialog in both example apps. Selecting AG Studio and clicking "Apply & Reload" navigates to `?dataset=ag-studio`, loading the vendored AG Grid Office Supplies dataset.
+
+BL-125: Once BL-117 is fixed, add a config option to the x-studio and x-studio-composed examples to the use the ag-studio data, as per the ag-studio example. Their dashboard layout should match that of https://www.ag-grid.com/studio/example/ (which BL-117 is supposed to have fixed for the ag-studio example).
+
+BL-126: The x-studio-composed example's config panel either isn't scrollable, or is missing all the controls that x-studio eample app has.
+
+BL-127: Change the feature flag settings in the x-studio and x-studio-composed examples from switches to checkboxes. Note that checkboxes disabled by thier parent should retain their setting so that enabling the parent keeps disable sub-features disabled, and vice-versa.
+
+BL-128: Remove the copy link and refresh data features from the x-studio-composed example.
+
+BL-129: make the "Edit widget" button and panel a feature of the x-studio-composed example only, migrating the code from the x-studio package (composing the widget being edited, and the config panel in a dialog), and removing the composed dialog from x-studio pagage if held there. Wire the edit button on each widget and at the top of the page to that, rather than the bare config panel.
+
+BL-XXX: For all changes in this session, update the docs pages found in ./docs on all relevant pages, including the specific feature's page, and x/react-studio/comparison/, but anywhere else appropraite, and creating a new page as needed for larger features.

@@ -54,6 +54,7 @@ const TOP_LEVEL_FLAGS: {
 }[] = [
   { key: 'compose', label: 'Compose panel' },
   { key: 'filters', label: 'Filters panel' },
+  { key: 'dateRangeBar', label: 'Date range bar' },
   { key: 'savedFilterViews', label: 'Saved filter views', parentKey: 'filters' },
   { key: 'dataManagement', label: 'Data management drawer' },
   { key: 'relationships', label: 'Relationships panel', parentKey: 'dataManagement' },

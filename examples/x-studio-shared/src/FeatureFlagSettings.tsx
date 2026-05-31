@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Box, FormControl, FormControlLabel, FormLabel, Switch } from '@mui/material';
+import { Box, Checkbox, FormControl, FormControlLabel, FormLabel } from '@mui/material';
 import type { StudioFeatureFlags } from '@mui/x-studio';
 
 type NestedKindKey = 'kpi' | 'chart' | 'grid';
@@ -96,7 +96,7 @@ const WIDGET_SUB_FLAGS: {
   },
 ];
 
-/** Renders a single Switch row, optionally indented for visual nesting. */
+/** Renders a single Checkbox row, optionally indented for visual nesting. */
 function FlagRow({
   label,
   checked,
@@ -114,7 +114,7 @@ function FlagRow({
     <Box sx={indented ? { ml: 3 } : undefined}>
       <FormControlLabel
         control={
-          <Switch
+          <Checkbox
             size="small"
             checked={checked}
             disabled={disabled}

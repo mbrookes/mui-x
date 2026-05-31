@@ -160,6 +160,12 @@ export interface StudioChatPanelProps {
    */
   customWidgets?: StudioCustomWidgetDef[];
   /**
+   * When set, the AI prompt is focused on this specific widget.
+   * The system prompt will include extra context about the widget,
+   * guiding the AI to assist with modifications to it.
+   */
+  focusedWidgetId?: string;
+  /**
    * Whether the panel is visible. Use this for overlay / slide-in mode.
    * When omitted, the panel is always rendered (persistent mode).
    */
@@ -179,6 +185,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   const {
     aiConfig,
     customWidgets: customWidgetsProp,
+    focusedWidgetId,
     open = true,
     onClose,
     overlay = false,
@@ -214,8 +221,8 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     if (!aiConfig?.endpoint) {
       return null;
     }
-    return createStudioChatAdapter(aiConfig, controller, onRemoveWidgetRequest, customWidgets);
-  }, [aiConfig, controller, onRemoveWidgetRequest, customWidgets]);
+    return createStudioChatAdapter(aiConfig, controller, onRemoveWidgetRequest, customWidgets, focusedWidgetId);
+  }, [aiConfig, controller, onRemoveWidgetRequest, customWidgets, focusedWidgetId]);
 
   // ── Dynamic suggestions ────────────────────────────────────────────────────
   const suggestions = React.useMemo(

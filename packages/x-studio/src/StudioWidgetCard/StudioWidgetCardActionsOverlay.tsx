@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { IconButton, Menu, MenuItem, Stack, Tooltip } from '@mui/material';
 import type { SxProps } from '@mui/material';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -21,6 +22,8 @@ export interface StudioWidgetCardActionsOverlayProps {
   overlayTopSx: SxProps;
   /** Pages the widget can be moved to (excludes the current page). */
   moveToPageOptions: Array<{ id: string; title: string }>;
+  /** Called when the "AI assistant" button is clicked. When omitted, the button is hidden. */
+  onAiRequest?: () => void;
   onExport: (event: React.MouseEvent) => void;
   onExpand: () => void;
   onEdit: () => void;
@@ -42,6 +45,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
     showViewExpand,
     overlayTopSx,
     moveToPageOptions,
+    onAiRequest,
     onExport,
     onExpand,
     onEdit,
@@ -102,6 +106,22 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               tabIndex={showEditActions ? 0 : -1}
             >
               <OpenInFullIcon />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onAiRequest && (
+          <Tooltip title="AI assistant">
+            <IconButton
+              size="small"
+              sx={actionButtonSx}
+              onClick={(event) => {
+                event.stopPropagation();
+                onAiRequest();
+              }}
+              aria-label="AI assistant"
+              tabIndex={showEditActions ? 0 : -1}
+            >
+              <AutoAwesomeIcon />
             </IconButton>
           </Tooltip>
         )}

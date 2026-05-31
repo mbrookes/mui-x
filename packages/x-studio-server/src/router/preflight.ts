@@ -34,7 +34,7 @@ const DEFAULT_SERVER_MEMORY_THRESHOLD = 100_000;
  * @param thresholds - Optional tier boundary overrides
  */
 export async function runPreflight(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any, // Knex.Knex
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
@@ -69,7 +69,7 @@ export async function runPreflight(
  * - 'db': return aggregated rows (DB push-down, no caching of raw data)
  */
 export async function executeForTier(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,

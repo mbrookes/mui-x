@@ -1,12 +1,13 @@
 'use client';
 import * as React from 'react';
 import { Stack, TextField } from '@mui/material';
-import { useStudioController, useStudioSelector, selectWidgets } from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, useStudioLocaleText } from '../context';
 
 export function TextSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const widget = useStudioSelector(selectWidgets)[widgetId];
+  const localeText = useStudioLocaleText();
   const [form, setForm] = React.useState({
     title: widget?.title ?? '',
     subtitle: widget?.config.textSubtitle ?? '',
@@ -39,10 +40,10 @@ export function TextSetupPanel(props: { widgetId: string }) {
   return (
     <Stack spacing={2}>
       <TextField
-        label="Title"
+        label={localeText.textSetupTitleLabel}
         size="small"
         fullWidth
-        helperText="Heading displayed at the top of the widget"
+        helperText={localeText.textSetupTitleHelper}
         value={form.title}
         onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
         onBlur={handleTitleBlur}
@@ -53,20 +54,20 @@ export function TextSetupPanel(props: { widgetId: string }) {
         }}
       />
       <TextField
-        label="Subtitle"
+        label={localeText.textSetupSubtitleLabel}
         size="small"
         fullWidth
-        helperText="Smaller text below the heading"
+        helperText={localeText.textSetupSubtitleHelper}
         value={form.subtitle}
         onChange={(event) => setForm((prev) => ({ ...prev, subtitle: event.target.value }))}
         onBlur={handleTextFieldBlur}
       />
       <TextField
-        label="Body"
+        label={localeText.textSetupBodyLabel}
         fullWidth
         multiline
         minRows={5}
-        helperText="Main content of the widget; supports plain text"
+        helperText={localeText.textSetupBodyHelper}
         value={form.body}
         onChange={(event) => setForm((prev) => ({ ...prev, body: event.target.value }))}
         onBlur={handleTextFieldBlur}

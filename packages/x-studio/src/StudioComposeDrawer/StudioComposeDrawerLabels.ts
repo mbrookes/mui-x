@@ -1,19 +1,29 @@
+'use client';
 import type { StudioWidgetKind } from '../models';
+import { useStudioLocaleText } from '../context';
 
-export const KIND_LABEL: Record<StudioWidgetKind, string> = {
-  grid: 'Table',
-  chart: 'Chart',
-  kpi: 'KPI',
-  text: 'Text',
-  filter: 'Filter',
-  pivot: 'Pivot Table',
-  map: 'Map',
-};
+export function useWidgetKindLabels(): Record<StudioWidgetKind, string> {
+  const localeText = useStudioLocaleText();
 
-export const TYPE_FORMAT_LABEL: Record<string, string> = {
-  string: 'Text',
-  number: 'Number',
-  boolean: 'Boolean',
-  date: 'Date',
-  datetime: 'Date & Time',
-};
+  return {
+    grid: localeText.widgetKindGrid,
+    chart: localeText.widgetKindChart,
+    kpi: localeText.widgetKindKpi,
+    text: localeText.widgetKindText,
+    filter: localeText.widgetKindFilter,
+    pivot: localeText.widgetKindPivot,
+    map: localeText.widgetKindMap,
+  };
+}
+
+export function useDataTypeLabels(): Record<string, string> {
+  const localeText = useStudioLocaleText();
+
+  return {
+    string: localeText.dataTypeString,
+    number: localeText.dataTypeNumber,
+    boolean: localeText.dataTypeBoolean,
+    date: localeText.dataTypeDate,
+    datetime: localeText.dataTypeDatetime,
+  };
+}

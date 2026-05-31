@@ -15,13 +15,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
-import {
-  useStudioSelector,
-  selectDataSources,
-  selectExpressionFields,
-  selectRelationships,
-  selectMode,
-} from '../context';
+import { useStudioSelector, selectDataSources, selectExpressionFields, selectRelationships, selectMode, useStudioLocaleText } from '../context';
 import { DataSourceSection } from './DataSourceSection';
 import { RelationshipPanel } from './RelationshipPanel';
 import { DataLineageGraph } from './DataLineageGraph';
@@ -36,6 +30,7 @@ export function StudioDataDrawer() {
   const relationships = useStudioSelector(selectRelationships);
   const mode = useStudioSelector(selectMode);
   const features = useStudioFeatures();
+  const localeText = useStudioLocaleText();
   const sourceList = Object.values(dataSources).filter((s) => !s.hidden);
 
   const [lineageOpen, setLineageOpen] = React.useState(false);
@@ -50,7 +45,7 @@ export function StudioDataDrawer() {
   if (sourceList.length === 0) {
     return (
       <Alert severity="info" sx={{ mt: 1 }}>
-        No data sources configured. Add a widget from the canvas to load sample data.
+        {localeText.dataDrawerNoSources}
       </Alert>
     );
   }
@@ -86,7 +81,7 @@ export function StudioDataDrawer() {
               onClick={() => setLineageOpen(true)}
               fullWidth
             >
-              View data lineage
+              {localeText.dataDrawerViewLineage}
             </Button>
           </Box>
           <Dialog
@@ -100,7 +95,7 @@ export function StudioDataDrawer() {
               {selectedSource ? (
                 <IconButton
                   size="small"
-                  aria-label="Back to lineage graph"
+                  aria-label={localeText.dataDrawerBackAriaLabel}
                   onClick={() => setLineageSourceId(null)}
                   sx={{ mr: 0.5 }}
                 >
@@ -123,14 +118,14 @@ export function StudioDataDrawer() {
                 </React.Fragment>
               ) : (
                 <React.Fragment>
-                  Data lineage
+                  {localeText.dataDrawerLineageTitle}
                   <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                    Click a node to preview its data. Click an edge to inspect join key fields.
+                    {localeText.dataDrawerLineageHelper}
                   </Typography>
                 </React.Fragment>
               )}
               <IconButton
-                aria-label="Close data lineage"
+                aria-label={localeText.dataDrawerCloseAriaLabel}
                 onClick={handleLineageClose}
                 sx={{ position: 'absolute', right: 8, top: 8 }}
               >

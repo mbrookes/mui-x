@@ -9,7 +9,7 @@ import {
   useCustomWidgetMap,
 } from '../context';
 import { useStudioFeatures } from '../internals/StudioUIConfigContext';
-import { KIND_LABEL } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
+import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
 import { ChartSetupPanel } from '../StudioComposeDrawer/ChartSetupPanel';
 import { FilterSetupPanel } from '../StudioComposeDrawer/FilterSetupPanel';
 import { FormatPanel } from '../StudioComposeDrawer/FormatPanel';
@@ -99,6 +99,7 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
   const widget = widgets[widgetId];
   const features = useStudioFeatures();
   const showFiltersTab = features.widgetFilters !== false;
+  const widgetKindLabels = useWidgetKindLabels();
 
   const handleTabChange = React.useCallback(
     (_event: React.SyntheticEvent, v: number) => setTab(v),
@@ -114,7 +115,7 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
     return null;
   }
 
-  const kindLabel = KIND_LABEL[widget.kind] ?? widget.kind;
+  const kindLabel = widgetKindLabels[widget.kind] ?? widget.kind;
 
   return (
     <Dialog

@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Box, Tab, Tabs } from '@mui/material';
 import { useDrawerSubheader } from '../Studio/DrawerPanelContext';
-import { useStudioSelector, selectWidgets, selectShell, useCustomWidgetMap } from '../context';
+import { useStudioSelector, selectWidgets, selectShell, useCustomWidgetMap, useStudioLocaleText } from '../context';
 import { StudioUIConfigContext } from '../internals/StudioUIConfigContext';
 import { AddWidgetView } from './AddWidgetView';
 import { ChartSetupPanel } from './ChartSetupPanel';
@@ -39,6 +39,7 @@ function TabPanel(props: TabPanelProps) {
 function WidgetConfigView(props: { widgetId: string }) {
   const { widgetId } = props;
   const [tab, setTab] = React.useState(0);
+  const localeText = useStudioLocaleText();
   const widget = useStudioSelector(selectWidgets)[widgetId];
   const customWidgetMap = useCustomWidgetMap();
   const customDef = widget ? (customWidgetMap.get(widget.kind) ?? null) : null;
@@ -57,11 +58,11 @@ function WidgetConfigView(props: { widgetId: string }) {
         variant="fullWidth"
         sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0 } }}
       >
-        <Tab label="Setup" />
-        <Tab label="Format" />
+        <Tab label={localeText.widgetEditDialogTabSetup} />
+        <Tab label={localeText.widgetEditDialogTabFormat} />
       </Tabs>
     ),
-    [tab, handleTabChange],
+    [tab, handleTabChange, localeText],
   );
 
   useDrawerSubheader(subheaderNode);
@@ -111,6 +112,7 @@ export interface StudioComposeDrawerProps {
 export function StudioComposeDrawer(props: StudioComposeDrawerProps = {}) {
   const { tableSourceMode } = props;
   const shell = useStudioSelector(selectShell);
+  const localeText = useStudioLocaleText();
   const selectedWidgetId = shell.selectedWidgetId;
   const selectedFieldId = shell.selectedFieldId;
 

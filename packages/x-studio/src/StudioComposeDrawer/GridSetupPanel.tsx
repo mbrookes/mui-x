@@ -33,14 +33,7 @@ import type {
   StudioGridColumn,
   StudioGridSummaryAggregation,
 } from '../models';
-import {
-  useStudioController,
-  useStudioSelector,
-  selectWidgets,
-  selectDataSources,
-  selectRelationships,
-  selectExpressionFields,
-} from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectRelationships, selectExpressionFields, useStudioLocaleText } from '../context';
 import { getReachableSourceIds } from '../internals/chartUtils';
 import { StudioUIConfigContext, useStudioFeatures } from '../internals/StudioUIConfigContext';
 import { FieldTypeIcon } from '../internals/FieldTypeIcon';
@@ -58,14 +51,6 @@ const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = [
 ];
 const STRING_AGGREGATIONS: StudioGridSummaryAggregation[] = ['count', 'count_distinct'];
 
-const AGG_LABELS: Record<StudioGridSummaryAggregation, string> = {
-  sum: 'Sum',
-  avg: 'Average',
-  count: 'Count',
-  count_distinct: 'Unique',
-  min: 'Min',
-  max: 'Max',
-};
 
 const CF_OPERATORS: { value: StudioConditionalFormat['operator']; label: string }[] = [
   { value: 'equals', label: '=' },
@@ -109,6 +94,15 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const relationships = useStudioSelector(selectRelationships);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const { tableSourceMode } = React.useContext(StudioUIConfigContext);
+  const localeText = useStudioLocaleText();
+  const aggLabels: Record<StudioGridSummaryAggregation, string> = {
+    sum: localeText.aggFnSum,
+    avg: localeText.aggFnAverage,
+    count: localeText.aggFnCount,
+    count_distinct: 'Unique',
+    min: localeText.aggFnMin,
+    max: localeText.aggFnMax,
+  };
 
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
 
@@ -427,7 +421,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
             renderInput={(params) => (
               <TextField
                 {...params}
-                label="Data source"
+                label={localeText.gridSetupDataSourceLabel}
                 placeholder="Select a data source…"
                 helperText={!source ? 'Choose a data source to configure columns' : undefined}
               />
@@ -461,7 +455,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
             const isDraggingOver = dragOverIndex === index && dragIndex !== index;
             let aggregationTooltipTitle = 'Set summary / remove';
             if (currentAgg) {
-              aggregationTooltipTitle = `${groupByField ? 'Aggregate' : 'Summary'}: ${AGG_LABELS[currentAgg]}`;
+              aggregationTooltipTitle = `${groupByField ? 'Aggregate' : 'Summary'}: ${aggLabels[currentAgg]}`;
             } else if (groupByField) {
               aggregationTooltipTitle = 'Set aggregation';
             }
@@ -577,7 +571,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                         ) : (
                           <ListItemIcon />
                         )}
-                        {AGG_LABELS[agg]}
+                        {aggLabels[agg]}
                       </MenuItem>
                     ))}
                 </Menu>
@@ -640,7 +634,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
               </React.Fragment>
             ))}
             {addableFields.length === 0 && (
-              <MenuItem disabled>All available columns added</MenuItem>
+              <MenuItem disabled>{localeText.gridSetupAllColumnsAdded}</MenuItem>
             )}
           </Menu>
 
@@ -657,8 +651,8 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   })
                 }
                 fields={crossFilterFieldEntries}
-                label="Cross-filter field"
-                helperText="Field applied to other widgets when a row is selected; defaults to the first visible column"
+                label={localeText.gridSetupCrossFilterFieldLabel}
+                helperText={localeText.gridSetupCrossFilterFieldHelper}
               />
 
               {/* Group-by field */}
@@ -672,8 +666,8 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     })
                   }
                   fields={crossFilterFieldEntries}
-                  label="Group by"
-                  helperText="Collapse rows into groups — set per-column aggregation below"
+                  label={localeText.gridSetupGroupByLabel}
+                  helperText={localeText.gridSetupGroupByHelper}
                 />
               )}
 
@@ -689,7 +683,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                       })
                     }
                     fields={crossFilterFieldEntries}
-                    label="Default sort"
+                    label={localeText.gridSetupDefaultSortLabel}
                   />
                 </Box>
                 <ToggleButtonGroup
@@ -704,12 +698,12 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   }}
                   sx={{ height: 40, flexShrink: 0 }}
                 >
-                  <ToggleButton value="asc" aria-label="Ascending">
+                  <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
                     <Tooltip title="Ascending">
                       <ArrowUpwardIcon fontSize="small" />
                     </Tooltip>
                   </ToggleButton>
-                  <ToggleButton value="desc" aria-label="Descending">
+                  <ToggleButton value="desc" aria-label={localeText.sortDescendingAriaLabel}>
                     <Tooltip title="Descending">
                       <ArrowDownwardIcon fontSize="small" />
                     </Tooltip>
@@ -740,7 +734,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
       {source && features.gridConditionalFormats !== false && (
         <React.Fragment>
           {/* Conditional formatting rules */}
-          <SetupSection title="Conditional formatting">
+          <SetupSection title={localeText.gridSetupConditionalFormattingTitle}>
             <Stack spacing={1}>
               {conditionalFormats.map((rule, i) => {
                 const noValueOp = rule.operator === 'is_empty' || rule.operator === 'is_not_empty';
@@ -833,13 +827,13 @@ export function GridSetupPanel(props: { widgetId: string }) {
                       ))}
                       {!preset && (
                         <MenuItem value="__custom__" dense sx={{ fontSize: 12 }}>
-                          Custom
+                          {localeText.gridSetupConditionalCustom}
                         </MenuItem>
                       )}
                     </Select>
                     <IconButton
                       size="small"
-                      aria-label="Remove rule"
+                      aria-label={localeText.gridSetupRemoveRuleAriaLabel}
                       onClick={() => {
                         const next = conditionalFormats.filter((_, j) => j !== i);
                         controller.updateWidgetConfig(widgetId, {
@@ -884,8 +878,8 @@ export function GridSetupPanel(props: { widgetId: string }) {
         <React.Fragment>
           {/* Interactions — cross-filter mode */}
           <SetupSection
-            title="Interactions"
-            description="When other widgets are clicked, this table…"
+            title={localeText.gridSetupInteractionsTitle}
+            description={localeText.gridSetupInteractionsDescription}
             dividerMb={0}
           >
             <ToggleButtonGroup

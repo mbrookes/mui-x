@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import type { StudioFilterState } from '../models';
 import { NumberField } from '../internals/NumberField';
+import { useStudioLocaleText } from '../context';
 
 export interface AvailableSeries {
   fieldId: string;
@@ -38,6 +39,7 @@ export function RankFilterInput({
   availableSeries?: AvailableSeries[];
   onChange: (changes: Partial<StudioFilterState>) => void;
 }) {
+  const localeText = useStudioLocaleText();
   const showRankBy = availableSeries && availableSeries.length > 1;
 
   return (
@@ -74,9 +76,9 @@ export function RankFilterInput({
 
       {showRankBy && (
         <FormControl size="small" fullWidth>
-          <InputLabel>Rank by</InputLabel>
+          <InputLabel>{localeText.filterRankByLabel}</InputLabel>
           <Select
-            label="Rank by"
+            label={localeText.filterRankByLabel}
             value={rankMultiSeriesBy ?? '__sum'}
             onChange={(event) => onChange({ rankMultiSeriesBy: event.target.value })}
           >

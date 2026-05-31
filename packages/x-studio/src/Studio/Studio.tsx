@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { Box, Drawer, IconButton, Tooltip, Typography, CircularProgress } from '@mui/material';
+import { useThemeProps } from '@mui/material/styles';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -510,10 +511,10 @@ const StudioContent = React.memo(function StudioContent(
       {features.aiChat && aiConfig?.endpoint && (
         <React.Fragment>
           {/* Summarise dashboard button */}
-          <Tooltip title="Summarise dashboard" placement="left">
+          <Tooltip title={localeText.aiSummarizeTooltip} placement="left">
             <IconButton
               onClick={handleSummariseDashboard}
-              aria-label="Summarise dashboard"
+              aria-label={localeText.aiSummarizeTooltip}
               sx={{
                 position: 'absolute',
                 bottom: 76,
@@ -552,10 +553,10 @@ const StudioContent = React.memo(function StudioContent(
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
               <AutoAwesomeIcon sx={{ fontSize: 18, mr: 1, color: 'primary.main' }} />
               <Typography variant="subtitle2" sx={{ flex: 1 }}>
-                Dashboard Summary
+                {localeText.aiSummaryTitle}
               </Typography>
               {summaryResult && (
-                <Tooltip title={summaryCopied ? 'Copied!' : 'Copy'}>
+                <Tooltip title={summaryCopied ? localeText.aiCopiedTooltip : localeText.aiCopyTooltip}>
                   <IconButton
                     size="small"
                     onClick={() => {
@@ -569,7 +570,7 @@ const StudioContent = React.memo(function StudioContent(
                   </IconButton>
                 </Tooltip>
               )}
-              <Tooltip title="Regenerate">
+              <Tooltip title={localeText.aiRegenerateTooltip}>
                 <IconButton
                   size="small"
                   onClick={handleSummariseDashboard}
@@ -578,7 +579,7 @@ const StudioContent = React.memo(function StudioContent(
                   <AutoAwesomeIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              <Tooltip title="Close">
+              <Tooltip title={localeText.aiCloseTooltip}>
                 <IconButton
                   size="small"
                   onClick={() => {
@@ -670,7 +671,8 @@ const StudioContent = React.memo(function StudioContent(
  */
 export const Studio = React.memo(
   // react-doctor-disable-next-line react-doctor/no-react19-deprecated-apis
-  React.forwardRef<StudioHandle, StudioProps>(function Studio(props, ref) {
+  React.forwardRef<StudioHandle, StudioProps>(function Studio(inProps, ref) {
+    const props = useThemeProps({ props: inProps, name: 'MuiStudio' });
     const { initialState, onStateChange, tableSourceMode, featureFlags, localeText, ...slots } =
       props;
     const aiConfig = (slots as { aiConfig?: StudioAIConfig | null }).aiConfig;

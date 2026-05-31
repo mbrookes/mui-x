@@ -11,13 +11,7 @@ import {
   Switch,
   Typography,
 } from '@mui/material';
-import {
-  useStudioController,
-  useStudioSelector,
-  selectWidgets,
-  selectDataSources,
-  selectExpressionFields,
-} from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectExpressionFields, useStudioLocaleText } from '../context';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
@@ -30,6 +24,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
   const widgets = useStudioSelector(selectWidgets);
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
+  const localeText = useStudioLocaleText();
   const widget = widgets[widgetId];
   const config = widget?.config ?? {};
 
@@ -154,23 +149,23 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
   return (
     <Stack spacing={2}>
       <Typography variant="caption" color="text.secondary">
-        Build a cross-tabulation by choosing a row field, column field, and value measure.
+        {localeText.pivotSetupDescription}
       </Typography>
 
       <DataSourceFieldSelect
         value={config.pivotRowField ?? ''}
         onChange={(fieldId, sourceId) => handleFieldChange('pivotRowField', fieldId, sourceId)}
         fields={categoryFields}
-        label="Row field"
-        helperText="Categorical field shown as row groups on the left"
+        label={localeText.pivotSetupRowFieldLabel}
+        helperText={localeText.pivotSetupRowFieldHelper}
       />
 
       <DataSourceFieldSelect
         value={config.pivotColField ?? ''}
         onChange={(fieldId, sourceId) => handleFieldChange('pivotColField', fieldId, sourceId)}
         fields={categoryFields}
-        label="Column field"
-        helperText="Categorical field spread across column headers"
+        label={localeText.pivotSetupColFieldLabel}
+        helperText={localeText.pivotSetupColFieldHelper}
       />
 
       <Divider />
@@ -186,11 +181,11 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
             })
           }
         >
-          <MenuItem value="sum">Sum</MenuItem>
-          <MenuItem value="avg">Average</MenuItem>
+          <MenuItem value="sum">{localeText.aggFnSum}</MenuItem>
+          <MenuItem value="avg">{localeText.aggFnAverage}</MenuItem>
           <MenuItem value="count">Count (rows)</MenuItem>
-          <MenuItem value="min">Min</MenuItem>
-          <MenuItem value="max">Max</MenuItem>
+          <MenuItem value="min">{localeText.aggFnMin}</MenuItem>
+          <MenuItem value="max">{localeText.aggFnMax}</MenuItem>
         </Select>
       </FormControl>
 
@@ -199,8 +194,8 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
           value={config.pivotValueField ?? ''}
           onChange={(fieldId, sourceId) => handleFieldChange('pivotValueField', fieldId, sourceId)}
           fields={numericFields}
-          label="Value field"
-          helperText="Numeric field aggregated into each cell"
+          label={localeText.pivotSetupValueFieldLabel}
+          helperText={localeText.pivotSetupValueFieldHelper}
         />
       )}
 

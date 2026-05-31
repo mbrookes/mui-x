@@ -84,7 +84,7 @@ export async function handleBatchQuery(
 }
 
 async function processWidget(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,

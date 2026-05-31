@@ -149,6 +149,7 @@ export interface DefaultizedScatterSeriesType extends DefaultizedProps<
    * A sqrt-scaled function mapping a `size` data value to a pixel radius.
    * Present when any data point has a `size` field.
    * Computed by the series processor from `minBubbleRadius`/`maxBubbleRadius`.
+   * @param value
    */
   sizeScale?: (value: number) => number;
 }

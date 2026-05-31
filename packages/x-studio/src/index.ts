@@ -109,7 +109,10 @@ export type { StudioLocaleText, ResolvedStudioFeatures } from './internals/Studi
 export { DEFAULT_STUDIO_LOCALE_TEXT } from './internals/StudioUIConfigContext';
 
 // ─── Locales ─────────────────────────────────────────────────────────────────
-export { ptBRLocaleText } from './locales/ptBR';
+export { ptBRLocaleText, ptBR } from './locales/ptBR';
+export { enUS } from './locales/enUS';
+export type { Localization } from './locales/utils/getStudioLocalization';
+export { getStudioLocalization } from './locales/utils/getStudioLocalization';
 
 // ─── Selectors ────────────────────────────────────────────────────────────────
 export {

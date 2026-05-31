@@ -40,7 +40,7 @@ import type {
   StudioValueExpression,
   StudioFieldExpression,
 } from '../models';
-import { useStudioController } from '../context';
+import { useStudioController, useStudioLocaleText } from '../context';
 import {
   validateExpressionField,
   evaluateExpression,
@@ -183,6 +183,7 @@ function InputNode({
   onChange,
 }: InputNodeProps) {
   const inputKind = getInputKind(expr);
+  const localeText = useStudioLocaleText();
   const [functionCollapsed, setFunctionCollapsed] = React.useState(false);
 
   const allFieldOptions = [
@@ -222,17 +223,17 @@ function InputNode({
           onChange={(event) => handleKindChange(event.target.value as InputKind)}
           sx={{ minWidth: 90, fontSize: '0.75rem' }}
         >
-          <MenuItem value="field">Field</MenuItem>
-          <MenuItem value="literal">Literal</MenuItem>
-          <MenuItem value="function">Function</MenuItem>
+          <MenuItem value="field">{localeText.exprNodeTypeField}</MenuItem>
+          <MenuItem value="literal">{localeText.exprNodeTypeLiteral}</MenuItem>
+          <MenuItem value="function">{localeText.exprNodeTypeFunction}</MenuItem>
         </Select>
         {inputKind === 'function' && (
-          <Tooltip title={functionCollapsed ? 'Expand' : 'Collapse'}>
+          <Tooltip title={functionCollapsed ? localeText.exprExpandTooltip : localeText.exprCollapseTooltip}>
             <IconButton
               size="small"
               onClick={() => setFunctionCollapsed((c) => !c)}
               aria-label={
-                functionCollapsed ? 'Expand nested expression' : 'Collapse nested expression'
+                functionCollapsed ? localeText.exprExpandTooltip : localeText.exprCollapseTooltip
               }
             >
               {functionCollapsed ? (
@@ -303,9 +304,9 @@ function InputNode({
             }}
             sx={{ minWidth: 80, fontSize: '0.75rem' }}
           >
-            <MenuItem value="number">Number</MenuItem>
-            <MenuItem value="string">Text</MenuItem>
-            <MenuItem value="boolean">Boolean</MenuItem>
+            <MenuItem value="number">{localeText.exprDataTypeNumber}</MenuItem>
+            <MenuItem value="string">{localeText.exprDataTypeText}</MenuItem>
+            <MenuItem value="boolean">{localeText.exprDataTypeBoolean}</MenuItem>
           </Select>
           {expr.type === 'boolean' ? (
             <Select
@@ -316,8 +317,8 @@ function InputNode({
               }}
               sx={{ flexGrow: 1, fontSize: '0.75rem' }}
             >
-              <MenuItem value="true">True</MenuItem>
-              <MenuItem value="false">False</MenuItem>
+              <MenuItem value="true">{localeText.exprBooleanTrue}</MenuItem>
+              <MenuItem value="false">{localeText.exprBooleanFalse}</MenuItem>
             </Select>
           ) : (
             <TextField
@@ -376,6 +377,7 @@ function ExpressionBuilder({
   isMeasure,
   onChange,
 }: ExpressionBuilderProps) {
+  const localeText = useStudioLocaleText();
   const isFn = 'operator' in expression;
   const fnExpr = isFn ? (expression as StudioFunctionExpression) : null;
 
@@ -458,7 +460,7 @@ function ExpressionBuilder({
               />
             </Box>
             {inputs.length > minInputs && (
-              <Tooltip title="Remove input">
+              <Tooltip title={localeText.exprRemoveInputTooltip}>
                 <IconButton size="small" onClick={() => handleRemoveInput(i)} sx={{ mt: 2.5 }}>
                   <DeleteIcon fontSize="small" />
                 </IconButton>
@@ -590,6 +592,7 @@ function makeDefaultExpression(): StudioExpression {
 export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogProps) {
   const { open, onClose, dataSource, expressionFields, existingField, onSaved } = props;
   const controller = useStudioController();
+  const localeText = useStudioLocaleText();
 
   const isEdit = !!existingField;
 
@@ -767,9 +770,9 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose}>{localeText.exprCancel}</Button>
         <Button variant="contained" onClick={handleSave} disabled={hasErrors || !label.trim()}>
-          {isEdit ? 'Save' : 'Add Field'}
+          {isEdit ? localeText.exprSave : localeText.exprAddField}
         </Button>
       </DialogActions>
     </Dialog>

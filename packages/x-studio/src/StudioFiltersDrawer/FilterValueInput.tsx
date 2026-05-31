@@ -29,7 +29,7 @@ import type { StudioFilterOperator, StudioMetricRef } from '../models';
 import type { RelativeDateUnit, RelativeDateValue } from '../internals/filterTypes';
 import type { FieldType } from './filterDrawerTypes';
 import { isRelativeDateValue, absoluteToRelative, relativeToAbsolute } from './filterDrawerUtils';
-import { useStudioSelector, selectDataSources } from '../context';
+import { useStudioSelector, selectDataSources, useStudioLocaleText } from '../context';
 import { fieldHasCapability } from '../utils/fieldCapabilities';
 
 const RELATIVE_UNITS: { value: RelativeDateUnit; label: string }[] = [
@@ -73,6 +73,7 @@ function MetricPickerButton({
   isLinked?: boolean;
   fieldType: 'number' | 'date' | 'datetime';
 }) {
+  const localeText = useStudioLocaleText();
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
   const dataSources = useStudioSelector(selectDataSources);
 
@@ -117,10 +118,10 @@ function MetricPickerButton({
 
   if (isLinked) {
     return (
-      <Tooltip title="Remove field link">
+      <Tooltip title={localeText.filterRemoveFieldLink}>
         <IconButton
           size="small"
-          aria-label="Remove field link"
+          aria-label={localeText.filterRemoveFieldLink}
           onClick={() => onRemoveLink?.()}
           color="primary"
         >
@@ -136,10 +137,10 @@ function MetricPickerButton({
 
   return (
     <React.Fragment>
-      <Tooltip title="Link to field">
+      <Tooltip title={localeText.filterLinkToField}>
         <IconButton
           size="small"
-          aria-label="Link to field"
+          aria-label={localeText.filterLinkToField}
           onClick={(evt) => setAnchorEl(evt.currentTarget)}
         >
           <AddLinkIcon sx={{ fontSize: 14 }} />
@@ -182,6 +183,7 @@ function RelativeDateInput({
   onMetricSelect?: (value: RelativeDateValue, ref: StudioMetricRef) => void;
   metricLabel?: string;
 }) {
+  const localeText = useStudioLocaleText();
   const isLinked = Boolean(valueRef);
   const amountField = (
     <NumberField
@@ -312,6 +314,7 @@ function DateValueInput({
   onMetricSelect?: (value: unknown, ref: StudioMetricRef) => void;
   metricLabel?: string;
 }) {
+  const localeText = useStudioLocaleText();
   const isRel = isRelativeDateValue(value);
   const mode = isRel ? 'relative' : 'absolute';
 
@@ -400,12 +403,12 @@ function DateValueInput({
         onChange={handleModeChange}
         sx={{ alignSelf: 'center' }}
       >
-        <Tooltip title="Absolute date">
+        <Tooltip title={localeText.filterAbsoluteDate}>
           <ToggleButton value="absolute" sx={{ px: 1.5, py: 0.5 }}>
             <CalendarTodayIcon sx={{ fontSize: 18 }} />
           </ToggleButton>
         </Tooltip>
-        <Tooltip title="Relative date">
+        <Tooltip title={localeText.filterRelativeDate}>
           <ToggleButton value="relative" sx={{ px: 1.5, py: 0.5 }}>
             <AccessTimeIcon sx={{ fontSize: 18 }} />
           </ToggleButton>
@@ -468,6 +471,7 @@ export function FilterValueInput(props: {
     onMetricSelect,
     fieldValues,
   } = props;
+  const localeText = useStudioLocaleText();
   const strVal = String(value ?? '');
   const canUseMetric = onValueRefChange !== undefined;
   const metricLabel = useMetricLabel(canUseMetric ? valueRef : undefined);
@@ -522,7 +526,7 @@ export function FilterValueInput(props: {
     return (
       <FormControl size="small" sx={{ minWidth: 90, flexGrow: 1 }}>
         <InputLabel>Value</InputLabel>
-        <Select label="Value" value={strVal} onChange={(event) => onChange(event.target.value)}>
+        <Select label={localeText.filterValueLabel} value={strVal} onChange={(event) => onChange(event.target.value)}>
           <MenuItem value="true">True</MenuItem>
           <MenuItem value="false">False</MenuItem>
         </Select>
@@ -544,7 +548,7 @@ export function FilterValueInput(props: {
         value={localText}
         onInputChange={(_, newVal) => handleTextChange(newVal)}
         renderInput={(params) => (
-          <TextField {...params} label="Value" helperText="Value to compare against" />
+          <TextField {...params} label={localeText.filterValueLabel} helperText={localeText.filterValueHelper} />
         )}
         sx={{ minWidth: 80, flexGrow: 1 }}
       />
@@ -556,8 +560,8 @@ export function FilterValueInput(props: {
   const textField = (
     <TextField
       size="small"
-      label="Value"
-      helperText="Value to compare against"
+      label={localeText.filterValueLabel}
+      helperText={localeText.filterValueHelper}
       value={localText}
       disabled={isLinked}
       onChange={(event) => {

@@ -18,15 +18,7 @@ import {
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FunctionsIcon from '@mui/icons-material/Functions';
-import {
-  useStudioController,
-  useStudioSelector,
-  selectWidgets,
-  selectDataSources,
-  selectFilters,
-  selectRelationships,
-  selectExpressionFields,
-} from '../context';
+import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectFilters, selectRelationships, selectExpressionFields, useStudioLocaleText } from '../context';
 import { useStudioFeatures } from '../internals/StudioUIConfigContext';
 import { fieldHasCapability } from '../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../internals/chartUtils';
@@ -36,16 +28,18 @@ import { SetupSection } from './SetupSection';
 import { MetricRefInput } from '../StudioFiltersDrawer/MetricRefInput';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
-const GRANULARITIES: {
-  value: NonNullable<StudioWidgetConfig['kpiSparklineGranularity']>;
-  label: string;
-}[] = [
-  { value: 'day', label: 'Day' },
-  { value: 'week', label: 'Week' },
-  { value: 'month', label: 'Month' },
-  { value: 'quarter', label: 'Quarter' },
-  { value: 'year', label: 'Year' },
-];
+function getKpiGranularities(localeText: ReturnType<typeof useStudioLocaleText>) {
+  return [
+    { value: 'day', label: localeText.timeGranDay },
+    { value: 'week', label: localeText.timeGranWeek },
+    { value: 'month', label: localeText.timeGranMonth },
+    { value: 'quarter', label: localeText.timeGranQuarter },
+    { value: 'year', label: localeText.timeGranYear },
+  ] satisfies {
+    value: NonNullable<StudioWidgetConfig['kpiSparklineGranularity']>;
+    label: string;
+  }[];
+}
 
 /**
  * A collapsible section with a labeled header row containing a switch toggle on the
@@ -148,6 +142,8 @@ function CollapsibleFeatureSection({
 function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConfig }) {
   const { widgetId, config } = props;
   const controller = useStudioController();
+  const localeText = useStudioLocaleText();
+  const granularities = getKpiGranularities(localeText);
   const dataSources = useStudioSelector(selectDataSources);
   const filters = useStudioSelector(selectFilters);
   const widget = useStudioSelector(selectWidgets)[widgetId];
@@ -271,7 +267,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
             <MenuItem value="">
               <em>Auto</em>
             </MenuItem>
-            {GRANULARITIES.map((g) => (
+            {granularities.map((g) => (
               <MenuItem key={g.value} value={g.value}>
                 {g.label}
               </MenuItem>
@@ -291,9 +287,9 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
             })
           }
         >
-          <MenuItem value="line">Line</MenuItem>
-          <MenuItem value="bar">Bar</MenuItem>
-          <MenuItem value="gauge">Gauge</MenuItem>
+          <MenuItem value="line">{localeText.kpiSetupChartLine}</MenuItem>
+          <MenuItem value="bar">{localeText.kpiSetupChartBar}</MenuItem>
+          <MenuItem value="gauge">{localeText.kpiSetupChartGauge}</MenuItem>
         </Select>
       </FormControl>
 
@@ -361,36 +357,40 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
   );
 }
 
-const AGGREGATIONS: Record<string, { value: StudioKpiAggregation; label: string }[]> = {
-  number: [
-    { value: 'sum', label: 'Sum' },
-    { value: 'avg', label: 'Average' },
-    { value: 'count', label: 'Count' },
-    { value: 'min', label: 'Min' },
-    { value: 'max', label: 'Max' },
-  ],
-  string: [{ value: 'count', label: 'Count' }],
-  boolean: [{ value: 'count', label: 'Count' }],
-  date: [
-    { value: 'count', label: 'Count' },
-    { value: 'min', label: 'Earliest' },
-    { value: 'max', label: 'Latest' },
-  ],
-  datetime: [
-    { value: 'count', label: 'Count' },
-    { value: 'min', label: 'Earliest' },
-    { value: 'max', label: 'Latest' },
-  ],
-};
+function getKpiAggregations(localeText: ReturnType<typeof useStudioLocaleText>) {
+  return {
+    number: [
+      { value: 'sum', label: localeText.aggFnSum },
+      { value: 'avg', label: localeText.aggFnAverage },
+      { value: 'count', label: localeText.aggFnCount },
+      { value: 'min', label: localeText.aggFnMin },
+      { value: 'max', label: localeText.aggFnMax },
+    ],
+    string: [{ value: 'count', label: localeText.aggFnCount }],
+    boolean: [{ value: 'count', label: localeText.aggFnCount }],
+    date: [
+      { value: 'count', label: localeText.aggFnCount },
+      { value: 'min', label: 'Earliest' },
+      { value: 'max', label: 'Latest' },
+    ],
+    datetime: [
+      { value: 'count', label: localeText.aggFnCount },
+      { value: 'min', label: 'Earliest' },
+      { value: 'max', label: 'Latest' },
+    ],
+  } satisfies Record<string, { value: StudioKpiAggregation; label: string }[]>;
+}
 
 export function KpiSetupPanel(props: { widgetId: string }) {
   const widget = useStudioSelector(selectWidgets)[props.widgetId];
   const controller = useStudioController();
   const features = useStudioFeatures();
+  const localeText = useStudioLocaleText();
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const relationships = useStudioSelector(selectRelationships);
   const config = widget?.config ?? {};
+  const aggregations = getKpiAggregations(localeText);
 
   // Gather fields from all data sources (used for the value field anchor picker)
   const allFields = React.useMemo(() => {
@@ -441,8 +441,8 @@ export function KpiSetupPanel(props: { widgetId: string }) {
   const selectedFieldType = selectedField?.type ?? null;
 
   const aggregationOptions = selectedFieldType
-    ? AGGREGATIONS[selectedFieldType] || [{ value: 'count', label: 'Count' }]
-    : AGGREGATIONS.number;
+    ? aggregations[selectedFieldType] || [{ value: 'count', label: localeText.aggFnCount }]
+    : aggregations.number;
   const onlyOneAgg = aggregationOptions.length === 1;
   const selectedAgg = aggregationOptions.find((a) => a.value === config.kpiAggregation)
     ? config.kpiAggregation
@@ -466,10 +466,10 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             const newField = allFields.find((f) => f.id === fieldId && f.sourceId === fSourceId);
             const newFieldType = newField?.type ?? null;
             const newAggOptions = newFieldType
-              ? (AGGREGATIONS[newFieldType] ?? [
-                  { value: 'count' as StudioKpiAggregation, label: 'Count' },
+              ? (aggregations[newFieldType] ?? [
+                  { value: 'count' as StudioKpiAggregation, label: localeText.aggFnCount },
                 ])
-              : AGGREGATIONS.number;
+              : aggregations.number;
             const currentAggValid = newAggOptions.some((a) => a.value === config.kpiAggregation);
             const configUpdate: Partial<import('../models').StudioWidgetConfig> = {
               kpiValueField: fieldId,
@@ -570,9 +570,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
                   })
                 }
               >
-                <MenuItem value="previous-period">Previous period (matching duration)</MenuItem>
-                <MenuItem value="previous-calendar-period">Previous calendar period</MenuItem>
-                <MenuItem value="year-over-year">Same period last year</MenuItem>
+                <MenuItem value="previous-period">{localeText.kpiSetupCompPrevPeriod}</MenuItem>
+                <MenuItem value="previous-calendar-period">{localeText.kpiSetupCompPrevCalendarPeriod}</MenuItem>
+                <MenuItem value="year-over-year">{localeText.kpiSetupCompSameLastYear}</MenuItem>
               </Select>
             </FormControl>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -591,7 +591,10 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         {/* Interactions — cross-filter mode. KPIs are summary metrics with no visual row
         representation, so "cross-highlight" (dim non-matching rows) does not apply.
         Only "Filter" (re-aggregate over the selection) and "None" (grand total) make sense. */}
-        <SetupSection title="Interactions" description="When other widgets are clicked, this KPI…">
+        <SetupSection
+          title={localeText.kpiSetupInteractionsTitle}
+          description={localeText.kpiSetupInteractionsDescription}
+        >
           <ToggleButtonGroup
             value={
               ((config.crossFilterMode === 'cross-highlight'

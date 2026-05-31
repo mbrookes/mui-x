@@ -16,6 +16,7 @@ import {
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import type { StudioFeatureFlags } from '@mui/x-studio';
 import { FeatureFlagSettings } from 'x-studio-shared';
+import { type SupportedLocale, LOCALE_LABELS } from '../locales';
 
 export type DatasetMode = 'sales' | 'ag-studio';
 
@@ -25,10 +26,13 @@ export interface SettingsDialogProps {
   dataset: DatasetMode;
   featureFlags: StudioFeatureFlags;
   onFeatureFlagsChange: (flags: StudioFeatureFlags) => void;
+  locale: SupportedLocale;
+  onLocaleChange: (locale: SupportedLocale) => void;
 }
 
 export function SettingsDialog(props: SettingsDialogProps) {
-  const { open, onClose, dataset, featureFlags, onFeatureFlagsChange } = props;
+  const { open, onClose, dataset, featureFlags, onFeatureFlagsChange, locale, onLocaleChange } =
+    props;
 
   const [pendingDataset, setPendingDataset] = React.useState<DatasetMode>(dataset);
 
@@ -82,6 +86,21 @@ export function SettingsDialog(props: SettingsDialogProps) {
             Dataset changes take effect after reload.
           </Typography>
         )}
+
+        <Divider />
+
+        {/* Language — immediate, no reload needed */}
+        <FormControl>
+          <FormLabel>Language</FormLabel>
+          <RadioGroup
+            value={locale}
+            onChange={(_evt, val) => onLocaleChange(val as SupportedLocale)}
+          >
+            {(Object.entries(LOCALE_LABELS) as [SupportedLocale, string][]).map(([key, label]) => (
+              <FormControlLabel key={key} value={key} control={<Radio size="small" />} label={label} />
+            ))}
+          </RadioGroup>
+        </FormControl>
 
         <Divider />
 

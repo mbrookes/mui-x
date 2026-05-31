@@ -15,6 +15,10 @@ export { StudioDateRangeBar } from './StudioCanvas/StudioDateRangeBar';
 export { StudioWidgetCard } from './StudioWidgetCard/StudioWidgetCard';
 export type { StudioWidgetCardProps } from './StudioWidgetCard/StudioWidgetCard';
 
+// ─── StudioWidgetEditDialog ───────────────────────────────────────────────────
+export { StudioWidgetEditDialog } from './StudioWidgetEditDialog';
+export type { StudioWidgetEditDialogProps } from './StudioWidgetEditDialog';
+
 // ─── StudioNoDataOverlay ──────────────────────────────────────────────────────
 export { StudioNoDataOverlay } from './internals/StudioNoDataOverlay';
 export type { StudioNoDataOverlayProps } from './internals/StudioNoDataOverlay';

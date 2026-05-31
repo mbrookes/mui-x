@@ -16,7 +16,10 @@ export interface StudioInsightPanelProps {
   error: string | null;
   /** Called when the user clicks the close button. */
   onClose: () => void;
-  /** Called when the user wants to regenerate (type selection or just refresh). */
+  /**
+   * Called when the user wants to regenerate (type selection or just refresh).
+   * @param {StudioInsightOptions['type']} type - The insight type to generate.
+   */
   onRegenerate: (type: StudioInsightOptions['type']) => void;
   /** Active insight type. */
   activeType: StudioInsightOptions['type'];

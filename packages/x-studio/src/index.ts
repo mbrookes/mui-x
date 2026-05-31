@@ -232,10 +232,12 @@ export type {
   StudioChatPanelSlotProps,
 } from './StudioChatPanel/StudioChatPanel';
 export { createStudioChatAdapter } from './StudioChatPanel/studioAdapter';
-export type { StudioAIConfig } from './StudioChatPanel/studioAdapter';
+export type { StudioAIConfig, StudioAiTool } from './StudioChatPanel/studioAdapter';
 export { buildAISystemPrompt } from './internals/buildAISystemPrompt';
 export { STUDIO_AI_TOOLS } from './StudioChatPanel/studioAITools';
 export type { StudioAIToolName } from './StudioChatPanel/studioAITools';
+export { generateWidgetInsight, generateDashboardSummary } from './StudioChatPanel/generateInsight';
+export type { StudioInsightOptions, StudioInsightResult } from './StudioChatPanel/generateInsight';
 
 // ─── Server adapter utilities ─────────────────────────────────────────────────
 export { createBatchingAdapter } from './server/createBatchingAdapter';

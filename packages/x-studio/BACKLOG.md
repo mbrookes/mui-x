@@ -465,7 +465,7 @@ BL-162: Move dataset selection to the top of the app configuration widget, and m
 
 BL-163: The filter panel page filter field select isn't using the shared field select that has field type icons etc.
 
-BL-164: Something seems to have gone wrong with the relationship display in the data panel. Before, only user defined relationships were shown. I asked for those defined in the data to be displayed (read only), but now they appear to have been added as editable relationships. Deleting them through the UI breaks widget rendering, when the widgets should be using the predefined relationships.
+~~BL-164: Something seems to have gone wrong with the relationship display in the data panel. Before, only user defined relationships were shown. I asked for those defined in the data to be displayed (read only), but now they appear to have been added as editable relationships. Deleting them through the UI breaks widget rendering, when the widgets should be using the predefined relationships.~~ **Fixed** (added `predefined?: boolean` to `StudioRelationship`; RelationshipPanel hides Edit and Delete buttons when `rel.predefined === true`)
 
 BL-165: In x-studio-composed, after adding a new widget with the FAB, it should open the composed preview/edit widget, not the edit only one. The preview should include the entire widget (including title etc.), and not just the chart. For example you can't see edits to a text widget.
 

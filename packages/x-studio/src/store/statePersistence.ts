@@ -23,6 +23,7 @@ export interface SerializedStudioState {
   filters: StudioState['filters'];
   relationships?: StudioState['relationships'];
   expressionFields?: StudioExpressionField[];
+  filterPresets?: StudioState['filterPresets'];
 }
 
 /**
@@ -176,6 +177,8 @@ export function serializeState(state: StudioState): SerializedStudioState {
     filters: state.filters.filter((f) => f.scope !== 'cross-filter'),
     relationships: state.relationships,
     expressionFields: state.expressionFields.length > 0 ? state.expressionFields : undefined,
+    filterPresets:
+      (state.filterPresets?.length ?? 0) > 0 ? state.filterPresets : undefined,
   };
 }
 
@@ -214,6 +217,7 @@ export function deserializeState(
     filters: serialized.filters,
     relationships: serialized.relationships ?? [],
     expressionFields: serialized.expressionFields ?? [],
+    filterPresets: serialized.filterPresets ?? [],
     shell: {
       ...defaultState.shell,
       ...shellOverrides,

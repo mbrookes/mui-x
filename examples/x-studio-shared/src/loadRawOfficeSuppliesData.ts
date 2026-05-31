@@ -12,7 +12,10 @@ type StatsHint = { indexToValue?: unknown[]; nullCount?: number };
  */
 async function columnarToRows(source: {
   tables: Array<{ fields: Array<{ id: string }> }>;
-  getData: (arg: null, fieldIds: string[]) => Promise<{
+  getData: (
+    arg: null,
+    fieldIds: string[],
+  ) => Promise<{
     data: Array<ArrayLike<number> | boolean[]>;
     nullMasks?: Uint8Array[];
     statsHints?: Record<number, StatsHint>;
@@ -58,9 +61,7 @@ export async function loadRawOfficeSuppliesData(): Promise<RawOfficeSuppliesData
   const { getMainDemoDataGenerated } = await import('./vendor/mainDemoData.js');
 
   const result = getMainDemoDataGenerated(agStudioSeededFactory);
-  const byId = Object.fromEntries(
-    result.sources.map((s: { id: string }) => [s.id, s]),
-  );
+  const byId = Object.fromEntries(result.sources.map((s: { id: string }) => [s.id, s]));
 
   const [stores, products, customers, orders, orderItems, shipments] = await Promise.all([
     columnarToRows(byId.stores),

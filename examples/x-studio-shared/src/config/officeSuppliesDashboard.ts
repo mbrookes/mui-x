@@ -1,5 +1,5 @@
 import type { StudioState } from '@mui/x-studio';
-import { createXStudioOfficeSuppliesState } from 'x-studio-shared';
+import { createXStudioOfficeSuppliesState } from '../officeSuppliesDashboard';
 import {
   OS_STORES_SOURCE_ID,
   OS_PRODUCTS_SOURCE_ID,

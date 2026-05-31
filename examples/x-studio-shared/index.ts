@@ -12,6 +12,10 @@ export type {
   OrderItemRow,
   ShipmentRow,
 } from './src/types.js';
+export * from './src/salesData/index.js';
+export * from './src/officeSuppliesData/index.js';
+export { INITIAL_STATE } from './src/config/salesDashboard.js';
+export { OS_INITIAL_STATE } from './src/config/officeSuppliesDashboard.js';
 export { MAIN_DEMO_PAGES, createXStudioOfficeSuppliesState } from './src/officeSuppliesDashboard';
 export { mainDemoState } from './src/vendor/mainDemoState';
 export { expressions, relationships } from './src/vendor/mainDemoData';

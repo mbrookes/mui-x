@@ -445,6 +445,47 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               </FormControl>
             )}
 
+            {/* Sort controls — shown when x-field is set on categorical charts (not scatter, not gauge, not gantt) */}
+            {config.xField && !isScatter && (
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                <FormControl size="small" sx={{ flex: 1 }}>
+                  <InputLabel>Sort by</InputLabel>
+                  <Select
+                    label="Sort by"
+                    value={config.chartSortBy ?? 'category'}
+                    onChange={(evt) => {
+                      controller.updateWidgetConfig(widgetId, {
+                        chartSortBy: evt.target.value as 'category' | 'value',
+                      });
+                    }}
+                  >
+                    <MenuItem value="category">Category</MenuItem>
+                    <MenuItem value="value">Value</MenuItem>
+                  </Select>
+                </FormControl>
+                <ToggleButtonGroup
+                  value={config.chartSortDirection ?? 'asc'}
+                  exclusive
+                  onChange={(_e, val) => {
+                    if (val) {
+                      controller.updateWidgetConfig(widgetId, {
+                        chartSortDirection: val as 'asc' | 'desc',
+                      });
+                    }
+                  }}
+                  size="small"
+                  aria-label="Sort direction"
+                >
+                  <ToggleButton value="asc" aria-label="Ascending">
+                    ↑ Asc
+                  </ToggleButton>
+                  <ToggleButton value="desc" aria-label="Descending">
+                    ↓ Desc
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Stack>
+            )}
+
             {/* Scatter: single Y field + optional color-by */}
             {isScatter && (
               <React.Fragment>

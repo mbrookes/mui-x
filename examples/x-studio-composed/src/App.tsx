@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Alert, Box, Chip, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
+import { Alert, Box, Chip, CircularProgress, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import {
@@ -37,6 +37,7 @@ import {
   INITIAL_STATE,
   OS_INITIAL_STATE,
   generateSalesData,
+  loadOfficeSuppliesData,
 } from 'x-studio-shared';
 import type { OfficeSuppliesData } from 'x-studio-shared';
 import dayjs from 'dayjs';
@@ -723,12 +724,28 @@ export default function App() {
     };
   }, []);
 
-  // Create the controller once with the resolved initial state.
+  // Async load of Office Supplies data when the ag-studio dataset is selected.
+  // The URL ?dataset=ag-studio param is set before this component mounts (page
+  // reload via SettingsDialog), so `dataset` is stable for the lifetime of App.
+  const [osData, setOsData] = React.useState<OfficeSuppliesData | null>(null);
+  React.useEffect(() => {
+    if (dataset !== 'ag-studio') {
+      return;
+    }
+    loadOfficeSuppliesData().then((data) => setOsData(data));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Show a loading indicator while the OS dataset is being fetched.
+  const isLoading = dataset === 'ag-studio' && osData === null;
+
+  // Create the controller once the initial state can be fully resolved.
+  // For ag-studio, this depends on osData; re-creates when data arrives.
   // In the composable pattern we hold the controller directly (no imperative ref)
   // and pass it to StudioProvider so all descendant components can access it.
   const controller = React.useMemo<StudioController>(
-    () => createStudioController(buildInitialState()),
-    [],
+    () => createStudioController(buildInitialState(osData ?? undefined)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [osData],
   );
 
   const [snackbar, setSnackbar] = React.useState<{

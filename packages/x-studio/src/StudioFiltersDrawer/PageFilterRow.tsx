@@ -2,12 +2,7 @@
 import * as React from 'react';
 import {
   Box,
-  FormControl,
   IconButton,
-  InputLabel,
-  ListSubheader,
-  MenuItem,
-  Select,
   Stack,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
@@ -26,6 +21,7 @@ import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
 import { FilterCard } from './FilterCard';
 import { FilterBody } from './FilterBody';
+import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../StudioComposeDrawer/DataSourceFieldSelect';
 
 export interface PageFilterRowProps {
   filter: StudioFilterState;
@@ -100,10 +96,14 @@ export function PageFilterRow(props: PageFilterRowProps) {
     const currentMode = filter.filterMode ?? 'condition';
     const pickableOptions =
       currentMode === 'rank' ? fieldOptions.filter((o) => o.fieldType === 'number') : fieldOptions;
-    const groups = pickableOptions.reduce<Record<string, FieldOption[]>>((acc, opt) => {
-      (acc[opt.sourceLabel] ??= []).push(opt);
-      return acc;
-    }, {});
+
+    const fieldEntries: DataSourceFieldEntry[] = pickableOptions.map((o) => ({
+      id: o.id,
+      label: o.label,
+      type: o.fieldType,
+      sourceId: o.sourceId,
+      sourceLabel: o.sourceLabel,
+    }));
 
     return (
       <Stack spacing={1}>
@@ -113,39 +113,25 @@ export function PageFilterRow(props: PageFilterRowProps) {
           disableRank={disableRankMode}
         />
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-          <FormControl size="small" sx={{ flexGrow: 1 }}>
-            <InputLabel>Select a field…</InputLabel>
-            <Select
-              label="Select a field…"
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <DataSourceFieldSelect
               value=""
-              onChange={(event) => {
-                const opt = pickableOptions.find(
-                  (o) => `${o.sourceId}:${o.id}` === event.target.value,
-                );
+              fields={fieldEntries}
+              label={localeText.filterSelectField ?? 'Select a field…'}
+              onChange={(fieldId, sourceId) => {
+                const opt = pickableOptions.find((o) => o.id === fieldId && o.sourceId === sourceId);
                 if (opt) {
                   handleFilterChange({
                     field: opt.id,
                     fieldType: opt.fieldType,
-                    // Track which source owns this field so cross-source filtering
-                    // can do a proper semi-join instead of looking up a missing field
-                    // natively (which would produce no matching rows).
                     filterSourceId: opt.sourceId,
                     value: defaultValueForMode(currentMode),
                     operator: 'equals',
                   });
                 }
               }}
-            >
-              {Object.entries(groups).map(([sourceLabel, opts]) => [
-                <ListSubheader key={`hdr-${sourceLabel}`}>{sourceLabel}</ListSubheader>,
-                ...opts.map((o) => (
-                  <MenuItem key={`${o.sourceId}:${o.id}`} value={`${o.sourceId}:${o.id}`}>
-                    {o.label}
-                  </MenuItem>
-                )),
-              ])}
-            </Select>
-          </FormControl>
+            />
+          </Box>
           <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label={localeText.filterRemoveAriaLabel}>
             <CloseIcon fontSize="small" />
           </IconButton>

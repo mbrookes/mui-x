@@ -44,6 +44,14 @@ export interface StudioWidgetConfig {
   seriesField?: string;
   /** Granularity to truncate the x-axis date/datetime field before grouping. */
   xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
+  /**
+   * How to sort chart x-axis categories.
+   * - 'category': sort labels alphabetically / numerically (default).
+   * - 'value': sort by the aggregated y-value.
+   */
+  chartSortBy?: 'category' | 'value';
+  /** Sort direction for chartSortBy. @default 'asc' */
+  chartSortDirection?: 'asc' | 'desc';
   /** Scatter chart: categorical field used to split points into colour-coded series. */
   scatterColorField?: string;
   /**

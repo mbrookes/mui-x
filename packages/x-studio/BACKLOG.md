@@ -423,6 +423,6 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 
 ~~BL-133: Put the sparkline trend icon and percentage in a chip with a semi-trasparent background the color of the icon, and a solid same-colored border.~~ **Fixed** (KpiTrend now wraps icon + percentage in an inline chip with 8%-alpha background and 1px solid border in the trend color; "vs. period" text remains outside the chip).
 
-BL-144: Make the edit/delete buttons for data fields in the data panel closer together (say 2px between them).
+~~BL-144: Make the edit/delete buttons for data fields in the data panel closer together (say 2px between them).~~ **Fixed** (removed default MUI padding from IconButtons in DataSourceSection and RelationshipPanel; added `gap: '2px'` between buttons)
 
 BL-XXX: For all changes in this session, update the docs pages found in ./docs on all relevant pages, including the specific feature's page, and x/react-studio/comparison/, but anywhere else appropraite, and creating a new page as needed for larger features.

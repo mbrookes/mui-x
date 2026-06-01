@@ -1,5 +1,6 @@
 'use client';
 import * as React from 'react';
+import { styled } from '@mui/material/styles';
 import {
   ChartsTooltipContainer,
   ChartsTooltipPaper,
@@ -8,44 +9,54 @@ import {
   ChartsTooltipCell,
   useItemTooltip,
 } from '@mui/x-charts/ChartsTooltip';
-import { ChartsLabelMark } from '@mui/x-charts/internals';
+
+// ─── Styled region-name header (matches HeatmapTooltipAxesValue style) ────────
+
+const MapTooltipRegionLabel = styled('caption', {
+  name: 'MuiStudioMapTooltip',
+  slot: 'RegionLabel',
+})(({ theme }) => ({
+  display: 'table-caption',
+  textAlign: 'start',
+  whiteSpace: 'nowrap',
+  padding: theme.spacing(0.5, 1.5),
+  color: (theme.vars || theme).palette.text.secondary,
+  borderBottom: `solid ${(theme.vars || theme).palette.divider} 1px`,
+}));
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 export interface StudioMapTooltipContextValue {
   /** Display label for the value field, shown alongside the formatted value. */
   valueFieldLabel: string | null;
+  /** Converts a geographic featureId (e.g. alpha-2 code, state abbreviation) to a display name. */
+  featureIdToLabel: (featureId: string) => string;
 }
 
 export const StudioMapTooltipContext = React.createContext<StudioMapTooltipContextValue>({
   valueFieldLabel: null,
+  featureIdToLabel: (featureId) => featureId,
 });
 
 // ─── Content ──────────────────────────────────────────────────────────────────
 
 function StudioMapTooltipContent() {
   const tooltipData = useItemTooltip<'choropleth'>();
-  const { valueFieldLabel } = React.useContext(StudioMapTooltipContext);
+  const { valueFieldLabel, featureIdToLabel } = React.useContext(StudioMapTooltipContext);
 
   // No data for this region — suppress the tooltip entirely.
   if (!tooltipData || !tooltipData.formattedValue) {
     return null;
   }
 
-  const { color, label, formattedValue, markType } = tooltipData;
+  const { identifier, formattedValue } = tooltipData;
+  const regionName = featureIdToLabel(identifier.featureId);
 
   return (
     <ChartsTooltipPaper>
       <ChartsTooltipTable>
+        <MapTooltipRegionLabel>{regionName}</MapTooltipRegionLabel>
         <tbody>
-          <ChartsTooltipRow>
-            <ChartsTooltipCell component="th">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <ChartsLabelMark type={markType} color={color} />
-                {label}
-              </div>
-            </ChartsTooltipCell>
-          </ChartsTooltipRow>
           <ChartsTooltipRow>
             {valueFieldLabel && (
               <ChartsTooltipCell component="th">{valueFieldLabel}</ChartsTooltipCell>

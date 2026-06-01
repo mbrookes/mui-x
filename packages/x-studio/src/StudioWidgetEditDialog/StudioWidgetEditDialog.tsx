@@ -165,6 +165,17 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
 
         {/* Live widget */}
         <Box sx={{ flex: 1, overflow: 'hidden', p: 2 }}>
+          {/* Card-style header mirrors the canvas widget card layout */}
+          <Box sx={{ mb: 0.5, minWidth: 0 }}>
+            <Typography variant="h6" noWrap>
+              {widget.title || `Untitled ${kindLabel}`}
+            </Typography>
+            {widget.subtitle && (
+              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                {widget.subtitle}
+              </Typography>
+            )}
+          </Box>
           {children ?? <BuiltinWidgetPreview widgetId={widgetId} />}
         </Box>
       </Box>

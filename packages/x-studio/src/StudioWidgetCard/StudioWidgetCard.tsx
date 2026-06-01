@@ -437,8 +437,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         ghost.style.height = `${node.offsetHeight}px`;
         ghost.style.pointerEvents = 'none';
         ghost.style.opacity = '0.75';
-        ghost.style.outline = '1px dashed #888'; // Replace #888 with your app's theme color
-        ghost.style.outlineOffset = '-1px'; // Keeps the outline inside the bounds to prevent clipping
+        ghost.style.outline = '1px dashed #888'; // TODO: Use theme color
+        ghost.style.outlineOffset = '-1px';
 
         // Append clone to wrapper, and wrapper to document
         ghostWrapper.appendChild(ghost);
@@ -446,10 +446,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
 
         event.dataTransfer?.setDragImage(ghostWrapper, x, y);
         
-        // --- CRITICAL FIX 2: Timing ---
-        // Use setTimeout instead of requestAnimationFrame. This guarantees
-        // the browser has enough time to snapshot the element before it is
-        // removed from the DOM.
+        // setTimeout guarantees the browser has enough time to snapshot the element 
+        // before it is removed from the DOM.
         setTimeout(() => {
           if (document.body.contains(ghostWrapper)) {
             document.body.removeChild(ghostWrapper);
@@ -469,7 +467,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       // so we also set an inline style on <html> which has the highest cascade
       // priority and suppresses the OS cursor on most modern browsers.
       document.body.classList.add('x-studio-dragging-widget');
-      // TODO: change the pointer type: document.documentElement.style.setProperty('cursor', 'grabbing', 'important');
+      document.documentElement.style.setProperty('cursor', 'move', 'important');
       // Record which widget is being dragged so insertion points adjacent to it
       // can disable themselves during dragover (BL-112).
       document.body.dataset.studioDraggingWidgetId = widgetId;

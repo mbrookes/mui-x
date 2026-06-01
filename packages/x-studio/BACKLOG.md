@@ -593,6 +593,8 @@ similarly for `chart` and `grid`. Removed flat `kpiSparkline`, `kpiTrend`, `kpiT
 
 **Done** — Added `alpha2ToName(code)` helper using `Intl.DisplayNames('en', { type: 'region' })` for broad alpha-2 coverage. Added `STATE_ABBR_TO_NAME` map for US geography. `featureIdToLabel()` in `StudioMapWidget` routes to the correct lookup per geography type. Each series data point now carries `label: featureIdToLabel(featureId)` so `ChoroplethTooltip` shows "France" instead of "FR".
 
+⚠️ **Re-opened** — BL-115 and BL-152 fixed the infrastructure (`featureIdToLabel`, `STATE_ABBR_TO_NAME`, per-datum labels) but the tooltip still showed the series-level `label` (always `undefined`) rather than the resolved region name. Root cause: `useItemTooltip<'choropleth'>()` returns `label = series.label`, not the per-datum label. Fixed in BL-170.
+
 
 ✅ BL-116: The ag-studio example doesn't need a setting for for sidebar layout, that's an x-studio feature.
 
@@ -732,6 +734,8 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 
 **Fixed** (created StudioMapTooltip with StudioMapTooltipContext; shows region name, value field label (auto-derived from field name), formatted value; returns null for no-data regions; exported from StudioMapWidget)
 
+⚠️ **Re-opened** — tooltip still displayed series label (undefined) not region name. Fixed in BL-170.
+
 
 ✅ BL-153: In the quick-filter bar the text "Date range" isn't localised. I also don't see chips even when page filters are configured. Make it disabled by default in the example apps, and change the name to something like QuickFilter rather than dateFilter (or whatever it is) in the feature flags and wherever else.
 
@@ -818,3 +822,10 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 ✅ BL-XXX: For all changes in this session, update the docs pages found in ./docs on all relevant pages, including the specific feature's page, and x/react-studio/comparison/, and anywhere else appropriate, and creating a new page as needed for larger features.
 
 **Fixed** (updated comparison.md, localization.md, map.md, kpi.md for BL-109/152/154/155 changes)
+
+
+✅ BL-170: Map tooltip still doesn't show region name (re-open of BL-115/BL-152).
+
+**Root cause** — `useItemTooltip<'choropleth'>()` returns `label = series.label` (series-level), NOT the per-datum `data[i].label`. Since `StudioMapWidget` sets no series-level label, `label` was always `undefined`.
+
+**Fixed** — Extended `StudioMapTooltipContextValue` with `featureIdToLabel: (featureId: string) => string`. `StudioMapWidget` passes its existing `featureIdToLabel` callback into the context provider. `StudioMapTooltipContent` now calls `featureIdToLabel(identifier.featureId)` (using `identifier` from `useItemTooltip`) to get the resolved region display name. The region name is shown in a styled `<caption>` header (`MapTooltipRegionLabel`) matching the `HeatmapTooltipAxesValue` style (secondary text color, border-bottom). Also improved `valueFieldLabel` derivation to prefer `dataSource.fields[].label` over string-transforming the field ID. Added 10 unit tests in `StudioMapTooltip.test.tsx`.

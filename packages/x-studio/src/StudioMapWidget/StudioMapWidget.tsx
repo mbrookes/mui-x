@@ -110,16 +110,20 @@ export function StudioMapWidget({
   const crossFilterEmit = config.mapCrossFilterEmit ?? false;
 
   // Derive a human-readable label for the value field to display in the tooltip.
-  // Convert snake_case / camelCase field names to Title Case words.
+  // Prefer the field's declared label; fall back to transforming the field ID.
   const valueFieldLabel = React.useMemo(() => {
     if (!valueField) {
       return null;
+    }
+    const declared = dataSource.fields.find((f) => f.id === valueField)?.label;
+    if (declared) {
+      return declared;
     }
     return valueField
       .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase → words
       .replace(/[_-]+/g, ' ') // snake_case / kebab-case → spaces
       .replace(/\b\w/g, (c) => c.toUpperCase()); // Title Case
-  }, [valueField]);
+  }, [valueField, dataSource.fields]);
 
   // Merge built-in definitions (from context) with any prop-level overrides
   const contextGeographies = useStudioGeographies();
@@ -332,7 +336,7 @@ export function StudioMapWidget({
   const projection = { type: projectionType };
 
   return (
-    <StudioMapTooltipContext.Provider value={{ valueFieldLabel }}>
+    <StudioMapTooltipContext.Provider value={{ valueFieldLabel, featureIdToLabel }}>
       <Box sx={{ width: '100%', height: '100%', minHeight: 200 }}>
         <ChoroplethChart
           geography={geography ?? { type: 'FeatureCollection', features: [] }}

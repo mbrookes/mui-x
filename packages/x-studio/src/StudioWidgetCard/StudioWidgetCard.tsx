@@ -371,6 +371,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // The requestAnimationFrame delay alone is sufficient to avoid blocking the
   // first paint without causing hover-induced starvation.
   const [showContent, setShowContent] = React.useState(() => hydratedWidgets.has(widgetId));
+
   React.useEffect(() => {
     hydratedWidgets.add(widgetId);
     if (showContent) {
@@ -390,6 +391,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     if (!node) {
       return undefined;
     }
+
     function handleDragStart(event: DragEvent) {
       setIsDragging(true);
       // Do NOT call setSelectedWidget here — it causes all N-1 other widget cards
@@ -402,38 +404,72 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = 'all';
       }
+
+// Create a wrapper container for the drag image that we can style
+      const ghostWrapper = document.createElement('div');
+      ghostWrapper.style.position = 'fixed';
+      ghostWrapper.style.left = '-9999px';
+      ghostWrapper.style.top = '0';
+      ghostWrapper.style.pointerEvents = 'none';
+
       if (node) {
-        // Build a semi-transparent ghost clone that excludes the action overlay.
-        // The browser snapshots setDragImage synchronously, so we must create and
-        // attach the clone BEFORE the call, then clean it up via rAF afterwards.
         const { x, y } = dragOffsetRef.current;
         const ghost = node.cloneNode(true) as HTMLElement;
-        // Hide the actions overlay in the clone so buttons don't appear in the ghost
+        
         const overlayEl = ghost.querySelector<HTMLElement>('[data-widget-overlay]');
         if (overlayEl) {
           overlayEl.style.visibility = 'hidden';
         }
-        ghost.style.opacity = '0.2';
-        ghost.style.position = 'fixed';
-        ghost.style.left = '-9999px';
-        ghost.style.top = '0';
+        
+        // --- CRITICAL FIX 1: Strip positioning ---
+        // Force the clone to sit exactly at the 0,0 origin of the wrapper
+        // by clearing any transforms or positional properties it inherited.
+        ghost.style.position = 'relative'; 
+        ghost.style.top = '0px';
+        ghost.style.left = '0px';
+        ghost.style.right = 'auto';
+        ghost.style.bottom = 'auto';
+        ghost.style.transform = 'none'; 
+        ghost.style.margin = '0px';
+
+        // Apply dimensions and styles
         ghost.style.width = `${node.offsetWidth}px`;
         ghost.style.height = `${node.offsetHeight}px`;
         ghost.style.pointerEvents = 'none';
-        document.body.appendChild(ghost);
-        event.dataTransfer?.setDragImage(ghost, x, y);
-        // Remove the clone after the browser has captured the ghost image
+        ghost.style.opacity = '0.75';
+        ghost.style.outline = '1px dashed #888'; // Replace #888 with your app's theme color
+        ghost.style.outlineOffset = '-1px'; // Keeps the outline inside the bounds to prevent clipping
+
+        // Append clone to wrapper, and wrapper to document
+        ghostWrapper.appendChild(ghost);
+        document.body.appendChild(ghostWrapper);
+
+        event.dataTransfer?.setDragImage(ghostWrapper, x, y);
+        
+        // --- CRITICAL FIX 2: Timing ---
+        // Use setTimeout instead of requestAnimationFrame. This guarantees
+        // the browser has enough time to snapshot the element before it is
+        // removed from the DOM.
+        setTimeout(() => {
+          if (document.body.contains(ghostWrapper)) {
+            document.body.removeChild(ghostWrapper);
+          }
+          // Dim original widget
+          node.style.opacity = '0.1';
+        }, 10);
+        
         requestAnimationFrame(() => {
-          document.body.removeChild(ghost);
+          document.body.removeChild(ghostWrapper);
         });
       }
+
       // Force the grabbing cursor globally so it doesn't flicker to + or default
       // as the pointer moves over insertion points or other non-draggable areas.
       // CSS alone cannot override the native HTML5 DnD cursor on macOS/Chrome,
       // so we also set an inline style on <html> which has the highest cascade
       // priority and suppresses the OS cursor on most modern browsers.
       document.body.classList.add('x-studio-dragging-widget');
-      document.documentElement.style.setProperty('cursor', 'grabbing', 'important');
+      // TODO: change the pointer type: document.documentElement.style.setProperty('cursor', 'grabbing', 'important');
       // Record which widget is being dragged so insertion points adjacent to it
       // can disable themselves during dragover (BL-112).
       document.body.dataset.studioDraggingWidgetId = widgetId;
@@ -443,6 +479,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       document.body.classList.remove('x-studio-dragging-widget');
       document.documentElement.style.removeProperty('cursor');
       delete document.body.dataset.studioDraggingWidgetId;
+
+      // Restore the original widget's opacity
+      if (node) {
+        node.style.opacity = '';
+      }
     }
     // Temporarily remove draggable when the pointer goes down inside a
     // [data-no-drag] element (e.g. a slider). This must happen in mousedown

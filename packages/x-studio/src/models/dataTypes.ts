@@ -36,6 +36,17 @@ export interface StudioDataField {
    * @example "Net revenue in USD excluding returns. Use for financial KPIs."
    */
   aiDescription?: string;
+  /**
+   * Aggregation function to apply when this field is downsampled for AI prompts.
+   * Used by insight/forecast/analysis when the dataset exceeds the row budget and
+   * rows are bucketed into groups — this controls how the numeric value is summarised
+   * per bucket.
+   *
+   * Defaults: `'avg'` for `number` fields, `'first'` (no aggregation) for all others.
+   * Use `'sum'` for additive metrics (e.g. revenue, units sold) where bucketed totals
+   * are more meaningful than averages.
+   */
+  aiAggregation?: 'sum' | 'avg' | 'min' | 'max';
 }
 
 // Filter tree node for QueryDescriptor

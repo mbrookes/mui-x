@@ -552,6 +552,101 @@ describe('StudioController.duplicateWidget', () => {
     expect(flat).toContain(copyId);
   });
 
+  it('places the copy in the same row as the source when the row has space', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.duplicateWidget('w1');
+    const activePageId = controller.getState().dashboard.activePageId;
+    const { widgetRows } = controller.getState().pages[activePageId];
+    const copyId = Object.keys(controller.getState().widgets).find((id) => id !== 'w1')!;
+    // Both widgets should be in the same row
+    const row = widgetRows.find((r) => r.includes('w1'));
+    expect(row).toContain(copyId);
+    // Copy should appear right after the source
+    expect(row).toEqual(['w1', copyId]);
+  });
+
+  it('places the copy in the same row as the source when row has 3 widgets (< MAX_PER_ROW)', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    controller.addWidget(makeWidget('w3'));
+    // Manually arrange all 3 in one row
+    const activePageId = controller.getState().dashboard.activePageId;
+    const state = controller.getState();
+    controller.updateState({
+      pages: {
+        ...state.pages,
+        [activePageId]: {
+          ...state.pages[activePageId],
+          widgetRows: [['w1', 'w2', 'w3']],
+        },
+      },
+    });
+    controller.duplicateWidget('w2');
+    const newState = controller.getState();
+    const copyId = Object.keys(newState.widgets).find(
+      (id) => !['w1', 'w2', 'w3'].includes(id),
+    )!;
+    const { widgetRows } = newState.pages[activePageId];
+    expect(widgetRows).toHaveLength(1);
+    expect(widgetRows[0]).toEqual(['w1', 'w2', copyId, 'w3']);
+  });
+
+  it('places the copy in a new row below when the source row is full (4 widgets)', () => {
+    const controller = new StudioController();
+    ['w1', 'w2', 'w3', 'w4'].forEach((id) => controller.addWidget(makeWidget(id)));
+    const activePageId = controller.getState().dashboard.activePageId;
+    const state = controller.getState();
+    controller.updateState({
+      pages: {
+        ...state.pages,
+        [activePageId]: {
+          ...state.pages[activePageId],
+          widgetRows: [['w1', 'w2', 'w3', 'w4']],
+        },
+      },
+    });
+    controller.duplicateWidget('w1');
+    const newState = controller.getState();
+    const copyId = Object.keys(newState.widgets).find(
+      (id) => !['w1', 'w2', 'w3', 'w4'].includes(id),
+    )!;
+    const { widgetRows } = newState.pages[activePageId];
+    // Should have 2 rows: the full original row + new row with just the copy
+    expect(widgetRows).toHaveLength(2);
+    expect(widgetRows[0]).toEqual(['w1', 'w2', 'w3', 'w4']);
+    expect(widgetRows[1]).toEqual([copyId]);
+  });
+
+  it('inserts the new row immediately below the source row (not at the bottom)', () => {
+    const controller = new StudioController();
+    ['w1', 'w2', 'w3', 'w4', 'w5'].forEach((id) => controller.addWidget(makeWidget(id)));
+    const activePageId = controller.getState().dashboard.activePageId;
+    const state = controller.getState();
+    // Two rows: first full (4 widgets), second with one widget
+    controller.updateState({
+      pages: {
+        ...state.pages,
+        [activePageId]: {
+          ...state.pages[activePageId],
+          widgetRows: [['w1', 'w2', 'w3', 'w4'], ['w5']],
+        },
+      },
+    });
+    controller.duplicateWidget('w1'); // duplicate from full first row
+    const newState = controller.getState();
+    const copyId = Object.keys(newState.widgets).find(
+      (id) => !['w1', 'w2', 'w3', 'w4', 'w5'].includes(id),
+    )!;
+    const { widgetRows } = newState.pages[activePageId];
+    // 3 rows: original full row, new copy row, existing second row
+    expect(widgetRows).toHaveLength(3);
+    expect(widgetRows[0]).toEqual(['w1', 'w2', 'w3', 'w4']);
+    expect(widgetRows[1]).toEqual([copyId]);
+    expect(widgetRows[2]).toEqual(['w5']);
+  });
+
   it('is a no-op for an unknown widgetId', () => {
     const controller = new StudioController();
     controller.duplicateWidget('nonexistent');

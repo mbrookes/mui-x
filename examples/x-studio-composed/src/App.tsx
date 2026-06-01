@@ -333,7 +333,7 @@ interface DashboardLayoutProps {
  * - `useStudioController` — direct access to the controller
  * - `useStudioSelector` / selectors — reactive state reads
  * - `useStudioKeyboardShortcuts` — Cmd+Z undo / Cmd+Shift+Z redo
- * - `ComposeDialog` — dialog for widget configuration (opened via toolbar or AddWidgetFab)
+ * - `ComposeDialog` — dialog for widget configuration (opened via toolbar)
  * - `DataDialog` — dialog for data source management
  * - `FiltersDialog` — dialog for filter management
  * - `AddWidgetFab` — floating action button to add widgets
@@ -689,7 +689,7 @@ function DashboardLayout({
             </Box>
             {/* Show FAB when in edit mode and the active page already has content */}
             {mode === 'edit' && (pages[activePageId]?.widgetRows ?? []).length > 0 && (
-              <AddWidgetFab onWidgetAdded={handleComposeOpen} />
+              <AddWidgetFab onWidgetAdded={handleEditRequest} />
             )}
           </CanvasScrollContext.Provider>
         </Box>

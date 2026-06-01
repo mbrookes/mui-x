@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "baseUrl": ".",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@mui/x-studio": ["src/types/x-studio.d.ts"],
+      "@mui/x-date-pickers/AdapterDayjs": ["src/types/x-date-pickers-adapter-dayjs.d.ts"],
+      "@mui/x-date-pickers/LocalizationProvider": ["src/types/x-date-pickers-localization-provider.d.ts"],
+      "@mui/x-date-pickers/locales": ["src/types/x-date-pickers-locales.d.ts"],
+      "@mui/x-charts": ["src/types/x-charts.d.ts"],
+      "@mui/x-charts/themeAugmentation": ["src/types/x-charts-theme-augmentation.d.ts"],
+      "topojson-client": ["src/types/topojson-client.d.ts"],
+      "x-studio-shared": ["src/types/x-studio-shared.d.ts"]
+    }
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

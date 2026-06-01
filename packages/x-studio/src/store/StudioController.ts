@@ -621,11 +621,38 @@ export class StudioController {
       return;
     }
 
+    // Maximum widgets per row based on the canvas grid (GRID_COLS=24, MIN_SPAN=6)
+    const MAX_PER_ROW = 4;
+
     const newId = `${widgetId}-copy-${Date.now()}`;
     const activePage = state.pages[state.dashboard.activePageId];
     const widgetRows = activePage.widgetRows || [];
-    // Add duplicate as a new row
-    const newWidgetRows = [...widgetRows, [newId]];
+
+    // Find the row containing the source widget
+    const sourceRowIdx = widgetRows.findIndex((row) => row.includes(widgetId));
+
+    let newWidgetRows: string[][];
+    if (sourceRowIdx === -1) {
+      // Source widget not placed in any row; append at bottom
+      newWidgetRows = [...widgetRows, [newId]];
+    } else {
+      const sourceRow = widgetRows[sourceRowIdx];
+      newWidgetRows = widgetRows.map((r) => [...r]);
+
+      if (sourceRow.length < MAX_PER_ROW) {
+        // Insert the duplicate right after the source widget in the same row
+        const colIdx = sourceRow.indexOf(widgetId);
+        newWidgetRows[sourceRowIdx] = [
+          ...sourceRow.slice(0, colIdx + 1),
+          newId,
+          ...sourceRow.slice(colIdx + 1),
+        ];
+      } else {
+        // Row is full; insert a new row immediately below the source row
+        newWidgetRows.splice(sourceRowIdx + 1, 0, [newId]);
+      }
+    }
+
     this.commitState({
       ...state,
       widgets: {

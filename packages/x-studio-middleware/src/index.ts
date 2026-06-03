@@ -1,10 +1,10 @@
 /**
- * @mui/x-studio-server — public exports
+ * @mui/x-studio-middleware — public exports
  *
  * Framework-agnostic server middleware for MUI X Studio.
  *
  * Usage (Express example):
- *   import { handleBatchQuery, extractSecurityClaims } from '@mui/x-studio-server';
+ *   import { handleBatchQuery, extractSecurityClaims } from '@mui/x-studio-middleware';
  *
  *   app.post('/api/studio-data', async (req, res) => {
  *     const claims = await extractSecurityClaims(req.headers.authorization);

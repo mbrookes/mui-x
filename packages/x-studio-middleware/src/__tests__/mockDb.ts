@@ -1,7 +1,7 @@
 /**
  * Lightweight in-memory mock Knex query builder for tests.
  *
- * Implements the subset of the Knex API used by x-studio-server:
+ * Implements the subset of the Knex API used by x-studio-middleware:
  *   db(table), .where(), .whereIn(), .count(), .select(), .orderBy(), .limit()
  *
  * This avoids any native SQLite driver dependency in tests.

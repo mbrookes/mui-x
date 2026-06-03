@@ -1,5 +1,5 @@
 /**
- * Security types for @mui/x-studio-server.
+ * Security types for @mui/x-studio-middleware.
  *
  * The host application extracts these from its auth middleware (JWT, session,
  * OAuth token, etc.) and passes them to handleBatchQuery(). The server package
@@ -89,7 +89,7 @@ export interface BatchQueryResponse {
 
 /**
  * Options passed to handleBatchQuery(). The host app provides a configured
- * Knex instance; the x-studio-server package never creates DB connections.
+ * Knex instance; the x-studio-middleware package never creates DB connections.
  */
 export interface HandleBatchQueryOptions {
   /**

@@ -718,88 +718,90 @@ Source: `packages/x-studio/src/internals/buildAISystemPrompt.ts:90-221`[^36]
 
 ## 5. Gap Analysis
 
-### 🔴 Critical: Documented Features Not Yet Implemented
+> **Updated June 2026** — status reflects findings from `AI_ASSISTANT_OVERVIEW.md`.  
+> ✅ = implemented in `@mui/x-studio`  🟡 = partial (example app only)  ❌ = not yet implemented
 
-The documentation claims 10 built-in tools and several API features that **do not exist in the code**:[^37]
+### 🔴 Critical: Documented Features vs Code Reality
 
-| Documented Feature             | In Docs            | In Code                           | Impact                            |
-| ------------------------------ | ------------------ | --------------------------------- | --------------------------------- |
-| `configure_widget`             | `tools.md`         | ❌ (real tool is `update_widget`) | User confusion, doc inconsistency |
-| `remove_page` tool             | `tools.md`         | ❌                                | AI cannot remove pages            |
-| `rename_page` tool             | `tools.md`         | ❌                                | AI cannot rename pages            |
-| `set_active_page` tool         | `tools.md`         | ❌                                | AI cannot navigate between pages  |
-| `add_data_source` tool         | `tools.md`         | ❌                                | AI cannot connect new data        |
-| `add_filter` (page-level)      | `tools.md`         | ❌                                | AI cannot add page filters        |
-| `update_dashboard_title`       | `tools.md`         | ❌ (real: `set_dashboard_title`)  | Doc inconsistency                 |
-| `allowedTools` on `aiConfig`   | `tools.md:54-66`   | ❌                                | Cannot restrict AI tool access    |
-| `allowedTools: []` disable all | `tools.md:73-77`   | ❌                                | Cannot disable all tools          |
-| `onToolError` callback         | `tools.md:92-101`  | ❌                                | No error hook for tool failures   |
-| `extraTools` / `StudioAiTool`  | `tools.md:122-157` | ❌                                | Cannot add custom tools           |
+The documentation claims several AI features that were not in the original code:[^37]
 
-### 🔴 Critical: Missing High-Value Features (vs Competitors)
+| Documented Feature             | In Docs            | In Code                                               | Impact                            |
+| ------------------------------ | ------------------ | ----------------------------------------------------- | --------------------------------- |
+| `configure_widget`             | `tools.md`         | ❌ (real tool is `update_widget`)                     | Doc inconsistency — update docs   |
+| `remove_page` tool             | `tools.md`         | ✅ Implemented (with user confirmation)               | —                                 |
+| `rename_page` tool             | `tools.md`         | ✅ Implemented                                        | —                                 |
+| `set_active_page` tool         | `tools.md`         | ✅ Implemented                                        | —                                 |
+| `add_data_source` tool         | `tools.md`         | ❌                                                    | AI cannot connect new data        |
+| `add_filter` (page-level)      | `tools.md`         | ✅ `add_filter`/`remove_filter` with `scope` param    | —                                 |
+| `update_dashboard_title`       | `tools.md`         | ❌ (real: `set_dashboard_title`, if still present)    | Doc inconsistency                 |
+| `allowedTools` on `aiConfig`   | `tools.md:54-66`   | ❌                                                    | Cannot restrict AI tool access    |
+| `allowedTools: []` disable all | `tools.md:73-77`   | ❌                                                    | Cannot disable all tools          |
+| `onToolError` callback         | `tools.md:92-101`  | ❌                                                    | No error hook for tool failures   |
+| `extraTools` / `StudioAiTool`  | `tools.md:122-157` | ❌                                                    | Cannot add custom tools           |
 
-| Feature                                                                        | Priority | Comparable Products                                   |
-| ------------------------------------------------------------------------------ | -------- | ----------------------------------------------------- |
-| **AI Insight Generation** (summaries, analysis, forecast per dashboard/widget) | P0       | Reveal BI, Power BI Copilot, Sisense                  |
-| **Page-level filter tool** (`add_page_filter`, `remove_page_filter`)           | P0       | AG Grid Studio, Luzmo                                 |
-| **Widget-level filter tool** (`add_widget_filter`, `remove_widget_filter`)     | P1       | AG Grid Studio                                        |
-| **Page navigation tools** (`set_active_page`, `rename_page`, `remove_page`)    | P1       | AG Grid Studio, Docs claim                            |
-| **AI conversation state persistence**                                          | P1       | AG Grid Studio                                        |
-| **Named conversation threads**                                                 | P2       | AG Grid Studio                                        |
-| **Anomaly detection** (chart-level overlay)                                    | P1       | Highcharts Orbit, Reveal BI, Sisense                  |
-| **MCP server** for x-studio                                                    | P1       | Tableau, Metabase, ThoughtSpot, Sisense, Hex          |
-| **Data source metadata** (descriptions for AI accuracy)                        | P1       | AG Grid Studio (`aiDescription`), Reveal BI (catalog) |
-| **Data question answering** (`execute_query` equivalent)                       | P2       | AG Grid Studio (Data agent)                           |
-| **Forecasting / trend bands** in charts                                        | P2       | Highcharts Orbit, Reveal BI                           |
-| **`allowedTools` / `extraTools`** (API completeness)                           | P1       | AG Grid Studio (custom widget AI metadata)            |
-| **`privateMode`** flag (suppress query logging)                                | P2       | DataGrid AI Assistant                                 |
-| **Token cost governance**                                                      | P3       | Reveal BI (per-tenant/per-user limits)                |
+**Current tool count:** 12 tools (`get_dashboard_state`, `add_page`, `remove_page`, `rename_page`,
+`set_active_page`, `add_widget`, `remove_widget`, `update_widget`, `add_filter`, `remove_filter`,
+`add_relationship`, `remove_relationship`).  
+Source: `packages/x-studio/src/StudioChatPanel/studioAdapter.ts:430–530`
 
-### 🟡 Moderate: Code Quality Issues
+### 🔴 Feature Status vs Competitors
 
-| Issue                                                                                      | Location                               | Impact                                               |
-| ------------------------------------------------------------------------------------------ | -------------------------------------- | ---------------------------------------------------- |
-| `createWidgetFromDescription` uses truncated schema (missing heatmap, gantt, gauge, mixed) | `createWidgetFromDescription.ts:69-98` | Suboptimal widget config via Compose drawer NL field |
-| `add_widget` in `executeTool` skips `createDefaultWidget()` normalisation                  | `studioAdapter.ts:170-189`             | Partially configured widgets from chat               |
-| `buildAISystemPrompt` has no special case for `pivot` and `map` widgets                    | `buildAISystemPrompt.ts:66-78`         | LLM cannot reason about existing pivot/map widgets   |
-| Zero automated tests for `StudioChatPanel`, `studioAdapter`, `studioAITools`               | `x-studio/src/`                        | No regression protection on AI features              |
+| Feature                                                                           | Priority | Status                                                | Comparable Products                                   |
+| --------------------------------------------------------------------------------- | -------- | ----------------------------------------------------- | ----------------------------------------------------- |
+| **AI Insight Generation** (per-widget summary, analysis, forecast)                | P0       | ✅ `generateWidgetInsight` + `StudioInsightPanel`      | Reveal BI, Power BI Copilot, Sisense                  |
+| **Dashboard narrative summary**                                                   | P0       | ✅ `generateDashboardSummary` + bottom drawer          | Power BI Copilot, Sisense                             |
+| **Anomaly detection** (chart overlay + AI explanation)                            | P0       | ✅ Client-side detection + `generateAnomalyExplanation`| Highcharts Orbit, Reveal BI, Sisense                  |
+| **Page-level filter tool** (`add_filter` + `remove_filter`)                       | P0       | ✅ Implemented with `scope` parameter                  | AG Grid Studio, Luzmo                                 |
+| **Widget-level filter tool**                                                      | P1       | ✅ `add_filter` with `scope: 'widget'`                 | AG Grid Studio                                        |
+| **Page navigation tools** (`set_active_page`, `rename_page`, `remove_page`)      | P1       | ✅ Implemented (remove gated by confirmation)          | AG Grid Studio, Docs claim                            |
+| **Data source / field metadata** (`aiDescription`)                               | P1       | ✅ `StudioDataSource.aiDescription` + per-field        | AG Grid Studio (`aiDescription`), Reveal BI (catalog) |
+| **`onAiRequest` hook** on widget card                                             | P1       | ✅ Consumer-provided prop on `StudioWidgetCard`        | —                                                     |
+| **AI conversation state persistence**                                             | P1       | 🟡 `x-studio-ai` example only (localStorage)          | AG Grid Studio                                        |
+| **Named conversation threads**                                                    | P2       | 🟡 `x-studio-ai` example only                         | AG Grid Studio                                        |
+| **`allowedTools` / `extraTools`** (API completeness)                              | P1       | ❌ Not implemented                                     | AG Grid Studio (custom widget AI metadata)            |
+| **MCP server** for x-studio                                                       | P1       | ❌ Not implemented                                     | Tableau, Metabase, ThoughtSpot, Sisense, Hex          |
+| **Data question answering** (`execute_query` equivalent)                          | P2       | ❌ Not implemented                                     | AG Grid Studio (Data agent)                           |
+| **Forecasting / trend bands** in charts                                           | P2       | ❌ Not implemented                                     | Highcharts Orbit, Reveal BI                           |
+| **`privateMode`** flag (suppress query logging)                                   | P2       | ❌ Not implemented                                     | DataGrid AI Assistant                                 |
+| **Token cost governance**                                                         | P3       | ❌ Not implemented                                     | Reveal BI (per-tenant/per-user limits)                |
 
-### 🟢 Minor: Undocumented Features
+### 🟡 Moderate: Remaining Code Quality Issues
 
-| Feature                                           | Location                   | Notes                                    |
-| ------------------------------------------------- | -------------------------- | ---------------------------------------- |
-| Gemini compatibility (`tc.id`-based accumulation) | `studioAdapter.ts:431-441` | Works but not documented                 |
-| `extra_content`/`thought_signature` handling      | `studioAdapter.ts:448-449` | Gemini reasoning tokens handled silently |
+| Issue                                                                         | Location                               | Impact                                               |
+| ----------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------- |
+| `add_widget` in `executeTool` skips `createDefaultWidget()` normalisation     | `studioAdapter.ts:170-189`             | Partially configured widgets from chat               |
+| `allowedTools` / `extraTools` / `onToolError` not implemented despite being documented | `studioAdapter.ts` / `StudioAIConfig` | Embedders cannot restrict or extend AI tools  |
+| Zero automated tests for `StudioChatPanel`, `studioAdapter`, AI tools         | `x-studio/src/`                        | No regression protection on AI features              |
+
+### 🟢 Minor: Undocumented / Noteworthy Features
+
+| Feature                                                                   | Location                              | Notes                                                   |
+| ------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------- |
+| Gemini compatibility (`tc.id`-based accumulation)                         | `studioAdapter.ts`                    | Works but not documented                                |
+| `extra_content`/`thought_signature` handling                              | `studioAdapter.ts`                    | Gemini reasoning tokens handled silently                |
+| Insight pipeline is separate from chat — no LLM row data in chat path     | `generateInsight.ts`, `studioAdapter.ts` | Chat uses schema only; row data only via insight tools |
+| `generateInsight.ts` functions are exported publicly from `src/index.ts`  | `src/index.ts:245-247`                | Consumers can build custom insight UIs                  |
+| `createWidgetFromDescription` is independent of chat — Compose Drawer only| `createWidgetFromDescription.ts`      | Bypasses `studioAdapter.ts` entirely                    |
 
 ---
 
 ## 6. Recommended Enhancements
 
-### Phase 1: Fix Gaps & Implement Documented Features (Priority 0)
+> **Updated June 2026.** Items marked ✅ have been implemented; remaining items are still actionable.
+> See `AI_ASSISTANT_OVERVIEW.md` for full pipeline details of implemented features.
 
-These are things the documentation already promises but the code doesn't implement:
+### Phase 1: API Completeness (Priority 0–1)
 
-#### 1.1 Implement Missing Page Management Tools
+#### ~~1.1 Implement Missing Page Management Tools~~ ✅ DONE
 
-```typescript
-// New tools to add to studioAITools.ts:
-'remove_page'; // Remove a page (with confirmation)
-'rename_page'; // Rename a page
-'set_active_page'; // Navigate to a different page
-```
+`remove_page`, `rename_page`, and `set_active_page` are all implemented in `studioAdapter.ts`.
+`remove_page` is gated by a `Promise<boolean>` confirmation (same pattern as `remove_widget`).
 
-These are documented, expected by users, and straightforward to implement — `StudioController` likely already has the methods.
+#### ~~1.2 Implement Filter Tools~~ ✅ DONE
 
-#### 1.2 Implement `add_page_filter` and `add_widget_filter` Tools
-
-AG Grid Studio treats page-level and widget-level filters as distinct AI operations. x-studio has a rich filter system (date-range, multi-select, toggle, slider) that the AI currently cannot touch without adding a `filter` kind widget.
-
-```typescript
-// Add to studioAITools.ts:
-'add_page_filter'; // Add a filter that applies to all widgets (field, type, initial value)
-'remove_page_filter'; // Remove a page-level filter
-'add_widget_filter'; // Apply a filter override scoped to one widget
-```
+`add_filter` and `remove_filter` are implemented with a `scope` parameter (`'page'` | `'widget'`
+| `'cross-filter'`). Page-scoped filters are stamped with `activePageId` automatically.
+Widget-scoped filters target a specific `widgetId`.
 
 #### 1.3 Implement `allowedTools` and `extraTools`
 
@@ -833,53 +835,42 @@ Add `pivot` and `map` cases to `describeWidget()` so the LLM can reason about ex
 
 ---
 
-### Phase 2: AI Insight Generation (Priority 1 — High Value)
+### ~~Phase 2: AI Insight Generation~~ ✅ DONE
 
-This is the most compelling feature gap. Every major competitor offers AI-generated insights. It works orthogonally to the chat — users can trigger insights without starting a conversation.
+Widget-level and dashboard-level AI insight generation are fully implemented.
 
-#### 2.1 AI Insights API
+**Implemented (`packages/x-studio/src/StudioChatPanel/generateInsight.ts`):**
 
-Add a `StudioAIInsightsConfig` + `useStudioInsights()` hook:
+- `generateWidgetInsight(widgetId, controller, aiConfig, { type })` — per-widget summary, analysis, or forecast. Sends up to 100 aggregated rows (via `buildWidgetDataSummary`) using `sampling: 'aggregate'`. Returns `{ text: string }`.
+- `generateDashboardSummary(controller, aiConfig)` — schema-only narrative of the whole dashboard. Triggered from the "Summarise" FAB at `bottom: 76, right: 20` in `<Studio>`. Displays in a bottom `<Drawer>` (`maxHeight: 40vh`).
+- `generateAnomalyExplanation(widgetId, anomalies, controller, aiConfig)` — code-split, dynamically imported. Uses `sampling: 'anomaly'` to oversample rows around detected anomaly timestamps.
 
-```typescript
-// On a widget:
-const { insight, loading } = useWidgetInsight({
-  widgetId: 'rev-by-region',
-  type: 'summary' | 'analysis' | 'forecast',
-  forecastPeriods?: number,
-});
+**Insight sampling strategies** (`MAX_DATA_ROWS = 100`):
 
-// On the whole dashboard:
-const { narrative } = useDashboardNarrative({ type: 'summary' });
-```
+| Strategy | Use case |
+|---|---|
+| `aggregate` | Summary / analysis / forecast — groups by x-axis, aggregates numerics |
+| `stride` | Evenly-spaced sample (trend over full range) |
+| `tail` | Most-recent N rows (recency-biased forecast) |
+| `anomaly` | Normal sample + oversampled anomalous rows |
 
-**UI surfaces:**
+**Display:** `StudioInsightPanel` — absolutely positioned inside the widget card (`bottom: 8, left: 8, right: 8, zIndex: 10, maxHeight: 60%`). Shows a type-switcher chip row (Summary / Analysis / Forecast), Refresh, Copy, and Close buttons. Available in **both edit and view modes**.
 
-- "AI Insights" button in the widget menu (⋮ overflow)
-- Dashboard-level "Summarise this dashboard" button in the shell header
-- Insight panel slide-out (reuse `@mui/x-chat` components for styled output)
-
-**Implementation:** Since x-studio already has a connection to an OpenAI-compatible endpoint (`aiConfig.endpoint`), insights can be a separate non-streaming POST that sends:
-
-- The current widget's rendered data (aggregated values, not raw rows)
-- Field names/types for context
-- A structured prompt requesting the insight type
-
-This mirrors Reveal BI's Insights API and Highcharts Orbit's AI menu items exactly.[^38]
-
-#### 2.2 Dashboard Narrative Generation
-
-A "Summarise dashboard" one-click action that:
-
-1. Reads all widgets' data (respecting current filters)
-2. Sends to LLM with the instruction "summarise the key insights from this dashboard"
-3. Renders result in a floating panel or as a copy-paste-ready text block
+All three functions are exported publicly from `src/index.ts:245-247` for consumer use.
 
 ---
 
-### Phase 3: Conversation State Persistence (Priority 1)
+### Phase 3: Conversation State Persistence (Priority 1) 🟡 PARTIAL
 
 AG Grid Studio's key advantage: the full AI conversation history persists alongside the dashboard state via `getState()`/`setState()`.[^39]
+
+**Current state (`x-studio-ai` example):** The `examples/x-studio-ai` app demonstrates full multi-session persistence using localStorage:
+- Per-chat conversation history via `slotProps.chatBox.onMessagesChange` (key: `x-studio-ai-messages-{chatId}`)
+- Per-chat dashboard state via `controller.subscribe()` + debounce auto-save
+- Chat session metadata (title, description, favourites flag) in `useChatStore`
+- AI-generated chat titles via a secondary LLM call (`useGenerateChatTitle`)
+
+**Remaining work for core integration in `StudioChatPanel`:**
 
 #### 3.1 Include AI State in `serializeState`/`deserializeState`
 
@@ -907,7 +898,7 @@ This enables:
 - Cross-session memory (user continues conversation from yesterday)
 - Shareable dashboards with embedded AI context
 
-#### 3.2 Named Conversation Threads
+#### 3.2 Named Conversation Threads in Core `StudioChatPanel`
 
 Add a thread selector to the `StudioChatPanel` header:
 
@@ -918,55 +909,41 @@ Add a thread selector to the `StudioChatPanel` header:
 
 ---
 
-### Phase 4: Anomaly Detection in Charts (Priority 1)
+### ~~Phase 4: Anomaly Detection in Charts~~ ✅ DONE
 
-A chart-level feature that runs client-side statistical analysis and overlays anomaly markers:
+Anomaly detection is fully implemented in `StudioWidgetCard` + `generateInsight.ts`.
 
-#### 4.1 Statistical Anomaly Detection (Client-Side)
-
-No LLM required — can run entirely in the browser:
-
-```typescript
-// Detects outliers using IQR or Z-score method
-// Returns anomaly annotations for any chart widget
-function detectAnomalies(data: number[], method: 'iqr' | 'zscore'): AnomalyAnnotation[];
-```
-
-Render as `annotations` on the existing `StudioChartWidget` (the `annotations[]` config already exists in `StudioWidgetConfig`).
-
-**UI:** "Detect Anomalies" button in chart widget overflow menu (no LLM needed, runs locally).
-
-#### 4.2 AI-Powered Anomaly Explanation
-
-When an anomaly is detected, offer "Ask AI to explain" — sends the anomalous data point + context to the LLM for a natural language explanation. This mirrors Reveal BI's "Ask AI" on widget overlay and Highcharts Orbit's AI Insights menu item.
+**Implemented:**
+- `TroubleshootIcon` toggle button in `StudioWidgetCardActionsOverlay` (both edit and view modes) enables anomaly detection mode
+- `StudioChartWidget` calls `onAnomalyDetected` with detected annotations, populating `anomalyAnnotations` state
+- A badge on the anomaly toggle shows the anomaly count
+- "Explain Anomaly" (`AutoAwesome`) button appears when `anomalyEnabled && anomalyAnnotations.length > 0`
+- Clicking it dynamically imports `generateAnomalyExplanation` (code-split) and calls it with `sampling: 'anomaly'`
+- Result displayed in `StudioInsightPanel` inside the widget card
 
 ---
 
-### Phase 5: Data Field Metadata for AI Accuracy (Priority 1)
+### ~~Phase 5: Data Field Metadata for AI Accuracy~~ ✅ DONE
 
-Both AG Grid Studio and Reveal BI use field-level AI descriptions to significantly improve query accuracy. Currently x-studio's data source config lacks this:
+Both `aiDescription` (free-text semantic annotation) and `aiAggregation` (aggregation hint for insight sampling) are implemented on `StudioDataSource` and `StudioDataField`.
 
-#### 5.1 AI-Aware Data Source Annotations
+**Implemented (`buildAISystemPrompt.ts` + `generateInsight.ts`):**
 
 ```typescript
+// Both fields are now supported:
 interface StudioDataSource {
-  id: string;
-  data?: StudioRow[];
-  fields?: StudioField[];
-  // NEW:
   aiDescription?: string; // "This dataset contains quarterly sales figures for all regions..."
 }
 
-interface StudioField {
-  id: string;
-  type: 'text' | 'number' | 'boolean' | 'date' | 'datetime';
-  label?: string;
-  // NEW:
+interface StudioDataField {
   aiDescription?: string; // "Revenue in USD, excluding returns. Use for financial KPIs."
+  aiAggregation?: 'sum' | 'avg' | 'count' | 'none'; // Controls insight sampling aggregation
 }
 ```
 
-These are included in `buildAISystemPrompt()` to give the LLM richer context about field semantics. Mirrors AG Grid Studio's `field.aiDescription` and `source.description`.[^40]
+`buildAISystemPrompt()` includes `aiDescription` for each source and field in §4 of the system prompt (via `describeSource()`). `aiAggregation` controls per-field aggregation in `buildWidgetDataSummary()` — **only used in the insight path, not the main chat path**.
+
+Mirrors AG Grid Studio's `field.aiDescription` and `source.description`.[^40]
 
 ---
 

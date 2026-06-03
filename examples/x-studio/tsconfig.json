@@ -18,8 +18,8 @@
     "paths": {
       "@mui/x-studio": ["../../packages/x-studio/src"],
       "@mui/x-studio/*": ["../../packages/x-studio/src/*"],
-      "@mui/x-studio-server": ["../../packages/x-studio-server/src"],
-      "@mui/x-studio-server/*": ["../../packages/x-studio-server/src/*"],
+      "@mui/x-studio-middleware": ["../../packages/x-studio-middleware/src"],
+      "@mui/x-studio-middleware/*": ["../../packages/x-studio-middleware/src/*"],
       "@mui/x-chat": ["../../packages/x-chat/src"],
       "@mui/x-chat/*": ["../../packages/x-chat/src/*"],
       "@mui/x-chat-headless": ["../../packages/x-chat-headless/src"],

@@ -10,20 +10,21 @@
     "typescript": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mui/x-studio": "workspace:*",
-    "@mui/x-chat": "workspace:*",
+    "@emotion/react": "catalog:",
+    "@emotion/styled": "catalog:",
+    "@mui/icons-material": "catalog:",
+    "@mui/material": "catalog:",
     "@mui/x-charts": "workspace:*",
+    "@mui/x-chat": "workspace:*",
     "@mui/x-data-grid": "workspace:*",
     "@mui/x-data-grid-pro": "workspace:*",
     "@mui/x-date-pickers": "workspace:*",
     "@mui/x-date-pickers-pro": "workspace:*",
-    "@mui/material": "catalog:",
-    "@mui/icons-material": "catalog:",
-    "@emotion/react": "catalog:",
-    "@emotion/styled": "catalog:",
+    "@mui/x-studio": "workspace:*",
     "dayjs": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "topojson-client": "^3.1.0",
     "x-studio-shared": "workspace:*"
   },
   "devDependencies": {

@@ -53,6 +53,7 @@ export function ChatHomePanel({ onSubmit, isLoading = false }: ChatHomePanelProp
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
+        width: '100%',
         height: '100%',
         p: 4,
       }}

@@ -20,6 +20,7 @@
 11. [State Persistence & Migration](#11-state-persistence--migration)
 12. [UI Layout & Component Tree](#12-ui-layout--component-tree)
 13. [Public API Surface](#13-public-api-surface)
+14. [AI Features](#14-ai-features)
 
 ---
 
@@ -707,7 +708,7 @@ graph TD
 
 **StudioFiltersDrawer** — filter management. Grouped into page-scope and per-widget sections. Supports filter presets (Saved Views), filter search, and filter cards with inline editing.
 
-**StudioChatPanel** — AI chat assistant. Lazy-loaded on first open. Uses `@mui/x-chat` for the message thread. The `studioAdapter.ts` translates AI tool calls (`add_widget`, `update_widget`, `delete_widget`, `get_dashboard_state`) into `StudioController` mutations.
+**StudioChatPanel** — AI chat assistant. Lazy-loaded on first open (single `React.lazy` in the package). Uses `@mui/x-chat` for the message thread. `studioAdapter.ts` translates user messages into an agentic SSE streaming loop: build system prompt → stream LLM response → execute tool calls → recurse until text response. Supports 12 built-in tools: `get_dashboard_state`, `add_page`, `remove_page`, `rename_page`, `set_active_page`, `add_widget`, `remove_widget`, `update_widget`, `add_filter`, `remove_filter`, `add_relationship`, `remove_relationship`. Destructive operations (`remove_widget`, `remove_page`) are gated by a `Promise<boolean>` confirmation rendered as a `ChatConfirmation` component inline in the chat thread. Can be used as a FAB overlay (`overlay={true}`, default in `<Studio>`) or as a persistent sidebar panel (`overlay={false}`, composable usage).
 
 ### 12.4 StudioWidgetCard
 
@@ -718,6 +719,9 @@ Each widget in the canvas is wrapped in `StudioWidgetCard`, which provides:
 - Skeleton placeholder while `showContent === false` (prevents CLS).
 - Click-to-select for edit mode.
 - `StudioWidgetEditDialog` (full config dialog on double-click).
+- **`onAiRequest` prop** — optional consumer-provided callback. When set, an `AutoAwesome` icon button appears in the card's action overlay (edit mode only). Calling it passes `widgetId` to the host app, enabling the host to open a custom AI panel focused on that widget. Propagated from `StudioCanvas` via `slotProps.widgetCard`.
+- **Built-in insight panel** — when `aiConfig?.endpoint` is set, an `AutoAwesome` dropdown appears in the action overlay (both edit and view modes) with options: Summary, Analysis, Forecast. Selecting one calls `generateWidgetInsight()`, which sends up to 100 aggregated rows to the LLM and renders the result in `StudioInsightPanel` — an absolutely-positioned overlay inside the card (`bottom: 8, left: 8, right: 8, maxHeight: 60%`).
+- **Anomaly detection** — a `TroubleshootIcon` toggle button (chart widgets only, both modes) enables statistical anomaly detection. Detected anomalies show a count badge. When anomalies are present, an "Explain Anomaly" button appears; clicking it dynamically imports `generateAnomalyExplanation` (code-split) and displays the result in the same `StudioInsightPanel`.
 
 ### 12.5 Keyboard shortcuts
 
@@ -840,4 +844,72 @@ All flags default to `true` (opt-out model). Setting any flag to `false` hides t
 ### 13.7 Locale / i18n
 
 All user-visible strings are defined in `StudioLocaleText` and passed via `localeText` prop on `<Studio>`. A complete `ptBRLocaleText` translation is provided. Partial override objects are merged over the English defaults.
+
+---
+
+## 14. AI Features
+
+> For the complete AI pipeline reference including entry points, SSE streaming, tool dispatch, data summarization, and per-example display paths, see `AI_ASSISTANT_OVERVIEW.md`.
+
+### 14.1 AI Configuration
+
+```ts
+interface StudioAIConfig {
+  endpoint: string;              // OpenAI-compatible completions URL
+  apiKey?: string;               // Omit for server-side proxy
+  model?: string;                // Default: 'gpt-4o'
+  headers?: Record<string, string>; // Extra auth headers for proxy
+}
+```
+
+Set on `<Studio aiConfig={...}>` or `<StudioProvider aiConfig={...}>`. Pass `null` to fully disable AI features.
+
+### 14.2 Multi-Turn Chat — `StudioChatPanel`
+
+`StudioChatPanel` uses `@mui/x-chat`'s `ChatBox` component and a custom `ChatAdapter` (`createStudioChatAdapter`) that implements an agentic SSE streaming loop:
+
+1. **System prompt** — `buildAISystemPrompt(controller.getState())` is called fresh on every request. Contains schema-only context (dashboard meta, pages, active-page widgets with config, data source fields + `aiDescription`, filter presets, expression fields). **No row data is included.**
+2. **Streaming** — `fetch` with `stream: true`; `processStream()` parses SSE and yields text deltas live to the chat thread.
+3. **Tool execution** — After the stream, any tool calls are dispatched through `executeTool()` which calls `StudioController` mutations directly. Destructive tools (`remove_widget`, `remove_page`) await a `Promise<boolean>` confirmation before proceeding.
+4. **Agentic follow-up** — After all tool results are appended to message history, `doRequest()` recurses until the model returns a response with no tool calls.
+
+**12 built-in tools:**
+
+| Tool | Effect |
+|---|---|
+| `get_dashboard_state` | Re-reads current system prompt snapshot |
+| `add_page` / `remove_page` / `rename_page` / `set_active_page` | Page management |
+| `add_widget` / `remove_widget` / `update_widget` | Widget CRUD |
+| `add_filter` / `remove_filter` | Filter management (scope: `'page'` \| `'widget'`) |
+| `add_relationship` / `remove_relationship` | Cross-source joins |
+
+### 14.3 Widget-Level AI Insights
+
+Three functions in `generateInsight.ts` make **single non-streaming** LLM calls and return `Promise<{ text: string }>`. They are the **only** paths that send row data to the LLM.
+
+| Function | Trigger | Data sent | Display |
+|---|---|---|---|
+| `generateWidgetInsight` | Widget card AutoAwesome dropdown (Summary / Analysis / Forecast) | Up to 100 aggregated rows + field schema | `StudioInsightPanel` inside widget card |
+| `generateDashboardSummary` | AutoAwesome FAB at `bottom: 76, right: 20` in `<Studio>` | Schema only (`buildAISystemPrompt`) | Bottom `<Drawer>` (`maxHeight: 40vh`) |
+| `generateAnomalyExplanation` | "Explain Anomaly" button (code-split, chart widgets) | Oversampled anomaly rows + schema | `StudioInsightPanel` inside widget card |
+
+`StudioInsightPanel` (`src/StudioInsightPanel/`) renders absolutely inside the widget card with type-switcher chips, Refresh, Copy, and Close buttons.
+
+All three functions are re-exported from `src/index.ts` for consumer use.
+
+### 14.4 `onAiRequest` Prop
+
+`StudioWidgetCard` accepts an optional `onAiRequest?: (widgetId: string) => void` prop (propagated via `StudioCanvas slotProps.widgetCard`). When provided:
+- An `AutoAwesome` icon button appears in the card overlay (edit mode only, separate from the built-in insight menu)
+- The host app receives `widgetId` and can open its own AI panel focused on that widget
+
+This is the integration point for `examples/x-studio-ai` — the host app can open the `ActiveChatPanel` scrolled to a widget-specific prompt.
+
+### 14.5 NL Widget Creation (`createWidgetFromDescription`)
+
+A single-turn, non-streaming path used only by the Compose Drawer's "Describe a widget" text field. Forces an `add_widget` tool call, merges with `createDefaultWidget(kind)` defaults, and calls `controller.addWidget()` directly. Independent of `StudioChatPanel` and `studioAdapter.ts`.
+
+### 14.6 Data Isolation
+
+The main chat pipeline (`studioAdapter.ts`) **never** sends row data to the LLM — only schema metadata. Row data reaches the LLM exclusively through the insight functions in `generateInsight.ts` (up to 100 rows, aggregated or sampled). This is an important security boundary for sensitive datasets.
 ````

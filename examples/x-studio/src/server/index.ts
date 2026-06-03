@@ -1,7 +1,7 @@
 /**
  * x-studio example — standalone HTTP server
  *
- * Demonstrates the framework wiring pattern for @mui/x-studio-server.
+ * Demonstrates the framework wiring pattern for @mui/x-studio-middleware.
  * This server shows how to:
  *   1. Extract security claims from a JWT (using extractSecurityClaims)
  *   2. Generate a security-scoped server-side cache key
@@ -20,8 +20,8 @@
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { extractSecurityClaims, generateCacheKey, LRUCacheProvider } from '@mui/x-studio-server';
-import type { BatchQueryRequest, JwtSecurityClaims } from '@mui/x-studio-server';
+import { extractSecurityClaims, generateCacheKey, LRUCacheProvider } from '@mui/x-studio-middleware';
+import type { BatchQueryRequest, JwtSecurityClaims } from '@mui/x-studio-middleware';
 import { seedDatabase } from './seedDatabase.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);

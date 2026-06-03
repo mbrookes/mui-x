@@ -1,7 +1,7 @@
 ---
 title: Studio - Server middleware
 productId: x-studio
-packageName: '@mui/x-studio-server'
+packageName: '@mui/x-studio-middleware'
 githubLabel: 'scope: studio'
 ---
 
@@ -13,7 +13,7 @@ githubLabel: 'scope: studio'
 
 ## Overview
 
-`@mui/x-studio-server` is the server-side counterpart to the [`createBatchingAdapter`](/x/react-studio/data/async-adapters/#batching-multiple-widgets-into-one-request) client utility. Together they replace N independent widget HTTP requests with a single batched `POST` that is processed securely and efficiently on the server.
+`@mui/x-studio-middleware` is the server-side counterpart to the [`createBatchingAdapter`](/x/react-studio/data/async-adapters/#batching-multiple-widgets-into-one-request) client utility. Together they replace N independent widget HTTP requests with a single batched `POST` that is processed securely and efficiently on the server.
 
 The package is intentionally framework-agnostic — it exports a pure `handleBatchQuery()` function with no HTTP imports. You wire it into Express, Fastify, Next.js API routes, or any other handler yourself.
 
@@ -55,15 +55,15 @@ Widget renders with fresh rows
 <codeblock storageKey="package-manager">
 
 ```bash npm
-npm install @mui/x-studio-server knex lru-cache
+npm install @mui/x-studio-middleware knex lru-cache
 ```
 
 ```bash pnpm
-pnpm add @mui/x-studio-server knex lru-cache
+pnpm add @mui/x-studio-middleware knex lru-cache
 ```
 
 ```bash yarn
-yarn add @mui/x-studio-server knex lru-cache
+yarn add @mui/x-studio-middleware knex lru-cache
 ```
 
 </codeblock>
@@ -79,7 +79,7 @@ import {
   handleBatchQuery,
   extractSecurityClaims,
   LRUCacheProvider,
-} from '@mui/x-studio-server';
+} from '@mui/x-studio-middleware';
 
 const db = knex({ client: 'pg', connection: process.env.DATABASE_URL });
 const cache = new LRUCacheProvider({
@@ -296,7 +296,7 @@ GROUP BY region
 The default cache is an in-process LRU, bounded by total byte size:
 
 ```ts
-import { LRUCacheProvider } from '@mui/x-studio-server';
+import { LRUCacheProvider } from '@mui/x-studio-middleware';
 
 const cache = new LRUCacheProvider({
   maxSizeBytes: 128 * 1024 * 1024, // 128 MB (default)
@@ -328,7 +328,7 @@ await cache.invalidatePrefix('studio:v1:');
 Implement `CacheProvider` to use Redis, Memcached, or any other store:
 
 ```ts
-import type { CacheProvider, CacheEntry } from '@mui/x-studio-server';
+import type { CacheProvider, CacheEntry } from '@mui/x-studio-middleware';
 import { createClient } from 'redis';
 
 export class RedisCacheProvider implements CacheProvider {
@@ -437,7 +437,7 @@ interface WidgetQueryResult {
 ```ts
 // app/api/studio-data/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { handleBatchQuery, extractSecurityClaims } from '@mui/x-studio-server';
+import { handleBatchQuery, extractSecurityClaims } from '@mui/x-studio-middleware';
 import { db, cache } from '@/lib/db';
 
 export async function POST(req: NextRequest) {

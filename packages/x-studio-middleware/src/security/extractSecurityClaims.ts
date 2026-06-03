@@ -11,7 +11,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { JwtSecurityClaims } from './types';
 
-/** JWT payload shape expected by x-studio-server */
+/** JWT payload shape expected by x-studio-middleware */
 interface JwtPayload {
   sub: string;
   tenantId: string;

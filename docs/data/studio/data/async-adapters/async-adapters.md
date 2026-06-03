@@ -194,7 +194,7 @@ const adapter: StudioDataSourceAdapter = {
 
 For production use, consider a proper LRU cache (e.g. `lru-cache`) and cache invalidation on data mutations.
 
-When using [`createBatchingAdapter`](#batching-multiple-widgets-into-one-request) together with [`@mui/x-studio-server`](/x/react-studio/data/server-middleware/), cross-widget deduplication is handled automatically at both layers:
+When using [`createBatchingAdapter`](#batching-multiple-widgets-into-one-request) together with [`@mui/x-studio-middleware`](/x/react-studio/data/server-middleware/), cross-widget deduplication is handled automatically at both layers:
 
 - **Client** — `StudioRequestCache` coalesces concurrent requests with the same `cacheKey` into a single in-flight `getRows()` call.
 - **Server** — `generateCacheKey` excludes `widgetId` from the server-side LRU key, so widgets with identical queries share one cache entry regardless of their IDs.
@@ -616,11 +616,11 @@ const adapter = createBatchingAdapter('/api/studio-data', {
 
 ### Server-side counterpart
 
-`createBatchingAdapter` is designed to work with the [`@mui/x-studio-server`](/x/react-studio/data/server-middleware/) package, which provides a framework-agnostic `handleBatchQuery()` handler that processes the batch, applies security predicates, and routes queries to the optimal execution tier. See the [Server middleware](/x/react-studio/data/server-middleware/) guide for the full server setup.
+`createBatchingAdapter` is designed to work with the [`@mui/x-studio-middleware`](/x/react-studio/data/server-middleware/) package, which provides a framework-agnostic `handleBatchQuery()` handler that processes the batch, applies security predicates, and routes queries to the optimal execution tier. See the [Server middleware](/x/react-studio/data/server-middleware/) guide for the full server setup.
 
 ## See also
 
 - [Inline data sources](/x/react-studio/data/data-sources/) — synchronous inline rows for smaller datasets
 - [Relationships](/x/react-studio/data/relationships/) — declare foreign-key joins between data sources
-- [Server middleware](/x/react-studio/data/server-middleware/) — `@mui/x-studio-server` batch handler with security, caching, and adaptive routing
+- [Server middleware](/x/react-studio/data/server-middleware/) — `@mui/x-studio-middleware` batch handler with security, caching, and adaptive routing
 - [Save & load](/x/react-studio/persistence/save-and-load/) — persist and restore dashboard state; adapters are re-attached after load

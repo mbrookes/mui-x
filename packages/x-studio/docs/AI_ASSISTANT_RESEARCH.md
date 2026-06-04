@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The embedded analytics market has undergone a rapid AI transformation. In 2025–2026, every major BI vendor added conversational AI, and the gap between "basic NL-to-chart" and "agentic multi-step analytics" has widened. `@mui/x-studio` currently implements a competent **8-tool OpenAI-compatible chat assistant** that can build dashboards from natural language — comparable to AG Grid Studio's approach in terms of interaction model, but trailing on several high-value features: AI-generated insights/summaries, anomaly detection, forecasting, MCP integration, multi-thread conversations, and semantic layer metadata support. The most impactful enhancements are: fixing 7 documented-but-unimplemented features, adding AI insight generation (summaries + analysis), implementing page-filter and data-source tools, persistent conversation state, and an MCP server for external agent integration.
+The embedded analytics market has undergone a rapid AI transformation. In 2025–2026, every major BI vendor added conversational AI, and the gap between "basic NL-to-chart" and "agentic multi-step analytics" has widened. `@mui/x-studio` currently implements a competent **15-tool OpenAI-compatible chat assistant** that can build dashboards from natural language — comparable to AG Grid Studio's approach in terms of interaction model, but trailing on several high-value features: forecasting, MCP integration, multi-thread conversations, and voice input. The most impactful remaining enhancements are: an MCP server for external agent integration, persistent conversation state in core (currently example-only), and named conversation threads.
 
 ---
 
@@ -639,7 +639,7 @@ graph TD
     ChatPanel[StudioChatPanel lazy-loaded]
     ChatBox[ChatBox from @mui/x-chat]
     Adapter[createStudioChatAdapter]
-    Tools[STUDIO_AI_TOOLS: 8 tools]
+    Tools[STUDIO_AI_TOOLS: 15 tools]
     SystemPrompt[buildAISystemPrompt]
     Controller[StudioController mutations]
     LLM[OpenAI-compatible endpoint SSE]
@@ -654,20 +654,27 @@ graph TD
     Adapter --> Controller
 ```
 
-### Current AI Tools (8 Implemented)
+### Current AI Tools (15 Implemented)
 
-| Tool                  | Description                                                                            |
-| --------------------- | -------------------------------------------------------------------------------------- |
-| `get_dashboard_state` | Returns current pages/widgets/sources as state dump (re-invokes `buildAISystemPrompt`) |
-| `add_page`            | Creates new page, sets as active                                                       |
-| `set_dashboard_title` | Changes dashboard title                                                                |
-| `add_widget`          | Adds any widget kind with full config (chart/grid/kpi/text/filter/pivot/map + custom)  |
-| `update_widget`       | Partial update of existing widget by ID                                                |
-| `remove_widget`       | Removes widget — **requires user confirmation** via `ChatConfirmation` dialog          |
-| `set_widget_layout`   | Rearranges widget rows (full rows array)                                               |
-| `set_widget_width`    | Sets column-span (3–12 on 12-col grid) or null to reset                                |
+| Tool                   | Description                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| `get_dashboard_state`  | Returns current pages/widgets/sources as state dump (re-invokes `buildAISystemPrompt`) |
+| `add_page`             | Creates new page, sets as active                                                       |
+| `rename_page`          | Renames an existing page                                                               |
+| `remove_page`          | Removes page and all its widgets — **requires user confirmation**                      |
+| `set_active_page`      | Navigates to a specific page by id                                                     |
+| `set_dashboard_title`  | Changes the top-level dashboard title                                                  |
+| `add_widget`           | Adds any widget kind with full config (chart/grid/kpi/text/filter/pivot/map + custom)  |
+| `update_widget`        | Partial update of existing widget by ID                                                |
+| `remove_widget`        | Removes widget — **requires user confirmation** via `ChatConfirmation` dialog          |
+| `set_widget_layout`    | Rearranges widget rows (full rows array)                                               |
+| `set_widget_width`     | Sets column-span (3–12 on 12-col grid) or null to reset                                |
+| `add_page_filter`      | Adds a filter scoped to the active page                                                |
+| `remove_page_filter`   | Removes a page-scoped filter by ID                                                     |
+| `add_widget_filter`    | Adds a filter scoped to a specific widget                                              |
+| `remove_widget_filter` | Removes a widget-scoped filter by ID                                                   |
 
-Source: `packages/x-studio/src/StudioChatPanel/studioAITools.ts:1-188`[^32]
+Source: `packages/x-studio/src/StudioChatPanel/studioAITools.ts`[^32]
 
 ### StudioAIConfig
 
@@ -732,17 +739,18 @@ The documentation claims several AI features that were not in the original code:
 | `rename_page` tool             | `tools.md`         | ✅ Implemented                                        | —                                 |
 | `set_active_page` tool         | `tools.md`         | ✅ Implemented                                        | —                                 |
 | `add_data_source` tool         | `tools.md`         | ❌                                                    | AI cannot connect new data        |
-| `add_filter` (page-level)      | `tools.md`         | ✅ `add_filter`/`remove_filter` with `scope` param    | —                                 |
-| `update_dashboard_title`       | `tools.md`         | ❌ (real: `set_dashboard_title`, if still present)    | Doc inconsistency                 |
-| `allowedTools` on `aiConfig`   | `tools.md:54-66`   | ❌                                                    | Cannot restrict AI tool access    |
-| `allowedTools: []` disable all | `tools.md:73-77`   | ❌                                                    | Cannot disable all tools          |
-| `onToolError` callback         | `tools.md:92-101`  | ❌                                                    | No error hook for tool failures   |
-| `extraTools` / `StudioAiTool`  | `tools.md:122-157` | ❌                                                    | Cannot add custom tools           |
+| `add_page_filter` / `add_widget_filter` | `tools.md` | ✅ Implemented (separate page- and widget-scoped tools) | —                              |
+| `update_dashboard_title`       | `tools.md`         | ❌ (real: `set_dashboard_title`)                      | Doc inconsistency                 |
+| `allowedTools` on `aiConfig`   | `tools.md`         | ✅ Implemented (`studioAdapter.ts:451–453`)           | —                                 |
+| `allowedTools: []` disable all | `tools.md`         | ✅ Implemented                                        | —                                 |
+| `onToolError` callback         | `tools.md`         | ✅ Implemented (`studioAdapter.ts:766`)               | —                                 |
+| `extraTools` / `StudioAiTool`  | `tools.md`         | ✅ Implemented (`studioAdapter.ts:52,455,734`)        | —                                 |
 
-**Current tool count:** 12 tools (`get_dashboard_state`, `add_page`, `remove_page`, `rename_page`,
-`set_active_page`, `add_widget`, `remove_widget`, `update_widget`, `add_filter`, `remove_filter`,
-`add_relationship`, `remove_relationship`).  
-Source: `packages/x-studio/src/StudioChatPanel/studioAdapter.ts:430–530`
+**Current tool count:** 15 tools — `get_dashboard_state`, `add_page`, `rename_page`, `remove_page`,
+`set_active_page`, `set_dashboard_title`, `add_widget`, `update_widget`, `remove_widget`,
+`set_widget_layout`, `set_widget_width`, `add_page_filter`, `remove_page_filter`,
+`add_widget_filter`, `remove_widget_filter`.  
+Source: `packages/x-studio/src/StudioChatPanel/studioAITools.ts`
 
 ### 🔴 Feature Status vs Competitors
 
@@ -751,14 +759,14 @@ Source: `packages/x-studio/src/StudioChatPanel/studioAdapter.ts:430–530`
 | **AI Insight Generation** (per-widget summary, analysis, forecast)                | P0       | ✅ `generateWidgetInsight` + `StudioInsightPanel`      | Reveal BI, Power BI Copilot, Sisense                  |
 | **Dashboard narrative summary**                                                   | P0       | ✅ `generateDashboardSummary` + bottom drawer          | Power BI Copilot, Sisense                             |
 | **Anomaly detection** (chart overlay + AI explanation)                            | P0       | ✅ Client-side detection + `generateAnomalyExplanation`| Highcharts Orbit, Reveal BI, Sisense                  |
-| **Page-level filter tool** (`add_filter` + `remove_filter`)                       | P0       | ✅ Implemented with `scope` parameter                  | AG Grid Studio, Luzmo                                 |
-| **Widget-level filter tool**                                                      | P1       | ✅ `add_filter` with `scope: 'widget'`                 | AG Grid Studio                                        |
+| **Page-level filter tool** (`add_page_filter` + `remove_page_filter`)             | P0       | ✅ Implemented                                         | AG Grid Studio, Luzmo                                 |
+| **Widget-level filter tool** (`add_widget_filter` + `remove_widget_filter`)       | P1       | ✅ Implemented                                         | AG Grid Studio                                        |
 | **Page navigation tools** (`set_active_page`, `rename_page`, `remove_page`)      | P1       | ✅ Implemented (remove gated by confirmation)          | AG Grid Studio, Docs claim                            |
 | **Data source / field metadata** (`aiDescription`)                               | P1       | ✅ `StudioDataSource.aiDescription` + per-field        | AG Grid Studio (`aiDescription`), Reveal BI (catalog) |
 | **`onAiRequest` hook** on widget card                                             | P1       | ✅ Consumer-provided prop on `StudioWidgetCard`        | —                                                     |
 | **AI conversation state persistence**                                             | P1       | 🟡 `x-studio-ai` example only (localStorage)          | AG Grid Studio                                        |
 | **Named conversation threads**                                                    | P2       | 🟡 `x-studio-ai` example only                         | AG Grid Studio                                        |
-| **`allowedTools` / `extraTools`** (API completeness)                              | P1       | ❌ Not implemented                                     | AG Grid Studio (custom widget AI metadata)            |
+| **`allowedTools` / `extraTools`** (API completeness)                              | P1       | ✅ Implemented (`studioAdapter.ts`)                    | AG Grid Studio (custom widget AI metadata)            |
 | **MCP server** for x-studio                                                       | P1       | ❌ Not implemented                                     | Tableau, Metabase, ThoughtSpot, Sisense, Hex          |
 | **Data question answering** (`execute_query` equivalent)                          | P2       | ❌ Not implemented                                     | AG Grid Studio (Data agent)                           |
 | **Forecasting / trend bands** in charts                                           | P2       | ❌ Not implemented                                     | Highcharts Orbit, Reveal BI                           |
@@ -770,7 +778,6 @@ Source: `packages/x-studio/src/StudioChatPanel/studioAdapter.ts:430–530`
 | Issue                                                                         | Location                               | Impact                                               |
 | ----------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------- |
 | `add_widget` in `executeTool` skips `createDefaultWidget()` normalisation     | `studioAdapter.ts:170-189`             | Partially configured widgets from chat               |
-| `allowedTools` / `extraTools` / `onToolError` not implemented despite being documented | `studioAdapter.ts` / `StudioAIConfig` | Embedders cannot restrict or extend AI tools  |
 | Zero automated tests for `StudioChatPanel`, `studioAdapter`, AI tools         | `x-studio/src/`                        | No regression protection on AI features              |
 
 ### 🟢 Minor: Undocumented / Noteworthy Features
@@ -799,24 +806,19 @@ Source: `packages/x-studio/src/StudioChatPanel/studioAdapter.ts:430–530`
 
 #### ~~1.2 Implement Filter Tools~~ ✅ DONE
 
-`add_filter` and `remove_filter` are implemented with a `scope` parameter (`'page'` | `'widget'`
-| `'cross-filter'`). Page-scoped filters are stamped with `activePageId` automatically.
-Widget-scoped filters target a specific `widgetId`.
+Four separate filter tools are implemented: `add_page_filter` and `remove_page_filter` for
+page-scoped filters (stamped with `activePageId` automatically), and `add_widget_filter` and
+`remove_widget_filter` for widget-scoped filters targeting a specific `widgetId`.
 
-#### 1.3 Implement `allowedTools` and `extraTools`
+#### ~~1.3 Implement `allowedTools`, `extraTools`, and `onToolError`~~ ✅ DONE
+
+All three are implemented in `studioAdapter.ts`:
+
+- `allowedTools?: StudioAIToolName[]` — whitelist; `undefined` = all 15 tools enabled
+- `extraTools?: StudioAiTool[]` — custom app-specific tools appended to the built-in list
+- `onToolError?: (toolName: string, error: Error) => void` — called when any tool throws
 
 ```typescript
-interface StudioAIConfig {
-  endpoint: string;
-  apiKey?: string;
-  model?: string;
-  headers?: Record<string, string>;
-  // NEW:
-  allowedTools?: StudioAIToolName[]; // whitelist; undefined = all enabled
-  extraTools?: StudioAiTool[]; // custom app-specific tools
-  onToolError?: (toolName: string, error: Error) => void;
-}
-
 interface StudioAiTool {
   name: string;
   description: string;
@@ -1113,7 +1115,7 @@ graph LR
 
 | Finding                                                                      | Confidence | Source                                 |
 | ---------------------------------------------------------------------------- | ---------- | -------------------------------------- |
-| x-studio has exactly 8 AI tools (not 10 as docs claim)                       | **High**   | Direct code read of `studioAITools.ts` |
+| x-studio has 15 AI tools (`studioAITools.ts`) — `allowedTools`, `extraTools`, and `onToolError` are all implemented | **High** | Direct code read of `studioAITools.ts` and `studioAdapter.ts` |
 | 7 features in docs not implemented in code                                   | **High**   | Direct code read confirmed absence     |
 | AG Grid Studio uses 5-agent architecture                                     | **High**   | Official AG Grid Studio docs           |
 | Reveal BI AI released March 2026                                             | **High**   | Official blog post                     |
@@ -1198,7 +1200,7 @@ graph LR
 
 [^31]: [Microsoft LIDA - github.com/microsoft/lida](https://github.com/microsoft/lida) — Full API, persona-aware goals, error rate <3.5%
 
-[^32]: `packages/x-studio/src/StudioChatPanel/studioAITools.ts:1-188` — All 8 tool definitions and `StudioAIToolName` union type
+[^32]: `packages/x-studio/src/StudioChatPanel/studioAITools.ts` — All 15 tool definitions and `StudioAIToolName` union type
 
 [^33]: `packages/x-studio/src/StudioChatPanel/studioAdapter.ts:11-39` — `StudioAIConfig` interface
 
@@ -1208,7 +1210,7 @@ graph LR
 
 [^36]: `packages/x-studio/src/internals/buildAISystemPrompt.ts:90-221` — System prompt builder; pages, widgets, sources, layout, kinds
 
-[^37]: `docs/data/studio/ai/tools/tools.md:21-157` — Documentation of 10 tools and 4 API features that are unimplemented in code
+[^37]: `docs/data/studio/ai/tools/tools.md` — Documentation of all 15 tools, `allowedTools`, `extraTools`, `onToolError`, and NL widget creation
 
 [^38]: [Reveal BI Insights SDK - help.revealbi.io/ai/sdk-insights/](https://help.revealbi.io/ai/sdk-insights/) — Three insight types API reference
 

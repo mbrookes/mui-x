@@ -74,6 +74,7 @@ const ChatBox = React.forwardRef(function ChatBox<Cursor = string>(
     // Suggestions
     suggestions,
     suggestionsAutoSubmit,
+    autoSubmitInitialValue,
     // Styled / visual props
     variant = 'default',
     density = 'standard',
@@ -144,6 +145,7 @@ const ChatBox = React.forwardRef(function ChatBox<Cursor = string>(
               rootEl={rootEl}
               suggestions={suggestions}
               suggestionsAutoSubmit={suggestionsAutoSubmit}
+              autoSubmitInitialValue={autoSubmitInitialValue}
               layoutClassName={classes.layout}
               conversationsPaneClassName={classes.conversationsPane}
               threadPaneClassName={classes.threadPane}
@@ -614,6 +616,13 @@ ChatBox.propTypes = {
    * @default false
    */
   suggestionsAutoSubmit: PropTypes.bool,
+  /**
+   * When `true`, the current composer value is automatically submitted once on mount.
+   * Use together with `initialComposerValue` to send a pre-filled message without
+   * requiring user interaction.
+   * @default false
+   */
+  autoSubmitInitialValue: PropTypes.bool,
   sx: PropTypes.oneOfType([
     PropTypes.arrayOf(PropTypes.oneOfType([PropTypes.func, PropTypes.object, PropTypes.bool])),
     PropTypes.func,

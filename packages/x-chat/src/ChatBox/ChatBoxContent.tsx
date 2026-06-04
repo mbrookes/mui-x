@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { useMessage, useMessageIds, useConversations } from '@mui/x-chat-headless';
+import { useMessage, useMessageIds, useConversations, useChatComposer } from '@mui/x-chat-headless';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
@@ -127,6 +127,13 @@ interface ChatBoxContentProps {
   threadPaneClassName?: string;
   suggestions?: Array<ChatSuggestion | string>;
   suggestionsAutoSubmit?: boolean;
+  /**
+   * When `true`, the current composer value is automatically submitted once on mount.
+   * Use together with `initialComposerValue` on the parent `ChatBox` to send a pre-filled
+   * message without requiring a user interaction.
+   * @default false
+   */
+  autoSubmitInitialValue?: boolean;
 }
 
 function DefaultMessageItem({
@@ -337,6 +344,7 @@ export function ChatBoxContent(props: ChatBoxContentProps) {
     threadPaneClassName,
     suggestions,
     suggestionsAutoSubmit,
+    autoSubmitInitialValue,
   } = props;
   const showScrollToBottom = features?.scrollToBottom !== false;
   const showSuggestions =
@@ -351,6 +359,18 @@ export function ChatBoxContent(props: ChatBoxContentProps) {
   const conversations = useConversations();
   const localeText = useChatLocaleText();
   const hasConversationList = conversations.length > 0;
+
+  // Auto-submit the initial composer value on first mount when requested.
+  const { submit } = useChatComposer();
+  const hasAutoSubmittedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (autoSubmitInitialValue && !hasAutoSubmittedRef.current) {
+      hasAutoSubmittedRef.current = true;
+      void Promise.resolve().then(() => submit());
+    }
+    // Only run once on mount — intentionally omitting deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleMenuClick = React.useCallback(() => {
     setDrawerOpen(true);

@@ -15,7 +15,7 @@ applications: `examples/x-studio`, `examples/x-studio-composed`, and `examples/x
    - 4.2 `doRequest` — agentic loop
    - 4.3 `processStream` — SSE streaming
    - 4.4 `toOpenAIMessages` — message serialization
-   - 4.5 Tool definitions (all 12 tools)
+   - 4.5 Tool definitions (all 15 tools)
    - 4.6 `executeTool` — tool dispatch
 5. [Data Summarization — `generateInsight.ts`](#5-data-summarization--generateinsightts)
    - 5.1 `generateWidgetInsight`
@@ -287,24 +287,27 @@ into OpenAI wire format.  Key mappings:
 - Tool results → separate `{ role: 'tool', tool_call_id, content: JSON.stringify(result) }` messages
 - `role: 'assistant'` text-only → `{ role: 'assistant', content: string }`
 
-### 4.5 Tool Definitions (all 12)
+### 4.5 Tool Definitions (all 15)
 
-Defined in `studioAdapter.ts:430–530`, passed as `tools: [...]` in every request.
+Defined in `packages/x-studio/src/StudioChatPanel/studioAITools.ts`, passed as `tools: [...]` in every request.
 
 | Tool | Description |
 |---|---|
 | `get_dashboard_state` | Re-read full system prompt snapshot — model calls when state may have changed |
 | `add_page` | Create a new dashboard page (title) |
-| `remove_page` | Remove a page and all its widgets — gated by `onRemovePageRequest` confirmation |
 | `rename_page` | Rename an existing page |
+| `remove_page` | Remove a page and all its widgets — gated by `onRemovePageRequest` confirmation |
 | `set_active_page` | Navigate to a page by id |
+| `set_dashboard_title` | Change the top-level dashboard title |
 | `add_widget` | Add a new widget (kind, title, sourceId, config, filters) to the active page |
-| `remove_widget` | Remove a widget — gated by `onRemoveWidgetRequest` confirmation |
 | `update_widget` | Patch a widget's config and/or title |
-| `add_filter` | Add a dashboard-level filter |
-| `remove_filter` | Remove a filter by id |
-| `add_relationship` | Add a cross-source join relationship |
-| `remove_relationship` | Remove a relationship |
+| `remove_widget` | Remove a widget — gated by `onRemoveWidgetRequest` confirmation |
+| `set_widget_layout` | Rearrange widgets by specifying row groupings |
+| `set_widget_width` | Set the column span of a widget (3–12 columns) |
+| `add_page_filter` | Add a filter scoped to the active page |
+| `remove_page_filter` | Remove a page-scoped filter by ID |
+| `add_widget_filter` | Add a filter scoped to a specific widget |
+| `remove_widget_filter` | Remove a widget-scoped filter by ID |
 
 ### 4.6 `executeTool` — dispatch
 
@@ -577,8 +580,8 @@ L4: enrichWithCrossSourceFields(filteredRows, ...)
 
 | Scope | Applied by | Source |
 |---|---|---|
-| `page` | All widgets on active page | `addFilter` / AI `add_filter` tool |
-| `widget` | Only the target widget | `addFilter` with `scope: 'widget'` |
+| `page` | All widgets on active page | `addFilter` / AI `add_page_filter` tool |
+| `widget` | Only the target widget | `addFilter` / AI `add_widget_filter` tool |
 | `cross-filter` | Widgets sharing a source | Interactive cross-filtering |
 | `interactive` | Applied by quick-filter bar | `applyInteractiveFilter` (non-undoable) |
 

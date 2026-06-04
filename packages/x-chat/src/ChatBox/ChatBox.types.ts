@@ -487,4 +487,11 @@ export interface ChatBoxProps<Cursor = string> extends Omit<
    * @default false
    */
   suggestionsAutoSubmit?: boolean;
+  /**
+   * When `true`, the current composer value is automatically submitted once on mount.
+   * Use together with `initialComposerValue` to send a pre-filled message without
+   * requiring user interaction.
+   * @default false
+   */
+  autoSubmitInitialValue?: boolean;
 }

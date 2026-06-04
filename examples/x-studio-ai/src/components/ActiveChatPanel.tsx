@@ -189,7 +189,7 @@ export function ActiveChatPanel({
                 initialMessages,
                 onMessagesChange: handleMessagesChange,
                 ...(chat.pendingMessage
-                  ? { initialComposerValue: chat.pendingMessage }
+                  ? { initialComposerValue: chat.pendingMessage, autoSubmitInitialValue: true }
                   : {}),
               },
             }}

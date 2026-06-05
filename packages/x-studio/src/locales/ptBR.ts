@@ -138,6 +138,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   dataDrawerCloseAriaLabel: 'Fechar linhagem de dados',
   dataDrawerEditTooltip: 'Editar',
   dataDrawerDeleteTooltip: 'Excluir',
+  dataDrawerViewSourceTooltip: 'Ver dados da fonte',
 
   // Relationship management
   relationshipEditTooltip: 'Editar',

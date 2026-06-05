@@ -155,6 +155,7 @@ export interface StudioLocaleText {
   dataDrawerCloseAriaLabel: string;
   dataDrawerEditTooltip: string;
   dataDrawerDeleteTooltip: string;
+  dataDrawerViewSourceTooltip: string;
 
   // ── Relationship management ────────────────────────────────────────────────
   relationshipEditTooltip: string;
@@ -465,6 +466,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   dataDrawerCloseAriaLabel: 'Close data lineage',
   dataDrawerEditTooltip: 'Edit',
   dataDrawerDeleteTooltip: 'Delete',
+  dataDrawerViewSourceTooltip: 'View source data',
 
   // Relationship management
   relationshipEditTooltip: 'Edit',

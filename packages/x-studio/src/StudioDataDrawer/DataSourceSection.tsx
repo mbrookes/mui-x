@@ -83,9 +83,11 @@ const DS_PREVIEW_COLS = 4;
 
 function DataSourcePreviewTooltip({
   source,
+  onOpenPreview,
   children,
 }: {
   source: StudioDataSource;
+  onOpenPreview?: (sourceId: string) => void;
   children: React.ReactElement;
 }) {
   const rows = source.rows;
@@ -159,14 +161,26 @@ function DataSourcePreviewTooltip({
           ))}
         </tbody>
       </Box>
-      {rows.length > DS_PREVIEW_ROWS && (
+      {(rows.length > DS_PREVIEW_ROWS || source.fields.filter((f) => !f.hidden).length > DS_PREVIEW_COLS) && (
         <Typography variant="caption" sx={{ opacity: 0.5 }}>
-          +{rows.length - DS_PREVIEW_ROWS} more rows
+          {[
+            rows.length > DS_PREVIEW_ROWS ? `${rows.length - DS_PREVIEW_ROWS} more rows` : null,
+            source.fields.filter((f) => !f.hidden).length > DS_PREVIEW_COLS
+              ? `${source.fields.filter((f) => !f.hidden).length - DS_PREVIEW_COLS} more columns`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         </Typography>
       )}
-      {source.fields.filter((f) => !f.hidden).length > DS_PREVIEW_COLS && (
-        <Typography variant="caption" sx={{ opacity: 0.5 }}>
-          +{source.fields.filter((f) => !f.hidden).length - DS_PREVIEW_COLS} more columns
+      {onOpenPreview && (
+        <Typography
+          component="span"
+          variant="caption"
+          onClick={() => onOpenPreview(source.id)}
+          sx={{ opacity: 0.8, cursor: 'pointer', '&:hover': { opacity: 1 } }}
+        >
+          View source data →
         </Typography>
       )}
     </Stack>
@@ -326,8 +340,9 @@ export function DataSourceSection(props: {
   dataSources: Record<string, StudioDataSource>;
   relationships: StudioRelationship[];
   isEditMode: boolean;
+  onOpenPreview?: (sourceId: string) => void;
 }) {
-  const { source, expressionFields, dataSources, relationships, isEditMode } = props;
+  const { source, expressionFields, dataSources, relationships, isEditMode, onOpenPreview } = props;
   const [open, setOpen] = React.useState(false);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingField, setEditingField] = React.useState<StudioExpressionField | undefined>(
@@ -373,7 +388,7 @@ export function DataSourceSection(props: {
 
   return (
     <div>
-      <DataSourcePreviewTooltip source={source}>
+      <DataSourcePreviewTooltip source={source} onOpenPreview={onOpenPreview}>
         <ListItemButton onClick={() => setOpen((prev) => !prev)} sx={{ pl: 2, pr: 1, py: 0.5 }}>
           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
             <Typography variant="subtitle2" noWrap sx={{ userSelect: 'none' }}>

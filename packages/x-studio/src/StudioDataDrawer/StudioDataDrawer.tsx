@@ -45,10 +45,15 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
   const [lineageOpen, setLineageOpen] = React.useState(false);
   // BL-103: track which source node is selected in the lineage graph
   const [lineageSourceId, setLineageSourceId] = React.useState<string | null>(null);
+  const [previewSourceId, setPreviewSourceId] = React.useState<string | null>(null);
 
   function handleLineageClose() {
     setLineageOpen(false);
     setLineageSourceId(null);
+  }
+
+  function handlePreviewClose() {
+    setPreviewSourceId(null);
   }
 
   if (sourceList.length === 0) {
@@ -60,6 +65,7 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
   }
 
   const selectedSource = lineageSourceId ? dataSources[lineageSourceId] : null;
+  const previewSource = previewSourceId ? dataSources[previewSourceId] : null;
 
   return (
     <Stack spacing={0} sx={sx}>
@@ -71,6 +77,7 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
           dataSources={dataSources}
           relationships={relationships}
           isEditMode={mode === 'edit'}
+          onOpenPreview={setPreviewSourceId}
         />
       ))}
       {mode === 'edit' && sourceList.length >= 2 && features.relationships !== false && (
@@ -168,6 +175,42 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
             </DialogContent>
           </Dialog>
         </React.Fragment>
+      )}
+      {previewSource && (
+        <Dialog
+          open={Boolean(previewSource)}
+          onClose={handlePreviewClose}
+          maxWidth="lg"
+          fullWidth
+          slotProps={{ paper: { sx: { height: '80vh' } } }}
+        >
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 6 }}>
+            <span>{previewSource.label}</span>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+              {previewSource.rows?.length ?? 0} rows ·{' '}
+              {previewSource.fields.filter((f) => !f.hidden).length +
+                expressionFields.filter(
+                  (ef) => ef.sourceId === previewSource.id && !ef.hidden && !ef.isMeasure,
+                ).length}{' '}
+              fields
+            </Typography>
+            <IconButton
+              aria-label={localeText.dataDrawerCloseAriaLabel}
+              onClick={handlePreviewClose}
+              sx={{ position: 'absolute', right: 8, top: 8 }}
+            >
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent dividers sx={{ display: 'flex', alignItems: 'stretch', justifyContent: 'stretch', overflow: 'auto', p: 0 }}>
+            <DataSourcePreview
+              source={previewSource}
+              expressionFields={expressionFields}
+              dataSources={dataSources}
+              relationships={relationships}
+            />
+          </DialogContent>
+        </Dialog>
       )}
     </Stack>
   );

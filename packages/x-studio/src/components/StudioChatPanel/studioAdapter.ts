@@ -840,6 +840,24 @@ export function createStudioChatAdapter(
                 })),
               };
 
+              // ── Enriched entry type ─────────────────────────────────────────
+              type AsyncTool = {
+                execute: (
+                  args: unknown,
+                  controller: StudioController,
+                ) => Promise<string | void> | string | void;
+                parallel?: boolean;
+              };
+              type EnrichedEntry = {
+                tc: { id: string; name: string; argsBuffer: string; extra_content?: unknown };
+                toolInput: unknown;
+                extraTool: AsyncTool | undefined;
+                skillTool: AsyncTool | undefined;
+                isParallelSafe: boolean;
+              };
+
+              const enriched: EnrichedEntry[] = [];
+
               for (const [, tc] of toolCallEntries) {
                 let toolInput: unknown;
                 try {
@@ -929,7 +947,7 @@ export function createStudioChatAdapter(
                   }
                 }
 
-                // Check if this is a custom extraTool or a skill tool
+                // Resolve the handler and allowed-tools check
                 const extraTool = (extraTools ?? []).find((t) => t.name === tc.name);
                 const skillTool = (skills ?? [])
                   .filter((s) => s.mode === 'client-handler' && s.tool)
@@ -956,116 +974,93 @@ export function createStudioChatAdapter(
                   continue;
                 }
 
-                // Determine if this tool is parallel-safe.
                 // Built-in read-only tools are always parallel-safe.
                 // extraTools and skillTools are parallel-safe only if explicitly marked.
                 const isReadOnlyBuiltin =
                   tc.name === 'get_dashboard_state' || tc.name === 'summarise_page';
                 const isParallelSafe =
-                  isReadOnlyBuiltin || extraTool?.parallel === true || skillTool?.parallel === true;
+                  isReadOnlyBuiltin ||
+                  extraTool?.parallel === true ||
+                  skillTool?.parallel === true;
 
-                tc._toolInput = toolInput;
-                tc._extraTool = extraTool;
-                tc._skillTool = skillTool;
-                tc._isParallelSafe = isParallelSafe;
+                enriched.push({ tc, toolInput, extraTool, skillTool, isParallelSafe });
               }
 
               // ── Parallel-aware execution ──────────────────────────────────────
-              // Execute tool calls in order, grouping adjacent parallel-safe async tools
-              // into concurrent batches. State-mutating built-ins are always sequential.
+              // Execute in original order. Adjacent parallel-safe async tools are
+              // grouped and run concurrently with Promise.all. Sequential tools and
+              // synchronous built-ins run in order around the parallel groups.
 
-              type EnrichedTc = (typeof toolCallEntries)[0][1] & {
-                _toolInput?: unknown;
-                _extraTool?: StudioAiTool;
-                _skillTool?: StudioAiTool;
-                _isParallelSafe?: boolean;
-              };
-
-              const execTc = async (tc: EnrichedTc): Promise<string> => {
-                const toolInput = tc._toolInput;
-                if (tc._extraTool) {
-                  const result = await tc._extraTool.execute(toolInput, controller);
-                  return result != null ? String(result) : JSON.stringify({ success: true });
-                }
-                if (tc._skillTool) {
-                  const result = await tc._skillTool.execute(toolInput, controller);
-                  return result != null ? String(result) : JSON.stringify({ success: true });
-                }
-                return executeTool(tc.name, toolInput, controller, customWidgets);
-              };
-
-              // Flush a pending parallel group, assigning results back in order.
-              const flushParallelGroup = async (
-                group: Array<{ tc: EnrichedTc; resultSlot: { output?: string } }>,
-              ) => {
-                const outputs = await Promise.all(group.map(({ tc }) => execTc(tc)));
-                for (let gi = 0; gi < group.length; gi += 1) {
-                  group[gi].resultSlot.output = outputs[gi];
+              const execEntry = async (e: EnrichedEntry): Promise<string> => {
+                try {
+                  if (e.extraTool) {
+                    const result = await e.extraTool.execute(e.toolInput, controller);
+                    return result != null ? String(result) : JSON.stringify({ success: true });
+                  }
+                  if (e.skillTool) {
+                    const result = await e.skillTool.execute(e.toolInput, controller);
+                    return result != null ? String(result) : JSON.stringify({ success: true });
+                  }
+                  return executeTool(e.tc.name, e.toolInput, controller, customWidgets);
+                } catch (err) {
+                  const toolErr = err instanceof Error ? err : new Error(String(err));
+                  onToolError?.(e.tc.name, toolErr);
+                  return JSON.stringify({ error: toolErr.message });
                 }
               };
 
-              const orderedTcs = toolCallEntries
-                .map(([, tc]) => tc as EnrichedTc)
-                .filter((tc) => tc._toolInput !== undefined || tc._isParallelSafe !== undefined);
+              let parallelGroup: EnrichedEntry[] = [];
 
-              // Two-pass: first collect already-denied/skipped entries' results (already in toolResults),
-              // then run the remaining ones with parallel grouping.
-              const alreadyHandledIds = new Set(toolResults.map((r) => r.toolCallId));
-              const pendingTcs = orderedTcs.filter((tc) => !alreadyHandledIds.has(tc.id));
+              const flushParallelGroup = async () => {
+                if (parallelGroup.length === 0) {
+                  return;
+                }
+                const outputs = await Promise.all(parallelGroup.map(execEntry));
+                for (let gi = 0; gi < parallelGroup.length; gi += 1) {
+                  const e = parallelGroup[gi];
+                  const output = outputs[gi];
+                  streamController.enqueue({
+                    type: 'tool-output-available',
+                    toolCallId: e.tc.id,
+                    output,
+                  });
+                  toolResults.push({
+                    toolCallId: e.tc.id,
+                    toolName: e.tc.name,
+                    input: e.toolInput,
+                    output,
+                  });
+                }
+                parallelGroup = [];
+              };
 
-              let parallelGroup: Array<{ tc: EnrichedTc; resultSlot: { output?: string } }> = [];
-              const resultSlots: Array<{ tc: EnrichedTc; slot: { output?: string } }> = [];
-
-              for (const tc of pendingTcs) {
-                if (tc._isParallelSafe && (tc._extraTool || tc._skillTool)) {
-                  // Parallel async tool — add to current group
-                  const slot: { output?: string } = {};
-                  parallelGroup.push({ tc, resultSlot: slot });
-                  resultSlots.push({ tc, slot });
+              for (const e of enriched) {
+                // Parallel-safe async tools (extraTool or skillTool) go into the group.
+                // Synchronous built-ins are fast enough that batching adds no benefit —
+                // flush any pending parallel group first, then execute immediately.
+                const isAsyncTool = e.extraTool != null || e.skillTool != null;
+                if (e.isParallelSafe && isAsyncTool) {
+                  parallelGroup.push(e);
                 } else {
-                  // Sequential — flush any pending parallel group first
-                  if (parallelGroup.length > 0) {
-                    // eslint-disable-next-line no-await-in-loop -- flushing parallel group before sequential tool
-                    await flushParallelGroup(parallelGroup);
-                    parallelGroup = [];
-                  }
-                  // Execute this tool sequentially
-                  const slot: { output?: string } = {};
-                  let output: string;
-                  try {
-                    // eslint-disable-next-line no-await-in-loop -- sequential tool execution
-                    output = await execTc(tc);
-                  } catch (err) {
-                    const toolErr = err instanceof Error ? err : new Error(String(err));
-                    onToolError?.(tc.name, toolErr);
-                    output = JSON.stringify({ error: toolErr.message });
-                  }
-                  slot.output = output;
-                  resultSlots.push({ tc, slot });
+                  // eslint-disable-next-line no-await-in-loop -- flush parallel group before sequential step
+                  await flushParallelGroup();
+                  // eslint-disable-next-line no-await-in-loop -- sequential tool execution
+                  const output = await execEntry(e);
+                  streamController.enqueue({
+                    type: 'tool-output-available',
+                    toolCallId: e.tc.id,
+                    output,
+                  });
+                  toolResults.push({
+                    toolCallId: e.tc.id,
+                    toolName: e.tc.name,
+                    input: e.toolInput,
+                    output,
+                  });
                 }
               }
-
-              // Flush any remaining parallel group
-              if (parallelGroup.length > 0) {
-                // eslint-disable-next-line no-await-in-loop -- flushing final parallel group
-                await flushParallelGroup(parallelGroup);
-              }
-
-              // Apply results in original order
-              for (const { tc, slot } of resultSlots) {
-                const output = slot.output ?? JSON.stringify({ error: 'No output produced.' });
-                streamController.enqueue({
-                  type: 'tool-output-available',
-                  toolCallId: tc.id,
-                  output,
-                });
-                toolResults.push({
-                  toolCallId: tc.id,
-                  toolName: tc.name,
-                  input: tc._toolInput,
-                  output,
-                });
-              }
+              // eslint-disable-next-line no-await-in-loop -- flush any remaining parallel group
+              await flushParallelGroup();
 
               // Build follow-up messages with tool results and continue
               const followUpMessages: OpenAIMessage[] = [

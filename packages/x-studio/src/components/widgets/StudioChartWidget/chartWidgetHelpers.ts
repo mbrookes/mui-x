@@ -71,15 +71,19 @@ export function createLineXAxisConfig(
   ];
 }
 
-export function makeValueFormatter(format?: StudioNumberFormat, currencyCode?: string) {
+export function makeValueFormatter(
+  format?: StudioNumberFormat,
+  currencyCode?: string,
+  precision?: number,
+) {
   return (value: number | null) => {
     if (value === null) {
       return '';
     }
-    if (!format) {
+    if (!format && precision == null) {
       return String(value);
     }
-    return formatNumber(value, format, currencyCode);
+    return formatNumber(value, format, currencyCode, undefined, precision);
   };
 }
 

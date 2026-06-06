@@ -1275,7 +1275,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           : null;
 
       const series = effectiveMultiYData.series.map((s, i) => {
-        const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
+        const fieldDef =
+          dataSource?.fields.find((f) => f.id === s.fieldId) ??
+          expressionFields.find((ef) => ef.id === s.fieldId);
         const data = totals100
           ? s.values.map((v, li) => {
               const total = totals100[li];
@@ -1284,7 +1286,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           : s.values;
         const baseFormatter = is100
           ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
-          : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode);
+          : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode, fieldDef?.precision);
         const seriesId = `${s.fieldId}-${i}`;
         const valueFormatter =
           multiYBarContext && multiYFilteredBySeriesId[seriesId]
@@ -1571,7 +1573,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         ? allBarSeriesFieldData
         : barSeriesFieldData;
     const xAxisData = effectiveSFData.labels;
-    const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
+    const yFieldDef =
+      dataSource?.fields.find((f) => f.id === activeYFields[0]) ??
+      expressionFields.find((ef) => ef.id === activeYFields[0]);
     const isStacked =
       normalizedChartType === 'bar-stacked' ||
       normalizedChartType === 'bar-100' ||
@@ -1614,7 +1618,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
     const baseSeriesValueFormatter = is100
       ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
-      : makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode);
+      : makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode, yFieldDef?.precision);
 
     const series = effectiveSFData.seriesNames.map((name) => {
       const rawData = effectiveSFData.seriesData[name];
@@ -1737,7 +1741,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       normalizedChartType === 'area-stacked' ||
       normalizedChartType === 'area-100')
   ) {
-    const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
+    const yFieldDef =
+      dataSource?.fields.find((f) => f.id === activeYFields[0]) ??
+      expressionFields.find((ef) => ef.id === activeYFields[0]);
     const isArea = normalizedChartType !== 'line';
     const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
     const is100 = normalizedChartType === 'area-100';
@@ -1804,7 +1810,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         highlightScope: { highlight: 'item' as const, fade: 'global' as const },
         valueFormatter: is100
           ? (value: number | null) => (value == null ? '0%' : `${value.toFixed(1)}%`)
-          : makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode),
+          : makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode, yFieldDef?.precision),
       };
     });
     return (
@@ -1912,7 +1918,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 filteredSeries.values,
               )
             : multiYAllData.labels.map(() => null);
-          const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
+          const fieldDef =
+            dataSource?.fields.find((f) => f.id === s.fieldId) ??
+            expressionFields.find((ef) => ef.id === s.fieldId);
           return {
             id: `${s.fieldId}-${i}`,
             data: alignedValues,
@@ -1922,7 +1930,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             color: resolvedChartColors[i % resolvedChartColors.length],
             yAxisKey: useIndependentAxes ? `y-${i}` : undefined,
             highlightScope: { highlight: 'item' as const, fade: 'global' as const },
-            valueFormatter: makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode),
+            valueFormatter: makeValueFormatter(
+              fieldDef?.format,
+              fieldDef?.currencyCode,
+              fieldDef?.precision,
+            ),
           };
         })
       : buildMultiYLineSeries(multiYData, normalizedChartType, dataSource?.fields);
@@ -1977,9 +1989,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ? allBarChartData
       : singleSeriesChartData;
   const xAxisData = effectiveSingleSeriesData!.labels;
-  const yFieldDef = dataSource?.fields.find((f) => f.id === activeYFields[0]);
+  const yFieldDef =
+    dataSource?.fields.find((f) => f.id === activeYFields[0]) ??
+    expressionFields.find((ef) => ef.id === activeYFields[0]);
   const seriesLabel = yFieldDef?.label ?? activeYFields[0] ?? 'Value';
-  const seriesValueFormatter = makeValueFormatter(yFieldDef?.format, yFieldDef?.currencyCode);
+  const seriesValueFormatter = makeValueFormatter(
+    yFieldDef?.format,
+    yFieldDef?.currencyCode,
+    yFieldDef?.precision,
+  );
   const selectedDataIndex = getSelectedDataIndex(effectiveSingleSeriesData!.labels);
 
   // Filtered values aligned to all-data labels for ghost bar context

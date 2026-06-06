@@ -313,30 +313,40 @@ Defined in `packages/x-studio/src/StudioChatPanel/studioAITools.ts`, passed as `
 ### 4.6 `executeTool` — dispatch
 
 ```ts
-// studioAdapter.ts:440–520
-async function executeTool(
-  toolCall: { name: string; arguments: Record<string, unknown> },
+function executeTool(
+  name: string,
+  args: unknown,
   controller: StudioController,
-  onRemoveWidgetRequest: (id: string) => Promise<boolean>,
-  onRemovePageRequest: (id: string) => Promise<boolean>,
-): Promise<string>   // returns JSON string fed back to model as tool result
+  customWidgets?: StudioCustomWidgetDef[],
+): string   // synchronous; returns JSON string fed back to model as tool result
 ```
 
 Each tool name is handled in a `switch` statement.  Confirmation-gated tools (`remove_widget`,
-`remove_page`):
+`remove_page`) are handled *before* `executeTool` in the dispatch loop and never reach it when
+the user declines.
 
-```ts
-case 'remove_widget': {
-  const confirmed = await onRemoveWidgetRequest(args.widgetId);
-  if (!confirmed) return JSON.stringify({ error: 'User declined removal' });
-  controller.removeWidget(args.widgetId);
-  return JSON.stringify({ success: true });
-}
-```
+### 4.7 Parallel tool call dispatch
 
-`onRemoveWidgetRequest` / `onRemovePageRequest` are async Promises that resolve to `boolean`.
-`StudioChatPanel` implements these by rendering an inline `<ChatConfirmation>` component below the
-chat thread; the Promise is resolved when the user clicks Confirm or Cancel.
+The model can return multiple `tool_calls` in a single assistant message (standard OpenAI API).
+The adapter collects all of them from the streaming response, dispatches them, then sends **all
+results back in one follow-up message** — one round-trip regardless of how many tools were called.
+
+**Execution order:**
+
+| Tool type | Execution |
+|---|---|
+| Built-in state-mutating (`add_widget`, `update_widget`, etc.) | Sequential — each reads the state updated by the previous |
+| Built-in read-only (`get_dashboard_state`, `summarise_page`) | Sequential (synchronous, effectively instant) |
+| `extraTool` / skill tool with `parallel: false` (default) | Sequential |
+| `extraTool` / skill tool with `parallel: true` | Concurrent with adjacent `parallel: true` tools via `Promise.all` |
+
+The dispatch loop groups adjacent `parallel: true` async tools and flushes each group before
+continuing with the next sequential tool. `toolResults[]` preserves original order for the
+follow-up message.
+
+**`parallel: true`** is opt-in on `StudioAiTool` and `StudioAISkill.tool`. Use it for
+read-only/side-effect-free async operations (e.g., fetching live data for several widgets
+simultaneously). Never mark a tool `parallel: true` if it reads then mutates state.
 
 ---
 

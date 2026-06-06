@@ -75,6 +75,12 @@ export interface StudioCustomWidgetDef {
    */
   requiresDataSource?: boolean;
   /**
+   * Whether the AI insights icon should be shown on this widget's action overlay.
+   * Only meaningful when an `aiConfig` endpoint is configured on `<Studio>`.
+   * @default false
+   */
+  aiInsight?: boolean;
+  /**
    * Default `config.customConfig` values written when a new widget of this kind is created.
    * Must contain only JSON-serializable values.
    */

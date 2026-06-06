@@ -18,6 +18,7 @@ import {
 import { useStudioUIConfig } from '../../internals/StudioUIConfigContext';
 import type { StudioAIConfig } from './studioAdapter';
 import { createStudioChatAdapter } from './studioAdapter';
+import { createBackendChatAdapter } from './studioBackendAdapter';
 import type { StudioCustomWidgetDef } from '../../models';
 
 // ── Suggestion generator ──────────────────────────────────────────────────────
@@ -243,6 +244,9 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   const adapter = React.useMemo<ChatAdapter | null>(() => {
     if (!aiConfig?.endpoint) {
       return null;
+    }
+    if (aiConfig.mode === 'x-studio-backend') {
+      return createBackendChatAdapter(aiConfig, controller, customWidgets, focusedWidgetId);
     }
     return createStudioChatAdapter(
       aiConfig,

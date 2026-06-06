@@ -213,7 +213,7 @@ function csvRow(row: Record<string, unknown>, fieldIds: string[]): string {
  * Always includes a numeric stats preamble (min/max/avg) from the full
  * filtered dataset so the AI has global context even when rows are sampled.
  */
-function buildWidgetDataSummary(
+export function buildWidgetDataSummary(
   widget: StudioWidget,
   state: StudioState,
   options: DataSummaryOptions = {},

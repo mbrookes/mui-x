@@ -373,7 +373,7 @@ export function RelationshipPanel(props: {
               key={rel.id}
               direction="row"
               spacing={0.5}
-              sx={{ alignItems: 'center', py: 0.25 }}
+              sx={{ alignItems: 'flex-end', py: 0.25 }}
             >
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                 <Typography variant="caption" noWrap>
@@ -397,7 +397,7 @@ export function RelationshipPanel(props: {
                 </Stack>
               </Box>
               {!rel.predefined && (
-                <React.Fragment>
+                <Stack direction="row" spacing={0.25} sx={{ flexShrink: 0, alignItems: 'center' }}>
                   <Tooltip title={localeText.relationshipEditTooltip}>
                     <IconButton
                       size="small"
@@ -416,8 +416,9 @@ export function RelationshipPanel(props: {
                       <DeleteIcon sx={{ fontSize: 14 }} />
                     </IconButton>
                   </Tooltip>
-                </React.Fragment>
-              )}            </Stack>
+                </Stack>
+              )}
+            </Stack>
           );
         })}
       </Stack>

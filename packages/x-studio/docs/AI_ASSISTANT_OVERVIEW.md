@@ -15,7 +15,7 @@ applications: `examples/x-studio`, `examples/x-studio-composed`, and `examples/x
    - 4.2 `doRequest` — agentic loop
    - 4.3 `processStream` — SSE streaming
    - 4.4 `toOpenAIMessages` — message serialization
-   - 4.5 Tool definitions (all 15 tools)
+   - 4.5 Tool definitions (all 16 tools)
    - 4.6 `executeTool` — tool dispatch
 5. [Data Summarization — `generateInsight.ts`](#5-data-summarization--generateinsightts)
    - 5.1 `generateWidgetInsight`
@@ -58,12 +58,11 @@ src/App.tsx
      />
 ```
 
-`<Studio>` (`packages/x-studio/src/Studio/Studio.tsx:672–740`) creates a single internal
+`<Studio>` (`packages/x-studio/src/Studio/Studio.tsx`) creates a single internal
 `StudioController`, wraps it in `StudioProvider`, and renders `StudioContent` with all drawers.
-The AI FAB is rendered at `bottom: 20, right: 20`; a secondary "Summarise dashboard" button at
-`bottom: 76, right: 20`.  Both are gated by `features.aiChat && aiConfig?.endpoint`.
+The AI FAB is rendered at `bottom: 20, right: 20`, gated by `features.aiChat && aiConfig?.endpoint`.
 
-`StudioChatPanel` is **lazy-loaded** (`React.lazy`, `Studio.tsx:52–58`) inside a
+`StudioChatPanel` is **lazy-loaded** (`React.lazy`) inside a
 `<React.Suspense fallback={null}>` — it is only downloaded when the user first opens the chat.
 
 ### 2.2 `examples/x-studio-composed`
@@ -287,7 +286,7 @@ into OpenAI wire format.  Key mappings:
 - Tool results → separate `{ role: 'tool', tool_call_id, content: JSON.stringify(result) }` messages
 - `role: 'assistant'` text-only → `{ role: 'assistant', content: string }`
 
-### 4.5 Tool Definitions (all 15)
+### 4.5 Tool Definitions (all 16)
 
 Defined in `packages/x-studio/src/StudioChatPanel/studioAITools.ts`, passed as `tools: [...]` in every request.
 
@@ -308,6 +307,7 @@ Defined in `packages/x-studio/src/StudioChatPanel/studioAITools.ts`, passed as `
 | `remove_page_filter` | Remove a page-scoped filter by ID |
 | `add_widget_filter` | Add a filter scoped to a specific widget |
 | `remove_widget_filter` | Remove a widget-scoped filter by ID |
+| `summarise_page` | Returns a rich data snapshot of every widget on the active page — per-widget sampled CSV, numeric stats, and anomaly axis values for chart widgets. Used by the **Summarise page** chat chip. |
 
 ### 4.6 `executeTool` — dispatch
 
@@ -384,7 +384,7 @@ export async function generateDashboardSummary(
 2. Single non-streaming fetch asking for a narrative summary of the entire dashboard
 3. Returns `{ text }`
 
-**Only called from:** `Studio.tsx:331` — the "Summarise dashboard" FAB in the monolithic component.
+**Only called from:** No longer called internally. Available as a public export (`src/index.ts`) for consumers who wish to call it programmatically from their own UIs.
 
 ### 5.3 `generateAnomalyExplanation`
 
@@ -409,14 +409,15 @@ export async function generateAnomalyExplanation(
 ### 5.4 `buildWidgetDataSummary` — sampling strategies
 
 ```ts
-// generateInsight.ts:110–310
-async function buildWidgetDataSummary(
-  widgetId: string,
-  controller: StudioController,
-  aiConfig: StudioAIConfig,
+// generateInsight.ts
+export async function buildWidgetDataSummary(
+  widget: StudioWidget,
+  state: StudioState,
   options: { sampling: 'aggregate' | 'stride' | 'tail' | 'anomaly'; anomalyAxisValues?: string[] }
 ): Promise<string>   // CSV preamble string
 ```
+
+`buildWidgetDataSummary` is **exported** (since the `summarise_page` tool in `studioAdapter.ts` calls it directly).
 
 `MAX_DATA_ROWS = 100` rows are included.
 
@@ -628,14 +629,18 @@ detected anomalies populate `anomalyAnnotations` → "Explain Anomaly" button ap
 **Display:** Same `StudioInsightPanel` as Path B, inside the widget card.  
 `generateAnomalyExplanation` is code-split via dynamic `import()` inside `handleAnomalyExplain`.
 
-### Path D — Dashboard summary (`generateDashboardSummary`)
+### Path D — Page summary (`summarise_page` tool)
 
-**Entry:** User clicks the `AutoAwesome` FAB at `bottom: 76, right: 20` in the monolithic
-`Studio` component.
+**Entry:** User clicks the **Summarise page** chip in the AI chat panel (appears when widgets are
+present and `aiConfig` is configured).
 
-**Display:** MUI `<Drawer anchor="bottom">` slides up from the bottom of the Studio shell,
-`maxHeight: 40vh`.  Text rendered as `<Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>`.  
-**Only available in `examples/x-studio`** (the monolithic variant).
+**Flow:** The chat sends "Summarise the current page." → the AI calls the `summarise_page` tool →
+`studioAdapter.ts` iterates widgets, calls `buildWidgetDataSummary` with kind-appropriate sampling
+(`'aggregate'` for charts, `'stride'` for others), runs `detectWidgetAnomalies` for chart widgets,
+and returns a JSON blob with per-widget data → the AI writes a narrative summary in the chat thread.
+
+**Display:** Normal chat message in `StudioChatPanel`. Available in all configurations that have
+`features.aiChat` enabled.
 
 ### Path E — Create widget from description (`createWidgetFromDescription`)
 
@@ -655,7 +660,7 @@ On error, an inline `FormHelperText` error message appears in the Compose Drawer
 | Multi-turn AI chat | ✅ (FAB overlay) | ✅ (sidebar) | ✅ (always visible) |
 | Widget insight (summary/analysis/forecast) | ✅ | ✅ | ✅ |
 | Anomaly detection & explanation | ✅ | ✅ | ✅ |
-| Dashboard summary FAB | ✅ | ❌ | ❌ |
+| Summarise page chip (chat) | ✅ | ✅ | ✅ |
 | Create widget from description | ✅ | ✅ | ❌ |
 | Compose Drawer | ✅ | ✅ | ❌ |
 | Data Drawer | ✅ | ❌ | ❌ |

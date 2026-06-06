@@ -328,6 +328,18 @@ export const STUDIO_AI_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'summarise_page',
+      description:
+        'Returns a rich data snapshot of every widget on the active dashboard page — ' +
+        'including a sampled CSV data excerpt and numeric stats for each widget, and ' +
+        'anomaly axis values for chart widgets. ' +
+        'Call this when the user asks you to summarise, analyse, or describe the current page.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
 ] as const;
 
 export type StudioAIToolName =
@@ -345,4 +357,5 @@ export type StudioAIToolName =
   | 'add_page_filter'
   | 'remove_page_filter'
   | 'add_widget_filter'
-  | 'remove_widget_filter';
+  | 'remove_widget_filter'
+  | 'summarise_page';

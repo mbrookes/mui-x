@@ -4,6 +4,9 @@ import type { StudioCustomWidgetDef, StudioWidget } from '../../models';
 import { buildAISystemPrompt } from '../../internals/buildAISystemPrompt';
 import { createDefaultWidget } from '../../internals/widgetUtils';
 import { STUDIO_AI_TOOLS, type StudioAIToolName } from './studioAITools';
+import { buildWidgetDataSummary } from './generateInsight';
+import { detectWidgetAnomalies } from '../../internals/anomalyDetection';
+import { createStudioPipeline } from '../../internals/StudioPipeline';
 
 /**
  * Configuration for the x-studio AI assistant.
@@ -368,6 +371,53 @@ function executeTool(
       const filterId = String(args.filterId ?? '');
       controller.removeFilter(filterId);
       return JSON.stringify({ success: true, filterId });
+    }
+
+    case 'summarise_page': {
+      const activePage = state.pages[state.dashboard.activePageId];
+      const pageTitle = activePage?.title ?? 'Untitled page';
+      const widgetIds = activePage?.widgetRows?.flat() ?? [];
+      const pipeline = createStudioPipeline(state);
+
+      const widgets = widgetIds.flatMap((wid) => {
+        const widget = state.widgets[wid];
+        if (!widget || !widget.sourceId) {
+          return [];
+        }
+        const source = state.dataSources[widget.sourceId];
+        if (!source?.rows?.length) {
+          return [];
+        }
+
+        const sampling = widget.kind === 'chart' ? 'aggregate' : 'stride';
+        const dataSummary = buildWidgetDataSummary(widget, state, { sampling });
+
+        let anomalies: string[] | undefined;
+        if (widget.kind === 'chart') {
+          const filteredRows = pipeline.resolveWidgetRows(
+            widget.id,
+            widget.sourceId,
+            source.rows,
+            state.dashboard.activePageId,
+          );
+          const annotations = detectWidgetAnomalies(widget, filteredRows);
+          if (annotations.length > 0) {
+            anomalies = annotations.map((a) => String(a.value));
+          }
+        }
+
+        return [
+          {
+            id: widget.id,
+            title: widget.title,
+            kind: widget.kind,
+            dataSummary,
+            ...(anomalies ? { anomalies } : {}),
+          },
+        ];
+      });
+
+      return JSON.stringify({ pageTitle, widgets });
     }
 
     default:

@@ -285,7 +285,11 @@ Customize the chat panel via `slotProps.chatPanel` on `<Studio>`:
 
 ### Never expose API keys client-side
 
-Use a server-side proxy. A minimal proxy pattern:
+Use a server-side route. There are two approaches:
+
+#### Option A — Thin pass-through proxy
+
+Forward the request body to the LLM provider, injecting the API key server-side:
 
 ```ts
 // pages/api/llm.ts (Next.js example)
@@ -322,6 +326,49 @@ const aiConfig: StudioAIConfig = {
 };
 ```
 
+#### Option B — Full backend with `@mui/x-studio-backend` (recommended)
+
+Install the companion server package:
+
+```bash
+npm install @mui/x-studio-backend
+```
+
+Create a route handler:
+
+```ts
+// app/api/ai/chat/route.ts (Next.js App Router)
+import { handleAIChat } from '@mui/x-studio-backend';
+
+export async function POST(req: Request) {
+  const session = await getServerSession(); // your auth
+  if (!session) return new Response('Unauthorized', { status: 401 });
+
+  const body = await req.json();
+  const stream = handleAIChat(body, {
+    endpoint: 'https://api.openai.com/v1/chat/completions',
+    apiKey: process.env.OPENAI_API_KEY,
+    model: 'gpt-4o',
+  });
+  return new Response(stream, {
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
+```
+
+Set `mode: 'x-studio-backend'` in the client config — no API key needed:
+
+```ts
+const aiConfig: StudioAIConfig = {
+  endpoint: '/api/ai/chat',
+  mode: 'x-studio-backend',
+};
+```
+
+With this approach the API key, system prompt construction, and the agentic tool loop all run on the server. The client only receives text tokens and state-mutation events.
+
+See the [`@mui/x-studio-backend` README](https://github.com/mui/mui-x/tree/master/packages/x-studio-backend) for Express, Hono, and other framework examples.
+
 ### Rate limiting
 
 Protect your LLM proxy with rate limiting to prevent abuse.
@@ -339,6 +386,12 @@ interface StudioAIConfig {
   model?: string;
   /** Extra HTTP headers forwarded to the endpoint on every request. */
   headers?: Record<string, string>;
+  /**
+   * Adapter mode.
+   * - 'direct' (default): client builds the system prompt and calls the LLM directly.
+   * - 'x-studio-backend': client sends StudioAIRequest JSON and receives state-mutation events.
+   */
+  mode?: 'direct' | 'x-studio-backend';
 }
 ```
 
@@ -346,3 +399,4 @@ interface StudioAIConfig {
 
 - [Composed approach](/x/react-studio/getting-started/composition/) — adding `StudioChatPanel` to a custom layout
 - [Slot props](/x/react-studio/customization/slot-props/) — customize the AI panel via `slotProps.chatPanel`
+- [`@mui/x-studio-backend`](https://github.com/mui/mui-x/tree/master/packages/x-studio-backend) — server-side handler package

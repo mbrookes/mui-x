@@ -118,6 +118,11 @@ function generateSuggestions(
       label: 'Add a new page',
       value: 'Create a new dashboard page.',
     });
+
+    suggestions.push({
+      label: 'Summarise page',
+      value: 'Summarise the current page.',
+    });
   }
 
   return suggestions.slice(0, 4);

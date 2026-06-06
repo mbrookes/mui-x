@@ -24,6 +24,8 @@ export default function DataSourcePreviewTooltip({
   onOpenPreview?: (sourceId: string) => void;
   children: React.ReactElement;
 }) {
+  const [tooltipOpen, setTooltipOpen] = React.useState(false);
+
   const rows = source.rows;
   if (!rows || rows.length === 0) {
     return children;
@@ -32,6 +34,11 @@ export default function DataSourcePreviewTooltip({
   const visibleFields = source.fields.filter((f) => !f.hidden).slice(0, DS_PREVIEW_COLS);
   const columnDelta = source.fields.filter((f) => !f.hidden).length - DS_PREVIEW_COLS;
   const previewRows = rows.slice(0, DS_PREVIEW_ROWS);
+
+  const handleOpenPreviewClick = React.useCallback(() => {
+    setTooltipOpen(false);
+    onOpenPreview?.(source.id);
+  }, [onOpenPreview, source.id]);
   
   const title = (
     <Stack spacing={0.5}>
@@ -114,7 +121,7 @@ export default function DataSourcePreviewTooltip({
         <Typography
           component="span"
           variant="caption"
-          onClick={() => onOpenPreview(source.id)}
+          onClick={handleOpenPreviewClick}
           sx={{ opacity: 0.8, cursor: 'pointer', '&:hover': { opacity: 1 } }}
         >
           View source data →
@@ -128,6 +135,9 @@ export default function DataSourcePreviewTooltip({
       title={title}
       placement="right"
       arrow
+      open={tooltipOpen}
+      onOpen={() => setTooltipOpen(true)}
+      onClose={() => setTooltipOpen(false)}
       slotProps={{ tooltip: { sx: { maxWidth: 340 } } }}
     >
       {children}

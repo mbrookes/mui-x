@@ -5,6 +5,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { formatFieldValue } from '../../internals/numberFormat';
 
 const PREVIEW_ROWS = 5;
 
@@ -13,7 +14,14 @@ export default function FieldPreviewTooltip({
   rows,
   children,
 }: {
-  field: { id: string; label: string };
+  field: {
+    id: string;
+    label: string;
+    type?: 'string' | 'number' | 'boolean' | 'date' | 'datetime';
+    format?: 'integer' | 'decimal' | 'percent' | 'currency';
+    precision?: number;
+    currencyCode?: string;
+  };
   rows?: Record<string, unknown>[];
   children: React.ReactElement;
 }) {
@@ -26,12 +34,17 @@ export default function FieldPreviewTooltip({
     if (v === null || v === undefined) {
       return '—';
     }
-    return String(v);
+    return formatFieldValue(v, {
+      type: field.type,
+      format: field.format,
+      precision: field.precision,
+      currencyCode: field.currencyCode,
+    });
   });
 
   const title = (
     <Stack spacing={0.25}>
-      <Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.8 }}>
+      <Typography variant="caption" sx={{ fontWeight: 700, opacity: 0.8 }}>
         {field.label}
       </Typography>
       {values.map((v, i) => (

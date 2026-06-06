@@ -6,6 +6,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { formatFieldValue } from '../../internals/numberFormat';
 
 import type { StudioDataSource } from '../../models';
 
@@ -42,7 +43,7 @@ export default function DataSourcePreviewTooltip({
   
   const title = (
     <Stack spacing={0.5}>
-      <Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.8 }}>
+      <Typography variant="caption" sx={{ fontWeight: 700, opacity: 0.8 }}>
         {source.label}
       </Typography>
       <Box
@@ -60,7 +61,7 @@ export default function DataSourcePreviewTooltip({
                   py: 0.25,
                   opacity: 0.6,
                   textAlign: 'left',
-                  fontWeight: 600,
+                  fontWeight: 700,
                   whiteSpace: 'nowrap',
                   maxWidth: 80,
                   overflow: 'hidden',
@@ -79,7 +80,15 @@ export default function DataSourcePreviewTooltip({
             <tr key={ri}>
               {visibleFields.map((f) => {
                 const v = row[f.id];
-                const display = v === null || v === undefined ? '—' : String(v);
+                const display =
+                  v === null || v === undefined
+                    ? '—'
+                    : formatFieldValue(v, {
+                        type: f.type,
+                        format: f.format,
+                        precision: f.precision,
+                        currencyCode: f.currencyCode,
+                      });
                 return (
                   <Box
                     key={f.id}

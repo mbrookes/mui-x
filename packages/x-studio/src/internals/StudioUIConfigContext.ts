@@ -7,11 +7,11 @@ import type {
   GridFeatureFlags,
   StudioCustomWidgetDef,
 } from '../models';
-import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
+import type { StudioAIConfig } from '../components/StudioChatPanel/studioAdapter';
 import {
   BUILT_IN_GEOGRAPHY_DEFINITIONS,
   type StudioMapGeographyDefinition,
-} from '../StudioMapWidget/geographyLoaders';
+} from '../components/widgets/StudioMapWidget/geographyLoaders';
 
 // ── Locale text ─────────────────────────────────────────────────────────────
 
@@ -438,7 +438,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Compose drawer / widget picker
   composeDrawerTabSetup: 'Setup',
-  composeChooseWidgetType: 'Choose a widget type',
+  composeChooseWidgetType: 'Choose a widget type or drag onto the page',
   composeNoDataSources:
     'No data sources available yet. Only text widgets can be added.',
   composeOnThisPage: 'On this page',

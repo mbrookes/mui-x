@@ -16,7 +16,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { StudioDataSource, StudioState } from '../models';
 import { StudioController } from '../store/StudioController';
 import { selectPartitionedFilters, selectPartitionedBaseFilters } from '../context/selectors';
-import { StudioKpiWidget } from '../StudioKpiWidget';
+import { StudioKpiWidget } from '../components/widgets/StudioKpiWidget';
 
 // ─── Module-level mutable state (replaced by vi.mock) ─────────────────────────
 

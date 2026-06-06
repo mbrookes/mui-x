@@ -201,4 +201,60 @@ describe('detectWidgetAnomalies', () => {
     const annotations = detectWidgetAnomalies(widget, rows);
     expect(annotations).toEqual([]);
   });
+
+  it('maps date x-values to grouped period keys when xGroupBy is enabled', () => {
+    const widget = makeWidget({
+      config: {
+        chartType: 'line',
+        xField: 'date',
+        xGroupBy: 'quarter',
+        yField: 'value',
+      },
+    });
+
+    const rows = [
+      { date: '2024-01-15', value: 10 },
+      { date: '2024-02-10', value: 11 },
+      { date: '2024-03-20', value: 10 },
+      { date: '2024-04-10', value: 12 },
+      { date: '2024-05-05', value: 10 },
+      { date: '2024-06-01', value: 11 },
+      { date: '2024-07-11', value: 10 },
+      { date: '2024-08-01', value: 220 },
+    ];
+
+    const annotations = detectWidgetAnomalies(widget, rows);
+    expect(annotations.length).toBeGreaterThan(0);
+    expect(annotations[0].value).toBe(new Date('2024-07-01T00:00:00.000Z').getTime());
+  });
+
+  it('deduplicates anomaly annotations that fall into the same x bucket', () => {
+    const widget = makeWidget({
+      config: {
+        chartType: 'line',
+        xField: 'date',
+        xGroupBy: 'quarter',
+        yField: 'value',
+      },
+    });
+
+    const rows = [
+      { date: '2024-01-15', value: 10 },
+      { date: '2024-01-20', value: 11 },
+      { date: '2024-02-01', value: 9 },
+      { date: '2024-02-10', value: 10 },
+      { date: '2024-02-20', value: 11 },
+      { date: '2024-02-25', value: 10 },
+      { date: '2024-03-01', value: 12 },
+      { date: '2024-03-05', value: 9 },
+      { date: '2024-03-10', value: 10 },
+      { date: '2024-03-12', value: 11 },
+      { date: '2024-03-18', value: 280 },
+      { date: '2024-03-26', value: 320 },
+    ];
+
+    const annotations = detectWidgetAnomalies(widget, rows);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].value).toBe(new Date('2024-01-01T00:00:00.000Z').getTime());
+  });
 });

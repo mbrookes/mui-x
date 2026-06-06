@@ -1,54 +1,54 @@
 // ─── Studio (root component) ──────────────────────────────────────────────────
-export { Studio } from './Studio/Studio';
-export type { StudioProps, StudioHandle, StudioSlots } from './Studio/Studio';
+export { Studio } from './components/Studio/Studio';
+export type { StudioProps, StudioHandle, StudioSlots } from './components/Studio/Studio';
 
 // ─── StudioDashboard (embed-first entry point) ────────────────────────────────
-export { StudioDashboard } from './Studio/StudioDashboard';
-export type { StudioDashboardProps } from './Studio/StudioDashboard';
+export { StudioDashboard } from './components/Studio/StudioDashboard';
+export type { StudioDashboardProps } from './components/Studio/StudioDashboard';
 
 // ─── StudioCanvas ─────────────────────────────────────────────────────────────
-export { StudioCanvas } from './StudioCanvas/StudioCanvas';
-export type { StudioCanvasProps } from './StudioCanvas/StudioCanvas';
-export { StudioDateRangeBar } from './StudioCanvas/StudioDateRangeBar';
+export { StudioCanvas } from './components/StudioCanvas/StudioCanvas';
+export type { StudioCanvasProps } from './components/StudioCanvas/StudioCanvas';
+export { StudioDateRangeBar } from './components/StudioCanvas/StudioDateRangeBar';
 
 // ─── StudioWidgetCard ─────────────────────────────────────────────────────────
-export { StudioWidgetCard } from './StudioWidgetCard/StudioWidgetCard';
-export type { StudioWidgetCardProps } from './StudioWidgetCard/StudioWidgetCard';
+export { StudioWidgetCard } from './components/StudioWidgetCard/StudioWidgetCard';
+export type { StudioWidgetCardProps } from './components/StudioWidgetCard/StudioWidgetCard';
 
 // ─── StudioWidgetEditDialog ───────────────────────────────────────────────────
-export { StudioWidgetEditDialog } from './StudioWidgetEditDialog';
-export type { StudioWidgetEditDialogProps } from './StudioWidgetEditDialog';
+export { StudioWidgetEditDialog } from './components/StudioWidgetEditDialog';
+export type { StudioWidgetEditDialogProps } from './components/StudioWidgetEditDialog';
 
 // ─── StudioNoDataOverlay ──────────────────────────────────────────────────────
 export { StudioNoDataOverlay } from './internals/StudioNoDataOverlay';
 export type { StudioNoDataOverlayProps } from './internals/StudioNoDataOverlay';
 
 // ─── StudioGridWidget ─────────────────────────────────────────────────────────
-export { StudioGridWidget } from './StudioGridWidget/StudioGridWidget';
-export type { StudioGridWidgetProps } from './StudioGridWidget/StudioGridWidget';
+export { StudioGridWidget } from './components/widgets/StudioGridWidget/StudioGridWidget';
+export type { StudioGridWidgetProps } from './components/widgets/StudioGridWidget/StudioGridWidget';
 
 // ─── StudioChartWidget ────────────────────────────────────────────────────────
-export { StudioChartWidget, CHART_MIN_HEIGHT } from './StudioChartWidget/StudioChartWidget';
+export { StudioChartWidget, CHART_MIN_HEIGHT } from './components/widgets/StudioChartWidget/StudioChartWidget';
 export type {
   StudioChartWidgetProps,
   StudioChartWidgetSlots,
   StudioChartWidgetSlotProps,
-} from './StudioChartWidget/StudioChartWidget';
+} from './components/widgets/StudioChartWidget/StudioChartWidget';
 
 // ─── StudioKpiWidget ──────────────────────────────────────────────────────────
-export { StudioKpiWidget } from './StudioKpiWidget/StudioKpiWidget';
+export { StudioKpiWidget } from './components/widgets/StudioKpiWidget/StudioKpiWidget';
 export type {
   StudioKpiWidgetProps,
   StudioKpiWidgetSlots,
   StudioKpiWidgetSlotProps,
-} from './StudioKpiWidget/StudioKpiWidget';
+} from './components/widgets/StudioKpiWidget/StudioKpiWidget';
 
 // ─── StudioTextWidget ─────────────────────────────────────────────────────────
-export { StudioTextWidget } from './StudioTextWidget/StudioTextWidget';
-export type { StudioTextWidgetProps } from './StudioTextWidget/StudioTextWidget';
+export { StudioTextWidget } from './components/widgets/StudioTextWidget/StudioTextWidget';
+export type { StudioTextWidgetProps } from './components/widgets/StudioTextWidget/StudioTextWidget';
 
 // ─── StudioFilterWidget ───────────────────────────────────────────────────────
-export { StudioFilterWidget } from './StudioFilterWidget/StudioFilterWidget';
+export { StudioFilterWidget } from './components/widgets/StudioFilterWidget/StudioFilterWidget';
 export type {
   StudioFilterWidgetProps,
   StudioFilterWidgetSlots,
@@ -57,41 +57,37 @@ export type {
   StudioFilterMultiSelectControlProps,
   StudioFilterToggleControlProps,
   StudioFilterSliderControlProps,
-} from './StudioFilterWidget/StudioFilterWidget';
+} from './components/widgets/StudioFilterWidget/StudioFilterWidget';
 
 // ─── StudioPivotWidget ────────────────────────────────────────────────────────
-export { StudioPivotWidget } from './StudioPivotWidget/StudioPivotWidget';
-export type { StudioPivotWidgetProps } from './StudioPivotWidget/StudioPivotWidget';
+export { StudioPivotWidget } from './components/widgets/StudioPivotWidget/StudioPivotWidget';
+export type { StudioPivotWidgetProps } from './components/widgets/StudioPivotWidget/StudioPivotWidget';
 
 // ─── StudioMapWidget ──────────────────────────────────────────────────────────
-export { StudioMapWidget } from './StudioMapWidget';
-export type { StudioMapWidgetProps } from './StudioMapWidget';
+export { StudioMapWidget } from './components/widgets/StudioMapWidget';
+export type { StudioMapWidgetProps } from './components/widgets/StudioMapWidget';
 export type {
   GeographyLoader,
   StudioMapGeographyDefinition,
-} from './StudioMapWidget/geographyLoaders';
+} from './components/widgets/StudioMapWidget/geographyLoaders';
 
 // ─── StudioDataDrawer ─────────────────────────────────────────────────────────
-export { StudioDataDrawer } from './StudioDataDrawer/StudioDataDrawer';
-export type { StudioDataDrawerProps } from './StudioDataDrawer/StudioDataDrawer';
+export { StudioDataDrawer } from './components/StudioDataDrawer/StudioDataDrawer';
+export type { StudioDataDrawerProps } from './components/StudioDataDrawer/StudioDataDrawer';
 
 // ─── StudioComposeDrawer ──────────────────────────────────────────────────────
-export { StudioComposeDrawer } from './StudioComposeDrawer/StudioComposeDrawer';
-export type { StudioComposeDrawerProps } from './StudioComposeDrawer/StudioComposeDrawer';
-export { InlineFormulaBar } from './StudioComposeDrawer/InlineFormulaBar';
-export type { InlineFormulaBarProps } from './StudioComposeDrawer/InlineFormulaBar';
+export { StudioComposeDrawer } from './components/StudioComposeDrawer/StudioComposeDrawer';
+export type { StudioComposeDrawerProps } from './components/StudioComposeDrawer/StudioComposeDrawer';
+export { InlineFormulaBar } from './components/StudioComposeDrawer/InlineFormulaBar';
+export type { InlineFormulaBarProps } from './components/StudioComposeDrawer/InlineFormulaBar';
 
 // ─── StudioFiltersDrawer ──────────────────────────────────────────────────────
-export { StudioFiltersDrawer } from './StudioFiltersDrawer/StudioFiltersDrawer';
-export type { StudioFiltersDrawerProps } from './StudioFiltersDrawer/StudioFiltersDrawer';
-
-// ─── StudioDrilldownDrawer ────────────────────────────────────────────────────
-export { StudioDrilldownDrawer } from './StudioDrilldownDrawer/StudioDrilldownDrawer';
-export type { StudioDrilldownDrawerProps } from './StudioDrilldownDrawer/StudioDrilldownDrawer';
+export { StudioFiltersDrawer } from './components/StudioFiltersDrawer/StudioFiltersDrawer';
+export type { StudioFiltersDrawerProps } from './components/StudioFiltersDrawer/StudioFiltersDrawer';
 
 // ─── StudioExpressionFieldDialog ──────────────────────────────────────────────
-export { StudioExpressionFieldDialog } from './StudioExpressionFieldDialog/StudioExpressionFieldDialog';
-export type { StudioExpressionFieldDialogProps } from './StudioExpressionFieldDialog/StudioExpressionFieldDialog';
+export { StudioExpressionFieldDialog } from './components/StudioExpressionFieldDialog/StudioExpressionFieldDialog';
+export type { StudioExpressionFieldDialogProps } from './components/StudioExpressionFieldDialog/StudioExpressionFieldDialog';
 
 // ─── Context / Provider ───────────────────────────────────────────────────────
 export {
@@ -137,19 +133,19 @@ export {
 export type { PartitionedFilters } from './context/selectors';
 
 // ─── DrawerPanel (composable sidebar panel) ───────────────────────────────────
-export { DrawerPanel } from './Studio/DrawerPanel';
-export type { DrawerPanelProps } from './Studio/DrawerPanel';
+export { DrawerPanel } from './components/Studio/DrawerPanel';
+export type { DrawerPanelProps } from './components/Studio/DrawerPanel';
 export {
   useDrawerSubheader,
   DrawerSubheaderContext,
   DRAWER_WIDTH,
   COLLAPSED_WIDTH,
-} from './Studio/DrawerPanelContext';
-export type { DrawerSubheaderContextValue } from './Studio/DrawerPanelContext';
+} from './components/Studio/DrawerPanelContext';
+export type { DrawerSubheaderContextValue } from './components/Studio/DrawerPanelContext';
 
 // ─── TabbedSidebar (alternative tabbed sidebar layout) ────────────────────────
-export { TabbedSidebar } from './Studio/TabbedSidebar';
-export type { TabbedSidebarProps, TabbedSidebarPanel } from './Studio/TabbedSidebar';
+export { TabbedSidebar } from './components/Studio/TabbedSidebar';
+export type { TabbedSidebarProps, TabbedSidebarPanel } from './components/Studio/TabbedSidebar';
 
 // ─── Keyboard shortcuts hook ──────────────────────────────────────────────────
 export { useStudioKeyboardShortcuts } from './internals/useStudioKeyboardShortcuts';
@@ -231,22 +227,22 @@ export { StudioWordmark } from './icons/StudioWordmark';
 export type { StudioWordmarkProps } from './icons/StudioWordmark';
 
 // ─── AI / Chat ────────────────────────────────────────────────────────────────
-export { StudioChatPanel } from './StudioChatPanel/StudioChatPanel';
+export { StudioChatPanel } from './components/StudioChatPanel/StudioChatPanel';
 export type {
   StudioChatPanelProps,
   StudioChatPanelSlotProps,
-} from './StudioChatPanel/StudioChatPanel';
-export { createStudioChatAdapter } from './StudioChatPanel/studioAdapter';
-export type { StudioAIConfig, StudioAiTool } from './StudioChatPanel/studioAdapter';
+} from './components/StudioChatPanel/StudioChatPanel';
+export { createStudioChatAdapter } from './components/StudioChatPanel/studioAdapter';
+export type { StudioAIConfig, StudioAiTool } from './components/StudioChatPanel/studioAdapter';
 export { buildAISystemPrompt } from './internals/buildAISystemPrompt';
-export { STUDIO_AI_TOOLS } from './StudioChatPanel/studioAITools';
-export type { StudioAIToolName } from './StudioChatPanel/studioAITools';
+export { STUDIO_AI_TOOLS } from './components/StudioChatPanel/studioAITools';
+export type { StudioAIToolName } from './components/StudioChatPanel/studioAITools';
 export {
   generateWidgetInsight,
   generateDashboardSummary,
   generateAnomalyExplanation,
-} from './StudioChatPanel/generateInsight';
-export type { StudioInsightOptions, StudioInsightResult } from './StudioChatPanel/generateInsight';
+} from './components/StudioChatPanel/generateInsight';
+export type { StudioInsightOptions, StudioInsightResult } from './components/StudioChatPanel/generateInsight';
 
 // ─── Server adapter utilities ─────────────────────────────────────────────────
 export { createBatchingAdapter } from './server/createBatchingAdapter';

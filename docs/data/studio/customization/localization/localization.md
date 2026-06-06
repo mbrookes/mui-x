@@ -184,6 +184,8 @@ Defaults are the English strings shown in the right column.
 
 ### AI dashboard summary panel
 
+These tokens are retained as public API for consumers who call `generateDashboardSummary` programmatically and build their own summary UI.
+
 | Token                 | Default                 |
 | :-------------------- | :---------------------- |
 | `aiSummaryTitle`      | `'Dashboard Summary'`   |
@@ -251,6 +253,7 @@ Defaults are the English strings shown in the right column.
 | `dataDrawerCloseAriaLabel` | `'Close data lineage'`                                                            |
 | `dataDrawerEditTooltip`    | `'Edit'`                                                                          |
 | `dataDrawerDeleteTooltip`  | `'Delete'`                                                                        |
+| `dataDrawerViewSourceTooltip` | `'View source data'`                                                           |
 
 ### Relationship management
 

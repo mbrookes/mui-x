@@ -14,7 +14,7 @@ Insights come in three flavours:
 | **Analysis** | A deeper interpretation highlighting trends, comparisons, and notable patterns                    |
 | **Forecast** | A forward-looking projection based on existing data (best for time-series charts and KPI widgets) |
 
-A **Dashboard Summary** can also be generated for the entire active page.
+A **page summary** can also be generated via the AI chat panel.
 
 ## Prerequisites
 
@@ -22,7 +22,22 @@ AI Insights require the same `aiConfig` setup as the AI Assistant. See the [Setu
 
 ## Widget insights
 
-When `aiConfig` is configured, each widget card shows an **AI Insight** button in the overflow menu (⋮). Clicking it opens an insight panel inline within the card.
+When `aiConfig` is configured, chart, grid, pivot, and map widget cards show an **AI Insight** button in the overflow menu (⋮). Clicking it opens an insight panel inline within the card.
+
+:::info
+The AI Insight button is not shown on **filter**, **text**, or **KPI** widgets, as these do not contain data suitable for the insight types available.
+
+For **custom widgets**, opt in by setting `aiInsight: true` in the widget registration:
+
+```tsx
+const myWidget: StudioCustomWidgetDef = {
+  kind: 'my-org-chart',
+  label: 'Org Chart',
+  component: OrgChartWidget,
+  aiInsight: true, // show the AI Insight button for this widget
+};
+```
+:::
 
 ### Selecting the insight type
 
@@ -34,11 +49,11 @@ The overflow menu exposes three items:
 
 Selecting a type triggers a new request. The panel can be closed by clicking **✕**, which also aborts any in-progress request.
 
-## Dashboard summary
+## Page summary via chat
 
-When `features.aiChat` is enabled and `aiConfig` is configured, a secondary **Summarise dashboard** button appears above the AI chat button (bottom-right corner). Clicking it generates a narrative overview of all widgets on the active dashboard page and displays the result in a slide-in bottom panel.
+When `features.aiChat` is enabled and `aiConfig` is configured, the AI chat panel includes a **Summarise page** suggestion chip. Clicking it prompts the AI to write an executive summary of the key insights from the page — focused on the data, trends, and any detected anomalies rather than the page structure. The AI calls the `summarise_page` tool to gather per-widget data snapshots (sampled rows, stats, and anomaly information for chart widgets), then writes a flowing narrative starting with the most important finding, referencing specific widget names only where it helps locate the data being described.
 
-The panel provides **Copy** and **Regenerate** actions.
+Unlike the old standalone summary drawer, the page summary lives in the chat panel so you can follow up with questions or refinements in the same conversation.
 
 ## Programmatic API
 

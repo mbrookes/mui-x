@@ -793,6 +793,18 @@
 
 ---
 
+### UX-44 · Bulk state patch tool — `apply_bulk_update` (BL-164)
+
+- Added `apply_bulk_update` as the 17th AI tool in `studioAITools.ts`; accepts `widgetUpdates`, `widgetRemovals`, `widgetAdditions`, `layout`, and `colSpans`
+- `studioAdapter.ts` implements `case 'apply_bulk_update'`: applies all sub-operations in order (removals → additions → config patches → layout → column spans) then commits atomically with `controller.setState()` — a single undo step
+- Title references in `layout` are resolved to newly-added widget IDs so the LLM can provide a layout that includes freshly created widgets
+- Failed sub-operations (e.g., unknown widget ID) are skipped and reported in `skipped[]`; successful operations proceed
+- `buildAISystemPrompt.ts` updated with a guideline: prefer `apply_bulk_update` over multiple individual tool calls when a prompt requires 3 or more related changes
+
+---
+
+## 📋 Planned
+
 _Nothing remaining — all tracked requirements are complete or WONTFIX._
 
 ---

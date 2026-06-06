@@ -264,6 +264,12 @@ export function buildAISystemPrompt(
   lines.push(
     '- To rearrange widgets (e.g. "put the KPI widgets on the same row"), use set_widget_layout with a full rows array. Every widget on the page must appear in the new layout.',
   );
+  lines.push(
+    '- When a prompt requires 3 or more coordinated changes (e.g. "redesign this page", ' +
+      '"change all charts to bar", "restructure the layout and update widget titles"), ' +
+      'use apply_bulk_update instead of multiple individual tool calls. ' +
+      'This is faster, more reliable, and commits all changes as a single undo step.',
+  );
 
   if (focusedWidgetId) {
     const focused = state.widgets[focusedWidgetId];

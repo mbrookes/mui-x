@@ -102,6 +102,7 @@ The AI can call the following tools (exported as `STUDIO_AI_TOOLS`):
 | `remove_widget_filter` | Removes a widget-scoped filter by ID                                            |
 | `get_dashboard_state`  | Returns the current dashboard state (pages, widgets, data sources)              |
 | `summarise_page`       | Returns a rich data snapshot of every widget on the active page (used by the **Summarise page** chip) |
+| `apply_bulk_update`    | Applies multiple coordinated changes in a single atomic operation — widget updates, additions, removals, layout, and column spans |
 
 You can restrict which tools are available using `allowedTools` in `aiConfig`.
 See [AI tools](/x/react-studio/ai/tools/) for details.

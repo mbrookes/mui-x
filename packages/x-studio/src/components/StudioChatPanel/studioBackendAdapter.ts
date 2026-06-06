@@ -1,0 +1,205 @@
+/**
+ * Thin client adapter for `@mui/x-studio-backend` endpoints.
+ *
+ * This adapter:
+ * 1. Serializes skills (strips non-JSON-serializable `execute` functions)
+ * 2. POSTs `StudioAIRequest` JSON to the configured backend endpoint
+ * 3. Reads the `StudioAISSEEvent` stream back
+ * 4. Feeds text deltas to the chat stream
+ * 5. Applies `state-mutation` events to the local `StudioController`
+ */
+import type { ChatAdapter, ChatMessage, ChatMessageChunk } from '@mui/x-chat/headless';
+import type { StudioController } from '../../store/StudioController';
+import type { StudioAISkill, StudioCustomWidgetDef, StateMutation } from '../../models';
+import type { StudioAIConfig } from './studioAdapter';
+import { applyStateMutation } from './applyStateMutation';
+
+type ChatSendMessageInput = Parameters<ChatAdapter['sendMessage']>[0];
+
+/**
+ * Creates a `ChatAdapter` that delegates the full AI pipeline to an
+ * `x-studio-backend` server endpoint.
+ *
+ * The server builds the system prompt, calls the LLM, executes tool calls,
+ * and streams `StudioAISSEEvent` objects back. This adapter applies the
+ * `state-mutation` events to the local controller.
+ */
+export function createBackendChatAdapter(
+  config: StudioAIConfig,
+  controller: StudioController,
+  customWidgets?: StudioCustomWidgetDef[],
+  focusedWidgetId?: string,
+): ChatAdapter {
+  const { endpoint, headers: extraHeaders, allowedTools, skills } = config;
+
+  // Serialize skills: strip execute functions (not JSON-serializable)
+  const serializableSkills = skills?.map((s: StudioAISkill) => ({
+    name: s.name,
+    mode: s.mode,
+    promptFragment: s.promptFragment,
+    tool: s.tool
+      ? { name: s.tool.name, description: s.tool.description, parameters: s.tool.parameters }
+      : undefined,
+  }));
+
+  return {
+    async sendMessage(input: ChatSendMessageInput): Promise<ReadableStream<ChatMessageChunk>> {
+      const msgId = `msg-${Date.now()}`;
+      const textPartId = `text-0`;
+      let textStarted = false;
+
+      return new ReadableStream<ChatMessageChunk>({
+        async start(streamController) {
+          streamController.enqueue({ type: 'start', messageId: msgId });
+
+          let response: Response;
+          try {
+            response = await fetch(endpoint, {
+              method: 'POST',
+              signal: input.signal,
+              headers: {
+                'Content-Type': 'application/json',
+                ...extraHeaders,
+              },
+              body: JSON.stringify({
+                messages: input.messages,
+                dashboardState: controller.getState(),
+                customWidgets,
+                focusedWidgetId,
+                allowedTools,
+                skills: serializableSkills,
+              }),
+            });
+          } catch (err) {
+            if (
+              input.signal?.aborted ||
+              (err instanceof DOMException && err.name === 'AbortError')
+            ) {
+              streamController.enqueue({ type: 'abort', messageId: msgId });
+              streamController.close();
+            } else {
+              streamController.error(err);
+            }
+            return;
+          }
+
+          if (!response.ok) {
+            const errText = await response.text().catch(() => response.statusText);
+            streamController.error(new Error(`HTTP ${response.status}: ${errText}`));
+            return;
+          }
+
+          // Parse the `StudioAISSEEvent` stream
+          const reader = response.body?.getReader();
+          if (!reader) {
+            streamController.error(new Error('No response body.'));
+            return;
+          }
+
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          const processLine = (line: string) => {
+            if (!line.startsWith('data: ')) return;
+            const payload = line.slice(6).trim();
+            if (!payload) return;
+            let event: Record<string, unknown>;
+            try {
+              event = JSON.parse(payload);
+            } catch {
+              return;
+            }
+
+            const { type } = event;
+
+            if (type === 'text-delta') {
+              if (!textStarted) {
+                streamController.enqueue({ type: 'text-start', id: textPartId });
+                textStarted = true;
+              }
+              streamController.enqueue({
+                type: 'text-delta',
+                id: textPartId,
+                delta: String(event.delta ?? ''),
+              });
+            } else if (type === 'tool-activity') {
+              const { phase, toolCallId, toolName, input: toolInput } = event as {
+                phase: string;
+                toolCallId: string;
+                toolName: string;
+                input: unknown;
+                output?: string;
+              };
+              if (phase === 'start') {
+                streamController.enqueue({
+                  type: 'tool-input-start',
+                  toolCallId,
+                  toolName,
+                  dynamic: true,
+                });
+                streamController.enqueue({
+                  type: 'tool-input-delta',
+                  toolCallId,
+                  inputTextDelta: JSON.stringify(toolInput ?? {}),
+                });
+              } else if (phase === 'complete') {
+                streamController.enqueue({
+                  type: 'tool-output-available',
+                  toolCallId,
+                  output: String((event as { output?: string }).output ?? ''),
+                });
+              }
+            } else if (type === 'state-mutation') {
+              try {
+                applyStateMutation(
+                  (event as { mutation: StateMutation }).mutation,
+                  controller,
+                );
+              } catch (err) {
+                console.error('[StudioBackendAdapter] Failed to apply state mutation:', err);
+              }
+            } else if (type === 'client-tool-call') {
+              // client-handler skill tool calls are not yet supported in backend mode.
+              // Log a warning and continue — the server will include an error in the output.
+              console.warn(
+                '[StudioBackendAdapter] client-tool-call received but not supported in backend mode:',
+                event.toolName,
+              );
+            } else if (type === 'finish') {
+              if (textStarted) {
+                streamController.enqueue({ type: 'text-end', id: textPartId });
+              }
+              streamController.enqueue({
+                type: 'finish',
+                messageId: msgId,
+                finishReason: String(event.finishReason ?? 'stop'),
+              });
+              streamController.close();
+            } else if (type === 'error') {
+              streamController.error(new Error(String(event.message ?? 'Unknown server error')));
+            }
+          };
+
+          try {
+            while (true) {
+              // eslint-disable-next-line no-await-in-loop -- sequential streaming read
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() ?? '';
+              for (const line of lines) {
+                processLine(line);
+              }
+            }
+          } catch (err) {
+            if (!input.signal?.aborted) {
+              streamController.error(err);
+            }
+          }
+        },
+      });
+    },
+  };
+}

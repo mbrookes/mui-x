@@ -234,7 +234,10 @@ export type {
 } from './components/StudioChatPanel/StudioChatPanel';
 export { createStudioChatAdapter } from './components/StudioChatPanel/studioAdapter';
 export type { StudioAIConfig, StudioAiTool } from './components/StudioChatPanel/studioAdapter';
+export { createBackendChatAdapter } from './components/StudioChatPanel/studioBackendAdapter';
+export { applyStateMutation } from './components/StudioChatPanel/applyStateMutation';
 export { buildAISystemPrompt } from './internals/buildAISystemPrompt';
+export type { StateMutation, SerializableSkill } from './models';
 export { STUDIO_AI_TOOLS } from './components/StudioChatPanel/studioAITools';
 export type { StudioAIToolName } from './components/StudioChatPanel/studioAITools';
 export {

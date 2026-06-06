@@ -1,4 +1,6 @@
 import type { StudioController } from '../store/StudioController';
+import type { StudioWidget } from './widgetTypes';
+import type { StudioFilterState } from './stateTypes';
 
 /**
  * A skill that can be registered with the x-studio AI assistant via
@@ -75,5 +77,60 @@ export interface StudioAISkill {
      * Defaults to `false` (sequential execution).
      */
     parallel?: boolean;
+  };
+}
+
+// ── Server/client wire protocol ───────────────────────────────────────────────
+
+/**
+ * A named state mutation produced server-side by `executeToolOnState`.
+ * Streamed to the client as `state-mutation` SSE events.
+ * The client maps each mutation to the corresponding `StudioController` method.
+ */
+export type StateMutation =
+  | { type: 'addPage'; args: { id: string; title: string } }
+  | { type: 'setDashboardTitle'; args: { title: string } }
+  | { type: 'addWidget'; args: { widget: StudioWidget } }
+  | {
+      type: 'updateWidget';
+      args: {
+        widgetId: string;
+        changes?: Partial<Omit<StudioWidget, 'id'>>;
+        config?: StudioWidget['config'];
+      };
+    }
+  | { type: 'removeWidget'; args: { widgetId: string } }
+  | { type: 'setWidgetLayout'; args: { rows: string[][] } }
+  | {
+      type: 'setWidgetColSpan';
+      args: { widgetId: string; columns: number | null; rowWidgetIds: string[] };
+    }
+  | { type: 'renamePage'; args: { pageId: string; title: string } }
+  | { type: 'removePage'; args: { pageId: string } }
+  | { type: 'setActivePage'; args: { pageId: string } }
+  | { type: 'addFilter'; args: { filter: StudioFilterState } }
+  | { type: 'removeFilter'; args: { filterId: string } }
+  | {
+      type: 'applyBulkUpdate';
+      args: {
+        widgets: Record<string, StudioWidget>;
+        widgetRows: string[][];
+        widgetColSpans: Record<string, number>;
+        activePageId: string;
+      };
+    };
+
+/**
+ * Serializable skill metadata for the wire protocol.
+ * The `execute` function is stripped (not JSON-serializable).
+ */
+export interface SerializableSkill {
+  name: string;
+  mode: 'instruction-only' | 'client-handler';
+  promptFragment: string;
+  tool?: {
+    name: string;
+    description: string;
+    parameters: object;
   };
 }

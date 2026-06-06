@@ -601,8 +601,9 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
     description: existingField?.description ?? '',
     isMeasure: existingField?.isMeasure ?? false,
     expression: (existingField?.expression ?? makeDefaultExpression()) as StudioExpression,
+    precision: existingField?.precision != null ? String(existingField.precision) : '2',
   });
-  const { label, description, isMeasure, expression } = form;
+  const { label, description, isMeasure, expression, precision } = form;
 
   const fieldId = existingField?.id ?? `expr-${Date.now()}`;
 
@@ -610,6 +611,21 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
     () => inferExpressionType(expression, dataSource.fields, expressionFields),
     [expression, dataSource.fields, expressionFields],
   );
+
+  const parsedPrecision = React.useMemo(() => {
+    if (inferredType !== 'number') {
+      return undefined;
+    }
+    const trimmed = precision.trim();
+    if (trimmed === '') {
+      return undefined;
+    }
+    const value = Number(trimmed);
+    if (!Number.isFinite(value)) {
+      return undefined;
+    }
+    return Math.min(10, Math.max(0, Math.trunc(value)));
+  }, [inferredType, precision]);
 
   const draftField = React.useMemo<StudioExpressionField>(
     () => ({
@@ -619,8 +635,9 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
       isMeasure,
       expression,
       type: inferredType,
+      precision: parsedPrecision,
     }),
-    [fieldId, label, dataSource.id, isMeasure, expression, inferredType],
+    [fieldId, label, dataSource.id, isMeasure, expression, inferredType, parsedPrecision],
   );
 
   const validationErrors = React.useMemo(() => {
@@ -641,6 +658,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
         isMeasure,
         expression,
         type: inferredType,
+        precision: parsedPrecision,
       });
     } else {
       controller.addExpressionField({
@@ -651,6 +669,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
         isMeasure,
         expression,
         type: inferredType,
+        precision: parsedPrecision,
       });
       onSaved?.(fieldId);
     }
@@ -729,6 +748,24 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
             </Typography>
             <Chip label={inferredType} size="small" variant="outlined" />
           </Stack>
+
+          {inferredType === 'number' && (
+            <TextField
+              label="Precision"
+              size="small"
+              type="number"
+              fullWidth
+              value={precision}
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  precision: event.target.value,
+                }))
+              }
+              helperText="Decimal places (0–10) used when formatting this calculated field"
+              slotProps={{ htmlInput: { min: 0, max: 10, step: 1 } }}
+            />
+          )}
 
           {/* Expression builder */}
           <div>

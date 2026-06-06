@@ -115,6 +115,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       const expressionField = expressionFields.find((candidate) => candidate.id === fieldName);
       const fieldType = field?.type ?? expressionField?.type;
       const fieldFormat = field?.format ?? expressionField?.format;
+      const fieldPrecision = field?.precision ?? expressionField?.precision;
 
       return {
         field: fieldName,
@@ -133,7 +134,8 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
                 return formatFieldValue(value, {
                   type: 'number',
                   format: fieldFormat,
-                  currencyCode: field?.currencyCode,
+                  precision: fieldPrecision,
+                  currencyCode: field?.currencyCode ?? expressionField?.currencyCode,
                 });
               }
             : undefined,

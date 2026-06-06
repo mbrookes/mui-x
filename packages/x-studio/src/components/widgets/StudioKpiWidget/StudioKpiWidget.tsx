@@ -217,6 +217,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
       isBooleanAvg ? 'percent' : fieldDef?.format,
       fieldDef?.currencyCode,
       config.kpiCompact ?? true,
+      fieldDef?.precision,
     );
     const kpiDisplay = `${config.kpiPrefix ?? ''}${formatted}${config.kpiSuffix ?? ''}`;
 
@@ -534,6 +535,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             area={config.kpiSparklineArea ?? false}
             compact={config.kpiCompact ?? true}
             fieldFormat={fieldDef?.format}
+            fieldPrecision={fieldDef?.precision}
             fieldCurrencyCode={fieldDef?.currencyCode}
             colors={chartColors}
             targetValue={resolvedTargetValue ?? undefined}

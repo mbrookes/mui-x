@@ -16,6 +16,7 @@ export interface KpiSparklineProps {
   area?: boolean;
   compact?: boolean;
   fieldFormat?: StudioNumberFormat;
+  fieldPrecision?: number;
   fieldCurrencyCode?: string;
   /** Chart palette from the active page theme. Used to pick the sparkline color. */
   colors?: string[];
@@ -37,6 +38,7 @@ export function KpiSparkline(props: KpiSparklineProps) {
     area = false,
     compact = true,
     fieldFormat,
+    fieldPrecision,
     fieldCurrencyCode,
     colors,
     targetValue,
@@ -70,7 +72,9 @@ export function KpiSparkline(props: KpiSparklineProps) {
           width={120}
           height={80}
           text={({ value: v }) =>
-            v === null ? '' : formatNumber(v, fieldFormat, fieldCurrencyCode, compact)
+            v === null
+              ? ''
+              : formatNumber(v, fieldFormat, fieldCurrencyCode, compact, fieldPrecision)
           }
         />
       </Box>
@@ -91,7 +95,9 @@ export function KpiSparkline(props: KpiSparklineProps) {
           showHighlight
           showTooltip
           valueFormatter={(v) =>
-            v === null ? '' : formatNumber(v, fieldFormat, fieldCurrencyCode, compact)
+            v === null
+              ? ''
+              : formatNumber(v, fieldFormat, fieldCurrencyCode, compact, fieldPrecision)
           }
           color={colors?.[0]}
           sx={{ height: '100%' }}

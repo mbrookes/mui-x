@@ -69,5 +69,11 @@ export interface StudioAISkill {
       args: unknown,
       controller: StudioController,
     ) => Promise<string | void> | string | void;
+    /**
+     * When `true`, this tool is read-only and side-effect-free — it can be executed
+     * concurrently with other `parallel: true` tools in the same model response.
+     * Defaults to `false` (sequential execution).
+     */
+    parallel?: boolean;
   };
 }

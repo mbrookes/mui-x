@@ -47,6 +47,7 @@ import {
   evaluateMeasure,
   inferExpressionType,
 } from '../../utils/expressionEvaluator';
+import { formatNumber } from '../../internals/numberFormat';
 
 // ─── Operator options ────────────────────────────────────────────────────────
 
@@ -487,6 +488,7 @@ interface ExpressionPreviewProps {
   dataSource: StudioDataSource;
   expressionFields: StudioExpressionField[];
   currentFieldId: string;
+  precision?: number;
 }
 
 function ExpressionPreview({
@@ -495,6 +497,7 @@ function ExpressionPreview({
   dataSource,
   expressionFields,
   currentFieldId,
+  precision,
 }: ExpressionPreviewProps) {
   const previewResult = React.useMemo(() => {
     const rows = dataSource.rows ?? [];
@@ -534,7 +537,16 @@ function ExpressionPreview({
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
           Preview (measure over {previewResult.count} rows)
         </Typography>
-        <Chip label={String(previewResult.value)} size="small" color="primary" variant="outlined" />
+        <Chip
+          label={
+            typeof previewResult.value === 'number'
+              ? formatNumber(previewResult.value, undefined, undefined, undefined, precision)
+              : String(previewResult.value)
+          }
+          size="small"
+          color="primary"
+          variant="outlined"
+        />
       </Box>
     );
   }
@@ -549,7 +561,13 @@ function ExpressionPreview({
           // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- preview values are positional display only
           <Chip
             key={`preview-${i}`}
-            label={v == null ? 'null' : String(v)}
+            label={
+              v == null
+                ? 'null'
+                : typeof v === 'number'
+                  ? formatNumber(v, undefined, undefined, undefined, precision)
+                  : String(v)
+            }
             size="small"
             color="default"
             variant="outlined"
@@ -788,6 +806,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
             dataSource={dataSource}
             expressionFields={expressionFields}
             currentFieldId={fieldId}
+            precision={parsedPrecision}
           />
 
           {/* Validation errors */}

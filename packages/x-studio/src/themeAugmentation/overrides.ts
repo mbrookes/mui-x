@@ -21,7 +21,7 @@ import type {} from '@mui/material/styles';
 declare module '@mui/material/styles' {
   interface Components {
     MuiStudio?: {
-      defaultProps?: Partial<import('../Studio/Studio').StudioProps>;
+      defaultProps?: Partial<import('../components/Studio/Studio').StudioProps>;
     };
   }
 }

@@ -1,0 +1,740 @@
+'use client';
+
+import * as React from 'react';
+import { Box, Drawer, IconButton, Tooltip, Typography, CircularProgress } from '@mui/material';
+import { useThemeProps } from '@mui/material/styles';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import CloseIcon from '@mui/icons-material/Close';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import FilterListIcon from '@mui/icons-material/FilterList';
+import StorageIcon from '@mui/icons-material/Storage';
+import TuneIcon from '@mui/icons-material/Tune';
+
+import {
+  StudioProvider,
+  CanvasScrollContext,
+  useStudioController,
+  useStudioSelector,
+  useStudioFeatures,
+  useStudioLocaleText,
+  selectMode,
+  selectShell,
+  selectWidgets,
+  selectDataSources,
+} from '../../context';
+import type {
+  StudioDataSourceAdapter,
+  StudioFeatureFlags,
+  StudioMode,
+  StudioState,
+  StudioCustomWidgetDef,
+} from '../../models';
+import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
+import type { StudioMapGeographyDefinition } from '../widgets/StudioMapWidget/geographyLoaders';
+import { StudioController } from '../../store';
+import type { SerializedStudioState, MigrationResult } from '../../store/statePersistence';
+import { DrawerPanel } from './DrawerPanel';
+import { TabbedSidebar } from './TabbedSidebar';
+import { useStudioKeyboardShortcuts } from '../../internals/useStudioKeyboardShortcuts';
+import { StudioCanvas } from '../StudioCanvas';
+import { StudioDataDrawer } from '../StudioDataDrawer';
+import { StudioComposeDrawer } from '../StudioComposeDrawer';
+import { StudioFiltersDrawer } from '../StudioFiltersDrawer';
+// StudioDrilldownDrawer is kept as an exported composable component but no longer mounted by default.
+import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
+import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
+import {
+  generateDashboardSummary,
+  type StudioInsightResult,
+} from '../StudioChatPanel/generateInsight';
+import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
+
+// Lazy-load the chat panel so @base-ui/react/menu (and the full @mui/x-chat
+// bundle) are not downloaded until the user opens the AI panel for the first time.
+const StudioChatPanel = React.lazy(() =>
+  import('../StudioChatPanel/StudioChatPanel').then((m) => ({
+    default: m.StudioChatPanel,
+  })),
+);
+
+const MIN_CANVAS_WIDTH = 480;
+
+// ── Public imperative handle ──────────────────────────────────────────────────
+
+/**
+ * Imperative handle exposed via `ref` on the `Studio` component.
+ * Obtain it with `React.useRef<StudioHandle>()`.
+ */
+export interface StudioHandle {
+  /** Undo the last action. */
+  undo(): void;
+  /** Redo the last undone action. */
+  redo(): void;
+  /** Returns true if there is an action to undo. */
+  canUndo(): boolean;
+  /** Returns true if there is an action to redo. */
+  canRedo(): boolean;
+  /** Switch between `'edit'` and `'view'` mode. */
+  setMode(mode: StudioMode): void;
+  /** Set the active page by id. */
+  setActivePage(pageId: string): void;
+  /** Remove a page and its widgets from the dashboard. Supports undo. */
+  removePage(pageId: string): void;
+  /** Reorder pages according to the provided list of page IDs. Supports undo. */
+  reorderPages(pageIds: string[]): void;
+  /** Return a snapshot of the current studio state. */
+  getState(): StudioState;
+  /** Serialise the current state to a plain JSON-safe object. */
+  serializeState(): SerializedStudioState;
+  /**
+   * Load a previously serialised state, applying schema migrations as needed.
+   * @returns A `MigrationResult` describing success or validation errors.
+   */
+  loadSerializedState(data: unknown): MigrationResult;
+  /**
+   * Attach (or remove) an async data source adapter for the given source.
+   * When an adapter is provided, Studio calls `adapter.getRows(descriptor)` on every
+   * descriptor change instead of using the in-memory rows pipeline.
+   *
+   * @param sourceId - The ID of the data source to configure.
+   * @param adapter - The adapter implementation, or `undefined` to remove it.
+   */
+  setDataSourceAdapter(sourceId: string, adapter: StudioDataSourceAdapter | undefined): void;
+}
+
+// ── Slots / Props ─────────────────────────────────────────────────────────────
+
+/* eslint-disable react/no-unused-prop-types */
+// False positives: ESLint can't trace slot props through `...slots` spread into
+// `StudioContent` or `initialState`/`onStateChange` through `memo + forwardRef`.
+export interface StudioSlots {
+  dataDrawer?: React.ReactNode;
+  composeDrawer?: React.ReactNode;
+  filtersDrawer?: React.ReactNode;
+  canvas?: React.ReactNode;
+}
+
+export interface StudioProps extends StudioSlots {
+  /**
+   * Initial state used to seed the studio at mount.
+   * Treated like `defaultValue` — changes after mount are ignored.
+   * To replace state programmatically, call `ref.loadSerializedState()`.
+   */
+  initialState?: Partial<StudioState>;
+  /**
+   * Called on every state change. Use this to sync derived values
+   * (mode, title, pages) into your own React state for toolbar rendering.
+   * `canUndo` / `canRedo` are not part of `StudioState`; read them from the ref:
+   * ```ts
+   * onStateChange={(state) => {
+   *   setMode(state.mode);
+   *   setCanUndo(ref.current?.canUndo() ?? false);
+   * }}
+   * ```
+   * @param {StudioState} state - The new Studio state snapshot.
+   */
+  onStateChange?: (state: StudioState) => void;
+  /**
+   * Sidebar layout variant.
+   * - `'stacked'` (default): each panel has its own independent collapse strip.
+   * - `'tabbed'`: a single tab rail shows all panels; at most one panel is open at a time.
+   */
+  sidebarLayout?: 'stacked' | 'tabbed';
+  /**
+   * Side of the canvas the sidebar panels are anchored to.
+   * - `'left'` (default): sidebar is on the left.
+   * - `'right'`: sidebar is on the right.
+   */
+  sidebarSide?: 'left' | 'right';
+  /**
+   * LLM configuration for the AI chat assistant.
+   * When provided, a floating AI button appears in the bottom-right corner
+   * that opens the `StudioChatPanel` as a slide-in overlay.
+   * If not provided, the AI panel is not rendered.
+   */
+  aiConfig?: StudioAIConfig | null;
+  /**
+   * Controls how the table widget's data source is determined.
+   * - `'explicit'` (default): a data source picker is shown at the top of the
+   *   table setup panel. The user must choose a source before adding columns.
+   * - `'implicit'`: no source picker is shown. The source is inferred from the
+   *   first column added (Tableau / Power BI style). Removing all columns
+   *   resets the source so a different one can be chosen.
+   */
+  tableSourceMode?: 'explicit' | 'implicit';
+  /**
+   * Runtime feature flags controlling which UI features are available to end users.
+   * All flags default to `true` when not specified.
+   * @example
+   * ```tsx
+   * // Embed in view-only mode with no AI or edit UI:
+   * <Studio featureFlags={{ compose: false, aiChat: false }} />
+   * ```
+   */
+  featureFlags?: StudioFeatureFlags;
+  /**
+   * Locale text overrides. Pass a full translation object or a partial override
+   * to customise individual strings.
+   * @example
+   * ```tsx
+   * import { ptBRLocaleText } from '@mui/x-studio/locales/pt-BR';
+   * <Studio localeText={ptBRLocaleText} />
+   * ```
+   */
+  localeText?: Partial<StudioLocaleText>;
+  /**
+   * Canvas width (in px) below which all widgets stack to full width in view mode.
+   * Individual pages can override this via `StudioPage.stackBreakpoint`.
+   * Set to `0` to disable responsive stacking entirely.
+   * @default 600
+   */
+  stackBreakpoint?: number;
+  /**
+   * Consumer-defined custom widget kinds shown alongside built-in widgets in the widget picker.
+   * Each entry registers a `kind` string, a render `component`, an optional compose-drawer
+   * `setupPanel`, and optional metadata (label, icon, defaultConfig).
+   * @see StudioCustomWidgetDef
+   * @example
+   * ```tsx
+   * <Studio
+   *   customWidgets={[{
+   *     kind: 'alert-banner',
+   *     label: 'Alert Banner',
+   *     component: AlertBannerWidget,
+   *     setupPanel: AlertBannerSetupPanel,
+   *   }]}
+   * />
+   * ```
+   */
+  customWidgets?: StudioCustomWidgetDef[];
+  /**
+   * Additional map geography definitions to register alongside the built-in `'world'`,
+   * `'usa'`, and `'europe'` geographies.
+   *
+   * Each entry defines how to load the topology, how to normalise raw data values to
+   * feature IDs, and how the geography appears in the Map Setup panel (label, field label,
+   * and help text).
+   *
+   * @example
+   * ```tsx
+   * import type { StudioMapGeographyDefinition } from '@mui/x-studio';
+   * const geographies: Record<string, StudioMapGeographyDefinition> = {
+   *   'uk-counties': {
+   *     label: 'United Kingdom',
+   *     fieldLabel: 'County field',
+   *     fieldHint: 'A field containing UK county names.',
+   *     loader: async () => {
+   *       const topo = await import('./uk-counties.json');
+   *       const { feature } = await import('topojson-client');
+   *       return feature(topo, topo.objects.counties);
+   *     },
+   *     normalizer: (value) => String(value ?? '').trim().toLowerCase(),
+   *   },
+   * };
+   * <Studio geographies={geographies} />
+   * ```
+   */
+  geographies?: Record<string, StudioMapGeographyDefinition>;
+  /** Props forwarded to slot sub-components. */
+  slotProps?: {
+    /**
+     * Extra props forwarded to the internally-rendered `StudioChatPanel`.
+     * `aiConfig`, `open`, `onClose`, and `overlay` are managed by `Studio` and cannot be overridden here.
+     */
+    chatPanel?: Omit<StudioChatPanelProps, 'aiConfig' | 'open' | 'onClose' | 'overlay'>;
+    /**
+     * Extra props forwarded to the internally-rendered `StudioCanvas`.
+     * Only applies when no custom `canvas` slot is provided.
+     * Use `slotProps.canvas.slotProps.widgetCard` to customise every widget card.
+     */
+    canvas?: StudioCanvasProps;
+  };
+}
+/* eslint-enable react/no-unused-prop-types */
+
+// ── Internal content (needs context) ─────────────────────────────────────────
+
+// Memoized so it doesn't re-render when Studio re-renders for unrelated reasons.
+const StudioContent = React.memo(function StudioContent(
+  props: StudioSlots & {
+    sidebarLayout?: 'stacked' | 'tabbed';
+    sidebarSide?: 'left' | 'right';
+    stackBreakpoint?: number;
+    aiConfig?: StudioAIConfig | null;
+    slotProps?: {
+      chatPanel?: Omit<StudioChatPanelProps, 'aiConfig' | 'open' | 'onClose' | 'overlay'>;
+      canvas?: StudioCanvasProps;
+    };
+  },
+) {
+  const {
+    canvas,
+    composeDrawer,
+    dataDrawer,
+    filtersDrawer,
+    sidebarLayout = 'stacked',
+    sidebarSide = 'left',
+    stackBreakpoint,
+    aiConfig,
+    slotProps,
+  } = props;
+  const mode = useStudioSelector(selectMode);
+  const controller = useStudioController();
+  const canvasScrollRef = React.useRef<HTMLDivElement>(null);
+  const features = useStudioFeatures();
+  const localeText = useStudioLocaleText();
+
+  const shell = useStudioSelector(selectShell);
+  const widgets = useStudioSelector(selectWidgets);
+  const dataSources = useStudioSelector(selectDataSources);
+  const selectedWidgetId = shell.selectedWidgetId;
+  const selectedFieldId = shell.selectedFieldId;
+  const selectedSourceId = shell.selectedSourceId;
+  const selectedWidget = selectedWidgetId ? (widgets[selectedWidgetId] ?? null) : null;
+  const selectedField = React.useMemo(() => {
+    if (!selectedSourceId || !selectedFieldId) {
+      return null;
+    }
+    return dataSources[selectedSourceId]?.fields.find((f) => f.id === selectedFieldId) ?? null;
+  }, [dataSources, selectedSourceId, selectedFieldId]);
+
+  const composePanelTitle =
+    selectedWidget?.title ?? selectedField?.label ?? localeText.composeDrawerTitle;
+  const hasSelection = Boolean(selectedWidgetId ?? selectedFieldId ?? selectedSourceId);
+  const composeOnBack = hasSelection ? () => controller.clearSelection() : undefined;
+
+  useStudioKeyboardShortcuts();
+
+  const [chatOpen, setChatOpen] = React.useState(false);
+
+  // ── Dashboard summary state ────────────────────────────────────────────────
+  const [summaryOpen, setSummaryOpen] = React.useState(false);
+  const [summaryLoading, setSummaryLoading] = React.useState(false);
+  const [summaryError, setSummaryError] = React.useState<string | null>(null);
+  const [summaryResult, setSummaryResult] = React.useState<StudioInsightResult | null>(null);
+  const summaryAbortRef = React.useRef<AbortController | null>(null);
+  const [summaryCopied, setSummaryCopied] = React.useState(false);
+
+  const handleSummariseDashboard = React.useCallback(() => {
+    if (!aiConfig?.endpoint) {
+      return;
+    }
+    summaryAbortRef.current?.abort();
+    const abortCtrl = new AbortController();
+    summaryAbortRef.current = abortCtrl;
+
+    setSummaryOpen(true);
+    setSummaryLoading(true);
+    setSummaryError(null);
+    setSummaryResult(null);
+
+    generateDashboardSummary(controller, aiConfig, { signal: abortCtrl.signal })
+      .then((result) => {
+        setSummaryResult(result);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
+        setSummaryError(err instanceof Error ? err.message : 'Failed to generate summary.');
+      })
+      .finally(() => {
+        setSummaryLoading(false);
+      });
+  }, [controller, aiConfig]);
+
+  React.useEffect(() => {
+    return () => {
+      summaryAbortRef.current?.abort();
+    };
+  }, []);
+
+  const showCompose = features.compose;
+  const showFilters = features.filters;
+  const showDataManagement = features.dataManagement;
+
+  // Auto-switch to the compose panel when a new widget is selected in edit mode.
+  // Tracks the previous selection so only *new* selections trigger the switch.
+  const prevSelectedWidgetIdRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const prevId = prevSelectedWidgetIdRef.current;
+    prevSelectedWidgetIdRef.current = selectedWidgetId ?? null;
+    if (!selectedWidgetId || selectedWidgetId === prevId || mode !== 'edit' || !showCompose) {
+      return;
+    }
+    controller.setDrawerOpen('compose', true);
+    if (sidebarLayout === 'tabbed') {
+      controller.setDrawerOpen('data', false);
+      controller.setDrawerOpen('filters', false);
+    }
+  }, [selectedWidgetId, mode, showCompose, controller, sidebarLayout]);
+
+  let sidebar: React.ReactNode;
+  if (sidebarLayout === 'tabbed') {
+    const panels = [];
+    if (mode === 'edit' && showCompose) {
+      if (showDataManagement) {
+        panels.push({
+          drawer: 'data' as const,
+          label: localeText.dataDrawerTitle,
+          icon: <StorageIcon fontSize="small" />,
+          children: dataDrawer ?? <StudioDataDrawer />,
+        });
+      }
+      panels.push({
+        drawer: 'compose' as const,
+        label: localeText.composeDrawerTitle,
+        title: composePanelTitle,
+        icon: <TuneIcon fontSize="small" />,
+        onBack: composeOnBack,
+        children: composeDrawer ?? <StudioComposeDrawer />,
+      });
+    }
+    if (showFilters) {
+      panels.push({
+        drawer: 'filters' as const,
+        label: localeText.filtersDrawerTitle,
+        icon: <FilterListIcon fontSize="small" />,
+        children: filtersDrawer ?? <StudioFiltersDrawer />,
+      });
+    }
+    sidebar = <TabbedSidebar side={sidebarSide} panels={panels} />;
+  } else if (sidebarSide === 'right') {
+    // Right side: render panels in reverse order so they read Data → Compose → Filters
+    // from right to left (Data closest to the screen edge, Filters adjacent to the canvas).
+    sidebar = (
+      <React.Fragment>
+        {showFilters && (
+          <DrawerPanel
+            side={sidebarSide}
+            drawer="filters"
+            title={localeText.filtersDrawerTitle}
+            icon={<FilterListIcon fontSize="small" />}
+          >
+            {filtersDrawer ?? <StudioFiltersDrawer />}
+          </DrawerPanel>
+        )}
+        {mode === 'edit' && showCompose && (
+          <DrawerPanel
+            side={sidebarSide}
+            drawer="compose"
+            title={composePanelTitle}
+            icon={<TuneIcon fontSize="small" />}
+            onBack={composeOnBack}
+          >
+            {composeDrawer ?? <StudioComposeDrawer />}
+          </DrawerPanel>
+        )}
+        {mode === 'edit' && showCompose && showDataManagement && (
+          <DrawerPanel
+            side={sidebarSide}
+            drawer="data"
+            title={localeText.dataDrawerTitle}
+            icon={<StorageIcon fontSize="small" />}
+          >
+            {dataDrawer ?? <StudioDataDrawer />}
+          </DrawerPanel>
+        )}
+      </React.Fragment>
+    );
+  } else {
+    sidebar = (
+      <React.Fragment>
+        {mode === 'edit' && showCompose && showDataManagement && (
+          <DrawerPanel
+            side={sidebarSide}
+            drawer="data"
+            title={localeText.dataDrawerTitle}
+            icon={<StorageIcon fontSize="small" />}
+          >
+            {dataDrawer ?? <StudioDataDrawer />}
+          </DrawerPanel>
+        )}
+        {mode === 'edit' && showCompose && (
+          <DrawerPanel
+            side={sidebarSide}
+            drawer="compose"
+            title={composePanelTitle}
+            icon={<TuneIcon fontSize="small" />}
+            onBack={composeOnBack}
+          >
+            {composeDrawer ?? <StudioComposeDrawer />}
+          </DrawerPanel>
+        )}
+        {showFilters && (
+          <DrawerPanel
+            side={sidebarSide}
+            drawer="filters"
+            title={localeText.filtersDrawerTitle}
+            icon={<FilterListIcon fontSize="small" />}
+          >
+            {filtersDrawer ?? <StudioFiltersDrawer />}
+          </DrawerPanel>
+        )}
+      </React.Fragment>
+    );
+  }
+
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        bgcolor: 'background.default',
+        position: 'relative',
+      }}
+    >
+      <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
+        <CanvasScrollContext.Provider value={canvasScrollRef}>
+          {sidebarSide === 'left' && sidebar}
+
+          <Box
+            ref={canvasScrollRef}
+            sx={{
+              flexGrow: 1,
+              minWidth: 0,
+              overflow: 'auto',
+              bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
+            }}
+          >
+            <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
+              {canvas ?? <StudioCanvas stackBreakpoint={stackBreakpoint} {...slotProps?.canvas} />}
+            </Box>
+          </Box>
+
+          {sidebarSide === 'right' && sidebar}
+        </CanvasScrollContext.Provider>
+      </Box>
+
+      {/* AI chat button + panel */}
+      {features.aiChat && aiConfig?.endpoint && (
+        <React.Fragment>
+          {/* Summarise dashboard button */}
+          <Tooltip title={localeText.aiSummarizeTooltip} placement="left">
+            <IconButton
+              onClick={handleSummariseDashboard}
+              aria-label={localeText.aiSummarizeTooltip}
+              sx={{
+                position: 'absolute',
+                bottom: 76,
+                right: 20,
+                zIndex: (theme) => theme.zIndex.speedDial,
+                bgcolor: 'background.paper',
+                boxShadow: 4,
+                '&:hover': { bgcolor: 'action.hover' },
+                width: 40,
+                height: 40,
+              }}
+            >
+              <AutoAwesomeIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
+          {/* Dashboard summary slide-in panel */}
+          <Drawer
+            anchor="bottom"
+            open={summaryOpen}
+            onClose={() => {
+              setSummaryOpen(false);
+              summaryAbortRef.current?.abort();
+            }}
+            slotProps={{
+              paper: {
+                sx: {
+                  maxHeight: '40vh',
+                  p: 2,
+                  borderTopLeftRadius: 8,
+                  borderTopRightRadius: 8,
+                },
+              },
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              <AutoAwesomeIcon sx={{ fontSize: 18, mr: 1, color: 'primary.main' }} />
+              <Typography variant="subtitle2" sx={{ flex: 1 }}>
+                {localeText.aiSummaryTitle}
+              </Typography>
+              {summaryResult && (
+                <Tooltip title={summaryCopied ? localeText.aiCopiedTooltip : localeText.aiCopyTooltip}>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      navigator.clipboard.writeText(summaryResult.text).then(() => {
+                        setSummaryCopied(true);
+                        setTimeout(() => setSummaryCopied(false), 1500);
+                      });
+                    }}
+                  >
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              <Tooltip title={localeText.aiRegenerateTooltip}>
+                <IconButton
+                  size="small"
+                  onClick={handleSummariseDashboard}
+                  disabled={summaryLoading}
+                >
+                  <AutoAwesomeIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title={localeText.aiCloseTooltip}>
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    setSummaryOpen(false);
+                    summaryAbortRef.current?.abort();
+                  }}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+            {summaryLoading && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                <CircularProgress size={24} />
+              </Box>
+            )}
+            {!summaryLoading && summaryError && (
+              <Typography variant="body2" color="error">
+                {summaryError}
+              </Typography>
+            )}
+            {!summaryLoading && !summaryError && summaryResult && (
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                {summaryResult.text}
+              </Typography>
+            )}
+          </Drawer>
+
+          <Tooltip
+            title={
+              chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip
+            }
+            placement="left"
+          >
+            <IconButton
+              onClick={() => setChatOpen((prev) => !prev)}
+              color={chatOpen ? 'primary' : 'default'}
+              aria-label={
+                chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip
+              }
+              sx={{
+                position: 'absolute',
+                bottom: 20,
+                right: 20,
+                zIndex: (theme) => theme.zIndex.speedDial,
+                bgcolor: 'background.paper',
+                boxShadow: 4,
+                '&:hover': { bgcolor: 'action.hover' },
+                width: 48,
+                height: 48,
+              }}
+            >
+              <AutoAwesomeIcon />
+            </IconButton>
+          </Tooltip>
+          <React.Suspense fallback={null}>
+            <StudioChatPanel
+              {...slotProps?.chatPanel}
+              aiConfig={aiConfig}
+              open={chatOpen}
+              onClose={() => setChatOpen(false)}
+              overlay
+            />
+          </React.Suspense>
+        </React.Fragment>
+      )}
+    </Box>
+  );
+});
+
+// ── Public component ──────────────────────────────────────────────────────────
+
+/**
+ * The Studio dashboard builder component.
+ *
+ * @example
+ * ```tsx
+ * const studioRef = React.useRef<StudioHandle>(null);
+ *
+ * <Studio
+ *   ref={studioRef}
+ *   initialState={INITIAL_STATE}
+ *   onStateChange={(state) => {
+ *     setMode(state.mode);
+ *     setCanUndo(studioRef.current?.canUndo() ?? false);
+ *   }}
+ * />
+ * ```
+ */
+export const Studio = React.memo(
+  // react-doctor-disable-next-line react-doctor/no-react19-deprecated-apis
+  React.forwardRef<StudioHandle, StudioProps>(function Studio(inProps, ref) {
+    const props = useThemeProps({ props: inProps, name: 'MuiStudio' });
+    const { initialState, onStateChange, tableSourceMode, featureFlags, localeText, ...slots } =
+      props;
+    const aiConfig = (slots as { aiConfig?: StudioAIConfig | null }).aiConfig;
+    const customWidgets = (slots as { customWidgets?: StudioCustomWidgetDef[] }).customWidgets;
+    const geographies = (slots as { geographies?: Record<string, StudioMapGeographyDefinition> })
+      .geographies;
+
+    // Controller is created once at mount and never replaced.
+    const controller = React.useMemo(
+      () => new StudioController(initialState),
+      // react-doctor-disable-next-line react-doctor/exhaustive-deps -- controller is intentionally created once
+      [], // eslint-disable-line react-hooks/exhaustive-deps -- controller is intentionally created once from initialState
+    );
+
+    // Wire onStateChange — re-subscribe whenever the callback identity changes.
+    const onStateChangeRef = React.useRef(onStateChange);
+    React.useLayoutEffect(() => {
+      onStateChangeRef.current = onStateChange;
+    });
+
+    React.useEffect(() => {
+      // Fire once on mount so consumers can seed their local state from the initial value.
+      onStateChangeRef.current?.(controller.getState());
+      return controller.subscribe((state) => {
+        onStateChangeRef.current?.(state);
+      });
+    }, [controller]);
+
+    // Expose imperative handle to the parent via ref.
+    React.useImperativeHandle(
+      ref,
+      () => ({
+        undo: () => controller.undo(),
+        redo: () => controller.redo(),
+        canUndo: () => controller.canUndo(),
+        canRedo: () => controller.canRedo(),
+        setMode: (mode) => controller.setMode(mode),
+        setActivePage: (pageId) => controller.setActivePage(pageId),
+        removePage: (pageId) => controller.removePage(pageId),
+        reorderPages: (pageIds) => controller.reorderPages(pageIds),
+        getState: () => controller.getState(),
+        serializeState: () => controller.serializeState(),
+        loadSerializedState: (data) => controller.loadSerializedState(data),
+        setDataSourceAdapter: (sourceId, adapter) =>
+          controller.setDataSourceAdapter(sourceId, adapter),
+      }),
+      [controller],
+    );
+
+    return (
+      <StudioProvider
+        controller={controller}
+        tableSourceMode={tableSourceMode}
+        featureFlags={featureFlags}
+        localeText={localeText}
+        aiConfig={aiConfig}
+        customWidgets={customWidgets}
+        geographies={geographies}
+      >
+        <StudioContent {...slots} />
+      </StudioProvider>
+    );
+    // Note: sidebarSide is included in {...slots} via the StudioProps spread
+  }),
+);

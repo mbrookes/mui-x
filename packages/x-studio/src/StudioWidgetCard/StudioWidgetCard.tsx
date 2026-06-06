@@ -223,6 +223,14 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       ? (customWidgetMap.get(widget.kind) ?? null)
       : null;
 
+  // AI insights are disabled for filter/text/kpi widgets; custom widgets opt in via `aiInsight: true`
+  const supportsInsight =
+    widget != null &&
+    widget.kind !== 'filter' &&
+    widget.kind !== 'text' &&
+    widget.kind !== 'kpi' &&
+    (customDef === null || customDef.aiInsight === true);
+
   // ── AI Insight state ───────────────────────────────────────────────────────
   const [insightOpen, setInsightOpen] = React.useState(false);
   const [insightLoading, setInsightLoading] = React.useState(false);
@@ -652,7 +660,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           overlayTopSx={overlayTopSx}
           moveToPageOptions={moveToPageOptions}
           onAiRequest={onAiRequest ? () => onAiRequest(widgetId) : undefined}
-          onInsightRequest={aiConfig?.endpoint ? handleInsightRequest : undefined}
+          onInsightRequest={aiConfig?.endpoint && supportsInsight ? handleInsightRequest : undefined}
           anomalyEnabled={anomalyEnabled}
           anomalyCount={anomalyAnnotations.length}
           onAnomalyToggle={isChart ? handleAnomalyToggle : undefined}

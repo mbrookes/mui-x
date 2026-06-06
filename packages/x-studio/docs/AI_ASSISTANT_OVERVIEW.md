@@ -286,7 +286,7 @@ into OpenAI wire format.  Key mappings:
 - Tool results → separate `{ role: 'tool', tool_call_id, content: JSON.stringify(result) }` messages
 - `role: 'assistant'` text-only → `{ role: 'assistant', content: string }`
 
-### 4.5 Tool Definitions (all 16)
+### 4.5 Tool Definitions (all 17)
 
 Defined in `packages/x-studio/src/StudioChatPanel/studioAITools.ts`, passed as `tools: [...]` in every request.
 
@@ -308,6 +308,7 @@ Defined in `packages/x-studio/src/StudioChatPanel/studioAITools.ts`, passed as `
 | `add_widget_filter` | Add a filter scoped to a specific widget |
 | `remove_widget_filter` | Remove a widget-scoped filter by ID |
 | `summarise_page` | Returns a rich data snapshot of every widget on the active page — per-widget sampled CSV, numeric stats, and anomaly axis values for chart widgets. Used by the **Summarise page** chat chip. |
+| `apply_bulk_update` | Applies multiple coordinated changes in a single `controller.setState()` — widget config patches, additions, removals, layout (`widgetRows`), and column spans (`widgetColSpans`). The system prompt instructs the AI to prefer this over individual tools when a prompt requires 3 or more related changes. |
 
 ### 4.6 `executeTool` — dispatch
 

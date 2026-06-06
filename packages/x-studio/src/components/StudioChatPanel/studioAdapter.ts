@@ -373,6 +373,123 @@ function executeTool(
       return JSON.stringify({ success: true, filterId });
     }
 
+    case 'apply_bulk_update': {
+      const nextState = { ...controller.getState() };
+      const activePageId = nextState.dashboard.activePageId;
+      const activePage = nextState.pages[activePageId];
+      if (!activePage) {
+        return JSON.stringify({ error: 'No active page found.' });
+      }
+
+      const skipped: string[] = [];
+      const applied = { updated: 0, added: 0, removed: 0, layout: false, colSpans: 0 };
+
+      // Mutable copies of the parts we'll modify
+      let pageWidgets = { ...nextState.widgets };
+      let widgetRows = activePage.widgetRows.map((row) => [...row]);
+      const colSpans = { ...(activePage.widgetColSpans ?? {}) };
+
+      // 1. Removals
+      const removals = (args.widgetRemovals as string[] | undefined) ?? [];
+      for (const wid of removals) {
+        if (!pageWidgets[wid]) {
+          skipped.push(`remove ${wid}: not found`);
+          continue;
+        }
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+        delete pageWidgets[wid];
+        widgetRows = widgetRows.map((row) => row.filter((id) => id !== wid)).filter((row) => row.length > 0);
+        applied.removed += 1;
+      }
+
+      // 2. Additions — collect title→id mapping for layout resolution
+      const addedTitleToId: Record<string, string> = {};
+      const additions = (args.widgetAdditions as Array<{ kind: string; title: string; sourceId?: string; config?: Record<string, unknown> }> | undefined) ?? [];
+      for (const addition of additions) {
+        const kind = String(addition.kind ?? 'chart') as StudioWidget['kind'];
+        const title = String(addition.title ?? '');
+        const sourceId = addition.sourceId ? String(addition.sourceId) : undefined;
+        const aiConfig = (addition.config ?? {}) as StudioWidget['config'];
+        const customDef = customWidgets?.find((d) => d.kind === kind);
+        const base = createDefaultWidget(kind);
+        const config = {
+          ...base.config,
+          ...(customDef?.defaultConfig ?? {}),
+          ...aiConfig,
+        } as StudioWidget['config'];
+        const newWidget: StudioWidget = {
+          ...base,
+          id: `widget-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          title,
+          sourceId: sourceId ?? base.sourceId,
+          config,
+        };
+        pageWidgets[newWidget.id] = newWidget;
+        addedTitleToId[title] = newWidget.id;
+        // Append as a new single-widget row (may be overridden by layout below)
+        widgetRows.push([newWidget.id]);
+        applied.added += 1;
+      }
+
+      // 3. Widget config updates
+      const updates = (args.widgetUpdates as Array<{ widgetId: string; title?: string; sourceId?: string; config?: Record<string, unknown> }> | undefined) ?? [];
+      for (const update of updates) {
+        const wid = String(update.widgetId ?? '');
+        const widget = pageWidgets[wid];
+        if (!widget) {
+          skipped.push(`update ${wid}: not found`);
+          continue;
+        }
+        const patchedWidget: StudioWidget = {
+          ...widget,
+          ...(update.title !== undefined ? { title: String(update.title) } : {}),
+          ...(update.sourceId !== undefined ? { sourceId: String(update.sourceId) } : {}),
+          config: update.config
+            ? ({ ...widget.config, ...(update.config as StudioWidget['config']) } as StudioWidget['config'])
+            : widget.config,
+        };
+        pageWidgets[wid] = patchedWidget;
+        applied.updated += 1;
+      }
+
+      // 4. Layout — resolve title references for newly added widgets
+      const rawLayout = args.layout as string[][] | undefined;
+      if (rawLayout && Array.isArray(rawLayout)) {
+        const resolvedLayout = rawLayout.map((row) =>
+          row.map((ref) => addedTitleToId[ref] ?? ref),
+        );
+        widgetRows = resolvedLayout.filter((row) => row.length > 0);
+        applied.layout = true;
+      }
+
+      // 5. Column spans
+      const colSpanPatch = (args.colSpans as Record<string, number> | undefined) ?? {};
+      for (const [wid, span] of Object.entries(colSpanPatch)) {
+        if (typeof span === 'number' && span >= 3 && span <= 12) {
+          colSpans[wid] = span;
+          applied.colSpans += 1;
+        }
+      }
+
+      // Commit atomically
+      nextState.widgets = pageWidgets;
+      nextState.pages = {
+        ...nextState.pages,
+        [activePageId]: {
+          ...activePage,
+          widgetRows,
+          widgetColSpans: colSpans,
+        },
+      };
+      controller.setState(nextState);
+
+      return JSON.stringify({
+        success: true,
+        applied,
+        ...(skipped.length > 0 ? { skipped } : {}),
+      });
+    }
+
     case 'summarise_page': {
       const activePage = state.pages[state.dashboard.activePageId];
       const pageTitle = activePage?.title ?? 'Untitled page';

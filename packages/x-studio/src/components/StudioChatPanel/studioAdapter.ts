@@ -1,6 +1,6 @@
 import type { ChatAdapter, ChatMessage, ChatMessageChunk } from '@mui/x-chat/headless';
 import type { StudioController } from '../../store/StudioController';
-import type { StudioCustomWidgetDef, StudioWidget } from '../../models';
+import type { StudioAISkill, StudioCustomWidgetDef, StudioWidget } from '../../models';
 import { buildAISystemPrompt } from '../../internals/buildAISystemPrompt';
 import { createDefaultWidget } from '../../internals/widgetUtils';
 import { STUDIO_AI_TOOLS, type StudioAIToolName } from './studioAITools';
@@ -60,6 +60,18 @@ export interface StudioAIConfig {
    * @param {Error} error - The error thrown by the tool.
    */
   onToolError?: (toolName: string, error: Error) => void;
+  /**
+   * Optional skills to enable for this session. Each skill injects a prompt
+   * fragment so the model knows about the capability, and `'client-handler'`
+   * skills additionally register a callable tool.
+   *
+   * @example
+   * ```ts
+   * import { dashboardNarratorSkill } from '@mui/x-studio/StudioChatPanel/studioSkills';
+   * createStudioChatAdapter({ ..., skills: [dashboardNarratorSkill] }, controller);
+   * ```
+   */
+  skills?: StudioAISkill[];
 }
 
 /**
@@ -74,6 +86,12 @@ export interface StudioAiTool {
   description: string;
   /** JSON Schema object describing the tool's parameters. */
   parameters: object;
+  /**
+   * When `true`, this tool is read-only and side-effect-free — it can be executed
+   * concurrently with other `parallel: true` tools when the model requests them in
+   * the same response. Defaults to `false` (sequential execution).
+   */
+  parallel?: boolean;
   /**
    * Called when the model invokes this tool.
    * Return a result string to send back to the model, or `void`/`undefined`
@@ -612,6 +630,7 @@ export function createStudioChatAdapter(
     allowedTools,
     extraTools,
     onToolError,
+    skills,
   } = config;
 
   // Build the effective tool list: built-in tools filtered by allowedTools, then extra tools appended
@@ -628,7 +647,19 @@ export function createStudioChatAdapter(
     },
   }));
 
-  const effectiveTools = [...builtInTools, ...extraToolDefs];
+  // Skills with tools register their callable tool alongside extra tools
+  const skillToolDefs = (skills ?? [])
+    .filter((s) => s.mode === 'client-handler' && s.tool)
+    .map((s) => ({
+      type: 'function' as const,
+      function: {
+        name: s.tool!.name,
+        description: s.tool!.description,
+        parameters: s.tool!.parameters,
+      },
+    }));
+
+  const effectiveTools = [...builtInTools, ...extraToolDefs, ...skillToolDefs];
 
   return {
     async sendMessage(input: ChatSendMessageInput): Promise<ReadableStream<ChatMessageChunk>> {
@@ -636,6 +667,7 @@ export function createStudioChatAdapter(
         controller.getState(),
         customWidgets,
         focusedWidgetId,
+        skills,
       );
       const openAIMessages = toOpenAIMessages(systemPrompt, input.messages);
 
@@ -897,12 +929,18 @@ export function createStudioChatAdapter(
                   }
                 }
 
-                // Check if this is a custom extraTool
+                // Check if this is a custom extraTool or a skill tool
                 const extraTool = (extraTools ?? []).find((t) => t.name === tc.name);
+                const skillTool = (skills ?? [])
+                  .filter((s) => s.mode === 'client-handler' && s.tool)
+                  .map((s) => s.tool!)
+                  .find((t) => t.name === tc.name);
 
                 // Enforce allowedTools: if model calls a tool not in effectiveTools, deny it
                 const isAllowed =
-                  extraTool != null || effectiveTools.some((et) => et.function.name === tc.name);
+                  extraTool != null ||
+                  skillTool != null ||
+                  effectiveTools.some((et) => et.function.name === tc.name);
                 if (!isAllowed) {
                   streamController.enqueue({
                     type: 'tool-output-denied',
@@ -918,31 +956,113 @@ export function createStudioChatAdapter(
                   continue;
                 }
 
-                let output: string;
-                try {
-                  if (extraTool) {
-                    // Tools must execute sequentially — parallel execution would cause state conflicts.
-                    // eslint-disable-next-line no-await-in-loop
-                    const result = await extraTool.execute(toolInput, controller);
-                    output = result != null ? String(result) : JSON.stringify({ success: true });
-                  } else {
-                    output = executeTool(tc.name, toolInput, controller, customWidgets);
-                  }
-                } catch (err) {
-                  const toolErr = err instanceof Error ? err : new Error(String(err));
-                  onToolError?.(tc.name, toolErr);
-                  output = JSON.stringify({ error: toolErr.message });
+                // Determine if this tool is parallel-safe.
+                // Built-in read-only tools are always parallel-safe.
+                // extraTools and skillTools are parallel-safe only if explicitly marked.
+                const isReadOnlyBuiltin =
+                  tc.name === 'get_dashboard_state' || tc.name === 'summarise_page';
+                const isParallelSafe =
+                  isReadOnlyBuiltin || extraTool?.parallel === true || skillTool?.parallel === true;
+
+                tc._toolInput = toolInput;
+                tc._extraTool = extraTool;
+                tc._skillTool = skillTool;
+                tc._isParallelSafe = isParallelSafe;
+              }
+
+              // ── Parallel-aware execution ──────────────────────────────────────
+              // Execute tool calls in order, grouping adjacent parallel-safe async tools
+              // into concurrent batches. State-mutating built-ins are always sequential.
+
+              type EnrichedTc = (typeof toolCallEntries)[0][1] & {
+                _toolInput?: unknown;
+                _extraTool?: StudioAiTool;
+                _skillTool?: StudioAiTool;
+                _isParallelSafe?: boolean;
+              };
+
+              const execTc = async (tc: EnrichedTc): Promise<string> => {
+                const toolInput = tc._toolInput;
+                if (tc._extraTool) {
+                  const result = await tc._extraTool.execute(toolInput, controller);
+                  return result != null ? String(result) : JSON.stringify({ success: true });
                 }
+                if (tc._skillTool) {
+                  const result = await tc._skillTool.execute(toolInput, controller);
+                  return result != null ? String(result) : JSON.stringify({ success: true });
+                }
+                return executeTool(tc.name, toolInput, controller, customWidgets);
+              };
+
+              // Flush a pending parallel group, assigning results back in order.
+              const flushParallelGroup = async (
+                group: Array<{ tc: EnrichedTc; resultSlot: { output?: string } }>,
+              ) => {
+                const outputs = await Promise.all(group.map(({ tc }) => execTc(tc)));
+                for (let gi = 0; gi < group.length; gi += 1) {
+                  group[gi].resultSlot.output = outputs[gi];
+                }
+              };
+
+              const orderedTcs = toolCallEntries
+                .map(([, tc]) => tc as EnrichedTc)
+                .filter((tc) => tc._toolInput !== undefined || tc._isParallelSafe !== undefined);
+
+              // Two-pass: first collect already-denied/skipped entries' results (already in toolResults),
+              // then run the remaining ones with parallel grouping.
+              const alreadyHandledIds = new Set(toolResults.map((r) => r.toolCallId));
+              const pendingTcs = orderedTcs.filter((tc) => !alreadyHandledIds.has(tc.id));
+
+              let parallelGroup: Array<{ tc: EnrichedTc; resultSlot: { output?: string } }> = [];
+              const resultSlots: Array<{ tc: EnrichedTc; slot: { output?: string } }> = [];
+
+              for (const tc of pendingTcs) {
+                if (tc._isParallelSafe && (tc._extraTool || tc._skillTool)) {
+                  // Parallel async tool — add to current group
+                  const slot: { output?: string } = {};
+                  parallelGroup.push({ tc, resultSlot: slot });
+                  resultSlots.push({ tc, slot });
+                } else {
+                  // Sequential — flush any pending parallel group first
+                  if (parallelGroup.length > 0) {
+                    // eslint-disable-next-line no-await-in-loop -- flushing parallel group before sequential tool
+                    await flushParallelGroup(parallelGroup);
+                    parallelGroup = [];
+                  }
+                  // Execute this tool sequentially
+                  const slot: { output?: string } = {};
+                  let output: string;
+                  try {
+                    // eslint-disable-next-line no-await-in-loop -- sequential tool execution
+                    output = await execTc(tc);
+                  } catch (err) {
+                    const toolErr = err instanceof Error ? err : new Error(String(err));
+                    onToolError?.(tc.name, toolErr);
+                    output = JSON.stringify({ error: toolErr.message });
+                  }
+                  slot.output = output;
+                  resultSlots.push({ tc, slot });
+                }
+              }
+
+              // Flush any remaining parallel group
+              if (parallelGroup.length > 0) {
+                // eslint-disable-next-line no-await-in-loop -- flushing final parallel group
+                await flushParallelGroup(parallelGroup);
+              }
+
+              // Apply results in original order
+              for (const { tc, slot } of resultSlots) {
+                const output = slot.output ?? JSON.stringify({ error: 'No output produced.' });
                 streamController.enqueue({
                   type: 'tool-output-available',
                   toolCallId: tc.id,
                   output,
                 });
-
                 toolResults.push({
                   toolCallId: tc.id,
                   toolName: tc.name,
-                  input: toolInput,
+                  input: tc._toolInput,
                   output,
                 });
               }

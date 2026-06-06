@@ -72,6 +72,27 @@ export interface StudioAIConfig {
    * ```
    */
   skills?: StudioAISkill[];
+  /**
+   * Adapter mode.
+   *
+   * - `'direct'` (default): Sends OpenAI-compatible requests directly to `endpoint`.
+   *   The client builds the system prompt and executes tool calls locally.
+   *   Use for quick local development.
+   *
+   * - `'x-studio-backend'`: Sends a `StudioAIRequest` JSON body to `endpoint` and
+   *   receives `StudioAISSEEvent` Server-Sent Events back. The server (`x-studio-backend`
+   *   package) builds the system prompt and runs the agentic loop.
+   *   Recommended for production — the LLM API key stays on the server.
+   *
+   * @example Production setup with x-studio-backend:
+   * ```ts
+   * const aiConfig: StudioAIConfig = {
+   *   endpoint: '/api/ai/chat',   // your Next.js / Express route
+   *   mode: 'x-studio-backend',
+   * };
+   * ```
+   */
+  mode?: 'direct' | 'x-studio-backend';
 }
 
 /**

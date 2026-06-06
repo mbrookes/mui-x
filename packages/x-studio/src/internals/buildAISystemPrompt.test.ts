@@ -240,3 +240,62 @@ describe('buildAISystemPrompt: active filters', () => {
     expect(prompt.length).toBeGreaterThan(0);
   });
 });
+
+// ── Skill section ─────────────────────────────────────────────────────────────
+
+describe('skill section', () => {
+  it('omits the Skills section when no skills are provided', () => {
+    const state = makeState();
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).not.toContain('## Skills');
+  });
+
+  it('omits the Skills section when an empty skills array is provided', () => {
+    const state = makeState();
+    const prompt = buildAISystemPrompt(state, undefined, undefined, []);
+    expect(prompt).not.toContain('## Skills');
+  });
+
+  it('includes the Skills section when skills are provided', () => {
+    const state = makeState();
+    const skill = {
+      name: 'testSkill',
+      mode: 'instruction-only' as const,
+      promptFragment: 'Trigger: say "test". Respond in plain text.',
+    };
+    const prompt = buildAISystemPrompt(state, undefined, undefined, [skill]);
+    expect(prompt).toContain('## Skills');
+    expect(prompt).toContain('<skill name="testSkill" mode="instruction-only">');
+    expect(prompt).toContain('Trigger: say "test".');
+    expect(prompt).toContain('</skill>');
+  });
+
+  it('includes all skills when multiple are provided', () => {
+    const state = makeState();
+    const skills = [
+      { name: 'skillA', mode: 'instruction-only' as const, promptFragment: 'Fragment A' },
+      { name: 'skillB', mode: 'client-handler' as const, promptFragment: 'Fragment B' },
+    ];
+    const prompt = buildAISystemPrompt(state, undefined, undefined, skills);
+    expect(prompt).toContain('<skill name="skillA" mode="instruction-only">');
+    expect(prompt).toContain('<skill name="skillB" mode="client-handler">');
+    expect(prompt).toContain('Fragment A');
+    expect(prompt).toContain('Fragment B');
+  });
+
+  it('places the Skills section between instructions and dashboard_state', () => {
+    const state = makeState();
+    const skill = {
+      name: 'mySkill',
+      mode: 'instruction-only' as const,
+      promptFragment: 'Some instruction.',
+    };
+    const prompt = buildAISystemPrompt(state, undefined, undefined, [skill]);
+    const skillPos = prompt.indexOf('## Skills');
+    // Use lastIndexOf because <dashboard_state> also appears inside the instructions text
+    // (in the guardrail rule). The actual dashboard state block is the final occurrence.
+    const statePos = prompt.lastIndexOf('<dashboard_state>');
+    expect(skillPos).toBeGreaterThan(0);
+    expect(statePos).toBeGreaterThan(skillPos);
+  });
+});

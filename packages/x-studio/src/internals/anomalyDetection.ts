@@ -1,5 +1,6 @@
 import type { StudioWidget } from '../models';
 import type { StudioChartAnnotation } from '../models/baseTypes';
+import { normalizeToDate, periodKeyToDateRange, truncateToGranularity } from './temporalUtils';
 
 // ── Statistical helpers ───────────────────────────────────────────────────────
 
@@ -102,6 +103,7 @@ export function detectWidgetAnomalies(
   }
 
   const xField = config.xField;
+  const xGroupBy = config.xGroupBy;
   const yField =
     config.yField ??
     (config.ySeries && config.ySeries.length > 0 ? config.ySeries[0].fieldId : undefined);
@@ -114,7 +116,7 @@ export function detectWidgetAnomalies(
     return [];
   }
 
-  const labels: string[] = [];
+  const labels: Array<string | number> = [];
   const values: number[] = [];
 
   for (const row of rows) {
@@ -123,7 +125,28 @@ export function detectWidgetAnomalies(
     if (rawY == null || typeof rawY !== 'number') {
       continue;
     }
-    labels.push(rawX != null ? String(rawX) : '');
+
+    let normalizedX: string | number | null = null;
+
+    if (xGroupBy) {
+      const periodKey = truncateToGranularity(rawX, xGroupBy);
+      if (periodKey) {
+        const periodRange = periodKeyToDateRange(periodKey);
+        const fromDate = periodRange ? normalizeToDate(periodRange.from) : null;
+        normalizedX = fromDate ? fromDate.getTime() : periodKey;
+      }
+    } else if (typeof rawX === 'number' || typeof rawX === 'string') {
+      const maybeDate = normalizeToDate(rawX);
+      normalizedX = maybeDate ? maybeDate.getTime() : rawX;
+    } else if (rawX instanceof Date && !Number.isNaN(rawX.getTime())) {
+      normalizedX = rawX.getTime();
+    }
+
+    if (normalizedX == null || normalizedX === '') {
+      continue;
+    }
+
+    labels.push(normalizedX);
     values.push(rawY);
   }
 
@@ -133,12 +156,20 @@ export function detectWidgetAnomalies(
 
   const outlierIndices = detectAnomaliesIQR(values);
   const annotations: StudioChartAnnotation[] = [];
+  const seenValues = new Set<string>();
   let counter = 0;
   for (const idx of outlierIndices) {
+    const value = labels[idx];
+    const dedupeKey = `${typeof value}:${String(value)}`;
+    if (seenValues.has(dedupeKey)) {
+      continue;
+    }
+    seenValues.add(dedupeKey);
+
     annotations.push({
       id: `anomaly-${widget.id}-${counter++}`,
       axis: 'x',
-      value: labels[idx],
+      value,
       label: '⚠',
     });
   }

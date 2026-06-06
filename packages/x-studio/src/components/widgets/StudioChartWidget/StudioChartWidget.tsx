@@ -23,7 +23,7 @@ import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, Typography } from '@mui/material';
 
-import type { StudioDataSource, StudioWidget } from '../models';
+import type { StudioDataSource, StudioWidget } from '../../../models';
 import {
   formatPeriodLabel,
   getChartSupportMessage,
@@ -31,7 +31,7 @@ import {
   truncateToGranularity,
   aggregateByField,
   aggregateHeatmap,
-} from '../internals/chartUtils';
+} from '../../../internals/chartUtils';
 import {
   useStudioController,
   useStudioSelector,
@@ -40,8 +40,8 @@ import {
   makeSelectExpressionFieldsForSource,
   makeSelectActiveCrossFilter,
   makeSelectIncomingCrossFilters,
-} from '../context';
-import { computeAggregate } from '../components/widgets/StudioKpiWidget/kpiUtils';
+} from '../../../context';
+import { computeAggregate } from '../StudioKpiWidget/kpiUtils';
 import { useChartWidgetData } from './useChartWidgetData';
 import { buildMultiYLineSeries } from './lineSeries';
 import { CrossFilterBarContext } from './CrossFilterBarContext';
@@ -49,7 +49,7 @@ import { CrossFilterGhostBar } from './CrossFilterGhostBar';
 import { StudioHeatmapChart } from './StudioHeatmapChart';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
-import { StudioNoDataOverlay } from '../internals/StudioNoDataOverlay';
+import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 
 import { PieHighlightContext } from './PieCrossHighlightContext';
 import { PIE_HIGHLIGHT_SLOTS } from './PieCrossHighlightSlots';
@@ -61,7 +61,7 @@ import {
   makeValueFormatter,
   normalizeCrossFilterValue,
 } from './chartWidgetHelpers';
-import { detectWidgetAnomalies } from '../internals/anomalyDetection';
+import { detectWidgetAnomalies } from '../../../internals/anomalyDetection';
 
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
@@ -100,12 +100,12 @@ export interface StudioChartWidgetProps {
    * Use this to surface the anomaly count or detected values in parent UI.
    * @param annotations
    */
-  onAnomalyDetected?: (annotations: import('../models/baseTypes').StudioChartAnnotation[]) => void;
+  onAnomalyDetected?: (annotations: import('../../../models/baseTypes').StudioChartAnnotation[]) => void;
   /**
    * Additional annotations generated outside the widget (e.g. anomaly detection markers).
    * Merged with `widget.config.annotations` when rendering reference lines.
    */
-  overlayAnnotations?: import('../models/baseTypes').StudioChartAnnotation[];
+  overlayAnnotations?: import('../../../models/baseTypes').StudioChartAnnotation[];
   slots?: StudioChartWidgetSlots;
   slotProps?: StudioChartWidgetSlotProps;
 }
@@ -468,9 +468,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     return allAnnotations.map((ann) => {
       const isAnomalyAnnotation = ann.id.startsWith('anomaly-') || ann.label === '⚠';
       const lineStyle = isAnomalyAnnotation
-        ? { strokeDasharray: '4 2', stroke: 'warning.main' }
+        ? { strokeDasharray: '4 2', stroke: '#c60000' }
         : { strokeDasharray: '4 2' };
-      const labelStyle = isAnomalyAnnotation ? { fill: 'warning.main' } : undefined;
+      const labelStyle = isAnomalyAnnotation ? { fill: '#c60000' } : undefined;
 
       return ann.axis === 'y' ? (
         <ChartsReferenceLine

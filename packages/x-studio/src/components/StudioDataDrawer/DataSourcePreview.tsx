@@ -4,6 +4,7 @@ import { Box, Typography } from '@mui/material';
 import { DataGridPremium, type GridColDef } from '@mui/x-data-grid-premium';
 import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../../models';
 import { enrichRowsWithExpressions } from '../../utils/expressionEvaluator';
+import { formatFieldValue } from '../../internals/numberFormat';
 
 export interface DataSourcePreviewProps {
   source: StudioDataSource;
@@ -39,14 +40,47 @@ export function DataSourcePreview({
   const columns = React.useMemo<GridColDef[]>(() => {
     const physicalCols = source.fields.reduce<GridColDef[]>((acc, f) => {
       if (!f.hidden) {
-        acc.push({ field: f.id, headerName: f.label, flex: 1, minWidth: 100 });
+        acc.push({
+          field: f.id,
+          headerName: f.label,
+          flex: 1,
+          minWidth: 100,
+          type: f.type === 'number' ? 'number' : 'string',
+          valueFormatter:
+            f.type === 'number'
+              ? (value: unknown) =>
+                  formatFieldValue(value, {
+                    type: 'number',
+                    format: f.format,
+                    precision: f.precision,
+                    currencyCode: f.currencyCode,
+                  })
+              : undefined,
+        });
       }
       return acc;
     }, []);
 
     const exprCols = expressionFields.reduce<GridColDef[]>((acc, ef) => {
       if (ef.sourceId === source.id && !ef.hidden && !ef.isMeasure) {
-        acc.push({ field: ef.id, headerName: ef.label, flex: 1, minWidth: 100 });
+        const efType = ef.type ?? 'number';
+        acc.push({
+          field: ef.id,
+          headerName: ef.label,
+          flex: 1,
+          minWidth: 100,
+          type: efType === 'number' ? 'number' : 'string',
+          valueFormatter:
+            efType === 'number'
+              ? (value: unknown) =>
+                  formatFieldValue(value, {
+                    type: 'number',
+                    format: ef.format,
+                    precision: ef.precision,
+                    currencyCode: ef.currencyCode,
+                  })
+              : undefined,
+        });
       }
       return acc;
     }, []);

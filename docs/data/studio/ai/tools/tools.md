@@ -55,6 +55,26 @@ prompts, and Studio executes them to mutate the dashboard state.
 | `summarise_page`      | Returns a rich data snapshot of every widget on the active page, including per-widget sampled CSV data, numeric stats, and anomaly axis values for chart widgets. The AI uses this to write a narrative page summary. |
 | `apply_bulk_update`   | Applies multiple coordinated changes (widget updates, additions, removals, layout, column spans) in a single atomic operation. The AI uses this instead of multiple individual tool calls when a prompt requires 3 or more related changes. |
 
+## Parallel tool calls
+
+The model can return multiple tool calls in a single assistant response. All results are collected and sent back together before the next turn — there is no extra round-trip per additional tool call.
+
+For `extraTools` and skill tools, you can opt in to **parallel execution** by setting `parallel: true` on the tool definition:
+
+```ts
+const myTool: StudioAiTool = {
+  name: 'fetch_kpi_data',
+  description: 'Fetches live KPI data for a given metric.',
+  parameters: { ... },
+  parallel: true, // safe to run concurrently with other parallel:true tools
+  execute: async (args) => { ... },
+};
+```
+
+When the model requests multiple `parallel: true` tools in the same response, the adapter runs them concurrently with `Promise.all`. Sequential tools (the default) execute in order around any parallel groups.
+
+Built-in tools `get_dashboard_state` and `summarise_page` are always treated as parallel-safe since they are read-only. State-mutating built-in tools always execute sequentially.
+
 ## Tool-to-controller mapping
 
 Each tool call is translated into the equivalent controller method call:

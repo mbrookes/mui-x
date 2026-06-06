@@ -769,9 +769,29 @@
 - `ChartSetupPanel` renders a "Sort by" dropdown and an Asc/Desc toggle button group whenever an x-field is configured on a non-scatter chart
 - All aggregation cache keys include the sort parameters to prevent stale data
 
----
+### UX-41 · Data panel "View source data →" link (tooltip)
 
-## 📋 Planned
+- `DataSourcePreviewTooltip` in `StudioDataDrawer/DataSourceSection.tsx` now accepts an `onOpenPreview` callback
+- Tooltip content combines overflow counts ("n more rows · n more columns") on a single line and appends a **"View source data →"** link at the bottom
+- Clicking the link calls `onOpenPreview(source.id)` — opening the same `DataSourcePreview` dialog as clicking a node in the lineage map
+- `StudioDataDrawer.tsx` manages `previewSourceId` state and renders the preview `Dialog`
+
+### UX-42 · AI Insight button widget-kind filter (BL-162)
+
+- The **AI Insight** button (overflow menu) is no longer shown for `filter`, `text`, or `kpi` widgets — these do not contain data suitable for the insight types available
+- For **custom widgets**, opt in by setting `aiInsight: true` in `StudioCustomWidgetDef`; the button is hidden by default
+- `StudioWidgetCard.tsx` derives a `supportsInsight` boolean; `onInsightRequest` is gated by both `aiConfig?.endpoint` and `supportsInsight`
+
+### UX-43 · "Summarise page" chat chip + `summarise_page` tool (BL-163)
+
+- Removed the **Summarise dashboard** floating action button and bottom Drawer from `Studio.tsx`
+- Added `summarise_page` as the 16th AI tool in `studioAITools.ts`; no parameters — operates on the active page
+- `studioAdapter.ts` implements `case 'summarise_page'`: iterates active-page widgets, calls `buildWidgetDataSummary` with kind-appropriate sampling (`'aggregate'` for charts, `'stride'` for others), runs `detectWidgetAnomalies` for chart widgets, and returns `{ pageTitle, widgets: [{ id, title, kind, dataSummary, anomalies? }] }`
+- `buildWidgetDataSummary` in `generateInsight.ts` is now exported so the adapter can call it directly
+- `StudioChatPanel.tsx` adds a **Summarise page** suggestion chip in the `hasWidgets` branch
+- `generateDashboardSummary` remains a public export for consumers who call it programmatically
+
+---
 
 _Nothing remaining — all tracked requirements are complete or WONTFIX._
 

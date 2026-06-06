@@ -414,6 +414,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           description: ef.description,
           type: ef.type ?? ('number' as const),
           format: ef.format,
+          precision: ef.precision,
           currencyCode: ef.currencyCode,
           generated: true,
           sourceId: ef.sourceId,

@@ -83,6 +83,8 @@ export interface StudioExpressionField {
   type?: StudioDataField['type'];
   /** Display format for numeric expression fields. */
   format?: StudioNumberFormat;
+  /** Decimal places used when formatting numeric expression fields. */
+  precision?: number;
   /** ISO 4217 currency code for currency format. Defaults to 'USD'. */
   currencyCode?: string;
   /** When true, the expression field is hidden from pickers. */

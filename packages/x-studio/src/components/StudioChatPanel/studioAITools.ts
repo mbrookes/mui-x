@@ -346,6 +346,84 @@ export const STUDIO_AI_TOOLS = [
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'apply_bulk_update',
+      description:
+        'Applies multiple coordinated changes to the active dashboard page in a single atomic operation. ' +
+        'Use this instead of multiple individual tool calls whenever a prompt requires 3 or more related changes — ' +
+        'for example: redesigning a page, changing all charts of a type, or restructuring the layout with config tweaks. ' +
+        'All supplied operations are committed together as one undo step. ' +
+        'Removals do not require confirmation when part of a bulk update. ' +
+        'Omit any key you do not need to change.',
+      parameters: {
+        type: 'object',
+        properties: {
+          widgetUpdates: {
+            type: 'array',
+            description:
+              'Partial updates to existing widgets. Only include the fields that should change. ' +
+              'Use the widget id from the dashboard state.',
+            items: {
+              type: 'object',
+              properties: {
+                widgetId: { type: 'string', description: 'ID of the widget to update.' },
+                title: { type: 'string', description: 'New title (optional).' },
+                sourceId: { type: 'string', description: 'New data source ID (optional).' },
+                config: {
+                  type: 'object',
+                  description: 'Partial widget config to merge in (optional). Same keys as add_widget.',
+                },
+              },
+              required: ['widgetId'],
+            },
+          },
+          widgetRemovals: {
+            type: 'array',
+            description: 'IDs of widgets to remove from the active page.',
+            items: { type: 'string' },
+          },
+          widgetAdditions: {
+            type: 'array',
+            description: 'New widgets to add to the active page.',
+            items: {
+              type: 'object',
+              properties: {
+                kind: { type: 'string', description: 'Widget kind (same values as add_widget).' },
+                title: { type: 'string', description: 'Widget title.' },
+                sourceId: { type: 'string', description: 'Data source ID (optional).' },
+                config: {
+                  type: 'object',
+                  description: 'Initial widget config (same keys as add_widget).',
+                },
+              },
+              required: ['kind', 'title'],
+            },
+          },
+          layout: {
+            type: 'array',
+            description:
+              'New widgetRows layout for the active page after additions and removals. ' +
+              'Must include every widget that should remain on the page. ' +
+              'For widgetAdditions, reference them by their title — the tool will resolve IDs. ' +
+              'If omitted, layout is unchanged (new widgets are appended as a new row).',
+            items: {
+              type: 'array',
+              items: { type: 'string' },
+            },
+          },
+          colSpans: {
+            type: 'object',
+            description:
+              'Map of widgetId → column span (3–12). Only include widgets whose width should change.',
+            additionalProperties: { type: 'number' },
+          },
+        },
+        required: [],
+      },
+    },
+  },
 ] as const;
 
 export type StudioAIToolName =
@@ -364,4 +442,5 @@ export type StudioAIToolName =
   | 'remove_page_filter'
   | 'add_widget_filter'
   | 'remove_widget_filter'
-  | 'summarise_page';
+  | 'summarise_page'
+  | 'apply_bulk_update';

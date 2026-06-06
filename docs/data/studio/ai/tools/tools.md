@@ -1,11 +1,11 @@
 ---
 title: Studio - AI tools
-description: Studio exposes sixteen AI tools that the language model can call to build and configure dashboards. Learn how to restrict tools, add custom tools, and handle tool errors.
+description: Studio exposes seventeen AI tools that the language model can call to build and configure dashboards. Learn how to restrict tools, add custom tools, and handle tool errors.
 ---
 
 # Studio - AI tools
 
-<p class="description">Studio exposes sixteen AI tools that the language model can call to build and configure dashboards. Learn how to restrict tools, add custom tools, and handle tool errors.</p>
+<p class="description">Studio exposes seventeen AI tools that the language model can call to build and configure dashboards. Learn how to restrict tools, add custom tools, and handle tool errors.</p>
 
 {{"component": "@mui/internal-core-docs/ComponentLinkHeader", "design": false}}
 
@@ -53,6 +53,7 @@ prompts, and Studio executes them to mutate the dashboard state.
 | :-------------------- | :------------------------------------------------------------------------------------------- |
 | `get_dashboard_state` | Returns the current dashboard state (pages, widgets, data sources)                           |
 | `summarise_page`      | Returns a rich data snapshot of every widget on the active page, including per-widget sampled CSV data, numeric stats, and anomaly axis values for chart widgets. The AI uses this to write a narrative page summary. |
+| `apply_bulk_update`   | Applies multiple coordinated changes (widget updates, additions, removals, layout, column spans) in a single atomic operation. The AI uses this instead of multiple individual tool calls when a prompt requires 3 or more related changes. |
 
 ## Tool-to-controller mapping
 

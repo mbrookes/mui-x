@@ -77,36 +77,38 @@ Built-in tools `get_dashboard_state` and `summarise_page` are always treated as 
 
 ## Tool-to-controller mapping
 
-Each tool call is translated into the equivalent controller method call:
+### In `direct` mode (default)
+
+Each tool call is translated into the equivalent `StudioController` method call client-side:
 
 ```ts
 // add_widget({ kind: 'chart', title: 'Revenue', sourceId: 'ds1', config: { ... } })
-controller.addWidget({
-  kind: 'chart',
-  title: 'Revenue',
-  sourceId: 'ds1',
-  config: chartConfig,
-});
+controller.addWidget({ kind: 'chart', title: 'Revenue', sourceId: 'ds1', config: chartConfig });
 
 // update_widget({ widgetId: 'w1', config: { ... } })
 controller.updateWidgetConfig('w1', newConfig);
 
 // add_page({ title: 'Orders' })
 controller.addPage('Orders');
-
-// rename_page({ pageId: 'p1', title: 'Q2 Orders' })
-controller.renamePage('p1', 'Q2 Orders');
-
-// add_page_filter({ field: 'region', sourceId: 'ds1', operator: 'equals', value: 'EMEA' })
-controller.addFilter({
-  id: '...',
-  field: 'region',
-  filterSourceId: 'ds1',
-  operator: 'equals',
-  value: 'EMEA',
-  scope: 'page',
-});
 ```
+
+### In `x-studio-backend` mode
+
+Tool execution moves to the server. The server runs `executeToolOnState` and streams
+`state-mutation` events. The client applies them via `applyStateMutation`:
+
+```ts
+// Server (automatic — inside handleAIChat)
+const { output, mutation, nextState } = executeToolOnState('add_widget', args, currentState);
+// → streams: { type: 'state-mutation', mutation: { type: 'addWidget', args: { widget } } }
+
+// Client (automatic — inside studioBackendAdapter)
+applyStateMutation(mutation, controller);
+// → controller.addWidget(widget)
+```
+
+This is handled automatically when `mode: 'x-studio-backend'` is set. You do not need to call
+`executeToolOnState` or `applyStateMutation` yourself.
 
 This mapping is internal to Studio. You do not need to call controller methods
 yourself in response to AI tool calls.
@@ -214,9 +216,16 @@ const lockDashboardTool: StudioAiTool = {
 The `execute` function can be `async` and may return a string to send back to the
 model as the tool result, or return `void` for a generic success response.
 
+:::info
+`extraTools` always execute client-side, regardless of `mode`. They are not supported
+in `x-studio-backend` mode and will not be forwarded to the server.
+Use `StudioAiTool` only with the default `direct` mode, or implement server-side equivalents.
+:::
+
 ## See also
 
 - [AI assistant setup](/x/react-studio/ai/setup/) — configure the adapter and system prompt
+- [`@mui/x-studio-backend`](https://github.com/mui/mui-x/tree/master/packages/x-studio-backend) — run the agentic loop server-side
 - [Composed approach](/x/react-studio/getting-started/composition/) — add `StudioChatPanel` to a custom layout
 - [Edit and view mode](/x/react-studio/behaviors/edit-and-view-mode/) — use view mode to protect dashboards from user edits
 - [State management](/x/react-studio/getting-started/state/) — the `StudioState` context supplied to every tool call

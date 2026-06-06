@@ -121,7 +121,8 @@ function generateSuggestions(
 
     suggestions.push({
       label: 'Summarise page',
-      value: 'Summarise the current page.',
+      value:
+        'Give me an executive summary of the key insights from this page — focus on the data, trends, and any anomalies rather than the page structure.',
     });
   }
 

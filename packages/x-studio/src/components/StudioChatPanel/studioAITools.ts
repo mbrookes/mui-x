@@ -336,7 +336,13 @@ export const STUDIO_AI_TOOLS = [
         'Returns a rich data snapshot of every widget on the active dashboard page — ' +
         'including a sampled CSV data excerpt and numeric stats for each widget, and ' +
         'anomaly axis values for chart widgets. ' +
-        'Call this when the user asks you to summarise, analyse, or describe the current page.',
+        'Call this when the user asks you to summarise, analyse, or describe the current page. ' +
+        'After receiving the result, write an executive summary focused entirely on the DATA and KEY INSIGHTS: ' +
+        'lead with the most important finding or trend across the page, then cover notable patterns, ' +
+        'significant values, and any anomalies detected in chart data. ' +
+        'Reference the relevant widget by name only where it helps the user locate the data being described — ' +
+        'do not list widgets structurally or describe the page layout. ' +
+        'Write in flowing prose, not bullet lists.',
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },

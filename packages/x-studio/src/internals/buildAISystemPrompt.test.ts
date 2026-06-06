@@ -47,6 +47,74 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
   } as StudioFilterState;
 }
 
+// ── Static instruction sections ───────────────────────────────────────────────
+
+describe('buildAISystemPrompt: static instruction sections', () => {
+  const state = makeState();
+
+  it('includes terseness rule', () => {
+    expect(buildAISystemPrompt(state)).toContain('Be terse');
+  });
+
+  it('includes duplicate-prevention rule', () => {
+    expect(buildAISystemPrompt(state)).toContain('exactly once per turn');
+  });
+
+  it('includes field-name guardrail', () => {
+    expect(buildAISystemPrompt(state)).toContain('Never invent widget IDs');
+  });
+
+  it('includes idempotency rule', () => {
+    expect(buildAISystemPrompt(state)).toContain('already correct, respond in text only');
+  });
+
+  it('includes decision algorithm', () => {
+    expect(buildAISystemPrompt(state)).toContain('Decision Algorithm');
+  });
+
+  it('includes refusal posture', () => {
+    expect(buildAISystemPrompt(state)).toContain('not supported by the available tools');
+  });
+
+  it('includes common patterns section', () => {
+    expect(buildAISystemPrompt(state)).toContain('Common Patterns');
+  });
+
+  it('includes shape confusions section', () => {
+    expect(buildAISystemPrompt(state)).toContain('Common Mistakes');
+  });
+
+  it('includes security rules', () => {
+    expect(buildAISystemPrompt(state)).toContain('Security Rules');
+  });
+});
+
+// ── Dynamic state structure ───────────────────────────────────────────────────
+
+describe('buildAISystemPrompt: dynamic state structure', () => {
+  it('wraps dashboard state in <dashboard_state> tags', () => {
+    const state = makeState();
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('<dashboard_state>');
+    expect(prompt).toContain('</dashboard_state>');
+  });
+
+  it('includes current date in ISO format (YYYY-MM-DD)', () => {
+    const state = makeState();
+    const prompt = buildAISystemPrompt(state);
+    const today = new Date().toISOString().slice(0, 10);
+    expect(prompt).toContain(today);
+  });
+
+  it('static instructions appear before dynamic state', () => {
+    const state = makeState();
+    const prompt = buildAISystemPrompt(state);
+    // Decision Algorithm is in static instructions; ## Current Date is the first line
+    // of the dynamic <dashboard_state> block — so instructions must precede it.
+    expect(prompt.indexOf('Decision Algorithm')).toBeLessThan(prompt.indexOf('## Current Date'));
+  });
+});
+
 // ── aiDescription ─────────────────────────────────────────────────────────────
 
 describe('buildAISystemPrompt: aiDescription', () => {

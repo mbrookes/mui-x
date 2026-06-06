@@ -1,8 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
-import { DataGrid } from '@mui/x-data-grid';
-import type { GridColDef } from '@mui/x-data-grid';
+import { DataGridPremium, type GridColDef } from '@mui/x-data-grid-premium';
 import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../../models';
 import { enrichRowsWithExpressions } from '../../utils/expressionEvaluator';
 
@@ -67,16 +66,16 @@ export function DataSourcePreview({
 
   return (
     <Box sx={{ width: '100%', height: '100%' }}>
-      <DataGrid
+      <DataGridPremium
         rows={enrichedRows}
         columns={columns}
         // eslint-disable-next-line no-underscore-dangle -- preview rows use an internal synthetic identifier
         getRowId={(row) => row.__previewRowId as string}
         density="compact"
+        pagination={false}
+        hideFooter
         disableRowSelectionOnClick
         hideFooterSelectedRowCount
-        pageSizeOptions={[25, 50, 100]}
-        initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
       />
     </Box>
   );

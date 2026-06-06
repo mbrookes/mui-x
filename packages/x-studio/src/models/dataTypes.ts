@@ -12,6 +12,8 @@ export interface StudioDataField {
   generated?: boolean;
   /** Display format for number fields */
   format?: StudioNumberFormat;
+  /** Decimal places used when formatting number fields. */
+  precision?: number;
   /** ISO 4217 currency code for currency format. Defaults to 'USD'. */
   currencyCode?: string;
   /**

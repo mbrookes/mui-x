@@ -29,17 +29,51 @@ const COMPACT_DEFAULT_FORMAT = new Intl.NumberFormat(undefined, {
   compactDisplay: 'short',
 });
 const currencyFormatCache = new Map<string, Intl.NumberFormat>();
+const preciseNumberFormatCache = new Map<string, Intl.NumberFormat>();
 
-function getCurrencyFormat(currencyCode: string, compact: boolean): Intl.NumberFormat {
-  const key = `${currencyCode}:${compact}`;
+function normalizePrecision(precision: number | undefined): number | undefined {
+  if (precision == null || !Number.isFinite(precision)) {
+    return undefined;
+  }
+  return Math.min(10, Math.max(0, Math.trunc(precision)));
+}
+
+function getPrecisionFormat(
+  precision: number,
+  options?: Pick<Intl.NumberFormatOptions, 'style' | 'currency' | 'notation' | 'compactDisplay'>,
+): Intl.NumberFormat {
+  const key = JSON.stringify({ precision, ...options });
+  let fmt = preciseNumberFormatCache.get(key);
+  if (!fmt) {
+    // react-doctor-disable-next-line react-doctor/js-hoist-intl -- cached per precision/options combination
+    fmt = new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: precision,
+      maximumFractionDigits: precision,
+      ...(options ?? {}),
+    });
+    preciseNumberFormatCache.set(key, fmt);
+  }
+  return fmt;
+}
+
+function getCurrencyFormat(
+  currencyCode: string,
+  compact: boolean,
+  precision?: number,
+): Intl.NumberFormat {
+  const normalizedPrecision = normalizePrecision(precision);
+  const key = `${currencyCode}:${compact}:${normalizedPrecision ?? 'default'}`;
   let fmt = currencyFormatCache.get(key);
   if (!fmt) {
+    const defaultDigits = compact ? 1 : 0;
+    const digits = normalizedPrecision ?? defaultDigits;
     // react-doctor-disable-next-line react-doctor/js-hoist-intl -- cached; only created once per currency+compact combination
     fmt = new Intl.NumberFormat(undefined, {
       style: 'currency',
       currency: currencyCode,
       currencyDisplay: 'narrowSymbol',
-      maximumFractionDigits: compact ? 1 : 0,
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
       notation: compact ? 'compact' : 'standard',
       compactDisplay: 'short',
     });
@@ -53,7 +87,23 @@ export function formatNumber(
   format?: StudioNumberFormat,
   currencyCode?: string,
   compact?: boolean,
+  precision?: number,
 ): string {
+  const normalizedPrecision = normalizePrecision(precision);
+
+  if (normalizedPrecision != null) {
+    if (format === 'currency') {
+      return getCurrencyFormat(currencyCode ?? 'USD', !!compact, normalizedPrecision).format(value);
+    }
+    if (format === 'percent') {
+      return getPrecisionFormat(normalizedPrecision, { style: 'percent' }).format(value / 100);
+    }
+    const notationOptions = compact
+      ? { notation: 'compact' as const, compactDisplay: 'short' as const }
+      : undefined;
+    return getPrecisionFormat(normalizedPrecision, notationOptions).format(value);
+  }
+
   switch (format) {
     case 'integer':
       return (compact ? COMPACT_INTEGER_FORMAT : INTEGER_FORMAT).format(value);
@@ -70,13 +120,13 @@ export function formatNumber(
 
 export function formatFieldValue(
   value: unknown,
-  field?: Pick<StudioDataField, 'type' | 'format' | 'currencyCode'>,
+  field?: Pick<StudioDataField, 'type' | 'format' | 'currencyCode' | 'precision'>,
 ): string {
   if (value === null || value === undefined) {
     return '';
   }
   if (field?.type === 'number' && typeof value === 'number') {
-    return formatNumber(value, field.format, field.currencyCode);
+    return formatNumber(value, field.format, field.currencyCode, undefined, field.precision);
   }
   return String(value);
 }

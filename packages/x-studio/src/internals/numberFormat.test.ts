@@ -48,6 +48,10 @@ describe('formatNumber — decimal format', () => {
     // Must contain M and at most one digit after the decimal separator
     expect(result).toMatch(/M/i);
   });
+
+  it('respects custom precision for decimal values', () => {
+    expect(formatNumber(1234.567, 'decimal', undefined, false, 3)).toMatch(/[.,]\d{3}$/);
+  });
 });
 
 describe('formatNumber — percent format', () => {
@@ -122,6 +126,15 @@ describe('formatFieldValue', () => {
       currencyCode: 'EUR',
     });
     expect(result).toContain('€');
+  });
+
+  it('applies precision from the field descriptor', () => {
+    const result = formatFieldValue(12.3456, {
+      type: 'number',
+      format: 'decimal',
+      precision: 3,
+    });
+    expect(result).toMatch(/[.,]\d{3}$/);
   });
 
   it('uses default number formatting when field has no format property', () => {

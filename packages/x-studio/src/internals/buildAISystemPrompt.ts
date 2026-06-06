@@ -1,4 +1,5 @@
 import type {
+  StudioAISkill,
   StudioCustomWidgetDef,
   StudioDataSource,
   StudioState,
@@ -335,6 +336,12 @@ function buildDashboardState(
       'use apply_bulk_update instead of multiple individual tool calls. ' +
       'This is faster, more reliable, and commits all changes as a single undo step.',
   );
+  lines.push(
+    '- You can return multiple tool calls in a single response for independent operations ' +
+      '(e.g. reading information from several sources at once). ' +
+      'The runtime executes all of them before sending you the next turn. ' +
+      'Prefer one batched response over multiple sequential round-trips.',
+  );
 
   if (focusedWidgetId) {
     const focused = state.widgets[focusedWidgetId];
@@ -354,6 +361,21 @@ function buildDashboardState(
   return `<dashboard_state>\n${lines.join('\n')}\n</dashboard_state>`;
 }
 
+// ── Skill section builder ─────────────────────────────────────────────────────
+
+function buildSkillSection(skills?: StudioAISkill[]): string {
+  if (!skills?.length) return '';
+  const fragments = skills
+    .map((s) => `<skill name="${s.name}" mode="${s.mode}">\n${s.promptFragment}\n</skill>`)
+    .join('\n\n');
+  return (
+    '\n\n## Skills\n\n' +
+    'The following skills are enabled. Use each skill when its trigger conditions match.\n' +
+    'Do not invent tool names beyond those listed here plus the built-in tools.\n\n' +
+    fragments
+  );
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
@@ -362,12 +384,19 @@ function buildDashboardState(
  *
  * The prompt is split into two parts:
  * - `STUDIO_AI_INSTRUCTIONS` — a module-level constant (static, cacheable prefix)
+ * - An optional `## Skills` section for enabled skills
  * - A dynamic `<dashboard_state>` block rebuilt on every request
  */
 export function buildAISystemPrompt(
   state: StudioState,
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
+  skills?: StudioAISkill[],
 ): string {
-  return STUDIO_AI_INSTRUCTIONS + '\n\n' + buildDashboardState(state, customWidgets, focusedWidgetId);
+  return (
+    STUDIO_AI_INSTRUCTIONS +
+    buildSkillSection(skills) +
+    '\n\n' +
+    buildDashboardState(state, customWidgets, focusedWidgetId)
+  );
 }

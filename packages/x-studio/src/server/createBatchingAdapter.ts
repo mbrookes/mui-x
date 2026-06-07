@@ -37,6 +37,13 @@ interface FilterPredicate {
   value?: unknown;
 }
 
+/** Aggregation spec sent to the server (mirrors AggregationSpec in @mui/x-studio-data-middleware) */
+interface AggregationSpec {
+  column: string;
+  func: 'sum' | 'avg' | 'count' | 'min' | 'max';
+  alias: string;
+}
+
 /**
  * A minimal DataLoader-style batch scheduler.
  * Collects keys over one microtask tick (or a custom schedule function)
@@ -129,27 +136,26 @@ export function createBatchingAdapter(
         const body = {
           pageId: descriptors[0]?.sourceId ?? 'unknown',
           widgets: descriptors.map((d) => {
-            // Encode aggregated columns using the server's prefix convention:
-            // e.g. { field: 'revenue', fn: 'sum' } → 'sum_revenue'
-            let columns: string[];
-            if (d.aggregations?.length && d.groupBy) {
-              const aggFieldIds = new Set(d.aggregations.map((a) => a.field));
-              columns = d.select.map((fieldId) => {
-                if (aggFieldIds.has(fieldId)) {
-                  const agg = d.aggregations!.find((a) => a.field === fieldId)!;
-                  const prefix = agg.fn === 'count_distinct' ? 'count_' : `${agg.fn}_`;
-                  return `${prefix}${fieldId}`;
-                }
-                return fieldId;
-              });
-            } else {
-              columns = d.select;
-            }
+            // Non-aggregated fields → SELECT + GROUP BY
+            const aggFieldIds = new Set((d.aggregations ?? []).map((a) => a.field));
+            const columns = d.select.filter((fieldId) => !aggFieldIds.has(fieldId));
+
+            // Convert StudioQueryDescriptor aggregations → AggregationSpec[]
+            // count_distinct is not supported by the middleware; falls back to count.
+            const aggregations: AggregationSpec[] | undefined =
+              d.aggregations && d.aggregations.length > 0
+                ? d.aggregations.map((a) => ({
+                    column: a.field,
+                    func: a.fn === 'count_distinct' ? ('count' as const) : a.fn,
+                    alias: a.alias,
+                  }))
+                : undefined;
 
             return {
               id: d.widgetId,
               table: d.sourceId,
               columns,
+              aggregations,
               filters: d.filter ? flattenFilterNode(d.filter) : undefined,
               orderBy: d.groupBy ? [{ column: d.groupBy, direction: 'asc' as const }] : undefined,
               limit: undefined,

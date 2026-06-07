@@ -258,17 +258,14 @@ describe('createBackendChatAdapter: error events', () => {
   });
 });
 
-// ── client-tool-call handling ─────────────────────────────────────────────────
+// ── unknown event type ────────────────────────────────────────────────────────
 
-describe('createBackendChatAdapter: client-tool-call', () => {
-  it('logs a warning when client-tool-call arrives (v2 not yet supported)', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+describe('createBackendChatAdapter: unknown event types', () => {
+  it('ignores unknown event types without throwing', async () => {
     const sse = makeSseBody([
       {
-        type: 'client-tool-call',
-        toolCallId: 'call-x',
-        toolName: 'my_skill_tool',
-        input: {},
+        type: 'unknown-future-event',
+        someField: 'value',
       },
       { type: 'finish', finishReason: 'stop' },
     ]);
@@ -280,13 +277,8 @@ describe('createBackendChatAdapter: client-tool-call', () => {
       messages: [],
     } as Parameters<typeof adapter.sendMessage>[0]);
 
-    await collectChunks(stream);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('client-tool-call'),
-      'my_skill_tool',
-    );
-
-    warnSpy.mockRestore();
+    const chunks = await collectChunks(stream);
+    expect(chunks.some((c) => c.type === 'finish')).toBe(true);
     vi.unstubAllGlobals();
   });
 });

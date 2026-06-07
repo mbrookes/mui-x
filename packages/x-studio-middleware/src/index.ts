@@ -22,6 +22,8 @@ export type {
   WidgetQueryResult,
   FilterPredicate,
   OrderBy,
+  AggregationSpec,
+  JoinDescriptor,
   HandleBatchQueryOptions,
 } from './security/types';
 
@@ -32,6 +34,8 @@ export { generateCacheKey } from './security/cacheKey';
 // ─── Cache providers ──────────────────────────────────────────────────────────
 export type { CacheProvider, CacheEntry } from './cache/types';
 export { LRUCacheProvider } from './cache/LRUCacheProvider';
+export { RedisCacheProvider } from './cache/RedisCacheProvider';
+export type { RedisClient, RedisCacheProviderOptions } from './cache/RedisCacheProvider';
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
 export { handleBatchQuery } from './handler';

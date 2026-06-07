@@ -67,9 +67,10 @@ Browser (N widgets)
 POST /api/studio-data
   │  extractSecurityClaims()  — JWT HS256 verification
   │  handleBatchQuery()
-  │    ├── schema allowlist check
+  │    ├── schema allowlist check  (table names)
+  │    ├── column allowlist check  (column names, if columnAllowlist is set)
   │    └── per widget:
-  │         ├── server cache check  (HMAC-scoped LRU)
+  │         ├── server cache check  (HMAC-scoped LRU / Redis)
   │         ├── COUNT(*) pre-flight (< 1ms on indexed tables)
   │         ├── client tier  (≤10k rows) — raw rows, client filters
   │         ├── server tier  (≤100k rows) — aggregate + cache
@@ -88,21 +89,82 @@ Every query applies security predicates **first**, before any user-supplied filt
 
 All values use Knex parameterized bindings — never string concatenation.
 
+Table names are validated against `schemaAllowlist` before any query is built. Column names are validated against `columnAllowlist` when provided — this prevents clients from filtering or sorting on security-sensitive columns (such as `password_hash`) that are not intended to be exposed.
+
 Cache keys incorporate a security hash so users with different row-level permissions never share cache entries. The client's `cacheKey` is never used server-side.
 
 ## API
 
 ### `handleBatchQuery(body, claims, options)`
 
-| Parameter                             | Type                | Description                            |
-| :------------------------------------ | :------------------ | :------------------------------------- |
-| `body`                                | `BatchQueryRequest` | Parsed request body from the client    |
-| `claims`                              | `JwtSecurityClaims` | Pre-verified JWT claims                |
-| `options.db`                          | `Knex.Knex`         | **Required.** Configured Knex instance |
-| `options.schemaAllowlist`             | `string[]`          | **Required.** Permitted table names    |
-| `options.cacheProvider`               | `CacheProvider`     | Default: shared `LRUCacheProvider`     |
-| `options.thresholds.clientTier`       | `number`            | Default: `10_000`                      |
-| `options.thresholds.serverMemoryTier` | `number`            | Default: `100_000`                     |
+| Parameter                             | Type                            | Description                                                   |
+| :------------------------------------ | :------------------------------ | :------------------------------------------------------------ |
+| `body`                                | `BatchQueryRequest`             | Parsed request body from the client                           |
+| `claims`                              | `JwtSecurityClaims`             | Pre-verified JWT claims                                       |
+| `options.db`                          | `Knex.Knex`                     | **Required.** Configured Knex instance                        |
+| `options.schemaAllowlist`             | `string[]`                      | **Required.** Permitted table names                           |
+| `options.columnAllowlist`             | `Record<string, string[]>`      | Per-table column allowlist — strongly recommended in production |
+| `options.cacheProvider`               | `CacheProvider`                 | Default: shared `LRUCacheProvider`                            |
+| `options.thresholds.clientTier`       | `number`                        | Default: `10_000`                                             |
+| `options.thresholds.serverMemoryTier` | `number`                        | Default: `100_000`                                            |
+
+### Column allowlist (recommended)
+
+```ts
+const result = await handleBatchQuery(req.body, claims, {
+  db,
+  schemaAllowlist: ['orders', 'customers'],
+  columnAllowlist: {
+    orders: ['id', 'customer_id', 'total_amount', 'created_at', 'status'],
+    customers: ['id', 'name', 'region_id', 'department'],
+  },
+});
+```
+
+If a request references a column not in the list, `handleBatchQuery` throws before any query is executed. When `columnAllowlist` is omitted, no column-level validation is applied (backward-compatible, but not recommended for production).
+
+### Aggregation specs
+
+Use `aggregations` on a `BatchWidgetDescriptor` for DB push-down queries instead of the legacy `sum_`/`avg_`/`count_` column name prefix convention:
+
+```ts
+// Preferred
+{
+  table: 'orders',
+  columns: ['status', 'region_id'],
+  aggregations: [
+    { column: 'total_amount', func: 'sum', alias: 'revenue' },
+    { column: 'id', func: 'count', alias: 'order_count' },
+  ],
+}
+
+// Legacy (deprecated — still supported for backward compatibility)
+{
+  table: 'orders',
+  columns: ['status', 'region_id', 'sum_total_amount', 'count_id'],
+}
+```
+
+### Joins
+
+Multi-table queries are supported via `joins` on a `BatchWidgetDescriptor`. All joined table names must appear in `schemaAllowlist`:
+
+```ts
+{
+  table: 'orders',
+  columns: ['orders.id', 'orders.status', 'customers.name'],
+  joins: [
+    {
+      table: 'customers',
+      type: 'left',
+      on: [['orders.customer_id', 'customers.id']],
+    },
+  ],
+  filters: [{ column: 'customers.region_id', operator: 'eq', value: 3 }],
+}
+```
+
+Security predicates are applied to the primary table only (`orders.tenant_id = :tenantId`).
 
 ### `extractSecurityClaims(authorizationHeader, secret)`
 
@@ -114,11 +176,28 @@ Generates a deterministic, security-scoped cache key: `studio:v1:<tenantId>:<sec
 
 ### `LRUCacheProvider`
 
-In-process size-bounded LRU cache. Constructor options: `maxSizeBytes` (default 128 MB), `ttlMs` (default 30 s).
+In-process size-bounded LRU cache. Constructor options: `maxSizeBytes` (default 128 MB), `ttlMs` (default 30 s). **Not suitable for multi-node deployments** — each process maintains an independent cache. Use `RedisCacheProvider` instead.
+
+### `RedisCacheProvider`
+
+Distributed cache backed by any Redis-compatible client (`ioredis` or `node-redis` v4+):
+
+```ts
+import Redis from 'ioredis';
+import { RedisCacheProvider } from '@mui/x-studio-middleware';
+
+const redis = new Redis({ host: 'localhost', port: 6379 });
+const cache = new RedisCacheProvider(redis, {
+  defaultTtlSeconds: 60,
+  keyPrefix: 'studio:prod:',
+});
+```
+
+Constructor options: `defaultTtlSeconds` (default `60`), `keyPrefix` (optional — use when sharing a Redis instance across deployments).
 
 ### `CacheProvider` interface
 
-Implement this interface to use Redis or any other cache backend. Methods: `get(key)`, `set(key, value, ttlSeconds?)`, `invalidatePrefix(prefix)`.
+Implement this interface to use a custom cache backend. Methods: `get(key)`, `set(key, value, ttlSeconds?)`, `invalidatePrefix(prefix)`.
 
 ## Routing thresholds (benchmark baseline)
 

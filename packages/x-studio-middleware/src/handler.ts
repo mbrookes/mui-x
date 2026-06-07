@@ -56,19 +56,28 @@ export async function handleBatchQuery(
   claims: JwtSecurityClaims,
   options: HandleBatchQueryOptions,
 ): Promise<BatchQueryResponse> {
-  const { db, schemaAllowlist, thresholds } = options;
+  const { db, schemaAllowlist, columnAllowlist, thresholds } = options;
   const cacheProvider = options.cacheProvider ?? getDefaultCache();
 
-  // Validate all requested tables upfront (Zero-Knowledge Rule)
-  const invalidTables = body.widgets
-    .map((w: BatchWidgetDescriptor) => w.table)
-    .filter((t: string) => !schemaAllowlist.includes(t));
+  // ── Phase 2: Validate all requested tables upfront (Zero-Knowledge Rule) ──
+  const allTables = body.widgets.flatMap((w: BatchWidgetDescriptor) => [
+    w.table,
+    ...(w.joins?.map((j) => j.table) ?? []),
+  ]);
+  const invalidTables = allTables.filter((t: string) => !schemaAllowlist.includes(t));
 
   if (invalidTables.length > 0) {
     throw new Error(
       `MUI X Studio Server: Requested table(s) not in schema allowlist: ${invalidTables.join(', ')}. ` +
         `Allowed tables: ${schemaAllowlist.join(', ')}`,
     );
+  }
+
+  // ── Phase 2: Validate all column references (SECURITY INVARIANT #2) ────────
+  if (columnAllowlist) {
+    for (const descriptor of body.widgets) {
+      validateColumns(descriptor, columnAllowlist);
+    }
   }
 
   const results: WidgetQueryResult[] = await Promise.all(
@@ -81,6 +90,53 @@ export async function handleBatchQuery(
     pageId: body.pageId,
     results,
   };
+}
+
+/**
+ * Validate all column references in a descriptor against the column allowlist.
+ * Throws if any column is not in the allowed list for its table.
+ *
+ * Qualified names (`table.column`) are split and checked against the allowlist
+ * for the named table. Unqualified names are checked against the primary table.
+ */
+function validateColumns(
+  descriptor: BatchWidgetDescriptor,
+  columnAllowlist: Record<string, string[]>,
+): void {
+  const resolveColumn = (
+    rawColumn: string,
+    defaultTable: string,
+  ): { table: string; column: string } => {
+    const dotIdx = rawColumn.indexOf('.');
+    if (dotIdx !== -1) {
+      return { table: rawColumn.slice(0, dotIdx), column: rawColumn.slice(dotIdx + 1) };
+    }
+    return { table: defaultTable, column: rawColumn };
+  };
+
+  const check = (rawColumn: string, context: string): void => {
+    const { table, column } = resolveColumn(rawColumn, descriptor.table);
+    const allowed = columnAllowlist[table];
+    if (allowed && !allowed.includes(column)) {
+      throw new Error(
+        `MUI X Studio Server: Column "${column}" on table "${table}" is not in the column allowlist (${context}). ` +
+          `Allowed columns for "${table}": ${allowed.join(', ')}`,
+      );
+    }
+  };
+
+  for (const col of descriptor.columns ?? []) {
+    check(col, 'columns');
+  }
+  for (const pred of descriptor.filters ?? []) {
+    check(pred.column, 'filters');
+  }
+  for (const ob of descriptor.orderBy ?? []) {
+    check(ob.column, 'orderBy');
+  }
+  for (const agg of descriptor.aggregations ?? []) {
+    check(agg.column, 'aggregations');
+  }
 }
 
 async function processWidget(

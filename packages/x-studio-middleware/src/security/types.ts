@@ -30,22 +30,81 @@ export interface JwtSecurityClaims {
 }
 
 /**
+ * Explicit aggregation specification for DB-tier push-down queries.
+ *
+ * Use instead of the legacy `sum_` / `avg_` / `count_` column prefix convention.
+ *
+ * @example
+ * { column: 'revenue', func: 'sum', alias: 'total_revenue' }
+ */
+export interface AggregationSpec {
+  /** The column to aggregate */
+  column: string;
+  /** Aggregation function */
+  func: 'sum' | 'avg' | 'count' | 'min' | 'max';
+  /** Output alias — used as the key in the result rows */
+  alias: string;
+}
+
+/**
+ * JOIN descriptor for multi-table queries.
+ *
+ * All joined table names are validated against the `schemaAllowlist` in
+ * `HandleBatchQueryOptions`. Column names in `on` predicates are validated
+ * against `columnAllowlist` when provided.
+ */
+export interface JoinDescriptor {
+  /** Table to join */
+  table: string;
+  /** Join type (default: 'inner') */
+  type?: 'inner' | 'left' | 'right';
+  /**
+   * Join conditions as `[leftColumn, rightColumn]` pairs.
+   * Left column is from the primary table; right column is from the joined table.
+   * Both are identifier-escaped via Knex `??`.
+   *
+   * @example [['orders.customer_id', 'customers.id']]
+   */
+  on: [string, string][];
+}
+
+/**
  * Base interface for a Studio batch query widget descriptor.
  * Mirrors the shape sent from the client DataLoader.
  */
 export interface BatchWidgetDescriptor {
   /** Widget identifier — present in response for client-side routing */
   id: string;
-  /** Data source / table to query */
+  /** Primary data source / table to query */
   table: string;
-  /** Columns to include in SELECT (projection); aggregated columns use the `sum_`/`avg_`/`count_` prefix convention */
+  /**
+   * Columns to include in SELECT (projection).
+   *
+   * Use qualified names (`table.column`) when joining multiple tables to avoid
+   * ambiguity. Aggregation is specified via `aggregations` — the legacy
+   * `sum_`/`avg_`/`count_` prefix convention is deprecated.
+   */
   columns?: string[];
+  /**
+   * Explicit aggregation specs for DB push-down queries.
+   *
+   * When provided, `executeForTier` uses these specs instead of inferring
+   * aggregation from column name prefixes.
+   */
+  aggregations?: AggregationSpec[];
   /** Client-supplied filter predicates (structured, never raw SQL) */
   filters?: FilterPredicate[];
   /** ORDER BY clauses */
   orderBy?: OrderBy[];
   /** Row limit for pagination */
   limit?: number;
+  /**
+   * Optional JOIN descriptors for multi-table queries.
+   *
+   * All joined table names must appear in `HandleBatchQueryOptions.schemaAllowlist`.
+   * Security predicates are applied to the primary table only.
+   */
+  joins?: JoinDescriptor[];
 }
 
 /** Structured filter predicate — never a raw SQL string */
@@ -109,6 +168,26 @@ export interface HandleBatchQueryOptions {
    * request is rejected before any query is built.
    */
   schemaAllowlist: string[];
+  /**
+   * Per-table column allowlist (Phase 2 — SECURITY INVARIANT #2).
+   *
+   * When provided, all column references in `descriptor.columns`,
+   * `descriptor.filters[].column`, and `descriptor.orderBy[].column`
+   * are validated against the permitted list for the relevant table.
+   *
+   * Qualified column names (`table.column`) are split and validated
+   * against the allowlist for the named table.
+   *
+   * If omitted, no column-level validation is applied (for backward
+   * compatibility), but this is strongly discouraged in production.
+   *
+   * @example
+   * columnAllowlist: {
+   *   orders: ['id', 'customer_id', 'total_amount', 'created_at', 'status'],
+   *   customers: ['id', 'name', 'region_id'],
+   * }
+   */
+  columnAllowlist?: Record<string, string[]>;
   /**
    * Routing thresholds (row counts).
    * Defaults: { clientTier: 10_000, serverMemoryTier: 100_000 }

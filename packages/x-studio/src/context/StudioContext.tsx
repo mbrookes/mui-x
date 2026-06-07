@@ -13,7 +13,7 @@ import {
   DEFAULT_STUDIO_LOCALE_TEXT,
 } from '../internals/StudioUIConfigContext';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
-import type { StudioAIConfig } from '../components/StudioChatPanel/studioAdapter';
+import type { StudioAIConfig } from '../components/StudioChatPanel/studioBackendAdapter';
 import type { StudioMapGeographyDefinition } from '../components/widgets/StudioMapWidget/geographyLoaders';
 
 /** Ref to the canvas scroll container, used to scroll to bottom after adding a widget. */

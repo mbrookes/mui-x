@@ -4,7 +4,7 @@ import {
   generateDashboardSummary,
   generateAnomalyExplanation,
 } from './generateInsight';
-import type { StudioAIConfig } from './studioAdapter';
+import type { StudioAIConfig } from './studioBackendAdapter';
 import type { StudioController } from '../../store/StudioController';
 import type { StudioChartAnnotation } from '../../models/baseTypes';
 import { createDefaultStudioState } from '../../models/stateTypes';
@@ -12,8 +12,7 @@ import { createDefaultStudioState } from '../../models/stateTypes';
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const AI_CONFIG: StudioAIConfig = {
-  endpoint: 'https://api.example.com/v1/chat/completions',
-  model: 'gpt-4o',
+  endpoint: 'https://api.example.com/api/ai',
 };
 
 function mockFetch(text: string, status = 200) {
@@ -22,10 +21,7 @@ function mockFetch(text: string, status = 200) {
     status,
     statusText: status === 200 ? 'OK' : 'Bad Request',
     text: () => Promise.resolve('Error body'),
-    json: () =>
-      Promise.resolve({
-        choices: [{ message: { content: text } }],
-      }),
+    json: () => Promise.resolve({ text }),
   });
 }
 
@@ -181,27 +177,26 @@ describe('generateWidgetInsight', () => {
     expect(result.text).toBe('Great insight text.');
   });
 
-  it('sends POST to the configured endpoint', async () => {
+  it('sends POST to the configured endpoint + /insight', async () => {
     const fetchMock = mockFetch('result');
     vi.stubGlobal('fetch', fetchMock);
     const controller = makeController('w1');
     await generateWidgetInsight('w1', controller, AI_CONFIG, { type: 'analysis' });
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(AI_CONFIG.endpoint);
+    expect(url).toBe(`${AI_CONFIG.endpoint}/insight`);
     expect(options.method).toBe('POST');
   });
 
-  it('includes widget title in the request messages', async () => {
+  it('includes widget title in the request body', async () => {
     const fetchMock = mockFetch('ok');
     vi.stubGlobal('fetch', fetchMock);
     const controller = makeController('w1');
     await generateWidgetInsight('w1', controller, AI_CONFIG, { type: 'summary' });
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
-      messages: Array<{ content: string }>;
+      widgetTitle: string;
     };
-    const combined = body.messages.map((m) => m.content).join(' ');
-    expect(combined).toContain('Revenue Chart');
+    expect(body.widgetTitle).toBe('Revenue Chart');
   });
 
   it('throws when the widget is not found', async () => {
@@ -240,18 +235,17 @@ describe('generateWidgetInsight', () => {
     await expect(promise).rejects.toThrow('Aborted');
   });
 
-  it('includes data sample in the prompt when source has rows', async () => {
+  it('includes data sample in the request body when source has rows', async () => {
     const fetchMock = mockFetch('ok');
     vi.stubGlobal('fetch', fetchMock);
     const controller = makeControllerWithData('w1');
     await generateWidgetInsight('w1', controller, AI_CONFIG, { type: 'forecast' });
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
-      messages: Array<{ content: string }>;
+      dataSummary: string;
     };
-    const combined = body.messages.map((m) => m.content).join(' ');
-    expect(combined).toContain('Data sample');
-    expect(combined).toContain('Jan');
-    expect(combined).toContain('1000');
+    expect(body.dataSummary).toContain('Data sample');
+    expect(body.dataSummary).toContain('Jan');
+    expect(body.dataSummary).toContain('1000');
   });
 
   it('works without error when source has no rows', async () => {
@@ -270,12 +264,11 @@ describe('generateWidgetInsight', () => {
     const controller = makeControllerWithLargeData('w1');
     await generateWidgetInsight('w1', controller, AI_CONFIG, { type: 'forecast' });
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
-      messages: Array<{ content: string }>;
+      dataSummary: string;
     };
-    const combined = body.messages.map((m) => m.content).join(' ');
-    expect(combined).toContain('row-0'); // first bucket — full range coverage
-    expect(combined).toContain('row-148'); // last bucket
-    expect(combined).toContain('aggregated buckets'); // confirms aggregate mode
+    expect(body.dataSummary).toContain('row-0'); // first bucket — full range coverage
+    expect(body.dataSummary).toContain('row-148'); // last bucket
+    expect(body.dataSummary).toContain('aggregated buckets'); // confirms aggregate mode
   });
 
   it('uses aggregate sampling for summary — covers full range with averaged values', async () => {
@@ -285,13 +278,12 @@ describe('generateWidgetInsight', () => {
     const controller = makeControllerWithLargeData('w1');
     await generateWidgetInsight('w1', controller, AI_CONFIG, { type: 'summary' });
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
-      messages: Array<{ content: string }>;
+      dataSummary: string;
     };
-    const combined = body.messages.map((m) => m.content).join(' ');
-    expect(combined).toContain('row-0'); // first bucket present
-    expect(combined).toContain('row-148'); // last bucket present
-    expect(combined).toContain('aggregated buckets'); // confirms aggregate mode
-    expect(combined).toContain('0.5'); // first bucket avg revenue = (0+1)/2 = 0.5
+    expect(body.dataSummary).toContain('row-0'); // first bucket present
+    expect(body.dataSummary).toContain('row-148'); // last bucket present
+    expect(body.dataSummary).toContain('aggregated buckets'); // confirms aggregate mode
+    expect(body.dataSummary).toContain('0.5'); // first bucket avg revenue = (0+1)/2 = 0.5
   });
 
   it('includes stats preamble with min/max/avg for numeric fields', async () => {
@@ -300,13 +292,12 @@ describe('generateWidgetInsight', () => {
     const controller = makeControllerWithData('w1');
     await generateWidgetInsight('w1', controller, AI_CONFIG, { type: 'analysis' });
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
-      messages: Array<{ content: string }>;
+      dataSummary: string;
     };
-    const combined = body.messages.map((m) => m.content).join(' ');
     // Stats from {1000, 1200, 900}: min=900, max=1200, avg=1033
-    expect(combined).toContain('Stats:');
-    expect(combined).toContain('min=900');
-    expect(combined).toContain('max=1200');
+    expect(body.dataSummary).toContain('Stats:');
+    expect(body.dataSummary).toContain('min=900');
+    expect(body.dataSummary).toContain('max=1200');
   });
 
   it('respects aiAggregation="sum" on field — bucket values are summed not averaged', async () => {
@@ -316,11 +307,10 @@ describe('generateWidgetInsight', () => {
     const controller = makeControllerWithSumField('w1');
     await generateWidgetInsight('w1', controller, AI_CONFIG, { type: 'summary' });
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
-      messages: Array<{ content: string }>;
+      dataSummary: string;
     };
-    const combined = body.messages.map((m) => m.content).join(' ');
-    expect(combined).toContain('20'); // sum of bucket (10+10), not avg (10)
-    expect(combined).not.toContain(',10,'); // avg=10 would be present as a row value; sum=20 replaces it
+    expect(body.dataSummary).toContain('20'); // sum of bucket (10+10), not avg (10)
+    expect(body.dataSummary).not.toContain(',10,'); // avg=10 would be present as a row value; sum=20 replaces it
   });
 });
 
@@ -341,16 +331,15 @@ describe('generateDashboardSummary', () => {
     expect(result.text).toBe('Executive summary text.');
   });
 
-  it('includes widget title in the request prompt', async () => {
+  it('includes widget title in the request body', async () => {
     const fetchMock = mockFetch('ok');
     vi.stubGlobal('fetch', fetchMock);
     const controller = makeController('w1');
     await generateDashboardSummary(controller, AI_CONFIG);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
-      messages: Array<{ content: string }>;
+      dataSummary: string;
     };
-    const combined = body.messages.map((m) => m.content).join(' ');
-    expect(combined).toContain('Revenue Chart');
+    expect(body.dataSummary).toContain('Revenue Chart');
   });
 });
 
@@ -376,17 +365,16 @@ describe('generateAnomalyExplanation', () => {
     expect(result.text).toContain('August');
   });
 
-  it('includes anomaly labels in the request prompt', async () => {
+  it('includes anomaly labels in the request body', async () => {
     const fetchMock = mockFetch('explanation');
     vi.stubGlobal('fetch', fetchMock);
     const controller = makeController('w1');
     await generateAnomalyExplanation('w1', anomalies, controller, AI_CONFIG);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
-      messages: Array<{ content: string }>;
+      dataSummary: string;
     };
-    const combined = body.messages.map((m) => m.content).join(' ');
-    expect(combined).toContain('August');
-    expect(combined).toContain('December');
+    expect(body.dataSummary).toContain('August');
+    expect(body.dataSummary).toContain('December');
   });
 
   it('throws when the widget is not found', async () => {
@@ -396,18 +384,17 @@ describe('generateAnomalyExplanation', () => {
     ).rejects.toThrow('Widget "nonexistent" not found');
   });
 
-  it('includes data sample in the anomaly prompt when source has rows', async () => {
+  it('includes data sample in the anomaly body when source has rows', async () => {
     const fetchMock = mockFetch('explanation');
     vi.stubGlobal('fetch', fetchMock);
     const controller = makeControllerWithData('w1');
     await generateAnomalyExplanation('w1', anomalies, controller, AI_CONFIG);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
-      messages: Array<{ content: string }>;
+      dataSummary: string;
     };
-    const combined = body.messages.map((m) => m.content).join(' ');
-    expect(combined).toContain('Data sample');
-    expect(combined).toContain('Jan');
-    expect(combined).toContain('1000');
+    expect(body.dataSummary).toContain('Data sample');
+    expect(body.dataSummary).toContain('Jan');
+    expect(body.dataSummary).toContain('1000');
   });
 
   it('guarantees anomaly rows are in the sample even if they fall outside the stride window', async () => {
@@ -419,10 +406,9 @@ describe('generateAnomalyExplanation', () => {
     const lateAnomaly: StudioChartAnnotation[] = [{ id: 'a1', axis: 'x', value: 'row-141', label: '⚠' }];
     await generateAnomalyExplanation('w1', lateAnomaly, controller, AI_CONFIG);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
-      messages: Array<{ content: string }>;
+      dataSummary: string;
     };
-    const combined = body.messages.map((m) => m.content).join(' ');
-    expect(combined).toContain('row-141'); // anomaly row guaranteed present
-    expect(combined).toContain('row-0'); // stride rows still present for context
+    expect(body.dataSummary).toContain('row-141'); // anomaly row guaranteed present
+    expect(body.dataSummary).toContain('row-0'); // stride rows still present for context
   });
 });

@@ -125,10 +125,7 @@ export default defineConfig({
       },
     ],
   },
-  // Expose VITE_* vars (opt-in tool flags) and LLM_* vars (AI config) to client.
-  // Note: setting envPrefix to an array replaces Vite's default 'VITE_' prefix,
-  // so both must be listed explicitly.
-  envPrefix: ['VITE_', 'LLM_'],
+  envPrefix: ['VITE_'],
   server: {
     port: 3004,
   },

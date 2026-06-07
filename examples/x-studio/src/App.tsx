@@ -463,27 +463,16 @@ export default function App() {
     [],
   );
 
-  // AI config — dev server takes priority over direct LLM connection
+  // AI config — requires dev server (VITE_STUDIO_SERVER_URL)
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
     const serverUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
-    if (serverUrl) {
-      const token = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
-      return {
-        endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai/chat`,
-        headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,
-      };
-    }
-
-    const endpoint = import.meta.env.LLM_ENDPOINT as string | undefined;
-    if (!endpoint) {
+    if (!serverUrl) {
       return undefined;
     }
-    const token = import.meta.env.LLM_TOKEN as string | undefined;
+    const token = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
     return {
-      endpoint,
-      apiKey: import.meta.env.LLM_API_KEY as string | undefined,
-      model: (import.meta.env.LLM_MODEL as string | undefined) ?? 'gpt-4o',
-      headers: token ? { 'X-Studio-Token': token } : undefined,
+      endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai/chat`,
+      headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,
     };
   }, []);
 

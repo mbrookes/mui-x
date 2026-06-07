@@ -4,7 +4,7 @@ import * as React from 'react';
 import type { SxProps, Theme } from '@mui/material';
 import { Box, Grow, IconButton, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { ChatBox, ChatConfirmation } from '@mui/x-chat';
+import { ChatBox } from '@mui/x-chat';
 import type { ChatAdapter } from '@mui/x-chat/headless';
 
 import {
@@ -16,8 +16,7 @@ import {
   selectDashboard,
 } from '../../context';
 import { useStudioUIConfig } from '../../internals/StudioUIConfigContext';
-import type { StudioAIConfig } from './studioAdapter';
-import { createStudioChatAdapter } from './studioAdapter';
+import type { StudioAIConfig } from './studioBackendAdapter';
 import { createBackendChatAdapter } from './studioBackendAdapter';
 import type { StudioCustomWidgetDef } from '../../models';
 
@@ -130,15 +129,6 @@ function generateSuggestions(
   return suggestions.slice(0, 4);
 }
 
-// ── Pending confirmation state ────────────────────────────────────────────────
-
-interface PendingConfirmation {
-  kind: 'widget' | 'page';
-  id: string;
-  title: string;
-  resolve: (confirmed: boolean) => void;
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export interface StudioChatPanelSlotProps {
@@ -221,46 +211,15 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   const activePage = pages[dashboard.activePageId];
   const activeWidgetIds = React.useMemo(() => (activePage?.widgetRows ?? []).flat(), [activePage]);
 
-  // ── Confirmation dialog state ──────────────────────────────────────────────
-  const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirmation | null>(null);
-
-  const onRemoveWidgetRequest = React.useCallback(
-    (widgetId: string, widgetTitle: string): Promise<boolean> =>
-      new Promise<boolean>((resolve) => {
-        setPendingConfirm({ kind: 'widget', id: widgetId, title: widgetTitle, resolve });
-      }),
-    [],
-  );
-
-  const onRemovePageRequest = React.useCallback(
-    (pageId: string, pageTitle: string): Promise<boolean> =>
-      new Promise<boolean>((resolve) => {
-        setPendingConfirm({ kind: 'page', id: pageId, title: pageTitle, resolve });
-      }),
-    [],
-  );
-
   // ── Adapter (recreated when aiConfig or controller changes) ───────────────
   const adapter = React.useMemo<ChatAdapter | null>(() => {
     if (!aiConfig?.endpoint) {
       return null;
     }
-    if (aiConfig.mode === 'x-studio-ai-middleware') {
-      return createBackendChatAdapter(aiConfig, controller, customWidgets, focusedWidgetId);
-    }
-    return createStudioChatAdapter(
-      aiConfig,
-      controller,
-      onRemoveWidgetRequest,
-      customWidgets,
-      focusedWidgetId,
-      onRemovePageRequest,
-    );
+    return createBackendChatAdapter(aiConfig, controller, customWidgets, focusedWidgetId);
   }, [
     aiConfig,
     controller,
-    onRemoveWidgetRequest,
-    onRemovePageRequest,
     customWidgets,
     focusedWidgetId,
   ]);
@@ -270,10 +229,6 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     () => generateSuggestions(dataSources, widgets, activeWidgetIds),
     [dataSources, widgets, activeWidgetIds],
   );
-
-  // ── System prompt (regenerated on each send — passed via adapter) ─────────
-  // The adapter itself calls buildAISystemPrompt(controller.getState()) on each send,
-  // so the prompt is always fresh. Nothing extra needed here.
 
   if (!adapter) {
     return null;
@@ -299,29 +254,6 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
           sx={{ height: '100%' }}
         />
       </Box>
-
-      {/* Confirmation dialog for remove_widget / remove_page */}
-      {pendingConfirm && (
-        <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
-          <ChatConfirmation
-            message={
-              pendingConfirm.kind === 'page'
-                ? `Remove page "${pendingConfirm.title}" and all its widgets? This cannot be undone from chat.`
-                : `Remove "${pendingConfirm.title}"? This cannot be undone from chat.`
-            }
-            confirmLabel="Remove"
-            cancelLabel="Keep"
-            onConfirm={() => {
-              pendingConfirm.resolve(true);
-              setPendingConfirm(null);
-            }}
-            onCancel={() => {
-              pendingConfirm.resolve(false);
-              setPendingConfirm(null);
-            }}
-          />
-        </Box>
-      )}
     </Box>
   );
 

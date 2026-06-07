@@ -6,7 +6,7 @@ import type {
   StudioWidgetKind,
   StudioFilterState,
 } from '@mui/x-studio';
-import type { StudioAISkill } from './models/aiTypes';
+import type { SerializableSkill } from './models/aiTypes';
 
 // ── Widget kind / chart type descriptions ─────────────────────────────────────
 
@@ -363,7 +363,7 @@ function buildDashboardState(
 
 // ── Skill section builder ─────────────────────────────────────────────────────
 
-function buildSkillSection(skills?: StudioAISkill[]): string {
+function buildSkillSection(skills?: SerializableSkill[]): string {
   if (!skills?.length) return '';
   const fragments = skills
     .map((s) => `<skill name="${s.name}" mode="${s.mode}">\n${s.promptFragment}\n</skill>`)
@@ -391,7 +391,7 @@ export function buildAISystemPrompt(
   state: StudioState,
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
-  skills?: StudioAISkill[],
+  skills?: SerializableSkill[],
 ): string {
   return (
     STUDIO_AI_INSTRUCTIONS +

@@ -79,20 +79,20 @@ export interface StudioAIConfig {
    *   The client builds the system prompt and executes tool calls locally.
    *   Use for quick local development.
    *
-   * - `'x-studio-backend'`: Sends a `StudioAIRequest` JSON body to `endpoint` and
-   *   receives `StudioAISSEEvent` Server-Sent Events back. The server (`x-studio-backend`
+   * - `'x-studio-ai-middleware'`: Sends a `StudioAIRequest` JSON body to `endpoint` and
+   *   receives `StudioAISSEEvent` Server-Sent Events back. The server (`x-studio-ai-middleware`
    *   package) builds the system prompt and runs the agentic loop.
    *   Recommended for production — the LLM API key stays on the server.
    *
-   * @example Production setup with x-studio-backend:
+   * @example Production setup with x-studio-ai-middleware:
    * ```ts
    * const aiConfig: StudioAIConfig = {
    *   endpoint: '/api/ai/chat',   // your Next.js / Express route
-   *   mode: 'x-studio-backend',
+   *   mode: 'x-studio-ai-middleware',
    * };
    * ```
    */
-  mode?: 'direct' | 'x-studio-backend';
+  mode?: 'direct' | 'x-studio-ai-middleware';
 }
 
 /**

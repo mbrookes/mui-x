@@ -1,5 +1,5 @@
 /**
- * Maps `StateMutation` objects (received from the x-studio-backend SSE stream)
+ * Maps `StateMutation` objects (received from the x-studio-ai-middleware SSE stream)
  * to the corresponding `StudioController` method calls.
  */
 import type { StudioController } from '../../store/StudioController';

@@ -69,7 +69,7 @@
 | A-07  | Arch      | AI chat assistant (`StudioChatPanel`)        | ✅ Completed |
 | A-08  | Arch      | Slot props chain (canvas → card → widget)    | ✅ Completed |
 | A-09  | Arch      | Async data source adapter interface          | ✅ Completed |
-| A-10  | Arch      | `@mui/x-studio-middleware` middleware package    | ✅ Completed |
+| A-10  | Arch      | `@mui/x-studio-data-middleware` middleware package    | ✅ Completed |
 | A-11  | Arch      | `sidebarLayout` + `sidebarSide` props        | ✅ Completed |
 | A-12  | Arch      | I18n / localisation support                  | ✅ Completed |
 | A-13  | Arch      | Feature flags                                | ✅ Completed |
@@ -429,7 +429,7 @@
 - Built-in tool suite: add/update/remove widget, set layout, navigate pages, manage filters
 - `extraTools` prop on `StudioChatPanel` for custom tool extensions
 - Empty-page prompt embeds the chat panel when a new page has no widgets yet
-- `@mui/x-studio-middleware` middleware validates and routes LLM requests server-side
+- `@mui/x-studio-data-middleware` middleware validates and routes LLM requests server-side
 
 ### A-08 · Slot props chain
 
@@ -443,7 +443,7 @@
 - `ref.setDataSourceAdapter(sourceId, adapter)` attaches/removes an adapter at runtime
 - See also: **D-04**
 
-### A-10 · `@mui/x-studio-middleware` middleware package
+### A-10 · `@mui/x-studio-data-middleware` middleware package
 
 - Framework-agnostic server handler: `handleBatchQuery(request, options)`
 - `runPreflight` + `executeForTier` routing (`'client' | 'server' | 'db'`)

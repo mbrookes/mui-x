@@ -62,7 +62,7 @@ export interface StudioAIConfig {
   onToolError?: (toolName: string, error: Error) => void;
   /**
    * Optional skills to enable for this session. Each skill injects a prompt
-   * fragment so the model knows about the capability, and `'client-handler'`
+   * fragment so the model knows about the capability, and `'server-tool'`
    * skills additionally register a callable tool.
    *
    * @example
@@ -670,7 +670,7 @@ export function createStudioChatAdapter(
 
   // Skills with tools register their callable tool alongside extra tools
   const skillToolDefs = (skills ?? [])
-    .filter((s) => s.mode === 'client-handler' && s.tool)
+    .filter((s) => s.mode === 'server-tool' && s.tool)
     .map((s) => ({
       type: 'function' as const,
       function: {
@@ -971,7 +971,7 @@ export function createStudioChatAdapter(
                 // Resolve the handler and allowed-tools check
                 const extraTool = (extraTools ?? []).find((t) => t.name === tc.name);
                 const skillTool = (skills ?? [])
-                  .filter((s) => s.mode === 'client-handler' && s.tool)
+                  .filter((s) => s.mode === 'server-tool' && s.tool)
                   .map((s) => s.tool!)
                   .find((t) => t.name === tc.name);
 

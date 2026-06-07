@@ -235,10 +235,15 @@ export { createStudioChatAdapter } from './components/StudioChatPanel/studioAdap
 export type { StudioAIConfig, StudioAiTool } from './components/StudioChatPanel/studioAdapter';
 export { createBackendChatAdapter } from './components/StudioChatPanel/studioBackendAdapter';
 export { applyStateMutation } from './components/StudioChatPanel/applyStateMutation';
-export { buildAISystemPrompt } from './internals/buildAISystemPrompt';
-export type { StateMutation, SerializableSkill } from './models';
-export { STUDIO_AI_TOOLS } from './components/StudioChatPanel/studioAITools';
-export type { StudioAIToolName } from './components/StudioChatPanel/studioAITools';
+// AI prompt builder, tool definitions, skills, and types — live in x-studio-ai-middleware
+export { buildAISystemPrompt, STUDIO_AI_TOOLS } from '@mui/x-studio-ai-middleware';
+export type {
+  StateMutation,
+  SerializableSkill,
+  StudioAISkill,
+  StudioAIToolName,
+} from '@mui/x-studio-ai-middleware';
+export { dashboardNarratorSkill, insightSuggestorSkill } from '@mui/x-studio-ai-middleware';
 export {
   generateWidgetInsight,
   generateDashboardSummary,

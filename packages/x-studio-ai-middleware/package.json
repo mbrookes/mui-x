@@ -19,6 +19,6 @@
   "dependencies": {},
   "devDependencies": {
     "@mui/x-studio": "workspace:*",
-    "@mui/x-chat": "workspace:*"
+    "@mui/x-chat-headless": "workspace:*"
   }
 }

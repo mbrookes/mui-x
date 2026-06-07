@@ -16,7 +16,7 @@ export type { StateMutation, SerializableSkill } from './aiTypes';
 /** POST body sent by the client to the AI backend endpoint. */
 export interface StudioAIRequest {
   /** Full conversation history, including previous assistant and tool messages. */
-  messages: import('@mui/x-chat/headless').ChatMessage[];
+  messages: import('@mui/x-chat-headless').ChatMessage[];
   /** Current dashboard state snapshot. */
   dashboardState: StudioState;
   /** Custom widget definitions (for prompt context and tool defaults). */

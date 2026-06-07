@@ -1,0 +1,39 @@
+{
+  "name": "x-studio-dev-server",
+  "version": "0.1.0",
+  "description": "Dev server for MUI X Studio — combines data and AI middleware into a single Express app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mui/x-studio-ai-middleware": "workspace:*",
+    "@mui/x-studio-data-middleware": "workspace:*",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "knex": "^3.1.0",
+    "x-studio-shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@mui/x-chat-headless": "workspace:*",
+    "@mui/x-studio": "workspace:*",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.3"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.0.0",
+    "mysql2": "^3.14.1",
+    "pg": "^8.14.1"
+  }
+}

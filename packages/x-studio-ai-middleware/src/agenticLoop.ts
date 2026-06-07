@@ -7,9 +7,9 @@
  * Yields `StudioAISSEEvent` objects. Callers should encode these as SSE and stream
  * them to the client.
  */
-import type { ChatMessage } from '@mui/x-chat/headless';
+import type { ChatMessage } from '@mui/x-chat-headless';
 import type { StudioState, StudioCustomWidgetDef } from '@mui/x-studio';
-import type { StateMutation, SerializableSkill } from './models/aiTypes';
+import type { StateMutation, SerializableSkill, StudioAISkill } from './models/aiTypes';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import { parseSSE } from './parseSSE';
@@ -115,6 +115,12 @@ export interface AgenticLoopOptions {
   headers?: Record<string, string>;
   signal?: AbortSignal;
   onToolError?: (toolName: string, error: Error) => void;
+  /**
+   * Server-side skill handlers. When a `server-tool` skill's tool is called by the
+   * model, the loop looks up the matching handler here to execute it server-side.
+   * Skills without a registered handler return a descriptive error to the model.
+   */
+  skillHandlers?: StudioAISkill[];
 }
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
@@ -134,7 +140,7 @@ export async function* runAgenticLoop(
   skills: SerializableSkill[] | undefined,
   options: AgenticLoopOptions,
 ): AsyncGenerator<StudioAISSEEvent> {
-  const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders = {}, signal, onToolError } =
+  const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders = {}, signal, onToolError, skillHandlers = [] } =
     options;
 
   const systemPrompt = buildAISystemPrompt(initialState, customWidgets, focusedWidgetId, skills);
@@ -145,7 +151,7 @@ export async function* runAgenticLoop(
     : STUDIO_AI_TOOLS;
 
   const skillToolDefs = (skills ?? [])
-    .filter((s) => s.mode === 'client-handler' && s.tool)
+    .filter((s) => s.mode === 'server-tool' && s.tool)
     .map((s) => ({
       type: 'function' as const,
       function: {
@@ -305,16 +311,55 @@ export async function* runAgenticLoop(
         input: toolInput,
       };
 
-      // Check if this is a client-handler skill tool
-      const isClientTool = (skills ?? [])
-        .filter((s) => s.mode === 'client-handler' && s.tool)
+      // Check if this is a server-tool skill
+      const matchedSkill = skillHandlers
+        .filter((s) => s.mode === 'server-tool' && s.tool)
+        .find((s) => s.tool!.name === tc.name);
+
+      if (matchedSkill?.tool?.execute) {
+        // Execute the skill server-side
+        try {
+          const result = matchedSkill.tool.execute(toolInput, currentState);
+          const output = result.output;
+          if (result.mutation) {
+            yield { type: 'state-mutation', mutation: result.mutation };
+          }
+          currentState = result.nextState;
+          toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
+          yield {
+            type: 'tool-activity',
+            toolCallId: tc.id,
+            toolName: tc.name,
+            phase: 'complete',
+            input: toolInput,
+            output,
+          };
+        } catch (skillErr) {
+          const skillError = skillErr instanceof Error ? skillErr : new Error(String(skillErr));
+          onToolError?.(tc.name, skillError);
+          const output = JSON.stringify({ error: skillError.message });
+          toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
+          yield {
+            type: 'tool-activity',
+            toolCallId: tc.id,
+            toolName: tc.name,
+            phase: 'complete',
+            input: toolInput,
+            output,
+          };
+        }
+        continue;
+      }
+
+      // Skill was declared in the request but has no registered server handler
+      const isUnregisteredSkillTool = (skills ?? [])
+        .filter((s) => s.mode === 'server-tool' && s.tool)
         .some((s) => s.tool!.name === tc.name);
 
-      if (isClientTool) {
-        // Emit event for client to handle (v2 — not yet fully supported)
-        yield { type: 'client-tool-call', toolCallId: tc.id, toolName: tc.name, input: toolInput };
-        // Use a placeholder output so the loop can continue
-        const output = JSON.stringify({ error: 'client-handler tools require client-side execution' });
+      if (isUnregisteredSkillTool) {
+        const output = JSON.stringify({
+          error: `server-tool skill '${tc.name}' has no registered handler on the server.`,
+        });
         toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
         yield {
           type: 'tool-activity',

@@ -8,56 +8,78 @@ components: StudioChatPanel
 
 # Studio - AI assistant
 
-<p class="description">Add an AI chat panel that can configure widgets, connect data sources, and answer dashboard questions — powered by any OpenAI-compatible endpoint.</p>
+<p class="description">Add an AI chat panel that can configure widgets, connect data sources, and answer dashboard questions — powered by any OpenAI-compatible backend.</p>
 
 {{"component": "@mui/internal-core-docs/ComponentLinkHeader"}}
 
 ## Overview
 
-The Studio AI assistant is a `StudioChatPanel` component that connects to your LLM endpoint via `createStudioChatAdapter`.
-The AI has access to a set of **tools** that let it manipulate the dashboard: add widgets, configure chart types, apply filters, manage data sources, and more.
+The Studio AI assistant is a `StudioChatPanel` component that connects to a backend server via `StudioAIConfig`.
+The AI runs entirely server-side: the server builds the system prompt, runs the agentic tool loop, and streams
+state-mutation events back to the client.
 
-Studio generates a **system prompt** from the current dashboard state using `buildAISystemPrompt`, so the AI always has context about which pages, data sources, and widgets exist.
+The client (`@mui/x-studio`) is a **pure UI package** — it never calls an LLM directly.
+All LLM requests go through a backend that uses `@mui/x-studio-ai-middleware`.
+
+```
+Browser (x-studio)  ──POST──►  Your server (x-studio-ai-middleware)  ──►  LLM
+                    ◄──SSE───                                          ◄──
+```
 
 ## Setup
 
-### 1. Configure the AI endpoint
+### 1. Set up the backend
 
-Create an `StudioAIConfig` object.
-Studio connects to OpenAI-compatible endpoints — it works with OpenAI, Azure OpenAI, Google Gemini (via the OpenAI compatibility layer), Anthropic (via a proxy), or any local model server:
+Create a route handler using `@mui/x-studio-ai-middleware`:
+
+```ts
+// app/api/ai/chat/route.ts (Next.js App Router)
+import { handleAIChat } from '@mui/x-studio-ai-middleware';
+
+export async function POST(req: Request) {
+  const session = await getServerSession(); // your auth
+  if (!session) return new Response('Unauthorized', { status: 401 });
+
+  const body = await req.json();
+  const stream = handleAIChat(body, {
+    endpoint: 'https://api.openai.com/v1/chat/completions',
+    apiKey: process.env.OPENAI_API_KEY,
+    model: 'gpt-4o',
+  });
+  return new Response(stream, {
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
+```
+
+See the [`@mui/x-studio-ai-middleware` README](https://github.com/mui/mui-x/tree/master/packages/x-studio-ai-middleware)
+for Express, Hono, and other framework examples.
+
+The middleware handles everything server-side: system prompt construction, the agentic tool loop, and streaming
+state-mutation events back to the client.
+
+### 2. Configure the client
+
+Create a `StudioAIConfig` pointing at your backend route:
 
 ```ts
 import type { StudioAIConfig } from '@mui/x-studio';
 
-// OpenAI
 const aiConfig: StudioAIConfig = {
-  endpoint: 'https://api.openai.com/v1',
-  apiKey: process.env.OPENAI_API_KEY,
-  model: 'gpt-4o',
-};
-
-// Azure OpenAI
-const azureConfig: StudioAIConfig = {
-  endpoint: 'https://my-resource.openai.azure.com/openai/deployments/gpt-4o',
-  apiKey: process.env.AZURE_OPENAI_KEY,
-  model: 'gpt-4o',
-};
-
-// Custom headers (e.g. a token-based auth proxy)
-const proxyConfig: StudioAIConfig = {
-  endpoint: 'https://my-api-proxy.example.com/v1',
-  model: 'gpt-4o',
-  headers: { 'X-Studio-Token': userSessionToken },
+  endpoint: '/api/ai/chat',
 };
 ```
 
-:::warning
-Never expose raw API keys in client-side code in production.
-Use a server-side proxy that authenticates your users and forwards requests to the LLM provider.
-Pass a short-lived session token via `headers` instead.
-:::
+Pass a session token via `headers` if your route requires authentication:
 
-### 2. Pass `aiConfig` to `Studio`
+```ts
+const aiConfig: StudioAIConfig = {
+  endpoint: '/api/ai/chat',
+  headers: { Authorization: `Bearer ${userSessionToken}` },
+};
+```
+
+### 3. Pass `aiConfig` to `Studio`
 
 ```tsx
 <Studio ref={studioRef} initialState={initialState} aiConfig={aiConfig} />
@@ -66,7 +88,7 @@ Pass a short-lived session token via `headers` instead.
 When `aiConfig.endpoint` is truthy, a floating action button (✨) appears at the bottom-right corner.
 Click it to open the chat panel.
 
-### 3. Wrap in `LocalizationProvider`
+### 4. Wrap in `LocalizationProvider`
 
 Date-related tools use `@mui/x-date-pickers` internally.
 Ensure `LocalizationProvider` is in your tree:
@@ -82,18 +104,18 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 
 ## Available AI tools
 
-The AI can call the following tools (exported as `STUDIO_AI_TOOLS`):
+The AI can call the following tools on the server:
 
 | Tool                   | What it does                                                                    |
 | :--------------------- | :------------------------------------------------------------------------------ |
 | `set_dashboard_title`  | Sets the dashboard title                                                        |
 | `add_page`             | Adds a new dashboard page                                                       |
 | `rename_page`          | Renames a page                                                                  |
-| `remove_page`          | Removes a page (requires confirmation)                                          |
+| `remove_page`          | Removes a page                                                                  |
 | `set_active_page`      | Navigates to a specific page                                                    |
 | `add_widget`           | Adds a new widget to the active page                                            |
 | `update_widget`        | Updates a widget's type, title, data source, series, dimensions, or aggregation |
-| `remove_widget`        | Removes a widget by ID (requires confirmation)                                  |
+| `remove_widget`        | Removes a widget by ID                                                          |
 | `set_widget_layout`    | Rearranges widgets by specifying row groupings                                  |
 | `set_widget_width`     | Sets the column span of a widget (3–12 columns)                                 |
 | `add_page_filter`      | Adds a filter scoped to the active page                                         |
@@ -101,69 +123,11 @@ The AI can call the following tools (exported as `STUDIO_AI_TOOLS`):
 | `add_widget_filter`    | Adds a filter scoped to a specific widget                                       |
 | `remove_widget_filter` | Removes a widget-scoped filter by ID                                            |
 | `get_dashboard_state`  | Returns the current dashboard state (pages, widgets, data sources)              |
-| `summarise_page`       | Returns a rich data snapshot of every widget on the active page (used by the **Summarise page** chip) |
-| `apply_bulk_update`    | Applies multiple coordinated changes in a single atomic operation — widget updates, additions, removals, layout, and column spans |
+| `summarise_page`       | Returns a rich data snapshot of every widget on the active page                 |
+| `apply_bulk_update`    | Applies multiple coordinated changes in a single atomic operation               |
 
 You can restrict which tools are available using `allowedTools` in `aiConfig`.
 See [AI tools](/x/react-studio/ai/tools/) for details.
-
-## `createStudioChatAdapter`
-
-The `createStudioChatAdapter` function creates a chat adapter that:
-
-1. Builds a context-aware system prompt from the current Studio state
-2. Sends messages to your LLM endpoint in OpenAI chat completions format
-3. Streams the response token-by-token back to the chat UI
-4. Executes tool calls against the Studio controller
-
-```ts
-import { createStudioChatAdapter } from '@mui/x-studio';
-
-// The adapter is created internally by StudioChatPanel — you don't need to call this directly
-// unless you're using StudioChatPanel standalone in a composed layout.
-const adapter = createStudioChatAdapter({
-  aiConfig,
-  controller,
-  getState: () => controller.getState(),
-});
-```
-
-When you use `<Studio aiConfig={aiConfig} />` or `<StudioChatPanel aiConfig={aiConfig} />`, the adapter is created for you.
-
-## `buildAISystemPrompt`
-
-`buildAISystemPrompt` generates a system prompt string from the current Studio state.
-It describes:
-
-- The dashboard title and pages
-- Data sources (field IDs, labels, types, aggregatable flag)
-- Existing widgets (IDs, kinds, titles, data source, configuration)
-- Current mode
-
-The AI uses this context to make informed decisions about where to place new widgets and which fields to use.
-The prompt is regenerated on every message so the AI always sees the latest state.
-
-If you want to add custom instructions (e.g. branding guidelines, preferred chart types, or restrictions), use `slotProps.chatPanel`:
-
-```tsx
-<Studio
-  aiConfig={aiConfig}
-  slotProps={{
-    chatPanel: {
-      slotProps: {
-        chatBox: {
-          // Additional context prepended to messages
-          suggestions: [
-            'Add a revenue KPI for this month',
-            'Create a bar chart of sales by category',
-            'Add a date range filter',
-          ],
-        },
-      },
-    },
-  }}
-/>
-```
 
 ## Using `StudioChatPanel` standalone
 
@@ -213,7 +177,7 @@ function MyComposedLayout({ aiConfig }: { aiConfig: StudioAIConfig }) {
 
 | Prop                | Type                    | Description                                              |
 | :------------------ | :---------------------- | :------------------------------------------------------- |
-| `aiConfig`          | `StudioAIConfig`        | LLM endpoint configuration.                              |
+| `aiConfig`          | `StudioAIConfig`        | Backend endpoint configuration.                          |
 | `open`              | `boolean`               | Whether the panel is visible.                            |
 | `onClose`           | `() => void`            | Called when the user closes the panel (overlay mode).    |
 | `overlay`           | `boolean`               | Render as a fixed-position overlay instead of inline.    |
@@ -283,115 +247,30 @@ Customize the chat panel via `slotProps.chatPanel` on `<Studio>`:
 
 ## Security considerations
 
-### Never expose API keys client-side
+The API key and system prompt construction live entirely on the server.
+The browser client only sends messages and receives streaming events — it has no access to your LLM credentials.
 
-Use a server-side route. There are two approaches:
-
-#### Option A — Thin pass-through proxy
-
-Forward the request body to the LLM provider, injecting the API key server-side:
-
-```ts
-// pages/api/llm.ts (Next.js example)
-export default async function handler(req, res) {
-  // Authenticate the user session
-  const session = await getServerSession(req, res, authOptions);
-  if (!session) {
-    res.status(401).end();
-    return;
-  }
-
-  // Forward to the LLM provider
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify(req.body),
-  });
-  // Stream the response back
-  response
-    .body!.pipeTo(new WritableStream({ write: (chunk) => res.write(chunk) }))
-    .then(() => res.end());
-}
-```
-
-Then in `aiConfig`:
-
-```ts
-const aiConfig: StudioAIConfig = {
-  endpoint: '/api/llm', // relative URL — no key in client code
-  model: 'gpt-4o',
-};
-```
-
-#### Option B — Full backend with `@mui/x-studio-ai-middleware` (recommended)
-
-Install the companion server package:
-
-```bash
-npm install @mui/x-studio-ai-middleware
-```
-
-Create a route handler:
-
-```ts
-// app/api/ai/chat/route.ts (Next.js App Router)
-import { handleAIChat } from '@mui/x-studio-ai-middleware';
-
-export async function POST(req: Request) {
-  const session = await getServerSession(); // your auth
-  if (!session) return new Response('Unauthorized', { status: 401 });
-
-  const body = await req.json();
-  const stream = handleAIChat(body, {
-    endpoint: 'https://api.openai.com/v1/chat/completions',
-    apiKey: process.env.OPENAI_API_KEY,
-    model: 'gpt-4o',
-  });
-  return new Response(stream, {
-    headers: { 'Content-Type': 'text/event-stream' },
-  });
-}
-```
-
-Set `mode: 'x-studio-ai-middleware'` in the client config — no API key needed:
-
-```ts
-const aiConfig: StudioAIConfig = {
-  endpoint: '/api/ai/chat',
-  mode: 'x-studio-ai-middleware',
-};
-```
-
-With this approach the API key, system prompt construction, and the agentic tool loop all run on the server. The client only receives text tokens and state-mutation events.
-
-See the [`@mui/x-studio-ai-middleware` README](https://github.com/mui/mui-x/tree/master/packages/x-studio-ai-middleware) for Express, Hono, and other framework examples.
-
-### Rate limiting
-
-Protect your LLM proxy with rate limiting to prevent abuse.
+Protect your backend route with authentication (session cookies, JWTs, etc.) and rate limiting to prevent abuse.
 Studio does not make any calls at mount — the LLM is only called when the user sends a message.
 
 ## `StudioAIConfig` reference
 
 ```ts
 interface StudioAIConfig {
-  /** OpenAI-compatible chat completions endpoint URL. */
+  /** URL of your x-studio-ai-middleware backend route. */
   endpoint: string;
-  /** API key (unsafe in production — use a server proxy instead). */
-  apiKey?: string;
-  /** Model ID (e.g. 'gpt-4o', 'gemini-1.5-pro'). Default: 'gpt-4o'. */
-  model?: string;
-  /** Extra HTTP headers forwarded to the endpoint on every request. */
+  /** Extra HTTP headers forwarded to the endpoint on every request (e.g. Authorization). */
   headers?: Record<string, string>;
   /**
-   * Adapter mode.
-   * - 'direct' (default): client builds the system prompt and calls the LLM directly.
-   * - 'x-studio-ai-middleware': client sends StudioAIRequest JSON and receives state-mutation events.
+   * Restrict which AI tools are available.
+   * When omitted, all tools are enabled.
    */
-  mode?: 'direct' | 'x-studio-ai-middleware';
+  allowedTools?: StudioAIToolName[];
+  /**
+   * Custom skills to register with the AI.
+   * Skills are serialized and sent to the server; the server executes them.
+   */
+  skills?: StudioAISkill[];
 }
 ```
 
@@ -400,3 +279,4 @@ interface StudioAIConfig {
 - [Composed approach](/x/react-studio/getting-started/composition/) — adding `StudioChatPanel` to a custom layout
 - [Slot props](/x/react-studio/customization/slot-props/) — customize the AI panel via `slotProps.chatPanel`
 - [`@mui/x-studio-ai-middleware`](https://github.com/mui/mui-x/tree/master/packages/x-studio-ai-middleware) — server-side handler package
+

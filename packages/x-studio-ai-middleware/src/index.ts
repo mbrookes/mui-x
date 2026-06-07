@@ -26,6 +26,13 @@
 
 export { handleAIChat } from './handleAIChat';
 export type { StudioAIHandlerOptions } from './handleAIChat';
+export { handleGenerateInsight, handleGenerateTitle, handleCreateWidget } from './handleGenerateInsight';
+export type {
+  GenerateInsightOptions,
+  GenerateInsightRequest,
+  CreateWidgetRequest,
+  CreateWidgetResponse,
+} from './handleGenerateInsight';
 export type {
   StudioAIRequest,
   SerializableSkill,

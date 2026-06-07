@@ -66,7 +66,6 @@ const SUPPORTED_CHART_TYPES = new Set([
   'bar',
   'bar-stacked',
   'bar-100',
-  'bar-grouped',
   'line',
   'area',
   'area-stacked',

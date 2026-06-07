@@ -154,7 +154,7 @@ export { useStudioKeyboardShortcuts } from './internals/useStudioKeyboardShortcu
 export { WIDGET_TYPES, createDefaultWidget } from './internals/widgetUtils';
 
 // ─── Controller ───────────────────────────────────────────────────────────────
-export { StudioController, createStudioController } from './store/StudioController';
+export { StudioController } from './store/StudioController';
 export { createDefaultStudioState } from './models';
 
 // ─── State persistence ────────────────────────────────────────────────────────
@@ -181,7 +181,6 @@ export type {
   StudioMetricRef,
   StudioKpiAggregation,
   StudioGridSummaryAggregation,
-  StudioGridColumnAggFn,
   StudioGridColumn,
   normalizeGridColumn,
   StudioNumberFormat,

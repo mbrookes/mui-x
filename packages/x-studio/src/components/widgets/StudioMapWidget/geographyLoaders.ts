@@ -166,12 +166,3 @@ export const BUILT_IN_GEOGRAPHY_DEFINITIONS: Record<string, StudioMapGeographyDe
     normalizer: normalizeToAlpha2,
   },
 };
-
-/**
- * The built-in geography loaders keyed by map type name.
- * @deprecated Use `BUILT_IN_GEOGRAPHY_DEFINITIONS` for the full definition including label,
- * field labels, hints, and normalizer.
- */
-export const BUILT_IN_GEOGRAPHIES: Record<string, GeographyLoader> = Object.fromEntries(
-  Object.entries(BUILT_IN_GEOGRAPHY_DEFINITIONS).map(([k, v]) => [k, v.loader]),
-);

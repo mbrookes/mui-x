@@ -1,5 +1,5 @@
 /**
- * handleBatchQuery — the core pure function of x-studio-middleware.
+ * handleBatchQuery — the core pure function of x-studio-data-middleware.
  *
  * This function:
  * 1. Validates all requested tables against the schema allowlist

@@ -29,26 +29,45 @@ function readStoredLocale(): SupportedLocale {
   return DEFAULT_LOCALE;
 }
 
+/**
+ * Resolve the AI config from environment variables.
+ *
+ * Priority:
+ * 1. VITE_STUDIO_SERVER_URL — routes through the dev server (adds system prompt server-side)
+ * 2. LLM_ENDPOINT           — connects directly to the LLM from the browser
+ */
+function resolveAiConfig(): StudioAIConfig | undefined {
+  const serverUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+  if (serverUrl) {
+    const token = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
+    return {
+      endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai/chat`,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    };
+  }
+
+  const endpoint = import.meta.env.LLM_ENDPOINT as string | undefined;
+  if (!endpoint) {
+    return undefined;
+  }
+
+  return {
+    endpoint,
+    apiKey: import.meta.env.LLM_API_KEY as string | undefined,
+    model: (import.meta.env.LLM_MODEL as string | undefined) ?? 'gpt-4o',
+    headers: import.meta.env.LLM_TOKEN as string | undefined
+      ? { 'X-Studio-Token': import.meta.env.LLM_TOKEN as string }
+      : undefined,
+  };
+}
+
 export default function App() {
   const { chats, activeChatId, setActiveChatId, createChat, updateChat } = useChatStore();
   const { getOrCreateController, saveController } = useChatControllers();
   const [locale, setLocale] = React.useState<SupportedLocale>(readStoredLocale);
 
-  const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
-    const endpoint = import.meta.env.LLM_ENDPOINT as string | undefined;
-    if (!endpoint) {
-      return undefined;
-    }
-
-    return {
-      endpoint,
-      apiKey: import.meta.env.LLM_API_KEY as string | undefined,
-      model: (import.meta.env.LLM_MODEL as string | undefined) ?? 'gpt-4o',
-      headers: import.meta.env.LLM_TOKEN as string | undefined
-        ? { 'X-Studio-Token': import.meta.env.LLM_TOKEN as string }
-        : undefined,
-    };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const aiConfig = React.useMemo(resolveAiConfig, []);
 
   const { generateTitle } = useGenerateChatTitle(aiConfig);
   const localeBundle = LOCALE_BUNDLES[locale];

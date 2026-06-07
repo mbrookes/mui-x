@@ -1,3 +1,4 @@
+import * as React from 'react';
 import {
   Button,
   Dialog,
@@ -9,6 +10,8 @@ import {
   FormLabel,
   Radio,
   RadioGroup,
+  TextField,
+  Typography,
 } from '@mui/material';
 import { type SupportedLocale, LOCALE_LABELS } from '../locales';
 
@@ -25,6 +28,13 @@ export function SettingsDialog({
   locale,
   onLocaleChange,
 }: SettingsDialogProps) {
+  const [serverUrl, setServerUrl] = React.useState(
+    () => import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined ?? '',
+  );
+
+  const envServerUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+  const isEnvConfigured = Boolean(envServerUrl);
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle sx={{ pb: 1 }}>Settings</DialogTitle>
@@ -44,6 +54,36 @@ export function SettingsDialog({
               />
             ))}
           </RadioGroup>
+        </FormControl>
+
+        <FormControl>
+          <FormLabel sx={{ mb: 1 }}>Dev Server Connection</FormLabel>
+          {isEnvConfigured ? (
+            <Typography variant="body2" color="text.secondary">
+              Connected to: <strong>{envServerUrl}</strong>
+              <br />
+              AI and data queries are routed through the dev server.
+              <br />
+              To change, update <code>VITE_STUDIO_SERVER_URL</code> in <code>.env.local</code>.
+            </Typography>
+          ) : (
+            <>
+              <TextField
+                size="small"
+                label="Server URL"
+                placeholder="http://localhost:3020"
+                value={serverUrl}
+                onChange={(e) => setServerUrl(e.target.value)}
+                helperText="Optional. Set VITE_STUDIO_SERVER_URL in .env.local to persist."
+              />
+              {serverUrl && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                  URL changes here apply only for this session — the page must reload to take effect.
+                  Add to .env.local to persist.
+                </Typography>
+              )}
+            </>
+          )}
         </FormControl>
       </DialogContent>
       <DialogActions>

@@ -30,7 +30,7 @@ import type {
   StudioQueryResult,
 } from '../models';
 
-/** Structured filter predicate sent to the server (mirrors FilterPredicate in @mui/x-studio-middleware) */
+/** Structured filter predicate sent to the server (mirrors FilterPredicate in @mui/x-studio-data-middleware) */
 interface FilterPredicate {
   column: string;
   operator: 'eq' | 'neq' | 'in' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'between';

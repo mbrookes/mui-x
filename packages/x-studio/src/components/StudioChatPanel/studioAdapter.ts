@@ -1,7 +1,7 @@
 import type { ChatAdapter, ChatMessage, ChatMessageChunk } from '@mui/x-chat/headless';
 import type { StudioController } from '../../store/StudioController';
 import type { StudioAISkill, StudioCustomWidgetDef, StudioWidget } from '../../models';
-import { buildAISystemPrompt } from '../../internals/buildAISystemPrompt';
+import { buildAISystemPrompt } from '@mui/x-studio-ai-middleware'
 import { createDefaultWidget } from '../../internals/widgetUtils';
 import { STUDIO_AI_TOOLS, type StudioAIToolName } from './studioAITools';
 import { buildWidgetDataSummary } from './generateInsight';

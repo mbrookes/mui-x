@@ -19,7 +19,7 @@ The work spanned three overlapping areas:
   and filter widgets inside `packages/x-studio/src/internals/`.
 - **Async adapter / server pipeline design** built around
   `StudioQueryDescriptor`, `StudioRequestCache`, `createBatchingAdapter`, and
-  `@mui/x-studio-middleware`.
+  `@mui/x-studio-data-middleware`.
 
 ### Key findings summary
 
@@ -784,7 +784,7 @@ checkpoint material used for this document.
   adapter with shared cache-key semantics
 - `examples/x-studio/src/simulatedServer.ts` — in-memory async adapter used by
   the demo app
-- `packages/x-studio-middleware/src/handler.ts` — framework-agnostic server entry
+- `packages/x-studio-data-middleware/src/handler.ts` — framework-agnostic server entry
   point: `handleBatchQuery()`
 
 ### Benchmarking and validation

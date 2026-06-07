@@ -245,7 +245,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     if (!aiConfig?.endpoint) {
       return null;
     }
-    if (aiConfig.mode === 'x-studio-backend') {
+    if (aiConfig.mode === 'x-studio-ai-middleware') {
       return createBackendChatAdapter(aiConfig, controller, customWidgets, focusedWidgetId);
     }
     return createStudioChatAdapter(

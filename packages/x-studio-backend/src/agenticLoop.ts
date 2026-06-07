@@ -10,7 +10,7 @@
 import type { ChatMessage } from '@mui/x-chat/headless';
 import type { StudioState, StudioCustomWidgetDef, StateMutation, SerializableSkill } from '@mui/x-studio';
 import { buildAISystemPrompt } from '@mui/x-studio/internals/buildAISystemPrompt';
-import { STUDIO_AI_TOOLS } from '@mui/x-studio/StudioChatPanel/studioAITools';
+import { STUDIO_AI_TOOLS } from '@mui/x-studio/components/StudioChatPanel/studioAITools';
 import { parseSSE } from './parseSSE';
 import { executeToolOnState } from './executeToolOnState';
 import type { StudioAISSEEvent, StateMutation } from './models/protocol';

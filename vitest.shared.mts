@@ -23,6 +23,8 @@ export const alias = [
     { lib: 'x-telemetry' },
     { lib: 'x-virtualizer' },
     { lib: 'x-studio', plans: ['backend', 'middleware'] },
+    { lib: 'x-studio-ai-middleware' },
+    { lib: 'x-studio-data-middleware' },
   ].flatMap((v) => {
     return [
       {

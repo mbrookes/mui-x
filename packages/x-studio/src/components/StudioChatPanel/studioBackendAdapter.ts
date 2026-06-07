@@ -158,13 +158,6 @@ export function createBackendChatAdapter(
               } catch (err) {
                 console.error('[StudioBackendAdapter] Failed to apply state mutation:', err);
               }
-            } else if (type === 'client-tool-call') {
-              // client-handler skill tool calls are not yet supported in backend mode.
-              // Log a warning and continue — the server will include an error in the output.
-              console.warn(
-                '[StudioBackendAdapter] client-tool-call received but not supported in backend mode:',
-                event.toolName,
-              );
             } else if (type === 'finish') {
               if (textStarted) {
                 streamController.enqueue({ type: 'text-end', id: textPartId });

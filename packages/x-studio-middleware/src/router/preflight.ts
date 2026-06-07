@@ -94,29 +94,62 @@ export async function executeForTier(
   }
 
   // 'db' tier: DB push-down aggregation
-  // For now, return aggregated rows grouped by all non-numeric columns.
-  // In a production implementation this would receive explicit aggregation specs.
   const query = buildSecureQuery(db, claims, descriptor);
   const columns = descriptor.columns ?? [];
-  const groupByColumns = columns.filter(
-    (c: string) => !c.startsWith('sum_') && !c.startsWith('avg_') && !c.startsWith('count_'),
-  );
-  const aggColumns = columns.filter(
-    (c: string) => c.startsWith('sum_') || c.startsWith('avg_') || c.startsWith('count_'),
-  );
 
-  if (groupByColumns.length > 0) {
-    query.select(groupByColumns);
-    query.groupBy(groupByColumns);
-  }
+  if (descriptor.aggregations && descriptor.aggregations.length > 0) {
+    // ── Phase 5: Explicit aggregation specs (preferred) ─────────────────────
+    const groupByColumns = columns.filter(
+      (c: string) => !descriptor.aggregations!.some((a) => a.column === c),
+    );
+    if (groupByColumns.length > 0) {
+      query.select(groupByColumns);
+      query.groupBy(groupByColumns);
+    }
+    for (const agg of descriptor.aggregations) {
+      switch (agg.func) {
+        case 'sum':
+          query.sum(`${agg.column} as ${agg.alias}`);
+          break;
+        case 'avg':
+          query.avg(`${agg.column} as ${agg.alias}`);
+          break;
+        case 'count':
+          query.count(`${agg.column} as ${agg.alias}`);
+          break;
+        case 'min':
+          query.min(`${agg.column} as ${agg.alias}`);
+          break;
+        case 'max':
+          query.max(`${agg.column} as ${agg.alias}`);
+          break;
+        default:
+          break;
+      }
+    }
+  } else {
+    // ── Legacy: infer aggregation from column name prefixes ─────────────────
+    // Deprecated in favour of explicit `aggregations` specs.
+    const groupByColumns = columns.filter(
+      (c: string) => !c.startsWith('sum_') && !c.startsWith('avg_') && !c.startsWith('count_'),
+    );
+    const aggColumns = columns.filter(
+      (c: string) => c.startsWith('sum_') || c.startsWith('avg_') || c.startsWith('count_'),
+    );
 
-  for (const agg of aggColumns) {
-    if (agg.startsWith('sum_')) {
-      query.sum(`${agg.slice(4)} as ${agg}`);
-    } else if (agg.startsWith('avg_')) {
-      query.avg(`${agg.slice(4)} as ${agg}`);
-    } else if (agg.startsWith('count_')) {
-      query.count(`${agg.slice(6)} as ${agg}`);
+    if (groupByColumns.length > 0) {
+      query.select(groupByColumns);
+      query.groupBy(groupByColumns);
+    }
+
+    for (const agg of aggColumns) {
+      if (agg.startsWith('sum_')) {
+        query.sum(`${agg.slice(4)} as ${agg}`);
+      } else if (agg.startsWith('avg_')) {
+        query.avg(`${agg.slice(4)} as ${agg}`);
+      } else if (agg.startsWith('count_')) {
+        query.count(`${agg.slice(6)} as ${agg}`);
+      }
     }
   }
 

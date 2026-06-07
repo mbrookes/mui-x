@@ -97,6 +97,15 @@ declare module '@mui/x-studio' {
   export function deserializeState(serialized: SerializedStudioState): StudioState;
   export function migrateState(serialized: unknown): MigrationResult;
 
+  export interface BatchingAdapterOptions {
+    batchDelayMs?: number;
+    fetchFn?: typeof fetch;
+  }
+  export function createBatchingAdapter(
+    endpoint: string,
+    options?: BatchingAdapterOptions,
+  ): StudioDataSourceAdapter;
+
   export const ptBRLocaleText: Partial<StudioLocaleText>;
 
   export const selectDashboard: (state: StudioState) => StudioState['dashboard'];

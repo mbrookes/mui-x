@@ -463,8 +463,17 @@ export default function App() {
     [],
   );
 
-  // AI config — read from Vite env vars set by the developer
+  // AI config — dev server takes priority over direct LLM connection
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
+    const serverUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+    if (serverUrl) {
+      const token = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
+      return {
+        endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai/chat`,
+        headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,
+      };
+    }
+
     const endpoint = import.meta.env.LLM_ENDPOINT as string | undefined;
     if (!endpoint) {
       return undefined;
@@ -504,9 +513,16 @@ export default function App() {
   }, [adapterMode, studioKey]);
 
   // Server mode: route all widget queries through a real server endpoint.
-  // Activate with ?server=http://localhost:3001/api/studio-data
-  // All data sources on the same endpoint share one DataLoader (50ms batch window).
-  const serverEndpoint = React.useMemo(() => getUrlServerParam(), []);
+  // Priority: VITE_STUDIO_SERVER_URL env var → ?server=URL query param
+  // Activate via env: VITE_STUDIO_SERVER_URL=http://localhost:3020
+  // Activate via URL: ?server=http://localhost:3001/api/studio-data
+  const serverEndpoint = React.useMemo(() => {
+    const envServerUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+    if (envServerUrl) {
+      return `${envServerUrl.replace(/\/$/, '')}/api/studio-data`;
+    }
+    return getUrlServerParam();
+  }, []);
 
   React.useEffect(() => {
     if (!serverEndpoint || adapterMode) {
@@ -518,7 +534,16 @@ export default function App() {
       return;
     }
 
-    const batchingAdapter = createBatchingAdapter(serverEndpoint);
+    const serverToken = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
+    const fetchFn: typeof fetch = serverToken
+      ? (input, init) =>
+          fetch(input, {
+            ...init,
+            headers: { ...init?.headers, Authorization: `Bearer ${serverToken}` },
+          })
+      : globalThis.fetch;
+
+    const batchingAdapter = createBatchingAdapter(serverEndpoint, { fetchFn });
     for (const source of Object.values(state.dataSources)) {
       studioRef.current?.setDataSourceAdapter(source.id, batchingAdapter);
     }

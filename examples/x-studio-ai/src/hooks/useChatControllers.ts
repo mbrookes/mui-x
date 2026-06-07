@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { createDefaultStudioState, createStudioController } from '@mui/x-studio';
-import type { StudioController, StudioState } from '@mui/x-studio';
+import { createBatchingAdapter, createDefaultStudioState, createStudioController } from '@mui/x-studio';
+import type { StudioController, StudioDataSourceAdapter, StudioState } from '@mui/x-studio';
 import { INITIAL_STATE, generateSalesData } from 'x-studio-shared';
 import { createDataAdapter } from '../dataAdapter';
 
@@ -46,12 +46,35 @@ function buildInitialStudioState(): StudioState {
   };
 }
 
+/**
+ * Build the data adapter for each source.
+ * When VITE_STUDIO_SERVER_URL is set, routes through the dev server's
+ * /api/studio-data endpoint using a shared batching adapter.
+ * Falls back to the in-memory adapter that uses the generated rows.
+ */
+function buildDataAdapter(_sourceId: string, rows: Record<string, unknown>[]): StudioDataSourceAdapter {
+  const serverUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+  if (serverUrl) {
+    const dataEndpoint = `${serverUrl.replace(/\/$/, '')}/api/studio-data`;
+    const serverToken = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
+    const fetchFn: typeof fetch = serverToken
+      ? (input, init) =>
+          fetch(input, {
+            ...init,
+            headers: { ...init?.headers, Authorization: `Bearer ${serverToken}` },
+          })
+      : globalThis.fetch;
+    return createBatchingAdapter(dataEndpoint, { fetchFn });
+  }
+  return createDataAdapter(rows);
+}
+
 function registerAdapters(controller: StudioController) {
   Object.values(mergedDataSources).forEach((source) => {
     if (source.rows && source.rows.length > 0) {
       controller.setDataSourceAdapter(
         source.id,
-        createDataAdapter(source.rows as Record<string, unknown>[]),
+        buildDataAdapter(source.id, source.rows as Record<string, unknown>[]),
       );
     }
   });

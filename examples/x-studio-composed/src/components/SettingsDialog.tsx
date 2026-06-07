@@ -111,6 +111,30 @@ export function SettingsDialog(props: SettingsDialogProps) {
                 ))}
               </RadioGroup>
             </FormControl>
+
+            <Divider />
+
+            {/* Dev server connection — informational only (set via .env.local) */}
+            <FormControl>
+              <FormLabel sx={{ mb: 1 }}>Dev Server Connection</FormLabel>
+              {(import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined) ? (
+                <Typography variant="body2" color="text.secondary">
+                  Connected to:{' '}
+                  <strong>{import.meta.env.VITE_STUDIO_SERVER_URL as string}</strong>
+                  <br />
+                  AI and data queries are routed through the dev server.
+                  <br />
+                  To change, update <code>VITE_STUDIO_SERVER_URL</code> in{' '}
+                  <code>.env.local</code>.
+                </Typography>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Not connected. Set <code>VITE_STUDIO_SERVER_URL</code> in{' '}
+                  <code>.env.local</code> to route queries through{' '}
+                  <code>examples/x-studio-dev-server</code>.
+                </Typography>
+              )}
+            </FormControl>
           </React.Fragment>
         )}
 

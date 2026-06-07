@@ -8,6 +8,7 @@ import {
   StudioController,
   StudioProvider,
   StudioWidgetEditDialog,
+  createBatchingAdapter,
   createStudioController,
   deserializeState,
   migrateState,
@@ -472,6 +473,31 @@ function DashboardLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Server mode: when VITE_STUDIO_SERVER_URL is set, route all data through the dev server
+  React.useEffect(() => {
+    const serverUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+    if (!serverUrl || adapterMode) {
+      return;
+    }
+    const dataEndpoint = `${serverUrl.replace(/\/$/, '')}/api/studio-data`;
+    const serverToken = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
+    const fetchFn: typeof fetch = serverToken
+      ? (input, init) =>
+          fetch(input, {
+            ...init,
+            headers: { ...init?.headers, Authorization: `Bearer ${serverToken}` },
+          })
+      : globalThis.fetch;
+    const batchingAdapter = createBatchingAdapter(dataEndpoint, { fetchFn });
+    for (const source of Object.values(dataSources)) {
+      controller.setDataSourceAdapter(source.id, batchingAdapter);
+    }
+    // eslint-disable-next-line no-console
+    console.info(`[x-studio] Server mode enabled — queries routed to ${dataEndpoint}`);
+    // Intentionally runs only on mount; env vars and adapterMode are stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Sync active page id to the URL ?page= query param
   const { activePageId } = dashboard;
   React.useEffect(() => {
@@ -710,6 +736,15 @@ export default function App() {
   const dataset = React.useMemo(() => getUrlDatasetParam(), []);
 
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
+    const serverUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+    if (serverUrl) {
+      const token = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
+      return {
+        endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai/chat`,
+        headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,
+      };
+    }
+
     const endpoint = import.meta.env.LLM_ENDPOINT as string | undefined;
     if (!endpoint) {
       return undefined;

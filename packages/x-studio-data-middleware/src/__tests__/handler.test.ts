@@ -1,5 +1,5 @@
 /**
- * Integration tests for @mui/x-studio-middleware
+ * Integration tests for @mui/x-studio-data-middleware
  *
  * Tests the full pipeline: security extraction → cache key → query building
  * → tier selection → handler output. Uses a lightweight in-memory mock Knex

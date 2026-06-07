@@ -94,12 +94,12 @@ AG Studio does not include a built-in map widget.
 | :----------------------------- | :-------------------------------------------------- | :------------------------ |
 | Inline (synchronous) rows      | ✅                                                  | ✅                        |
 | Async callback                 | ✅ (`createSimpleAdapter`, `createBatchingAdapter`) | ✅ (`getData()`)          |
-| Server-side data middleware    | ✅ (`@mui/x-studio-middleware`)                         | ✅ (`AgDataEngine`)       |
+| Server-side data middleware    | ✅ (`@mui/x-studio-data-middleware`)                         | ✅ (`AgDataEngine`)       |
 | Shared engine (cross-instance) | ❌                                                  | ✅ (`createDataEngine()`) |
 | On-demand reload               | ❌                                                  | ✅ (`api.reload()`)       |
 
 MUI X Studio's async adapter interface (`StudioDataSourceAdapter`) mirrors the synchronous rows pipeline — `getRows(descriptor): Promise<StudioQueryResult>` — and is attached at runtime via `ref.setDataSourceAdapter(sourceId, adapter)`.
-`@mui/x-studio-middleware` provides a framework-agnostic Node.js middleware (`handleBatchQuery`) that batches and proxies queries from the browser, keeping data and API keys server-side.
+`@mui/x-studio-data-middleware` provides a framework-agnostic Node.js middleware (`handleBatchQuery`) that batches and proxies queries from the browser, keeping data and API keys server-side.
 AG Studio's `AgDataEngine` interface lets you implement a custom backend data engine (`init()`, `getDataSources()`, `execute()`) that receives Studio's queries and forwards them to your database or API.
 `createDataEngine()` is a separate in-browser factory for sharing a single engine across multiple Studio instances.
 
@@ -317,6 +317,6 @@ All AG Studio feature claims above are sourced from the AG Studio public documen
 - [Overview](/x/react-studio/) — what x-studio is and what it's designed for
 - [Quickstart](/x/react-studio/quickstart/) — get a working studio running in minutes
 - [Async data adapters](/x/react-studio/data/async-adapters/) — `createSimpleAdapter` and `createBatchingAdapter`
-- [Server middleware](/x/react-studio/data/server-middleware/) — `@mui/x-studio-middleware` Node.js package
+- [Server middleware](/x/react-studio/data/server-middleware/) — `@mui/x-studio-data-middleware` Node.js package
 - [Localisation](/x/react-studio/customization/localisation/) — `StudioLocaleText` and bundled locales
 - [Slot props](/x/react-studio/customization/slot-props/) — deep customisation unique to x-studio

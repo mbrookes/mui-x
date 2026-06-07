@@ -24,7 +24,7 @@
     "@mui/x-date-pickers": "workspace:*",
     "@mui/x-date-pickers-pro": "workspace:*",
     "@mui/x-studio": "workspace:*",
-    "@mui/x-studio-middleware": "workspace:*",
+    "@mui/x-studio-data-middleware": "workspace:*",
     "dayjs": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

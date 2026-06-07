@@ -326,19 +326,19 @@ const aiConfig: StudioAIConfig = {
 };
 ```
 
-#### Option B — Full backend with `@mui/x-studio-backend` (recommended)
+#### Option B — Full backend with `@mui/x-studio-ai-middleware` (recommended)
 
 Install the companion server package:
 
 ```bash
-npm install @mui/x-studio-backend
+npm install @mui/x-studio-ai-middleware
 ```
 
 Create a route handler:
 
 ```ts
 // app/api/ai/chat/route.ts (Next.js App Router)
-import { handleAIChat } from '@mui/x-studio-backend';
+import { handleAIChat } from '@mui/x-studio-ai-middleware';
 
 export async function POST(req: Request) {
   const session = await getServerSession(); // your auth
@@ -356,18 +356,18 @@ export async function POST(req: Request) {
 }
 ```
 
-Set `mode: 'x-studio-backend'` in the client config — no API key needed:
+Set `mode: 'x-studio-ai-middleware'` in the client config — no API key needed:
 
 ```ts
 const aiConfig: StudioAIConfig = {
   endpoint: '/api/ai/chat',
-  mode: 'x-studio-backend',
+  mode: 'x-studio-ai-middleware',
 };
 ```
 
 With this approach the API key, system prompt construction, and the agentic tool loop all run on the server. The client only receives text tokens and state-mutation events.
 
-See the [`@mui/x-studio-backend` README](https://github.com/mui/mui-x/tree/master/packages/x-studio-backend) for Express, Hono, and other framework examples.
+See the [`@mui/x-studio-ai-middleware` README](https://github.com/mui/mui-x/tree/master/packages/x-studio-ai-middleware) for Express, Hono, and other framework examples.
 
 ### Rate limiting
 
@@ -389,9 +389,9 @@ interface StudioAIConfig {
   /**
    * Adapter mode.
    * - 'direct' (default): client builds the system prompt and calls the LLM directly.
-   * - 'x-studio-backend': client sends StudioAIRequest JSON and receives state-mutation events.
+   * - 'x-studio-ai-middleware': client sends StudioAIRequest JSON and receives state-mutation events.
    */
-  mode?: 'direct' | 'x-studio-backend';
+  mode?: 'direct' | 'x-studio-ai-middleware';
 }
 ```
 
@@ -399,4 +399,4 @@ interface StudioAIConfig {
 
 - [Composed approach](/x/react-studio/getting-started/composition/) — adding `StudioChatPanel` to a custom layout
 - [Slot props](/x/react-studio/customization/slot-props/) — customize the AI panel via `slotProps.chatPanel`
-- [`@mui/x-studio-backend`](https://github.com/mui/mui-x/tree/master/packages/x-studio-backend) — server-side handler package
+- [`@mui/x-studio-ai-middleware`](https://github.com/mui/mui-x/tree/master/packages/x-studio-ai-middleware) — server-side handler package

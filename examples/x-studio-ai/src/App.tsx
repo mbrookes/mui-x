@@ -42,7 +42,7 @@ function resolveAiConfig(): StudioAIConfig | undefined {
     const token = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
     return {
       endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai/chat`,
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,
     };
   }
 

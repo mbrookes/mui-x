@@ -255,9 +255,7 @@ export type StudioChartType =
   | 'pie'
   | 'donut'
   | 'scatter'
-  | 'gauge'
-  // Legacy aliases kept for backwards compatibility
-  | 'bar-grouped';
+  | 'gauge';
 
 export type StudioBarLayout = 'grouped' | 'stacked' | 'horizontal';
 
@@ -302,12 +300,6 @@ export type StudioGridSummaryAggregation =
   | 'count_distinct';
 
 /**
- * Aggregation function for a grid column — a superset of `StudioGridSummaryAggregation`.
- * @deprecated Prefer `StudioGridSummaryAggregation` directly; this alias is kept for compatibility.
- */
-export type StudioGridColumnAggFn = StudioGridSummaryAggregation;
-
-/**
  * A column definition for a grid widget.
  *
  * Replaces the previous `string[]` columns format to carry per-column
@@ -331,7 +323,7 @@ export interface StudioGridColumn {
    * Falls back to `StudioDataField.defaultAggregationFn` then `'sum'` for
    * numeric fields if absent.
    */
-  aggregationFn?: StudioGridColumnAggFn;
+  aggregationFn?: StudioGridSummaryAggregation;
   /** Column header label override (defaults to `StudioDataField.label`). */
   label?: string;
 }

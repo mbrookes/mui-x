@@ -435,12 +435,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   );
 
   const chartType = config.chartType ?? 'bar';
-  // Normalise legacy type alias
-  const normalizedChartType = chartType === 'bar-grouped' ? 'bar' : chartType;
-  const isMixed = normalizedChartType === 'mixed';
-  const isHeatmap = normalizedChartType === 'heatmap';
-  const isFunnel = normalizedChartType === 'funnel';
-  const isGantt = normalizedChartType === 'gantt';
+  const isMixed = chartType === 'mixed';
+  const isHeatmap = chartType === 'heatmap';
+  const isFunnel = chartType === 'funnel';
+  const isGantt = chartType === 'gantt';
   const barLayout = config.barLayout ?? 'grouped';
   const isHorizontalBarLayout = barLayout === 'horizontal';
 
@@ -517,7 +515,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   // divided into slices by seriesField — like grouped bars but as concentric rings.
   const twoRingData = React.useMemo(() => {
     if (
-      (normalizedChartType !== 'pie' && normalizedChartType !== 'donut') ||
+      (chartType !== 'pie' && chartType !== 'donut') ||
       !config.seriesField ||
       !config.xField ||
       enrichedRows.length === 0
@@ -557,7 +555,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
     return { rings, filteredCategories, filteredSlicesByCategory };
   }, [
-    normalizedChartType,
+    chartType,
     config.seriesField,
     config.xField,
     config.yField,
@@ -568,7 +566,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   ]);
 
   const currentHighlightableSeriesIds = React.useMemo(() => {
-    if (normalizedChartType === 'pie' || normalizedChartType === 'donut') {
+    if (chartType === 'pie' || chartType === 'donut') {
       if (config.seriesField && twoRingData) {
         return new Set(twoRingData.rings.map((r) => r.id));
       }
@@ -576,10 +574,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
 
     if (
-      normalizedChartType === 'line' ||
-      normalizedChartType === 'area' ||
-      normalizedChartType === 'area-stacked' ||
-      normalizedChartType === 'area-100'
+      chartType === 'line' ||
+      chartType === 'area' ||
+      chartType === 'area-stacked' ||
+      chartType === 'area-100'
     ) {
       if (seriesFieldData && seriesFieldData.seriesNames.length > 0) {
         return new Set(seriesFieldData.seriesNames.map((name) => String(name)));
@@ -593,9 +591,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
 
     if (
-      normalizedChartType === 'bar' ||
-      normalizedChartType === 'bar-stacked' ||
-      normalizedChartType === 'bar-100'
+      chartType === 'bar' ||
+      chartType === 'bar-stacked' ||
+      chartType === 'bar-100'
     ) {
       if (seriesFieldData && seriesFieldData.seriesNames.length > 0) {
         return new Set(seriesFieldData.seriesNames.map((name) => String(name)));
@@ -610,7 +608,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
     return new Set<string>();
     // react-doctor-disable-next-line react-doctor/exhaustive-deps -- deps are correct; config.seriesField is a stable selector
-  }, [multiYData, normalizedChartType, seriesFieldData, config.seriesField, twoRingData]);
+  }, [multiYData, chartType, seriesFieldData, config.seriesField, twoRingData]);
 
   const controlledHighlightedItem =
     !hasActiveXFilter && hoveredItem && currentHighlightableSeriesIds.has(hoveredItem.seriesId)
@@ -620,9 +618,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   // Grouped or stacked bar charts (by category field OR multiple y-fields)
   const isBar =
-    normalizedChartType === 'bar' ||
-    normalizedChartType === 'bar-stacked' ||
-    normalizedChartType === 'bar-100';
+    chartType === 'bar' ||
+    chartType === 'bar-stacked' ||
+    chartType === 'bar-100';
 
   const barChartData = React.useMemo(() => {
     if (!isBar || !chartData) {
@@ -755,7 +753,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   // ── Pie cross-highlight context (must be before any early returns) ───────────
   // Computed at top level to satisfy the Rules of Hooks (no conditional useMemo).
-  const isPieOrDonut = normalizedChartType === 'pie' || normalizedChartType === 'donut';
+  const isPieOrDonut = chartType === 'pie' || chartType === 'donut';
   const isPieHighlightActive = Boolean(
     isPieOrDonut && shouldShowGhost && allChartData && preserveXFieldBaseline,
   );
@@ -801,7 +799,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   if (
     !dataSource ||
-    (!config.xField && normalizedChartType !== 'gauge' && normalizedChartType !== 'gantt')
+    (!config.xField && chartType !== 'gauge' && chartType !== 'gantt')
   ) {
     return (
       <Box
@@ -819,7 +817,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }
 
   // ── Gauge chart ──────────────────────────────────────────────────────────────
-  if (normalizedChartType === 'gauge') {
+  if (chartType === 'gauge') {
     const gaugeValueField = config.yField;
     if (!gaugeValueField) {
       return (
@@ -1030,7 +1028,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }
 
   // Scatter chart
-  if (normalizedChartType === 'scatter') {
+  if (chartType === 'scatter') {
     const hasColorBy = Boolean(config.scatterColorField) && scatterSeries !== null;
     const hasData = hasColorBy
       ? scatterSeries!.some((s) => s.data.length > 0)
@@ -1216,10 +1214,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       const xAxisData = effectiveMultiYData.labels;
       const selectedDataIndex = getSelectedDataIndex(effectiveMultiYData.labels);
       const isStacked =
-        normalizedChartType === 'bar-stacked' ||
-        normalizedChartType === 'bar-100' ||
-        (normalizedChartType === 'bar' && barLayout === 'stacked');
-      const is100 = normalizedChartType === 'bar-100';
+        chartType === 'bar-stacked' ||
+        chartType === 'bar-100' ||
+        (chartType === 'bar' && barLayout === 'stacked');
+      const is100 = chartType === 'bar-100';
       const useIndependentAxes =
         !isHorizontalBarLayout && !isStacked && effectiveMultiYData.series.length > 1;
       const totals100 = is100
@@ -1392,8 +1390,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     );
   }
 
-  if (normalizedChartType === 'pie' || normalizedChartType === 'donut') {
-    const donutHole = normalizedChartType === 'donut' ? 50 : 0;
+  if (chartType === 'pie' || chartType === 'donut') {
+    const donutHole = chartType === 'donut' ? 50 : 0;
     const maxRadius = Math.round(chartHeight * 0.38);
     // Arc label configuration for single-series pie/donut
     const pieArcLabelCfg = config.pieArcLabel;
@@ -1551,18 +1549,18 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   // For multi-Y line/area charts
   const isLineOrArea =
-    normalizedChartType === 'line' ||
-    normalizedChartType === 'area' ||
-    normalizedChartType === 'area-stacked' ||
-    normalizedChartType === 'area-100';
+    chartType === 'line' ||
+    chartType === 'area' ||
+    chartType === 'area-stacked' ||
+    chartType === 'area-100';
 
   // seriesField stacked/grouped bar chart: one series per unique category value
   if (
     barSeriesFieldData &&
     barSeriesFieldData.seriesNames.length > 0 &&
-    (normalizedChartType === 'bar' ||
-      normalizedChartType === 'bar-stacked' ||
-      normalizedChartType === 'bar-100')
+    (chartType === 'bar' ||
+      chartType === 'bar-stacked' ||
+      chartType === 'bar-100')
   ) {
     // When ghost-rendering, use all-data as basis so ghost bars show full extent.
     // Exception: if the incoming cross-filter constrains the same foreign source that
@@ -1577,11 +1575,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       dataSource?.fields.find((f) => f.id === activeYFields[0]) ??
       expressionFields.find((ef) => ef.id === activeYFields[0]);
     const isStacked =
-      normalizedChartType === 'bar-stacked' ||
-      normalizedChartType === 'bar-100' ||
-      (normalizedChartType === 'bar' && barLayout === 'stacked');
+      chartType === 'bar-stacked' ||
+      chartType === 'bar-100' ||
+      (chartType === 'bar' && barLayout === 'stacked');
     const stackId = isStacked ? 'stack' : undefined;
-    const is100 = normalizedChartType === 'bar-100';
+    const is100 = chartType === 'bar-100';
     const totals100 = is100
       ? effectiveSFData.labels.map((_, i) =>
           effectiveSFData.seriesNames.reduce<number>(
@@ -1736,17 +1734,17 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   if (
     seriesFieldData &&
     seriesFieldData.seriesNames.length > 0 &&
-    (normalizedChartType === 'line' ||
-      normalizedChartType === 'area' ||
-      normalizedChartType === 'area-stacked' ||
-      normalizedChartType === 'area-100')
+    (chartType === 'line' ||
+      chartType === 'area' ||
+      chartType === 'area-stacked' ||
+      chartType === 'area-100')
   ) {
     const yFieldDef =
       dataSource?.fields.find((f) => f.id === activeYFields[0]) ??
       expressionFields.find((ef) => ef.id === activeYFields[0]);
-    const isArea = normalizedChartType !== 'line';
-    const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
-    const is100 = normalizedChartType === 'area-100';
+    const isArea = chartType !== 'line';
+    const isStacked = chartType === 'area-stacked' || chartType === 'area-100';
+    const is100 = chartType === 'area-100';
 
     // When ghost-rendering (non-stacked only), use allSeriesFieldData as the x-axis basis so
     // ghost lines appear for all series/x-positions, including ones filtered away.
@@ -1865,9 +1863,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }
 
   if (multiYData && multiYData.labels.length > 0 && isLineOrArea) {
-    const isArea = normalizedChartType !== 'line';
-    const isStacked = normalizedChartType === 'area-stacked' || normalizedChartType === 'area-100';
-    const is100 = normalizedChartType === 'area-100';
+    const isArea = chartType !== 'line';
+    const isStacked = chartType === 'area-stacked' || chartType === 'area-100';
+    const is100 = chartType === 'area-100';
 
     // When ghost-rendering (non-stacked only), use allMultiYData as the x-axis basis so ghost
     // series cover all x-positions including those filtered away.
@@ -1937,7 +1935,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             ),
           };
         })
-      : buildMultiYLineSeries(multiYData, normalizedChartType, dataSource?.fields);
+      : buildMultiYLineSeries(multiYData, chartType, dataSource?.fields);
 
     return (
       <div style={{ height: chartHeight }}>
@@ -2028,7 +2026,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ? allChartData.values
       : null;
 
-  if (normalizedChartType === 'line') {
+  if (chartType === 'line') {
     const xAxis = createLineXAxis(effectiveSingleSeriesData!.labels, CROSS_FILTER_AXIS_ID);
     const lineColor = resolvedChartColors[0];
     return (
@@ -2104,9 +2102,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }
 
   if (
-    normalizedChartType === 'area' ||
-    normalizedChartType === 'area-stacked' ||
-    normalizedChartType === 'area-100'
+    chartType === 'area' ||
+    chartType === 'area-stacked' ||
+    chartType === 'area-100'
   ) {
     // Single-series: stacking has no visual effect; area-100 shows a flat 100% fill
     const xAxis = createLineXAxis(effectiveSingleSeriesData!.labels, CROSS_FILTER_AXIS_ID);

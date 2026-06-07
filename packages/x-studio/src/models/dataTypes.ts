@@ -1,5 +1,5 @@
 import type { FieldCapability } from '../utils/fieldCapabilities';
-import type { StudioNumberFormat, StudioFilterOperator, StudioGridColumnAggFn } from './baseTypes';
+import type { StudioNumberFormat, StudioFilterOperator, StudioGridSummaryAggregation } from './baseTypes';
 
 export interface StudioDataField {
   id: string;
@@ -30,7 +30,7 @@ export interface StudioDataField {
    * the field in the "Metrics" section of related pickers.
    * Omit for dimension fields (string, boolean, date) — they are never aggregated.
    */
-  defaultAggregationFn?: StudioGridColumnAggFn;
+  defaultAggregationFn?: StudioGridSummaryAggregation;
   /**
    * AI-facing description of this field's meaning and usage.
    * Included in the system prompt to help the AI choose the right fields

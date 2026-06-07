@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createBackendChatAdapter } from './studioBackendAdapter';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { StudioController } from '../../store/StudioController';
-import type { StudioAIConfig } from './studioAdapter';
+import type { StudioAIConfig } from './studioBackendAdapter';
 import type { ChatMessageChunk } from '@mui/x-chat/headless';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -314,7 +314,7 @@ describe('createBackendChatAdapter: POST body', () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://fake.test/api/ai');
+    expect(url).toBe('https://fake.test/api/ai/chat');
     const body = JSON.parse(String(init.body)) as {
       dashboardState: unknown;
       messages: unknown;

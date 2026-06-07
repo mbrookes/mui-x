@@ -1,9 +1,8 @@
 import type { StudioController } from '../../store/StudioController';
-import type { StudioAIConfig } from './studioAdapter';
+import type { StudioAIConfig } from './studioBackendAdapter';
 import type { StudioChartAnnotation } from '../../models/baseTypes';
 import type { StudioState } from '../../models/stateTypes';
 import type { StudioWidget } from '../../models/widgetTypes';
-import { buildAISystemPrompt } from '@mui/x-studio-ai-middleware'
 import { createStudioPipeline } from '../../internals/StudioPipeline';
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -323,48 +322,21 @@ export function buildWidgetDataSummary(
   return lines.join('\n');
 }
 
-function buildInsightPrompt(type: StudioInsightOptions['type'], forecastPeriods: number): string {
-  const instructions: Record<StudioInsightOptions['type'], string> = {
-    summary:
-      'Write a brief 2–3 sentence plain-language summary of what this widget shows. ' +
-      'Focus on the main value, trend, or comparison visible in the data.',
-    analysis:
-      'Provide a short analytical commentary (3–5 sentences) on this widget. ' +
-      'Highlight notable trends, outliers, comparisons, or patterns in the data. ' +
-      'Be specific and actionable where possible.',
-    forecast:
-      `Based on the trend visible in this widget, forecast the next ${forecastPeriods} periods. ` +
-      'Be concise (2–4 sentences). Acknowledge uncertainty where appropriate. ' +
-      'If the data does not support a forecast, say so briefly.',
-    anomaly: 'Explain the anomalies detected in this widget. ' + 'Be concise and business-focused.',
-  };
-  return instructions[type];
-}
-
 async function callInsightEndpoint(
   config: StudioAIConfig,
-  systemPrompt: string,
-  userPrompt: string,
+  body: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<string> {
-  const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders } = config;
+  const url = `${config.endpoint.replace(/\/?$/, '')}/insight`;
 
-  const response = await fetch(endpoint, {
+  const response = await fetch(url, {
     method: 'POST',
     signal,
     headers: {
       'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      ...extraHeaders,
+      ...(config.headers ?? {}),
     },
-    body: JSON.stringify({
-      model,
-      stream: false,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -372,14 +344,11 @@ async function callInsightEndpoint(
     throw new Error(`AI request failed (${response.status}): ${errText.slice(0, 120)}`);
   }
 
-  const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const text = data.choices?.[0]?.message?.content;
-  if (!text) {
+  const data = (await response.json()) as { text?: string };
+  if (!data.text) {
     throw new Error('AI returned an empty response.');
   }
-  return text.trim();
+  return data.text;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -407,31 +376,21 @@ export async function generateWidgetInsight(
     throw new Error(`Widget "${widgetId}" not found.`);
   }
 
-  const source = widget.sourceId ? state.dataSources[widget.sourceId] : undefined;
-  const sourceDesc = source
-    ? `Data source: ${source.label}. Fields: ${source.fields
-        .filter((f) => !f.hidden)
-        .map((f) => `${f.id} (${f.type}${f.aiDescription ? ` — ${f.aiDescription}` : ''})`)
-        .join(', ')}.`
-    : 'No data source configured.';
-
-  const widgetDesc =
-    `Widget: "${widget.title}" (kind: ${widget.kind}). ` +
-    `Config: ${JSON.stringify(widget.config ?? {})}. ${sourceDesc}`;
-
-  const systemPrompt =
-    'You are a data analyst AI assistant for an analytics dashboard. ' +
-    'The user is asking you to generate an insight about a specific dashboard widget. ' +
-    'Be concise, factual, and business-focused. Do not repeat the widget title.';
-
   const dataSummary = buildWidgetDataSummary(widget, state, {
     sampling: 'aggregate',
   });
-  const userPrompt = dataSummary
-    ? `${widgetDesc}\n\n${dataSummary}\n\n${buildInsightPrompt(type, forecastPeriods)}`
-    : `${widgetDesc}\n\n${buildInsightPrompt(type, forecastPeriods)}`;
 
-  const text = await callInsightEndpoint(aiConfig, systemPrompt, userPrompt, signal);
+  const text = await callInsightEndpoint(
+    aiConfig,
+    {
+      insightType: type,
+      widgetKind: widget.kind,
+      widgetTitle: widget.title,
+      dataSummary,
+      forecastPeriods: type === 'forecast' ? forecastPeriods : undefined,
+    },
+    signal,
+  );
   return { text };
 }
 
@@ -449,20 +408,33 @@ export async function generateDashboardSummary(
   options?: Pick<StudioInsightOptions, 'signal'>,
 ): Promise<StudioInsightResult> {
   const signal = options?.signal;
-  const dashboardState = buildAISystemPrompt(controller.getState());
+  const state = controller.getState();
 
-  const systemPrompt =
-    'You are a data analyst AI assistant for an analytics dashboard. ' +
-    'The user wants a brief narrative summary of their entire dashboard. ' +
-    'Summarise what the dashboard covers, highlight key metrics or trends visible across ' +
-    'the widgets, and provide a 3–6 sentence executive summary. ' +
-    'Be concise and business-focused.';
+  // Build a compact summary of all widgets on the active page
+  const page = state.pages[state.dashboard.activePageId];
+  const widgetIds = (page?.widgetRows ?? []).flat();
+  const widgetSummaries = widgetIds
+    .map((id: string) => {
+      const w = state.widgets[id];
+      if (!w) {
+        return null;
+      }
+      const dataSummary = buildWidgetDataSummary(w, state, { sampling: 'stride' });
+      return `### ${w.title} (${w.kind})\n${dataSummary || '(no data)'}`;
+    })
+    .filter(Boolean)
+    .join('\n\n');
 
-  const userPrompt =
-    `Here is the current dashboard state:\n\n${dashboardState}\n\n` +
-    'Write a brief executive summary of this dashboard.';
-
-  const text = await callInsightEndpoint(aiConfig, systemPrompt, userPrompt, signal);
+  const text = await callInsightEndpoint(
+    aiConfig,
+    {
+      insightType: 'summary',
+      widgetKind: 'dashboard',
+      widgetTitle: page?.title ?? 'Dashboard',
+      dataSummary: widgetSummaries,
+    },
+    signal,
+  );
   return { text };
 }
 
@@ -498,18 +470,15 @@ export async function generateAnomalyExplanation(
     anomalyAxisValues: anomalies.map((a) => String(a.value)),
   });
 
-  const systemPrompt =
-    'You are a data analyst AI assistant. ' +
-    'The user has detected statistical anomalies in a chart. ' +
-    'Provide a concise (3–5 sentence) explanation of possible causes for these outliers. ' +
-    'Be specific to the widget context. Avoid generic disclaimers.';
-
-  const userPrompt =
-    `Widget: "${widget.title}" (kind: ${widget.kind}, chart type: ${widget.config?.chartType ?? 'unknown'}).\n` +
-    `Anomalous data points detected at the following categories: ${anomalyLabels}.\n` +
-    (dataSummary ? `\n${dataSummary}\n\n` : '\n') +
-    'Explain briefly why these data points might be anomalous and suggest possible business or data-quality reasons.';
-
-  const text = await callInsightEndpoint(aiConfig, systemPrompt, userPrompt, signal);
+  const text = await callInsightEndpoint(
+    aiConfig,
+    {
+      insightType: 'anomaly',
+      widgetKind: widget.kind,
+      widgetTitle: widget.title,
+      dataSummary: `Anomalous data points at: ${anomalyLabels}\n\n${dataSummary}`,
+    },
+    signal,
+  );
   return { text };
 }

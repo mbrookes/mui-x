@@ -9,35 +9,18 @@ export function useGenerateChatTitle(aiConfig: StudioAIConfig | undefined) {
       }
 
       try {
-        const response = await fetch(aiConfig.endpoint, {
+        const url = `${aiConfig.endpoint.replace(/\/?$/, '')}/title`;
+        const response = await fetch(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(aiConfig.apiKey ? { Authorization: `Bearer ${aiConfig.apiKey}` } : {}),
             ...(aiConfig.headers ?? {}),
           },
-          body: JSON.stringify({
-            model: aiConfig.model ?? 'gpt-4o',
-            messages: [
-              {
-                role: 'system',
-                content:
-                  'Generate a short title (max 6 words) and a one-sentence description for a ' +
-                  "dashboard analytics chat session based on the user's first message. " +
-                  'Respond ONLY with valid JSON: {"title": "...", "description": "..."}',
-              },
-              { role: 'user', content: firstMessage },
-            ],
-            max_tokens: 100,
-            temperature: 0.3,
-          }),
+          body: JSON.stringify({ message: firstMessage }),
         });
 
         const data = await response.json();
-        return JSON.parse(data.choices[0].message.content) as {
-          title: string;
-          description: string;
-        };
+        return data as { title: string; description: string };
       } catch {
         return { title: firstMessage.slice(0, 40), description: '' };
       }

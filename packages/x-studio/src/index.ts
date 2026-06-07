@@ -231,12 +231,10 @@ export type {
   StudioChatPanelProps,
   StudioChatPanelSlotProps,
 } from './components/StudioChatPanel/StudioChatPanel';
-export { createStudioChatAdapter } from './components/StudioChatPanel/studioAdapter';
-export type { StudioAIConfig, StudioAiTool } from './components/StudioChatPanel/studioAdapter';
+export type { StudioAIConfig } from './components/StudioChatPanel/studioBackendAdapter';
 export { createBackendChatAdapter } from './components/StudioChatPanel/studioBackendAdapter';
 export { applyStateMutation } from './components/StudioChatPanel/applyStateMutation';
-// AI prompt builder, tool definitions, skills, and types — live in x-studio-ai-middleware
-export { buildAISystemPrompt, STUDIO_AI_TOOLS } from '@mui/x-studio-ai-middleware';
+// AI types (server-side) — exported for use in StudioAIConfig.allowedTools and .skills
 export type {
   StateMutation,
   SerializableSkill,

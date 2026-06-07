@@ -90,7 +90,7 @@ export default defineConfig({
       },
     ],
   },
-  envPrefix: ['LLM_', 'VITE_'],
+  envPrefix: ['VITE_'],
   server: {
     port: 3004,
   },

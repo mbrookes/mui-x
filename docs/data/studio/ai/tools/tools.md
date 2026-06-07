@@ -92,7 +92,7 @@ controller.updateWidgetConfig('w1', newConfig);
 controller.addPage('Orders');
 ```
 
-### In `x-studio-backend` mode
+### In `x-studio-ai-middleware` mode
 
 Tool execution moves to the server. The server runs `executeToolOnState` and streams
 `state-mutation` events. The client applies them via `applyStateMutation`:
@@ -107,7 +107,7 @@ applyStateMutation(mutation, controller);
 // → controller.addWidget(widget)
 ```
 
-This is handled automatically when `mode: 'x-studio-backend'` is set. You do not need to call
+This is handled automatically when `mode: 'x-studio-ai-middleware'` is set. You do not need to call
 `executeToolOnState` or `applyStateMutation` yourself.
 
 This mapping is internal to Studio. You do not need to call controller methods
@@ -218,14 +218,14 @@ model as the tool result, or return `void` for a generic success response.
 
 :::info
 `extraTools` always execute client-side, regardless of `mode`. They are not supported
-in `x-studio-backend` mode and will not be forwarded to the server.
+in `x-studio-ai-middleware` mode and will not be forwarded to the server.
 Use `StudioAiTool` only with the default `direct` mode, or implement server-side equivalents.
 :::
 
 ## See also
 
 - [AI assistant setup](/x/react-studio/ai/setup/) — configure the adapter and system prompt
-- [`@mui/x-studio-backend`](https://github.com/mui/mui-x/tree/master/packages/x-studio-backend) — run the agentic loop server-side
+- [`@mui/x-studio-ai-middleware`](https://github.com/mui/mui-x/tree/master/packages/x-studio-ai-middleware) — run the agentic loop server-side
 - [Composed approach](/x/react-studio/getting-started/composition/) — add `StudioChatPanel` to a custom layout
 - [Edit and view mode](/x/react-studio/behaviors/edit-and-view-mode/) — use view mode to protect dashboards from user edits
 - [State management](/x/react-studio/getting-started/state/) — the `StudioState` context supplied to every tool call

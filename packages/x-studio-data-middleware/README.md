@@ -1,4 +1,4 @@
-# `@mui/x-studio-middleware`
+# `@mui/x-studio-data-middleware`
 
 Framework-agnostic server middleware for [MUI X Studio](https://mui.com/x/react-studio/) data pipelines.
 
@@ -7,7 +7,7 @@ Provides a single `handleBatchQuery()` pure function that accepts a batch of wid
 ## Installation
 
 ```bash
-npm install @mui/x-studio-middleware knex lru-cache
+npm install @mui/x-studio-data-middleware knex lru-cache
 ```
 
 `knex` is a peer dependency. Bring your own database driver (`pg`, `mysql2`, `better-sqlite3`, etc.).
@@ -17,7 +17,7 @@ npm install @mui/x-studio-middleware knex lru-cache
 ```ts
 import express from 'express';
 import knex from 'knex';
-import { handleBatchQuery, extractSecurityClaims, LRUCacheProvider } from '@mui/x-studio-middleware';
+import { handleBatchQuery, extractSecurityClaims, LRUCacheProvider } from '@mui/x-studio-data-middleware';
 
 const db = knex({ client: 'pg', connection: process.env.DATABASE_URL });
 const cache = new LRUCacheProvider({ maxSizeBytes: 256 * 1024 * 1024 });
@@ -184,7 +184,7 @@ Distributed cache backed by any Redis-compatible client (`ioredis` or `node-redi
 
 ```ts
 import Redis from 'ioredis';
-import { RedisCacheProvider } from '@mui/x-studio-middleware';
+import { RedisCacheProvider } from '@mui/x-studio-data-middleware';
 
 const redis = new Redis({ host: 'localhost', port: 6379 });
 const cache = new RedisCacheProvider(redis, {

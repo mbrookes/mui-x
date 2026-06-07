@@ -1,5 +1,5 @@
 /**
- * Redis-backed cache provider for @mui/x-studio-middleware.
+ * Redis-backed cache provider for @mui/x-studio-data-middleware.
  *
  * Implements `CacheProvider` using any Redis-compatible client.
  * Use this in multi-node or serverless deployments where `LRUCacheProvider`
@@ -14,7 +14,7 @@
  * ### ioredis
  * ```ts
  * import Redis from 'ioredis';
- * import { RedisCacheProvider } from '@mui/x-studio-middleware';
+ * import { RedisCacheProvider } from '@mui/x-studio-data-middleware';
  *
  * const redis = new Redis({ host: 'localhost', port: 6379 });
  * const cache = new RedisCacheProvider(redis);
@@ -23,7 +23,7 @@
  * ### node-redis (v4+)
  * ```ts
  * import { createClient } from 'redis';
- * import { RedisCacheProvider } from '@mui/x-studio-middleware';
+ * import { RedisCacheProvider } from '@mui/x-studio-data-middleware';
  *
  * const redis = await createClient({ url: 'redis://localhost:6379' }).connect();
  * const cache = new RedisCacheProvider(redis);

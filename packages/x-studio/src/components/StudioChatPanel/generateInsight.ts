@@ -3,7 +3,7 @@ import type { StudioAIConfig } from './studioAdapter';
 import type { StudioChartAnnotation } from '../../models/baseTypes';
 import type { StudioState } from '../../models/stateTypes';
 import type { StudioWidget } from '../../models/widgetTypes';
-import { buildAISystemPrompt } from '../../internals/buildAISystemPrompt';
+import { buildAISystemPrompt } from '@mui/x-studio-ai-middleware'
 import { createStudioPipeline } from '../../internals/StudioPipeline';
 
 // ── Public types ──────────────────────────────────────────────────────────────

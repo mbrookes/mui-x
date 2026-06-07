@@ -11,8 +11,49 @@
 import type { ChatAdapter, ChatMessage, ChatMessageChunk } from '@mui/x-chat/headless';
 import type { StudioController } from '../../store/StudioController';
 import type { StudioAISkill, StudioCustomWidgetDef, StateMutation } from '../../models';
-import type { StudioAIConfig } from './studioAdapter';
 import { applyStateMutation } from './applyStateMutation';
+import type { StudioAIToolName } from './studioAITools';
+
+/**
+ * Configuration for the x-studio AI assistant.
+ *
+ * `x-studio` is a UI-only package — it contains no LLM implementation.
+ * Point `endpoint` at an `x-studio-ai-middleware` server (e.g. `examples/x-studio-dev-server`)
+ * which holds the API key, builds the system prompt, and runs tool calls server-side.
+ */
+export interface StudioAIConfig {
+  /**
+   * Base URL of your server-side AI handler.
+   * Typically `http://localhost:3020/api/ai` when using `x-studio-dev-server`.
+   * The following paths are appended automatically for each operation:
+   * - `/chat` — streaming chat (SSE)
+   * - `/insight` — widget insight generation
+   * - `/title` — chat session title generation
+   * - `/widget` — widget creation from description
+   */
+  endpoint: string;
+  /**
+   * Additional HTTP headers sent with every AI request.
+   * Use this to authenticate with your server, e.g.:
+   * ```ts
+   * headers: { Authorization: `Bearer ${import.meta.env.VITE_STUDIO_SERVER_TOKEN}` }
+   * ```
+   */
+  headers?: Record<string, string>;
+  /**
+   * Whitelist of built-in tool names the model is allowed to call.
+   * When omitted, all built-in tools are enabled.
+   * Set to `[]` to disable all built-in tools.
+   */
+  allowedTools?: StudioAIToolName[];
+  /**
+   * Skills to register with the AI assistant.
+   * `execute` functions (if present) are stripped before sending to the server —
+   * only the serializable fields (`name`, `mode`, `promptFragment`, `tool` schema)
+   * are forwarded. All execution happens server-side.
+   */
+  skills?: StudioAISkill[];
+}
 
 type ChatSendMessageInput = Parameters<ChatAdapter['sendMessage']>[0];
 
@@ -31,6 +72,7 @@ export function createBackendChatAdapter(
   focusedWidgetId?: string,
 ): ChatAdapter {
   const { endpoint, headers: extraHeaders, allowedTools, skills } = config;
+  const chatUrl = `${endpoint.replace(/\/?$/, '')}/chat`;
 
   // Serialize skills: strip execute functions (not JSON-serializable)
   const serializableSkills = skills?.map((s: StudioAISkill) => ({
@@ -54,7 +96,7 @@ export function createBackendChatAdapter(
 
           let response: Response;
           try {
-            response = await fetch(endpoint, {
+            response = await fetch(chatUrl, {
               method: 'POST',
               signal: input.signal,
               headers: {

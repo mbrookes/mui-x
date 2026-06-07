@@ -7,7 +7,7 @@ import type {
   GridFeatureFlags,
   StudioCustomWidgetDef,
 } from '../models';
-import type { StudioAIConfig } from '../components/StudioChatPanel/studioAdapter';
+import type { StudioAIConfig } from '../components/StudioChatPanel/studioBackendAdapter';
 import {
   BUILT_IN_GEOGRAPHY_DEFINITIONS,
   type StudioMapGeographyDefinition,

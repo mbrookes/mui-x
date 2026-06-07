@@ -3,9 +3,8 @@ declare module '@mui/x-studio' {
 
   export interface StudioAIConfig {
     endpoint: string;
-    apiKey?: string;
-    model?: string;
     headers?: Record<string, string>;
+    allowedTools?: string[];
   }
 
   export interface StudioPage {

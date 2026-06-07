@@ -41,7 +41,7 @@ import { StudioComposeDrawer } from '../StudioComposeDrawer';
 import { StudioFiltersDrawer } from '../StudioFiltersDrawer';
 // StudioDrilldownDrawer is kept as an exported composable component but no longer mounted by default.
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
-import type { StudioAIConfig } from '../StudioChatPanel/studioAdapter';
+import type { StudioAIConfig } from '../StudioChatPanel/studioBackendAdapter';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
 
 // Lazy-load the chat panel so @base-ui/react/menu (and the full @mui/x-chat

@@ -31,33 +31,17 @@ function readStoredLocale(): SupportedLocale {
 
 /**
  * Resolve the AI config from environment variables.
- *
- * Priority:
- * 1. VITE_STUDIO_SERVER_URL — routes through the dev server (adds system prompt server-side)
- * 2. LLM_ENDPOINT           — connects directly to the LLM from the browser
+ * Requires VITE_STUDIO_SERVER_URL to be set (no direct LLM connection from client).
  */
 function resolveAiConfig(): StudioAIConfig | undefined {
   const serverUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
-  if (serverUrl) {
-    const token = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
-    return {
-      endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai/chat`,
-      headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,
-    };
-  }
-
-  const endpoint = import.meta.env.LLM_ENDPOINT as string | undefined;
-  if (!endpoint) {
+  if (!serverUrl) {
     return undefined;
   }
-
+  const token = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
   return {
-    endpoint,
-    apiKey: import.meta.env.LLM_API_KEY as string | undefined,
-    model: (import.meta.env.LLM_MODEL as string | undefined) ?? 'gpt-4o',
-    headers: import.meta.env.LLM_TOKEN as string | undefined
-      ? { 'X-Studio-Token': import.meta.env.LLM_TOKEN as string }
-      : undefined,
+    endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai/chat`,
+    headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,
   };
 }
 

@@ -226,7 +226,7 @@ describe('allowedTools filtering', () => {
     expect(filtered.length).toBe(0);
   });
 
-  it('STUDIO_AI_TOOLS contains all 15 expected tool names', () => {
+  it('STUDIO_AI_TOOLS contains all 17 expected tool names', () => {
     const names = STUDIO_AI_TOOLS.map((t) => t.function.name);
     const expected = [
       'get_dashboard_state',
@@ -244,6 +244,8 @@ describe('allowedTools filtering', () => {
       'remove_page_filter',
       'add_widget_filter',
       'remove_widget_filter',
+      'summarise_page',
+      'apply_bulk_update',
     ];
     for (const name of expected) {
       expect(names).toContain(name);
@@ -289,5 +291,25 @@ describe('onToolError', () => {
     // executeTool hits the default switch case which returns an error object
     const parsed = JSON.parse(result) as { error: string };
     expect(parsed.error).toBeDefined();
+  });
+});
+
+// ── StudioAIConfig.mode backward compat ───────────────────────────────────────
+
+describe('StudioAIConfig.mode', () => {
+  it('accepts mode: "direct" (backward compat)', () => {
+    const config: StudioAIConfig = { endpoint: 'https://example.com', mode: 'direct' };
+    expect(config.mode).toBe('direct');
+  });
+
+  it('accepts mode: "x-studio-backend"', () => {
+    const config: StudioAIConfig = { endpoint: 'https://example.com', mode: 'x-studio-backend' };
+    expect(config.mode).toBe('x-studio-backend');
+  });
+
+  it('defaults to direct mode when mode is omitted', () => {
+    const config: StudioAIConfig = { endpoint: 'https://example.com' };
+    // mode is optional — undefined means direct mode
+    expect(config.mode).toBeUndefined();
   });
 });

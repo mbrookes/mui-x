@@ -22,6 +22,7 @@ export const alias = [
     { lib: 'x-license' },
     { lib: 'x-telemetry' },
     { lib: 'x-virtualizer' },
+    { lib: 'x-studio', plans: ['backend', 'middleware'] },
   ].flatMap((v) => {
     return [
       {

@@ -302,9 +302,9 @@ describe('StudioAIConfig.mode', () => {
     expect(config.mode).toBe('direct');
   });
 
-  it('accepts mode: "x-studio-backend"', () => {
-    const config: StudioAIConfig = { endpoint: 'https://example.com', mode: 'x-studio-backend' };
-    expect(config.mode).toBe('x-studio-backend');
+  it('accepts mode: "x-studio-ai-middleware"', () => {
+    const config: StudioAIConfig = { endpoint: 'https://example.com', mode: 'x-studio-ai-middleware' };
+    expect(config.mode).toBe('x-studio-ai-middleware');
   });
 
   it('defaults to direct mode when mode is omitted', () => {

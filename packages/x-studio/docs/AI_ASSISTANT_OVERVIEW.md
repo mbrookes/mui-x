@@ -28,7 +28,7 @@ applications: `examples/x-studio`, `examples/x-studio-composed`, and `examples/x
 9. [Result Display per Path](#9-result-display-per-path)
 10. [Feature Comparison Matrix](#10-feature-comparison-matrix)
 11. [Data Flows — Mermaid Diagrams](#11-data-flows--mermaid-diagrams)
-12. [x-studio-backend — Server-side AI Handler](#12-x-studio-backend--server-side-ai-handler)
+12. [x-studio-ai-middleware — Server-side AI Handler](#12-x-studio-ai-middleware--server-side-ai-handler)
     - 12.1 Architecture overview
     - 12.2 `handleAIChat` — pure function entry point
     - 12.3 `executeToolOnState` — server-side tool execution
@@ -798,7 +798,7 @@ flowchart TD
 |---|---|---|
 | `packages/x-studio/src/Studio/Studio.tsx` | 741 | Monolithic `<Studio>` component, FAB wiring, lazy `StudioChatPanel` |
 | `packages/x-studio/src/StudioChatPanel/studioAdapter.ts` | ~1130 | `createStudioChatAdapter`, agentic loop, `executeTool` (direct/proxy mode) |
-| `packages/x-studio/src/StudioChatPanel/studioBackendAdapter.ts` | ~200 | Thin client for `x-studio-backend` endpoints (`mode: 'x-studio-backend'`) |
+| `packages/x-studio/src/StudioChatPanel/studioBackendAdapter.ts` | ~200 | Thin client for `x-studio-ai-middleware` endpoints (`mode: 'x-studio-ai-middleware'`) |
 | `packages/x-studio/src/StudioChatPanel/applyStateMutation.ts` | ~120 | Maps `StateMutation` events → `StudioController` calls |
 | `packages/x-studio/src/internals/buildAISystemPrompt.ts` | ~390 | System prompt builder: `STUDIO_AI_INSTRUCTIONS` + `buildDashboardState()` |
 | `packages/x-studio/src/StudioChatPanel/generateInsight.ts` | 525 | `generateWidgetInsight`, `generateDashboardSummary`, `generateAnomalyExplanation`, `buildWidgetDataSummary` |
@@ -815,11 +815,11 @@ flowchart TD
 | `packages/x-studio/src/internals/useWidgetRows.ts` | 534 | React hook — async adapter + sync in-memory data paths |
 | `packages/x-studio/src/internals/StudioRequestCache.ts` | 116 | SWR-style cache for async adapter results |
 | `packages/x-studio/src/context/StudioContext.tsx` | 125 | `StudioProvider`, `useStudioController`, `useStudioSelector` |
-| `packages/x-studio-backend/src/handleAIChat.ts` | ~120 | Pure-function backend entry point |
-| `packages/x-studio-backend/src/agenticLoop.ts` | ~290 | Server-side agentic loop generator |
-| `packages/x-studio-backend/src/executeToolOnState.ts` | ~380 | All 17 tools executing against `StudioState` |
-| `packages/x-studio-backend/src/parseSSE.ts` | ~45 | Reusable SSE parser |
-| `packages/x-studio-backend/src/models/protocol.ts` | ~65 | `StudioAIRequest`, `StudioAISSEEvent` types |
+| `packages/x-studio-ai-middleware/src/handleAIChat.ts` | ~120 | Pure-function backend entry point |
+| `packages/x-studio-ai-middleware/src/agenticLoop.ts` | ~290 | Server-side agentic loop generator |
+| `packages/x-studio-ai-middleware/src/executeToolOnState.ts` | ~380 | All 17 tools executing against `StudioState` |
+| `packages/x-studio-ai-middleware/src/parseSSE.ts` | ~45 | Reusable SSE parser |
+| `packages/x-studio-ai-middleware/src/models/protocol.ts` | ~65 | `StudioAIRequest`, `StudioAISSEEvent` types |
 | `examples/x-studio/src/App.tsx` | ~80 | Monolithic entry: `<Studio>` with all flags enabled |
 | `examples/x-studio-composed/src/App.tsx` | ~180 | Composable entry: `StudioProvider` + `StudioChatPanel overlay={false}` |
 | `examples/x-studio-ai/src/App.tsx` | ~120 | AI-first entry: per-chat controller map, `handleHomeSubmit` |
@@ -831,9 +831,9 @@ flowchart TD
 
 ---
 
-## 12. x-studio-backend — Server-side AI Handler
+## 12. x-studio-ai-middleware — Server-side AI Handler
 
-**Package:** `packages/x-studio-backend`
+**Package:** `packages/x-studio-ai-middleware`
 
 ### 12.1 Architecture overview
 
@@ -860,20 +860,20 @@ studioBackendAdapter.ts
   - On finish → closes stream
 ```
 
-Activated by `StudioAIConfig.mode = 'x-studio-backend'`. `StudioChatPanel` dispatches
+Activated by `StudioAIConfig.mode = 'x-studio-ai-middleware'`. `StudioChatPanel` dispatches
 to `createBackendChatAdapter` instead of `createStudioChatAdapter`.
 
 ### 12.2 `handleAIChat` — pure function entry point
 
 ```ts
-// packages/x-studio-backend/src/handleAIChat.ts
+// packages/x-studio-ai-middleware/src/handleAIChat.ts
 export function handleAIChat(
   body: StudioAIRequest,
   options: StudioAIHandlerOptions,
 ): ReadableStream<string>
 ```
 
-**Pure function contract** (same pattern as `x-studio-middleware/handleBatchQuery`):
+**Pure function contract** (same pattern as `x-studio-data-middleware/handleBatchQuery`):
 
 - No HTTP framework imports
 - No global state
@@ -885,7 +885,7 @@ The host wraps it in whatever route handler it uses. See section 12 of the READM
 ### 12.3 `executeToolOnState` — server-side tool execution
 
 ```ts
-// packages/x-studio-backend/src/executeToolOnState.ts
+// packages/x-studio-ai-middleware/src/executeToolOnState.ts
 export function executeToolOnState(
   toolName: string,
   input: unknown,
@@ -914,7 +914,7 @@ Covers all 17 built-in tools. State mutations are pure — no controller, no sid
 ### 12.4 `runAgenticLoop` — server agentic loop
 
 ```ts
-// packages/x-studio-backend/src/agenticLoop.ts
+// packages/x-studio-ai-middleware/src/agenticLoop.ts
 export async function* runAgenticLoop(
   messages: ChatMessage[],
   initialState: StudioState,
@@ -973,8 +973,8 @@ Replaces the 1100-line `studioAdapter.ts` agentic loop with a ~200-line thin SSE
 ### 12.7 `StateMutation` and `SerializableSkill` wire types
 
 Defined in `packages/x-studio/src/models/aiTypes.ts` (the canonical location — both
-`x-studio` client code and `x-studio-backend` server code import from here).
-Re-exported from `@mui/x-studio-backend` for server consumers.
+`x-studio` client code and `x-studio-ai-middleware` server code import from here).
+Re-exported from `@mui/x-studio-ai-middleware` for server consumers.
 
 `SerializableSkill` strips the `execute` function from `StudioAISkill` so skills can
 be JSON-serialized in the POST body:

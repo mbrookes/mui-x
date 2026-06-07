@@ -1,5 +1,5 @@
 /**
- * Thin client adapter for `@mui/x-studio-backend` endpoints.
+ * Thin client adapter for `@mui/x-studio-ai-middleware` endpoints.
  *
  * This adapter:
  * 1. Serializes skills (strips non-JSON-serializable `execute` functions)
@@ -18,7 +18,7 @@ type ChatSendMessageInput = Parameters<ChatAdapter['sendMessage']>[0];
 
 /**
  * Creates a `ChatAdapter` that delegates the full AI pipeline to an
- * `x-studio-backend` server endpoint.
+ * `x-studio-ai-middleware` server endpoint.
  *
  * The server builds the system prompt, calls the LLM, executes tool calls,
  * and streams `StudioAISSEEvent` objects back. This adapter applies the

@@ -4,6 +4,8 @@ A minimal server-side proxy that keeps your LLM API key out of the browser.
 
 The proxy accepts requests from the x-studio example apps, adds the API key server-side, and forwards them to OpenAI (or any OpenAI-compatible endpoint). It streams the SSE response back so the x-studio AI chat adapter receives it in the same format as a direct API call.
 
+> **Looking for more features?** [`examples/x-studio-dev-server`](../x-studio-dev-server/README.md) is a full-featured local backend that adds the system prompt server-side, serves the sales demo dataset via SQL, and handles tool execution — all without any `@mui/x-studio` dependency. The AI proxy is still useful as a lightweight key-guard when you want the client to build and send its own system prompt.
+
 ## Quick start
 
 ### 1. Install dependencies

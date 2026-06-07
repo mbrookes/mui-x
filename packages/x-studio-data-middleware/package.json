@@ -1,5 +1,5 @@
 {
-  "name": "@mui/x-studio-middleware",
+  "name": "@mui/x-studio-data-middleware",
   "version": "8.25.0",
   "description": "Framework-agnostic server middleware for MUI X Studio data pipeline",
   "license": "MIT",

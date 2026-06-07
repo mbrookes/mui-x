@@ -8,8 +8,8 @@
     "strict": true,
     "noEmit": true,
     "paths": {
-      "@mui/x-studio-middleware": ["../../packages/x-studio-middleware/src/index.ts"],
-      "@mui/x-studio-middleware/*": ["../../packages/x-studio-middleware/src/*"]
+      "@mui/x-studio-data-middleware": ["../../packages/x-studio-data-middleware/src/index.ts"],
+      "@mui/x-studio-data-middleware/*": ["../../packages/x-studio-data-middleware/src/*"]
     }
   },
   "include": ["src/server/**/*"]

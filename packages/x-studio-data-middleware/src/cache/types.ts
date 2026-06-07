@@ -1,5 +1,5 @@
 /**
- * CacheProvider interface for x-studio-middleware.
+ * CacheProvider interface for x-studio-data-middleware.
  *
  * The host app can provide its own implementation to use Redis, Memcached,
  * or any other backing store. The default (LRUCacheProvider) uses an

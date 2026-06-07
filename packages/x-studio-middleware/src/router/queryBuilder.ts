@@ -6,7 +6,9 @@
  *
  * SECURITY INVARIANTS:
  * 1. All WHERE values use Knex parameterized bindings (never string concat)
- * 2. Table and column names are validated against SCHEMA_ALLOWLIST before use
+ * 2. Table and column names are validated against the caller's allowlists
+ *    BEFORE this function is called — see handler.ts `validateColumns()`.
+ *    This function trusts the descriptor has already been vetted.
  * 3. Security claims are applied FIRST and cannot be overridden by user filters
  * 4. The Knex `??` operator (double question mark) is used for identifier binding
  *
@@ -29,16 +31,16 @@ const SAFE_OPERATORS = new Set<FilterPredicate['operator']>([
 ]);
 
 /**
- * Build a Knex query builder with security predicates and user filters applied.
+ * Build a Knex query builder with security predicates, joins, and user filters applied.
  *
  * The caller is responsible for:
  * - Adding SELECT columns (or COUNT)
  * - Adding ORDER BY / LIMIT
- * - Validating table/column names against the schema allowlist before calling
+ * - Validating table and column names against the allowlists (done in handler.ts)
  *
  * @param db - Knex instance
  * @param claims - Pre-verified security claims
- * @param descriptor - Widget query descriptor (table name and filters)
+ * @param descriptor - Widget query descriptor (validated before calling)
  */
 export function buildSecureQuery(
    
@@ -49,16 +51,26 @@ export function buildSecureQuery(
 ): any {
   const query = db(descriptor.table);
 
+  // ── Joins (Phase 7) ────────────────────────────────────────────────────────
+  // Applied before WHERE predicates so joined columns are available to filters.
+  for (const join of descriptor.joins ?? []) {
+    const joinMethod =
+      join.type === 'left' ? 'leftJoin' : join.type === 'right' ? 'rightJoin' : 'join';
+    for (const [left, right] of join.on) {
+      query[joinMethod](join.table, left, '=', right);
+    }
+  }
+
   // ── Phase 1: Security predicates (applied unconditionally) ────────────────
   // These use Knex parameterized bindings — never raw values in SQL strings.
-  query.where('tenant_id', '=', claims.tenantId);
+  query.where(`${descriptor.table}.tenant_id`, '=', claims.tenantId);
 
   if (claims.regionIds && claims.regionIds.length > 0) {
-    query.whereIn('region_id', claims.regionIds);
+    query.whereIn(`${descriptor.table}.region_id`, claims.regionIds);
   }
 
   if (claims.department) {
-    query.where('department', '=', claims.department);
+    query.where(`${descriptor.table}.department`, '=', claims.department);
   }
 
   // ── Phase 2: User-supplied filter predicates ────────────────────────────

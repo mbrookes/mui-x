@@ -40,13 +40,11 @@ interface DataSummaryOptions {
    * Row selection strategy when the dataset exceeds MAX_DATA_ROWS:
    * - `'aggregate'`: bucket rows into groups and aggregate numeric fields per bucket —
    *   best for summary/analysis/forecast on dense time-series (every period represented)
-   * - `'tail'`: most recent N rows — retained for backwards compat; superseded by aggregate for forecast
    * - `'stride'`: evenly distributed sample — kept for non-numeric/non-time widget kinds
    * - `'anomaly'`: guarantees anomaly rows are included, fills remainder with stride —
    *   never aggregate here (would smooth out the outliers)
-   * - `'head'`: first N rows (legacy; only suitable for small datasets)
    */
-  sampling?: 'head' | 'tail' | 'stride' | 'aggregate' | 'anomaly';
+  sampling?: 'stride' | 'aggregate' | 'anomaly';
   /** X-axis values identifying anomaly rows — only used when sampling === 'anomaly' */
   anomalyAxisValues?: string[];
 }
@@ -62,13 +60,6 @@ function selectSampleRows(
   }
 
   const { sampling = 'stride', anomalyAxisValues = [] } = options;
-
-  if (sampling === 'tail') {
-    return {
-      sample: rows.slice(-MAX_DATA_ROWS),
-      label: `most recent ${MAX_DATA_ROWS} of ${total}`,
-    };
-  }
 
   if (sampling === 'anomaly' && xFieldId && anomalyAxisValues.length > 0) {
     // Build a stride-based index set, then merge in anomaly row indices so

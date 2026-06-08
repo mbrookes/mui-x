@@ -35,16 +35,16 @@ export type {
 } from './handleGenerateInsight';
 export type {
   StudioAIRequest,
-  SerializableSkill,
   StudioAISSEEvent,
-  StateMutation,
 } from './models/protocol';
-export type { StudioAISkill } from './models/aiTypes';
+// StudioAISkill is defined here (server-side skill with execute function).
+// SerializableSkill, StateMutation, StudioAIToolName are protocol types defined
+// locally (mirrored in @mui/x-studio for UI consumers).
+export type { StudioAISkill, SerializableSkill, StateMutation, StudioAIToolName } from './models/aiTypes';
 
-// Prompt builder and tool definitions — consumed by the server and re-exported for client use
+// Prompt builder and tool definitions — consumed by the server
 export { buildAISystemPrompt } from './buildAISystemPrompt';
 export { STUDIO_AI_TOOLS } from './studioAITools';
-export type { StudioAIToolName } from './studioAITools';
 
 // Built-in skills
 export { dashboardNarratorSkill, insightSuggestorSkill } from './studioSkills';

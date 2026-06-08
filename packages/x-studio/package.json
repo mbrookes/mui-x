@@ -46,8 +46,7 @@
     "reselect": "catalog:",
     "topojson-client": "^3.1.0",
     "us-atlas": "^3.0.1",
-    "world-atlas": "^2.0.2",
-    "@mui/x-studio-ai-middleware": "workspace:*"
+    "world-atlas": "^2.0.2"
   },
   "devDependencies": {
     "@mui/icons-material": "^9.0.0",

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { executeToolOnState } from './executeToolOnState';
-import { createDefaultStudioState } from '@mui/x-studio/models/stateTypes';
-import type { StudioState } from '@mui/x-studio';
+import { createDefaultStudioState } from './models/studioTypes';
+import type { StudioState } from './models/studioTypes';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

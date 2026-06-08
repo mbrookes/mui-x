@@ -5,7 +5,7 @@ import type {
   StudioWidget,
   StudioWidgetKind,
   StudioFilterState,
-} from '@mui/x-studio';
+} from './models/studioTypes';
 import type { SerializableSkill } from './models/aiTypes';
 
 // ── Widget kind / chart type descriptions ─────────────────────────────────────

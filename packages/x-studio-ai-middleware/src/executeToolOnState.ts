@@ -14,7 +14,7 @@ import type {
   StudioWidget,
   StudioFilterOperator,
   StudioDataField,
-} from '@mui/x-studio';
+} from './models/studioTypes';
 import type { StateMutation } from './models/aiTypes';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
 import { createDefaultWidget } from './widgetFactory';

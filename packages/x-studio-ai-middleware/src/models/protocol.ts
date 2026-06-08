@@ -5,7 +5,7 @@
  * The server responds with a `text/event-stream` of `StudioAISSEEvent` objects,
  * each encoded as `data: <JSON>\n\n`.
  */
-import type { StudioState, StudioCustomWidgetDef } from '@mui/x-studio';
+import type { StudioState, StudioCustomWidgetDef } from './studioTypes';
 import type { StateMutation, SerializableSkill } from './aiTypes';
 
 // Re-exported so consumers only need to import from @mui/x-studio-ai-middleware

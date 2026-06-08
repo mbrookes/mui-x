@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
-import { createDefaultStudioState } from '@mui/x-studio';
-import type { StudioDataSource, StudioFilterState, StudioWidget } from '@mui/x-studio';
+import { createDefaultStudioState } from './models/studioTypes';
+import type { StudioDataSource, StudioFilterState, StudioWidget } from './models/studioTypes';
 
 const PAGE_ID = 'page-1';
 

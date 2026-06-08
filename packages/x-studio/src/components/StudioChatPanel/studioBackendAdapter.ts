@@ -10,7 +10,7 @@
  */
 import type { ChatAdapter, ChatMessage, ChatMessageChunk } from '@mui/x-chat/headless';
 import type { StudioController } from '../../store/StudioController';
-import type { StudioAISkill, StudioCustomWidgetDef, StateMutation } from '../../models';
+import type { StudioCustomWidgetDef, StateMutation, SerializableSkill } from '../../models';
 import { applyStateMutation } from './applyStateMutation';
 import type { StudioAIToolName } from './studioAITools';
 
@@ -52,7 +52,7 @@ export interface StudioAIConfig {
    * only the serializable fields (`name`, `mode`, `promptFragment`, `tool` schema)
    * are forwarded. All execution happens server-side.
    */
-  skills?: StudioAISkill[];
+  skills?: SerializableSkill[];
 }
 
 type ChatSendMessageInput = Parameters<ChatAdapter['sendMessage']>[0];
@@ -74,8 +74,9 @@ export function createBackendChatAdapter(
   const { endpoint, headers: extraHeaders, allowedTools, skills } = config;
   const chatUrl = `${endpoint.replace(/\/?$/, '')}/chat`;
 
-  // Serialize skills: strip execute functions (not JSON-serializable)
-  const serializableSkills = skills?.map((s: StudioAISkill) => ({
+  // Skills are already in serializable form — the execute function (if present) is stripped
+  // by the caller (StudioAISkill satisfies SerializableSkill structurally).
+  const serializableSkills = skills?.map((s) => ({
     name: s.name,
     mode: s.mode,
     promptFragment: s.promptFragment,

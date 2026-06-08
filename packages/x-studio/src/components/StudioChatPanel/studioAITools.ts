@@ -1,2 +1,2 @@
-// Re-exported from @mui/x-studio-ai-middleware where the implementation lives.
-export type { StudioAIToolName } from '@mui/x-studio-ai-middleware';
+// Re-exported from local models — StudioAIToolName is now defined in x-studio.
+export type { StudioAIToolName } from '../../models/aiTypes';

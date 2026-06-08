@@ -30,8 +30,8 @@ import { DateFilterWidgetIcon } from '../icons/DateFilterWidgetIcon';
 import { PivotWidgetIcon } from '../icons/PivotWidgetIcon';
 import { MapWidgetIcon } from '../icons/MapWidgetIcon';
 
-// createDefaultWidget lives in the middleware (no React dependency) and is re-exported here.
-export { createDefaultWidget } from '@mui/x-studio-ai-middleware';
+// createDefaultWidget — pure factory, no React dependency.
+export { createDefaultWidget } from './widgetFactory';
 
 export const WIDGET_TYPES: {
   kind: StudioWidgetKind;

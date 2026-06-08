@@ -1,90 +1,39 @@
-import type { StudioState, StudioWidget } from '@mui/x-studio';
-import type { StudioFilterState } from '@mui/x-studio';
+/**
+ * AI interaction types for x-studio-ai-middleware.
+ *
+ * `SerializableSkill`, `StateMutation`, and `StudioAIToolName` are protocol
+ * types also exported by `@mui/x-studio` (the client UI package). They are
+ * defined here locally so this package has no dependency on x-studio.
+ * TypeScript structural typing ensures values from @mui/x-studio remain
+ * assignable to these types at the app boundary.
+ */
+import type {
+  StudioState,
+  StudioFilterState,
+  StudioWidget,
+} from './studioTypes';
+
+// ── Protocol types (mirrored in @mui/x-studio for UI consumers) ──────────────
 
 /**
- * A skill that can be registered with the x-studio AI assistant via
- * `StudioAIConfig.skills`. Each skill injects a prompt fragment into the
- * system prompt so the model knows about the capability, and optionally
- * registers a server-executable tool.
- *
- * @example Instruction-only skill (no new tool):
- * ```ts
- * const narratorSkill: StudioAISkill = {
- *   name: 'dashboardNarrator',
- *   mode: 'instruction-only',
- *   promptFragment: `Trigger: "walk me through this dashboard"...`,
- * };
- * ```
- *
- * @example Server-tool skill (adds a tool the LLM can call; executes server-side):
- * ```ts
- * const exportSkill: StudioAISkill = {
- *   name: 'annotateWidget',
- *   mode: 'server-tool',
- *   promptFragment: `Trigger: "annotate widget"...`,
- *   tool: {
- *     name: 'annotateWidget',
- *     description: 'Adds an annotation to a widget.',
- *     parameters: { type: 'object', properties: { widgetId: { type: 'string' }, note: { type: 'string' } }, required: ['widgetId', 'note'] },
- *     execute: (args, state) => {
- *       // modify state, return mutation
- *       return { output: 'Annotated', nextState: state };
- *     },
- *   },
- * };
- * ```
+ * Serializable skill metadata forwarded to the server in every AI request.
+ * The `execute` function (if present) is stripped before sending — only these
+ * fields are sent over the wire. Mirrors `SerializableSkill` in @mui/x-studio.
  */
-export interface StudioAISkill {
-  /**
-   * Unique skill name — used in the `<skill>` XML tag inserted into the system prompt.
-   * Must not conflict with built-in tool names.
-   */
+export interface SerializableSkill {
   name: string;
-  /**
-   * Controls how the skill is activated:
-   * - `'instruction-only'` — injects a prompt fragment with no new callable tool.
-   * - `'server-tool'` — injects a prompt fragment AND registers a tool the model can
-   *   call; the tool's `execute` function runs on the server with access to `StudioState`.
-   */
-  mode: 'server-tool' | 'instruction-only';
-  /**
-   * Prompt fragment injected into the system prompt when this skill is enabled.
-   * Describe the trigger conditions, output format, and constraints.
-   * Keep it concise — this text is sent on every request.
-   */
+  mode: 'instruction-only' | 'server-tool';
   promptFragment: string;
-  /**
-   * Required for `'server-tool'` skills. Defines the tool the model can call and the
-   * server-side `execute` function that handles the call.
-   */
   tool?: {
-    /** Tool name registered with the model. Must match the name in `promptFragment`. */
     name: string;
-    /** Description shown to the model in the tool definition. */
     description: string;
-    /** JSON Schema object describing the tool's input parameters. */
     parameters: object;
-    /**
-     * Called on the server when the model invokes this tool.
-     * Returns a result string and an optional state mutation.
-     */
-    execute: (
-      args: Record<string, unknown>,
-      state: StudioState,
-    ) => {
-      output: string;
-      mutation?: StateMutation;
-      nextState: StudioState;
-    };
   };
 }
 
-// ── Server/client wire protocol ───────────────────────────────────────────────
-
 /**
- * A named state mutation produced server-side by `executeToolOnState`.
- * Streamed to the client as `state-mutation` SSE events.
- * The client maps each mutation to the corresponding `StudioController` method.
+ * A state mutation produced server-side and streamed to the client as an SSE event.
+ * Mirrors `StateMutation` in @mui/x-studio.
  */
 export type StateMutation =
   | { type: 'addPage'; args: { id: string; title: string } }
@@ -120,16 +69,48 @@ export type StateMutation =
     };
 
 /**
- * Serializable skill metadata for the wire protocol.
- * The `execute` function is stripped (not JSON-serializable).
+ * Names of the built-in AI tools. Mirrors `StudioAIToolName` in @mui/x-studio.
  */
-export interface SerializableSkill {
-  name: string;
-  mode: 'instruction-only' | 'server-tool';
-  promptFragment: string;
+export type StudioAIToolName =
+  | 'get_dashboard_state'
+  | 'add_page'
+  | 'set_dashboard_title'
+  | 'add_widget'
+  | 'update_widget'
+  | 'remove_widget'
+  | 'set_widget_layout'
+  | 'set_widget_width'
+  | 'rename_page'
+  | 'remove_page'
+  | 'set_active_page'
+  | 'add_page_filter'
+  | 'remove_page_filter'
+  | 'add_widget_filter'
+  | 'remove_widget_filter'
+  | 'summarise_page'
+  | 'apply_bulk_update';
+
+// ── Server-side skill ─────────────────────────────────────────────────────────
+
+/**
+ * A skill that can be registered with the x-studio AI assistant.
+ * Extends `SerializableSkill` by adding the server-side `execute` function.
+ * Instances are assignable to `SerializableSkill` (used in `StudioAIConfig.skills`).
+ */
+export interface StudioAISkill extends SerializableSkill {
+  mode: 'server-tool' | 'instruction-only';
   tool?: {
     name: string;
     description: string;
     parameters: object;
+    execute: (
+      args: Record<string, unknown>,
+      state: StudioState,
+    ) => {
+      output: string;
+      mutation?: StateMutation;
+      nextState: StudioState;
+    };
   };
 }
+

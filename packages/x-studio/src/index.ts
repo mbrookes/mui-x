@@ -234,14 +234,13 @@ export type {
 export type { StudioAIConfig } from './components/StudioChatPanel/studioBackendAdapter';
 export { createBackendChatAdapter } from './components/StudioChatPanel/studioBackendAdapter';
 export { applyStateMutation } from './components/StudioChatPanel/applyStateMutation';
-// AI types (server-side) — exported for use in StudioAIConfig.allowedTools and .skills
+// AI protocol types — the minimal set the UI needs to consume SSE responses and accept config.
+// StudioAISkill (with server-side execute) and skill implementations live in @mui/x-studio-ai-middleware.
 export type {
   StateMutation,
   SerializableSkill,
-  StudioAISkill,
   StudioAIToolName,
-} from '@mui/x-studio-ai-middleware';
-export { dashboardNarratorSkill, insightSuggestorSkill } from '@mui/x-studio-ai-middleware';
+} from './models/aiTypes';
 export {
   generateWidgetInsight,
   generateDashboardSummary,

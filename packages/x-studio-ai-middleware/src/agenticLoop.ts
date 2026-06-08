@@ -8,7 +8,7 @@
  * them to the client.
  */
 import type { ChatMessage } from '@mui/x-chat-headless';
-import type { StudioState, StudioCustomWidgetDef } from '@mui/x-studio';
+import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 import type { StateMutation, SerializableSkill, StudioAISkill } from './models/aiTypes';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
 import { STUDIO_AI_TOOLS } from './studioAITools';

@@ -188,6 +188,19 @@ export interface HandleBatchQueryOptions {
    */
   columnAllowlist?: Record<string, string[]>;
   /**
+   * Column name used for tenant isolation (row-level multi-tenancy).
+   *
+   * When set, a `WHERE <table>.<tenantColumn> = <claims.tenantId>` predicate is
+   * automatically added to every query. This is the primary multi-tenancy boundary.
+   *
+   * When omitted, no tenant filter is applied — suitable for single-tenant
+   * deployments where the database does not have a tenant discriminator column.
+   *
+   * @default undefined (no tenant filter)
+   * @example 'tenant_id'
+   */
+  tenantColumn?: string;
+  /**
    * Routing thresholds (row counts).
    * Defaults: { clientTier: 10_000, serverMemoryTier: 100_000 }
    */

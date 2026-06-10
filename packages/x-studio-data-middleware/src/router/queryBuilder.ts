@@ -15,7 +15,7 @@
  * OWASP note: Parameterized queries = Defense Option 1 (recommended).
  * String-predicate injection is OWASP Defense Option 4 (STRONGLY DISCOURAGED).
  */
-import type { JwtSecurityClaims, BatchWidgetDescriptor, FilterPredicate } from '../security/types';
+import type { JwtSecurityClaims, BatchWidgetDescriptor, FilterPredicate, HandleBatchQueryOptions } from '../security/types';
 
 // Allowlist of operators that may be used in user-supplied filters
 const SAFE_OPERATORS = new Set<FilterPredicate['operator']>([
@@ -47,6 +47,7 @@ export function buildSecureQuery(
   db: any, // Knex.Knex
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
+  options?: Pick<HandleBatchQueryOptions, 'tenantColumn'>,
    
 ): any {
   const query = db(descriptor.table);
@@ -63,7 +64,9 @@ export function buildSecureQuery(
 
   // ── Phase 1: Security predicates (applied unconditionally) ────────────────
   // These use Knex parameterized bindings — never raw values in SQL strings.
-  query.where(`${descriptor.table}.tenant_id`, '=', claims.tenantId);
+  if (options?.tenantColumn) {
+    query.where(`${descriptor.table}.${options.tenantColumn}`, '=', claims.tenantId);
+  }
 
   if (claims.regionIds && claims.regionIds.length > 0) {
     query.whereIn(`${descriptor.table}.region_id`, claims.regionIds);

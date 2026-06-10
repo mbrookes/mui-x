@@ -86,7 +86,7 @@ export function resolveMetricRefs(
   });
 }
 
-function isRelativeDateValue(value: unknown): value is RelativeDateValue {
+export function isRelativeDateValue(value: unknown): value is RelativeDateValue {
   return (
     typeof value === 'object' && value !== null && (value as RelativeDateValue).relative === true
   );
@@ -120,7 +120,7 @@ function resolveReferencedFilterValueFast(
   return resolvedValue;
 }
 
-function resolveRelativeDate(rel: RelativeDateValue): string {
+export function resolveRelativeDate(rel: RelativeDateValue): string {
   const now = dayjs();
   const result =
     rel.direction === 'past' ? now.subtract(rel.amount, rel.unit) : now.add(rel.amount, rel.unit);

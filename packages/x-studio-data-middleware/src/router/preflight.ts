@@ -12,7 +12,7 @@
  * This is consistently 5–20× faster than the full aggregation query, making
  * it a safe pre-flight check even for the smallest tier.
  */
-import type { JwtSecurityClaims, BatchWidgetDescriptor, FilterPredicate } from '../security/types';
+import type { JwtSecurityClaims, BatchWidgetDescriptor, FilterPredicate, HandleBatchQueryOptions } from '../security/types';
 import { buildSecureQuery } from './queryBuilder';
 
 export type RoutingTier = 'client' | 'server' | 'db';
@@ -39,12 +39,13 @@ export async function runPreflight(
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
   thresholds?: { clientTier?: number; serverMemoryTier?: number },
+  options?: Pick<HandleBatchQueryOptions, 'tenantColumn'>,
 ): Promise<PreflightResult> {
   const clientThreshold = thresholds?.clientTier ?? DEFAULT_CLIENT_THRESHOLD;
   const serverThreshold = thresholds?.serverMemoryTier ?? DEFAULT_SERVER_MEMORY_THRESHOLD;
 
   // Build the query without column selection — only security + user filters
-  const query = buildSecureQuery(db, claims, descriptor).count('* as row_count');
+  const query = buildSecureQuery(db, claims, descriptor, options).count('* as row_count');
 
   const result = (await query.first()) as { row_count: number | string } | undefined;
   const rowCount = Number(result?.row_count ?? 0);
@@ -74,10 +75,11 @@ export async function executeForTier(
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
   tier: RoutingTier,
+  options?: Pick<HandleBatchQueryOptions, 'tenantColumn'>,
 ): Promise<Record<string, unknown>[]> {
   if (tier === 'client' || tier === 'server') {
     // Return the filtered (but unaggregated) rows
-    const query = buildSecureQuery(db, claims, descriptor);
+    const query = buildSecureQuery(db, claims, descriptor, options);
     if (descriptor.columns && descriptor.columns.length > 0) {
       // Inject qualified column names to avoid ambiguity
       query.select(descriptor.columns.map((c: string) => `${descriptor.table}.${c}`));
@@ -94,7 +96,7 @@ export async function executeForTier(
   }
 
   // 'db' tier: DB push-down aggregation using explicit AggregationSpec[]
-  const query = buildSecureQuery(db, claims, descriptor);
+  const query = buildSecureQuery(db, claims, descriptor, options);
   const columns = descriptor.columns ?? [];
 
   const groupByColumns = columns.filter(

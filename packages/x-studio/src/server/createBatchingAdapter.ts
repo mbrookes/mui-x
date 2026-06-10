@@ -23,11 +23,13 @@
  *   };
  */
 import type {
+  StudioDataSource,
   StudioDataSourceAdapter,
   StudioFilterNode,
   StudioFilterOperator,
   StudioQueryDescriptor,
   StudioQueryResult,
+  StudioRelationship,
 } from '../models';
 import { isRelativeDateValue, resolveRelativeDate } from '../internals/filterUtils';
 
@@ -115,6 +117,24 @@ export interface BatchingAdapterOptions {
    * Useful for adding auth headers, interceptors, or test mocks.
    */
   fetchFn?: typeof fetch;
+  /**
+   * All data sources in the current Studio state, keyed by source ID.
+   *
+   * When provided together with `relationships`, the adapter automatically
+   * generates SQL JOINs for widget fields that belong to a related source.
+   * Without this, all field references are passed unqualified and the server
+   * must have prior knowledge of the schema.
+   */
+  dataSources?: Record<string, StudioDataSource>;
+  /**
+   * Relationship graph for cross-source field resolution.
+   *
+   * Used together with `dataSources` to detect when a requested field lives
+   * in a related source and to generate the corresponding JOIN descriptor.
+   * Only `many-to-one` and `one-to-one` relationships are used for automatic
+   * JOIN generation; `many-to-many` relationships are skipped.
+   */
+  relationships?: StudioRelationship[];
 }
 
 /**
@@ -128,88 +148,230 @@ export function createBatchingAdapter(
   endpoint: string,
   options: BatchingAdapterOptions = {},
 ): StudioDataSourceAdapter {
-  const { batchDelayMs = 50, fetchFn = globalThis.fetch } = options;
+  const { batchDelayMs = 50, fetchFn = globalThis.fetch, dataSources, relationships } = options;
 
-  // Get or create the shared loader for this endpoint
-  if (!loaderRegistry.has(endpoint)) {
-    const loader = createLoader<StudioQueryDescriptor, StudioQueryResult>(
-      async (descriptors) => {
-        const body = {
-          pageId: descriptors[0]?.sourceId ?? 'unknown',
-          widgets: descriptors.map((d) => {
-            // Non-aggregated fields → SELECT + GROUP BY
-            const aggFieldIds = new Set((d.aggregations ?? []).map((a) => a.field));
-            const columns = d.select.filter((fieldId) => !aggFieldIds.has(fieldId));
+  function createBatchFn(): BatchFn<StudioQueryDescriptor, StudioQueryResult> {
+    return async (descriptors) => {
+      const body = {
+        pageId: descriptors[0]?.sourceId ?? 'unknown',
+        widgets: descriptors.map((d) => buildBatchWidgetDescriptor(d, dataSources, relationships)),
+      };
 
-            // Convert StudioQueryDescriptor aggregations → AggregationSpec[]
-            // count_distinct is not supported by the middleware; falls back to count.
-            const aggregations: AggregationSpec[] | undefined =
-              d.aggregations && d.aggregations.length > 0
-                ? d.aggregations.map((a) => ({
-                    column: a.field,
-                    func: a.fn === 'count_distinct' ? ('count' as const) : a.fn,
-                    alias: a.alias,
-                  }))
-                : undefined;
+      const response = await fetchFn(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
 
-            return {
-              id: d.widgetId,
-              table: d.tableName ?? d.sourceId,
-              columns,
-              aggregations,
-              filters: d.filter ? flattenFilterNode(d.filter) : undefined,
-              orderBy: d.groupBy ? [{ column: d.groupBy, direction: 'asc' as const }] : undefined,
-              limit: undefined,
-            };
-          }),
-        };
+      if (!response.ok) {
+        const err = new Error(
+          `Studio batch request failed: ${response.status} ${response.statusText}`,
+        );
+        return descriptors.map(() => err);
+      }
 
-        const response = await fetchFn(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
+      const json = (await response.json()) as {
+        results: Array<{ id: string; rows: Record<string, unknown>[]; error?: string }>;
+      };
 
-        if (!response.ok) {
-          const err = new Error(
-            `Studio batch request failed: ${response.status} ${response.statusText}`,
-          );
-          return descriptors.map(() => err);
+      // DataLoader invariant: results must be same length and same order as keys
+      return descriptors.map((d) => {
+        const result = json.results.find((r) => r.id === d.widgetId);
+        if (!result) {
+          return new Error(`Studio batch response missing result for widget "${d.widgetId}"`);
         }
+        if (result.error) {
+          return new Error(result.error);
+        }
+        return { rows: result.rows };
+      });
+    };
+  }
 
-        const json = (await response.json()) as {
-          results: Array<{ id: string; rows: Record<string, unknown>[]; error?: string }>;
-        };
-
-        // DataLoader invariant: results must be same length and same order as keys
-        return descriptors.map((d) => {
-          const result = json.results.find((r) => r.id === d.widgetId);
-          if (!result) {
-            return new Error(`Studio batch response missing result for widget "${d.widgetId}"`);
-          }
-          if (result.error) {
-            return new Error(result.error);
-          }
-          return { rows: result.rows };
-        });
-      },
-      (cb) => setTimeout(cb, batchDelayMs),
-    );
-
-    loaderRegistry.set(endpoint, loader);
+  let loader: BatchLoader<StudioQueryDescriptor, StudioQueryResult>;
+  if (dataSources) {
+    // Relationship-aware mode: create a dedicated loader that captures the
+    // dataSources/relationships closure. Don't use the shared registry because
+    // the resolver is specific to this adapter instance's state snapshot.
+    loader = createLoader(createBatchFn(), (cb) => setTimeout(cb, batchDelayMs));
+  } else {
+    // Simple mode: use shared registry so multiple adapter instances pointing
+    // at the same endpoint share one DataLoader (batching still works across instances).
+    if (!loaderRegistry.has(endpoint)) {
+      loaderRegistry.set(endpoint, createLoader(createBatchFn(), (cb) => setTimeout(cb, batchDelayMs)));
+    }
+    loader = loaderRegistry.get(endpoint)!;
   }
 
   return {
     getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult> {
-      return loaderRegistry.get(endpoint)!.load(descriptor);
+      return loader.load(descriptor);
     },
   };
 }
 
+// ── Cross-source field resolution ───────────────────────────────────────────
+
+/** Internal JOIN descriptor matching the shape expected by x-studio-data-middleware */
+interface JoinDescriptorInternal {
+  table: string;
+  type: 'left';
+  on: [string, string][];
+}
+
 /**
- * Lookup table from Studio filter operators to batch protocol operators.
- * Operators absent from this map are not supported by the batch protocol.
+ * Resolve a field ID to the correct SQL column reference for a query against
+ * `primarySourceId`. When the field belongs to a directly related source, returns
+ * a qualified `"relatedTable"."field"` column name and the JOIN descriptor needed
+ * to reach that table from the primary table.
+ *
+ * Only `many-to-one` and `one-to-one` relationships are traversed (one hop).
+ * Fields not found in any related source are returned as-is (unqualified).
  */
+function resolveField(
+  fieldId: string,
+  primarySourceId: string,
+  primaryTableName: string,
+  dataSources: Record<string, StudioDataSource>,
+  relationships: StudioRelationship[],
+): { column: string; join?: JoinDescriptorInternal } {
+  const primarySource = dataSources[primarySourceId];
+
+  // If we don't know the primary source's fields, or the field is in it, use as-is
+  if (!primarySource || primarySource.fields.some((f) => f.id === fieldId)) {
+    return { column: fieldId };
+  }
+
+  // Walk all direct (non-many-to-many) relationships to find a related source
+  // that owns this field, then emit a LEFT JOIN.
+  for (const rel of relationships) {
+    if (rel.type === 'many-to-many') {
+      continue;
+    }
+
+    let relatedSourceId: string | null = null;
+    let leftCol = '';
+    let rightCol = '';
+
+    if (rel.sourceId === primarySourceId) {
+      // Primary table holds the FK: primary.sourceField = related.targetField
+      const relatedSource = dataSources[rel.targetId];
+      if (!relatedSource) {
+        continue;
+      }
+      relatedSourceId = rel.targetId;
+      const relatedTable = relatedSource.tableName ?? rel.targetId;
+      leftCol = `${primaryTableName}.${rel.sourceField}`;
+      rightCol = `${relatedTable}.${rel.targetField}`;
+    } else if (rel.targetId === primarySourceId) {
+      // Related table holds the FK: related.sourceField = primary.targetField
+      const relatedSource = dataSources[rel.sourceId];
+      if (!relatedSource) {
+        continue;
+      }
+      relatedSourceId = rel.sourceId;
+      const relatedTable = relatedSource.tableName ?? rel.sourceId;
+      leftCol = `${relatedTable}.${rel.sourceField}`;
+      rightCol = `${primaryTableName}.${rel.targetField}`;
+    }
+
+    if (relatedSourceId !== null) {
+      const relatedSource = dataSources[relatedSourceId];
+      if (relatedSource?.fields.some((f) => f.id === fieldId)) {
+        const relatedTable = relatedSource.tableName ?? relatedSourceId;
+        return {
+          column: `${relatedTable}.${fieldId}`,
+          join: { table: relatedTable, type: 'left', on: [[leftCol, rightCol]] },
+        };
+      }
+    }
+  }
+
+  // Field not found in any related source — pass through unqualified
+  return { column: fieldId };
+}
+
+/**
+ * Build the `BatchWidgetDescriptor` object to send to the server for one widget.
+ *
+ * When `dataSources` and `relationships` are provided, any field referenced by the
+ * widget that does not belong to the widget's primary source is resolved to its
+ * owning table and a LEFT JOIN descriptor is generated automatically.
+ */
+function buildBatchWidgetDescriptor(
+  d: StudioQueryDescriptor,
+  dataSources: Record<string, StudioDataSource> | undefined,
+  relationships: StudioRelationship[] | undefined,
+): object {
+  const tableName = d.tableName ?? d.sourceId;
+  const aggFieldIds = new Set((d.aggregations ?? []).map((a) => a.field));
+
+  // ── Simple mode (no relationship info) ────────────────────────────────────
+  if (!dataSources || !relationships) {
+    const columns = d.select.filter((fieldId) => !aggFieldIds.has(fieldId));
+    const aggregations: AggregationSpec[] | undefined =
+      d.aggregations && d.aggregations.length > 0
+        ? d.aggregations.map((a) => ({
+            column: a.field,
+            func: a.fn === 'count_distinct' ? ('count' as const) : a.fn,
+            alias: a.alias,
+          }))
+        : undefined;
+
+    return {
+      id: d.widgetId,
+      table: tableName,
+      columns,
+      aggregations,
+      filters: d.filter ? flattenFilterNode(d.filter) : undefined,
+      orderBy: d.groupBy ? [{ column: d.groupBy, direction: 'asc' as const }] : undefined,
+    };
+  }
+
+  // ── Relationship-aware mode ────────────────────────────────────────────────
+  // Track joins added so far (keyed by joined table name to deduplicate).
+  const joinsMap = new Map<string, JoinDescriptorInternal>();
+
+  function resolve(fieldId: string): string {
+    const resolved = resolveField(fieldId, d.sourceId, tableName, dataSources!, relationships!);
+    if (resolved.join && !joinsMap.has(resolved.join.table)) {
+      joinsMap.set(resolved.join.table, resolved.join);
+    }
+    return resolved.column;
+  }
+
+  // SELECT columns (non-aggregated fields)
+  const columns = d.select.filter((fieldId) => !aggFieldIds.has(fieldId)).map(resolve);
+
+  // Aggregations
+  const aggregations: AggregationSpec[] | undefined =
+    d.aggregations && d.aggregations.length > 0
+      ? d.aggregations.map((a) => ({
+          column: resolve(a.field),
+          func: a.fn === 'count_distinct' ? ('count' as const) : a.fn,
+          alias: a.alias,
+        }))
+      : undefined;
+
+  // Filters — also resolve cross-source filter column references
+  const rawFilters = d.filter ? flattenFilterNode(d.filter) : [];
+  const filters = rawFilters.map((pred) => ({ ...pred, column: resolve(pred.column) }));
+
+  // ORDER BY
+  const orderByColumn = d.groupBy ? resolve(d.groupBy) : undefined;
+
+  return {
+    id: d.widgetId,
+    table: tableName,
+    columns,
+    joins: joinsMap.size > 0 ? [...joinsMap.values()] : undefined,
+    aggregations,
+    filters: filters.length > 0 ? filters : undefined,
+    orderBy: orderByColumn ? [{ column: orderByColumn, direction: 'asc' as const }] : undefined,
+  };
+}
+
+
 const OPERATOR_MAP: Partial<Record<StudioFilterOperator, FilterPredicate['operator']>> = {
   equals: 'eq',
   not_equals: 'neq',

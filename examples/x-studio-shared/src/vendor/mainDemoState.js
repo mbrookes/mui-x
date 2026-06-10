@@ -576,7 +576,7 @@ const e = {
   },
   n = {
     pages: [e, t, a, r, { id: 'new-page', widgets: {}, widgetLayout: {}, filter: {} }],
-    selectedPageId: new URLSearchParams(window.location.search).get('tab') ?? 'executive',
+    selectedPageId: (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null) ?? 'executive',
   };
 export {
   e as executivePage,

@@ -25,6 +25,7 @@
 import type {
   StudioDataSource,
   StudioDataSourceAdapter,
+  StudioExpressionField,
   StudioFilterNode,
   StudioFilterOperator,
   StudioQueryDescriptor,
@@ -127,6 +128,18 @@ export interface BatchingAdapterOptions {
    */
   dataSources?: Record<string, StudioDataSource>;
   /**
+   * Expression fields defined in the current Studio state.
+   *
+   * When provided, the adapter resolves expression field references in widget
+   * queries to their physical SQL counterparts:
+   * - `JoinFieldExpression` (e.g. `customers.country` looked up via a FK join):
+   *   resolved to a LEFT JOIN + aliased SELECT column.
+   * - `FunctionExpression` (arithmetic like `price * stock`): stripped from the
+   *   server request so the server returns raw rows and Studio evaluates the
+   *   expression client-side.
+   */
+  expressionFields?: StudioExpressionField[];
+  /**
    * Relationship graph for cross-source field resolution.
    *
    * Used together with `dataSources` to detect when a requested field lives
@@ -148,13 +161,13 @@ export function createBatchingAdapter(
   endpoint: string,
   options: BatchingAdapterOptions = {},
 ): StudioDataSourceAdapter {
-  const { batchDelayMs = 50, fetchFn = globalThis.fetch, dataSources, relationships } = options;
+  const { batchDelayMs = 50, fetchFn = globalThis.fetch, dataSources, relationships, expressionFields } = options;
 
   function createBatchFn(): BatchFn<StudioQueryDescriptor, StudioQueryResult> {
     return async (descriptors) => {
       const body = {
         pageId: descriptors[0]?.sourceId ?? 'unknown',
-        widgets: descriptors.map((d) => buildBatchWidgetDescriptor(d, dataSources, relationships)),
+        widgets: descriptors.map((d) => buildBatchWidgetDescriptor(d, dataSources, relationships, expressionFields)),
       };
 
       const response = await fetchFn(endpoint, {
@@ -220,13 +233,47 @@ interface JoinDescriptorInternal {
 }
 
 /**
+ * Result of resolving a field ID to its SQL representation.
+ *
+ * - `column`: the logical ID to use in the `columns` array (unchanged for most fields).
+ * - `physicalColumn`: when set, the actual DB column to SELECT (e.g. `customers.country`).
+ *   The server SELECTs `physicalColumn AS column` to preserve the logical field ID in responses.
+ * - `join`: JOIN descriptor to add when the field lives in a related table.
+ * - `skip`: when true, the field is a server-side-incompatible expression (e.g. arithmetic);
+ *   exclude it from columns and aggregations and return raw rows for client-side evaluation.
+ */
+interface ResolvedField {
+  column: string;
+  physicalColumn?: string;
+  join?: JoinDescriptorInternal;
+  skip?: boolean;
+}
+
+/**
+ * Returns true when `expr` is a `StudioJoinFieldExpression`.
+ * (Duck-type check since we can't import expressionTypes here without a circular path.)
+ */
+function isJoinExpression(expr: unknown): expr is { joinSourceId: string; fieldId: string } {
+  return (
+    typeof expr === 'object' &&
+    expr !== null &&
+    'joinSourceId' in expr &&
+    'fieldId' in expr
+  );
+}
+
+/**
  * Resolve a field ID to the correct SQL column reference for a query against
- * `primarySourceId`. When the field belongs to a directly related source, returns
- * a qualified `"relatedTable"."field"` column name and the JOIN descriptor needed
- * to reach that table from the primary table.
+ * `primarySourceId`. Handles three cases:
+ *
+ * 1. Physical field on the primary source — returned as-is.
+ * 2. Expression field with a join expression — resolved to a LEFT JOIN + alias.
+ * 3. Expression field with an arithmetic expression — marked `skip` so the
+ *    server returns raw rows and Studio evaluates the expression client-side.
+ * 4. Physical field on a related source (cross-source reference) — resolved via
+ *    the relationship graph to a LEFT JOIN + qualified column.
  *
  * Only `many-to-one` and `one-to-one` relationships are traversed (one hop).
- * Fields not found in any related source are returned as-is (unqualified).
  */
 function resolveField(
   fieldId: string,
@@ -234,16 +281,57 @@ function resolveField(
   primaryTableName: string,
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
-): { column: string; join?: JoinDescriptorInternal } {
+  expressionFields?: StudioExpressionField[],
+): ResolvedField {
+  // ── 1. Check expression fields first ───────────────────────────────────────
+  if (expressionFields) {
+    const exprField = expressionFields.find(
+      (f) => f.id === fieldId && f.sourceId === primarySourceId,
+    );
+    if (exprField) {
+      if (isJoinExpression(exprField.expression)) {
+        // JoinFieldExpression: resolve to the joined table's physical column.
+        const { joinSourceId, fieldId: joinFieldId } = exprField.expression;
+        const joinSource = dataSources[joinSourceId];
+        if (joinSource) {
+          const joinTable = joinSource.tableName ?? joinSourceId;
+          // Find the relationship between primarySourceId and joinSourceId
+          for (const rel of relationships) {
+            if (rel.type === 'many-to-many') continue;
+            let leftCol = '';
+            let rightCol = '';
+            if (rel.sourceId === primarySourceId && rel.targetId === joinSourceId) {
+              leftCol = `${primaryTableName}.${rel.sourceField}`;
+              rightCol = `${joinTable}.${rel.targetField}`;
+            } else if (rel.targetId === primarySourceId && rel.sourceId === joinSourceId) {
+              leftCol = `${joinTable}.${rel.sourceField}`;
+              rightCol = `${primaryTableName}.${rel.targetField}`;
+            }
+            if (leftCol) {
+              return {
+                column: fieldId, // keep logical ID; server aliases physical → logical
+                physicalColumn: `${joinTable}.${joinFieldId}`,
+                join: { table: joinTable, type: 'left', on: [[leftCol, rightCol]] },
+              };
+            }
+          }
+        }
+        // Couldn't resolve the join — skip
+        return { column: fieldId, skip: true };
+      }
+      // FunctionExpression or unknown — can't compute server-side
+      return { column: fieldId, skip: true };
+    }
+  }
+
   const primarySource = dataSources[primarySourceId];
 
-  // If we don't know the primary source's fields, or the field is in it, use as-is
+  // ── 2. Field is in the primary source's field list ──────────────────────────
   if (!primarySource || primarySource.fields.some((f) => f.id === fieldId)) {
     return { column: fieldId };
   }
 
-  // Walk all direct (non-many-to-many) relationships to find a related source
-  // that owns this field, then emit a LEFT JOIN.
+  // ── 3. Cross-source field: walk relationships to find a related source ──────
   for (const rel of relationships) {
     if (rel.type === 'many-to-many') {
       continue;
@@ -254,21 +342,15 @@ function resolveField(
     let rightCol = '';
 
     if (rel.sourceId === primarySourceId) {
-      // Primary table holds the FK: primary.sourceField = related.targetField
       const relatedSource = dataSources[rel.targetId];
-      if (!relatedSource) {
-        continue;
-      }
+      if (!relatedSource) continue;
       relatedSourceId = rel.targetId;
       const relatedTable = relatedSource.tableName ?? rel.targetId;
       leftCol = `${primaryTableName}.${rel.sourceField}`;
       rightCol = `${relatedTable}.${rel.targetField}`;
     } else if (rel.targetId === primarySourceId) {
-      // Related table holds the FK: related.sourceField = primary.targetField
       const relatedSource = dataSources[rel.sourceId];
-      if (!relatedSource) {
-        continue;
-      }
+      if (!relatedSource) continue;
       relatedSourceId = rel.sourceId;
       const relatedTable = relatedSource.tableName ?? rel.sourceId;
       leftCol = `${relatedTable}.${rel.sourceField}`;
@@ -287,7 +369,7 @@ function resolveField(
     }
   }
 
-  // Field not found in any related source — pass through unqualified
+  // Field not found anywhere — pass through unqualified
   return { column: fieldId };
 }
 
@@ -297,18 +379,26 @@ function resolveField(
  * When `dataSources` and `relationships` are provided, any field referenced by the
  * widget that does not belong to the widget's primary source is resolved to its
  * owning table and a LEFT JOIN descriptor is generated automatically.
+ *
+ * Expression fields are also resolved:
+ * - `JoinFieldExpression` → aliased column SELECT via `columnAliases`
+ * - `FunctionExpression` → stripped from the descriptor (server returns raw rows)
  */
 function buildBatchWidgetDescriptor(
   d: StudioQueryDescriptor,
   dataSources: Record<string, StudioDataSource> | undefined,
   relationships: StudioRelationship[] | undefined,
+  expressionFields?: StudioExpressionField[],
 ): object {
   const tableName = d.tableName ?? d.sourceId;
-  const aggFieldIds = new Set((d.aggregations ?? []).map((a) => a.field));
 
   // ── Simple mode (no relationship info) ────────────────────────────────────
   if (!dataSources || !relationships) {
-    const columns = d.select.filter((fieldId) => !aggFieldIds.has(fieldId));
+    // Include all select fields (both group-by and aggregate-source fields) so
+    // client/server-tier raw rows contain the measure columns Studio needs for
+    // client-side aggregation. The db-tier query builder excludes aggregate
+    // fields from groupBy via aggregations[*].column.
+    const columns = d.select;
     const aggregations: AggregationSpec[] | undefined =
       d.aggregations && d.aggregations.length > 0
         ? d.aggregations.map((a) => ({
@@ -329,47 +419,79 @@ function buildBatchWidgetDescriptor(
   }
 
   // ── Relationship-aware mode ────────────────────────────────────────────────
-  // Track joins added so far (keyed by joined table name to deduplicate).
   const joinsMap = new Map<string, JoinDescriptorInternal>();
+  // Maps logical field ID → physical SQL column (for expression fields)
+  const columnAliases: Record<string, string> = {};
 
-  function resolve(fieldId: string): string {
-    const resolved = resolveField(fieldId, d.sourceId, tableName, dataSources!, relationships!);
+  function resolve(fieldId: string): { column: string; skip?: boolean } {
+    const resolved = resolveField(
+      fieldId,
+      d.sourceId,
+      tableName,
+      dataSources!,
+      relationships!,
+      expressionFields,
+    );
     if (resolved.join && !joinsMap.has(resolved.join.table)) {
       joinsMap.set(resolved.join.table, resolved.join);
     }
-    return resolved.column;
+    if (resolved.physicalColumn) {
+      // Expression join field: keep logical ID in columns, alias to physical column
+      columnAliases[resolved.column] = resolved.physicalColumn;
+    }
+    return { column: resolved.column, skip: resolved.skip };
   }
 
-  // SELECT columns (non-aggregated fields)
-  const columns = d.select.filter((fieldId) => !aggFieldIds.has(fieldId)).map(resolve);
+  // SELECT all fields (group-by AND aggregate-source fields), skipping server-incompatible
+  // expressions. Including aggregate fields ensures client/server-tier raw rows contain the
+  // measure columns Studio needs for client-side aggregation. For db-tier, executeForTier
+  // filters out aggregate fields from the GROUP BY using aggregations[*].column.
+  const columns = d.select.flatMap((fieldId) => {
+    const r = resolve(fieldId);
+    return r.skip ? [] : [r.column];
+  });
 
-  // Aggregations
-  const aggregations: AggregationSpec[] | undefined =
-    d.aggregations && d.aggregations.length > 0
-      ? d.aggregations.map((a) => ({
-          column: resolve(a.field),
+  // Aggregations — skip expression fields that can't be aggregated server-side
+  const aggregations: AggregationSpec[] | undefined = (() => {
+    const aggs = (d.aggregations ?? []).flatMap((a) => {
+      const r = resolve(a.field);
+      if (r.skip) return [];
+      return [
+        {
+          column: r.column,
           func: a.fn === 'count_distinct' ? ('count' as const) : a.fn,
           alias: a.alias,
-        }))
-      : undefined;
+        },
+      ];
+    });
+    return aggs.length > 0 ? aggs : undefined;
+  })();
 
   // Filters — also resolve cross-source filter column references
   const rawFilters = d.filter ? flattenFilterNode(d.filter) : [];
-  const filters = rawFilters.map((pred) => ({ ...pred, column: resolve(pred.column) }));
+  const filters = rawFilters.flatMap((pred) => {
+    const r = resolve(pred.column);
+    return r.skip ? [] : [{ ...pred, column: r.column }];
+  });
 
-  // ORDER BY
+  // ORDER BY — use physical column for expression fields (server sees physical name)
   const orderByColumn = d.groupBy ? resolve(d.groupBy) : undefined;
 
   return {
     id: d.widgetId,
     table: tableName,
-    columns,
+    columns: columns.length > 0 ? columns : undefined,
+    columnAliases: Object.keys(columnAliases).length > 0 ? columnAliases : undefined,
     joins: joinsMap.size > 0 ? [...joinsMap.values()] : undefined,
     aggregations,
     filters: filters.length > 0 ? filters : undefined,
-    orderBy: orderByColumn ? [{ column: orderByColumn, direction: 'asc' as const }] : undefined,
+    orderBy:
+      orderByColumn && !orderByColumn.skip
+        ? [{ column: orderByColumn.column, direction: 'asc' as const }]
+        : undefined,
   };
 }
+
 
 
 const OPERATOR_MAP: Partial<Record<StudioFilterOperator, FilterPredicate['operator']>> = {

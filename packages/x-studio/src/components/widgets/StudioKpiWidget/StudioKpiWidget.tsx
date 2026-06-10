@@ -561,6 +561,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         needsDateFilter={trendNeedsDateFilter}
         isInverted={config.kpiTrendInvert ?? false}
         {...slotProps?.trend}
+        sx={[{ mt: 'auto' }, ...(Array.isArray(slotProps?.trend?.sx) ? slotProps.trend.sx : slotProps?.trend?.sx ? [slotProps.trend.sx] : [])]}
       />
     </Box>
   );

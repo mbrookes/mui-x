@@ -637,6 +637,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           p: pageTheme?.cardPadding ?? 2,
           boxSizing: 'border-box',
           height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
           position: 'relative',
           minHeight,
           outline: isSelected ? '2px solid' : undefined,
@@ -691,7 +693,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             onRegenerate={handleInsightRequest}
           />
         )}
-        <Stack spacing={widget.kind === 'grid' ? 2 : 0.5}>
+        <Stack spacing={widget.kind === 'grid' ? 2 : 0.5} sx={{ flexGrow: 1, minHeight: 0 }}>
           {/* Widget header */}
           <Box sx={{ minWidth: 0 }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
@@ -808,7 +810,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             ))}
           {widget.kind === 'kpi' &&
             (showContent ? (
-              <StudioKpiWidget widget={widget} dataSource={source} {...slotProps?.kpi} />
+              <Box sx={{ flexGrow: 1, minHeight: 0 }}>
+                <StudioKpiWidget widget={widget} dataSource={source} {...slotProps?.kpi} />
+              </Box>
             ) : (
               <Skeleton
                 variant="rectangular"

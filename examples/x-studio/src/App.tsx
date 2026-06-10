@@ -532,7 +532,11 @@ export default function App() {
           })
       : globalThis.fetch;
 
-    const batchingAdapter = createBatchingAdapter(serverEndpoint, { fetchFn });
+    const batchingAdapter = createBatchingAdapter(serverEndpoint, {
+      fetchFn,
+      dataSources: state.dataSources,
+      relationships: state.relationships,
+    });
     for (const source of Object.values(state.dataSources)) {
       studioRef.current?.setDataSourceAdapter(source.id, batchingAdapter);
     }

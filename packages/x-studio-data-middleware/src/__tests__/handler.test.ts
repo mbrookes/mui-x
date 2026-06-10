@@ -217,6 +217,8 @@ describe('handleBatchQuery — tenant isolation', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenantColumn: 'tenant_id',
+      cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
     });
 
     const rows = result.results[0].rows;
@@ -236,6 +238,8 @@ describe('handleBatchQuery — tenant isolation', () => {
     const result = await handleBatchQuery(body, GLOBEX_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenantColumn: 'tenant_id',
+      cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
     });
 
     const rows = result.results[0].rows;
@@ -264,6 +268,8 @@ describe('handleBatchQuery — user filter predicates', () => {
     const result = await handleBatchQuery(body, ACME_CLAIMS, {
       db: makeDb(),
       schemaAllowlist: ['sales'],
+      tenantColumn: 'tenant_id',
+      cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
     });
 
     const rows = result.results[0].rows;
@@ -398,7 +404,7 @@ describe('handleBatchQuery — cache', () => {
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
-    const opts = { db: makeDb(), schemaAllowlist: ['sales'], cacheProvider: cache };
+    const opts = { db: makeDb(), schemaAllowlist: ['sales'], cacheProvider: cache, tenantColumn: 'tenant_id' };
 
     const acmeResult = await handleBatchQuery(body, ACME_CLAIMS, opts);
     const globexResult = await handleBatchQuery(body, GLOBEX_CLAIMS, opts);

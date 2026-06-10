@@ -29,6 +29,7 @@ import type {
   StudioQueryDescriptor,
   StudioQueryResult,
 } from '../models';
+import { isRelativeDateValue, resolveRelativeDate } from '../internals/filterUtils';
 
 /** Structured filter predicate sent to the server (mirrors FilterPredicate in @mui/x-studio-data-middleware) */
 interface FilterPredicate {
@@ -238,13 +239,17 @@ function flattenFilterNode(node: StudioFilterNode): FilterPredicate[] {
   if (!operator) {
     return [];
   }
-  const predicate: FilterPredicate = { column: node.field, operator, value: node.value };
+  const value = isRelativeDateValue(node.value) ? resolveRelativeDate(node.value) : node.value;
+  const predicate: FilterPredicate = { column: node.field, operator, value };
   const predicates: FilterPredicate[] = [predicate];
   // Handle range (op2 / value2) — e.g. date-range filter emits between with two bounds
   if (node.op2 && node.value2 !== undefined) {
     const op2 = mapOperator(node.op2);
     if (op2) {
-      predicates.push({ column: node.field, operator: op2, value: node.value2 });
+      const value2 = isRelativeDateValue(node.value2)
+        ? resolveRelativeDate(node.value2)
+        : node.value2;
+      predicates.push({ column: node.field, operator: op2, value: value2 });
     }
   }
   return predicates;

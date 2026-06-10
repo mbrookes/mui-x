@@ -77,21 +77,30 @@ export async function executeForTier(
   tier: RoutingTier,
   options?: Pick<HandleBatchQueryOptions, 'tenantColumn'>,
 ): Promise<Record<string, unknown>[]> {
+  /** Resolve a logical column ID to its physical SQL column (via columnAliases if set). */
+  const physicalCol = (c: string): string => descriptor.columnAliases?.[c] ?? c;
+
   if (tier === 'client' || tier === 'server') {
     // Return the filtered (but unaggregated) rows
     const query = buildSecureQuery(db, claims, descriptor, options);
     if (descriptor.columns && descriptor.columns.length > 0) {
       // Qualify unqualified column names to avoid ambiguity when JOINs are present.
       // Skip columns that are already qualified (contain a dot) to prevent double-qualification.
+      // When a column alias is defined, SELECT the physical column AS the logical ID.
       query.select(
-        descriptor.columns.map((c: string) =>
-          c.includes('.') ? c : `${descriptor.table}.${c}`,
-        ),
+        descriptor.columns.map((c: string) => {
+          const phys = physicalCol(c);
+          if (phys !== c) {
+            // Expression field: SELECT physical AS logical
+            return db.raw(`?? as ??`, [phys, c]);
+          }
+          return phys.includes('.') ? phys : `${descriptor.table}.${phys}`;
+        }),
       );
     }
     if (descriptor.orderBy) {
       for (const ob of descriptor.orderBy) {
-        query.orderBy(ob.column, ob.direction);
+        query.orderBy(physicalCol(ob.column), ob.direction);
       }
     }
     if (descriptor.limit) {
@@ -108,26 +117,36 @@ export async function executeForTier(
     (c: string) => !descriptor.aggregations?.some((a) => a.column === c),
   );
   if (groupByColumns.length > 0) {
-    query.select(groupByColumns);
-    query.groupBy(groupByColumns);
+    // SELECT with aliases for expression fields; GROUP BY the physical columns
+    query.select(
+      groupByColumns.map((c: string) => {
+        const phys = physicalCol(c);
+        if (phys !== c) {
+          return db.raw(`?? as ??`, [phys, c]);
+        }
+        return phys;
+      }),
+    );
+    query.groupBy(groupByColumns.map(physicalCol));
   }
 
   for (const agg of descriptor.aggregations ?? []) {
+    const col = physicalCol(agg.column);
     switch (agg.func) {
       case 'sum':
-        query.sum(`${agg.column} as ${agg.alias}`);
+        query.sum(`${col} as ${agg.alias}`);
         break;
       case 'avg':
-        query.avg(`${agg.column} as ${agg.alias}`);
+        query.avg(`${col} as ${agg.alias}`);
         break;
       case 'count':
-        query.count(`${agg.column} as ${agg.alias}`);
+        query.count(`${col} as ${agg.alias}`);
         break;
       case 'min':
-        query.min(`${agg.column} as ${agg.alias}`);
+        query.min(`${col} as ${agg.alias}`);
         break;
       case 'max':
-        query.max(`${agg.column} as ${agg.alias}`);
+        query.max(`${col} as ${agg.alias}`);
         break;
       default:
         break;

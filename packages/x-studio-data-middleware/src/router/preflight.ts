@@ -81,8 +81,13 @@ export async function executeForTier(
     // Return the filtered (but unaggregated) rows
     const query = buildSecureQuery(db, claims, descriptor, options);
     if (descriptor.columns && descriptor.columns.length > 0) {
-      // Inject qualified column names to avoid ambiguity
-      query.select(descriptor.columns.map((c: string) => `${descriptor.table}.${c}`));
+      // Qualify unqualified column names to avoid ambiguity when JOINs are present.
+      // Skip columns that are already qualified (contain a dot) to prevent double-qualification.
+      query.select(
+        descriptor.columns.map((c: string) =>
+          c.includes('.') ? c : `${descriptor.table}.${c}`,
+        ),
+      );
     }
     if (descriptor.orderBy) {
       for (const ob of descriptor.orderBy) {

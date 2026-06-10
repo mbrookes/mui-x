@@ -41,28 +41,31 @@ export function createMockDb(tables: Tables): (table: string) => MockQueryBuilde
 
     const qb: MockQueryBuilder = {
       where(column: string, opOrValue: unknown, value?: unknown) {
+        // Strip table prefix (e.g. "sales.tenant_id" → "tenant_id") for mock row lookup
+        const key = column.includes('.') ? column.split('.')[1] : column;
         if (value !== undefined) {
           const op = opOrValue as string;
           if (op === '=' || op === '==') {
-            predicates.push((row) => row[column] === value);
+            predicates.push((row) => row[key] === value);
           } else if (op === '!=') {
-            predicates.push((row) => row[column] !== value);
+            predicates.push((row) => row[key] !== value);
           } else if (op === '<') {
-            predicates.push((row) => (row[column] as number) < (value as number));
+            predicates.push((row) => (row[key] as number) < (value as number));
           } else if (op === '<=') {
-            predicates.push((row) => (row[column] as number) <= (value as number));
+            predicates.push((row) => (row[key] as number) <= (value as number));
           } else if (op === '>') {
-            predicates.push((row) => (row[column] as number) > (value as number));
+            predicates.push((row) => (row[key] as number) > (value as number));
           } else if (op === '>=') {
-            predicates.push((row) => (row[column] as number) >= (value as number));
+            predicates.push((row) => (row[key] as number) >= (value as number));
           }
         } else {
-          predicates.push((row) => row[column] === opOrValue);
+          predicates.push((row) => row[key] === opOrValue);
         }
         return qb;
       },
       whereIn(column: string, values: unknown[]) {
-        predicates.push((row) => values.includes(row[column]));
+        const key = column.includes('.') ? column.split('.')[1] : column;
+        predicates.push((row) => values.includes(row[key]));
         return qb;
       },
       whereLike(column: string, pattern: string) {

@@ -753,10 +753,11 @@ export default function App() {
                 sx={{
                   position: 'absolute',
                   bottom: 12,
-                  right: 12,
+                  left: 12,
                   zIndex: 10,
                   fontWeight: 600,
                   letterSpacing: 0.3,
+                  opacity: 0.5,
                 }}
               />
             )}
@@ -768,10 +769,41 @@ export default function App() {
                 sx={{
                   position: 'absolute',
                   bottom: 12,
-                  right: 12,
+                  left: 12,
                   zIndex: 10,
                   fontWeight: 600,
                   letterSpacing: 0.3,
+                  opacity: 0.5,
+                }}
+              />
+            )}
+            {!serverEndpoint && !adapterMode && rowCount !== undefined && (
+              <Chip
+                label={`Generated · ${rowCount.toLocaleString()} rows`}
+                size="small"
+                sx={{
+                  position: 'absolute',
+                  bottom: 12,
+                  left: 12,
+                  zIndex: 10,
+                  fontWeight: 600,
+                  letterSpacing: 0.3,
+                  opacity: 0.5,
+                }}
+              />
+            )}
+            {!serverEndpoint && !adapterMode && rowCount === undefined && (
+              <Chip
+                label="Demo Data"
+                size="small"
+                sx={{
+                  position: 'absolute',
+                  bottom: 12,
+                  left: 12,
+                  zIndex: 10,
+                  fontWeight: 600,
+                  letterSpacing: 0.3,
+                  opacity: 0.5,
                 }}
               />
             )}

@@ -1,5 +1,8 @@
 import knexLib, { type Knex } from 'knex';
+import { createRequire } from 'module';
 import type { DbConfig } from '../config.js';
+
+const require = createRequire(import.meta.url);
 
 export function createKnex(config: DbConfig): Knex {
   const { client } = config;

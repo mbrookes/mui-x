@@ -25,6 +25,7 @@ function boostCategoryRevenue(rows: StudioDataSource['rows']): StudioDataSource[
 export const orderItemsSource: StudioDataSource = {
   id: ORDER_ITEMS_SOURCE_ID,
   label: 'Order Items',
+  tableName: 'order_items',
   fields: [
     { id: 'id', label: 'Order Item ID', type: 'string', hidden: true },
     { id: 'orderId', label: 'Order ID', type: 'string', hidden: true },

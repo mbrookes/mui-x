@@ -205,11 +205,14 @@ function buildAggregations(
  * @param widget - The widget to build a descriptor for.
  * @param filters - All active filters from the store.
  * @param activePageId - The currently active page ID (from dashboard state).
+ * @param tableName - Optional database table name. When provided, takes precedence
+ *   over the source ID for server-side batch queries.
  */
 export function buildQueryDescriptor(
   widget: StudioWidget,
   filters: StudioFilterState[],
   activePageId: string,
+  tableName?: string,
 ): StudioQueryDescriptor {
   const pageFilters = filters.filter((f) => f.scope === 'page');
   const widgetFilters = filters.filter(
@@ -246,6 +249,7 @@ export function buildQueryDescriptor(
 
   return {
     sourceId: widget.sourceId ?? '',
+    tableName,
     widgetId: widget.id,
     select,
     filter,

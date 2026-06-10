@@ -31,6 +31,7 @@ function deriveOrderTotals(rows: StudioDataSource['rows']): StudioDataSource['ro
 const ordersSourceRaw: StudioDataSource = {
   id: ORDERS_SOURCE_ID,
   label: 'Orders',
+  tableName: 'orders',
   fields: [
     { id: 'id', label: 'Order ID', type: 'string', hidden: true },
     { id: 'date', label: 'Order Date', type: 'date' },

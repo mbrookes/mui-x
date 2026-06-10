@@ -76,6 +76,12 @@ export interface StudioQueryResult {
 // The query descriptor emitted by Studio for a widget
 export interface StudioQueryDescriptor {
   sourceId: string;
+  /**
+   * Database table name for server-side queries.
+   * Set from `StudioDataSource.tableName` when present; falls back to `sourceId`.
+   * The `createBatchingAdapter` uses this value as the table name in batch requests.
+   */
+  tableName?: string;
   widgetId: string;
   /** Field IDs needed for this widget */
   select: string[];
@@ -115,6 +121,14 @@ export interface StudioDataSource {
   rows?: Record<string, unknown>[];
   /** When true, the source is hidden from the data drawer panel and widget config selects */
   hidden?: boolean;
+  /**
+   * Database table name for server-side queries.
+   * When set, `createBatchingAdapter` uses this as the table name in batch requests
+   * instead of the source `id`. Use this when the source ID does not match the
+   * actual table name in your database.
+   * @example "orders" (when source id is "source-orders")
+   */
+  tableName?: string;
   /**
    * Pre-computed sorted distinct string values per native string/boolean field.
    * Built automatically by `normalizeDataSourceRows` at ingestion time.

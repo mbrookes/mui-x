@@ -145,6 +145,7 @@ export interface StudioDataSource {
   rows?: Record<string, unknown>[];
   hidden?: boolean;
   fieldDistinctValues?: Record<string, string[]>;
+  tableName?: string;
   aiDescription?: string;
   // adapter omitted — server-side code never calls getRows()
 }

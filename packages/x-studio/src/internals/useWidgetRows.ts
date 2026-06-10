@@ -151,7 +151,7 @@ export function useWidgetRows(
     if (!hasAdapter || !widget.sourceId) {
       return null;
     }
-    return buildQueryDescriptor(widget, filters, activePageId);
+    return buildQueryDescriptor(widget, filters, activePageId, dataSource?.tableName);
   }, [hasAdapter, widget, filters, activePageId]);
 
   // Async state: rows fetched from adapter.

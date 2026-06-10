@@ -536,6 +536,7 @@ export default function App() {
       fetchFn,
       dataSources: state.dataSources,
       relationships: state.relationships,
+      expressionFields: state.expressionFields,
     });
     for (const source of Object.values(state.dataSources)) {
       studioRef.current?.setDataSourceAdapter(source.id, batchingAdapter);

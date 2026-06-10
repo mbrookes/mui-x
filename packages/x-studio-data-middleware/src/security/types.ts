@@ -82,8 +82,23 @@ export interface BatchWidgetDescriptor {
    *
    * Use qualified names (`table.column`) when joining multiple tables to avoid
    * ambiguity. Non-aggregated columns become GROUP BY when `aggregations` is set.
+   *
+   * Column values here may be logical field IDs. When a logical ID has a
+   * corresponding entry in `columnAliases`, the server SELECTs the mapped
+   * physical column and returns it under the logical ID as the row key.
    */
   columns?: string[];
+  /**
+   * Maps logical field IDs (column values in `columns` / `aggregations`) to their
+   * physical SQL column references.
+   *
+   * Used for expression fields whose logical ID has no matching DB column.
+   * For example, `{ 'expr-order-country': 'customers.country' }` means
+   * `SELECT customers.country AS "expr-order-country"`.
+   *
+   * Keys that do not appear in `columns` or `aggregations` are ignored.
+   */
+  columnAliases?: Record<string, string>;
   /**
    * Aggregation specs for DB push-down queries.
    *

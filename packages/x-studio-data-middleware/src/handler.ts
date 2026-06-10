@@ -115,7 +115,9 @@ function validateColumns(
   };
 
   const check = (rawColumn: string, context: string): void => {
-    const { table, column } = resolveColumn(rawColumn, descriptor.table);
+    // If the logical column ID has a physical alias, validate the physical column instead
+    const physical = descriptor.columnAliases?.[rawColumn] ?? rawColumn;
+    const { table, column } = resolveColumn(physical, descriptor.table);
     const allowed = columnAllowlist[table];
     if (allowed && !allowed.includes(column)) {
       throw new Error(

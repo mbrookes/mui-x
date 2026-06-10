@@ -56,7 +56,7 @@ export async function handleBatchQuery(
   claims: JwtSecurityClaims,
   options: HandleBatchQueryOptions,
 ): Promise<BatchQueryResponse> {
-  const { db, schemaAllowlist, columnAllowlist, thresholds } = options;
+  const { db, schemaAllowlist, columnAllowlist, thresholds, tenantColumn } = options;
   const cacheProvider = options.cacheProvider ?? getDefaultCache();
 
   // ── Phase 2: Validate all requested tables upfront (Zero-Knowledge Rule) ──
@@ -82,7 +82,7 @@ export async function handleBatchQuery(
 
   const results: WidgetQueryResult[] = await Promise.all(
     body.widgets.map((descriptor: BatchWidgetDescriptor) =>
-      processWidget(db, claims, descriptor, cacheProvider, thresholds),
+      processWidget(db, claims, descriptor, cacheProvider, thresholds, tenantColumn),
     ),
   );
 
@@ -146,8 +146,10 @@ async function processWidget(
   descriptor: BatchWidgetDescriptor,
   cacheProvider: CacheProvider,
   thresholds: HandleBatchQueryOptions['thresholds'],
+  tenantColumn: HandleBatchQueryOptions['tenantColumn'],
 ): Promise<WidgetQueryResult> {
   const cacheKey = generateCacheKey(claims, descriptor);
+  const queryOptions = { tenantColumn };
 
   try {
     // ── 1. Cache check ─────────────────────────────────────────────────────
@@ -162,10 +164,10 @@ async function processWidget(
     }
 
     // ── 2. Pre-flight COUNT(*) → tier selection ────────────────────────────
-    const { rowCount, tier } = await runPreflight(db, claims, descriptor, thresholds);
+    const { rowCount, tier } = await runPreflight(db, claims, descriptor, thresholds, queryOptions);
 
     // ── 3. Execute query for the selected tier ─────────────────────────────
-    const rows = await executeForTier(db, claims, descriptor, tier);
+    const rows = await executeForTier(db, claims, descriptor, tier, queryOptions);
 
     // ── 4. Populate cache for client + server tiers ────────────────────────
     // DB push-down returns aggregated rows — not suitable for re-filtering

@@ -153,7 +153,7 @@ export function createBatchingAdapter(
 
             return {
               id: d.widgetId,
-              table: d.sourceId,
+              table: d.tableName ?? d.sourceId,
               columns,
               aggregations,
               filters: d.filter ? flattenFilterNode(d.filter) : undefined,

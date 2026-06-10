@@ -20,6 +20,7 @@ function boostProductCategoryRevenue(rows: StudioDataSource['rows']): StudioData
 export const productsSource: StudioDataSource = {
   id: PRODUCTS_SOURCE_ID,
   label: 'Products',
+  tableName: 'products',
   fields: [
     { id: 'id', label: 'Product ID', type: 'string', hidden: true },
     { id: 'product', label: 'Product', type: 'string' },

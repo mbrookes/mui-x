@@ -6,69 +6,81 @@ import type { Knex } from 'knex';
  * Column names match the camelCase field names produced by generateSalesData()
  * so rows can be inserted directly without any name transformation.
  *
- * Uses CREATE TABLE IF NOT EXISTS — safe to call on every startup.
+ * Uses hasTable + createTable — safe to call on every startup.
  * Indexes are created separately with IF NOT EXISTS to handle partial prior runs.
  */
 export async function createTables(db: Knex): Promise<void> {
-  await db.schema.createTableIfNotExists('customers', (t) => {
-    t.string('id').primary();
-    t.string('company').notNullable();
-    t.string('contact').notNullable();
-    t.string('email').notNullable();
-    t.string('country').notNullable();
-    t.string('segment').notNullable();
-    t.string('since').notNullable();
-  });
+  if (!(await db.schema.hasTable('customers'))) {
+    await db.schema.createTable('customers', (t) => {
+      t.string('id').primary();
+      t.string('company').notNullable();
+      t.string('contact').notNullable();
+      t.string('email').notNullable();
+      t.string('country').notNullable();
+      t.string('segment').notNullable();
+      t.string('since').notNullable();
+    });
+  }
 
-  await db.schema.createTableIfNotExists('products', (t) => {
-    t.string('id').primary();
-    t.string('product').notNullable();
-    t.string('category').notNullable();
-    t.float('price').notNullable();
-    t.float('cost').notNullable();
-    t.integer('stock').notNullable();
-    t.integer('reorderLevel').notNullable();
-  });
+  if (!(await db.schema.hasTable('products'))) {
+    await db.schema.createTable('products', (t) => {
+      t.string('id').primary();
+      t.string('product').notNullable();
+      t.string('category').notNullable();
+      t.float('price').notNullable();
+      t.float('cost').notNullable();
+      t.integer('stock').notNullable();
+      t.integer('reorderLevel').notNullable();
+    });
+  }
 
-  await db.schema.createTableIfNotExists('orders', (t) => {
-    t.string('id').primary();
-    t.string('date').notNullable();
-    t.string('customerId').notNullable();
-    t.string('status').notNullable();
-    t.float('total').notNullable();
-    t.string('currency').notNullable();
-  });
+  if (!(await db.schema.hasTable('orders'))) {
+    await db.schema.createTable('orders', (t) => {
+      t.string('id').primary();
+      t.string('date').notNullable();
+      t.string('customerId').notNullable();
+      t.string('status').notNullable();
+      t.float('total').notNullable();
+      t.string('currency').notNullable();
+    });
+  }
 
-  await db.schema.createTableIfNotExists('order_items', (t) => {
-    t.string('id').primary();
-    t.string('orderId').notNullable();
-    t.string('productId').notNullable();
-    t.string('product').notNullable();
-    t.string('category').notNullable();
-    t.integer('quantity').notNullable();
-    t.float('unitPrice').notNullable();
-    t.float('discount').notNullable();
-    t.float('total').notNullable();
-  });
+  if (!(await db.schema.hasTable('order_items'))) {
+    await db.schema.createTable('order_items', (t) => {
+      t.string('id').primary();
+      t.string('orderId').notNullable();
+      t.string('productId').notNullable();
+      t.string('product').notNullable();
+      t.string('category').notNullable();
+      t.integer('quantity').notNullable();
+      t.float('unitPrice').notNullable();
+      t.float('discount').notNullable();
+      t.float('total').notNullable();
+    });
+  }
 
-  await db.schema.createTableIfNotExists('shipments', (t) => {
-    t.string('id').primary();
-    t.string('orderId').notNullable();
-    t.string('carrier').notNullable();
-    t.string('trackingNumber').notNullable();
-    t.string('shipDate').notNullable();
-    t.string('estimatedDeliveryDate').notNullable();
-    t.string('actualDeliveryDate').nullable();
-    t.string('status').notNullable();
-    t.boolean('onTime').notNullable();
-    t.integer('itemCount').notNullable();
-  });
+  if (!(await db.schema.hasTable('shipments'))) {
+    await db.schema.createTable('shipments', (t) => {
+      t.string('id').primary();
+      t.string('orderId').notNullable();
+      t.string('carrier').notNullable();
+      t.string('trackingNumber').notNullable();
+      t.string('shipDate').notNullable();
+      t.string('estimatedDeliveryDate').notNullable();
+      t.string('actualDeliveryDate').nullable();
+      t.string('status').notNullable();
+      t.boolean('onTime').notNullable();
+      t.integer('itemCount').notNullable();
+    });
+  }
 
-  await db.schema.createTableIfNotExists('shipment_items', (t) => {
-    t.string('id').primary();
-    t.string('shipmentId').notNullable();
-    t.string('orderItemId').notNullable();
-  });
+  if (!(await db.schema.hasTable('shipment_items'))) {
+    await db.schema.createTable('shipment_items', (t) => {
+      t.string('id').primary();
+      t.string('shipmentId').notNullable();
+      t.string('orderItemId').notNullable();
+    });
+  }
 
   // Create indexes separately using IF NOT EXISTS so this is idempotent.
   const indexes: [string, string][] = [

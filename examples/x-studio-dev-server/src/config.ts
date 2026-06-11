@@ -59,7 +59,7 @@ function buildDbConfig(): DbConfig {
   if (client === 'better-sqlite3') {
     return {
       client,
-      filename: process.env.DB_FILENAME ?? './studio.db',
+      filename: process.env.DB_FILENAME ?? './sales.db',
     };
   }
 

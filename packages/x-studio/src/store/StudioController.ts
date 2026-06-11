@@ -1255,6 +1255,11 @@ export class StudioController {
   };
 }
 
+/** Creates a new {@link StudioController} with the given initial state. */
+export function createStudioController(initialState?: Partial<StudioState>): StudioController {
+  return new StudioController(initialState);
+}
+
 /** Computes start/end ISO date strings for a given date range preset. */
 export function computeDateRangePreset(preset: Exclude<StudioDateRangePreset, 'custom'>): {
   from: string;

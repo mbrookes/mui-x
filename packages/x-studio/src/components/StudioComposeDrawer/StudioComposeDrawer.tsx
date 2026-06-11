@@ -112,7 +112,6 @@ export interface StudioComposeDrawerProps {
 export function StudioComposeDrawer(props: StudioComposeDrawerProps = {}) {
   const { tableSourceMode } = props;
   const shell = useStudioSelector(selectShell);
-  const localeText = useStudioLocaleText();
   const selectedWidgetId = shell.selectedWidgetId;
   const selectedFieldId = shell.selectedFieldId;
 

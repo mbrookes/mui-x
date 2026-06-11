@@ -3,7 +3,9 @@ import { CATEGORY_REVENUE_MULTIPLIERS, roundCurrency } from './categoryRevenueMu
 
 export const PRODUCTS_SOURCE_ID = 'source-products';
 
-function boostProductCategoryRevenue(rows: StudioDataSource['rows']): StudioDataSource['rows'] {
+function boostProductCategoryRevenue(
+  rows: NonNullable<StudioDataSource['rows']>,
+): NonNullable<StudioDataSource['rows']> {
   return rows.map((row) => {
     const multiplier = CATEGORY_REVENUE_MULTIPLIERS[String(row.category)] ?? 1;
     if (multiplier === 1) {

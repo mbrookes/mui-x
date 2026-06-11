@@ -51,12 +51,14 @@ export function WidgetAiDialog({ open, widgetId, aiConfig, onClose }: WidgetAiDi
       onClose={onClose}
       maxWidth="sm"
       fullWidth
-      PaperProps={{
-        sx: {
-          height: '80vh',
-          maxHeight: 720,
-          display: 'flex',
-          flexDirection: 'column',
+      slotProps={{
+        paper: {
+          sx: {
+            height: '80vh',
+            maxHeight: 720,
+            display: 'flex',
+            flexDirection: 'column',
+          },
         },
       }}
     >
@@ -75,7 +77,7 @@ export function WidgetAiDialog({ open, widgetId, aiConfig, onClose }: WidgetAiDi
       >
         <AutoAwesomeIcon fontSize="small" color="primary" />
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-          <Typography variant="subtitle2" fontWeight={600} noWrap>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }} noWrap>
             AI assistant
           </Typography>
           <Typography variant="caption" color="text.secondary" noWrap>

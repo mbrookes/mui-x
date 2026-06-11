@@ -1,5 +1,4 @@
 'use client';
-import * as React from 'react';
 import { Box, Stack, Tooltip, Typography, type SxProps, type Theme } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';

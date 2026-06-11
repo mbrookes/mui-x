@@ -22,7 +22,7 @@ import type {
  */
 export interface SerializableSkill {
   name: string;
-  mode: 'instruction-only' | 'server-tool';
+  mode: 'instruction-only' | 'server-tool' | 'client-handler';
   promptFragment: string;
   tool?: {
     name: string;
@@ -98,7 +98,7 @@ export type StudioAIToolName =
  * Instances are assignable to `SerializableSkill` (used in `StudioAIConfig.skills`).
  */
 export interface StudioAISkill extends SerializableSkill {
-  mode: 'server-tool' | 'instruction-only';
+  mode: 'server-tool' | 'instruction-only' | 'client-handler';
   tool?: {
     name: string;
     description: string;

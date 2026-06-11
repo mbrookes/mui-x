@@ -104,7 +104,7 @@ export function DataSourcePreview({
         rows={enrichedRows}
         columns={columns}
         // eslint-disable-next-line no-underscore-dangle -- preview rows use an internal synthetic identifier
-        getRowId={(row) => row.__previewRowId as string}
+        getRowId={(row: Record<string, unknown>) => row.__previewRowId as string}
         density="compact"
         pagination={false}
         hideFooter

@@ -319,7 +319,7 @@ export async function* runAgenticLoop(
       if (matchedSkill?.tool?.execute) {
         // Execute the skill server-side
         try {
-          const result = matchedSkill.tool.execute(toolInput, currentState);
+          const result = matchedSkill.tool.execute(toolInput as Record<string, unknown>, currentState);
           const output = result.output;
           if (result.mutation) {
             yield { type: 'state-mutation', mutation: result.mutation };

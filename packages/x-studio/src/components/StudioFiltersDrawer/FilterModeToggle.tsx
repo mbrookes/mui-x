@@ -1,5 +1,4 @@
 'use client';
-import * as React from 'react';
 import { ToggleButton, ToggleButtonGroup } from '@mui/material';
 import type { FilterMode } from './filterDrawerTypes';
 

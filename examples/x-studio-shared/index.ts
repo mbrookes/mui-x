@@ -13,6 +13,7 @@ export type {
   ShipmentRow,
 } from './src/types.js';
 export * from './src/salesData/index.js';
+export * from './src/crmData/index.js';
 export * from './src/officeSuppliesData/index.js';
 export { INITIAL_STATE } from './src/config/salesDashboard.js';
 export { OS_INITIAL_STATE } from './src/config/officeSuppliesDashboard.js';

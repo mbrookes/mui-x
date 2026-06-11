@@ -1,5 +1,4 @@
 'use client';
-import * as React from 'react';
 import { Box, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import {

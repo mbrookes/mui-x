@@ -35,7 +35,7 @@ export default function FieldPreviewTooltip({
       return '—';
     }
     return formatFieldValue(v, {
-      type: field.type,
+      type: field.type ?? 'string',
       format: field.format,
       precision: field.precision,
       currencyCode: field.currencyCode,

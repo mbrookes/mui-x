@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { PaddedFieldSvg } from './utils';
 
 export function DateFieldIcon({ size }: { size?: number }) {

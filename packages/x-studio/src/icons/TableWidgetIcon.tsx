@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { ChartSvg, type BasicIconProps } from './utils';
 
 export function TableWidgetIcon({ size, color = 'currentColor' }: BasicIconProps) {

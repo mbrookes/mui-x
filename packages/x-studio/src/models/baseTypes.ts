@@ -357,6 +357,8 @@ export type StudioFilterOperator =
 
 export interface StudioChartSeries {
   fieldId: string;
+  /** Optional display label for this series in legends and tooltips. */
+  label?: string;
   /**
    * Series render type for mixed charts.
    * - `'bar'` (default): renders as a bar/column
@@ -365,6 +367,10 @@ export interface StudioChartSeries {
    * Only used when `chartType === 'mixed'`.
    */
   seriesType?: 'bar' | 'line';
+  /** Alias for `seriesType` — preferred spelling in config objects. */
+  type?: 'bar' | 'line';
+  /** Aggregation function applied to this series. @default 'sum' */
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
 }
 
 /**

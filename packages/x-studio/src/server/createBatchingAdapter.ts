@@ -126,7 +126,6 @@ function getBatchingEndpoint(adapter: StudioDataSourceAdapter | undefined): stri
  * descriptor would reference a table from a different database and fail at query time.
  */
 function warnOnCrossEndpointRelationships(
-  endpoint: string,
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
 ): void {
@@ -248,7 +247,7 @@ export function createBatchingAdapter(
 
   // Warn in dev when relationships span different endpoints (cross-DB JOINs won't work).
   if (dataSources && relationships) {
-    warnOnCrossEndpointRelationships(endpoint, dataSources, relationships);
+    warnOnCrossEndpointRelationships(dataSources, relationships);
   }
 
   let loader: BatchLoader<StudioQueryDescriptor, StudioQueryResult>;

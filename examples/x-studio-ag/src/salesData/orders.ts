@@ -4,10 +4,12 @@ import { orderItemsSource } from './orderItems';
 
 export const ORDERS_SOURCE_ID = 'source-orders';
 
-function deriveOrderTotals(rows: StudioDataSource['rows']): StudioDataSource['rows'] {
+function deriveOrderTotals(
+  rows: NonNullable<StudioDataSource['rows']>,
+): NonNullable<StudioDataSource['rows']> {
   const totalsByOrderId = new Map<string, number>();
 
-  for (const item of orderItemsSource.rows) {
+  for (const item of (orderItemsSource.rows ?? [])) {
     const orderId = String(item.orderId);
     totalsByOrderId.set(
       orderId,
@@ -1809,5 +1811,5 @@ const ordersSourceRaw: StudioDataSource = {
 
 export const ordersSource: StudioDataSource = {
   ...ordersSourceRaw,
-  rows: deriveOrderTotals(ordersSourceRaw.rows),
+  rows: deriveOrderTotals(ordersSourceRaw.rows ?? []),
 };

@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { ChartSvg, slicePath, type IconProps } from '../utils';
 
 export function PieIcon({

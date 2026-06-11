@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { GeneratedFieldSvg } from './utils';
 
 export function StringFieldGeneratedIcon({ size }: { size?: number }) {

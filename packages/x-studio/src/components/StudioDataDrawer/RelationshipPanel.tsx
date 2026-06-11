@@ -64,11 +64,6 @@ function RelationshipDialog(props: {
 }) {
   const { open, onClose, onSave, initial, dataSources } = props;
   const localeText = useStudioLocaleText();
-  const relationshipTypeLabels = {
-    'many-to-one': localeText.relationshipTypeManyToOne,
-    'one-to-one': localeText.relationshipTypeOneToOne,
-    'many-to-many': localeText.relationshipTypeManyToMany,
-  };
   const [form, setForm] = React.useState<RelationshipFormState>(initial ?? emptyRelForm());
 
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change, react-doctor/no-derived-state-effect -- form is intentionally buffered locally and synced when dialog re-opens or initial value changes

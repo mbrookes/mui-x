@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { ChartSvg, type BasicIconProps } from './utils';
 
 const DOT_COLS = [8, 14, 20, 26] as const;

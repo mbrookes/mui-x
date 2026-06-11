@@ -24,7 +24,7 @@ import type { StudioWidget } from './widgetTypes';
  */
 export interface SerializableSkill {
   name: string;
-  mode: 'instruction-only' | 'server-tool';
+  mode: 'instruction-only' | 'server-tool' | 'client-handler';
   promptFragment: string;
   tool?: {
     name: string;

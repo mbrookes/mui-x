@@ -3,6 +3,7 @@ import 'dotenv/config';
 export interface Config {
   port: number;
   db: DbConfig;
+  crmDb: DbConfig;
   seedOrderCount: number;
   llm: LlmConfig;
   jwtSecret: string;
@@ -73,10 +74,32 @@ function buildDbConfig(): DbConfig {
   };
 }
 
+function buildCrmDbConfig(): DbConfig {
+  const client = process.env.DB_CLIENT ?? 'better-sqlite3';
+
+  if (client === 'better-sqlite3') {
+    return {
+      client,
+      filename: process.env.CRM_DB_FILENAME ?? './crm.db',
+    };
+  }
+
+  // Postgres / MySQL — separate database on the same server
+  return {
+    client,
+    host: process.env.DB_HOST ?? 'localhost',
+    port: optionalInt('DB_PORT', client === 'pg' ? 5432 : 3306),
+    database: process.env.CRM_DB_NAME ?? required('DB_NAME') + '_crm',
+    user: required('DB_USER'),
+    password: required('DB_PASSWORD'),
+  };
+}
+
 export function buildConfig(): Config {
   return {
     port: optionalInt('PORT', 3020),
     db: buildDbConfig(),
+    crmDb: buildCrmDbConfig(),
     seedOrderCount: optionalInt('SEED_ORDER_COUNT', 500),
     llm: {
       endpoint: process.env.LLM_ENDPOINT ?? 'https://api.openai.com/v1/chat/completions',

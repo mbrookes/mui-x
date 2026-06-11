@@ -6,41 +6,47 @@ import type { Knex } from 'knex';
  * Column names match the camelCase field names produced by generateCrmData()
  * so rows can be inserted directly without any name transformation.
  *
- * Uses CREATE TABLE IF NOT EXISTS — safe to call on every startup.
+ * Uses hasTable + createTable — safe to call on every startup.
  */
 export async function createCrmTables(db: Knex): Promise<void> {
-  await db.schema.createTableIfNotExists('contacts', (t) => {
-    t.string('id').primary();
-    t.string('customerId').notNullable();
-    t.string('firstName').notNullable();
-    t.string('lastName').notNullable();
-    t.string('email').notNullable();
-    t.string('phone').notNullable();
-    t.string('role').notNullable();
-    t.string('department').notNullable();
-  });
+  if (!(await db.schema.hasTable('contacts'))) {
+    await db.schema.createTable('contacts', (t) => {
+      t.string('id').primary();
+      t.string('customerId').notNullable();
+      t.string('firstName').notNullable();
+      t.string('lastName').notNullable();
+      t.string('email').notNullable();
+      t.string('phone').notNullable();
+      t.string('role').notNullable();
+      t.string('department').notNullable();
+    });
+  }
 
-  await db.schema.createTableIfNotExists('deals', (t) => {
-    t.string('id').primary();
-    t.string('customerId').notNullable();
-    t.string('primaryContactId').nullable();
-    t.string('title').notNullable();
-    t.string('stage').notNullable();
-    t.float('value').notNullable();
-    t.integer('probability').notNullable();
-    t.string('openedDate').notNullable();
-    t.string('closeDate').notNullable();
-  });
+  if (!(await db.schema.hasTable('deals'))) {
+    await db.schema.createTable('deals', (t) => {
+      t.string('id').primary();
+      t.string('customerId').notNullable();
+      t.string('primaryContactId').nullable();
+      t.string('title').notNullable();
+      t.string('stage').notNullable();
+      t.float('value').notNullable();
+      t.integer('probability').notNullable();
+      t.string('openedDate').notNullable();
+      t.string('closeDate').notNullable();
+    });
+  }
 
-  await db.schema.createTableIfNotExists('activities', (t) => {
-    t.string('id').primary();
-    t.string('contactId').notNullable();
-    t.string('dealId').nullable();
-    t.string('type').notNullable();
-    t.string('date').notNullable();
-    t.string('outcome').notNullable();
-    t.integer('durationMin').notNullable();
-  });
+  if (!(await db.schema.hasTable('activities'))) {
+    await db.schema.createTable('activities', (t) => {
+      t.string('id').primary();
+      t.string('contactId').notNullable();
+      t.string('dealId').nullable();
+      t.string('type').notNullable();
+      t.string('date').notNullable();
+      t.string('outcome').notNullable();
+      t.integer('durationMin').notNullable();
+    });
+  }
 
   // Indexes for common query patterns
   const indexes: [string, string][] = [

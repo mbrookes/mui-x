@@ -67,6 +67,8 @@
       "@mui/x-studio/*": ["./packages/x-studio/src/*"],
       "x-studio-example": ["./examples/x-studio"],
       "x-studio-example/*": ["./examples/x-studio/*"],
+      "x-studio-shared": ["./examples/x-studio-shared"],
+      "x-studio-shared/*": ["./examples/x-studio-shared/*"],
       "test/*": ["./test/*"],
       "docs/*": ["./docs/*"]
     },

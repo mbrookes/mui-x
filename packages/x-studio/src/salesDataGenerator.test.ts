@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateSalesData } from 'x-studio-example/src/salesData/generator';
+import { generateSalesData } from 'x-studio-shared/src/salesData/generator';
 
 /**
  * Tests for the sales data generator (BL-04).

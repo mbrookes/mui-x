@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { ChartSvg, type BasicIconProps } from './utils';
 
 /** Pivot table icon: header row + header column filled, rest as a grid. */

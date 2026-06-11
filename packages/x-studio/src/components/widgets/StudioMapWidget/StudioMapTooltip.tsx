@@ -41,7 +41,8 @@ export const StudioMapTooltipContext = React.createContext<StudioMapTooltipConte
 // ─── Content ──────────────────────────────────────────────────────────────────
 
 function StudioMapTooltipContent() {
-  const tooltipData = useItemTooltip<'choropleth'>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 'choropleth' series type is not in x-charts union
+  const tooltipData = useItemTooltip<any>();
   const { valueFieldLabel, featureIdToLabel } = React.useContext(StudioMapTooltipContext);
 
   // No data for this region — suppress the tooltip entirely.
@@ -50,7 +51,7 @@ function StudioMapTooltipContent() {
   }
 
   const { identifier, formattedValue } = tooltipData;
-  const regionName = featureIdToLabel(identifier.featureId);
+  const regionName = featureIdToLabel((identifier as { featureId: string }).featureId);
 
   return (
     <ChartsTooltipPaper>
@@ -61,7 +62,7 @@ function StudioMapTooltipContent() {
             {valueFieldLabel && (
               <ChartsTooltipCell component="th">{valueFieldLabel}</ChartsTooltipCell>
             )}
-            <ChartsTooltipCell component="td">{formattedValue}</ChartsTooltipCell>
+            <ChartsTooltipCell component="td">{String(formattedValue)}</ChartsTooltipCell>
           </ChartsTooltipRow>
         </tbody>
       </ChartsTooltipTable>

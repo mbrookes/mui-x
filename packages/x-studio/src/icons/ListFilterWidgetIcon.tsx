@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { ChartSvg, type BasicIconProps } from './utils';
 
 export function ListFilterWidgetIcon({ size, color = 'currentColor' }: BasicIconProps) {

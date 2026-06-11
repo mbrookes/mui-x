@@ -1,5 +1,4 @@
 'use client';
-import * as React from 'react';
 import { Box, Tooltip, Typography, useTheme } from '@mui/material';
 import type { HeatmapData } from '../../../internals/chartAggregation';
 import { formatNumber } from '../../../internals/numberFormat';

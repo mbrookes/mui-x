@@ -170,6 +170,8 @@ export interface StudioWidgetConfig {
    */
   crossFilterMode?: StudioCrossFilterMode;
   // Text config
+  /** Markdown content for a text/markdown widget (alternative to textBody for raw markdown). */
+  textContent?: string;
   textSubtitle?: string;
   textBody?: string;
   // Text formatting — undefined means "use the default" and is never persisted

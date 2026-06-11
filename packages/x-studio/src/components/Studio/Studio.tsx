@@ -4,7 +4,6 @@ import * as React from 'react';
 import { Box, IconButton, Tooltip } from '@mui/material';
 import { useThemeProps } from '@mui/material/styles';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import CloseIcon from '@mui/icons-material/Close';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import StorageIcon from '@mui/icons-material/Storage';
 import TuneIcon from '@mui/icons-material/Tune';

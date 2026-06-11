@@ -1,5 +1,4 @@
 'use client';
-import * as React from 'react';
 import { Box, Typography } from '@mui/material';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
 import { Gauge } from '@mui/x-charts/Gauge';

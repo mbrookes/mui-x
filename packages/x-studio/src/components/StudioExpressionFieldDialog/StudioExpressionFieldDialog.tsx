@@ -538,11 +538,7 @@ function ExpressionPreview({
           Preview (measure over {previewResult.count} rows)
         </Typography>
         <Chip
-          label={
-            typeof previewResult.value === 'number'
-              ? formatNumber(previewResult.value, undefined, undefined, undefined, precision)
-              : String(previewResult.value)
-          }
+          label={formatNumber(previewResult.value, undefined, undefined, undefined, precision)}
           size="small"
           color="primary"
           variant="outlined"

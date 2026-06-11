@@ -278,14 +278,28 @@ export default function App() {
     const saved = readLocalState(dataset);
     if (saved) {
       const restored = deserializeState(saved, baseDataSources);
+
+      // Merge in any pages from the current initial state that are absent from the
+      // saved state. This ensures new pages added to INITIAL_STATE always appear
+      // even when a saved state exists from an earlier session.
+      const mergedPages = { ...restored.pages };
+      let pagesAdded = false;
+      for (const [pageId, page] of Object.entries(baseConfig.pages ?? {})) {
+        if (!mergedPages[pageId]) {
+          mergedPages[pageId] = page;
+          pagesAdded = true;
+        }
+      }
+      const mergedState = pagesAdded ? { ...restored, pages: mergedPages } : restored;
+
       // Apply ?fv= filter value overrides on top of saved state
       const fvParam = getUrlFilterValuesParam();
       if (fvParam) {
         const filterValues = decodeFilterValues(fvParam);
-        if (filterValues && restored.filters) {
+        if (filterValues && mergedState.filters) {
           return {
-            ...restored,
-            filters: restored.filters.map((f) => {
+            ...mergedState,
+            filters: mergedState.filters.map((f) => {
               const patch = filterValues[f.id];
               if (!patch) {
                 return f;
@@ -303,7 +317,7 @@ export default function App() {
           };
         }
       }
-      return restored;
+      return mergedState;
     }
 
     let baseState: Partial<StudioState> = { ...baseConfig, dataSources: baseDataSources };

@@ -50,6 +50,10 @@ export const alias = [
     find: /^x-studio-example\/(.+)$/,
     replacement: resolve(WORKSPACE_ROOT, './examples/x-studio/$1'),
   },
+  {
+    find: /^x-studio-shared\/(.+)$/,
+    replacement: resolve(WORKSPACE_ROOT, './examples/x-studio-shared/$1'),
+  },
 ];
 
 export default defineConfig({

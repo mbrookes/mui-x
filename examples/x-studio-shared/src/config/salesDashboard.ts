@@ -13,6 +13,15 @@ import {
   SHIPMENTS_SOURCE_ID,
   shipmentsSource,
 } from '../salesData';
+import {
+  CRM_CONTACTS_SOURCE_ID,
+  CRM_DEALS_SOURCE_ID,
+  CRM_ACTIVITIES_SOURCE_ID,
+  generateCrmData,
+} from '../crmData';
+
+// Generate CRM data (matched to same seed as sales data)
+const { contactsSource, dealsSource, activitiesSource } = generateCrmData({ seed: 42 });
 
 export const INITIAL_STATE: Partial<StudioState> = {
   dashboard: {
@@ -91,6 +100,26 @@ export const INITIAL_STATE: Partial<StudioState> = {
         ['widget-chart5-order-funnel', 'widget-chart5-revenue-mixed'],
       ],
     },
+    'page-6': {
+      id: 'page-6',
+      title: 'CRM Pipeline',
+      widgetRows: [
+        ['widget-text-crm-pipeline'],
+        ['widget-kpi6-open-deals', 'widget-kpi6-pipeline-value', 'widget-kpi6-win-rate'],
+        ['widget-chart6-deals-by-stage', 'widget-chart6-value-by-stage'],
+        ['widget-grid6-deals'],
+      ],
+    },
+    'page-7': {
+      id: 'page-7',
+      title: 'CRM Contacts',
+      widgetRows: [
+        ['widget-text-crm-contacts'],
+        ['widget-kpi7-total-contacts', 'widget-kpi7-open-activities'],
+        ['widget-chart7-contacts-by-dept', 'widget-chart7-contacts-by-role'],
+        ['widget-grid7-contacts'],
+      ],
+    },
   },
   dataSources: {
     [PRODUCTS_SOURCE_ID]: productsSource,
@@ -99,6 +128,9 @@ export const INITIAL_STATE: Partial<StudioState> = {
     [ORDER_ITEMS_SOURCE_ID]: orderItemsSource,
     [SHIPMENTS_SOURCE_ID]: shipmentsSource,
     [SHIPMENT_ITEMS_SOURCE_ID]: shipmentItemsSource,
+    [CRM_CONTACTS_SOURCE_ID]: contactsSource,
+    [CRM_DEALS_SOURCE_ID]: dealsSource,
+    [CRM_ACTIVITIES_SOURCE_ID]: activitiesSource,
   },
   relationships: [
     {
@@ -847,6 +879,185 @@ export const INITIAL_STATE: Partial<StudioState> = {
           { fieldId: 'discount', label: 'Avg Discount %', type: 'line', yAggregation: 'avg' },
         ],
         dualYAxis: true,
+      },
+    },
+
+    // ── Page 6: CRM Pipeline ────────────────────────────────────────────────
+
+    'widget-text-crm-pipeline': {
+      id: 'widget-text-crm-pipeline',
+      kind: 'text',
+      title: 'CRM Pipeline',
+      titleMode: 'manual' as const,
+      sourceId: undefined,
+      config: {
+        textTitleFontSize: 32,
+        textTitleAlign: 'center' as const,
+      },
+    },
+    'widget-kpi6-open-deals': {
+      id: 'widget-kpi6-open-deals',
+      kind: 'kpi',
+      title: 'Open Deals',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        kpiValueField: 'id',
+        kpiAggregation: 'count',
+        kpiTrend: true,
+        kpiSparkline: true,
+        kpiSparklineField: 'openedDate',
+        kpiSparklinePlotType: 'bar',
+        kpiSparklineGranularity: 'month',
+      },
+    },
+    'widget-kpi6-pipeline-value': {
+      id: 'widget-kpi6-pipeline-value',
+      kind: 'kpi',
+      title: 'Pipeline Value',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        kpiValueField: 'value',
+        kpiAggregation: 'sum',
+        kpiCompact: true,
+        kpiTrend: true,
+        kpiSparkline: true,
+        kpiSparklineField: 'openedDate',
+        kpiSparklinePlotType: 'line',
+        kpiSparklineGranularity: 'quarter',
+      },
+    },
+    'widget-kpi6-win-rate': {
+      id: 'widget-kpi6-win-rate',
+      kind: 'kpi',
+      title: 'Avg Probability',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        kpiValueField: 'probability',
+        kpiAggregation: 'avg',
+        kpiTrend: true,
+      },
+    },
+    'widget-chart6-deals-by-stage': {
+      id: 'widget-chart6-deals-by-stage',
+      kind: 'chart',
+      title: 'Deals by Stage',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        chartType: 'bar',
+        xField: 'stage',
+        yField: 'id',
+        barLayout: 'horizontal' as const,
+      },
+    },
+    'widget-chart6-value-by-stage': {
+      id: 'widget-chart6-value-by-stage',
+      kind: 'chart',
+      title: 'Pipeline Value by Stage',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        chartType: 'donut',
+        xField: 'stage',
+        yField: 'value',
+      },
+    },
+    'widget-grid6-deals': {
+      id: 'widget-grid6-deals',
+      kind: 'grid',
+      title: 'All Deals',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        columns: [
+          { fieldId: 'title' },
+          { fieldId: 'stage' },
+          { fieldId: 'value' },
+          { fieldId: 'probability' },
+          { fieldId: 'openedDate' },
+          { fieldId: 'closeDate' },
+        ],
+        gridSortField: 'value',
+        gridSortDirection: 'desc' as const,
+        gridSummaryFields: { value: 'sum', probability: 'avg' },
+      },
+    },
+
+    // ── Page 7: CRM Contacts ────────────────────────────────────────────────
+
+    'widget-text-crm-contacts': {
+      id: 'widget-text-crm-contacts',
+      kind: 'text',
+      title: 'CRM Contacts',
+      titleMode: 'manual' as const,
+      sourceId: undefined,
+      config: {
+        textTitleFontSize: 32,
+        textTitleAlign: 'center' as const,
+      },
+    },
+    'widget-kpi7-total-contacts': {
+      id: 'widget-kpi7-total-contacts',
+      kind: 'kpi',
+      title: 'Total Contacts',
+      sourceId: CRM_CONTACTS_SOURCE_ID,
+      config: {
+        kpiValueField: 'id',
+        kpiAggregation: 'count',
+        kpiTrend: true,
+      },
+    },
+    'widget-kpi7-open-activities': {
+      id: 'widget-kpi7-open-activities',
+      kind: 'kpi',
+      title: 'Activities Logged',
+      sourceId: CRM_ACTIVITIES_SOURCE_ID,
+      config: {
+        kpiValueField: 'id',
+        kpiAggregation: 'count',
+        kpiTrend: true,
+        kpiSparkline: true,
+        kpiSparklineField: 'date',
+        kpiSparklinePlotType: 'bar',
+        kpiSparklineGranularity: 'month',
+      },
+    },
+    'widget-chart7-contacts-by-dept': {
+      id: 'widget-chart7-contacts-by-dept',
+      kind: 'chart',
+      title: 'Contacts by Department',
+      sourceId: CRM_CONTACTS_SOURCE_ID,
+      config: {
+        chartType: 'bar',
+        xField: 'department',
+        yField: 'id',
+      },
+    },
+    'widget-chart7-contacts-by-role': {
+      id: 'widget-chart7-contacts-by-role',
+      kind: 'chart',
+      title: 'Contacts by Role',
+      sourceId: CRM_CONTACTS_SOURCE_ID,
+      config: {
+        chartType: 'bar',
+        xField: 'role',
+        yField: 'id',
+        barLayout: 'horizontal' as const,
+      },
+    },
+    'widget-grid7-contacts': {
+      id: 'widget-grid7-contacts',
+      kind: 'grid',
+      title: 'All Contacts',
+      sourceId: CRM_CONTACTS_SOURCE_ID,
+      config: {
+        columns: [
+          { fieldId: 'firstName' },
+          { fieldId: 'lastName' },
+          { fieldId: 'email' },
+          { fieldId: 'phone' },
+          { fieldId: 'role' },
+          { fieldId: 'department' },
+        ],
+        crossFilterField: 'department',
+        gridSummaryFields: {},
       },
     },
   },

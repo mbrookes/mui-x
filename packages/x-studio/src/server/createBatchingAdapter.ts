@@ -106,6 +106,51 @@ function createLoader<K, V>(
 /** Registry of loaders — one per endpoint URL */
 const loaderRegistry = new Map<string, BatchLoader<StudioQueryDescriptor, StudioQueryResult>>();
 
+/**
+ * Private symbol used to tag a batching adapter with its endpoint URL.
+ * Enables cross-endpoint relationship validation at adapter creation time.
+ */
+const BATCHING_ENDPOINT = Symbol('mui-studio/batching-endpoint');
+
+/** Returns the endpoint URL tagged on a batching adapter, or undefined for other adapter types. */
+function getBatchingEndpoint(adapter: StudioDataSourceAdapter | undefined): string | undefined {
+  if (!adapter) {
+    return undefined;
+  }
+  return (adapter as unknown as Record<symbol, unknown>)[BATCHING_ENDPOINT] as string | undefined;
+}
+
+/**
+ * Warn in development when two related sources use different adapter endpoints.
+ * SQL JOINs cannot span separate database connections — the auto-generated JOIN
+ * descriptor would reference a table from a different database and fail at query time.
+ */
+function warnOnCrossEndpointRelationships(
+  endpoint: string,
+  dataSources: Record<string, StudioDataSource>,
+  relationships: StudioRelationship[],
+): void {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+  for (const rel of relationships) {
+    if (rel.type === 'many-to-many') {
+      continue;
+    }
+    const sourceEndpoint = getBatchingEndpoint(dataSources[rel.sourceId]?.adapter);
+    const targetEndpoint = getBatchingEndpoint(dataSources[rel.targetId]?.adapter);
+    if (sourceEndpoint && targetEndpoint && sourceEndpoint !== targetEndpoint) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[MUI X Studio] Relationship "${rel.id}" connects "${rel.sourceId}" (${sourceEndpoint}) ` +
+          `and "${rel.targetId}" (${targetEndpoint}) which use different adapter endpoints. ` +
+          `SQL JOINs cannot span database boundaries — cross-source field references ` +
+          `between these sources will be skipped. Use separate widgets or merge the data client-side.`,
+      );
+    }
+  }
+}
+
 export interface BatchingAdapterOptions {
   /**
    * Batch window delay in milliseconds.
@@ -201,6 +246,11 @@ export function createBatchingAdapter(
     };
   }
 
+  // Warn in dev when relationships span different endpoints (cross-DB JOINs won't work).
+  if (dataSources && relationships) {
+    warnOnCrossEndpointRelationships(endpoint, dataSources, relationships);
+  }
+
   let loader: BatchLoader<StudioQueryDescriptor, StudioQueryResult>;
   if (dataSources) {
     // Relationship-aware mode: create a dedicated loader that captures the
@@ -216,11 +266,14 @@ export function createBatchingAdapter(
     loader = loaderRegistry.get(endpoint)!;
   }
 
-  return {
+  const adapter: StudioDataSourceAdapter = {
     getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult> {
       return loader.load(descriptor);
     },
   };
+  // Tag the adapter with its endpoint URL for cross-endpoint relationship validation.
+  (adapter as unknown as Record<symbol, unknown>)[BATCHING_ENDPOINT] = endpoint;
+  return adapter;
 }
 
 // ── Cross-source field resolution ───────────────────────────────────────────

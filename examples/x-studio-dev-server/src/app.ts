@@ -5,10 +5,11 @@ import type { Config } from './config.js';
 import { makeAuthMiddleware } from './middleware/auth.js';
 import { makeHealthRouter } from './routes/health.js';
 import { makeDataRouter } from './routes/data.js';
+import { makeCrmDataRouter } from './routes/crmData.js';
 import { makeAIRouter } from './routes/ai.js';
 import { makeDevTokenRouter } from './routes/devToken.js';
 
-export function buildApp(db: Knex, config: Config): express.Application {
+export function buildApp(db: Knex, crmDb: Knex, config: Config): express.Application {
   const app = express();
 
   app.use(
@@ -27,6 +28,7 @@ export function buildApp(db: Knex, config: Config): express.Application {
   // Routes
   app.use('/health', makeHealthRouter(db));
   app.use('/api/studio-data', makeDataRouter(db, config));
+  app.use('/api/crm-data', makeCrmDataRouter(crmDb, config));
   app.use('/api/ai', makeAIRouter(config));
   app.use('/api/dev-token', makeDevTokenRouter(config));
 

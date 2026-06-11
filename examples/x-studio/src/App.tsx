@@ -501,10 +501,13 @@ export default function App() {
     // Re-run after Studio remounts (studioKey changes when generated data arrives).
   }, [adapterMode, studioKey]);
 
-  // Server mode: route all widget queries through a real server endpoint.
+  // Server mode: route widget queries through a real server endpoint.
   // Priority: VITE_STUDIO_SERVER_URL env var → ?server=URL query param
   // Activate via env: VITE_STUDIO_SERVER_URL=http://localhost:3020
   // Activate via URL: ?server=http://localhost:3001/api/studio-data
+  //
+  // CRM sources (id prefix "source-crm-") are routed to /api/crm-data on the same server.
+  // All other sources are routed to /api/studio-data.
   const serverEndpoint = React.useMemo(() => {
     const envServerUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
     if (envServerUrl) {
@@ -532,17 +535,26 @@ export default function App() {
           })
       : globalThis.fetch;
 
-    const batchingAdapter = createBatchingAdapter(serverEndpoint, {
+    // Sales sources → /api/studio-data; CRM sources (prefix "source-crm-") → /api/crm-data
+    const salesEndpoint = serverEndpoint;
+    const crmEndpoint = serverEndpoint.replace(/\/api\/studio-data$/, '/api/crm-data');
+
+    const salesAdapter = createBatchingAdapter(salesEndpoint, {
       fetchFn,
       dataSources: state.dataSources,
       relationships: state.relationships,
       expressionFields: state.expressionFields,
     });
+    const crmAdapter = createBatchingAdapter(crmEndpoint, { fetchFn });
+
     for (const source of Object.values(state.dataSources)) {
-      studioRef.current?.setDataSourceAdapter(source.id, batchingAdapter);
+      const adapter = source.id.startsWith('source-crm-') ? crmAdapter : salesAdapter;
+      studioRef.current?.setDataSourceAdapter(source.id, adapter);
     }
     // eslint-disable-next-line no-console
-    console.info(`[x-studio] Server mode enabled — queries routed to ${serverEndpoint}`);
+    console.info(
+      `[x-studio] Server mode enabled — sales → ${salesEndpoint}, CRM → ${crmEndpoint}`,
+    );
     // Re-run after Studio remounts (studioKey changes when generated data arrives).
   }, [serverEndpoint, adapterMode, studioKey]);
 

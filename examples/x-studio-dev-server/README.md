@@ -33,7 +33,7 @@ All configuration is done via environment variables. See `.env.example` for the 
 |---|---|---|
 | `PORT` | `3020` | Server port |
 | `DB_CLIENT` | `better-sqlite3` | Database driver (`better-sqlite3`, `pg`, `mysql2`) |
-| `DB_FILENAME` | `./studio.db` | SQLite file path |
+| `DB_FILENAME` | `./sales.db` | SQLite file path |
 | `SEED_ORDER_COUNT` | `500` | Number of orders to generate on seed |
 | `LLM_API_KEY` | — | OpenAI-compatible API key (required for AI features) |
 | `LLM_ENDPOINT` | `https://api.openai.com/v1/chat/completions` | LLM endpoint URL |
@@ -89,7 +89,7 @@ Returns a signed JWT for development use (only available when `STUDIO_TOKEN` is 
 
 ### SQLite (default)
 
-No setup needed. The database file is created automatically at `DB_FILENAME` (default: `./studio.db`).
+No setup needed. The database file is created automatically at `DB_FILENAME` (default: `./sales.db`).
 
 > **macOS note:** `better-sqlite3` requires Xcode Command Line Tools to build its native module. If you see a build error during `pnpm install`, run:
 > ```bash

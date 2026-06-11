@@ -26,7 +26,7 @@ export function createKnex(config: DbConfig): Knex {
     return knexLib({
       client: 'better-sqlite3',
       connection: {
-        filename: config.filename ?? './studio.db',
+        filename: config.filename ?? './sales.db',
       },
       useNullAsDefault: true,
     });

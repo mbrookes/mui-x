@@ -3,7 +3,8 @@ import * as React from 'react';
 import { Box, Typography, useTheme } from '@mui/material';
 import { useStudioLocaleText } from '../../context';
 import type { StudioDataSource, StudioRelationship } from '../../models';
-import { EdgeLabel, type NodeLayout } from './EdgeLabel';
+import { EdgeLabel } from './EdgeLabel';
+import type { NodeLayout } from './edgeGeometry';
 
 const NODE_W = 120;
 const NODE_H = 40;

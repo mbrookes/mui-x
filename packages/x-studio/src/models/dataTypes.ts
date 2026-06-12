@@ -49,6 +49,19 @@ export interface StudioDataField {
    * are more meaningful than averages.
    */
   aiAggregation?: 'sum' | 'avg' | 'min' | 'max';
+  /**
+   * Canonical display order for categorical field values.
+   *
+   * When set, chart x-axis labels are sorted in this order instead of alphabetically.
+   * Values not present in the list are appended at the end, sorted alphabetically
+   * among themselves.
+   *
+   * Use for ordered enumerations such as pipeline stages, severity levels, or any
+   * categorical field where alphabetical order is misleading.
+   *
+   * @example ['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost']
+   */
+  orderedValues?: string[];
 }
 
 // Filter tree node for QueryDescriptor

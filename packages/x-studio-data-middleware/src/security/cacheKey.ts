@@ -19,7 +19,16 @@ import type { JwtSecurityClaims, BatchWidgetDescriptor } from './types';
  * Generate a HMAC-SHA256 security hash from the user's row-level claims.
  * Two users with identical row-level permissions will share the same hash
  * (and thus share cache entries) — intentionally, for cache efficiency.
+ *
+ * Result is memoized: the security profile only changes when tenantId,
+ * regionIds, or department change, so repeated calls for the same user
+ * within a request (or across requests from the same user) pay the HMAC
+ * cost at most once per unique permission set per process lifetime.
+ * The memo map is bounded to MAX_MEMO_SIZE entries to prevent unbounded growth.
  */
+const securityHashMemo = new Map<string, string>();
+const MAX_MEMO_SIZE = 1_000;
+
 function computeSecurityHash(claims: JwtSecurityClaims, hmacSecret: string): string {
   const securityProfile = sortedStringify({
     tenantId: claims.tenantId,
@@ -27,7 +36,20 @@ function computeSecurityHash(claims: JwtSecurityClaims, hmacSecret: string): str
     department: claims.department,
   });
 
-  return createHmac('sha256', hmacSecret).update(securityProfile).digest('hex').slice(0, 16);
+  const memoKey = `${hmacSecret}::${securityProfile}`;
+  const cached = securityHashMemo.get(memoKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const hash = createHmac('sha256', hmacSecret).update(securityProfile).digest('hex').slice(0, 16);
+
+  if (securityHashMemo.size >= MAX_MEMO_SIZE) {
+    // Evict the oldest entry (Map insertion order).
+    securityHashMemo.delete(securityHashMemo.keys().next().value as string);
+  }
+  securityHashMemo.set(memoKey, hash);
+  return hash;
 }
 
 /**

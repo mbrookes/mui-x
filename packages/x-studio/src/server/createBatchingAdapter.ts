@@ -215,11 +215,13 @@ export function createBatchingAdapter(
 
   function createBatchFn(): BatchFn<StudioQueryDescriptor, StudioQueryResult> {
     return async (descriptors) => {
+      const builtDescriptors = descriptors.map((d) =>
+        buildBatchWidgetDescriptor(d, dataSources, relationships, expressionFields),
+      );
+
       const body = {
         pageId: descriptors[0]?.sourceId ?? 'unknown',
-        widgets: descriptors.map((d) =>
-          buildBatchWidgetDescriptor(d, dataSources, relationships, expressionFields),
-        ),
+        widgets: builtDescriptors.map((b) => b.requestBody),
       };
 
       const response = await fetchFn(endpoint, {
@@ -239,17 +241,86 @@ export function createBatchingAdapter(
         results: Array<{ id: string; rows: Record<string, unknown>[]; error?: string }>;
       };
 
+      // Build a lookup map of enrichment results: joinSourceId → (pkValue → joinFieldValues).
+      // We fetch each unique join source only once and share the lookup across all descriptors.
+      const enrichmentLookups = new Map<
+        string,
+        Promise<Map<unknown, Record<string, unknown>>>
+      >();
+
+      function getEnrichmentLookup(
+        joinSourceId: string,
+        joinPkField: string,
+      ): Promise<Map<unknown, Record<string, unknown>>> {
+        const cacheKey = `${joinSourceId}:${joinPkField}`;
+        if (!enrichmentLookups.has(cacheKey)) {
+          const joinSource = dataSources?.[joinSourceId];
+          if (!joinSource?.adapter) {
+            enrichmentLookups.set(cacheKey, Promise.resolve(new Map()));
+          } else {
+            const tableName = joinSource.tableName ?? joinSourceId;
+            const lookupDescriptor: StudioQueryDescriptor = {
+              sourceId: joinSourceId,
+              tableName,
+              widgetId: `_xjoin_${joinSourceId}`,
+              select: joinSource.fields.map((f) => f.id),
+              cacheKey: `_xjoin:${joinSourceId}`,
+            };
+            const promise = joinSource.adapter
+              .getRows(lookupDescriptor)
+              .then((result) => {
+                const lookup = new Map<unknown, Record<string, unknown>>();
+                for (const row of result.rows) {
+                  const pkVal = row[joinPkField];
+                  if (pkVal != null && !lookup.has(pkVal)) {
+                    lookup.set(pkVal, row as Record<string, unknown>);
+                  }
+                }
+                return lookup;
+              })
+              .catch(() => new Map<unknown, Record<string, unknown>>());
+            enrichmentLookups.set(cacheKey, promise);
+          }
+        }
+        return enrichmentLookups.get(cacheKey)!;
+      }
+
       // DataLoader invariant: results must be same length and same order as keys
-      return descriptors.map((d) => {
-        const result = json.results.find((r) => r.id === d.widgetId);
-        if (!result) {
-          return new Error(`Studio batch response missing result for widget "${d.widgetId}"`);
-        }
-        if (result.error) {
-          return new Error(result.error);
-        }
-        return { rows: result.rows };
-      });
+      return Promise.all(
+        descriptors.map(async (d, i) => {
+          const result = json.results.find((r) => r.id === d.widgetId);
+          if (!result) {
+            return new Error(`Studio batch response missing result for widget "${d.widgetId}"`);
+          }
+          if (result.error) {
+            return new Error(result.error);
+          }
+
+          const { crossEndpointEnrichments } = builtDescriptors[i];
+          if (crossEndpointEnrichments.length === 0) {
+            return { rows: result.rows };
+          }
+
+          // Apply cross-endpoint enrichments: fetch each join source once, then enrich rows.
+          let rows = result.rows;
+          for (const enr of crossEndpointEnrichments) {
+            // eslint-disable-next-line no-await-in-loop
+            const lookup = await getEnrichmentLookup(enr.joinSourceId, enr.joinPkField);
+            if (lookup.size === 0) continue;
+            rows = rows.map((row) => {
+              if (enr.logicalFieldId in row) {
+                return row; // Already set — don't overwrite (consistent with enrichRowsWithExpressions)
+              }
+              const fkValue = row[enr.fkField];
+              const joinRow = fkValue != null ? lookup.get(fkValue) : undefined;
+              const enrichedValue = joinRow?.[enr.joinFieldId] ?? null;
+              return { ...row, [enr.logicalFieldId]: enrichedValue };
+            });
+          }
+
+          return { rows };
+        }),
+      );
     };
   }
 
@@ -315,6 +386,21 @@ interface ResolvedField {
    *  The column is passed through as-is for SELECT (backward-compat) but MUST be dropped from
    *  WHERE clauses to avoid "no such column" SQL errors. */
   unresolved?: boolean;
+  /**
+   * When skip=true because the join target lives on a different adapter endpoint,
+   * this carries the information needed to enrich rows client-side after fetching
+   * the primary rows from the server.
+   */
+  crossEndpointJoin?: {
+    /** FK field on the primary source rows (e.g. 'customerId') */
+    fkField: string;
+    /** Source ID of the join target (e.g. 'source-customers') */
+    joinSourceId: string;
+    /** The field to pull from the join target (e.g. 'segment') */
+    joinFieldId: string;
+    /** PK field on the join target that matches fkField values (e.g. 'id') */
+    joinPkField: string;
+  };
 }
 
 /**
@@ -365,6 +451,42 @@ function resolveField(
         const { joinSourceId, fieldId: joinFieldId } = exprField.expression;
         const joinSource = dataSources[joinSourceId];
         if (joinSource) {
+          // Skip if this join would span database boundaries (different adapter endpoints).
+          // Cross-database JOINs are not executable server-side; the field will be evaluated
+          // client-side by the enrichment layer instead.
+          const primaryEndpoint = getBatchingEndpoint(dataSources[primarySourceId]?.adapter);
+          const joinEndpoint = getBatchingEndpoint(joinSource.adapter);
+          if (primaryEndpoint && joinEndpoint && primaryEndpoint !== joinEndpoint) {
+            // Find the relationship to surface FK info for client-side enrichment.
+            for (const rel of relationships) {
+              if (rel.type === 'many-to-many') continue;
+              if (rel.sourceId === primarySourceId && rel.targetId === joinSourceId) {
+                return {
+                  column: fieldId,
+                  skip: true,
+                  crossEndpointJoin: {
+                    fkField: rel.sourceField,
+                    joinSourceId,
+                    joinFieldId,
+                    joinPkField: rel.targetField,
+                  },
+                };
+              }
+              if (rel.targetId === primarySourceId && rel.sourceId === joinSourceId) {
+                return {
+                  column: fieldId,
+                  skip: true,
+                  crossEndpointJoin: {
+                    fkField: rel.targetField,
+                    joinSourceId,
+                    joinFieldId,
+                    joinPkField: rel.sourceField,
+                  },
+                };
+              }
+            }
+            return { column: fieldId, skip: true };
+          }
           const joinTable = joinSource.tableName ?? joinSourceId;
           // Find the relationship between primarySourceId and joinSourceId
           for (const rel of relationships) {
@@ -405,6 +527,12 @@ function resolveField(
       const exprSourceId = relatedExprField.sourceId;
       const exprSource = dataSources[exprSourceId];
       if (exprSource) {
+        const primaryEndpoint = getBatchingEndpoint(dataSources[primarySourceId]?.adapter);
+        const exprEndpoint = getBatchingEndpoint(exprSource.adapter);
+        // Skip if hop 1 would span database boundaries.
+        if (primaryEndpoint && exprEndpoint && primaryEndpoint !== exprEndpoint) {
+          return { column: fieldId, skip: true };
+        }
         const exprTable = exprSource.tableName ?? exprSourceId;
         // Find hop 1: primarySource → exprField's source
         for (const hop1Rel of relationships) {
@@ -440,6 +568,11 @@ function resolveField(
 
             const joinSource = dataSources[joinSourceId];
             if (joinSource) {
+              // Skip if hop 2 would span database boundaries.
+              const joinEndpoint = getBatchingEndpoint(joinSource.adapter);
+              if (primaryEndpoint && joinEndpoint && primaryEndpoint !== joinEndpoint) {
+                return { column: fieldId, skip: true };
+              }
               const joinTable = joinSource.tableName ?? joinSourceId;
               for (const hop2Rel of relationships) {
                 if (hop2Rel.type === 'many-to-many') continue;
@@ -523,6 +656,32 @@ function resolveField(
 }
 
 /**
+ * Describes a cross-endpoint join that must be resolved client-side after
+ * fetching the primary rows from the server.
+ */
+interface CrossEndpointEnrichment {
+  /** The logical expression field ID to populate (e.g. 'expr-deal-segment') */
+  logicalFieldId: string;
+  /** FK field on the primary source rows that links to the join source (e.g. 'customerId') */
+  fkField: string;
+  /** Source ID of the join target (e.g. 'source-customers') */
+  joinSourceId: string;
+  /** The field to pull from the join target (e.g. 'segment') */
+  joinFieldId: string;
+  /** PK field on the join target that matches fkField values (e.g. 'id') */
+  joinPkField: string;
+}
+
+/**
+ * Result of building a batch widget descriptor: the request body to send to the server
+ * and any cross-endpoint enrichments to apply after receiving the server response.
+ */
+interface BuiltBatchDescriptor {
+  requestBody: object;
+  crossEndpointEnrichments: CrossEndpointEnrichment[];
+}
+
+/**
  * Build the `BatchWidgetDescriptor` object to send to the server for one widget.
  *
  * When `dataSources` and `relationships` are provided, any field referenced by the
@@ -532,13 +691,17 @@ function resolveField(
  * Expression fields are also resolved:
  * - `JoinFieldExpression` → aliased column SELECT via `columnAliases`
  * - `FunctionExpression` → stripped from the descriptor (server returns raw rows)
+ *
+ * When an expression field's join target lives on a different adapter endpoint
+ * (cross-DB), the field is skipped server-side. The FK column is added to the
+ * SELECT so the client can perform enrichment after fetching.
  */
 function buildBatchWidgetDescriptor(
   d: StudioQueryDescriptor,
   dataSources: Record<string, StudioDataSource> | undefined,
   relationships: StudioRelationship[] | undefined,
   expressionFields?: StudioExpressionField[],
-): object {
+): BuiltBatchDescriptor {
   const tableName = d.tableName ?? d.sourceId;
 
   // ── Simple mode (no relationship info) ────────────────────────────────────
@@ -558,12 +721,15 @@ function buildBatchWidgetDescriptor(
         : undefined;
 
     return {
-      id: d.widgetId,
-      table: tableName,
-      columns,
-      aggregations,
-      filters: d.filter ? flattenFilterNode(d.filter) : undefined,
-      orderBy: d.groupBy ? [{ column: d.groupBy, direction: 'asc' as const }] : undefined,
+      requestBody: {
+        id: d.widgetId,
+        table: tableName,
+        columns,
+        aggregations,
+        filters: d.filter ? flattenFilterNode(d.filter) : undefined,
+        orderBy: d.groupBy ? [{ column: d.groupBy, direction: 'asc' as const }] : undefined,
+      },
+      crossEndpointEnrichments: [],
     };
   }
 
@@ -571,6 +737,8 @@ function buildBatchWidgetDescriptor(
   const joinsMap = new Map<string, JoinDescriptorInternal>();
   // Maps logical field ID → physical SQL column (for expression fields)
   const columnAliases: Record<string, string> = {};
+  // Cross-endpoint enrichments collected while resolving fields
+  const enrichments: CrossEndpointEnrichment[] = [];
 
   function resolve(fieldId: string): { column: string; skip?: boolean; unresolved?: boolean } {
     const resolved = resolveField(
@@ -590,6 +758,13 @@ function buildBatchWidgetDescriptor(
       // Expression join field: keep logical ID in columns, alias to physical column
       columnAliases[resolved.column] = resolved.physicalColumn;
     }
+    if (resolved.crossEndpointJoin) {
+      // Record enrichment only if not already registered (dedup by logicalFieldId).
+      const alreadyRegistered = enrichments.some((e) => e.logicalFieldId === fieldId);
+      if (!alreadyRegistered) {
+        enrichments.push({ logicalFieldId: fieldId, ...resolved.crossEndpointJoin });
+      }
+    }
     return { column: resolved.column, skip: resolved.skip, unresolved: resolved.unresolved };
   }
 
@@ -602,8 +777,26 @@ function buildBatchWidgetDescriptor(
     return r.skip ? [] : [r.column];
   });
 
-  // Aggregations — skip expression fields that can't be aggregated server-side
+  // For cross-endpoint enrichments, add the FK column to the SELECT so the client
+  // can look up the join target's value after receiving server rows.
+  for (const enr of enrichments) {
+    if (!columns.includes(enr.fkField)) {
+      columns.push(enr.fkField);
+    }
+  }
+
+  // Resolve the groupBy field to detect if it's cross-endpoint.
+  const groupByResolved = d.groupBy ? resolve(d.groupBy) : undefined;
+  const groupByIsCrossEndpoint = Boolean(groupByResolved?.skip);
+
+  // Aggregations — skip expression fields that can't be aggregated server-side.
+  // When the groupBy field is cross-endpoint, strip ALL aggregations so the server
+  // returns raw rows (with FK column) that the client can enrich and then aggregate.
   const aggregations: AggregationSpec[] | undefined = (() => {
+    if (groupByIsCrossEndpoint) {
+      // Can't group server-side — return raw rows for client-side enrichment + aggregation.
+      return undefined;
+    }
     const aggs = (d.aggregations ?? []).flatMap((a) => {
       const r = resolve(a.field);
       if (r.skip) return [];
@@ -632,26 +825,30 @@ function buildBatchWidgetDescriptor(
     return [{ ...pred, column: physicalColumn }];
   });
 
-  // ORDER BY — use physical column for expression fields (server sees physical name)
-  const orderByColumn = d.groupBy ? resolve(d.groupBy) : undefined;
+  // ORDER BY — use physical column for expression fields (server sees physical name).
+  // When groupBy is cross-endpoint, orderBy is already suppressed via groupByIsCrossEndpoint.
+  const orderByColumn = groupByIsCrossEndpoint ? undefined : groupByResolved;
 
   return {
-    id: d.widgetId,
-    table: tableName,
-    columns: columns.length > 0 ? columns : undefined,
-    columnAliases: Object.keys(columnAliases).length > 0 ? columnAliases : undefined,
-    joins: joinsMap.size > 0 ? [...joinsMap.values()] : undefined,
-    aggregations,
-    filters: filters.length > 0 ? filters : undefined,
-    orderBy:
-      orderByColumn && !orderByColumn.skip
-        ? [
-            {
-              column: columnAliases[orderByColumn.column] ?? orderByColumn.column,
-              direction: 'asc' as const,
-            },
-          ]
-        : undefined,
+    requestBody: {
+      id: d.widgetId,
+      table: tableName,
+      columns: columns.length > 0 ? columns : undefined,
+      columnAliases: Object.keys(columnAliases).length > 0 ? columnAliases : undefined,
+      joins: joinsMap.size > 0 ? [...joinsMap.values()] : undefined,
+      aggregations,
+      filters: filters.length > 0 ? filters : undefined,
+      orderBy:
+        orderByColumn && !orderByColumn.skip
+          ? [
+              {
+                column: columnAliases[orderByColumn.column] ?? orderByColumn.column,
+                direction: 'asc' as const,
+              },
+            ]
+          : undefined,
+    },
+    crossEndpointEnrichments: enrichments,
   };
 }
 

@@ -61,7 +61,10 @@ export async function loadRawOfficeSuppliesData(): Promise<RawOfficeSuppliesData
   const { getMainDemoDataGenerated } = await import('./vendor/mainDemoData.js');
 
   const result = getMainDemoDataGenerated(agStudioSeededFactory);
-  const byId = Object.fromEntries(result.sources.map((s) => [s.id, s])) as unknown as Record<string, Parameters<typeof columnarToRows>[0]>;
+  const byId = Object.fromEntries(result.sources.map((s) => [s.id, s])) as unknown as Record<
+    string,
+    Parameters<typeof columnarToRows>[0]
+  >;
 
   const [stores, products, customers, orders, orderItems, shipments] = await Promise.all([
     columnarToRows(byId.stores),

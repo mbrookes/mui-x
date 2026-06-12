@@ -195,10 +195,10 @@ import { StudioKpiWidget } from '@mui/x-studio';
 
 KPI widgets can be resized horizontally via the drag handle that appears between adjacent widgets in edit mode.
 
-| Configuration      | Minimum column span |
-| :----------------- | :------------------ |
-| With sparkline     | 6 columns (25%)     |
-| Without sparkline  | 4 columns (~17%)    |
+| Configuration     | Minimum column span |
+| :---------------- | :------------------ |
+| With sparkline    | 6 columns (25%)     |
+| Without sparkline | 4 columns (~17%)    |
 
 Disabling the sparkline allows the KPI card to be resized down to 4 columns (one-sixth of the 24-column grid), useful when several metrics need to fit side-by-side in a compact row.
 

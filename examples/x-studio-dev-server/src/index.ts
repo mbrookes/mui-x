@@ -14,7 +14,9 @@ async function main(): Promise<void> {
   const crmDb = createKnex(config.crmDb);
 
   console.log(`[startup] Sales DB: ${config.db.client} (${config.db.filename ?? config.db.host})`);
-  console.log(`[startup] CRM DB:   ${config.crmDb.client} (${config.crmDb.filename ?? config.crmDb.host})`);
+  console.log(
+    `[startup] CRM DB:   ${config.crmDb.client} (${config.crmDb.filename ?? config.crmDb.host})`,
+  );
 
   await createTables(db);
   await createCrmTables(crmDb);

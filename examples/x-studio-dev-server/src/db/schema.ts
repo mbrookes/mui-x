@@ -84,23 +84,46 @@ export async function createTables(db: Knex): Promise<void> {
 
   // Create indexes separately using IF NOT EXISTS so this is idempotent.
   const indexes: [string, string][] = [
-    ['orders_customerid_index', 'CREATE INDEX IF NOT EXISTS orders_customerid_index ON orders (customerId)'],
+    [
+      'orders_customerid_index',
+      'CREATE INDEX IF NOT EXISTS orders_customerid_index ON orders (customerId)',
+    ],
     ['orders_date_index', 'CREATE INDEX IF NOT EXISTS orders_date_index ON orders (date)'],
     ['orders_status_index', 'CREATE INDEX IF NOT EXISTS orders_status_index ON orders (status)'],
-    ['order_items_orderid_index', 'CREATE INDEX IF NOT EXISTS order_items_orderid_index ON order_items (orderId)'],
-    ['order_items_productid_index', 'CREATE INDEX IF NOT EXISTS order_items_productid_index ON order_items (productId)'],
-    ['order_items_category_index', 'CREATE INDEX IF NOT EXISTS order_items_category_index ON order_items (category)'],
-    ['shipments_orderid_index', 'CREATE INDEX IF NOT EXISTS shipments_orderid_index ON shipments (orderId)'],
-    ['shipments_status_index', 'CREATE INDEX IF NOT EXISTS shipments_status_index ON shipments (status)'],
-    ['shipment_items_shipmentid_index', 'CREATE INDEX IF NOT EXISTS shipment_items_shipmentid_index ON shipment_items (shipmentId)'],
-    ['shipment_items_orderitemid_index', 'CREATE INDEX IF NOT EXISTS shipment_items_orderitemid_index ON shipment_items (orderItemId)'],
+    [
+      'order_items_orderid_index',
+      'CREATE INDEX IF NOT EXISTS order_items_orderid_index ON order_items (orderId)',
+    ],
+    [
+      'order_items_productid_index',
+      'CREATE INDEX IF NOT EXISTS order_items_productid_index ON order_items (productId)',
+    ],
+    [
+      'order_items_category_index',
+      'CREATE INDEX IF NOT EXISTS order_items_category_index ON order_items (category)',
+    ],
+    [
+      'shipments_orderid_index',
+      'CREATE INDEX IF NOT EXISTS shipments_orderid_index ON shipments (orderId)',
+    ],
+    [
+      'shipments_status_index',
+      'CREATE INDEX IF NOT EXISTS shipments_status_index ON shipments (status)',
+    ],
+    [
+      'shipment_items_shipmentid_index',
+      'CREATE INDEX IF NOT EXISTS shipment_items_shipmentid_index ON shipment_items (shipmentId)',
+    ],
+    [
+      'shipment_items_orderitemid_index',
+      'CREATE INDEX IF NOT EXISTS shipment_items_orderitemid_index ON shipment_items (orderItemId)',
+    ],
   ];
 
   for (const [, sql] of indexes) {
     await db.raw(sql);
   }
 }
-
 
 /** Table names in dependency order (used for drops during reseed). */
 export const TABLE_NAMES = [

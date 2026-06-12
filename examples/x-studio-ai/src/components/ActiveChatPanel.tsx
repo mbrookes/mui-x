@@ -60,10 +60,7 @@ export function ActiveChatPanel({
   const handleMessagesChange = React.useCallback(
     (messages: unknown[]) => {
       try {
-        localStorage.setItem(
-          `${MESSAGES_STORAGE_PREFIX}${chat.id}`,
-          JSON.stringify(messages),
-        );
+        localStorage.setItem(`${MESSAGES_STORAGE_PREFIX}${chat.id}`, JSON.stringify(messages));
       } catch {
         // Ignore storage errors (e.g. quota exceeded).
       }

@@ -54,7 +54,10 @@ export async function loadOfficeSuppliesData(): Promise<OfficeSuppliesData> {
         { id: 'opened_date', label: 'Opened Date', type: 'date' },
         { id: 'store_type', label: 'Store Type', type: 'string' },
       ],
-      raw.stores.map((row) => ({ ...row, opened_date: msToIsoDate(row.opened_date) })) as unknown as Record<string, unknown>[],
+      raw.stores.map((row) => ({
+        ...row,
+        opened_date: msToIsoDate(row.opened_date),
+      })) as unknown as Record<string, unknown>[],
     ),
     productsSource: createSource(
       OS_PRODUCTS_SOURCE_ID,
@@ -70,7 +73,10 @@ export async function loadOfficeSuppliesData(): Promise<OfficeSuppliesData> {
         { id: 'unit_cost', label: 'Unit Cost', type: 'number' },
         { id: 'is_discontinued', label: 'Discontinued', type: 'boolean' },
       ],
-      raw.products.map((row) => ({ ...row, launch_date: msToIsoDate(row.launch_date) })) as unknown as Record<string, unknown>[],
+      raw.products.map((row) => ({
+        ...row,
+        launch_date: msToIsoDate(row.launch_date),
+      })) as unknown as Record<string, unknown>[],
     ),
     customersSource: createSource(
       OS_CUSTOMERS_SOURCE_ID,
@@ -84,7 +90,10 @@ export async function loadOfficeSuppliesData(): Promise<OfficeSuppliesData> {
         { id: 'is_active', label: 'Active', type: 'boolean' },
         { id: 'marketing_opt_in', label: 'Marketing Opt In', type: 'boolean' },
       ],
-      raw.customers.map((row) => ({ ...row, signup_date: msToIsoDate(row.signup_date) })) as unknown as Record<string, unknown>[],
+      raw.customers.map((row) => ({
+        ...row,
+        signup_date: msToIsoDate(row.signup_date),
+      })) as unknown as Record<string, unknown>[],
     ),
     ordersSource: createSource(
       OS_ORDERS_SOURCE_ID,
@@ -102,7 +111,10 @@ export async function loadOfficeSuppliesData(): Promise<OfficeSuppliesData> {
         { id: 'order_month', label: 'Order Month', type: 'string' },
         { id: 'order_year', label: 'Order Year', type: 'string' },
       ],
-      raw.orders.map((row) => ({ ...row, order_datetime: msToIsoDate(row.order_datetime) })) as unknown as Record<string, unknown>[],
+      raw.orders.map((row) => ({
+        ...row,
+        order_datetime: msToIsoDate(row.order_datetime),
+      })) as unknown as Record<string, unknown>[],
     ),
     orderItemsSource: createSource(
       OS_ORDER_ITEMS_SOURCE_ID,
@@ -134,7 +146,8 @@ export async function loadOfficeSuppliesData(): Promise<OfficeSuppliesData> {
       raw.shipments.map((row) => ({
         ...row,
         ship_datetime: msToIsoDate(row.ship_datetime),
-        delivery_datetime: row.delivery_datetime != null ? msToIsoDate(row.delivery_datetime) : null,
+        delivery_datetime:
+          row.delivery_datetime != null ? msToIsoDate(row.delivery_datetime) : null,
       })) as unknown as Record<string, unknown>[],
     ),
   };

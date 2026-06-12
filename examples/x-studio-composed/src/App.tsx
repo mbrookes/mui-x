@@ -1,5 +1,13 @@
 import * as React from 'react';
-import { Alert, Box, Chip, CircularProgress, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Chip,
+  CircularProgress,
+  CssBaseline,
+  Snackbar,
+  ThemeProvider,
+} from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import {
@@ -697,21 +705,21 @@ function DashboardLayout({
               }}
             >
               {aiConfig &&
-                mode === 'edit' &&
-                (pages[activePageId]?.widgetRows ?? []).length === 0 ? (
-                  <EmptyPagePrompt aiConfig={aiConfig} />
-                ) : (
-                  <StudioCanvas
-                    sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}
-                    slotProps={{
-                      widgetCard: {
-                        onUnconfiguredClick: handleUnconfiguredWidgetClick,
-                        onEditRequest: handleEditRequest,
-                        onAiRequest: aiConfig ? handleAiRequest : undefined,
-                      },
-                    }}
-                  />
-                )}
+              mode === 'edit' &&
+              (pages[activePageId]?.widgetRows ?? []).length === 0 ? (
+                <EmptyPagePrompt aiConfig={aiConfig} />
+              ) : (
+                <StudioCanvas
+                  sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}
+                  slotProps={{
+                    widgetCard: {
+                      onUnconfiguredClick: handleUnconfiguredWidgetClick,
+                      onEditRequest: handleEditRequest,
+                      onAiRequest: aiConfig ? handleAiRequest : undefined,
+                    },
+                  }}
+                />
+              )}
             </Box>
             {/* Show FAB when in edit mode and the active page already has content */}
             {mode === 'edit' && (pages[activePageId]?.widgetRows ?? []).length > 0 && (
@@ -809,7 +817,12 @@ export default function App() {
         <CssBaseline />
         {isLoading ? (
           <Box
-            sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}
+            sx={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              height: '100vh',
+            }}
           >
             <CircularProgress />
           </Box>

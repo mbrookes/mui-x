@@ -127,8 +127,12 @@ export function createMockDb(tables: Tables): (table: string) => MockQueryBuilde
             filtered.sort((a, b) => {
               const av = a[column] as string | number;
               const bv = b[column] as string | number;
-              if (av < bv) {return dir === 'asc' ? -1 : 1;}
-              if (av > bv) {return dir === 'asc' ? 1 : -1;}
+              if (av < bv) {
+                return dir === 'asc' ? -1 : 1;
+              }
+              if (av > bv) {
+                return dir === 'asc' ? 1 : -1;
+              }
               return 0;
             });
           }

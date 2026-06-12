@@ -16,10 +16,10 @@ export function createKnex(config: DbConfig): Knex {
     } catch {
       throw new Error(
         'MUI X Dev Server: better-sqlite3 native module is not available.\n' +
-        'To fix this, install Xcode Command Line Tools and reinstall:\n' +
-        '  xcode-select --install\n' +
-        '  pnpm install\n\n' +
-        'Alternatively, use PostgreSQL or MySQL by setting DB_CLIENT in .env.local.',
+          'To fix this, install Xcode Command Line Tools and reinstall:\n' +
+          '  xcode-select --install\n' +
+          '  pnpm install\n\n' +
+          'Alternatively, use PostgreSQL or MySQL by setting DB_CLIENT in .env.local.',
       );
     }
 

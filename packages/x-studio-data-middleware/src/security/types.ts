@@ -169,7 +169,7 @@ export interface HandleBatchQueryOptions {
    * Knex instance configured by the host app.
    * No direct DB imports in this package — the host wires the driver.
    */
-   
+
   db: any; // Knex.Knex — typed as any to avoid hard Knex dependency at import time
   /**
    * Cache provider (default: built-in LRU).

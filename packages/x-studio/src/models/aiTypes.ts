@@ -92,4 +92,3 @@ export type StudioAIToolName =
   | 'remove_widget_filter'
   | 'summarise_page'
   | 'apply_bulk_update';
-

@@ -12,7 +12,12 @@
  * This is consistently 5–20× faster than the full aggregation query, making
  * it a safe pre-flight check even for the smallest tier.
  */
-import type { JwtSecurityClaims, BatchWidgetDescriptor, FilterPredicate, HandleBatchQueryOptions } from '../security/types';
+import type {
+  JwtSecurityClaims,
+  BatchWidgetDescriptor,
+  FilterPredicate,
+  HandleBatchQueryOptions,
+} from '../security/types';
 import { buildSecureQuery } from './queryBuilder';
 
 export type RoutingTier = 'client' | 'server' | 'db';
@@ -34,7 +39,6 @@ const DEFAULT_SERVER_MEMORY_THRESHOLD = 100_000;
  * @param thresholds - Optional tier boundary overrides
  */
 export async function runPreflight(
-   
   db: any, // Knex.Knex
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
@@ -70,7 +74,6 @@ export async function runPreflight(
  * - 'db': return aggregated rows (DB push-down, no caching of raw data)
  */
 export async function executeForTier(
-   
   db: any,
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,

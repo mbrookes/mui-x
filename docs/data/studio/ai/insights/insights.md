@@ -37,6 +37,7 @@ const myWidget: StudioCustomWidgetDef = {
   aiInsight: true, // show the AI Insight button for this widget
 };
 ```
+
 :::
 
 ### Selecting the insight type

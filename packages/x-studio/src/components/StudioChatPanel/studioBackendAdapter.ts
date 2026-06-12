@@ -53,6 +53,16 @@ export interface StudioAIConfig {
    * are forwarded. All execution happens server-side.
    */
   skills?: SerializableSkill[];
+  /**
+   * When `true`, the current dashboard state is omitted from the system prompt.
+   * The model receives schema information only — no widget configurations, field
+   * names, or layout data are sent to the LLM provider.
+   *
+   * Use this when your dashboard displays sensitive business data and you want
+   * to prevent it from being included in LLM API calls.
+   * @default false
+   */
+  privateMode?: boolean;
 }
 
 type ChatSendMessageInput = Parameters<ChatAdapter['sendMessage']>[0];
@@ -71,7 +81,7 @@ export function createBackendChatAdapter(
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
 ): ChatAdapter {
-  const { endpoint, headers: extraHeaders, allowedTools, skills } = config;
+  const { endpoint, headers: extraHeaders, allowedTools, skills, privateMode } = config;
   const chatUrl = `${endpoint.replace(/\/?$/, '')}/chat`;
 
   // Skills are already in serializable form — the execute function (if present) is stripped
@@ -111,6 +121,7 @@ export function createBackendChatAdapter(
                 focusedWidgetId,
                 allowedTools,
                 skills: serializableSkills,
+                privateMode,
               }),
             });
           } catch (err) {

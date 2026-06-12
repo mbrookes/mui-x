@@ -97,6 +97,13 @@ export interface StudioWidgetConfig {
    */
   ganttColorField?: string;
   /**
+   * Funnel chart: explicit category order for funnel stages.
+   * Stages are displayed in the given order (top to bottom); any stages not
+   * listed appear at the end sorted by value descending.
+   * When omitted the funnel is sorted by value descending (widest first).
+   */
+  funnelCategoryOrder?: string[];
+  /**
    * Pie/donut chart: label shown on each arc.
    * - 'value': the formatted numeric value
    * - 'percent': percentage of the total (per ring for multi-ring charts)

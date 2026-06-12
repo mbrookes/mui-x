@@ -865,6 +865,14 @@ export const INITIAL_STATE: Partial<StudioState> = {
         xField: 'status',
         yField: 'id',
         yAggregation: 'count',
+        funnelCategoryOrder: [
+          'Pending',
+          'Processing',
+          'Shipped',
+          'Partially Delivered',
+          'Delivered',
+          'Cancelled',
+        ],
       },
     },
     'widget-chart5-revenue-mixed': {

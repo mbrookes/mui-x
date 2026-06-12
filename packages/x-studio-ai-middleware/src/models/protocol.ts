@@ -72,4 +72,19 @@ export type StudioAISSEEvent =
   /** A chunk of reasoning text (appended to the open reasoning block). */
   | { type: 'reasoning-delta'; id: string; delta: string }
   /** Signals that the reasoning block identified by `id` is complete. */
-  | { type: 'reasoning-end'; id: string };
+  | { type: 'reasoning-end'; id: string }
+  /**
+   * Emitted at the start of each agentic iteration after the first.
+   * The client renders it as a visual separator ("step divider") so users can see
+   * how many reasoning rounds the model performed.
+   */
+  | { type: 'step-start'; iteration: number }
+  /**
+   * Metadata to shallow-merge into the current assistant message.
+   * Use this to attach model name, per-message token counts, trace IDs, or any
+   * other structured metadata. Emitted once per agentic turn, before `finish`.
+   *
+   * Consumers can access this via `message.metadata` in `onMessagesChange` callbacks
+   * or custom message slot components.
+   */
+  | { type: 'message-metadata'; metadata: Record<string, unknown> };

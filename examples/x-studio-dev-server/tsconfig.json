@@ -11,6 +11,8 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
+      "@mui/x-internals": ["../../packages/x-internals/src"],
+      "@mui/x-internals/*": ["../../packages/x-internals/src/*"],
       "@mui/x-chat-headless": ["../../packages/x-chat-headless/src"],
       "@mui/x-studio": ["../../packages/x-studio/src"]
     }

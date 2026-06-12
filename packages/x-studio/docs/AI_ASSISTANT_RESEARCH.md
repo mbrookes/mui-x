@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The embedded analytics market has undergone a rapid AI transformation. In 2025–2026, every major BI vendor added conversational AI, and the gap between "basic NL-to-chart" and "agentic multi-step analytics" has widened. `@mui/x-studio` currently implements a competent **15-tool OpenAI-compatible chat assistant** that can build dashboards from natural language — comparable to AG Grid Studio's approach in terms of interaction model, but trailing on several high-value features: forecasting, MCP integration, multi-thread conversations, and voice input. The most impactful remaining enhancements are: an MCP server for external agent integration, persistent conversation state in core (currently example-only), and named conversation threads.
+The embedded analytics market has undergone a rapid AI transformation. In 2025–2026, every major BI vendor added conversational AI, and the gap between "basic NL-to-chart" and "agentic multi-step analytics" has widened. `@mui/x-studio` currently implements a competent **20-tool OpenAI-compatible chat assistant** with MCP server, voice input, token governance, and SVG chart rendering that can build dashboards from natural language — fully competitive with AG Grid Studio's approach. The most impactful remaining gap is multi-agent orchestration (a 5-agent architecture is research-level scope).
 
 ---
 
@@ -958,11 +958,23 @@ See `packages/x-studio-ai-middleware/src/mcp.ts` and the [MCP server dev-server 
 
 ---
 
-### ~~Phase 7: Additional Enhancements~~ ✅ DONE (except voice input and token governance)
+### ~~Phase 7: Additional Enhancements~~ ✅ DONE
 
-#### 7.1 Voice Input
+#### ~~7.1 Voice Input~~ ✅ DONE
 
-Add browser SpeechRecognition API support to `StudioChatPanel` (same approach as the DataGrid AI assistant which already implements this).[^41]
+`useSpeechRecognition` hook wraps the browser `SpeechRecognition` / `webkitSpeechRecognition` API
+and is integrated directly into `StudioChatPanel`:
+
+- **Hook** (`useSpeechRecognition.ts`): `{ isSupported, isListening, transcript, start, stop, resetTranscript }`
+  — continuous mode, interim results, auto-stops on browser silence, cleans up on unmount
+- **UI**: mic `IconButton` overlaid in the chat composer (bottom-right); turns red when active;
+  hidden when `isSupported` is `false` (Firefox without flag, SSR)
+- **Input integration**: transcript appended to any existing composer text via `ChatBox.composerValue`
+  / `onComposerValueChange`; manual edits stop recognition automatically
+- **Locale**: `chatVoiceInputStart`, `chatVoiceInputStop`, `chatVoiceInputNotSupported` in
+  `StudioUIConfig` (English defaults + pt-BR)
+- **Export**: `useSpeechRecognition` and `UseSpeechRecognitionReturn` exported from `@mui/x-studio`
+- 12 unit tests in `useSpeechRecognition.test.ts`
 
 #### ~~7.2 Forecast / Trend Bands in Charts~~ ✅ DONE
 

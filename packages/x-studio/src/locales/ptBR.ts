@@ -741,6 +741,9 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   aiSuggestionWhatDataAvailable: 'Quais dados estão disponíveis?',
   chatNewConversationName: 'Nova conversa',
   chatSwitchConversationTooltip: 'Trocar conversa',
+  chatVoiceInputStart: 'Iniciar entrada por voz',
+  chatVoiceInputStop: 'Parar entrada por voz',
+  chatVoiceInputNotSupported: 'Entrada por voz não é suportada neste navegador',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

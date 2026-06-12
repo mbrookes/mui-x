@@ -467,6 +467,36 @@ export const STUDIO_AI_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'execute_query',
+      description:
+        'Runs an ad-hoc query against the dashboard data sources and returns the results as JSON. ' +
+        'Use this to answer user questions that require fetching actual data — for example ' +
+        '"What were the top 5 products by revenue last quarter?" or ' +
+        '"How many active customers are there?". ' +
+        'Write the query in the same SQL dialect used by the connected data source. ' +
+        'Only use this tool when a data resolver has been configured on the server; ' +
+        'if unavailable it will return an error.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'The SQL (or equivalent query language) query to execute.',
+          },
+          sourceId: {
+            type: 'string',
+            description:
+              'Optional ID of the specific data source to query. ' +
+              'If omitted, the resolver uses its default source.',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
 ] as const;
 
 export type StudioAIToolName =
@@ -487,4 +517,5 @@ export type StudioAIToolName =
   | 'remove_widget_filter'
   | 'summarise_page'
   | 'apply_bulk_update'
-  | 'rename_thread';
+  | 'rename_thread'
+  | 'execute_query';

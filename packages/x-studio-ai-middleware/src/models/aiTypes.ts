@@ -89,14 +89,66 @@ export type StudioAIToolName =
   | 'remove_widget_filter'
   | 'summarise_page'
   | 'apply_bulk_update'
-  | 'rename_thread';
+  | 'rename_thread'
+  | 'execute_query';
+
+// ── Data resolver ─────────────────────────────────────────────────────────────
+
+/**
+ * Result returned by a `StudioDataResolver` after executing a query.
+ */
+export interface StudioDataResolverResult {
+  /** Rows of data. Each row is a record of column-name → value. */
+  rows: Record<string, unknown>[];
+  /** Optional column metadata (names in order, useful for display). */
+  columns?: string[];
+  /** Total row count before any LIMIT, if available from the data source. */
+  totalCount?: number;
+}
+
+/**
+ * App-provided data resolver for the `execute_query` AI tool.
+ *
+ * When configured, the AI assistant can call `execute_query` to run
+ * ad-hoc queries and incorporate live data into its responses.
+ *
+ * @example
+ * ```ts
+ * const dataResolver: StudioDataResolver = {
+ *   async resolve(query, sourceId) {
+ *     const db = sourceId ? getDb(sourceId) : defaultDb;
+ *     const rows = await db.query(query);
+ *     return { rows };
+ *   },
+ * };
+ * ```
+ */
+export interface StudioDataResolver {
+  /**
+   * Execute the query and return the result.
+   * @param query   The query string (SQL or equivalent).
+   * @param sourceId  Optional data source identifier.
+   */
+  resolve(query: string, sourceId?: string): Promise<StudioDataResolverResult>;
+}
 
 // ── Server-side skill ─────────────────────────────────────────────────────────
+
+/**
+ * The result returned by a skill's `execute` function.
+ */
+export interface SkillExecuteResult {
+  output: string;
+  mutation?: StateMutation;
+  nextState: StudioState;
+}
 
 /**
  * A skill that can be registered with the x-studio AI assistant.
  * Extends `SerializableSkill` by adding the server-side `execute` function.
  * Instances are assignable to `SerializableSkill` (used in `StudioAIConfig.skills`).
+ *
+ * The `execute` function may be synchronous or asynchronous.
  */
 export interface StudioAISkill extends SerializableSkill {
   mode: 'server-tool' | 'instruction-only' | 'client-handler';
@@ -107,10 +159,6 @@ export interface StudioAISkill extends SerializableSkill {
     execute: (
       args: Record<string, unknown>,
       state: StudioState,
-    ) => {
-      output: string;
-      mutation?: StateMutation;
-      nextState: StudioState;
-    };
+    ) => SkillExecuteResult | Promise<SkillExecuteResult>;
   };
 }

@@ -18,6 +18,11 @@
     "paths": {
       "@mui/x-internals": ["../../packages/x-internals/src"],
       "@mui/x-internals/*": ["../../packages/x-internals/src/*"],
+      "@mui/x-internal-gestures/*": ["../../packages/x-internal-gestures/src/*"],
+      "@mui/x-data-grid": ["../../packages/x-data-grid/src"],
+      "@mui/x-data-grid/*": ["../../packages/x-data-grid/src/*"],
+      "@mui/x-data-grid-premium": ["../../packages/x-data-grid-premium/src"],
+      "@mui/x-data-grid-premium/*": ["../../packages/x-data-grid-premium/src/*"],
       "@mui/x-studio": ["../../packages/x-studio/src"],
       "@mui/x-studio/*": ["../../packages/x-studio/src/*"],
       "@mui/x-studio-data-middleware": ["../../packages/x-studio-data-middleware/src"],

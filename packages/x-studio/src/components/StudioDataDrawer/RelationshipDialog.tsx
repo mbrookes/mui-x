@@ -1,34 +1,21 @@
 'use client';
 import * as React from 'react';
 import {
-  Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
   FormControl,
-  IconButton,
   InputLabel,
   MenuItem,
   Select,
   Stack,
-  Tooltip,
   Typography,
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
-import { useStudioController, useStudioLocaleText } from '../../context';
-import type { StudioDataSource, StudioRelationship } from '../../models';
-
-// ─── Relationship editor ──────────────────────────────────────────────────────
-
-function generateRelId() {
-  return `rel-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
+import { useStudioLocaleText } from '../../context';
+import type { StudioDataSource } from '../../models';
 
 export interface RelationshipFormState {
   sourceId: string;

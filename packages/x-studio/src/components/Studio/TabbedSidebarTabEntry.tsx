@@ -1,6 +1,5 @@
 'use client';
 
-import * as React from 'react';
 import { Badge, Box, Typography } from '@mui/material';
 import { useStudioLocaleText } from '../../context';
 

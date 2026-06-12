@@ -8,7 +8,7 @@
  * 4. Feeds text deltas to the chat stream
  * 5. Applies `state-mutation` events to the local `StudioController`
  */
-import type { ChatAdapter, ChatMessage, ChatMessageChunk } from '@mui/x-chat/headless';
+import type { ChatAdapter, ChatMessageChunk } from '@mui/x-chat/headless';
 import type { StudioController } from '../../store/StudioController';
 import type { StudioCustomWidgetDef, StateMutation, SerializableSkill } from '../../models';
 import { applyStateMutation } from './applyStateMutation';

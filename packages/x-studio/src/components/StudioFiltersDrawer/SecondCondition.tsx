@@ -1,7 +1,6 @@
 'use client';
 import * as React from 'react';
 import {
-  Autocomplete,
   Box,
   Button,
   FormControl,
@@ -12,20 +11,13 @@ import {
   Radio,
   RadioGroup,
   Select,
-  Stack,
-  TextField,
   Tooltip,
-  Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import type { StudioFilterOperator, StudioFilterState } from '../../models';
-import type { FieldType, FilterMode } from './filterDrawerTypes';
-import type { AvailableSeries } from './RankFilterInput';
-import { FilterModeToggle } from './FilterModeToggle';
+import type { FieldType } from './filterDrawerTypes';
 import { FilterValueInput } from './FilterValueInput';
-import { SelectionFilterInput } from './SelectionFilterInput';
-import { RankFilterInput } from './RankFilterInput';
 import { useStudioLocaleText } from '../../context';
 
 export interface SecondConditionProps {

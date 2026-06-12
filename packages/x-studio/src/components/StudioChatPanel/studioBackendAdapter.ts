@@ -63,6 +63,25 @@ export interface StudioAIConfig {
    * @default false
    */
   privateMode?: boolean;
+  /**
+   * Called after each completed AI chat request with token and iteration usage.
+   * Use this to display a token counter, enforce client-side budgets, or log
+   * usage to an analytics service.
+   *
+   * Note: server-side enforcement of token budgets is configured via
+   * `rateLimit` in `StudioAIHandlerOptions` (your server endpoint, not here).
+   *
+   * @example
+   * ```tsx
+   * aiConfig={{
+   *   endpoint: '/api/ai',
+   *   onUsage: ({ inputTokens, outputTokens, iterations }) => {
+   *     console.log(`Tokens: ${inputTokens + outputTokens}, turns: ${iterations}`);
+   *   },
+   * }}
+   * ```
+   */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number; iterations: number }) => void;
 }
 
 type ChatSendMessageInput = Parameters<ChatAdapter['sendMessage']>[0];
@@ -81,7 +100,7 @@ export function createBackendChatAdapter(
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
 ): ChatAdapter {
-  const { endpoint, headers: extraHeaders, allowedTools, skills, privateMode } = config;
+  const { endpoint, headers: extraHeaders, allowedTools, skills, privateMode, onUsage } = config;
   const chatUrl = `${endpoint.replace(/\/?$/, '')}/chat`;
 
   // Skills are already in serializable form — the execute function (if present) is stripped
@@ -214,6 +233,12 @@ export function createBackendChatAdapter(
               } catch (err) {
                 console.error('[StudioBackendAdapter] Failed to apply state mutation:', err);
               }
+            } else if (type === 'usage') {
+              onUsage?.({
+                inputTokens: (event as { inputTokens: number }).inputTokens,
+                outputTokens: (event as { outputTokens: number }).outputTokens,
+                iterations: (event as { iterations: number }).iterations,
+              });
             } else if (type === 'finish') {
               if (textStarted) {
                 streamController.enqueue({ type: 'text-end', id: textPartId });

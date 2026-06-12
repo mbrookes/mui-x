@@ -108,7 +108,7 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
         }}
       >
         <Typography variant="caption" color="text.secondary">
-          {rowCount} rows × {colCount} columns
+          {localeText.pivotRowsColumnsLabel(rowCount, colCount)}
         </Typography>
         <Button
           size="small"

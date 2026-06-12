@@ -664,6 +664,30 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   addWidgetGroupAriaLabel: (groupLabel) => `Widgets de ${groupLabel}`,
   addWidgetSelectAriaLabel: (label) => `Selecionar widget: ${label}`,
   formatPanelNoSubtitlePlaceholder: 'Sem subtítulo',
+
+  // Widget filters panel
+  widgetFiltersPanelNoSource: 'Este widget não tem fonte de dados.',
+  widgetFiltersPanelDescription:
+    'Condições permanentes aplicadas aos dados deste widget antes de qualquer filtro interativo.',
+  widgetFiltersPanelNoFilters: 'Sem filtros, todos os dados são exibidos.',
+  widgetFiltersPanelAddButton: 'Adicionar filtro',
+
+  // Expression field preview
+  expressionPreviewMeasureLabel: (count) =>
+    `Pré-visualização (medida em ${count.toLocaleString('pt-BR')} linhas)`,
+  expressionPreviewFirstRowsLabel: (count) =>
+    `Pré-visualização (primeiras ${count.toLocaleString('pt-BR')} linhas)`,
+
+  // Pivot widget
+  pivotRowsColumnsLabel: (rowCount, colCount) =>
+    `${rowCount} linhas \u00d7 ${colCount} colunas`,
+
+  // Gantt chart
+  ganttHiddenRowsLabel: (count) =>
+    `+${count} linha${count === 1 ? '' : 's'} não exibida${count === 1 ? '' : 's'}: aumente a altura do widget para ver todas`,
+
+  // Color input
+  colorInputClearAriaLabel: (label) => `Limpar ${label.toLowerCase()}`,
 };
 
 export const ptBR: Localization = getStudioLocalization(ptBRLocaleText);

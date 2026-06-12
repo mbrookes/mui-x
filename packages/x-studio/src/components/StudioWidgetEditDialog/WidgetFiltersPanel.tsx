@@ -24,6 +24,7 @@ import { FilterRow, type FieldOption } from './FilterRow';
 export function WidgetFiltersPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
+  const localeText = useStudioLocaleText();
   const allFilters = useStudioSelector(selectFilters);
   const widgets = useStudioSelector(selectWidgets);
   const dataSources = useStudioSelector(selectDataSources);
@@ -114,7 +115,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
   if (!widget || !sourceId) {
     return (
       <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-        This widget has no data source.
+        {localeText.widgetFiltersPanelNoSource}
       </Typography>
     );
   }
@@ -122,7 +123,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
   return (
     <Stack spacing={2}>
       <Typography variant="body2" color="text.secondary">
-        Always-on conditions applied to this widget&apos;s data before any interactive filters.
+        {localeText.widgetFiltersPanelDescription}
       </Typography>
 
       {widgetFilters.length > 0 ? (
@@ -139,7 +140,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
         </Stack>
       ) : (
         <Typography variant="body2" color="text.disabled" sx={{ fontStyle: 'italic' }}>
-          No filters, all data is shown.
+          {localeText.widgetFiltersPanelNoFilters}
         </Typography>
       )}
 
@@ -150,7 +151,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
         disabled={ownFields.length === 0}
         sx={{ alignSelf: 'flex-start' }}
       >
-        Add filter
+        {localeText.widgetFiltersPanelAddButton}
       </Button>
     </Stack>
   );

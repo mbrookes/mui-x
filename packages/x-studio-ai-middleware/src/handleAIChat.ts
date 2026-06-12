@@ -56,7 +56,7 @@
  */
 import { runAgenticLoop } from './agenticLoop';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
-import type { StudioAISkill } from './models/aiTypes';
+import type { StudioAISkill, StudioDataResolver } from './models/aiTypes';
 
 /**
  * Options for the AI chat handler.
@@ -117,6 +117,28 @@ export interface StudioAIHandlerOptions {
    * ```
    */
   skillHandlers?: StudioAISkill[];
+  /**
+   * App-provided data resolver for the `execute_query` AI tool.
+   *
+   * When set, the model can call `execute_query` to run ad-hoc queries against
+   * the connected data sources. The resolver receives the SQL string (and an
+   * optional `sourceId`) and must return the rows.
+   *
+   * @example
+   * ```ts
+   * const stream = handleAIChat(body, {
+   *   endpoint: process.env.OPENAI_ENDPOINT,
+   *   apiKey: process.env.OPENAI_API_KEY,
+   *   dataResolver: {
+   *     async resolve(query, sourceId) {
+   *       const rows = await db.query(query);
+   *       return { rows };
+   *     },
+   *   },
+   * });
+   * ```
+   */
+  dataResolver?: StudioDataResolver;
 }
 
 /**
@@ -157,6 +179,7 @@ export function handleAIChat(
             signal: options.signal,
             onToolError: options.onToolError,
             skillHandlers: options.skillHandlers,
+            dataResolver: options.dataResolver,
             privateMode,
           },
         );

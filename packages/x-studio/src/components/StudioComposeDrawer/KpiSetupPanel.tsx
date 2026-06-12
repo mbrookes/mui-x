@@ -21,6 +21,7 @@ import {
   selectWidgets,
   selectDataSources,
   selectExpressionFields,
+  selectRelationships,
   useStudioLocaleText,
 } from '../../context';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';

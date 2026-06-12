@@ -551,6 +551,60 @@ describe('resolveChartRowsForAggregation', () => {
     // Neither WeakMap key changed → cache hit → same reference ✓
     expect(result2).toBe(result1);
   });
+
+  it('evaluates expression fields on the same source (fixes blank charts with expr yField)', () => {
+    const products = [
+      { id: 'P1', category: 'Electronics', price: 100, cost: 60 },
+      { id: 'P2', category: 'Electronics', price: 200, cost: 120 },
+      { id: 'P3', category: 'Office', price: 50, cost: 40 },
+    ];
+    const productsSource: StudioDataSource = {
+      id: 'products',
+      label: 'Products',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'price', label: 'Price', type: 'number' },
+        { id: 'cost', label: 'Cost', type: 'number' },
+      ],
+      rows: products,
+    };
+    const expressionFields: import('../models/expressionTypes').StudioExpressionField[] = [
+      {
+        id: 'expr-margin',
+        label: 'Unit Margin',
+        sourceId: 'products',
+        type: 'number',
+        isMeasure: false,
+        expression: {
+          operator: 'subtract',
+          inputs: [{ id: 'price' }, { id: 'cost' }],
+        },
+      },
+    ];
+
+    const resolved = resolveChartRowsForAggregation(
+      products,
+      'products',
+      'category',
+      ['expr-margin'],
+      undefined,
+      { products: productsSource },
+      [],
+      expressionFields,
+    );
+
+    // Expression field must be evaluated — not undefined/0
+    expect(resolved[0]['expr-margin']).toBe(40); // 100 - 60
+    expect(resolved[1]['expr-margin']).toBe(80); // 200 - 120
+    expect(resolved[2]['expr-margin']).toBe(10); // 50 - 40
+
+    // Chart aggregation on the expression field should produce correct values
+    const agg = aggregateByField(resolved, 'category', 'expr-margin', undefined, 'avg');
+    expect(agg.labels).toContain('Electronics');
+    const elecIdx = agg.labels.indexOf('Electronics');
+    expect(agg.values[elecIdx]).toBe(60); // avg of 40 and 80
+  });
 });
 
 describe('analyzeChartSupport', () => {

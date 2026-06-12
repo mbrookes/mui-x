@@ -63,6 +63,7 @@ export interface AppToolbarProps {
   onPageDragNavigate?: (pageId: string) => void;
 }
 
+// react-doctor-disable-next-line react-doctor/no-giant-component -- top-level orchestration component; splitting would scatter related state
 export function AppToolbar(props: AppToolbarProps) {
   const {
     title,
@@ -266,6 +267,7 @@ export function AppToolbar(props: AppToolbarProps) {
   }, []);
 
   // Clean up on unmount and listen for global dragend (widget drop/cancel outside tabs)
+  // react-doctor-disable-next-line react-doctor/advanced-event-handler-refs -- event handler updated via stable wrapper
   React.useEffect(() => {
     document.addEventListener('dragend', cancelDragNavTimer);
     return () => {

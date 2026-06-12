@@ -18,23 +18,15 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import SaveIcon from '@mui/icons-material/Save';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import { AgStudio } from 'ag-studio-react';
-import {
-  customersSource,
-  ordersSource,
-  orderItemsSource,
-  productsSource,
-  shipmentsSource,
-  shipmentItemsSource,
-  CUSTOMERS_SOURCE_ID,
-  ORDERS_SOURCE_ID,
-  ORDER_ITEMS_SOURCE_ID,
-  PRODUCTS_SOURCE_ID,
-  SHIPMENTS_SOURCE_ID,
-  SHIPMENT_ITEMS_SOURCE_ID,
-  generateSalesData,
-} from './salesData';
-import { loadOfficeSuppliesData } from './officeSuppliesData';
-import type { AgStudioData } from './officeSuppliesData';
+import { customersSource, CUSTOMERS_SOURCE_ID } from './salesData/customers';
+import { ordersSource, ORDERS_SOURCE_ID } from './salesData/orders';
+import { orderItemsSource, ORDER_ITEMS_SOURCE_ID } from './salesData/orderItems';
+import { productsSource, PRODUCTS_SOURCE_ID } from './salesData/products';
+import { shipmentsSource, SHIPMENTS_SOURCE_ID } from './salesData/shipments';
+import { shipmentItemsSource, SHIPMENT_ITEMS_SOURCE_ID } from './salesData/shipmentItems';
+import { generateSalesData } from './salesData/generator';
+import { loadOfficeSuppliesData } from './officeSuppliesData/index';
+import type { AgStudioData } from './officeSuppliesData/index';
 import { downloadJson, uploadJson } from './utils/fileUtils';
 import { AG_SALES_DASHBOARD_STATE, PAGES } from './config/salesDashboard';
 import { AG_OS_DASHBOARD_STATE, OS_PAGES } from './config/officeSuppliesDashboard';
@@ -63,6 +55,7 @@ function getUrlDatasetParam(): 'sales' | 'ag-studio' {
     : 'sales';
 }
 
+// react-doctor-disable-next-line react-doctor/no-giant-component, react-doctor/prefer-useReducer -- top-level orchestration state is intentionally broad and not naturally reducible
 export default function App() {
   // AG Studio API is accessed via ref.current.api after onApiReady fires.
   const apiRef = React.useRef<{ getState: () => unknown; setState: (s: unknown) => void } | null>(

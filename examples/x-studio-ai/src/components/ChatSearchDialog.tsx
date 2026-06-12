@@ -24,12 +24,6 @@ interface ChatSearchDialogProps {
 export function ChatSearchDialog({ open, onClose, chats, onSelect }: ChatSearchDialogProps) {
   const [query, setQuery] = React.useState('');
 
-  React.useEffect(() => {
-    if (open) {
-      setQuery('');
-    }
-  }, [open]);
-
   const filtered = query.trim()
     ? chats.filter(
         (chat) =>

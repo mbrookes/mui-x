@@ -88,10 +88,13 @@ function registerAdapters(controller: StudioController) {
 }
 
 export function useChatControllers() {
-  const controllersRef = React.useRef<Map<string, StudioController>>(new Map());
+  const controllersRef = React.useRef<Map<string, StudioController> | null>(null);
+  if (controllersRef.current === null) {
+    controllersRef.current = new Map();
+  }
 
   const getOrCreateController = React.useCallback((chatId: string): StudioController => {
-    const existing = controllersRef.current.get(chatId);
+    const existing = controllersRef.current!.get(chatId);
     if (existing) {
       return existing;
     }
@@ -110,7 +113,7 @@ export function useChatControllers() {
       }
     }
 
-    controllersRef.current.set(chatId, controller);
+    controllersRef.current!.set(chatId, controller);
     return controller;
   }, []);
 
@@ -119,7 +122,7 @@ export function useChatControllers() {
       return;
     }
 
-    const controller = controllersRef.current.get(chatId);
+    const controller = controllersRef.current!.get(chatId);
     if (controller) {
       localStorage.setItem(
         `${DASHBOARD_STORAGE_PREFIX}${chatId}`,

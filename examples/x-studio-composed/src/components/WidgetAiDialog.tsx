@@ -36,7 +36,9 @@ export function WidgetAiDialog({ open, widgetId, aiConfig, onClose }: WidgetAiDi
 
   // Auto-close if the focused widget is deleted while the dialog is open
   React.useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-event-handler -- intentional: close the dialog when the focused widget disappears
     if (open && widgetId && !widgetExists) {
+      // react-doctor-disable-next-line react-doctor/no-prop-callback-in-effect -- intentional: notify parent when the focused widget disappears
       onClose();
     }
   }, [open, widgetId, widgetExists, onClose]);

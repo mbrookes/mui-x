@@ -139,6 +139,7 @@ export function AppLayout({
             <Box sx={{ display: 'flex', width: '100%', height: '100%' }}>
               {activeChat && (
                 <ActiveChatPanel
+                  key={activeChat.id}
                   chat={activeChat}
                   aiConfig={aiConfig}
                   onUpdateChat={onUpdateChat}
@@ -152,6 +153,7 @@ export function AppLayout({
       </Box>
 
       <ChatSearchDialog
+        key={String(searchOpen)}
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         chats={chats}

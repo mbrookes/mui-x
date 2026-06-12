@@ -718,6 +718,28 @@ export interface StudioLocaleText {
   pivotBlankValueLabel: string;
   /** Label shown for the totals row/column */
   pivotTotalLabel: string;
+
+  // ── Expression field dialog ───────────────────────────────────────────────
+  /** Dialog title when editing an existing calculated field */
+  exprDialogEditTitle: string;
+  /** Dialog title when creating a new calculated field */
+  exprDialogNewTitle: string;
+
+  // ── AI chat suggestions ───────────────────────────────────────────────────
+  /** e.g. "Bar chart: Revenue by Country" */
+  aiSuggestionBarChart: (numericLabel: string, catLabel: string) => string;
+  /** e.g. "KPI: total Revenue" */
+  aiSuggestionKpi: (fieldLabel: string) => string;
+  /** e.g. "Table from Orders" */
+  aiSuggestionTable: (sourceLabel: string) => string;
+  /** e.g. 'Change "Revenue" to line chart' */
+  aiSuggestionChangeToLine: (widgetTitle: string) => string;
+  /** e.g. 'Add sparkline to "Total Orders"' */
+  aiSuggestionAddSparkline: (widgetTitle: string) => string;
+  aiSuggestionAddDateFilter: string;
+  aiSuggestionAddPage: string;
+  aiSuggestionSummarisePage: string;
+  aiSuggestionWhatDataAvailable: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1410,6 +1432,22 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   pivotCornerHeaderAriaLabel: 'Row / column header',
   pivotBlankValueLabel: '(blank)',
   pivotTotalLabel: 'Total',
+
+  // Expression field dialog
+  exprDialogEditTitle: 'Edit Calculated Field',
+  exprDialogNewTitle: 'New Calculated Field',
+
+  // AI chat suggestions
+  aiSuggestionBarChart: (numericLabel, catLabel) =>
+    `Bar chart: ${numericLabel} by ${catLabel}`,
+  aiSuggestionKpi: (fieldLabel) => `KPI: total ${fieldLabel}`,
+  aiSuggestionTable: (sourceLabel) => `Table from ${sourceLabel}`,
+  aiSuggestionChangeToLine: (widgetTitle) => `Change \u201c${widgetTitle}\u201d to line chart`,
+  aiSuggestionAddSparkline: (widgetTitle) => `Add sparkline to \u201c${widgetTitle}\u201d`,
+  aiSuggestionAddDateFilter: 'Add a date filter',
+  aiSuggestionAddPage: 'Add a new page',
+  aiSuggestionSummarisePage: 'Summarise page',
+  aiSuggestionWhatDataAvailable: 'What data is available?',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

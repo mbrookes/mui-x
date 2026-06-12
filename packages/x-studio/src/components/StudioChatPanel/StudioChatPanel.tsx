@@ -28,6 +28,7 @@ function generateSuggestions(
   dataSources: ReturnType<typeof selectDataSources>,
   widgets: ReturnType<typeof selectWidgets>,
   activePageWidgetIds: string[],
+  localeText: ReturnType<typeof useStudioLocaleText>,
 ): Array<{ label: string; value: string }> {
   const sourceList = Object.values(dataSources);
   const activeWidgets = activePageWidgetIds.flatMap((id) => (widgets[id] ? [widgets[id]] : []));
@@ -56,16 +57,16 @@ function generateSuggestions(
 
       if (numericField && catField) {
         suggestions.push({
-          label: `Bar chart: ${numericField.label} by ${catField.label}`,
+          label: localeText.aiSuggestionBarChart(numericField.label, catField.label),
           value: `Add a bar chart showing ${numericField.label} by ${catField.label} from the ${source.label} data.`,
         });
         suggestions.push({
-          label: `KPI: total ${numericField.label}`,
+          label: localeText.aiSuggestionKpi(numericField.label),
           value: `Add a KPI card showing the total ${numericField.label} from ${source.label}.`,
         });
       } else if (source.fields.length > 0) {
         suggestions.push({
-          label: `Table from ${source.label}`,
+          label: localeText.aiSuggestionTable(source.label),
           value: `Add a data table showing records from ${source.label}.`,
         });
       }
@@ -73,7 +74,7 @@ function generateSuggestions(
 
     if (suggestions.length < 3) {
       suggestions.push({
-        label: 'What data is available?',
+        label: localeText.aiSuggestionWhatDataAvailable,
         value: 'What data sources and fields are available for building this dashboard?',
       });
     }
@@ -86,7 +87,7 @@ function generateSuggestions(
       const first = chartWidgets[0];
       if (first) {
         suggestions.push({
-          label: `Change "${first.title}" to line chart`,
+        label: localeText.aiSuggestionChangeToLine(first.title),
           value: `Change the "${first.title}" widget to a line chart.`,
         });
       }
@@ -96,7 +97,7 @@ function generateSuggestions(
       const first = kpiWidgets[0];
       if (first) {
         suggestions.push({
-          label: `Add sparkline to "${first.title}"`,
+        label: localeText.aiSuggestionAddSparkline(first.title),
           value: `Add a sparkline to the "${first.title}" KPI widget.`,
         });
       }
@@ -110,19 +111,19 @@ function generateSuggestions(
       );
       if (hasDateSource) {
         suggestions.push({
-          label: 'Add a date filter',
+        label: localeText.aiSuggestionAddDateFilter,
           value: 'Add a date range filter widget to the dashboard.',
         });
       }
     }
 
     suggestions.push({
-      label: 'Add a new page',
+    label: localeText.aiSuggestionAddPage,
       value: 'Create a new dashboard page.',
     });
 
     suggestions.push({
-      label: 'Summarise page',
+    label: localeText.aiSuggestionSummarisePage,
       value:
         'Give me an executive summary of the key insights from this page — focus on the data, trends, and any anomalies rather than the page structure.',
     });
@@ -314,8 +315,8 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
 
   // ── Dynamic suggestions ────────────────────────────────────────────────────
   const suggestions = React.useMemo(
-    () => generateSuggestions(dataSources, widgets, activeWidgetIds),
-    [dataSources, widgets, activeWidgetIds],
+    () => generateSuggestions(dataSources, widgets, activeWidgetIds, localeText),
+    [dataSources, widgets, activeWidgetIds, localeText],
   );
 
   if (!adapter) {

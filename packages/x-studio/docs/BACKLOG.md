@@ -843,3 +843,15 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 - Funnel chart rendering in `StudioChartWidget` now checks `config.yAggregation === 'count'` and also auto-detects non-numeric value fields, counting rows instead of summing them.
 - `salesDashboard.ts` config: added explicit `yAggregation: 'count'` to Contacts by Department, Contacts by Role, and Deals by Stage; added `yAggregation: 'avg'` to Margin % by Category; made Contacts by Department and Deals by Stage horizontal bar charts.
 - Removed `['widget-chart-revenue-gauge']` row from Overview page widgetRows.
+
+
+✅ BL-172: Clicking a pie segment in "Revenue by Country" causes SQL errors in other widgets (e.g. "no such column: expr-order-country" in Quarterly Revenue by Category and Revenue by Category).
+
+**Root cause** — When a chart click cross-filter is emitted on an expression field defined on a *related* source (e.g. `expr-order-country` is defined on ORDERS but the target widget is on ORDER_ITEMS), `resolveField` in `createBatchingAdapter` only searched expression fields matching the widget's own source (`f.sourceId === primarySourceId`). Finding no match, it fell through and passed the logical field ID (`expr-order-country`) unresolved to the SQL adapter, producing `WHERE expr-order-country = 'USA'` — a column that does not exist in any SQL table.
+
+A second related bug: even for expression fields on the *primary* source that resolve to a JOIN (e.g. `expr-order-country` on an ORDERS widget), filter and ORDER BY clauses used the logical alias instead of the physical column, which would also fail at the SQL layer.
+
+**Fixed** (`packages/x-studio/src/server/createBatchingAdapter.ts`):
+1. **Multi-hop JOIN resolution** — new case 1b in `resolveField`: when the filter field is a `JoinFieldExpression` on a related source, two LEFT JOINs are emitted: `primaryTable → exprField.sourceId` (hop 1) and `exprField.sourceId → joinSourceId` (hop 2). For the canonical case, ORDER_ITEMS queries with an `expr-order-country` cross-filter now emit `LEFT JOIN orders … LEFT JOIN customers …` and filter `WHERE customers.country = 'USA'`.
+2. **`ResolvedField.join → joins`** — changed from a single `JoinDescriptorInternal` to `JoinDescriptorInternal[]` to support the multi-hop case. All single-hop callers now return a one-element array.
+3. **Filters and ORDER BY use physical columns** — filter predicates and ORDER BY clauses now resolve the physical column via `columnAliases[r.column] ?? r.column` so that `WHERE customers.country` (not `WHERE expr-order-country`) is generated for any expression-field filter.

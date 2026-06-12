@@ -63,3 +63,9 @@ export { runAgenticLoop } from './agenticLoop';
 export type { AgenticLoopOptions } from './agenticLoop';
 export { executeToolOnState } from './executeToolOnState';
 export type { ToolExecutionResult } from './executeToolOnState';
+
+// MCP (Model Context Protocol) server factory
+// Requires @modelcontextprotocol/sdk to be installed in the consuming project.
+export { buildStudioMcpServer } from './mcp';
+export type { StudioMcpOptions, StudioStateBox } from './mcp';
+export { createDefaultStudioState } from './models/studioTypes';

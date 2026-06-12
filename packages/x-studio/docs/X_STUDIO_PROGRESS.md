@@ -914,6 +914,18 @@
 - `WIDGET_CONFIG_DESCRIPTION` exported from middleware public API for consumer use
 - Doc audit: fixed stale entries in `AI_ASSISTANT_RESEARCH.md` — MCP server status updated to ✅, tool count 15→20, doc-inconsistency rows for `configure_widget`/`update_dashboard_title` resolved, Phase 6 tool list updated to reflect actual implementation
 
+### AI-14 · Voice input for `StudioChatPanel`
+
+- New `useSpeechRecognition` hook (`packages/x-studio/src/components/StudioChatPanel/useSpeechRecognition.ts`):
+  wraps browser `SpeechRecognition` / `webkitSpeechRecognition` API; continuous mode; interim results;
+  returns `{ isSupported, isListening, transcript, start, stop, resetTranscript }`
+- Mic `IconButton` overlaid in the chat composer (bottom-right); turns red when active; hidden when unsupported
+- Transcript appended to existing composer text via `ChatBox.composerValue` / `onComposerValueChange`;
+  manual edits automatically stop recognition
+- Locale: `chatVoiceInputStart`, `chatVoiceInputStop`, `chatVoiceInputNotSupported` (English + pt-BR)
+- `useSpeechRecognition` and `UseSpeechRecognitionReturn` exported from `@mui/x-studio` public API
+- 12 unit tests in `useSpeechRecognition.test.ts`
+
 ## 📋 Planned
 
 _Nothing remaining — all tracked requirements are complete or WONTFIX._

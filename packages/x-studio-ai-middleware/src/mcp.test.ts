@@ -155,4 +155,82 @@ describe('buildStudioMcpServer', () => {
       await unsubscribeHandler({ params: { uri: 'studio://dashboard/state' }, method: UNSUBSCRIBE });
     });
   });
+
+  describe('studio://data/{sourceId} resource', () => {
+    it('returns raw row preview with row count', async () => {
+      const stateBox = { current: makeStableState() };
+      const sampleRows = [{ id: 'o1', total: 100, status: 'pending' }];
+      const queryDataSource = vi.fn(
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: sampleRows,
+          rowCount: 1,
+        }),
+      );
+      const server = buildStudioMcpServer(stateBox, { data: { queryDataSource } });
+      const result = await getHandler(server, READ_RESOURCE)({
+        params: { uri: 'studio://data/source-orders' },
+        method: READ_RESOURCE,
+      });
+      const contents = (result as any).contents as Array<{ text: string }>;
+      const parsed = JSON.parse(contents[0].text);
+      expect(parsed.sourceId).toBe('source-orders');
+      expect(parsed.rows).toHaveLength(1);
+      expect(queryDataSource).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceId: 'source-orders', limit: 20 }),
+      );
+    });
+
+    it('is listed in resources when data option provided', async () => {
+      const stateBox = { current: makeStableState() };
+      const queryDataSource = vi.fn(
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({ rows: [], rowCount: 0 }),
+      );
+      const server = buildStudioMcpServer(stateBox, { data: { queryDataSource } });
+      const result = await getHandler(server, LIST_RESOURCES)({ params: {}, method: LIST_RESOURCES });
+      const uris = ((result as any).resources as Array<{ uri: string }>).map((r) => r.uri);
+      expect(uris).toContain('studio://data/source-orders');
+    });
+
+    it('is NOT listed when no data option', async () => {
+      const stateBox = { current: makeStableState() };
+      const server = buildStudioMcpServer(stateBox);
+      const result = await getHandler(server, LIST_RESOURCES)({ params: {}, method: LIST_RESOURCES });
+      const uris = ((result as any).resources as Array<{ uri: string }>).map((r) => r.uri);
+      expect(uris).not.toContain('studio://data/source-orders');
+    });
+  });
+
+  describe('prompts/list + prompts/get', () => {
+    const LIST_PROMPTS = 'prompts/list';
+    const GET_PROMPT = 'prompts/get';
+
+    it('lists query_data_source_examples prompt', async () => {
+      const stateBox = { current: makeStableState() };
+      const server = buildStudioMcpServer(stateBox);
+      const result = await getHandler(server, LIST_PROMPTS)({ params: {}, method: LIST_PROMPTS });
+      const prompts = (result as any).prompts as Array<{ name: string }>;
+      expect(prompts.map((p) => p.name)).toContain('query_data_source_examples');
+    });
+
+    it('get query_data_source_examples returns messages with source examples', async () => {
+      const stateBox = { current: makeStableState() };
+      const server = buildStudioMcpServer(stateBox);
+      const result = await getHandler(server, GET_PROMPT)({
+        params: { name: 'query_data_source_examples' },
+        method: GET_PROMPT,
+      });
+      const messages = (result as any).messages as Array<{ role: string; content: { text: string } }>;
+      expect(messages).toHaveLength(1);
+      expect(messages[0].role).toBe('user');
+      expect(messages[0].content.text).toContain('source-orders');
+    });
+
+    it('throws on unknown prompt name', async () => {
+      const stateBox = { current: makeStableState() };
+      const server = buildStudioMcpServer(stateBox);
+      await expect(
+        getHandler(server, GET_PROMPT)({ params: { name: 'nonexistent' }, method: GET_PROMPT }),
+      ).rejects.toThrow(/Unknown prompt/);
+    });
+  });
 });

@@ -48,6 +48,8 @@ import {
   ReadResourceRequestSchema,
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import { executeToolOnState } from './executeToolOnState';
@@ -367,6 +369,7 @@ export function buildStudioMcpServer(
     {
       capabilities: {
         tools: {},
+        prompts: {},
         resources: {
           subscribe: true,      // clients can subscribe to specific resource URIs
           listChanged: true,    // server can notify when resource list changes
@@ -534,14 +537,27 @@ export function buildStudioMcpServer(
   // ── resources/list ───────────────────────────────────────────────────────
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    const schemaResources = Object.values(stateBox.current.dataSources)
-      .filter((s) => !s.hidden)
-      .map((s) => ({
-        uri: `studio://schema/${s.id}`,
-        name: `${s.label} Schema`,
-        description: `Field definitions for the ${s.label} data source (sourceId: "${s.id}").`,
-        mimeType: 'application/json',
-      }));
+    const sources = Object.values(stateBox.current.dataSources).filter((s) => !s.hidden);
+
+    const schemaResources = sources.map((s) => ({
+      uri: `studio://schema/${s.id}`,
+      name: `${s.label} Schema`,
+      description: `Field definitions for the ${s.label} data source (sourceId: "${s.id}").`,
+      mimeType: 'application/json',
+    }));
+
+    const dataResources = data
+      ? sources
+          .filter((s) => s.tableName)
+          .map((s) => ({
+            uri: `studio://data/${s.id}`,
+            name: `${s.label} Preview`,
+            description:
+              `Raw row preview for the ${s.label} data source (up to 20 rows). ` +
+              `Use query_data_source for filtered/aggregated queries.`,
+            mimeType: 'application/json',
+          }))
+      : [];
 
     const staticResources = [
       {
@@ -573,7 +589,7 @@ export function buildStudioMcpServer(
         : []),
     ];
 
-    return { resources: [...staticResources, ...schemaResources] };
+    return { resources: [...staticResources, ...schemaResources, ...dataResources] };
   });
 
   // ── resources/read ───────────────────────────────────────────────────────
@@ -685,10 +701,40 @@ export function buildStudioMcpServer(
       };
     }
 
+    // studio://data/{sourceId} — raw row preview (up to 20 rows)
+    if (uri.startsWith('studio://data/')) {
+      if (!data) {
+        throw new Error('Data access is not configured for this MCP server instance.');
+      }
+      const sourceId = uri.slice('studio://data/'.length);
+      const source = stateBox.current.dataSources[sourceId];
+      if (!source || !source.tableName) {
+        throw new Error(
+          `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,
+        );
+      }
+      const result = await data.queryDataSource({
+        sourceId,
+        tableName: source.tableName as string,
+        limit: 20,
+      });
+      return {
+        contents: [
+          {
+            uri,
+            text: JSON.stringify(
+              { sourceId, label: source.label, rowCount: result.rowCount, rows: result.rows },
+              null,
+              2,
+            ),
+            mimeType: 'application/json',
+          },
+        ],
+      };
+    }
+
     throw new Error(`Unknown resource URI: "${uri}". Use resources/list to discover available URIs.`);
   });
-
-  // ── resources/subscribe + unsubscribe ────────────────────────────────────
 
   server.setRequestHandler(SubscribeRequestSchema, async (request) => {
     subscribedUris.add(request.params.uri);
@@ -698,6 +744,79 @@ export function buildStudioMcpServer(
   server.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
     subscribedUris.delete(request.params.uri);
     return {};
+  });
+
+  // ── prompts/list + prompts/get ────────────────────────────────────────────
+
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: [
+      {
+        name: 'query_data_source_examples',
+        description:
+          'Example invocations of the query_data_source tool for each configured data source. ' +
+          'Useful for bootstrapping queries without needing to inspect the schema first.',
+        arguments: [],
+      },
+    ],
+  }));
+
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const { name } = request.params;
+
+    if (name === 'query_data_source_examples') {
+      const sources = Object.values(stateBox.current.dataSources).filter((s) => !s.hidden && s.tableName);
+      const examples = sources.map((s) => {
+        // Pick a numeric field and a categorical xField for a count example
+        const numericField = s.fields.find((f) => !f.hidden && f.type === 'number' && !f.capabilities?.includes('categorical'));
+        const categoricalField = s.fields.find((f) => !f.hidden && (f.type === 'string' || f.capabilities?.includes('categorical')));
+
+        const countExample = categoricalField
+          ? {
+              sourceId: s.id,
+              columns: [categoricalField.id],
+              aggregations: [{ column: categoricalField.id, func: 'count', alias: 'count' }],
+              orderBy: [{ column: 'count', direction: 'desc' }],
+              limit: 10,
+              description: `Count of ${s.label} by ${categoricalField.label}`,
+            }
+          : null;
+
+        const sumExample =
+          numericField && categoricalField
+            ? {
+                sourceId: s.id,
+                columns: [categoricalField.id],
+                aggregations: [
+                  { column: numericField.id, func: numericField.defaultAggregationFn ?? 'sum', alias: numericField.id },
+                ],
+                orderBy: [{ column: numericField.id, direction: 'desc' }],
+                limit: 10,
+                description: `${numericField.defaultAggregationFn ?? 'Sum'} of ${numericField.label} by ${categoricalField.label}`,
+              }
+            : null;
+
+        const examples2 = [countExample, sumExample].filter(Boolean);
+        return `### ${s.label} (sourceId: "${s.id}")\n${examples2.map((ex) => `- ${ex!.description}\n\`\`\`json\n${JSON.stringify({ ...ex, description: undefined }, null, 2)}\n\`\`\``).join('\n')}`;
+      });
+
+      return {
+        description: 'Example query_data_source invocations for all configured data sources',
+        messages: [
+          {
+            role: 'user' as const,
+            content: {
+              type: 'text' as const,
+              text:
+                'Here are example `query_data_source` invocations for each data source:\n\n' +
+                examples.join('\n\n') +
+                '\n\nAdapt these by changing `columns`, `aggregations`, `filters`, and `orderBy` as needed.',
+            },
+          },
+        ],
+      };
+    }
+
+    throw new Error(`Unknown prompt: "${name}".`);
   });
 
   return server;

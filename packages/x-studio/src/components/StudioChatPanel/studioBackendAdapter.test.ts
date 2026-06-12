@@ -502,7 +502,7 @@ describe('createBackendChatAdapter: stop()', () => {
     // Give the async start() function time to reach reader.read()
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    adapter.stop();
+    adapter.stop?.();
 
     // Give the stop() microtask time to run
     await new Promise((resolve) => setTimeout(resolve, 10));

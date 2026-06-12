@@ -1,0 +1,28 @@
+{
+  // Emit config for building distributable output.
+  // The main tsconfig.json uses noEmit:true (type-check only).
+  // This config compiles src/ → dist/ with .js files + .d.ts declarations.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    // allowImportingTsExtensions requires noEmit — remove it for emit builds.
+    "allowImportingTsExtensions": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    // ESNext + bundler resolution matches the root tsconfig pattern and handles
+    // extensionless imports. Consumers use a bundler (Next.js, Vite, etc.) or ts-node.
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ES2022"
+  },
+  "include": ["src/**/*"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/__tests__/**/*",
+    "src/benchmarks/**/*"
+  ]
+}

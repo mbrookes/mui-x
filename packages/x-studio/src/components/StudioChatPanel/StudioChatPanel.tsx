@@ -248,7 +248,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             ...existingThreads,
             {
               id: activeThreadId,
-              name: 'New conversation',
+              name: localeText.chatNewConversationName,
               createdAt: now,
               updatedAt: now,
               messages,
@@ -279,7 +279,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
       ai: {
         threads: [
           ...existingThreads,
-          { id: newId, name: 'New conversation', createdAt: now, messages: [] },
+          { id: newId, name: localeText.chatNewConversationName, createdAt: now, messages: [] },
         ],
         activeThreadId: newId,
       },
@@ -311,7 +311,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     [aiState?.threads],
   );
 
-  const activeThreadName = activeThread?.name ?? 'New conversation';
+  const activeThreadName = activeThread?.name ?? localeText.chatNewConversationName;
 
   // ── Dynamic suggestions ────────────────────────────────────────────────────
   const suggestions = React.useMemo(

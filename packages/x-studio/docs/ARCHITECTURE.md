@@ -272,9 +272,23 @@ When `descriptor.aggregations` is populated, the adapter is expected to return p
 Two ready-made adapters are provided:
 
 - **`createSimpleAdapter(fetchFn)`** — wraps a plain `async (descriptor) => rows` function.
-- **`createBatchingAdapter(fetchFn, options)`** — batches concurrent requests for the same source into a single fetch call using a short debounce window.
+- **`createBatchingAdapter(endpoint, options)`** — batches concurrent requests for the same source into a single HTTP POST using a short debounce window (default 50 ms).
 
----
+### 4.1 `createBatchingAdapter` — field and filter resolution
+
+When `options.dataSources`, `options.relationships`, and `options.expressionFields` are provided, `buildBatchWidgetDescriptor` resolves every field reference (SELECT, filter, ORDER BY, aggregation) from its logical ID to the correct physical SQL column before sending the request to the server. The internal `resolveField` function handles five cases:
+
+| Case | Example | Resolution |
+|---|---|---|
+| Physical field on primary source | `total` on `order_items` | Passed through unqualified |
+| Expression field (join) on primary source | `expr-order-country` when widget is on `orders` | Single LEFT JOIN added; `columnAliases['expr-order-country'] = 'customers.country'` |
+| Expression field (join) on a **related** source | `expr-order-country` (defined on `orders`) applied as a cross-filter to an `order_items` widget | Two LEFT JOINs added: `order_items → orders` (hop 1), `orders → customers` (hop 2); physical column `customers.country` used in WHERE |
+| Expression field (arithmetic/function) | `expr-margin-pct` | Marked `skip` — server returns raw rows, Studio evaluates client-side |
+| Physical field on related source | `orders.status` in an `order_items` widget | Single LEFT JOIN added; column qualified as `orders.status` |
+
+**Filter and ORDER BY physical column resolution.** After `resolve(fieldId)` populates `columnAliases`, filter predicates and ORDER BY clauses look up `columnAliases[logicalId] ?? logicalId` to get the physical column name. SQL `WHERE` and `ORDER BY` clauses must reference the physical column (`customers.country`), not the logical alias which is only valid inside `SELECT … AS`.
+
+
 
 ## 5. Cache Layer
 

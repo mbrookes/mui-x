@@ -946,11 +946,11 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Deals by Stage',
       sourceId: CRM_DEALS_SOURCE_ID,
       config: {
-        chartType: 'bar',
+        chartType: 'funnel',
         xField: 'stage',
         yField: 'id',
         yAggregation: 'count',
-        barLayout: 'horizontal' as const,
+        chartSortBy: 'category' as const,
       },
     },
     'widget-chart6-value-by-stage': {

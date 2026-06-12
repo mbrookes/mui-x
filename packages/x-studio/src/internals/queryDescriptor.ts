@@ -128,6 +128,25 @@ export function collectSelectFields(widget: StudioWidget): string[] {
     fields.add(config.pivotValueField);
   }
 
+  // Heatmap fields
+  if (config.heatYField) {
+    fields.add(config.heatYField);
+  }
+
+  // Gantt chart fields
+  if (config.ganttLabelField) {
+    fields.add(config.ganttLabelField);
+  }
+  if (config.ganttStartField) {
+    fields.add(config.ganttStartField);
+  }
+  if (config.ganttEndField) {
+    fields.add(config.ganttEndField);
+  }
+  if (config.ganttColorField) {
+    fields.add(config.ganttColorField);
+  }
+
   // Map / choropleth fields
   if (config.mapCountryField) {
     fields.add(config.mapCountryField);

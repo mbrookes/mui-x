@@ -26,24 +26,30 @@
 
 export { handleAIChat } from './handleAIChat';
 export type { StudioAIHandlerOptions } from './handleAIChat';
-export { handleGenerateInsight, handleGenerateTitle, handleCreateWidget } from './handleGenerateInsight';
+export {
+  handleGenerateInsight,
+  handleGenerateTitle,
+  handleCreateWidget,
+} from './handleGenerateInsight';
 export type {
   GenerateInsightOptions,
   GenerateInsightRequest,
   CreateWidgetRequest,
   CreateWidgetResponse,
 } from './handleGenerateInsight';
-export type {
-  StudioAIRequest,
-  StudioAISSEEvent,
-} from './models/protocol';
+export type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 // StudioAISkill is defined here (server-side skill with execute function).
 // SerializableSkill, StateMutation, StudioAIToolName are protocol types defined
 // locally (mirrored in @mui/x-studio for UI consumers).
-export type { StudioAISkill, SerializableSkill, StateMutation, StudioAIToolName } from './models/aiTypes';
+export type {
+  StudioAISkill,
+  SerializableSkill,
+  StateMutation,
+  StudioAIToolName,
+} from './models/aiTypes';
 
 // Prompt builder and tool definitions — consumed by the server
-export { buildAISystemPrompt } from './buildAISystemPrompt';
+export { buildAISystemPrompt, serializeFieldForAI } from './buildAISystemPrompt';
 export { STUDIO_AI_TOOLS } from './studioAITools';
 
 // Built-in skills
@@ -57,4 +63,3 @@ export { runAgenticLoop } from './agenticLoop';
 export type { AgenticLoopOptions } from './agenticLoop';
 export { executeToolOnState } from './executeToolOnState';
 export type { ToolExecutionResult } from './executeToolOnState';
-

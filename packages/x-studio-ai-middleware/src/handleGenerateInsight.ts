@@ -94,7 +94,7 @@ export async function handleGenerateInsight(
     throw new Error(`Insight generation failed: ${response.status} ${errText}`);
   }
 
-  const json = await response.json() as {
+  const json = (await response.json()) as {
     choices: Array<{ message: { content: string } }>;
   };
 
@@ -142,7 +142,7 @@ export async function handleGenerateTitle(
     throw new Error(`Title generation failed: ${response.status}`);
   }
 
-  const data = await response.json() as {
+  const data = (await response.json()) as {
     choices: Array<{ message: { content: string } }>;
   };
 
@@ -223,7 +223,7 @@ export async function handleCreateWidget(
     throw new Error(`Widget creation failed: ${response.status}`);
   }
 
-  const data = await response.json() as {
+  const data = (await response.json()) as {
     choices: Array<{ message: { content: string } }>;
   };
 

@@ -1,5 +1,9 @@
 import * as React from 'react';
-import { createBatchingAdapter, createDefaultStudioState, createStudioController } from '@mui/x-studio';
+import {
+  createBatchingAdapter,
+  createDefaultStudioState,
+  createStudioController,
+} from '@mui/x-studio';
 import type { StudioController, StudioDataSourceAdapter, StudioState } from '@mui/x-studio';
 import { INITIAL_STATE, generateSalesData } from 'x-studio-shared';
 import { createDataAdapter } from '../dataAdapter';
@@ -52,7 +56,10 @@ function buildInitialStudioState(): StudioState {
  * /api/studio-data endpoint using a shared batching adapter.
  * Falls back to the in-memory adapter that uses the generated rows.
  */
-function buildDataAdapter(_sourceId: string, rows: Record<string, unknown>[]): StudioDataSourceAdapter {
+function buildDataAdapter(
+  _sourceId: string,
+  rows: Record<string, unknown>[],
+): StudioDataSourceAdapter {
   const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
   if (serverUrl) {
     const dataEndpoint = `${serverUrl.replace(/\/$/, '')}/api/studio-data`;

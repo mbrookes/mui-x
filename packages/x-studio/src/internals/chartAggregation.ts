@@ -689,7 +689,6 @@ function applyCategoryOrder(
   }
 }
 
-
 export function aggregateByField(
   rows: Row[],
   xField: string,
@@ -891,9 +890,23 @@ export function aggregateMultipleSeries(
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
 ): MultiYSeriesData {
+  // Pre-detect non-numeric fields so callers that omit yAggregation don't get NaN.
+  const useCount = new Set<string>();
+  for (const fieldId of yFields) {
+    for (const row of rows) {
+      const v = row[fieldId];
+      if (v !== null && v !== undefined) {
+        if (Number.isNaN(Number(v))) {
+          useCount.add(fieldId);
+        }
+        break;
+      }
+    }
+  }
+
   const labelOrder: (string | number)[] = [];
   const labelSet = new Set<string | number>();
-  // Map: label → fieldId → sum
+  // Map: label → fieldId → sum (or count when useCount)
   const dataMap = new Map<string | number, Map<string, number>>();
 
   for (const row of rows) {
@@ -906,8 +919,12 @@ export function aggregateMultipleSeries(
     }
     const fieldMap = dataMap.get(xVal)!;
     for (const fieldId of yFields) {
-      const yVal = Number(row[fieldId] ?? 0);
-      fieldMap.set(fieldId, (fieldMap.get(fieldId) ?? 0) + yVal);
+      if (useCount.has(fieldId)) {
+        fieldMap.set(fieldId, (fieldMap.get(fieldId) ?? 0) + 1);
+      } else {
+        const yVal = Number(row[fieldId] ?? 0);
+        fieldMap.set(fieldId, (fieldMap.get(fieldId) ?? 0) + yVal);
+      }
     }
   }
 

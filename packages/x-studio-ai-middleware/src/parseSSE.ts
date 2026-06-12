@@ -4,9 +4,7 @@
  * Yields each parsed JSON object from `data:` lines.
  * Stops on `[DONE]` sentinel.
  */
-export async function* parseSSE(
-  response: Response,
-): AsyncGenerator<Record<string, unknown>> {
+export async function* parseSSE(response: Response): AsyncGenerator<Record<string, unknown>> {
   const reader = response.body?.getReader();
   if (!reader) {
     return;

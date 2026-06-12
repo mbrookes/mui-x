@@ -585,9 +585,7 @@ describe('StudioController.duplicateWidget', () => {
     });
     controller.duplicateWidget('w2');
     const newState = controller.getState();
-    const copyId = Object.keys(newState.widgets).find(
-      (id) => !['w1', 'w2', 'w3'].includes(id),
-    )!;
+    const copyId = Object.keys(newState.widgets).find((id) => !['w1', 'w2', 'w3'].includes(id))!;
     const { widgetRows } = newState.pages[activePageId];
     expect(widgetRows).toHaveLength(1);
     expect(widgetRows[0]).toEqual(['w1', 'w2', copyId, 'w3']);

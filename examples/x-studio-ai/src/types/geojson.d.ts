@@ -7,15 +7,20 @@ declare namespace GeoJSON {
     coordinates?: unknown;
   }
 
-  interface Feature<G extends Geometry = Geometry, P = Record<string, unknown>> extends GeoJsonObject {
+  interface Feature<
+    G extends Geometry = Geometry,
+    P = Record<string, unknown>,
+  > extends GeoJsonObject {
     type: 'Feature';
     geometry: G | null;
     properties?: P;
     id?: string | number;
   }
 
-  interface FeatureCollection<G extends Geometry = Geometry, P = Record<string, unknown>>
-    extends GeoJsonObject {
+  interface FeatureCollection<
+    G extends Geometry = Geometry,
+    P = Record<string, unknown>,
+  > extends GeoJsonObject {
     type: 'FeatureCollection';
     features: Array<Feature<G, P>>;
   }

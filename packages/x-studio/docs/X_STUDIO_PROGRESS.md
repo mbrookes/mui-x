@@ -6,85 +6,85 @@
 
 ## Summary Table
 
-| ID    | Area      | Description                                  | Status       |
-| ----- | --------- | -------------------------------------------- | ------------ |
-| D-01  | Data      | Multi-source relational data model           | ✅ Completed |
-| D-02  | Data      | Expression fields                            | ✅ Completed |
-| D-03  | Data      | Cross-source join projection                 | ✅ Completed |
-| D-04  | Data      | Async / real data connector                  | ✅ Completed |
-| D-05  | Data      | Pivot table widget                           | ✅ Completed |
-| D-06  | Data      | Ad-hoc formula bar                           | ✅ Completed |
-| D-07  | Data      | Data lineage view                            | ✅ Completed |
-| DB-01 | Dashboard | Multi-page dashboard with theming            | ✅ Completed |
-| DB-02 | Dashboard | Page-level and widget-level filters          | ✅ Completed |
-| DB-03 | Dashboard | Cross-filter (click-to-filter)               | ✅ Completed |
-| DB-04 | Dashboard | Dashboard-level date range filter            | ✅ Completed |
-| DB-05 | Dashboard | Drill-down / detail panel                    | ✅ Completed |
-| DB-06 | Dashboard | Customers page                               | ✅ Completed |
-| DB-07 | Dashboard | Data refresh simulation                      | ✅ Completed |
-| DB-08 | Dashboard | State persistence (save/restore JSON)        | ✅ Completed |
-| DB-09 | Dashboard | Shareable filter links (URL encoding)        | ✅ Completed |
-| W-01  | Widget    | Grid: sort, export, cross-filter             | ✅ Completed |
-| W-02  | Widget    | Grid: conditional formatting                 | ✅ Completed |
-| W-03  | Widget    | Grid: totals / summary row                   | ✅ Completed |
-| W-04  | Widget    | Chart: all major types + horizontal          | ✅ Completed |
-| W-04a | Widget    | Chart: crossFilterMode per widget            | ✅ Completed |
-| W-05  | Widget    | Chart: scatter axis configuration            | ✅ Completed |
-| W-06  | Widget    | Chart: pie/donut label formatting            | ✅ Completed |
-| W-07  | Widget    | Chart: mixed (bar + line on same axes)       | ✅ Completed |
-| W-08  | Widget    | Chart: map / choropleth                      | ✅ Completed |
-| W-09  | Widget    | Chart: Gantt / timeline                      | ✅ Completed |
-| W-10  | Widget    | Chart: heatmap                               | ✅ Completed |
-| W-11  | Widget    | Chart: funnel                                | ✅ Completed |
-| W-12  | Widget    | Chart: annotations / reference lines         | ✅ Completed |
-| W-13  | Widget    | KPI: value, trend, sparkline, formatting     | ✅ Completed |
-| W-14  | Widget    | KPI: target line from business metrics       | ✅ Completed |
-| W-15  | Widget    | KPI: per-widget chart palette override       | 🚫 WONTFIX   |
-| W-16  | Widget    | Text: per-section font/colour/alignment      | ✅ Completed |
-| C-01  | Compose   | Widget setup and format tabs                 | ✅ Completed |
-| C-02  | Compose   | Chart type picker with icons                 | ✅ Completed |
-| C-03  | Compose   | Auto-inferred titles + manual override       | ✅ Completed |
-| C-04  | Compose   | Page theming (bg, cards, palette)            | ✅ Completed |
-| C-05  | Compose   | Undo / redo                                  | ✅ Completed |
-| C-06  | Compose   | Widget resize (column width)                 | ✅ Completed |
-| C-07  | Compose   | Row add/remove and layout picker             | 🚫 WONTFIX   |
-| C-08  | Compose   | Widget reorder within / across rows          | ✅ Completed |
-| C-09  | Compose   | Saved views / filter presets                 | ✅ Completed |
-| C-10  | Compose   | Duplicate / move widgets across pages        | ✅ Completed |
-| C-11  | Compose   | Widget template library                      | ✅ Completed |
-| C-12  | Compose   | Visual expression builder (node editor)      | ✅ Completed |
-| C-13  | Compose   | Natural language widget creation             | ✅ Completed |
-| F-01  | Filters   | Condition, Selection, Rank modes             | ✅ Completed |
-| F-02  | Filters   | Relative dates, compound (AND/OR)            | ✅ Completed |
-| F-03  | Filters   | Metric refs (dynamic thresholds)             | ✅ Completed |
-| F-04  | Filters   | Quick filter bar above canvas                | ✅ Completed |
-| F-05  | Filters   | Global filter search                         | ✅ Completed |
-| F-06  | Filters   | Filter dependency (cascading options)        | ✅ Completed |
-| A-01  | Arch      | Reactive store + undo/redo                   | ✅ Completed |
-| A-02  | Arch      | Deferred render + memoized cards             | ✅ Completed |
-| A-03  | Arch      | Expression field system                      | ✅ Completed |
-| A-04  | Arch      | Field capability system                      | ✅ Completed |
-| A-05  | Arch      | Embeddable SDK / zero-config consumer API    | ✅ Completed |
-| A-06  | Arch      | Multi-user / permissions                     | 🚫 WONTFIX   |
-| A-07  | Arch      | AI chat assistant (`StudioChatPanel`)        | ✅ Completed |
-| A-08  | Arch      | Slot props chain (canvas → card → widget)    | ✅ Completed |
-| A-09  | Arch      | Async data source adapter interface          | ✅ Completed |
-| A-10  | Arch      | `@mui/x-studio-data-middleware` middleware package    | ✅ Completed |
-| A-11  | Arch      | `sidebarLayout` + `sidebarSide` props        | ✅ Completed |
-| A-12  | Arch      | I18n / localisation support                  | ✅ Completed |
-| A-13  | Arch      | Feature flags                                | ✅ Completed |
-| UX-01 | UX        | Map aggregation disabled without value field | ✅ Completed |
-| UX-02 | UX        | Settings: Compose panel label                | ✅ Completed |
-| UX-03 | UX        | Data panel: right-aligned edit/delete        | ✅ Completed |
-| UX-04 | UX        | Consistent calculated field UI + flags       | ✅ Completed |
-| UX-05 | UX        | Feature flags: relationships + widgetFilters | ✅ Completed |
-| UX-06 | UX        | localStorage state persistence + Reset       | ✅ Completed |
-| UX-07 | UX        | Field picker: alphabetical sort + clear icon | ✅ Completed |
-| UX-08 | UX        | SetupSection shared section component        | ✅ Completed |
-| UX-09 | UX        | Canvas DnD drops between/after widgets       | ✅ Completed |
-| UX-10 | UX        | 24-column widget resize grid                 | ✅ Completed |
-| UX-11 | UX        | Nested feature flags for kpi/chart/grid      | ✅ Completed |
-| UX-12 | UX        | DnD cursor, grab offset, transparency        | ✅ Completed |
+| ID    | Area      | Description                                        | Status       |
+| ----- | --------- | -------------------------------------------------- | ------------ |
+| D-01  | Data      | Multi-source relational data model                 | ✅ Completed |
+| D-02  | Data      | Expression fields                                  | ✅ Completed |
+| D-03  | Data      | Cross-source join projection                       | ✅ Completed |
+| D-04  | Data      | Async / real data connector                        | ✅ Completed |
+| D-05  | Data      | Pivot table widget                                 | ✅ Completed |
+| D-06  | Data      | Ad-hoc formula bar                                 | ✅ Completed |
+| D-07  | Data      | Data lineage view                                  | ✅ Completed |
+| DB-01 | Dashboard | Multi-page dashboard with theming                  | ✅ Completed |
+| DB-02 | Dashboard | Page-level and widget-level filters                | ✅ Completed |
+| DB-03 | Dashboard | Cross-filter (click-to-filter)                     | ✅ Completed |
+| DB-04 | Dashboard | Dashboard-level date range filter                  | ✅ Completed |
+| DB-05 | Dashboard | Drill-down / detail panel                          | ✅ Completed |
+| DB-06 | Dashboard | Customers page                                     | ✅ Completed |
+| DB-07 | Dashboard | Data refresh simulation                            | ✅ Completed |
+| DB-08 | Dashboard | State persistence (save/restore JSON)              | ✅ Completed |
+| DB-09 | Dashboard | Shareable filter links (URL encoding)              | ✅ Completed |
+| W-01  | Widget    | Grid: sort, export, cross-filter                   | ✅ Completed |
+| W-02  | Widget    | Grid: conditional formatting                       | ✅ Completed |
+| W-03  | Widget    | Grid: totals / summary row                         | ✅ Completed |
+| W-04  | Widget    | Chart: all major types + horizontal                | ✅ Completed |
+| W-04a | Widget    | Chart: crossFilterMode per widget                  | ✅ Completed |
+| W-05  | Widget    | Chart: scatter axis configuration                  | ✅ Completed |
+| W-06  | Widget    | Chart: pie/donut label formatting                  | ✅ Completed |
+| W-07  | Widget    | Chart: mixed (bar + line on same axes)             | ✅ Completed |
+| W-08  | Widget    | Chart: map / choropleth                            | ✅ Completed |
+| W-09  | Widget    | Chart: Gantt / timeline                            | ✅ Completed |
+| W-10  | Widget    | Chart: heatmap                                     | ✅ Completed |
+| W-11  | Widget    | Chart: funnel                                      | ✅ Completed |
+| W-12  | Widget    | Chart: annotations / reference lines               | ✅ Completed |
+| W-13  | Widget    | KPI: value, trend, sparkline, formatting           | ✅ Completed |
+| W-14  | Widget    | KPI: target line from business metrics             | ✅ Completed |
+| W-15  | Widget    | KPI: per-widget chart palette override             | 🚫 WONTFIX   |
+| W-16  | Widget    | Text: per-section font/colour/alignment            | ✅ Completed |
+| C-01  | Compose   | Widget setup and format tabs                       | ✅ Completed |
+| C-02  | Compose   | Chart type picker with icons                       | ✅ Completed |
+| C-03  | Compose   | Auto-inferred titles + manual override             | ✅ Completed |
+| C-04  | Compose   | Page theming (bg, cards, palette)                  | ✅ Completed |
+| C-05  | Compose   | Undo / redo                                        | ✅ Completed |
+| C-06  | Compose   | Widget resize (column width)                       | ✅ Completed |
+| C-07  | Compose   | Row add/remove and layout picker                   | 🚫 WONTFIX   |
+| C-08  | Compose   | Widget reorder within / across rows                | ✅ Completed |
+| C-09  | Compose   | Saved views / filter presets                       | ✅ Completed |
+| C-10  | Compose   | Duplicate / move widgets across pages              | ✅ Completed |
+| C-11  | Compose   | Widget template library                            | ✅ Completed |
+| C-12  | Compose   | Visual expression builder (node editor)            | ✅ Completed |
+| C-13  | Compose   | Natural language widget creation                   | ✅ Completed |
+| F-01  | Filters   | Condition, Selection, Rank modes                   | ✅ Completed |
+| F-02  | Filters   | Relative dates, compound (AND/OR)                  | ✅ Completed |
+| F-03  | Filters   | Metric refs (dynamic thresholds)                   | ✅ Completed |
+| F-04  | Filters   | Quick filter bar above canvas                      | ✅ Completed |
+| F-05  | Filters   | Global filter search                               | ✅ Completed |
+| F-06  | Filters   | Filter dependency (cascading options)              | ✅ Completed |
+| A-01  | Arch      | Reactive store + undo/redo                         | ✅ Completed |
+| A-02  | Arch      | Deferred render + memoized cards                   | ✅ Completed |
+| A-03  | Arch      | Expression field system                            | ✅ Completed |
+| A-04  | Arch      | Field capability system                            | ✅ Completed |
+| A-05  | Arch      | Embeddable SDK / zero-config consumer API          | ✅ Completed |
+| A-06  | Arch      | Multi-user / permissions                           | 🚫 WONTFIX   |
+| A-07  | Arch      | AI chat assistant (`StudioChatPanel`)              | ✅ Completed |
+| A-08  | Arch      | Slot props chain (canvas → card → widget)          | ✅ Completed |
+| A-09  | Arch      | Async data source adapter interface                | ✅ Completed |
+| A-10  | Arch      | `@mui/x-studio-data-middleware` middleware package | ✅ Completed |
+| A-11  | Arch      | `sidebarLayout` + `sidebarSide` props              | ✅ Completed |
+| A-12  | Arch      | I18n / localisation support                        | ✅ Completed |
+| A-13  | Arch      | Feature flags                                      | ✅ Completed |
+| UX-01 | UX        | Map aggregation disabled without value field       | ✅ Completed |
+| UX-02 | UX        | Settings: Compose panel label                      | ✅ Completed |
+| UX-03 | UX        | Data panel: right-aligned edit/delete              | ✅ Completed |
+| UX-04 | UX        | Consistent calculated field UI + flags             | ✅ Completed |
+| UX-05 | UX        | Feature flags: relationships + widgetFilters       | ✅ Completed |
+| UX-06 | UX        | localStorage state persistence + Reset             | ✅ Completed |
+| UX-07 | UX        | Field picker: alphabetical sort + clear icon       | ✅ Completed |
+| UX-08 | UX        | SetupSection shared section component              | ✅ Completed |
+| UX-09 | UX        | Canvas DnD drops between/after widgets             | ✅ Completed |
+| UX-10 | UX        | 24-column widget resize grid                       | ✅ Completed |
+| UX-11 | UX        | Nested feature flags for kpi/chart/grid            | ✅ Completed |
+| UX-12 | UX        | DnD cursor, grab offset, transparency              | ✅ Completed |
 
 ---
 

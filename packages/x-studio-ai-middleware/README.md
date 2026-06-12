@@ -16,11 +16,11 @@ so the dashboard updates in real time while keeping the business logic on the se
 
 ## When to use this package
 
-| Scenario                            | Recommended approach                                                                             |
-| :---------------------------------- | :----------------------------------------------------------------------------------------------- |
-| Local development / prototyping     | Use [`examples/x-studio-dev-server`](../../examples/x-studio-dev-server) — zero config          |
-| Production — simple proxy           | Point `endpoint` at a route that adds the API key and calls `@mui/x-studio-ai-middleware`        |
-| **Production — full backend**       | **Use `@mui/x-studio-ai-middleware`** — key and all AI logic stay server-side                    |
+| Scenario                        | Recommended approach                                                                      |
+| :------------------------------ | :---------------------------------------------------------------------------------------- |
+| Local development / prototyping | Use [`examples/x-studio-dev-server`](../../examples/x-studio-dev-server) — zero config    |
+| Production — simple proxy       | Point `endpoint` at a route that adds the API key and calls `@mui/x-studio-ai-middleware` |
+| **Production — full backend**   | **Use `@mui/x-studio-ai-middleware`** — key and all AI logic stay server-side             |
 
 ---
 
@@ -125,7 +125,7 @@ const aiConfig: StudioAIConfig = {
 };
 
 // Pass to <Studio> or <StudioChatPanel> as normal
-<Studio aiConfig={aiConfig} initialState={initialState} />
+<Studio aiConfig={aiConfig} initialState={initialState} />;
 ```
 
 No `apiKey` in the client — the key stays in your server environment variable.
@@ -171,7 +171,7 @@ The main entry point. A pure function — no side effects, no global state.
 function handleAIChat(
   body: StudioAIRequest,
   options: StudioAIHandlerOptions,
-): ReadableStream<string>
+): ReadableStream<string>;
 ```
 
 #### `StudioAIRequest`
@@ -222,14 +222,14 @@ interface StudioAIHandlerOptions {
 
 The handler streams `StudioAISSEEvent` objects, each encoded as `data: <JSON>\n\n`:
 
-| Event type          | When emitted                          | Payload                                             |
-| :------------------ | :------------------------------------ | :-------------------------------------------------- |
-| `text-delta`        | Each LLM text token                   | `{ delta: string }`                                 |
-| `tool-activity`     | Tool call starts / completes          | `{ toolCallId, toolName, phase, input?, output? }`  |
-| `state-mutation`    | After each state-changing tool        | `{ mutation: StateMutation }`                       |
-| `client-tool-call`  | Client-handler skill called by model  | `{ toolCallId, toolName, input }` _(v2)_            |
-| `finish`            | Model done                            | `{ finishReason: string }`                          |
-| `error`             | Unrecoverable error                   | `{ message: string }`                               |
+| Event type         | When emitted                         | Payload                                            |
+| :----------------- | :----------------------------------- | :------------------------------------------------- |
+| `text-delta`       | Each LLM text token                  | `{ delta: string }`                                |
+| `tool-activity`    | Tool call starts / completes         | `{ toolCallId, toolName, phase, input?, output? }` |
+| `state-mutation`   | After each state-changing tool       | `{ mutation: StateMutation }`                      |
+| `client-tool-call` | Client-handler skill called by model | `{ toolCallId, toolName, input }` _(v2)_           |
+| `finish`           | Model done                           | `{ finishReason: string }`                         |
+| `error`            | Unrecoverable error                  | `{ message: string }`                              |
 
 The client adapter handles all these automatically.
 You do not need to parse SSE events yourself unless you are building a custom adapter.
@@ -267,7 +267,15 @@ For custom server architectures, you can use the lower-level `runAgenticLoop` ge
 ```ts
 import { runAgenticLoop } from '@mui/x-studio-ai-middleware';
 
-for await (const event of runAgenticLoop(messages, state, customWidgets, undefined, undefined, undefined, options)) {
+for await (const event of runAgenticLoop(
+  messages,
+  state,
+  customWidgets,
+  undefined,
+  undefined,
+  undefined,
+  options,
+)) {
   if (event.type === 'state-mutation') {
     // store or forward the mutation
   }

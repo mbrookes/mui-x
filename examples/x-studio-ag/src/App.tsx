@@ -170,12 +170,10 @@ export default function App() {
       : `sales-${getUrlRowsParam() ?? 'default'}`;
 
   const handleApiReady = React.useCallback((event: any) => {
-     
     apiRef.current = event.api;
   }, []);
 
   const handleStateUpdated = React.useCallback((event: any) => {
-     
     const newPageId: string | undefined = event?.state?.selectedPageId;
     if (newPageId) {
       setCurrentPageId(newPageId);

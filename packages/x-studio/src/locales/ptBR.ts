@@ -742,6 +742,16 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chatNewConversationName: 'Nova conversa',
   chatSwitchConversationTooltip: 'Trocar conversa',
 
+  // Chart unsupported messages
+  chartUnsupportedFieldNotFound:
+    'Esta configuração de gráfico usa campos que não estão disponíveis na fonte do widget ou em uma fonte diretamente relacionada.',
+  chartUnsupportedMixedCrossSource:
+    'Esta configuração de gráfico mistura campos de fontes diferentes de uma forma que ainda não tem um grão de agregação seguro único.',
+  chartUnsupportedScatterCrossSource:
+    'Gráficos de dispersão ainda não suportam combinações de campos entre fontes.',
+  chartUnsupportedDefault: 'Esta configuração de gráfico ainda não é suportada.',
+  chartForecastSeriesLabel: 'Previsão',
+
   // Grid summary labels
   gridSummaryLabelSum: 'Total:',
   gridSummaryLabelAvg: 'Média:',

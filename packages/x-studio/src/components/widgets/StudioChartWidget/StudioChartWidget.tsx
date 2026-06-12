@@ -26,7 +26,6 @@ import { Box, Typography } from '@mui/material';
 import type { StudioDataSource, StudioWidget } from '../../../models';
 import {
   formatPeriodLabel,
-  getChartSupportMessage,
   periodKeyToDateRange,
   truncateToGranularity,
   aggregateByField,
@@ -872,7 +871,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         }}
         {...slotProps?.noDataOverlay}
       >
-        <Typography variant="body2">{getChartSupportMessage(chartSupport.reason)}</Typography>
+        <Typography variant="body2">
+          {chartSupport.reason === 'field_not_found_or_not_direct'
+            ? localeText.chartUnsupportedFieldNotFound
+            : chartSupport.reason === 'mixed_cross_source_fields'
+              ? localeText.chartUnsupportedMixedCrossSource
+              : chartSupport.reason === 'scatter_cross_source_not_supported'
+                ? localeText.chartUnsupportedScatterCrossSource
+                : localeText.chartUnsupportedDefault}
+        </Typography>
       </Box>
     );
   }
@@ -2123,7 +2130,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                   {
                     id: '__forecast__',
                     data: forecastData.forecastSeries,
-                    label: 'Forecast',
+                    label: localeText.chartForecastSeriesLabel,
                     area: false,
                     connectNulls: false,
                     showMark: false,
@@ -2257,7 +2264,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                   {
                     id: '__forecast__',
                     data: forecastData.forecastSeries,
-                    label: 'Forecast',
+                    label: localeText.chartForecastSeriesLabel,
                     area: true,
                     connectNulls: false,
                     showMark: false,

@@ -709,6 +709,24 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   pivotCornerHeaderAriaLabel: 'Cabeçalho de linha / coluna',
   pivotBlankValueLabel: '(em branco)',
   pivotTotalLabel: 'Total',
+
+  // Expression dialog
+  exprDialogEditTitle: 'Editar campo calculado',
+  exprDialogNewTitle: 'Novo campo calculado',
+
+  // AI chat suggestions
+  aiSuggestionBarChart: (numericLabel, catLabel) =>
+    `Gráfico de barras: ${numericLabel} por ${catLabel}`,
+  aiSuggestionKpi: (fieldLabel) => `KPI: total de ${fieldLabel}`,
+  aiSuggestionTable: (sourceLabel) => `Tabela de ${sourceLabel}`,
+  aiSuggestionChangeToLine: (widgetTitle) =>
+    `Mudar \u201c${widgetTitle}\u201d para gráfico de linhas`,
+  aiSuggestionAddSparkline: (widgetTitle) =>
+    `Adicionar sparkline ao \u201c${widgetTitle}\u201d`,
+  aiSuggestionAddDateFilter: 'Adicionar filtro de data',
+  aiSuggestionAddPage: 'Adicionar nova página',
+  aiSuggestionSummarisePage: 'Resumir página',
+  aiSuggestionWhatDataAvailable: 'Quais dados estão disponíveis?',
 };
 
 export const ptBR: Localization = getStudioLocalization(ptBRLocaleText);

@@ -153,7 +153,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
       <DialogTitle>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <FunctionsIcon color="primary" />
-          <span>{isEdit ? 'Edit' : 'New'} Calculated Field</span>
+          <span>{isEdit ? localeText.exprDialogEditTitle : localeText.exprDialogNewTitle}</span>
         </Stack>
       </DialogTitle>
 

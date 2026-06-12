@@ -839,6 +839,7 @@ export function handleAIChat(
 | `skillHandlers` | `StudioAISkill[]?` | Server-side skill handlers with `execute` functions. The `skills` in the POST body carry only serialisable metadata; pass the full `StudioAISkill` instances here so the loop can call `execute` for `server-tool` skills. Skill `execute` may be sync or async. |
 | `dataResolver` | `StudioDataResolver?` | App-provided resolver for the `execute_query` tool. When set, the AI can run ad-hoc SQL queries and incorporate live data into responses. |
 | `privateMode` | `boolean?` | When `true`, the `<dashboard_state>` block is omitted from the system prompt. The model receives static instructions and skill metadata only. Use for dashboards with sensitive data. |
+| `rateLimit` | `StudioAIRateLimit?` | Token and turn budget for the request. Set `maxTokensPerRequest` to cap total input+output tokens; `maxTurnsPerRequest` to override the default 10-turn safety cap. `onLimitReached` callback fires with reason (`'tokens'` or `'turns'`) and accumulated usage. A `usage` SSE event is emitted just before `finish` on every request. |
 
 The host wraps it in whatever route handler it uses. See section 12 of the README for examples.
 

@@ -250,6 +250,8 @@ export {
   generateWidgetInsight,
   generateDashboardSummary,
   generateAnomalyExplanation,
+  generateCorrelationInsight,
+  buildCorrelationSummary,
 } from './components/StudioChatPanel/generateInsight';
 export type {
   StudioInsightOptions,

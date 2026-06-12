@@ -4,6 +4,7 @@ import type { StudioChartAnnotation } from '../../models/baseTypes';
 import type { StudioState } from '../../models/stateTypes';
 import type { StudioWidget } from '../../models/widgetTypes';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
+import { pearsonCorrelation, interpretCorrelation } from '../../internals/forecastUtils';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -14,8 +15,9 @@ export interface StudioInsightOptions {
    * - `'analysis'`: A deeper analysis of trends, patterns, or notable values.
    * - `'forecast'`: A short-term forecast based on the visible data.
    * - `'anomaly'`: An AI explanation of detected anomalies (internal use).
+   * - `'correlation'`: Pearson r correlation analysis between numeric fields.
    */
-  type: 'summary' | 'analysis' | 'forecast' | 'anomaly';
+  type: 'summary' | 'analysis' | 'forecast' | 'anomaly' | 'correlation';
   /**
    * Number of forecast periods to predict.
    * Only used when `type = 'forecast'`. Defaults to 6.
@@ -385,6 +387,10 @@ export async function generateWidgetInsight(
     throw new Error(`Widget "${widgetId}" not found.`);
   }
 
+  if (type === 'correlation') {
+    return generateCorrelationInsight(widgetId, controller, aiConfig, { signal });
+  }
+
   const dataSummary = buildWidgetDataSummary(widget, state, {
     sampling: 'aggregate',
   });
@@ -397,6 +403,126 @@ export async function generateWidgetInsight(
       widgetTitle: widget.title,
       dataSummary,
       forecastPeriods: type === 'forecast' ? forecastPeriods : undefined,
+    },
+    signal,
+  );
+  return { text };
+}
+
+/**
+ * Builds a pairwise Pearson correlation matrix string for the numeric fields
+ * in a widget's data source. Used to augment the data summary for the AI.
+ *
+ * Returns an empty string when fewer than 2 numeric fields are available.
+ */
+export function buildCorrelationSummary(widget: StudioWidget, state: StudioState): string {
+  if (!widget.sourceId) {
+    return '';
+  }
+  const source = state.dataSources[widget.sourceId];
+  if (!source?.rows?.length) {
+    return '';
+  }
+
+  // Collect numeric field IDs from the widget config
+  const cfg = widget.config;
+  const candidateFieldIds: string[] = [];
+  if (cfg.yField) {
+    candidateFieldIds.push(cfg.yField);
+  }
+  if (cfg.ySeries?.length) {
+    cfg.ySeries.forEach((s: { fieldId: string }) => candidateFieldIds.push(s.fieldId));
+  }
+  if (cfg.kpiValueField) {
+    candidateFieldIds.push(cfg.kpiValueField);
+  }
+
+  // Also consider all numeric fields in the source that are used by the widget
+  const numericFields = source.fields.filter(
+    (f) => f.type === 'number' && candidateFieldIds.includes(f.id),
+  );
+
+  if (numericFields.length < 2) {
+    // For single-field widgets, correlate against all other numeric fields in the source
+    source.fields
+      .filter((f) => f.type === 'number' && !candidateFieldIds.includes(f.id))
+      .slice(0, 3)
+      .forEach((f) => numericFields.push(f));
+  }
+
+  if (numericFields.length < 2) {
+    return '';
+  }
+
+  // Extract value arrays
+  const valueArrays: Record<string, (number | null)[]> = {};
+  numericFields.forEach((field) => {
+    valueArrays[field.id] = source.rows!.map((row) => {
+      const v = row[field.id];
+      return typeof v === 'number' ? v : null;
+    });
+  });
+
+  // Compute pairwise Pearson r
+  const lines: string[] = ['Pairwise correlations (Pearson r):'];
+  for (let i = 0; i < numericFields.length; i++) {
+    for (let j = i + 1; j < numericFields.length; j++) {
+      const fa = numericFields[i];
+      const fb = numericFields[j];
+      const r = pearsonCorrelation(valueArrays[fa.id], valueArrays[fb.id]);
+      if (r !== null) {
+        const label = `${fa.label ?? fa.id} vs ${fb.label ?? fb.id}`;
+        lines.push(`  ${label}: r=${r.toFixed(3)} (${interpretCorrelation(r)})`);
+      }
+    }
+  }
+
+  return lines.length > 1 ? lines.join('\n') : '';
+}
+
+/**
+ * Generates an AI insight describing the correlations between numeric fields
+ * in a chart or KPI widget.
+ *
+ * Computes client-side Pearson r values and sends them to the LLM for
+ * plain-language interpretation.
+ *
+ * @param widgetId - ID of the widget to analyse.
+ * @param controller - The `StudioController` instance.
+ * @param aiConfig - LLM endpoint configuration.
+ * @param options - Optional settings (signal only).
+ */
+export async function generateCorrelationInsight(
+  widgetId: string,
+  controller: StudioController,
+  aiConfig: StudioAIConfig,
+  options?: Pick<StudioInsightOptions, 'signal'>,
+): Promise<StudioInsightResult> {
+  const signal = options?.signal;
+  const state = controller.getState();
+  const widget = state.widgets[widgetId];
+
+  if (!widget) {
+    throw new Error(`Widget "${widgetId}" not found.`);
+  }
+
+  const correlationSummary = buildCorrelationSummary(widget, state);
+  if (!correlationSummary) {
+    return {
+      text: 'Not enough numeric fields to compute correlations for this widget.',
+    };
+  }
+
+  const dataSummary = buildWidgetDataSummary(widget, state, { sampling: 'aggregate' });
+  const combined = `${correlationSummary}\n\nData sample:\n${dataSummary}`;
+
+  const text = await callInsightEndpoint(
+    aiConfig,
+    {
+      insightType: 'correlation',
+      widgetKind: widget.kind,
+      widgetTitle: widget.title,
+      dataSummary: combined,
     },
     signal,
   );

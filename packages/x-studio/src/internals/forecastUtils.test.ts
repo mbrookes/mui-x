@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { linearRegression, extendLabels, computeWidgetForecast } from './forecastUtils';
+import {
+  linearRegression,
+  extendLabels,
+  computeWidgetForecast,
+  pearsonCorrelation,
+  interpretCorrelation,
+} from './forecastUtils';
 
 describe('linearRegression', () => {
   it('returns null for fewer than 2 non-null values', () => {
@@ -137,5 +143,57 @@ describe('computeWidgetForecast', () => {
       enabled: true,
     });
     expect(result!.labels).toHaveLength(7); // 4 + 3
+  });
+});
+
+describe('pearsonCorrelation', () => {
+  it('returns null for fewer than 2 valid pairs', () => {
+    expect(pearsonCorrelation([], [])).toBeNull();
+    expect(pearsonCorrelation([1], [2])).toBeNull();
+    expect(pearsonCorrelation([null, null], [1, 2])).toBeNull();
+  });
+
+  it('returns 1.0 for perfectly correlated data', () => {
+    const r = pearsonCorrelation([1, 2, 3, 4, 5], [2, 4, 6, 8, 10]);
+    expect(r).toBeCloseTo(1.0, 5);
+  });
+
+  it('returns -1.0 for perfectly inversely correlated data', () => {
+    const r = pearsonCorrelation([1, 2, 3, 4, 5], [10, 8, 6, 4, 2]);
+    expect(r).toBeCloseTo(-1.0, 5);
+  });
+
+  it('returns ~0 for uncorrelated data', () => {
+    const r = pearsonCorrelation([1, 2, 3, 4], [3, 1, 4, 2]);
+    expect(r).not.toBeNull();
+    expect(Math.abs(r!)).toBeLessThan(0.5);
+  });
+
+  it('handles null values by excluding them pairwise', () => {
+    // Same as [1,3,5] vs [2,6,10] → perfect correlation
+    const r = pearsonCorrelation([1, null, 3, null, 5], [2, 99, 6, 99, 10]);
+    expect(r).toBeCloseTo(1.0, 5);
+  });
+});
+
+describe('interpretCorrelation', () => {
+  it('identifies strong positive', () => {
+    expect(interpretCorrelation(0.9)).toBe('strong positive');
+  });
+
+  it('identifies strong negative', () => {
+    expect(interpretCorrelation(-0.85)).toBe('strong negative');
+  });
+
+  it('identifies moderate positive', () => {
+    expect(interpretCorrelation(0.6)).toBe('moderate positive');
+  });
+
+  it('identifies weak negative', () => {
+    expect(interpretCorrelation(-0.3)).toBe('weak negative');
+  });
+
+  it('identifies negligible', () => {
+    expect(interpretCorrelation(0.05)).toBe('negligible');
   });
 });

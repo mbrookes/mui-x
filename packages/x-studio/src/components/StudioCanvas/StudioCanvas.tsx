@@ -136,7 +136,7 @@ function InsertionPoint({
       }
       event.preventDefault();
       if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'copy';
+        event.dataTransfer.dropEffect = 'move';
       }
       setIsOver(true);
     }
@@ -422,7 +422,7 @@ function WidgetGap({
       }
       event.preventDefault();
       if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'copy';
+        event.dataTransfer.dropEffect = 'move';
       }
       setIsOver(true);
     },
@@ -806,17 +806,16 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
 
   return (
     <React.Fragment>
-      {/* Force grabbing cursor across all elements during a widget drag.
-          CSS alone cannot override the native HTML5 DnD cursor, so we also
-          set an inline style on <html> via JS (see StudioWidgetCard handleDragStart).
-          Drop zones override with copy ("+") when hovered.
-          NOTE: cursor:move cannot be used here — browsers treat it as a native DnD
-          signal and override the CSS, whereas cursor:grabbing suppresses the native
-          cursor correctly via the inline-style trick. */}
+      {/* Force move cursor across all elements during a widget drag.
+          CSS alone cannot override the native HTML5 DnD cursor on macOS/Chrome.
+          The documentElement inline style (set on mousedown, before Chrome locks
+          the DnD cursor) is what actually overrides the OS cursor. The GlobalStyles
+          here acts as a fallback for other browsers and keeps the CSS layer aligned.
+          Drop zones override with copy ("+") when hovered. */}
       <GlobalStyles
         styles={{
           'body.x-studio-dragging-widget, body.x-studio-dragging-widget *': {
-            cursor: 'grabbing !important',
+            cursor: 'move !important',
           },
           'body.x-studio-dragging-widget [data-studio-drop-active], body.x-studio-dragging-widget [data-studio-drop-active] *':
             {

@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The embedded analytics market has undergone a rapid AI transformation. In 2025–2026, every major BI vendor added conversational AI, and the gap between "basic NL-to-chart" and "agentic multi-step analytics" has widened. `@mui/x-studio` currently implements a competent **20-tool OpenAI-compatible chat assistant** with MCP server, voice input, token governance, and SVG chart rendering that can build dashboards from natural language — fully competitive with AG Grid Studio's approach. The most impactful remaining gap is multi-agent orchestration (a 5-agent architecture is research-level scope).
+The embedded analytics market has undergone a rapid AI transformation. In 2025–2026, every major BI vendor added conversational AI, and the gap between "basic NL-to-chart" and "agentic multi-step analytics" has widened. `@mui/x-studio` currently implements a competent **20-tool OpenAI-compatible chat assistant** with MCP server, voice input, token governance, SVG chart rendering, stop-streaming button, "Thinking…" indicator, and reasoning display — a first-class showcase of `@mui/x-chat`. The most impactful remaining gap is multi-agent orchestration (a 5-agent architecture is research-level scope).
 
 ---
 
@@ -1025,6 +1025,60 @@ Pearson r correlation between numeric field pairs as a new `'correlation'` insig
 - Single batch LLM call returns `{ id, aiDescription }` for all fields
 - Result can be spread into `StudioDataField.aiDescription` arrays
 - Robust JSON parsing; validates response schema before returning
+
+### ~~Phase 8: x-chat Best-Practice Audit~~ ✅ DONE
+
+Full audit of `docs/public/x/react-chat/` docs to make x-studio a first-class `@mui/x-chat` showcase.
+Full gap analysis in `packages/x-studio/docs/AI_ASSISTANT_RESEARCH.md` (this file, originally researched
+by 4 parallel research agents; findings saved to session research folder).
+
+#### ~~8.1 "Thinking…" indicator~~ ✅ DONE
+
+- `studioBackendAdapter` emits `reasoning-start` immediately after `start`, before any server content
+  arrives — giving instant visual feedback that the AI is processing
+- Reasoning block closed (`reasoning-end`) when first `text-delta` or `tool-activity` arrives
+- `studioBackendAdapter` also forwards server-emitted `reasoning-start/delta/end` chunks (for models
+  like Claude with extended thinking — will appear as a second, content-filled reasoning part)
+- `StudioReasoningPart` custom renderer in `StudioChatPanel`:
+  - While streaming with no text: shows italic "Thinking…" caption
+  - After stream with content: collapsible "Reasoning" section (Collapse + ExpandMoreIcon)
+  - After stream with no content (synthetic wait block): hidden (returns null)
+
+#### ~~8.2 Stop streaming button~~ ✅ DONE
+
+- `StudioSendButton` module-level component (stable ref — no re-mounting)
+- When `isStreaming === true` (via `useChat()` hook): renders a red `StopCircleIcon` button
+  that calls `useChat().stopStreaming()` on click
+- When not streaming: renders the standard paper-airplane send button (matching default x-chat styling)
+- Passed to `ChatBox` via `slots.composerSendButton`
+- `adapter.stop()` method added — cancels the active response body reader for resource cleanup
+
+#### ~~8.3 `features` / `localeText` / `partRenderers` / `slots` merge fix~~ ✅ DONE
+
+Studio previously hard-overrode all four props after `{...slotProps?.chatBox}`, silently discarding
+consumer-provided values. Now all props are merged correctly:
+- Consumer values applied first
+- Studio defaults / constraints layered on top (with enforced `conversationHeader: false`, `attachments: false`)
+- `onFinish` and `onError` callbacks wired through from `slotProps.chatBox`
+
+#### ~~8.4 Improved `localeText`~~ ✅ DONE
+
+Empty-thread state now shows Studio-appropriate text:
+- `threadNoMessagesLabel`: "Ask me anything about your dashboard"
+- `threadNoMessagesHelperText`: "I can add widgets, analyse your data, and more"
+
+#### ~~8.5 `showToolCalls` config option~~ ✅ DONE
+
+`StudioAIConfig.showToolCalls?: boolean` (default `true`):
+- `true` — tool call cards shown in the chat (development default)
+- `false` — `dynamic-tool` part renderer returns `null`, keeping the conversation clean in production
+
+#### ~~8.6 SSE protocol expanded with reasoning events~~ ✅ DONE
+
+`StudioAISSEEvent` union now includes:
+- `reasoning-start` — begins a reasoning block
+- `reasoning-delta` — appends text to the open reasoning block
+- `reasoning-end` — closes the reasoning block
 
 ---
 

@@ -62,4 +62,14 @@ export type StudioAISSEEvent =
   /** Token and iteration usage for the completed request. Emitted just before `finish`. */
   | { type: 'usage'; inputTokens: number; outputTokens: number; iterations: number }
   /** An unrecoverable error occurred. */
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  /**
+   * Model reasoning / chain-of-thought output (e.g. from Claude extended thinking).
+   * Signals the start of a reasoning block; client renders it as a collapsible
+   * "Thinking…" section while streaming and "Reasoning" when complete.
+   */
+  | { type: 'reasoning-start'; id: string }
+  /** A chunk of reasoning text (appended to the open reasoning block). */
+  | { type: 'reasoning-delta'; id: string; delta: string }
+  /** Signals that the reasoning block identified by `id` is complete. */
+  | { type: 'reasoning-end'; id: string };

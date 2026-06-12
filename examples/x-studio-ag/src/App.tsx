@@ -33,6 +33,8 @@ import { AG_OS_DASHBOARD_STATE, OS_PAGES } from './config/officeSuppliesDashboar
 import { SettingsDialog } from './components/SettingsDialog';
 import type { SidebarSide } from './components/SettingsDialog';
 import { theme } from './theme';
+import { LOCALE_BUNDLES, type SupportedLocale } from './locales/index';
+import { AppLocaleProvider } from './locales/AppLocaleContext';
 
 function getUrlRowsParam(): number | undefined {
   if (typeof window === 'undefined') {
@@ -65,6 +67,8 @@ export default function App() {
   const [mode, setMode] = React.useState<'edit' | 'view'>('edit');
   const [sidebarSide, setSidebarSide] = React.useState<SidebarSide>('right');
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [locale, setLocale] = React.useState<SupportedLocale>('en');
+  const localeBundle = LOCALE_BUNDLES[locale];
   const [currentPageId, setCurrentPageId] = React.useState<string>(
     dataset === 'ag-studio'
       ? AG_OS_DASHBOARD_STATE.selectedPageId
@@ -220,6 +224,7 @@ export default function App() {
   }, []);
 
   return (
+    <AppLocaleProvider localeText={localeBundle.appLocaleText}>
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -236,11 +241,11 @@ export default function App() {
               size="small"
               sx={{ mr: 1 }}
             >
-              <ToggleButton value="edit">Edit</ToggleButton>
-              <ToggleButton value="view">View</ToggleButton>
+              <ToggleButton value="edit">{localeBundle.appLocaleText.editModeLabel}</ToggleButton>
+              <ToggleButton value="view">{localeBundle.appLocaleText.viewModeLabel}</ToggleButton>
             </ToggleButtonGroup>
             <Button size="small" startIcon={<SaveIcon />} onClick={handleSave} variant="outlined">
-              Save
+              {localeBundle.appLocaleText.saveButtonLabel}
             </Button>
             <Button
               size="small"
@@ -248,7 +253,7 @@ export default function App() {
               onClick={handleLoad}
               variant="outlined"
             >
-              Load
+              {localeBundle.appLocaleText.loadButtonLabel}
             </Button>
             <Button
               size="small"
@@ -256,7 +261,7 @@ export default function App() {
               onClick={() => setSettingsOpen(true)}
               variant="outlined"
             >
-              Settings
+              {localeBundle.appLocaleText.settingsButtonLabel}
             </Button>
           </Toolbar>
           <Tabs
@@ -310,6 +315,8 @@ export default function App() {
           adapterEnabled: new URL(window.location.href).searchParams.has('adapter'),
         }}
         onSidebarSideChange={setSidebarSide}
+        locale={locale}
+        onLocaleChange={setLocale}
       />
 
       <Snackbar
@@ -323,5 +330,6 @@ export default function App() {
         </Alert>
       </Snackbar>
     </ThemeProvider>
+    </AppLocaleProvider>
   );
 }

@@ -30,13 +30,14 @@ prompts, and Studio executes them to mutate the dashboard state.
 
 ### Widget tools
 
-| Tool                | Action                                                       |
-| :------------------ | :----------------------------------------------------------- |
-| `add_widget`        | Add a new widget of a specified type to the active page      |
-| `update_widget`     | Update an existing widget's configuration by ID              |
-| `remove_widget`     | Remove a widget from the active page (requires confirmation) |
-| `set_widget_layout` | Rearrange widgets by specifying row groupings                |
-| `set_widget_width`  | Set the column span of a widget (3–12 columns)               |
+| Tool                  | Action                                                                          |
+| :-------------------- | :------------------------------------------------------------------------------ |
+| `add_widget`          | Add a new widget of a specified type to the active page                         |
+| `update_widget`       | Update an existing widget's configuration by ID                                 |
+| `remove_widget`       | Remove a widget from the active page (requires confirmation)                    |
+| `set_widget_layout`   | Rearrange widgets by specifying row groupings                                   |
+| `set_widget_width`    | Set the column span of a widget (3–12 columns)                                  |
+| `set_widget_forecast` | Enable or disable a linear trend/forecast overlay on a `line` or `area` chart   |
 
 ### Filter tools
 
@@ -54,6 +55,9 @@ prompts, and Studio executes them to mutate the dashboard state.
 | `get_dashboard_state` | Returns the current dashboard state (pages, widgets, data sources)                                                                                                                                                                          |
 | `summarise_page`      | Returns a rich data snapshot of every widget on the active page, including per-widget sampled CSV data, numeric stats, and anomaly axis values for chart widgets. The AI uses this to write a narrative page summary.                       |
 | `apply_bulk_update`   | Applies multiple coordinated changes (widget updates, additions, removals, layout, column spans) in a single atomic operation. The AI uses this instead of multiple individual tool calls when a prompt requires 3 or more related changes. |
+| `rename_thread`       | Auto-renames the current conversation thread to a concise title after the user's first substantive message. Keeps the thread list readable without prompting the user.                                                                      |
+| `execute_query`       | Runs an ad-hoc query against a data source and returns results as JSON. Only available when a server-side data resolver is configured. Excluded from the MCP default tool set (opt in via `allowedTools`).                                  |
+| `set_widget_forecast` | Enables or disables a linear trend/forecast overlay on a `line` or `area` chart widget, projecting forward by a configurable number of periods with optional confidence bands.                                                              |
 
 ## Parallel tool calls
 
@@ -164,6 +168,7 @@ The underlying `add_widget` AI tool schema accepts every `StudioWidgetKind`, inc
 ## See also
 
 - [AI assistant setup](/x/react-studio/ai/setup/) — configure the adapter and system prompt
+- [MCP server](/x/react-studio/ai/mcp/) — expose Studio AI tools to Claude Desktop and other MCP clients
 - [`@mui/x-studio-ai-middleware`](https://github.com/mui/mui-x/tree/master/packages/x-studio-ai-middleware) — run the agentic loop server-side
 - [Composed approach](/x/react-studio/getting-started/composition/) — add `StudioChatPanel` to a custom layout
 - [Edit and view mode](/x/react-studio/behaviors/edit-and-view-mode/) — use view mode to protect dashboards from user edits

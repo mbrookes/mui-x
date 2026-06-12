@@ -1,6 +1,6 @@
 # @mui/x-studio — Requirements Progress Tracker
 
-> Last updated: 2026-05-31
+> Last updated: 2026-06-12
 
 ---
 
@@ -906,6 +906,13 @@
 - Returns `{ type: 'image', data: base64(svg), mimeType: 'image/svg+xml' }` (visual in Claude Desktop + compatible MCP clients) plus a text fallback of the raw SVG
 - `renderChartSvg`, `ChartRendererInput`, `ChartDataPoint`, `ChartSeries`, `ChartType` all exported from middleware public API
 - 21 unit tests in `chartRenderer.test.ts`
+
+### AI-13 · Fix `createWidgetFromDescription` schema + doc audit
+
+- Extracted `WIDGET_CONFIG_DESCRIPTION` constant from `studioAITools.ts` — the canonical widget config description for all 7 kinds (chart/kpi/grid/filter/pivot/map/text) including all chart subtypes (heatmap, gantt, gauge, mixed, etc.)
+- `handleCreateWidget` system prompt now uses `WIDGET_CONFIG_DESCRIPTION` instead of a minimal inline list — compose drawer NL field now correctly generates heatmap, gantt, gauge, and mixed widgets
+- `WIDGET_CONFIG_DESCRIPTION` exported from middleware public API for consumer use
+- Doc audit: fixed stale entries in `AI_ASSISTANT_RESEARCH.md` — MCP server status updated to ✅, tool count 15→20, doc-inconsistency rows for `configure_widget`/`update_dashboard_title` resolved, Phase 6 tool list updated to reflect actual implementation
 
 ## 📋 Planned
 

@@ -6,6 +6,8 @@ import { Box, Grow, IconButton, Menu, MenuItem, Tooltip, Typography } from '@mui
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
+import MicIcon from '@mui/icons-material/Mic';
+import MicOffIcon from '@mui/icons-material/MicOff';
 import { ChatBox } from '@mui/x-chat';
 import type { ChatAdapter, ChatMessage } from '@mui/x-chat/headless';
 
@@ -21,6 +23,7 @@ import { useStudioUIConfig, useStudioLocaleText } from '../../internals/StudioUI
 import type { StudioAIConfig } from './studioBackendAdapter';
 import { createBackendChatAdapter } from './studioBackendAdapter';
 import type { StudioCustomWidgetDef } from '../../models';
+import { useSpeechRecognition } from './useSpeechRecognition';
 
 // ── Suggestion generator ──────────────────────────────────────────────────────
 
@@ -319,6 +322,58 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     [dataSources, widgets, activeWidgetIds, localeText],
   );
 
+  // ── Voice input ───────────────────────────────────────────────────────────
+  const { isSupported: voiceSupported, isListening, transcript, start: startVoice, stop: stopVoice, resetTranscript } = useSpeechRecognition();
+  // Track the text that was in the composer before voice started.
+  const voiceBaseTextRef = React.useRef('');
+  // Controlled composer value (undefined = let ChatBox manage it internally).
+  const [composerValue, setComposerValue] = React.useState<string | undefined>(undefined);
+
+  const handleToggleVoice = React.useCallback(() => {
+    if (isListening) {
+      stopVoice();
+      // Leave the finalised transcript in the composer; clear the ref.
+      voiceBaseTextRef.current = '';
+    } else {
+      // Snapshot current composer text so we can prepend it to the transcript.
+      voiceBaseTextRef.current = composerValue ?? '';
+      resetTranscript();
+      startVoice();
+    }
+  }, [isListening, composerValue, startVoice, stopVoice, resetTranscript]);
+
+  // Keep composer value in sync with live transcript.
+  React.useEffect(() => {
+    if (!isListening) {
+      return;
+    }
+    const combined = voiceBaseTextRef.current
+      ? `${voiceBaseTextRef.current} ${transcript}`
+      : transcript;
+    setComposerValue(combined);
+  }, [isListening, transcript]);
+
+  // When voice ends (not initiated by the user), sync the final value once more.
+  React.useEffect(() => {
+    if (!isListening && transcript) {
+      const combined = voiceBaseTextRef.current
+        ? `${voiceBaseTextRef.current} ${transcript}`
+        : transcript;
+      setComposerValue(combined);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isListening]);
+
+  const handleComposerValueChange = React.useCallback((value: string) => {
+    setComposerValue(value);
+    // When the user manually edits the input while voice is active, stop listening
+    // and adopt their edit as the new base.
+    if (isListening) {
+      stopVoice();
+      voiceBaseTextRef.current = '';
+    }
+  }, [isListening, stopVoice]);
+
   if (!adapter) {
     return null;
   }
@@ -410,12 +465,14 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
       </Menu>
 
       {/* Chat box */}
-      <Box sx={{ flexGrow: 1, minHeight: 0 }}>
+      <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
         <ChatBox
           {...slotProps?.chatBox}
           adapter={adapter}
           messages={slotProps?.chatBox?.messages ?? threadMessages}
           onMessagesChange={slotProps?.chatBox?.onMessagesChange ?? handleMessagesChange}
+          composerValue={composerValue}
+          onComposerValueChange={handleComposerValueChange}
           suggestions={suggestions}
           suggestionsAutoSubmit
           currentUser={{ id: 'user', displayName: 'You', role: 'user' }}
@@ -423,6 +480,28 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
           localeText={{ composerInputPlaceholder: 'How can I help?' }}
           sx={{ height: '100%' }}
         />
+        {/* Mic button — overlaid in the bottom-right corner of the composer area */}
+        {voiceSupported && (
+          <Tooltip title={isListening ? localeText.chatVoiceInputStop : localeText.chatVoiceInputStart}>
+            <IconButton
+              size="small"
+              onClick={handleToggleVoice}
+              aria-label={isListening ? localeText.chatVoiceInputStop : localeText.chatVoiceInputStart}
+              color={isListening ? 'error' : 'default'}
+              sx={{
+                position: 'absolute',
+                bottom: 10,
+                right: 44,
+                zIndex: 1,
+                bgcolor: 'background.paper',
+                boxShadow: 1,
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
+            >
+              {isListening ? <MicOffIcon fontSize="small" /> : <MicIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        )}
       </Box>
     </Box>
   );

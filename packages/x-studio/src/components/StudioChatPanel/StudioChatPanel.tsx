@@ -25,6 +25,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import StorageIcon from '@mui/icons-material/Storage';
 import TitleIcon from '@mui/icons-material/Title';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { ChatBox, ChatMessage } from '@mui/x-chat';
 import type { ChatAdapter, ChatMessage as ChatMessageType, ChatPartRendererMap } from '@mui/x-chat/headless';
 import { useChat, useMessage, createToolPartRenderer } from '@mui/x-chat/headless';
@@ -85,6 +87,19 @@ const studioDynamicToolRenderer = createToolPartRenderer({
     Object.entries(STUDIO_TOOL_ICONS).map(([name, icon]) => [name, { icon }]),
   ),
 });
+
+/**
+ * A no-op renderer that still renders `approval-requested` tool parts.
+ * Used when `showToolCalls === false` to ensure the approval confirmation
+ * UI is never suppressed — users must be able to approve/deny destructive
+ * operations regardless of the tool-call visibility setting.
+ */
+const studioApprovalOnlyRenderer: ChatPartRendererMap['dynamic-tool'] = (props) => {
+  if ((props.part as { toolInvocation?: { state?: string } }).toolInvocation?.state === 'approval-requested') {
+    return studioDynamicToolRenderer(props);
+  }
+  return null;
+};
 
 // ── StudioSendButton — stop/send toggle for the composer ──────────────────────
 // Defined at module level so the reference is stable across renders (required by
@@ -159,6 +174,65 @@ const StudioSendButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAtt
     );
   },
 );
+
+// ── StudioMessageActions — hover-reveal copy + retry buttons ─────────────────
+// Defined at module level (stable ref) so ChatBox doesn't re-mount on every render.
+// Rendered inside ChatMessageActions (the styled hover-reveal container) for each message.
+
+interface StudioMessageActionsProps {
+  messageId: string;
+}
+
+const StudioMessageActions = React.memo(function StudioMessageActions({
+  messageId,
+}: StudioMessageActionsProps) {
+  const message = useMessage(messageId);
+  const { messages, sendMessage, isStreaming } = useChat();
+  const [copied, setCopied] = React.useState(false);
+
+  if (!message || isStreaming) return null;
+
+  const isAssistant = message.role === 'assistant';
+
+  const handleCopy = () => {
+    const text = message.parts
+      .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const handleRetry = () => {
+    // Find the last user message preceding this assistant message and resend it.
+    const idx = messages.findIndex((m) => m.id === messageId);
+    const lastUser = [...messages.slice(0, idx === -1 ? messages.length : idx)]
+      .reverse()
+      .find((m) => m.role === 'user');
+    if (lastUser) {
+      sendMessage({ parts: lastUser.parts });
+    }
+  };
+
+  return (
+    <React.Fragment>
+      <Tooltip title={copied ? 'Copied!' : 'Copy'}>
+        <IconButton size="small" onClick={handleCopy} aria-label="Copy message">
+          <ContentCopyIcon />
+        </IconButton>
+      </Tooltip>
+      {isAssistant && (
+        <Tooltip title="Retry">
+          <IconButton size="small" onClick={handleRetry} aria-label="Retry">
+            <RefreshIcon />
+          </IconButton>
+        </Tooltip>
+      )}
+    </React.Fragment>
+  );
+});
 
 // ── StudioMessageRoot — message row wrapper that appends model/token metadata ──
 // Defined at module level (stable ref) so ChatBox doesn't re-mount on every render.
@@ -702,8 +776,9 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     // and collapse the block into an expandable "Reasoning" section when done.
     reasoning: StudioReasoningPart as ChatPartRendererMap['reasoning'],
     // Dynamic-tool parts: show per-tool icons, or hide entirely when showToolCalls is false.
+    // Exception: always render approval-requested parts so users can approve/deny operations.
     'dynamic-tool': aiConfig?.showToolCalls === false
-      ? () => null
+      ? studioApprovalOnlyRenderer
       : studioDynamicToolRenderer as ChatPartRendererMap['dynamic-tool'],
   };
 
@@ -835,9 +910,11 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             ...slotProps?.chatBox?.partRenderers,
           }}
           slots={{
-            // Studio overrides: stop-streaming button + message root with metadata display
+            // Studio overrides: stop-streaming button, message root with metadata display,
+            // and per-message copy/retry actions
             composerSendButton: StudioSendButton,
             messageRoot: StudioMessageRoot,
+            messageActions: StudioMessageActions,
             // Consumer slot overrides come last
             ...slotProps?.chatBox?.slots,
           }}

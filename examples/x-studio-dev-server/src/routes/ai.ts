@@ -14,6 +14,11 @@ import type { Config } from '../config.js';
  * The client sends the full dashboard state + message history in the body.
  * This route adds the system prompt and runs the agentic loop server-side.
  *
+ * POST /api/ai/approval
+ *
+ * Resolves a pending tool-approval-request. The client sends `{ id, approved, reason? }`.
+ * The agentic loop for the associated chat stream is unblocked immediately.
+ *
  * POST /api/ai/insight
  *
  * Accepts a widget data summary and returns a single-paragraph AI insight.
@@ -27,6 +32,13 @@ import type { Config } from '../config.js';
  */
 export function makeAIRouter(config: Config): Router {
   const router = Router();
+
+  /**
+   * Approval resolvers keyed by toolCallId.
+   * Each entry is created by the agentic loop just before it yields
+   * `tool-approval-request` and is resolved by POST /approval.
+   */
+  const pendingApprovals = new Map<string, (approved: boolean, reason?: string) => void>();
 
   router.post('/chat', async (req: Request, res: Response): Promise<void> => {
     if (!config.llm.apiKey) {
@@ -46,6 +58,7 @@ export function makeAIRouter(config: Config): Router {
         endpoint: config.llm.endpoint,
         apiKey: config.llm.apiKey,
         model: config.llm.model,
+        approvalPending: pendingApprovals,
       });
 
       const reader = stream.getReader();
@@ -69,6 +82,22 @@ export function makeAIRouter(config: Config): Router {
       const message = err instanceof Error ? err.message : String(err);
       res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
       res.end();
+    }
+  });
+
+  router.post('/approval', (req: Request, res: Response): void => {
+    const { id, approved, reason } = req.body as {
+      id: string;
+      approved: boolean;
+      reason?: string;
+    };
+    const resolve = pendingApprovals.get(id);
+    if (resolve) {
+      resolve(approved, reason);
+      pendingApprovals.delete(id);
+      res.json({ ok: true });
+    } else {
+      res.status(404).json({ error: `No pending approval for id: ${id}` });
     }
   });
 

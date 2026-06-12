@@ -21,7 +21,7 @@ state-mutation events back to the client.
 The client (`@mui/x-studio`) is a **pure UI package** — it never calls an LLM directly.
 All LLM requests go through a backend that uses `@mui/x-studio-ai-middleware`.
 
-```
+```text
 Browser (x-studio)  ──POST──►  Your server (x-studio-ai-middleware)  ──►  LLM
                     ◄──SSE───                                          ◄──
 ```
@@ -121,6 +121,7 @@ The AI can call the following tools on the server:
 | `remove_widget`        | Removes a widget by ID                                                          |
 | `set_widget_layout`    | Rearranges widgets by specifying row groupings                                  |
 | `set_widget_width`     | Sets the column span of a widget (3–12 columns)                                 |
+| `set_widget_forecast`  | Enables or disables a linear trend/forecast overlay on a line or area chart     |
 | `add_page_filter`      | Adds a filter scoped to the active page                                         |
 | `remove_page_filter`   | Removes a page-scoped filter by ID                                              |
 | `add_widget_filter`    | Adds a filter scoped to a specific widget                                       |
@@ -128,6 +129,8 @@ The AI can call the following tools on the server:
 | `get_dashboard_state`  | Returns the current dashboard state (pages, widgets, data sources)              |
 | `summarise_page`       | Returns a rich data snapshot of every widget on the active page                 |
 | `apply_bulk_update`    | Applies multiple coordinated changes in a single atomic operation               |
+| `rename_thread`        | Auto-renames the current conversation thread after the first message            |
+| `execute_query`        | Runs an ad-hoc query against a data source (requires server-side data resolver) |
 
 You can restrict which tools are available using `allowedTools` in `aiConfig`.
 See [AI tools](/x/react-studio/ai/tools/) for details.
@@ -278,6 +281,15 @@ interface StudioAIConfig {
    * Skills are serialized and sent to the server; the server executes them.
    */
   skills?: StudioAISkill[];
+  /**
+   * When true, the full dashboard state (widgets, data sources, field names) is
+   * omitted from the system prompt. Use this when the dashboard contains
+   * confidential structural information that should not be sent to the LLM.
+   * The AI can still answer general questions but loses awareness of the current
+   * dashboard layout.
+   * @default false
+   */
+  privateMode?: boolean;
 }
 ```
 
@@ -285,4 +297,5 @@ interface StudioAIConfig {
 
 - [Composed approach](/x/react-studio/getting-started/composition/) — adding `StudioChatPanel` to a custom layout
 - [Slot props](/x/react-studio/customization/slot-props/) — customize the AI panel via `slotProps.chatPanel`
+- [MCP server](/x/react-studio/ai/mcp/) — expose Studio AI tools to Claude Desktop, Cursor, and other MCP clients
 - [`@mui/x-studio-ai-middleware`](https://github.com/mui/mui-x/tree/master/packages/x-studio-ai-middleware) — server-side handler package

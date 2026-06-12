@@ -801,7 +801,15 @@
 - Failed sub-operations (e.g., unknown widget ID) are skipped and reported in `skipped[]`; successful operations proceed
 - `buildAISystemPrompt.ts` updated with a guideline: prefer `apply_bulk_update` over multiple individual tool calls when a prompt requires 3 or more related changes
 
----
+### BUG-01 · NaN values in charts with non-numeric y-fields (BL-171)
+
+- `aggregateByField` now pre-scans the first non-null y-field value before entering the aggregation loop; if it is non-numeric (e.g. a string ID), the effective aggregation is promoted to `'count'` — preventing `NaN` from propagating into the rendered chart regardless of what `yAggregation` the caller passes
+- Funnel chart renderer (`StudioChartWidget`) now respects `config.yAggregation === 'count'` and performs the same non-numeric auto-detection, counting rows instead of summing `Number(row[valueField])` when appropriate
+- `salesDashboard.ts` config hardened with explicit aggregation settings: `yAggregation: 'count'` on Contacts by Department, Contacts by Role, and Deals by Stage; `yAggregation: 'avg'` on Margin % by Category (averaging per-product margin percentages per category is the correct metric)
+- Contacts by Department changed to a horizontal bar chart; Deals by Stage layout retained horizontal
+- Total Revenue gauge removed from Overview page widgetRows
+
+
 
 ## 📋 Planned
 

@@ -207,6 +207,12 @@ export async function* runAgenticLoop(
 
   // Safety limit on agentic turns
   for (let turn = 0; turn < maxTurns; turn += 1) {
+    // On iterations after the first, emit a step separator so the client can show
+    // visual dividers between agentic reasoning rounds.
+    if (turn > 0) {
+      yield { type: 'step-start', iteration: turn };
+    }
+
     let response: Response;
     try {
       // eslint-disable-next-line no-await-in-loop -- sequential LLM calls; each depends on previous result
@@ -326,7 +332,17 @@ export async function* runAgenticLoop(
     usage.iterations += 1;
 
     if (toolCallEntries.length === 0) {
-      // No tool calls — model produced a final text response
+      // No tool calls — model produced a final text response.
+      // Emit message-metadata so the client can display model name + token counts.
+      yield {
+        type: 'message-metadata',
+        metadata: {
+          model,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          iterations: usage.iterations,
+        },
+      };
       yield { type: 'usage', inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, iterations: usage.iterations };
       yield { type: 'finish', finishReason: finishReason ?? 'stop' };
       return;

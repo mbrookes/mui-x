@@ -16,6 +16,8 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
+      "@mui/x-internals": ["../../packages/x-internals/src"],
+      "@mui/x-internals/*": ["../../packages/x-internals/src/*"],
       "@mui/x-studio": ["../../packages/x-studio/src"],
       "@mui/x-studio/*": ["../../packages/x-studio/src/*"],
       "@mui/x-chat": ["../../packages/x-chat/src"],

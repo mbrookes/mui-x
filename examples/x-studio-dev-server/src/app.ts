@@ -32,7 +32,7 @@ export function buildApp(db: Knex, crmDb: Knex, config: Config): express.Applica
   app.use('/api/crm-data', makeCrmDataRouter(crmDb, config));
   app.use('/api/ai', makeAIRouter(config));
   app.use('/api/dev-token', makeDevTokenRouter(config));
-  app.use('/api/mcp', makeMcpRouter());
+  app.use('/api/mcp', makeMcpRouter(db, crmDb, config));
 
   // Global error handler
   app.use(

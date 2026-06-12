@@ -182,7 +182,11 @@ const StudioMessageRoot = React.forwardRef<HTMLDivElement, StudioMessageRootProp
     const metadata = message?.metadata as StudioMessageMetadata | undefined;
     const isAssistant = message?.role === 'assistant';
     const hasMetadata = Boolean(metadata?.model || metadata?.inputTokens != null);
-    const showMeta = isAssistant && message?.status !== 'streaming' && hasMetadata;
+    const showMeta =
+      process.env.NODE_ENV !== 'production' &&
+      isAssistant &&
+      message?.status !== 'streaming' &&
+      hasMetadata;
 
     const totalTokens =
       (metadata?.inputTokens ?? 0) + (metadata?.outputTokens ?? 0);

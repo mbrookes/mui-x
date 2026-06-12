@@ -1,11 +1,11 @@
 ---
 title: Studio - AI tools
-description: Studio exposes seventeen AI tools that the language model can call to build and configure dashboards. Learn how to restrict tools, add custom tools, and handle tool errors.
+description: Studio exposes seventeen AI tools that the language model can call to build and configure dashboards. Learn how to restrict tools, add skills, and handle tool errors.
 ---
 
 # Studio - AI tools
 
-<p class="description">Studio exposes seventeen AI tools that the language model can call to build and configure dashboards. Learn how to restrict tools, add custom tools, and handle tool errors.</p>
+<p class="description">Studio exposes seventeen AI tools that the language model can call to build and configure dashboards. Learn how to restrict tools, add skills, and handle tool errors.</p>
 
 {{"component": "@mui/internal-core-docs/ComponentLinkHeader", "design": false}}
 
@@ -59,7 +59,7 @@ prompts, and Studio executes them to mutate the dashboard state.
 
 The model can return multiple tool calls in a single assistant response. All results are collected and sent back together before the next turn — there is no extra round-trip per additional tool call.
 
-For `extraTools` and skill tools, you can opt in to **parallel execution** by setting `parallel: true` on the tool definition:
+For skill tools, you can opt in to **parallel execution** by setting `parallel: true` on the tool definition:
 
 ```ts
 const myTool: StudioAiTool = {
@@ -71,31 +71,13 @@ const myTool: StudioAiTool = {
 };
 ```
 
-When the model requests multiple `parallel: true` tools in the same response, the adapter runs them concurrently with `Promise.all`. Sequential tools (the default) execute in order around any parallel groups.
+When the model requests multiple `parallel: true` tools in the same response, the server runs them concurrently with `Promise.all`. Sequential tools (the default) execute in order around any parallel groups.
 
 Built-in tools `get_dashboard_state` and `summarise_page` are always treated as parallel-safe since they are read-only. State-mutating built-in tools always execute sequentially.
 
 ## Tool-to-controller mapping
 
-### In `direct` mode (default)
-
-Each tool call is translated into the equivalent `StudioController` method call client-side:
-
-```ts
-// add_widget({ kind: 'chart', title: 'Revenue', sourceId: 'ds1', config: { ... } })
-controller.addWidget({ kind: 'chart', title: 'Revenue', sourceId: 'ds1', config: chartConfig });
-
-// update_widget({ widgetId: 'w1', config: { ... } })
-controller.updateWidgetConfig('w1', newConfig);
-
-// add_page({ title: 'Orders' })
-controller.addPage('Orders');
-```
-
-### In `x-studio-ai-middleware` mode
-
-Tool execution moves to the server. The server runs `executeToolOnState` and streams
-`state-mutation` events. The client applies them via `applyStateMutation`:
+Tool execution runs on the server inside `@mui/x-studio-ai-middleware`. The server runs `executeToolOnState` and streams `state-mutation` events. The client applies them via `applyStateMutation`:
 
 ```ts
 // Server (automatic — inside handleAIChat)
@@ -107,10 +89,7 @@ applyStateMutation(mutation, controller);
 // → controller.addWidget(widget)
 ```
 
-This is handled automatically when `mode: 'x-studio-ai-middleware'` is set. You do not need to call
-`executeToolOnState` or `applyStateMutation` yourself.
-
-This mapping is internal to Studio. You do not need to call controller methods
+This mapping is entirely internal to Studio. You do not need to call controller methods
 yourself in response to AI tool calls.
 
 ## Restricting tools
@@ -121,7 +100,7 @@ When `allowedTools` is set, only the listed tools are sent to the model.
 ```tsx
 <Studio
   aiConfig={{
-    endpoint: 'https://your-proxy.com/api/ai/chat',
+    endpoint: '/api/ai',
     allowedTools: ['add_widget', 'update_widget', 'remove_widget'],
   }}
 />
@@ -149,18 +128,18 @@ region filter" to resolve the correct filter ID automatically.
 
 ## Handling tool errors
 
-If a tool call throws an error, Studio returns an error result to the model so it
-can recover. You can also observe tool errors via the `onToolError` callback:
+If a tool call throws an error, the server returns an error result to the model so it
+can recover. To observe tool errors server-side, use the `onToolError` option in your
+`handleAIChat` call:
 
-```tsx
-<Studio
-  aiConfig={{
-    endpoint: 'https://your-proxy.com/api/ai/chat',
-    onToolError: (toolName, error) => {
-      console.error(`Tool ${toolName} failed:`, error);
-    },
-  }}
-/>
+```ts
+const stream = handleAIChat(body, {
+  endpoint: process.env.LLM_ENDPOINT,
+  apiKey: process.env.LLM_API_KEY,
+  onToolError: (toolName, error) => {
+    console.error(`Tool ${toolName} failed:`, error);
+  },
+});
 ```
 
 ## Natural language widget creation
@@ -178,49 +157,7 @@ This uses the same `aiConfig` object that powers the chat assistant, so no addit
 
 The underlying `add_widget` AI tool schema accepts every `StudioWidgetKind`, including `pivot` and `map`.
 
-## Adding custom tools
 
-Pass additional tools in the `extraTools` array on `aiConfig`. Each tool must conform to the
-`StudioAiTool` interface and implement an `execute` method that mutates the
-controller:
-
-```ts
-import type { StudioAiTool } from '@mui/x-studio';
-
-const lockDashboardTool: StudioAiTool = {
-  name: 'set_locked',
-  description: 'Lock or unlock the dashboard to prevent further edits',
-  parameters: {
-    type: 'object',
-    properties: {
-      locked: { type: 'boolean', description: 'Whether to lock the dashboard' },
-    },
-    required: ['locked'],
-  },
-  execute: (args, controller) => {
-    const { locked } = args as { locked: boolean };
-    controller.setMode(locked ? 'view' : 'edit');
-  },
-};
-```
-
-```tsx
-<Studio
-  aiConfig={{
-    endpoint: 'https://your-proxy.com/api/ai/chat',
-    extraTools: [lockDashboardTool],
-  }}
-/>
-```
-
-The `execute` function can be `async` and may return a string to send back to the
-model as the tool result, or return `void` for a generic success response.
-
-:::info
-`extraTools` always execute client-side, regardless of `mode`. They are not supported
-in `x-studio-ai-middleware` mode and will not be forwarded to the server.
-Use `StudioAiTool` only with the default `direct` mode, or implement server-side equivalents.
-:::
 
 ## See also
 

@@ -16,11 +16,11 @@ so the dashboard updates in real time while keeping the business logic on the se
 
 ## When to use this package
 
-| Scenario                            | Recommended approach                                                              |
-| :---------------------------------- | :-------------------------------------------------------------------------------- |
-| Local development / prototyping     | `StudioAIConfig.apiKey` in the client — quick to set up                           |
-| Production — simple proxy           | Point `endpoint` at a thin pass-through route that injects your API key           |
-| **Production — full backend**       | **Use `@mui/x-studio-ai-middleware`** — key and all AI logic stay server-side           |
+| Scenario                            | Recommended approach                                                                             |
+| :---------------------------------- | :----------------------------------------------------------------------------------------------- |
+| Local development / prototyping     | Use [`examples/x-studio-dev-server`](../../examples/x-studio-dev-server) — zero config          |
+| Production — simple proxy           | Point `endpoint` at a route that adds the API key and calls `@mui/x-studio-ai-middleware`        |
+| **Production — full backend**       | **Use `@mui/x-studio-ai-middleware`** — key and all AI logic stay server-side                    |
 
 ---
 
@@ -32,7 +32,7 @@ npm install @mui/x-studio-ai-middleware
 pnpm add @mui/x-studio-ai-middleware
 ```
 
-Peer dependency: `@mui/x-studio`
+No React peer dependencies — runs in any Node.js environment.
 
 ---
 
@@ -114,14 +114,14 @@ app.post('/api/ai/chat', async (c) => {
 
 ### 2. Configure the client
 
-On the client, set `mode: 'x-studio-ai-middleware'` in `StudioAIConfig`:
+Point `StudioAIConfig.endpoint` at the **base URL** of your backend AI routes.
+Studio appends `/chat`, `/insight`, `/title`, and `/widget` automatically:
 
 ```tsx
 import type { StudioAIConfig } from '@mui/x-studio';
 
 const aiConfig: StudioAIConfig = {
-  endpoint: '/api/ai/chat',   // your server route above
-  mode: 'x-studio-ai-middleware',  // switches to the backend protocol
+  endpoint: '/api/ai', // /chat, /insight, /title, /widget are appended automatically
 };
 
 // Pass to <Studio> or <StudioChatPanel> as normal
@@ -140,8 +140,7 @@ Pass a short-lived session token from the client and verify it server-side:
 ```ts
 // Client
 const aiConfig: StudioAIConfig = {
-  endpoint: '/api/ai/chat',
-  mode: 'x-studio-ai-middleware',
+  endpoint: '/api/ai',
   headers: { 'X-Session-Token': await getSessionToken() },
 };
 
@@ -232,7 +231,7 @@ The handler streams `StudioAISSEEvent` objects, each encoded as `data: <JSON>\n\
 | `finish`            | Model done                            | `{ finishReason: string }`                          |
 | `error`             | Unrecoverable error                   | `{ message: string }`                               |
 
-The client adapter (`mode: 'x-studio-ai-middleware'`) handles all these automatically.
+The client adapter handles all these automatically.
 You do not need to parse SSE events yourself unless you are building a custom adapter.
 
 ---

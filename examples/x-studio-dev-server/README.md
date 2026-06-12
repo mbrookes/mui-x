@@ -7,6 +7,7 @@ A local development server for MUI X Studio that combines the data and AI middle
 - **Sales data API** (`POST /api/studio-data`) — serves the Studio sales demo dataset via `@mui/x-studio-data-middleware`. Supports filtering, aggregation, joins, and caching.
 - **CRM data API** (`POST /api/crm-data`) — serves the CRM demo dataset (contacts, deals, activities) from a separate database. Demonstrates the multiple-endpoints pattern for cross-source relationships.
 - **AI API** (`POST /api/ai/chat`, `/insight`, `/title`, `/widget`) — handles all Studio AI operations through `@mui/x-studio-ai-middleware`. Builds the system prompt, runs the agentic loop, and streams SSE responses back to the client.
+- **MCP server** (`POST|GET|DELETE /api/mcp`) — exposes all x-studio AI tools via the [Model Context Protocol](https://modelcontextprotocol.io/), allowing Claude Desktop, Cursor, and other MCP clients to manipulate dashboards programmatically without a browser.
 - **Auto-seeds** on first run using the `x-studio-shared` data generator. Re-seed anytime with `--reseed`.
 - **SQLite by default** — no database setup required. Configurable for PostgreSQL or MySQL via `.env.local`.
 
@@ -107,6 +108,92 @@ Accepts a Studio AI chat request and streams SSE responses. Requires `LLM_API_KE
 
 Returns a signed JWT for development use (only available when `STUDIO_TOKEN` is not set).
 
+## MCP server
+
+The dev server exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) endpoint at `/api/mcp` that lets MCP-capable clients — such as Claude Desktop, Cursor, and other AI agents — manipulate x-studio dashboards without a browser.
+
+### Available MCP tools
+
+All x-studio AI tools are registered except `summarise_page` (which requires live client-side row data):
+
+| Tool | Description |
+| ---- | ----------- |
+| `add_widget` | Add a new widget to a page |
+| `update_widget` | Update an existing widget's configuration |
+| `remove_widget` | Remove a widget from a page |
+| `add_page` | Add a new page to the dashboard |
+| `remove_page` | Remove a page from the dashboard |
+| `update_page` | Update a page's metadata |
+| `reorder_pages` | Reorder pages in the dashboard |
+| `add_data_source` | Register a new data source |
+| `update_data_source` | Update an existing data source |
+| `remove_data_source` | Remove a data source |
+| `add_filter` | Add a global filter to the dashboard |
+| `update_filter` | Update a global filter |
+| `remove_filter` | Remove a global filter |
+| `move_widget` | Move a widget to a different position or page |
+
+### Available MCP resources
+
+| URI | Description |
+| --- | ----------- |
+| `studio://dashboard/state` | Full dashboard JSON (pages, widgets, sources, filters) |
+| `studio://dashboard/system-prompt` | AI system prompt built from current dashboard state |
+
+### Claude Desktop configuration
+
+Add this to your `claude_desktop_config.json` (usually `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "x-studio": {
+      "url": "http://localhost:3020/api/mcp"
+    }
+  }
+}
+```
+
+Each Claude conversation gets its own isolated dashboard session. Tool calls mutate that session's state in memory — changes are not persisted to the SQLite database.
+
+### Custom MCP server
+
+The factory function `buildStudioMcpServer` is exported from `@mui/x-studio-ai-middleware`, so you can embed it in your own Express server with just a few lines:
+
+```ts
+import { buildStudioMcpServer, createDefaultStudioState, type StudioStateBox } from '@mui/x-studio-ai-middleware';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+
+const transports: Record<string, StreamableHTTPServerTransport> = {};
+const stateBoxes: Record<string, StudioStateBox> = {};
+
+router.post('/mcp', async (req, res) => {
+  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  if (sessionId && transports[sessionId]) {
+    await transports[sessionId].handleRequest(req, res, req.body);
+    return;
+  }
+  if (!sessionId && isInitializeRequest(req.body)) {
+    const stateBox: StudioStateBox = { current: createDefaultStudioState() };
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (sid) => { transports[sid] = transport; stateBoxes[sid] = stateBox; },
+    });
+    transport.onclose = () => {
+      const sid = transport.sessionId;
+      if (sid) { delete transports[sid]; delete stateBoxes[sid]; }
+    };
+    await buildStudioMcpServer(stateBox).connect(transport);
+    await transport.handleRequest(req, res, req.body);
+    return;
+  }
+  res.status(400).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request' }, id: null });
+});
+```
+
+See `src/routes/mcp.ts` for the complete implementation.
+
 ## Database
 
 ### SQLite (default)
@@ -144,9 +231,9 @@ DB_PASSWORD=studio
 
 ## Architecture
 
-```
+```text
 x-studio-dev-server
-  ├── @mui/x-studio-ai-middleware   (system prompt, agentic loop, tool execution)
+  ├── @mui/x-studio-ai-middleware   (system prompt, agentic loop, tool execution, MCP factory)
   ├── @mui/x-studio-data-middleware (batch query handler, security, caching)
   │     ├── sales DB (SQLite / pg / mysql2)   → POST /api/studio-data
   │     └── CRM DB   (separate connection)    → POST /api/crm-data

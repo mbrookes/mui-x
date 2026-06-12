@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@mui/x-studio-ai-middleware": "workspace:*",
     "@mui/x-studio-data-middleware": "workspace:*",
     "cors": "^2.8.5",

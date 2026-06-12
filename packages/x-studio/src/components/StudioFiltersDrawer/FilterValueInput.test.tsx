@@ -18,7 +18,7 @@ const mockDataSources = {
   },
 };
 
-vi.mock('../context', async (importOriginal) => {
+vi.mock('../../context', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../context')>();
   return {
     ...actual,

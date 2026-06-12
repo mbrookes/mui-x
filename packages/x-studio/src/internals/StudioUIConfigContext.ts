@@ -742,6 +742,8 @@ export interface StudioLocaleText {
   aiSuggestionWhatDataAvailable: string;
   /** Default name for a new AI chat thread */
   chatNewConversationName: string;
+  /** Tooltip on the thread-switcher button */
+  chatSwitchConversationTooltip: string;
 
   // ── Expression field dialog — measure checkbox ────────────────────────────
   exprMeasureLabel: string;
@@ -1462,6 +1464,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiSuggestionSummarisePage: 'Summarise page',
   aiSuggestionWhatDataAvailable: 'What data is available?',
   chatNewConversationName: 'New conversation',
+  chatSwitchConversationTooltip: 'Switch conversation',
 
   // Expression field dialog — measure checkbox
   exprMeasureLabel: 'Measure (aggregate)',

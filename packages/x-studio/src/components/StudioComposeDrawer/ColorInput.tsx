@@ -4,6 +4,7 @@ import { Box, IconButton, TextField } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 
 import { ColorSwatch } from './ColorSwatch';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 /** Inline color swatch + text field. Uses native <input type="color"> for the picker. */
 export function ColorInput({
@@ -17,6 +18,7 @@ export function ColorInput({
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
+  const localeText = useStudioLocaleText();
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
       <ColorSwatch value={value} onChange={onChange} label={`${label} color picker`} />
@@ -35,7 +37,7 @@ export function ColorInput({
                   <IconButton
                     size="small"
                     edge="end"
-                    aria-label={`Clear ${label.toLowerCase()}`}
+                    aria-label={localeText.colorInputClearAriaLabel(label)}
                     onClick={() => onChange('')}
                   >
                     <CloseIcon fontSize="small" />

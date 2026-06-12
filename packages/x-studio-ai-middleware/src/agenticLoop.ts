@@ -140,6 +140,18 @@ export interface AgenticLoopOptions {
    * Use this to cap LLM spend per call and protect against runaway agentic loops.
    */
   rateLimit?: StudioAIRateLimit;
+  /**
+   * Shared map of pending tool approval callbacks.
+   *
+   * When a destructive tool (remove_page, remove_widget, apply_bulk_update) is
+   * called, the loop registers a resolve function here before yielding a
+   * `tool-approval-request` event and pausing. The host app's approval endpoint
+   * should look up the toolCallId in this map, call the resolver with the user's
+   * decision, and delete the entry.
+   *
+   * When not provided, destructive tools execute without approval.
+   */
+  approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
 }
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
@@ -170,7 +182,11 @@ export async function* runAgenticLoop(
     dataResolver,
     privateMode = false,
     rateLimit,
+    approvalPending,
   } = options;
+
+  // Tools that pause for user approval before execution.
+  const TOOLS_REQUIRING_APPROVAL = new Set(['remove_page', 'remove_widget', 'apply_bulk_update']);
 
   const systemPrompt = buildAISystemPrompt(
     initialState,
@@ -496,6 +512,42 @@ export async function* runAgenticLoop(
 
       let output: string;
       let mutation: StateMutation | undefined;
+
+      // Check if this tool requires user approval before execution.
+      if (TOOLS_REQUIRING_APPROVAL.has(tc.name) && approvalPending) {
+        yield {
+          type: 'tool-approval-request',
+          toolCallId: tc.id,
+          toolName: tc.name,
+          input: toolInput,
+        };
+
+        // Pause the loop and wait for the client to send an approval response.
+        // eslint-disable-next-line no-await-in-loop -- approval is an intentional blocking pause
+        const { approved, reason } = await new Promise<{ approved: boolean; reason?: string }>(
+          (resolve) => {
+            approvalPending.set(tc.id, (a, r) => resolve({ approved: a, reason: r }));
+          },
+        );
+
+        if (!approved) {
+          output = JSON.stringify({
+            denied: true,
+            reason: reason ?? 'User denied the operation.',
+          });
+          toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
+          yield {
+            type: 'tool-activity',
+            toolCallId: tc.id,
+            toolName: tc.name,
+            phase: 'complete',
+            input: toolInput,
+            output,
+          };
+          continue;
+        }
+      }
+
       try {
         const result = executeToolOnState(tc.name, toolInput, currentState, customWidgets);
         output = result.output;

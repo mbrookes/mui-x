@@ -87,4 +87,16 @@ export type StudioAISSEEvent =
    * Consumers can access this via `message.metadata` in `onMessagesChange` callbacks
    * or custom message slot components.
    */
-  | { type: 'message-metadata'; metadata: Record<string, unknown> };
+  | { type: 'message-metadata'; metadata: Record<string, unknown> }
+  /**
+   * Emitted before executing a destructive tool to request user approval.
+   * The stream pauses until the client calls the approval endpoint.
+   * The client should render approve/deny UI (the built-in ToolPart renderer
+   * handles this automatically when `state === 'approval-requested'`).
+   */
+  | {
+      type: 'tool-approval-request';
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+    };

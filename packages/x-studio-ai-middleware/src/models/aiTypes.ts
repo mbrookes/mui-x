@@ -162,3 +162,52 @@ export interface StudioAISkill extends SerializableSkill {
     ) => SkillExecuteResult | Promise<SkillExecuteResult>;
   };
 }
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+
+/**
+ * Token and iteration usage for a single `handleAIChat` call.
+ */
+export interface StudioAIUsage {
+  /** Total number of input (prompt) tokens consumed across all agentic iterations. */
+  inputTokens: number;
+  /** Total number of output (completion) tokens generated across all agentic iterations. */
+  outputTokens: number;
+  /** Number of agentic loop iterations (LLM round-trips) completed. */
+  iterations: number;
+}
+
+/**
+ * Server-side token and turn budget for a single AI chat request.
+ * Configure this in `StudioAIHandlerOptions` on your server endpoint.
+ */
+export interface StudioAIRateLimit {
+  /**
+   * Maximum number of tokens (input + output combined) the model may consume
+   * across all agentic loop iterations in a single `handleAIChat` call.
+   * When the accumulated token count exceeds this value, the loop is stopped
+   * after the current iteration completes.
+   *
+   * @example
+   * // Allow at most 8 000 tokens per request
+   * rateLimit: { maxTokensPerRequest: 8_000 }
+   */
+  maxTokensPerRequest?: number;
+  /**
+   * Maximum number of agentic loop iterations (LLM round-trips) per request.
+   * Overrides the default safety cap of 10.
+   *
+   * @example
+   * // Cap at 5 back-and-forth turns
+   * rateLimit: { maxTurnsPerRequest: 5 }
+   */
+  maxTurnsPerRequest?: number;
+  /**
+   * Called when a limit is reached before the loop would naturally finish.
+   * Use this to increment a quota counter, log the overage, or trigger an alert.
+   *
+   * @param reason `'tokens'` — token budget exceeded; `'turns'` — max iterations reached.
+   * @param usage  Token counts and iteration number at the point the limit was hit.
+   */
+  onLimitReached?: (reason: 'tokens' | 'turns', usage: StudioAIUsage) => void;
+}

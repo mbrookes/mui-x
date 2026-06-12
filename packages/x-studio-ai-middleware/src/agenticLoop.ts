@@ -9,7 +9,7 @@
  */
 import type { ChatMessage } from '@mui/x-chat-headless';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
-import type { StateMutation, SerializableSkill, StudioAISkill, StudioDataResolver } from './models/aiTypes';
+import type { StateMutation, SerializableSkill, StudioAISkill, StudioDataResolver, StudioAIRateLimit, StudioAIUsage } from './models/aiTypes';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import { parseSSE } from './parseSSE';
@@ -135,6 +135,11 @@ export interface AgenticLoopOptions {
    * @default false
    */
   privateMode?: boolean;
+  /**
+   * Token and turn budget enforced for this request.
+   * Use this to cap LLM spend per call and protect against runaway agentic loops.
+   */
+  rateLimit?: StudioAIRateLimit;
 }
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
@@ -164,6 +169,7 @@ export async function* runAgenticLoop(
     skillHandlers = [],
     dataResolver,
     privateMode = false,
+    rateLimit,
   } = options;
 
   const systemPrompt = buildAISystemPrompt(
@@ -195,8 +201,12 @@ export async function* runAgenticLoop(
   let currentMessages = toOpenAIMessages(systemPrompt, messages);
   let currentState = initialState;
 
+  // Token usage accumulator across all iterations
+  const usage: StudioAIUsage = { inputTokens: 0, outputTokens: 0, iterations: 0 };
+  const maxTurns = rateLimit?.maxTurnsPerRequest ?? 10;
+
   // Safety limit on agentic turns
-  for (let turn = 0; turn < 10; turn += 1) {
+  for (let turn = 0; turn < maxTurns; turn += 1) {
     let response: Response;
     try {
       // eslint-disable-next-line no-await-in-loop -- sequential LLM calls; each depends on previous result
@@ -214,6 +224,7 @@ export async function* runAgenticLoop(
           tools: effectiveTools,
           tool_choice: 'auto',
           stream: true,
+          stream_options: { include_usage: true },
         }),
       });
     } catch (err) {
@@ -259,6 +270,15 @@ export async function* runAgenticLoop(
         finish_reason?: string | null;
       }>;
 
+      // Accumulate token usage from the final usage chunk (stream_options: include_usage)
+      const chunkUsage = chunk.usage as
+        | { prompt_tokens?: number; completion_tokens?: number }
+        | undefined;
+      if (chunkUsage) {
+        usage.inputTokens += chunkUsage.prompt_tokens ?? 0;
+        usage.outputTokens += chunkUsage.completion_tokens ?? 0;
+      }
+
       if (!choices?.length) {
         continue;
       }
@@ -303,10 +323,28 @@ export async function* runAgenticLoop(
     }
 
     const toolCallEntries = Object.entries(reqToolCalls);
+    usage.iterations += 1;
 
     if (toolCallEntries.length === 0) {
       // No tool calls — model produced a final text response
+      yield { type: 'usage', inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, iterations: usage.iterations };
       yield { type: 'finish', finishReason: finishReason ?? 'stop' };
+      return;
+    }
+
+    // Check token budget before executing tools and continuing
+    if (
+      rateLimit?.maxTokensPerRequest !== undefined &&
+      usage.inputTokens + usage.outputTokens >= rateLimit.maxTokensPerRequest
+    ) {
+      rateLimit.onLimitReached?.('tokens', { ...usage });
+      yield { type: 'usage', inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, iterations: usage.iterations };
+      yield {
+        type: 'error',
+        message:
+          'MUI X Studio: Request stopped — token budget exceeded. ' +
+          `Used ${usage.inputTokens + usage.outputTokens} tokens (limit: ${rateLimit.maxTokensPerRequest}).`,
+      };
       return;
     }
 
@@ -482,5 +520,7 @@ export async function* runAgenticLoop(
   }
 
   // Exceeded max turns
-  yield { type: 'error', message: 'Agentic loop exceeded maximum turn limit.' };
+  rateLimit?.onLimitReached?.('turns', { ...usage });
+  yield { type: 'usage', inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, iterations: usage.iterations };
+  yield { type: 'error', message: `MUI X Studio: Agentic loop exceeded maximum turn limit (${maxTurns}).` };
 }

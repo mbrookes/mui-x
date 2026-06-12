@@ -885,6 +885,18 @@
 - Returns `FieldDescriptionResult[]` (`{ id, aiDescription }`); robust JSON parsing handles models that wrap the array in an object
 - Exported from middleware index for use in data-panel or setup wizards
 
+### AI-11 · Token cost governance — `StudioAIRateLimit` + `usage` SSE event
+
+- Added `StudioAIRateLimit` interface to `@mui/x-studio-ai-middleware`: `maxTokensPerRequest`, `maxTurnsPerRequest`, `onLimitReached`
+- Added `StudioAIUsage` interface: `{ inputTokens, outputTokens, iterations }`
+- `rateLimit?` added to `StudioAIHandlerOptions` (server-side) and forwarded to `runAgenticLoop`
+- Token usage tracked per iteration via OpenAI `stream_options: { include_usage: true }`; accumulated across turns
+- Loop aborts with an informative error before starting the next turn if the token budget is exceeded (tool-call path only — if the model finishes cleanly the budget is not enforced retroactively)
+- `maxTurnsPerRequest` overrides the hardcoded default of 10; `onLimitReached` callback fires with `reason: 'tokens' | 'turns'` and the accumulated `StudioAIUsage`
+- New `usage` SSE event emitted just before `finish` on every request so clients can display or log token consumption
+- `onUsage?` callback added to `StudioAIConfig` (client-side) — called when the `usage` SSE event arrives
+- 5 new unit tests in `agenticLoop.test.ts`
+
 ## 📋 Planned
 
 _Nothing remaining — all tracked requirements are complete or WONTFIX._

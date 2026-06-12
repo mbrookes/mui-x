@@ -56,7 +56,7 @@
  */
 import { runAgenticLoop } from './agenticLoop';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
-import type { StudioAISkill, StudioDataResolver } from './models/aiTypes';
+import type { StudioAISkill, StudioDataResolver, StudioAIRateLimit } from './models/aiTypes';
 
 /**
  * Options for the AI chat handler.
@@ -139,6 +139,28 @@ export interface StudioAIHandlerOptions {
    * ```
    */
   dataResolver?: StudioDataResolver;
+  /**
+   * Token and turn budget enforced for this request.
+   *
+   * Use this to cap LLM token spend, protect against runaway agentic loops,
+   * and implement per-tenant or per-user quota policies.
+   *
+   * @example
+   * ```ts
+   * const stream = handleAIChat(body, {
+   *   endpoint: process.env.OPENAI_ENDPOINT,
+   *   apiKey: process.env.OPENAI_API_KEY,
+   *   rateLimit: {
+   *     maxTokensPerRequest: 8_000,
+   *     maxTurnsPerRequest: 5,
+   *     onLimitReached(reason, usage) {
+   *       console.warn(`AI limit reached (${reason}):`, usage);
+   *     },
+   *   },
+   * });
+   * ```
+   */
+  rateLimit?: StudioAIRateLimit;
 }
 
 /**
@@ -181,6 +203,7 @@ export function handleAIChat(
             skillHandlers: options.skillHandlers,
             dataResolver: options.dataResolver,
             privateMode,
+            rateLimit: options.rateLimit,
           },
         );
 

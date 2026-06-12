@@ -59,5 +59,7 @@ export type StudioAISSEEvent =
   | { type: 'state-mutation'; mutation: StateMutation }
   /** The model finished generating. */
   | { type: 'finish'; finishReason: string }
+  /** Token and iteration usage for the completed request. Emitted just before `finish`. */
+  | { type: 'usage'; inputTokens: number; outputTokens: number; iterations: number }
   /** An unrecoverable error occurred. */
   | { type: 'error'; message: string };

@@ -4,6 +4,7 @@ import { Box, Button, Skeleton, Typography } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { useStudioLocaleText } from '../../../context';
+import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import type { StudioDataSource, StudioWidget } from '../../../models';
 import { PivotTable } from './PivotTable';
 import { buildPivotMatrix, pivotToCsv, downloadCsv } from './pivotUtils';
@@ -46,19 +47,7 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
   }
 
   if (isError) {
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: 200,
-          color: 'error.main',
-        }}
-      >
-        <Typography variant="body2">{errorMessage || localeText.widgetLoadError}</Typography>
-      </Box>
-    );
+    return <StudioWidgetErrorOverlay message={errorMessage} height={200} />;
   }
 
   if (!pivotRowField || !pivotColField) {
@@ -80,6 +69,9 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
   if (!matrix || (matrix.rowValues.length === 0 && matrix.colValues.length === 0)) {
     return (
       <Box
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
         sx={{
           display: 'flex',
           alignItems: 'center',

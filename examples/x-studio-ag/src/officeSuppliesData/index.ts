@@ -33,7 +33,7 @@ export async function loadOfficeSuppliesData(): Promise<AgStudioData> {
       },
       { id: OS_SHIPMENTS_SOURCE_ID, data: raw.shipments as unknown as Record<string, unknown>[] },
     ],
-    relationships: relationships as AgStudioData['relationships'],
+    relationships: relationships as unknown as AgStudioData['relationships'],
     expressions,
   };
 }

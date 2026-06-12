@@ -527,6 +527,65 @@ export function executeToolOnState(
       };
     }
 
+    case 'set_widget_forecast': {
+      const { widgetId, enabled, periods, showConfidenceBands } = args as {
+        widgetId?: string;
+        enabled?: boolean;
+        periods?: number;
+        showConfidenceBands?: boolean;
+      };
+      if (!widgetId || typeof widgetId !== 'string') {
+        return {
+          output: JSON.stringify({ error: 'set_widget_forecast requires a widgetId.' }),
+          nextState: state,
+        };
+      }
+      const widget = state.widgets[widgetId];
+      if (!widget) {
+        return {
+          output: JSON.stringify({ error: `Widget '${widgetId}' not found.` }),
+          nextState: state,
+        };
+      }
+      const { chartType } = widget.config;
+      if (chartType !== 'line' && chartType !== 'area') {
+        return {
+          output: JSON.stringify({
+            error: `set_widget_forecast only supports chartType 'line' or 'area'. Widget '${widgetId}' has chartType '${chartType ?? '(none)'}'.`,
+          }),
+          nextState: state,
+        };
+      }
+
+      const forecastConfig = enabled
+        ? {
+            enabled: true,
+            ...(periods != null ? { periods } : {}),
+            method: 'linear' as const,
+            ...(showConfidenceBands != null ? { showConfidenceBands } : {}),
+          }
+        : { enabled: false };
+
+      const nextState: typeof state = {
+        ...state,
+        widgets: {
+          ...state.widgets,
+          [widgetId]: {
+            ...widget,
+            config: { ...widget.config, forecast: forecastConfig },
+          },
+        },
+      };
+      return {
+        output: JSON.stringify({ success: true, widgetId, forecast: forecastConfig }),
+        mutation: {
+          type: 'updateWidget',
+          args: { widgetId, changes: { config: { ...widget.config, forecast: forecastConfig } } },
+        },
+        nextState,
+      };
+    }
+
     default:
       return { output: JSON.stringify({ error: `Unknown tool: ${toolName}` }), nextState: state };
   }

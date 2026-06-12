@@ -497,6 +497,38 @@ export const STUDIO_AI_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'set_widget_forecast',
+      description:
+        'Enables or disables a linear trend/forecast overlay on a line or area chart widget. ' +
+        'When enabled, the chart extends the x-axis by the given number of periods and overlays ' +
+        'a dashed projection line computed from the historical data using linear regression. ' +
+        'Optionally renders a shaded confidence band (±1 standard error). ' +
+        'Only effective for chartType "line" or "area" with a single y-field.',
+      parameters: {
+        type: 'object',
+        properties: {
+          widgetId: { type: 'string', description: 'ID of the chart widget to update.' },
+          enabled: {
+            type: 'boolean',
+            description: 'Whether to show the forecast overlay. Set false to remove it.',
+          },
+          periods: {
+            type: 'number',
+            description:
+              'Number of future periods to project beyond the last data point. Default 3.',
+          },
+          showConfidenceBands: {
+            type: 'boolean',
+            description: 'Whether to draw a shaded confidence band around the trend line.',
+          },
+        },
+        required: ['widgetId', 'enabled'],
+      },
+    },
+  },
 ] as const;
 
 export type StudioAIToolName =
@@ -518,4 +550,5 @@ export type StudioAIToolName =
   | 'summarise_page'
   | 'apply_bulk_update'
   | 'rename_thread'
-  | 'execute_query';
+  | 'execute_query'
+  | 'set_widget_forecast';

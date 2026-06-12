@@ -74,7 +74,7 @@ export function DateValueInput({
             label={label ?? localeText.filterDateLabel}
             value={dayjsVal?.isValid() ? dayjsVal : null}
             disabled={isLinked}
-            onChange={(d) => {
+            onChange={(d: Dayjs | null) => {
               onChange(d?.isValid() ? d.format('YYYY-MM-DD') : '');
               if (valueRef) {
                 onValueRefChange(undefined);
@@ -115,7 +115,7 @@ export function DateValueInput({
       <DatePicker
         label={label ?? localeText.filterDateLabel}
         value={dayjsVal?.isValid() ? dayjsVal : null}
-        onChange={(d) => {
+        onChange={(d: Dayjs | null) => {
           onChange(d?.isValid() ? d.format('YYYY-MM-DD') : '');
         }}
         slotProps={{ textField: { size: 'small' } }}

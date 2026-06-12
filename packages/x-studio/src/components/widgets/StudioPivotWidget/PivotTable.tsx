@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Typography, useTheme } from '@mui/material';
+import { Box, useTheme } from '@mui/material';
 import { formatNumber } from '../../../internals/numberFormat';
 import { type PivotMatrix, resolveAgg } from './pivotUtils';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';

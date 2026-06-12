@@ -9,7 +9,6 @@ import {
   Select,
   Stack,
   Switch,
-  TextField,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
@@ -26,8 +25,8 @@ import {
 } from '../../context';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { getReachableSourceIds } from '../../internals/chartUtils';
-import type { StudioKpiAggregation, StudioWidgetConfig, StudioCrossFilterMode } from '../../models';
-import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
+import type { StudioKpiAggregation, StudioCrossFilterMode } from '../../models';
+import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import { SetupSection } from './SetupSection';
 import { MetricRefInput } from '../StudioFiltersDrawer/MetricRefInput';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';

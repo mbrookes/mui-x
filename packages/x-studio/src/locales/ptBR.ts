@@ -714,6 +714,18 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   exprDialogEditTitle: 'Editar campo calculado',
   exprDialogNewTitle: 'Novo campo calculado',
 
+  // Expression field — measure checkbox
+  exprMeasureLabel: 'Medida (agregação)',
+  exprMeasureHelperText:
+    'Computa um único valor sobre todo o conjunto de dados (ex.: receita total).',
+  exprDimensionHelperText: 'Computa um valor por linha (ex.: preço \u00d7 quantidade).',
+
+  // Chart color scheme options
+  chartColorSchemePrimary: 'Primário (azul)',
+  chartColorSchemeSuccess: 'Sucesso (verde)',
+  chartColorSchemeWarning: 'Atenção (laranja)',
+  chartColorSchemeError: 'Erro (vermelho)',
+
   // AI chat suggestions
   aiSuggestionBarChart: (numericLabel, catLabel) =>
     `Gráfico de barras: ${numericLabel} por ${catLabel}`,
@@ -727,6 +739,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   aiSuggestionAddPage: 'Adicionar nova página',
   aiSuggestionSummarisePage: 'Resumir página',
   aiSuggestionWhatDataAvailable: 'Quais dados estão disponíveis?',
+  chatNewConversationName: 'Nova conversa',
 };
 
 export const ptBR: Localization = getStudioLocalization(ptBRLocaleText);

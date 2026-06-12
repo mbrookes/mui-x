@@ -24,6 +24,7 @@ import { formatFieldValue } from '../../../internals/numberFormat';
 import { computeGridSummary } from '../../../utils/gridSummary';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
+import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 
 /** Maps our model's aggregation names to DataGridPremium built-in function names. */
 function toGridAggFn(fn: string): string {
@@ -302,11 +303,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   return (
     <div>
-      {isError && (
-        <Box sx={{ p: 1, color: 'error.main' }}>
-          <Typography variant="caption">{errorMessage || localeText.widgetLoadError}</Typography>
-        </Box>
-      )}
+      {isError && <StudioWidgetErrorOverlay message={errorMessage} sx={{ py: 1 }} />}
       <DataGridPremium
         density="compact"
         columns={columns}

@@ -750,6 +750,14 @@ export interface StudioLocaleText {
   chatVoiceInputStop: string;
   /** Tooltip/aria-label shown when SpeechRecognition is not available */
   chatVoiceInputNotSupported: string;
+  /** Tooltip shown on the copy-message button before copying */
+  chatMessageCopyTooltip: string;
+  /** Tooltip shown on the copy-message button after copying (for ~2 s) */
+  chatMessageCopiedTooltip: string;
+  /** aria-label on the copy-message icon button */
+  chatMessageCopyAriaLabel: string;
+  /** Tooltip / aria-label on the retry-message icon button */
+  chatMessageRetryTooltip: string;
 
   // ── Chart cross-source error messages ────────────────────────────────────
   chartUnsupportedFieldNotFound: string;
@@ -851,6 +859,16 @@ export interface StudioLocaleText {
   chartColorSchemeSuccess: string;
   chartColorSchemeWarning: string;
   chartColorSchemeError: string;
+
+  // ── Widget delete confirmation dialog ─────────────────────────────────────
+  /** Title of the confirmation dialog shown before deleting a widget */
+  widgetDeleteConfirmTitle: string;
+  /** Body message in the delete confirmation dialog */
+  widgetDeleteConfirmMessage: string;
+  /** Label for the confirm / destructive button */
+  widgetDeleteConfirmOk: string;
+  /** Label for the cancel button */
+  widgetDeleteConfirmCancel: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1564,6 +1582,10 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chatVoiceInputStart: 'Start voice input',
   chatVoiceInputStop: 'Stop voice input',
   chatVoiceInputNotSupported: 'Voice input is not supported in this browser',
+  chatMessageCopyTooltip: 'Copy',
+  chatMessageCopiedTooltip: 'Copied!',
+  chatMessageCopyAriaLabel: 'Copy message',
+  chatMessageRetryTooltip: 'Retry',
 
   // Chart cross-source error messages
   chartUnsupportedFieldNotFound:
@@ -1646,6 +1668,12 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartColorSchemeSuccess: 'Success (green)',
   chartColorSchemeWarning: 'Warning (orange)',
   chartColorSchemeError: 'Error (red)',
+
+  // Widget delete confirmation dialog
+  widgetDeleteConfirmTitle: 'Delete widget?',
+  widgetDeleteConfirmMessage: 'This widget will be permanently removed from the page.',
+  widgetDeleteConfirmOk: 'Delete',
+  widgetDeleteConfirmCancel: 'Cancel',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

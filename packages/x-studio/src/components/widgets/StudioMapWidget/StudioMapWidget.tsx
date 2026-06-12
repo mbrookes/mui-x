@@ -16,6 +16,7 @@ import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { normalizeToAlpha2, alpha2ToName, STATE_ABBR_TO_NAME } from './countryUtils';
 import type { StudioMapGeographyDefinition } from './geographyLoaders';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
+import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import { StudioMapTooltip, StudioMapTooltipContext } from './StudioMapTooltip';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -273,13 +274,7 @@ export function StudioMapWidget({
   );
 
   if (isError) {
-    return (
-      <Box sx={{ p: 2 }}>
-        <Typography variant="body2" color="error">
-          {localeText.widgetLoadError}
-        </Typography>
-      </Box>
-    );
+    return <StudioWidgetErrorOverlay />;
   }
 
   if (!isConfigured) {

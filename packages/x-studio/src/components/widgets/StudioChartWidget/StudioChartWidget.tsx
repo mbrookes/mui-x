@@ -1104,6 +1104,18 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           colors={chartColors}
           hideLegend={!hasColorBy}
           margin={{ top: 16, right: hasColorBy ? 8 : 16, bottom: 30, left: 40 }}
+          xAxis={[{
+            label: (
+              dataSource?.fields.find((f) => f.id === config.xField) ??
+              expressionFields.find((ef) => ef.id === config.xField)
+            )?.label ?? config.xField,
+          }]}
+          yAxis={[{
+            label: (
+              dataSource?.fields.find((f) => f.id === config.yField) ??
+              expressionFields.find((ef) => ef.id === config.yField)
+            )?.label ?? config.yField,
+          }]}
           slotProps={{
             legend: {
               sx: {

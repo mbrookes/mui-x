@@ -172,16 +172,17 @@ function buildAggregations(
     return undefined;
   }
 
-  // Single Y field
-  if (config.yField) {
+  // Single Y field — skip scatter (raw rows, no aggregation) and gantt (no yField anyway)
+  if (config.yField && config.chartType !== 'scatter') {
     const fn = (config.yAggregation as AggFn | undefined) ?? 'sum';
     aggs.push({ field: config.yField, fn, alias: config.yField });
   }
 
-  // Multiple Y series — StudioChartSeries has no aggregation field; default to 'sum'
+  // Multiple Y series — use per-series aggregation function
   if (config.ySeries) {
     config.ySeries.forEach((s) => {
-      aggs.push({ field: s.fieldId, fn: 'sum', alias: s.fieldId });
+      const fn = (s.yAggregation as AggFn | undefined) ?? 'sum';
+      aggs.push({ field: s.fieldId, fn, alias: s.fieldId });
     });
   }
 
@@ -208,6 +209,18 @@ function buildAggregations(
         aggs.push({ field, fn: fn as AggFn, alias: field });
       });
     }
+  }
+
+  // Map / choropleth — aggregate the value field per country for db-tier push-down
+  if (widget.kind === 'map' && config.mapValueField) {
+    const fn = (config.mapAggregation as AggFn | undefined) ?? 'sum';
+    aggs.push({ field: config.mapValueField, fn, alias: config.mapValueField });
+  }
+
+  // Pivot table — aggregate the value field per (row, col) for db-tier push-down
+  if (widget.kind === 'pivot' && config.pivotValueField) {
+    const fn = (config.pivotAggregation as AggFn | undefined) ?? 'sum';
+    aggs.push({ field: config.pivotValueField, fn, alias: config.pivotValueField });
   }
 
   return aggs.length > 0 ? aggs : undefined;

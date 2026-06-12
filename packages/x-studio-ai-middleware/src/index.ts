@@ -68,6 +68,15 @@ export type {
   FieldDescriptionResult,
 } from './generateFieldDescriptions';
 
+// SVG chart renderer — server-side chart generation for MCP and other server contexts
+export { renderChartSvg } from './chartRenderer';
+export type {
+  ChartRendererInput,
+  ChartDataPoint,
+  ChartSeries,
+  ChartType,
+} from './chartRenderer';
+
 // Widget factory — pure TS, no React; used by executeToolOnState and re-exported for widgetUtils
 export { createDefaultWidget } from './widgetFactory';
 

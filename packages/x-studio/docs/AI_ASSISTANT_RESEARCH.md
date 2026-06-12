@@ -776,6 +776,7 @@ Source: `packages/x-studio-ai-middleware/src/studioAITools.ts`
 | **Correlation analysis insight type**                                       | P2       | ✅ `generateCorrelationInsight` + Pearson r client-side | Highcharts Orbit                                      |
 | **AI-assisted field description generation**                                | P2       | ✅ `generateFieldDescriptions` (batch LLM call)         | Luzmo Metadata Agent, ThoughtSpot SpotterModel        |
 | **Token cost governance**                                                   | P3       | ✅ `StudioAIRateLimit` in `StudioAIHandlerOptions` — `maxTokensPerRequest`, `maxTurnsPerRequest`, `onLimitReached`; `usage` SSE event | Reveal BI (per-tenant/per-user limits)                |
+| **`render_chart` MCP tool** (chart → SVG)                                   | P3       | ✅ `render_chart` in `buildStudioMcpServer` — pure-TS SVG renderer, no DOM/deps; bar/line/pie; returns `image/svg+xml`               | —                                                     |
 
 ### 🟡 Moderate: Remaining Code Quality Issues
 

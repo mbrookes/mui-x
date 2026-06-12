@@ -13,6 +13,40 @@ import type {
   StudioConditionalFormat,
 } from './baseTypes';
 
+// ── Forecast ──────────────────────────────────────────────────────────────────
+
+/**
+ * Forecast/trend overlay configuration for chart widgets.
+ *
+ * When `enabled` is `true`, the chart extends the x-axis by `periods` steps and
+ * overlays a dashed trend line computed from the historical series data.
+ * Optionally, a semi-transparent confidence band (±1 standard error of regression)
+ * is drawn around the trend line.
+ *
+ * Only applied to `chartType: 'line' | 'area'` widgets with a single y-field.
+ */
+export interface StudioWidgetForecast {
+  /** Whether the forecast overlay is active. @default false */
+  enabled: boolean;
+  /**
+   * Number of future periods to project beyond the last data point.
+   * @default 3
+   */
+  periods?: number;
+  /**
+   * Regression method.
+   * - `'linear'` — ordinary least squares linear regression (default, only supported value)
+   * @default 'linear'
+   */
+  method?: 'linear';
+  /**
+   * When `true`, renders a shaded band around the trend line representing
+   * ±1 standard error of the regression residuals.
+   * @default false
+   */
+  showConfidenceBands?: boolean;
+}
+
 export interface StudioWidgetConfig {
   // Grid config
   /** Ordered list of visible columns. Use `normalizeGridColumn()` when reading persisted state. */
@@ -242,6 +276,13 @@ export interface StudioWidgetConfig {
    * Not supported for pie / donut / gauge chart types.
    */
   annotations?: StudioChartAnnotation[];
+  /**
+   * Forecast/trend configuration for line and area charts.
+   * When enabled, a linear extrapolation is rendered beyond the last data point
+   * as a dashed line, optionally with a shaded confidence band.
+   * Only supported for `chartType: 'line' | 'area'` with a single y-field.
+   */
+  forecast?: StudioWidgetForecast;
   // Map / choropleth widget config
   /**
    * Field providing the country identifier (ISO alpha-2, alpha-3, or full English name).

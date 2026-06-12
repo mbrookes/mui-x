@@ -62,6 +62,7 @@ import {
   normalizeCrossFilterValue,
 } from './chartWidgetHelpers';
 import { detectWidgetAnomalies } from '../../../internals/anomalyDetection';
+import { computeWidgetForecast } from '../../../internals/forecastUtils';
 
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
@@ -2068,7 +2069,19 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       : null;
 
   if (chartType === 'line') {
-    const xAxis = createLineXAxis(effectiveSingleSeriesData!.labels, CROSS_FILTER_AXIS_ID);
+    const forecastData =
+      config.forecast?.enabled && !ghostLineValues && singleSeriesChartData
+        ? computeWidgetForecast(
+            singleSeriesChartData.labels,
+            singleSeriesChartData.values,
+            config.forecast,
+          )
+        : null;
+
+    const effectiveLabels = forecastData
+      ? forecastData.labels
+      : effectiveSingleSeriesData!.labels;
+    const xAxis = createLineXAxis(effectiveLabels, CROSS_FILTER_AXIS_ID);
     const lineColor = resolvedChartColors[0];
     return (
       <div style={{ height: chartHeight }}>
@@ -2097,13 +2110,59 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               : []),
             {
               id: CROSS_FILTER_SERIES_ID,
-              data: singleSeriesChartData!.values,
+              data: forecastData ? forecastData.historicalSeries : singleSeriesChartData!.values,
               label: seriesLabel,
               area: false,
               connectNulls: true,
               highlightScope: { highlight: 'item', fade: 'global' },
               valueFormatter: seriesValueFormatter,
             },
+            // Forecast trend line (dashed, no marks, excluded from legend)
+            ...(forecastData
+              ? [
+                  {
+                    id: '__forecast__',
+                    data: forecastData.forecastSeries,
+                    label: 'Forecast',
+                    area: false,
+                    connectNulls: false,
+                    showMark: false,
+                    disableHighlight: true as const,
+                    color: lineColor,
+                    valueFormatter: seriesValueFormatter,
+                  } as const,
+                  ...(forecastData.upperBand
+                    ? [
+                        {
+                          id: '__forecast_upper__',
+                          data: forecastData.upperBand,
+                          label: '',
+                          area: true,
+                          connectNulls: false,
+                          showMark: false,
+                          disableHighlight: true as const,
+                          color: `${lineColor}30`,
+                          stack: 'confidence',
+                          stackOrder: 'ascending' as const,
+                          valueFormatter: () => '',
+                        } as const,
+                        {
+                          id: '__forecast_lower__',
+                          data: forecastData.lowerBand as (number | null)[],
+                          label: '',
+                          area: true,
+                          connectNulls: false,
+                          showMark: false,
+                          disableHighlight: true as const,
+                          color: 'transparent',
+                          stack: 'confidence',
+                          stackOrder: 'ascending' as const,
+                          valueFormatter: () => '',
+                        } as const,
+                      ]
+                    : []),
+                ]
+              : []),
           ]}
           colors={
             ghostLineValues
@@ -2143,8 +2202,23 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }
 
   if (chartType === 'area' || chartType === 'area-stacked' || chartType === 'area-100') {
+    const forecastData =
+      chartType === 'area' &&
+      config.forecast?.enabled &&
+      !ghostLineValues &&
+      singleSeriesChartData
+        ? computeWidgetForecast(
+            singleSeriesChartData.labels,
+            singleSeriesChartData.values,
+            config.forecast,
+          )
+        : null;
+
+    const effectiveAreaLabels = forecastData
+      ? forecastData.labels
+      : effectiveSingleSeriesData!.labels;
     // Single-series: stacking has no visual effect; area-100 shows a flat 100% fill
-    const xAxis = createLineXAxis(effectiveSingleSeriesData!.labels, CROSS_FILTER_AXIS_ID);
+    const xAxis = createLineXAxis(effectiveAreaLabels, CROSS_FILTER_AXIS_ID);
     const lineColor = resolvedChartColors[0];
     return (
       <div style={{ height: chartHeight }}>
@@ -2171,13 +2245,28 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               : []),
             {
               id: CROSS_FILTER_SERIES_ID,
-              data: singleSeriesChartData!.values,
+              data: forecastData ? forecastData.historicalSeries : singleSeriesChartData!.values,
               label: seriesLabel,
               area: true,
               connectNulls: true,
               highlightScope: { highlight: 'item', fade: 'global' },
               valueFormatter: seriesValueFormatter,
             },
+            ...(forecastData
+              ? [
+                  {
+                    id: '__forecast__',
+                    data: forecastData.forecastSeries,
+                    label: 'Forecast',
+                    area: true,
+                    connectNulls: false,
+                    showMark: false,
+                    disableHighlight: true as const,
+                    color: lineColor,
+                    valueFormatter: seriesValueFormatter,
+                  } as const,
+                ]
+              : []),
           ]}
           colors={ghostLineValues ? [`${lineColor}30`, lineColor] : chartColors}
           hideLegend

@@ -99,7 +99,8 @@ export type StudioAIToolName =
   | 'summarise_page'
   | 'apply_bulk_update'
   | 'rename_thread'
-  | 'execute_query';
+  | 'execute_query'
+  | 'set_widget_forecast';
 
 // ── Conversation state ────────────────────────────────────────────────────────
 

@@ -634,13 +634,18 @@ export function resolveChartRowsForAggregation(
       const widgetJoinField = anchorRelationship.targetField;
       const anchorJoinField = anchorRelationship.sourceField;
       const allowedWidgetKeys = new Set(widgetRows.map((row) => row[widgetJoinField]));
+      // Pass only the fields owned by anchorSourceId so getCachedEnrichedRows
+      // builds a tighter field-set key and skips unrelated widget-source fields.
+      const anchorFieldIds = new Set(
+        requestedFields.filter((f) => fieldOwners.get(f) === anchorSourceId),
+      );
       const enrichedAnchorRows = enrichSourceRowsWithExpressions(
         dataSources[anchorSourceId]?.rows ?? [],
         anchorSourceId,
         dataSources,
         relationships,
         expressionFields,
-        new Set(requestedFields),
+        anchorFieldIds.size > 0 ? anchorFieldIds : new Set(requestedFields),
       ).filter((row) => allowedWidgetKeys.has(row[anchorJoinField]));
 
       const widgetRowsForLookup = enrichRowsWithRelatedFields(

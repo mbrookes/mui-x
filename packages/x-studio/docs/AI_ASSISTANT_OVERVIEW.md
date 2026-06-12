@@ -762,7 +762,7 @@ flowchart TD
 | `packages/x-studio/src/context/StudioContext.tsx`                           | 125   | `StudioProvider`, `useStudioController`, `useStudioSelector`                                                |
 | `packages/x-studio-ai-middleware/src/handleAIChat.ts`                       | ~120  | Pure-function backend entry point                                                                           |
 | `packages/x-studio-ai-middleware/src/agenticLoop.ts`                        | ~290  | Server-side agentic loop generator                                                                          |
-| `packages/x-studio-ai-middleware/src/executeToolOnState.ts`                 | ~380  | All 17 tools executing against `StudioState`                                                                |
+| `packages/x-studio-ai-middleware/src/executeToolOnState.ts`                 | ~420  | All 20 tools executing against `StudioState`                                                                |
 | `packages/x-studio-ai-middleware/src/parseSSE.ts`                           | ~45   | Reusable SSE parser                                                                                         |
 | `packages/x-studio-ai-middleware/src/models/protocol.ts`                    | ~65   | `StudioAIRequest`, `StudioAISSEEvent` types                                                                 |
 | `examples/x-studio/src/App.tsx`                                             | ~80   | Monolithic entry: `<Studio>` with all flags enabled                                                         |

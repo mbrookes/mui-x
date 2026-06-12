@@ -43,7 +43,7 @@ const BASE_FEATURES: ResolvedStudioFeatures = {
   calculatedFields: true,
 };
 
-vi.mock('../context', async (importOriginal) => {
+vi.mock('../../context', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../context')>();
   return {
     ...actual,
@@ -55,7 +55,7 @@ vi.mock('../context', async (importOriginal) => {
   };
 });
 
-vi.mock('../internals/StudioUIConfigContext', async (importOriginal) => {
+vi.mock('../../internals/StudioUIConfigContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../internals/StudioUIConfigContext')>();
   return {
     ...actual,

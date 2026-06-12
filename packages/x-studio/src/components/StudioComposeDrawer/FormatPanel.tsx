@@ -11,7 +11,13 @@ import {
   TextField,
   Tooltip,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, useStudioLocaleText } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectDataSources,
+  useStudioLocaleText,
+} from '../../context';
 import { inferWidgetTitles } from '../../internals/widgetUtils';
 
 export function FormatPanel(props: { widgetId: string }) {
@@ -100,14 +106,14 @@ export function FormatPanel(props: { widgetId: string }) {
               }
             />
           }
-          label="Compact numbers"
+          label={localeText.formatPanelCompactNumbers}
         />
       )}
       <TextField
-        label="Widget title"
+        label={localeText.formatPanelWidgetTitleLabel}
         size="small"
         fullWidth
-        helperText="Shown in the widget header"
+        helperText={localeText.formatPanelWidgetTitleHelperText}
         value={title}
         onChange={(event) => {
           setFormState((prev) => ({ ...prev, title: event.target.value, titleDirty: true }));
@@ -147,10 +153,10 @@ export function FormatPanel(props: { widgetId: string }) {
         }}
       />
       <TextField
-        label="Subtitle"
+        label={localeText.formatPanelSubtitleLabel}
         size="small"
         fullWidth
-        helperText="Optional line shown beneath the title"
+        helperText={localeText.formatPanelSubtitleHelperText}
         value={subtitle}
         placeholder={isAutoSubtitle ? '' : 'No subtitle'}
         onChange={(event) => {

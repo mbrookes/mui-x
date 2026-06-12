@@ -229,7 +229,11 @@ function InputNode({
           <MenuItem value="function">{localeText.exprNodeTypeFunction}</MenuItem>
         </Select>
         {inputKind === 'function' && (
-          <Tooltip title={functionCollapsed ? localeText.exprExpandTooltip : localeText.exprCollapseTooltip}>
+          <Tooltip
+            title={
+              functionCollapsed ? localeText.exprExpandTooltip : localeText.exprCollapseTooltip
+            }
+          >
             <IconButton
               size="small"
               onClick={() => setFunctionCollapsed((c) => !c)}
@@ -418,9 +422,9 @@ function ExpressionBuilder({
   return (
     <div>
       <FormControl fullWidth size="small" sx={{ mb: 1.5 }}>
-        <InputLabel>Operator</InputLabel>
+        <InputLabel>{localeText.filterOperatorLabel}</InputLabel>
         <Select
-          label="Operator"
+          label={localeText.filterOperatorLabel}
           value={operator}
           onChange={(event) => handleOperatorChange(event.target.value as StudioExpressionOperator)}
         >
@@ -705,27 +709,27 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
         <Stack spacing={2}>
           {/* Name */}
           <TextField
-            label="Name"
+            label={localeText.expressionNameLabel}
             size="small"
             fullWidth
             required
-            helperText="Used as the field label in pickers and grid columns"
+            helperText={localeText.expressionNameHelperText}
             value={label}
             onChange={(event) => setForm((prev) => ({ ...prev, label: event.target.value }))}
-            placeholder="e.g. Profit, Revenue per Unit"
+            placeholder={localeText.expressionNamePlaceholder}
           />
 
           {/* Description */}
           <TextField
-            label="Description"
+            label={localeText.expressionDescriptionLabel}
             size="small"
             fullWidth
             multiline
             rows={2}
-            helperText="Optional. Shown as a tooltip in field pickers"
+            helperText={localeText.expressionDescriptionHelperText}
             value={description}
             onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-            placeholder="Optional: describe what this field computes"
+            placeholder={localeText.expressionDescriptionPlaceholder}
           />
 
           {/* Measure toggle */}
@@ -765,7 +769,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
 
           {inferredType === 'number' && (
             <TextField
-              label="Precision"
+              label={localeText.expressionPrecisionLabel}
               size="small"
               type="number"
               fullWidth
@@ -776,7 +780,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
                   precision: event.target.value,
                 }))
               }
-              helperText="Decimal places (0–10) used when formatting this calculated field"
+              helperText={localeText.expressionPrecisionHelperText}
               slotProps={{ htmlInput: { min: 0, max: 10, step: 1 } }}
             />
           )}

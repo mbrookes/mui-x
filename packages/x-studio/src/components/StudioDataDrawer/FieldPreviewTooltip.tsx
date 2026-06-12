@@ -1,10 +1,6 @@
 'use client';
 import * as React from 'react';
-import {
-  Stack,
-  Tooltip,
-  Typography,
-} from '@mui/material';
+import { Stack, Tooltip, Typography } from '@mui/material';
 import { formatFieldValue } from '../../internals/numberFormat';
 
 const PREVIEW_ROWS = 5;

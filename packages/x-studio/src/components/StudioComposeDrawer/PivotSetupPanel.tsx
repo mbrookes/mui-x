@@ -11,7 +11,14 @@ import {
   Switch,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectExpressionFields, useStudioLocaleText } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectDataSources,
+  selectExpressionFields,
+  useStudioLocaleText,
+} from '../../context';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 
@@ -171,9 +178,9 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
       <Divider />
 
       <FormControl size="small" fullWidth>
-        <InputLabel>Aggregation</InputLabel>
+        <InputLabel>{localeText.pivotSetupAggregationLabel}</InputLabel>
         <Select
-          label="Aggregation"
+          label={localeText.pivotSetupAggregationLabel}
           value={aggFn}
           onChange={(evt) =>
             controller.updateWidgetConfig(widgetId, {
@@ -183,7 +190,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
         >
           <MenuItem value="sum">{localeText.aggFnSum}</MenuItem>
           <MenuItem value="avg">{localeText.aggFnAverage}</MenuItem>
-          <MenuItem value="count">Count (rows)</MenuItem>
+          <MenuItem value="count">{localeText.aggFnCountRows}</MenuItem>
           <MenuItem value="min">{localeText.aggFnMin}</MenuItem>
           <MenuItem value="max">{localeText.aggFnMax}</MenuItem>
         </Select>

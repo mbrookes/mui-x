@@ -1,11 +1,5 @@
 'use client';
-import {
-  IconButton,
-  ListItemButton,
-  Stack,
-  Tooltip,
-  Typography,
-} from '@mui/material';
+import { IconButton, ListItemButton, Stack, Tooltip, Typography } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import { useStudioLocaleText } from '../../context';

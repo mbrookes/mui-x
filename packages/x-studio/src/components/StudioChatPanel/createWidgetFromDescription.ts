@@ -24,9 +24,29 @@ export async function createWidgetFromDescription(
     .map((s) => ({
       id: s.id,
       label: s.label,
+      aiDescription: s.aiDescription,
       fields: s.fields
         .filter((f) => !f.hidden)
-        .map((f) => ({ id: f.id, type: f.type, label: f.label })),
+        .map((f) => {
+          const vals = s.fieldDistinctValues?.[f.id];
+          let cardinality: string | undefined;
+          if (vals) {
+            if (vals.length <= 8) {
+              cardinality = `${vals.length}: ${vals.join('|')}`;
+            } else if (vals.length <= 30) {
+              cardinality = `${vals.length} values`;
+            }
+          }
+          return {
+            id: f.id,
+            type: f.type,
+            label: f.label,
+            ...(f.format ? { format: f.format } : {}),
+            ...(f.aiDescription ? { aiDescription: f.aiDescription } : {}),
+            ...(f.defaultAggregationFn ? { defaultAggregationFn: f.defaultAggregationFn } : {}),
+            ...(cardinality ? { cardinality } : {}),
+          };
+        }),
     }));
 
   const url = `${config.endpoint.replace(/\/?$/, '')}/widget`;

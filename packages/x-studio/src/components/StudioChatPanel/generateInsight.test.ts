@@ -403,7 +403,9 @@ describe('generateAnomalyExplanation', () => {
     // 150 rows: row-0..row-149. Stride-100 would include row-0, row-2, ..., row-148.
     // Anomaly is 'row-141' — an odd index, excluded by stride but must appear via anomaly path.
     const controller = makeControllerWithLargeData('w1');
-    const lateAnomaly: StudioChartAnnotation[] = [{ id: 'a1', axis: 'x', value: 'row-141', label: '⚠' }];
+    const lateAnomaly: StudioChartAnnotation[] = [
+      { id: 'a1', axis: 'x', value: 'row-141', label: '⚠' },
+    ];
     await generateAnomalyExplanation('w1', lateAnomaly, controller, AI_CONFIG);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
       dataSummary: string;

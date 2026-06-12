@@ -1,15 +1,9 @@
 'use client';
 import * as React from 'react';
-import {
-  Box,
-  Stack,
-  Tooltip,
-  Typography,
-} from '@mui/material';
+import { Box, Stack, Tooltip, Typography } from '@mui/material';
 import { formatFieldValue } from '../../internals/numberFormat';
 
 import type { StudioDataSource } from '../../models';
-
 
 // ─── Data source preview tooltip ─────────────────────────────────────────────
 
@@ -40,7 +34,7 @@ export default function DataSourcePreviewTooltip({
     setTooltipOpen(false);
     onOpenPreview?.(source.id);
   }, [onOpenPreview, source.id]);
-  
+
   const title = (
     <Stack spacing={0.5}>
       <Typography variant="caption" sx={{ fontWeight: 700, opacity: 0.8 }}>

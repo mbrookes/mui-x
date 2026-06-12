@@ -10,6 +10,7 @@ import {
   Typography,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 export function SelectionFilterInput({
   values,
@@ -20,6 +21,7 @@ export function SelectionFilterInput({
   selected: string[];
   onChange: (v: string[]) => void;
 }) {
+  const localeText = useStudioLocaleText();
   const [search, setSearch] = React.useState('');
   const filtered = values.filter((v) => v.toLowerCase().includes(search.toLowerCase()));
 
@@ -55,7 +57,7 @@ export function SelectionFilterInput({
     <Stack spacing={0.5}>
       <TextField
         size="small"
-        placeholder="Search values…"
+        placeholder={localeText.filterSearchValues}
         value={search}
         onChange={(event) => setSearch(event.target.value)}
         slotProps={{

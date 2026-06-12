@@ -16,7 +16,14 @@ import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import type { SxProps, Theme } from '@mui/material/styles';
-import { useStudioSelector, selectDataSources, selectExpressionFields, selectRelationships, selectMode, useStudioLocaleText } from '../../context';
+import {
+  useStudioSelector,
+  selectDataSources,
+  selectExpressionFields,
+  selectRelationships,
+  selectMode,
+  useStudioLocaleText,
+} from '../../context';
 import { DataSourceSection } from './DataSourceSection';
 import { RelationshipPanel } from './RelationshipPanel';
 import { DataLineageGraph } from './DataLineageGraph';
@@ -202,7 +209,16 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
               <CloseIcon fontSize="small" />
             </IconButton>
           </DialogTitle>
-          <DialogContent dividers sx={{ display: 'flex', alignItems: 'stretch', justifyContent: 'stretch', overflow: 'auto', p: 0 }}>
+          <DialogContent
+            dividers
+            sx={{
+              display: 'flex',
+              alignItems: 'stretch',
+              justifyContent: 'stretch',
+              overflow: 'auto',
+              p: 0,
+            }}
+          >
             <DataSourcePreview
               source={previewSource}
               expressionFields={expressionFields}

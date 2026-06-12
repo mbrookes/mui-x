@@ -186,7 +186,13 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           </React.Fragment>
         )}
         {isChart && onAnomalyToggle && (
-          <Tooltip title={anomalyEnabled ? localeText.widgetHideAnomalyTooltip : localeText.widgetDetectAnomalyTooltip}>
+          <Tooltip
+            title={
+              anomalyEnabled
+                ? localeText.widgetHideAnomalyTooltip
+                : localeText.widgetDetectAnomalyTooltip
+            }
+          >
             <IconButton
               size="small"
               sx={{
@@ -197,7 +203,11 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 event.stopPropagation();
                 onAnomalyToggle();
               }}
-              aria-label={anomalyEnabled ? localeText.widgetHideAnomalyTooltip : localeText.widgetDetectAnomalyTooltip}
+              aria-label={
+                anomalyEnabled
+                  ? localeText.widgetHideAnomalyTooltip
+                  : localeText.widgetDetectAnomalyTooltip
+              }
               tabIndex={showEditActions ? 0 : -1}
             >
               <Badge
@@ -407,7 +417,13 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           </React.Fragment>
         )}
         {isChart && onAnomalyToggle && (
-          <Tooltip title={anomalyEnabled ? localeText.widgetHideAnomalyTooltip : localeText.widgetDetectAnomalyTooltip}>
+          <Tooltip
+            title={
+              anomalyEnabled
+                ? localeText.widgetHideAnomalyTooltip
+                : localeText.widgetDetectAnomalyTooltip
+            }
+          >
             <IconButton
               size="small"
               sx={{
@@ -418,7 +434,11 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 event.stopPropagation();
                 onAnomalyToggle();
               }}
-              aria-label={anomalyEnabled ? localeText.widgetHideAnomalyTooltip : localeText.widgetDetectAnomalyTooltip}
+              aria-label={
+                anomalyEnabled
+                  ? localeText.widgetHideAnomalyTooltip
+                  : localeText.widgetDetectAnomalyTooltip
+              }
             >
               <Badge
                 badgeContent={anomalyEnabled && anomalyCount ? anomalyCount : 0}

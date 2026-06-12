@@ -1,12 +1,13 @@
 'use client';
 import * as React from 'react';
-import {
-  Box,
-  IconButton,
-  Stack,
-} from '@mui/material';
+import { Box, IconButton, Stack } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioController, useStudioSelector, selectFilters, useStudioLocaleText } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectFilters,
+  useStudioLocaleText,
+} from '../../context';
 import type { StudioFilterState } from '../../models';
 import type { FieldOption, FilterMode, SimpleField } from './filterDrawerTypes';
 import {
@@ -21,7 +22,10 @@ import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
 import { FilterCard } from './FilterCard';
 import { FilterBody } from './FilterBody';
-import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../StudioComposeDrawer/DataSourceFieldSelect';
+import {
+  DataSourceFieldSelect,
+  type DataSourceFieldEntry,
+} from '../StudioComposeDrawer/DataSourceFieldSelect';
 
 export interface PageFilterRowProps {
   filter: StudioFilterState;
@@ -119,7 +123,9 @@ export function PageFilterRow(props: PageFilterRowProps) {
               fields={fieldEntries}
               label={localeText.filterSelectField ?? 'Select a field…'}
               onChange={(fieldId, sourceId) => {
-                const opt = pickableOptions.find((o) => o.id === fieldId && o.sourceId === sourceId);
+                const opt = pickableOptions.find(
+                  (o) => o.id === fieldId && o.sourceId === sourceId,
+                );
                 if (opt) {
                   handleFilterChange({
                     field: opt.id,
@@ -132,7 +138,11 @@ export function PageFilterRow(props: PageFilterRowProps) {
               }}
             />
           </Box>
-          <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label={localeText.filterRemoveAriaLabel}>
+          <IconButton
+            size="small"
+            onClick={() => onRemove(filter.id)}
+            aria-label={localeText.filterRemoveAriaLabel}
+          >
             <CloseIcon fontSize="small" />
           </IconButton>
         </Box>

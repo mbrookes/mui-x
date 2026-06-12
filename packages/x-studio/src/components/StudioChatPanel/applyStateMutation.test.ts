@@ -23,7 +23,9 @@ function makeController(overrides: Partial<StudioController> = {}): StudioContro
         config: { chartType: 'bar' },
       },
     },
-    filters: [{ id: 'f1', field: 'revenue', operator: 'greater_than', value: 100, scope: 'page', pageId }],
+    filters: [
+      { id: 'f1', field: 'revenue', operator: 'greater_than', value: 100, scope: 'page', pageId },
+    ],
   });
 
   return {
@@ -67,7 +69,10 @@ describe('applyStateMutation: setDashboardTitle', () => {
 describe('applyStateMutation: addPage', () => {
   it('uses controller.setState() directly to preserve the server-generated ID', () => {
     const controller = makeController();
-    const mutation: StateMutation = { type: 'addPage', args: { id: 'server-page-42', title: 'Analytics' } };
+    const mutation: StateMutation = {
+      type: 'addPage',
+      args: { id: 'server-page-42', title: 'Analytics' },
+    };
     applyStateMutation(mutation, controller);
 
     // Must use setState, NOT addPage() (which generates a new ID)
@@ -86,7 +91,10 @@ describe('applyStateMutation: addPage', () => {
 
   it('makes the new page active', () => {
     const controller = makeController();
-    const mutation: StateMutation = { type: 'addPage', args: { id: 'server-page-99', title: 'Reports' } };
+    const mutation: StateMutation = {
+      type: 'addPage',
+      args: { id: 'server-page-99', title: 'Reports' },
+    };
     applyStateMutation(mutation, controller);
     const setStateArg = (controller.setState as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       dashboard: { activePageId: string };
@@ -100,7 +108,12 @@ describe('applyStateMutation: addPage', () => {
 describe('applyStateMutation: addWidget', () => {
   it('calls controller.addWidget with the widget', () => {
     const controller = makeController();
-    const widget = { id: 'w-99', kind: 'chart' as const, title: 'Test', config: { chartType: 'bar' as const } };
+    const widget = {
+      id: 'w-99',
+      kind: 'chart' as const,
+      title: 'Test',
+      config: { chartType: 'bar' as const },
+    };
     const mutation: StateMutation = { type: 'addWidget', args: { widget } };
     applyStateMutation(mutation, controller);
     expect(controller.addWidget).toHaveBeenCalledWith(widget);
@@ -183,7 +196,10 @@ describe('applyStateMutation: setWidgetColSpan', () => {
 describe('applyStateMutation: renamePage', () => {
   it('calls controller.renamePage', () => {
     const controller = makeController();
-    const mutation: StateMutation = { type: 'renamePage', args: { pageId: 'page-1', title: 'Overview' } };
+    const mutation: StateMutation = {
+      type: 'renamePage',
+      args: { pageId: 'page-1', title: 'Overview' },
+    };
     applyStateMutation(mutation, controller);
     expect(controller.renamePage).toHaveBeenCalledWith('page-1', 'Overview');
   });

@@ -91,6 +91,18 @@ export interface StudioLocaleText {
   aiAssistantOpenTooltip: string;
   aiAssistantCloseTooltip: string;
 
+  // ── Drawer panel / sidebar ────────────────────────────────────────────────
+  drawerPanelCloseAriaLabel: string;
+  sidebarPanelsAriaLabel: string;
+
+  // ── NumberField ───────────────────────────────────────────────────────────
+  numberFieldIncreaseAriaLabel: string;
+  numberFieldDecreaseAriaLabel: string;
+
+  // ── Widget card (expanded state) ──────────────────────────────────────────
+  widgetCardCloseExpandedAriaLabel: string;
+  widgetCardExportPngAriaLabel: string;
+
   // ── Natural language widget creation ──────────────────────────────────────
   aiCreateWidgetLabel: string;
   aiCreateWidgetPlaceholder: string;
@@ -141,6 +153,20 @@ export interface StudioLocaleText {
   formatResetTitle: string;
   formatAutoSubtitle: string;
   formatResetSubtitle: string;
+  formatPanelCompactNumbers: string;
+  formatPanelWidgetTitleLabel: string;
+  formatPanelWidgetTitleHelperText: string;
+  formatPanelSubtitleLabel: string;
+  formatPanelSubtitleHelperText: string;
+
+  // ── Text format panel ─────────────────────────────────────────────────────
+  textFormatFontFamilyLabel: string;
+  textFormatFontSizeLabel: string;
+  textFormatColorLabel: string;
+  textFormatColorPlaceholder: string;
+  textFormatAlignLeftAriaLabel: string;
+  textFormatAlignCenterAriaLabel: string;
+  textFormatAlignRightAriaLabel: string;
 
   // ── Data drawer ────────────────────────────────────────────────────────────
   dataDrawerNoSources: string;
@@ -164,6 +190,12 @@ export interface StudioLocaleText {
   relationshipTypeManyToOne: string;
   relationshipTypeOneToOne: string;
   relationshipTypeManyToMany: string;
+  relationshipTypeLabel: string;
+  relationshipJoinFieldLabel: string;
+  relationshipJunctionTableLabel: string;
+  relationshipJunctionSourceLabel: string;
+  relationshipJunctionSourceFkLabel: string;
+  relationshipJunctionTargetFkLabel: string;
 
   // ── Filter conditions & values ─────────────────────────────────────────────
   filterConditionAnd: string;
@@ -180,15 +212,18 @@ export interface StudioLocaleText {
   filterInteractiveSectionTitle: string;
   filterCrossSectionTitle: string;
   filterClearFilter: string;
+  filterClearInteractiveAriaLabel: string;
   filterClearAllCrossFilters: string;
   filterRemoveCrossFilter: string;
   filterSearchValues: string;
   filterSelectField: string;
   filterValueLabel: string;
   filterValueHelper: string;
+  filterValueAmountLabel: string;
   filterSelectParent: string;
   filterSourceLabel: string;
   filterMetricRowLabel: string;
+  filterMetricHelperText: string;
   filterFieldLabel: string;
   filterRankByLabel: string;
 
@@ -207,6 +242,14 @@ export interface StudioLocaleText {
   exprCancel: string;
   exprSave: string;
   exprAddField: string;
+  expressionNameLabel: string;
+  expressionNameHelperText: string;
+  expressionNamePlaceholder: string;
+  expressionDescriptionLabel: string;
+  expressionDescriptionHelperText: string;
+  expressionDescriptionPlaceholder: string;
+  expressionPrecisionLabel: string;
+  expressionPrecisionHelperText: string;
 
   // ── Shared aggregation function labels ─────────────────────────────────────
   aggFnSum: string;
@@ -230,6 +273,7 @@ export interface StudioLocaleText {
 
   // ── Chart setup panel ─────────────────────────────────────────────────────
   chartSetupValueFieldLabel: string;
+  chartSetupValueFieldHelperText: string;
   chartSetupAggregationLabel: string;
   chartSetupMinLabel: string;
   chartSetupMaxLabel: string;
@@ -239,6 +283,7 @@ export interface StudioLocaleText {
   chartSetupSortValue: string;
   chartSetupSortNone: string;
   chartSetupSortPercent: string;
+  chartSetupSortDirectionAriaLabel: string;
   chartSetupAnnotationsTitle: string;
   chartSetupInteractionsTitle: string;
   chartSetupInteractionsDescription: string;
@@ -249,6 +294,33 @@ export interface StudioLocaleText {
   chartSetupRemoveAnnotation: string;
   chartSetupNoReferenceLines: string;
   chartSetupDualYAxis: string;
+  chartSetupReferenceLineValueLabel: string;
+  chartSetupReferenceLineLabelLabel: string;
+  chartSetupYFieldLabel: string;
+  chartSetupYFieldHelperText: string;
+  chartSetupColorByLabel: string;
+  chartSetupColorByHelperText: string;
+  chartSetupSizeByLabel: string;
+  chartSetupSizeByHelperText: string;
+  chartSetupMinRadiusLabel: string;
+  chartSetupMaxRadiusLabel: string;
+  chartSetupFunnelValueHelperText: string;
+  chartSetupHeatmapRowAxisLabel: string;
+  chartSetupHeatmapRowAxisHelperText: string;
+  chartSetupHeatmapValueLabel: string;
+  chartSetupHeatmapValueHelperText: string;
+  chartSetupHeatmapColourSchemeLabel: string;
+  chartSetupArcLabelLabel: string;
+  chartSetupMinAngleLabel: string;
+  chartSetupMinAngleHelperText: string;
+  chartSetupGanttLabelFieldLabel: string;
+  chartSetupGanttLabelFieldHelperText: string;
+  chartSetupGanttStartDateLabel: string;
+  chartSetupGanttStartDateHelperText: string;
+  chartSetupGanttEndDateLabel: string;
+  chartSetupGanttEndDateHelperText: string;
+  chartSetupGanttColourByLabel: string;
+  chartSetupGanttColourByHelperText: string;
 
   // ── KPI setup panel ────────────────────────────────────────────────────────
   kpiSetupChartLine: string;
@@ -259,18 +331,31 @@ export interface StudioLocaleText {
   kpiSetupCompSameLastYear: string;
   kpiSetupInteractionsTitle: string;
   kpiSetupInteractionsDescription: string;
+  kpiSetupTimeFieldLabel: string;
+  kpiSetupGranularityLabel: string;
+  kpiSetupPlotTypeLabel: string;
+  kpiSetupMinLabel: string;
+  kpiSetupMaxLabel: string;
+  kpiSetupValueFieldLabel: string;
+  kpiSetupValueFieldHelperText: string;
+  kpiSetupSparklineLabel: string;
+  kpiSetupTargetLabel: string;
+  kpiSetupTrendLabel: string;
+  kpiSetupCompPeriodLabel: string;
 
   // ── KPI widget ─────────────────────────────────────────────────────────────
   kpiGrandTotalTooltip: string;
 
   // ── Grid setup panel ──────────────────────────────────────────────────────
   gridSetupDataSourceLabel: string;
+  gridSetupDataSourcePlaceholder: string;
   gridSetupAllColumnsAdded: string;
   gridSetupCrossFilterFieldLabel: string;
   gridSetupCrossFilterFieldHelper: string;
   gridSetupGroupByLabel: string;
   gridSetupGroupByHelper: string;
   gridSetupDefaultSortLabel: string;
+  gridSetupHeightLabel: string;
   gridSetupConditionalFormattingTitle: string;
   gridSetupConditionalCustom: string;
   gridSetupRemoveRuleAriaLabel: string;
@@ -278,6 +363,13 @@ export interface StudioLocaleText {
   gridSetupInteractionsDescription: string;
 
   // ── Map setup panel ────────────────────────────────────────────────────────
+  mapSetupMapTypeLabel: string;
+  mapSetupValueFieldLabel: string;
+  mapSetupColourSchemeLabel: string;
+  mapSetupLegendPositionLabel: string;
+  mapSetupScaleFromZeroLabel: string;
+  mapSetupClickableLabel: string;
+  mapSetupCrossFilterLabel: string;
   mapSetupColorBlues: string;
   mapSetupColorReds: string;
   mapSetupColorGreens: string;
@@ -298,6 +390,15 @@ export interface StudioLocaleText {
   pivotSetupValueFieldLabel: string;
   pivotSetupValueFieldHelper: string;
   pivotSetupShowTotals: string;
+  pivotSetupAggregationLabel: string;
+
+  // ── Inline formula bar ────────────────────────────────────────────────────
+  inlineFormulaBarAddTooltip: string;
+  inlineFormulaBarCloseAriaLabel: string;
+  inlineFormulaBarLabelLabel: string;
+
+  // ── Filters drawer ─────────────────────────────────────────────────────────────
+  filtersDrawerRenameViewTooltip: string;
 
   // ── Filter setup panel ────────────────────────────────────────────────────
   filterSetupControlTypeLabel: string;
@@ -404,6 +505,18 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiAssistantOpenTooltip: 'Open AI assistant',
   aiAssistantCloseTooltip: 'Close AI assistant',
 
+  // Drawer panel / sidebar
+  drawerPanelCloseAriaLabel: 'Close widget configuration',
+  sidebarPanelsAriaLabel: 'Sidebar panels',
+
+  // NumberField
+  numberFieldIncreaseAriaLabel: 'Increase',
+  numberFieldDecreaseAriaLabel: 'Decrease',
+
+  // Widget card (expanded state)
+  widgetCardCloseExpandedAriaLabel: 'Close expanded chart',
+  widgetCardExportPngAriaLabel: 'Export expanded chart as PNG',
+
   // Natural language widget creation
   aiCreateWidgetLabel: 'Describe a widget',
   aiCreateWidgetPlaceholder:
@@ -439,8 +552,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // Compose drawer / widget picker
   composeDrawerTabSetup: 'Setup',
   composeChooseWidgetType: 'Choose a widget type or drag onto the page',
-  composeNoDataSources:
-    'No data sources available yet. Only text widgets can be added.',
+  composeNoDataSources: 'No data sources available yet. Only text widgets can be added.',
   composeOnThisPage: 'On this page',
   composeAddWidgetLabel: (widgetTypeLabel) => `Add ${widgetTypeLabel} widget`,
   composeCloseAriaLabel: 'Close',
@@ -452,6 +564,20 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   formatResetTitle: 'Reset to auto-generated title',
   formatAutoSubtitle: 'Auto-generated subtitle',
   formatResetSubtitle: 'Reset to auto-generated subtitle',
+  formatPanelCompactNumbers: 'Compact numbers',
+  formatPanelWidgetTitleLabel: 'Widget title',
+  formatPanelWidgetTitleHelperText: 'Shown in the widget header',
+  formatPanelSubtitleLabel: 'Subtitle',
+  formatPanelSubtitleHelperText: 'Optional line shown beneath the title',
+
+  // Text format panel
+  textFormatFontFamilyLabel: 'Font family',
+  textFormatFontSizeLabel: 'Font size',
+  textFormatColorLabel: 'Color',
+  textFormatColorPlaceholder: 'Default',
+  textFormatAlignLeftAriaLabel: 'Align left',
+  textFormatAlignCenterAriaLabel: 'Align center',
+  textFormatAlignRightAriaLabel: 'Align right',
 
   // Data drawer
   dataDrawerNoSources:
@@ -475,6 +601,12 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   relationshipTypeManyToOne: 'Many-to-one',
   relationshipTypeOneToOne: 'One-to-one',
   relationshipTypeManyToMany: 'Many-to-many',
+  relationshipTypeLabel: 'Type',
+  relationshipJoinFieldLabel: 'Join field',
+  relationshipJunctionTableLabel: 'Junction (bridge) table',
+  relationshipJunctionSourceLabel: 'Junction source',
+  relationshipJunctionSourceFkLabel: '\u2192 Source FK',
+  relationshipJunctionTargetFkLabel: '\u2192 Target FK',
 
   // Filter conditions & values
   filterConditionAnd: 'AND',
@@ -491,15 +623,18 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterInteractiveSectionTitle: 'Interactive filters',
   filterCrossSectionTitle: 'Cross-filters',
   filterClearFilter: 'Clear filter',
+  filterClearInteractiveAriaLabel: 'Clear interactive filter',
   filterClearAllCrossFilters: 'Clear all cross-filters',
   filterRemoveCrossFilter: 'Remove cross-filter',
   filterSearchValues: 'Search values\u2026',
   filterSelectField: 'Select a field\u2026',
   filterValueLabel: 'Value',
   filterValueHelper: 'Value to compare against',
+  filterValueAmountLabel: 'Amount',
   filterSelectParent: 'Select parent filter\u2026',
   filterSourceLabel: 'Source',
   filterMetricRowLabel: 'Metric row',
+  filterMetricHelperText: 'Identifies the row in the business metrics table',
   filterFieldLabel: 'Field',
   filterRankByLabel: 'Rank by',
 
@@ -518,6 +653,15 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   exprCancel: 'Cancel',
   exprSave: 'Save',
   exprAddField: 'Add Field',
+  expressionNameLabel: 'Name',
+  expressionNameHelperText: 'Used as the field label in pickers and grid columns',
+  expressionNamePlaceholder: 'e.g. Profit, Revenue per Unit',
+  expressionDescriptionLabel: 'Description',
+  expressionDescriptionHelperText: 'Optional. Shown as a tooltip in field pickers',
+  expressionDescriptionPlaceholder: 'Optional: describe what this field computes',
+  expressionPrecisionLabel: 'Precision',
+  expressionPrecisionHelperText:
+    'Decimal places (0\u201310) used when formatting this calculated field',
 
   // Shared aggregation function labels
   aggFnSum: 'Sum',
@@ -541,6 +685,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Chart setup panel
   chartSetupValueFieldLabel: 'Value field',
+  chartSetupValueFieldHelperText: 'Numeric field to aggregate',
   chartSetupAggregationLabel: 'Aggregation',
   chartSetupMinLabel: 'Min',
   chartSetupMaxLabel: 'Max',
@@ -550,6 +695,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupSortValue: 'Value',
   chartSetupSortNone: 'None',
   chartSetupSortPercent: 'Percent',
+  chartSetupSortDirectionAriaLabel: 'Sort direction',
   chartSetupAnnotationsTitle: 'Annotations',
   chartSetupInteractionsTitle: 'Interactions',
   chartSetupInteractionsDescription: 'When other widgets are clicked, this chart\u2026',
@@ -560,6 +706,37 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupRemoveAnnotation: 'Remove annotation',
   chartSetupNoReferenceLines: 'No reference lines. Click + to add one.',
   chartSetupDualYAxis: 'Dual Y axis (line series on right axis)',
+  chartSetupReferenceLineValueLabel: 'Value',
+  chartSetupReferenceLineLabelLabel: 'Label',
+  chartSetupYFieldLabel: 'Y field (numeric)',
+  chartSetupYFieldHelperText: 'Numeric field plotted on the vertical axis',
+  chartSetupColorByLabel: 'Color by (optional)',
+  chartSetupColorByHelperText: 'Splits points into colour-coded series per category',
+  chartSetupSizeByLabel: 'Size by (optional)',
+  chartSetupSizeByHelperText: 'Numeric field that controls bubble radius (produces a bubble chart)',
+  chartSetupMinRadiusLabel: 'Min radius',
+  chartSetupMaxRadiusLabel: 'Max radius',
+  chartSetupFunnelValueHelperText:
+    'Numeric field summed per stage \u2014 stages are sorted by value (largest first)',
+  chartSetupHeatmapRowAxisLabel: 'Row axis field',
+  chartSetupHeatmapRowAxisHelperText:
+    'Categorical field for the vertical (row) axis, e.g. hour of day',
+  chartSetupHeatmapValueLabel: 'Value / colour field',
+  chartSetupHeatmapValueHelperText: 'Numeric field summed per cell to determine colour intensity',
+  chartSetupHeatmapColourSchemeLabel: 'Colour scheme',
+  chartSetupArcLabelLabel: 'Arc label',
+  chartSetupMinAngleLabel: 'Minimum angle (\u00b0)',
+  chartSetupMinAngleHelperText: 'Slices smaller than this angle (degrees) won\u2019t show a label',
+  chartSetupGanttLabelFieldLabel: 'Label field',
+  chartSetupGanttLabelFieldHelperText:
+    'Field shown as the row label on the Y axis (e.g. task or order name)',
+  chartSetupGanttStartDateLabel: 'Start date field',
+  chartSetupGanttStartDateHelperText: 'Date / datetime field for the start of each bar',
+  chartSetupGanttEndDateLabel: 'End date field',
+  chartSetupGanttEndDateHelperText: 'Date / datetime field for the end of each bar',
+  chartSetupGanttColourByLabel: 'Colour by (optional)',
+  chartSetupGanttColourByHelperText:
+    'Categorical field used to colour-code bars (e.g. status or category)',
 
   // KPI setup panel
   kpiSetupChartLine: 'Line',
@@ -570,6 +747,17 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupCompSameLastYear: 'Same period last year',
   kpiSetupInteractionsTitle: 'Interactions',
   kpiSetupInteractionsDescription: 'When other widgets are clicked, this KPI\u2026',
+  kpiSetupTimeFieldLabel: 'Time field',
+  kpiSetupGranularityLabel: 'Granularity',
+  kpiSetupPlotTypeLabel: 'Plot type',
+  kpiSetupMinLabel: 'Min',
+  kpiSetupMaxLabel: 'Max',
+  kpiSetupValueFieldLabel: 'Value field',
+  kpiSetupValueFieldHelperText: 'Field to aggregate',
+  kpiSetupSparklineLabel: 'Sparkline',
+  kpiSetupTargetLabel: 'Target',
+  kpiSetupTrendLabel: 'Trend',
+  kpiSetupCompPeriodLabel: 'Comparison period',
 
   // KPI widget
   kpiGrandTotalTooltip:
@@ -577,6 +765,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Grid setup panel
   gridSetupDataSourceLabel: 'Data source',
+  gridSetupDataSourcePlaceholder: 'Select a data source\u2026',
   gridSetupAllColumnsAdded: 'All available columns added',
   gridSetupCrossFilterFieldLabel: 'Cross-filter field',
   gridSetupCrossFilterFieldHelper:
@@ -584,6 +773,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   gridSetupGroupByLabel: 'Group by',
   gridSetupGroupByHelper: 'Collapse rows into groups \u2014 set per-column aggregation below',
   gridSetupDefaultSortLabel: 'Default sort',
+  gridSetupHeightLabel: 'Height (px)',
   gridSetupConditionalFormattingTitle: 'Conditional formatting',
   gridSetupConditionalCustom: 'Custom',
   gridSetupRemoveRuleAriaLabel: 'Remove rule',
@@ -591,6 +781,13 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   gridSetupInteractionsDescription: 'When other widgets are clicked, this table\u2026',
 
   // Map setup panel
+  mapSetupMapTypeLabel: 'Map type',
+  mapSetupValueFieldLabel: 'Value field (optional for count)',
+  mapSetupColourSchemeLabel: 'Colour scheme',
+  mapSetupLegendPositionLabel: 'Legend position',
+  mapSetupScaleFromZeroLabel: 'Scale from zero',
+  mapSetupClickableLabel: 'Clickable (filter source)',
+  mapSetupCrossFilterLabel: 'Respond to cross-filters',
   mapSetupColorBlues: 'Blues',
   mapSetupColorReds: 'Reds',
   mapSetupColorGreens: 'Greens',
@@ -612,6 +809,15 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   pivotSetupValueFieldLabel: 'Value field',
   pivotSetupValueFieldHelper: 'Numeric field aggregated into each cell',
   pivotSetupShowTotals: 'Show totals row and column',
+  pivotSetupAggregationLabel: 'Aggregation',
+
+  // Inline formula bar
+  inlineFormulaBarAddTooltip: 'Add a calculated formula field',
+  inlineFormulaBarCloseAriaLabel: 'Close formula bar',
+  inlineFormulaBarLabelLabel: 'Label',
+
+  // Filters drawer
+  filtersDrawerRenameViewTooltip: 'Rename view',
 
   // Filter setup panel
   filterSetupControlTypeLabel: 'Control type',

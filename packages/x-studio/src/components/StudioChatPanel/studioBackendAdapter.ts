@@ -36,7 +36,7 @@ export interface StudioAIConfig {
    * Additional HTTP headers sent with every AI request.
    * Use this to authenticate with your server, e.g.:
    * ```ts
-   * headers: { Authorization: `Bearer ${import.meta.env.VITE_STUDIO_SERVER_TOKEN}` }
+   * headers: { Authorization: `Bearer ${import.meta.env.STUDIO_SERVER_TOKEN}` }
    * ```
    */
   headers?: Record<string, string>;

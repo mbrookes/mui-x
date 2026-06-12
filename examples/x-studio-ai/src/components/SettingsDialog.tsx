@@ -29,10 +29,10 @@ export function SettingsDialog({
   onLocaleChange,
 }: SettingsDialogProps) {
   const [serverUrl, setServerUrl] = React.useState(
-    () => import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined ?? '',
+    () => import.meta.env.STUDIO_SERVER_URL as string | undefined ?? '',
   );
 
-  const envServerUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+  const envServerUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
   const isEnvConfigured = Boolean(envServerUrl);
 
   return (
@@ -64,7 +64,7 @@ export function SettingsDialog({
               <br />
               AI and data queries are routed through the dev server.
               <br />
-              To change, update <code>VITE_STUDIO_SERVER_URL</code> in <code>.env.local</code>.
+              To change, update <code>STUDIO_SERVER_URL</code> in <code>.env.local</code>.
             </Typography>
           ) : (
             <>
@@ -74,7 +74,7 @@ export function SettingsDialog({
                 placeholder="http://localhost:3020"
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
-                helperText="Optional. Set VITE_STUDIO_SERVER_URL in .env.local to persist."
+                helperText="Optional. Set STUDIO_SERVER_URL in .env.local to persist."
               />
               {serverUrl && (
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>

@@ -2,8 +2,8 @@
 
 interface ImportMetaEnv {
   // Dev server connection
-  readonly VITE_STUDIO_SERVER_URL?: string;
-  readonly VITE_STUDIO_SERVER_TOKEN?: string;
+  readonly STUDIO_SERVER_URL?: string;
+  readonly STUDIO_SERVER_TOKEN?: string;
 }
 
 interface ImportMeta {

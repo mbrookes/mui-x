@@ -204,7 +204,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     const isAutoSubtitle =
       widget.subtitleMode === 'auto' || (!widget.subtitleMode && !widget.subtitle);
     if (widget.kind === 'kpi' && isAutoSubtitle) {
-      return inferKpiDateSubtitle(widget, allFilters) ?? widget.subtitle ?? '';
+      return inferKpiDateSubtitle(widget, allFilters, localeText) ?? widget.subtitle ?? '';
     }
     return widget.subtitle ?? '';
   }, [widget, allFilters]);

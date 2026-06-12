@@ -790,6 +790,35 @@ export interface StudioLocaleText {
   /** "+N more" in field list summaries */
   widgetAutoTitleMoreFields: (count: number) => string;
 
+  // ── Date filter labels ────────────────────────────────────────────────────
+  /** "Last 7 days", "Last 1 month" */
+  dateFilterLast: (amount: number, unit: string) => string;
+  /** "Next 7 days", "Next 1 month" */
+  dateFilterNext: (amount: number, unit: string) => string;
+  /** "From {date}" in a between filter with only a start date */
+  dateFilterFrom: (date: string) => string;
+  /** "Up to {label}" for a relative ≤ filter */
+  dateFilterUpTo: (label: string) => string;
+  /** "Since {date}" for an absolute ≥ filter */
+  dateFilterSince: (date: string) => string;
+  /** "Until {date}" for an absolute ≤ filter */
+  dateFilterUntil: (date: string) => string;
+  /** Singular/plural unit labels used in relative date filters */
+  dateFilterUnitYear: string;
+  dateFilterUnitYears: string;
+  dateFilterUnitMonth: string;
+  dateFilterUnitMonths: string;
+  dateFilterUnitWeek: string;
+  dateFilterUnitWeeks: string;
+  dateFilterUnitDay: string;
+  dateFilterUnitDays: string;
+  dateFilterUnitHour: string;
+  dateFilterUnitHours: string;
+  dateFilterUnitMinute: string;
+  dateFilterUnitMinutes: string;
+  dateFilterUnitSecond: string;
+  dateFilterUnitSeconds: string;
+
   // ── Expression field dialog — measure checkbox ────────────────────────────
   exprMeasureLabel: string;
   exprMeasureHelperText: string;
@@ -1540,6 +1569,28 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetGroupByPrefixQuarter: 'Quarterly',
   widgetGroupByPrefixYear: 'Yearly',
   widgetAutoTitleMoreFields: (count) => `+${count} more`,
+
+  // Date filter labels
+  dateFilterLast: (amount, unit) => `Last ${amount} ${unit}`,
+  dateFilterNext: (amount, unit) => `Next ${amount} ${unit}`,
+  dateFilterFrom: (date) => `From ${date}`,
+  dateFilterUpTo: (label) => `Up to ${label}`,
+  dateFilterSince: (date) => `Since ${date}`,
+  dateFilterUntil: (date) => `Until ${date}`,
+  dateFilterUnitYear: 'year',
+  dateFilterUnitYears: 'years',
+  dateFilterUnitMonth: 'month',
+  dateFilterUnitMonths: 'months',
+  dateFilterUnitWeek: 'week',
+  dateFilterUnitWeeks: 'weeks',
+  dateFilterUnitDay: 'day',
+  dateFilterUnitDays: 'days',
+  dateFilterUnitHour: 'hour',
+  dateFilterUnitHours: 'hours',
+  dateFilterUnitMinute: 'minute',
+  dateFilterUnitMinutes: 'minutes',
+  dateFilterUnitSecond: 'second',
+  dateFilterUnitSeconds: 'seconds',
 
   // Expression field dialog — measure checkbox
   exprMeasureLabel: 'Measure (aggregate)',

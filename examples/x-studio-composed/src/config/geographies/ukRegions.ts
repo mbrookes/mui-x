@@ -69,8 +69,7 @@ export const ukRegionsGeography: StudioMapGeographyDefinition = {
     if (!res.ok) {
       throw new Error(`MUI X: Failed to load UK regions topology (${res.status})`);
     }
-    const topo = await res.json();
-    const { feature } = await import('topojson-client');
+    const [topo, { feature }] = await Promise.all([res.json(), import('topojson-client')]);
     const fc = feature(topo, topo.objects.eer) as unknown as GeoJSON.FeatureCollection;
 
     // Remap feature IDs from ONS codes (E15000001) to URL-safe slugs (north-east)

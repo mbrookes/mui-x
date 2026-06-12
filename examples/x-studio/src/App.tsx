@@ -228,13 +228,17 @@ function readLocalState(dataset: 'sales' | 'ag-studio'): SerializedStudioState |
   }
 }
 
+// react-doctor-disable-next-line react-doctor/no-giant-component, react-doctor/prefer-useReducer -- top-level orchestration state is intentionally broad and not naturally reducible
 export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);
 
   // Compute URL params once — stable across renders.
   const rowCount = React.useMemo(() => getUrlRowsParam(), []);
   const dataset = React.useMemo(() => getUrlDatasetParam(), []);
-  const localStorageKeyRef = React.useRef(getLocalStorageKey(dataset));
+  const localStorageKeyRef = React.useRef<string | null>(null);
+  if (localStorageKeyRef.current === null) {
+    localStorageKeyRef.current = getLocalStorageKey(dataset);
+  }
   const urlPageId = React.useMemo(
     () =>
       resolvePageIdFromQuery(
@@ -430,6 +434,7 @@ export default function App() {
   const [title, setTitle] = React.useState('');
   const [pages, setPages] = React.useState<Record<string, StudioPage>>({});
   const [activePageId, setActivePageId] = React.useState('');
+  // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- filters are buffered here for debounced URL synchronization in this example app
   const [filters, setFilters] = React.useState<StudioFilterState[]>([]);
   const [canUndo, setCanUndo] = React.useState(false);
   const [canRedo, setCanRedo] = React.useState(false);
@@ -530,6 +535,7 @@ export default function App() {
     return getUrlServerParam();
   }, []);
 
+  // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- example app: fetch without a data-fetching library is acceptable here
   React.useEffect(() => {
     if (!serverEndpoint || adapterMode) {
       return;
@@ -572,6 +578,7 @@ export default function App() {
 
   const localSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- state updated from event-driven controller callback
   const handleStateChange = React.useCallback((state: StudioState) => {
     // Use functional updates so React can skip if the value is unchanged,
     // and so the calls are batched into a single App re-render (React 18+).
@@ -592,7 +599,7 @@ export default function App() {
     localSaveTimer.current = setTimeout(() => {
       try {
         const serialized = serializeState(state);
-        localStorage.setItem(localStorageKeyRef.current, JSON.stringify(serialized));
+        localStorage.setItem(localStorageKeyRef.current!, JSON.stringify(serialized));
       } catch {
         // Ignore storage quota errors
       }
@@ -709,7 +716,7 @@ export default function App() {
   };
 
   const handleReset = React.useCallback(() => {
-    localStorage.removeItem(localStorageKeyRef.current);
+    localStorage.removeItem(localStorageKeyRef.current!);
     setSnackbar({
       open: true,
       message: 'Local changes cleared — reloading demo…',

@@ -64,7 +64,7 @@ export function FormatPanel(props: { widgetId: string }) {
     if (!widget) {
       return;
     }
-    const inferred = inferWidgetTitles(widget, dataSources);
+    const inferred = inferWidgetTitles(widget, dataSources, localeText);
     controller.updateWidget(widgetId, { title: inferred.title, titleMode: 'auto' });
     setFormState((prev) => ({ ...prev, title: inferred.title }));
   };
@@ -87,7 +87,7 @@ export function FormatPanel(props: { widgetId: string }) {
     if (!widget) {
       return;
     }
-    const inferred = inferWidgetTitles(widget, dataSources);
+    const inferred = inferWidgetTitles(widget, dataSources, localeText);
     controller.updateWidget(widgetId, { subtitle: inferred.subtitle, subtitleMode: 'auto' });
     setFormState((prev) => ({ ...prev, subtitle: inferred.subtitle }));
   };

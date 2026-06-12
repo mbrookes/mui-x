@@ -5,6 +5,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import TrendingFlatIcon from '@mui/icons-material/TrendingFlat';
 import { formatPeriodShort, formatDateRangeLong } from './kpiUtils';
+import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 
 export interface KpiTrendResult {
   delta: number;
@@ -27,6 +28,7 @@ export interface KpiTrendProps {
 
 export function KpiTrend(props: KpiTrendProps) {
   const { trendResult, needsDateFilter, isInverted = false, sx } = props;
+  const localeText = useStudioLocaleText();
 
   if (trendResult) {
     const trendUp = trendResult.delta > 0;
@@ -57,16 +59,16 @@ export function KpiTrend(props: KpiTrendProps) {
 
     const pct = Number.isFinite(trendResult.delta)
       ? `${trendResult.delta >= 0 ? '+' : ''}${(trendResult.delta * 100).toFixed(1)}%`
-      : 'New';
+      : localeText.kpiTrendNewLabel;
     const periodShort = trendResult.comparisonLabel
       ? trendResult.comparisonLabel
       : formatPeriodShort(trendResult.previousStart!, trendResult.previousEnd!);
     const trendTooltip = trendResult.comparisonLabel
-      ? `Target: ${trendResult.previousValue}`
+      ? localeText.kpiTrendTargetTooltip(trendResult.previousValue)
       : formatDateRangeLong(trendResult.previousStart!, trendResult.previousEnd!);
 
     return (
-      <Tooltip title={`Previous period: ${trendTooltip}`} placement="bottom-start">
+      <Tooltip title={localeText.kpiTrendPreviousPeriodTooltip(trendTooltip)} placement="bottom-start">
         <Stack
           direction="row"
           spacing={0.75}
@@ -110,7 +112,7 @@ export function KpiTrend(props: KpiTrendProps) {
     return (
       <Box sx={sx}>
         <Typography variant="caption" color="text.secondary">
-          Add a date filter to show the trend.
+          {localeText.kpiTrendNoDateFilterHint}
         </Typography>
       </Box>
     );

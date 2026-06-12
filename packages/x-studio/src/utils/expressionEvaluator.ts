@@ -426,11 +426,12 @@ function evalMeasureExpression(
     case 'in': {
       // Conditional and logical operators: evaluate row-by-row then aggregate (sum).
       // This enables conditional sums like: if(on_time, 1, 0) → sum per-row results.
-      const rowValues = rows
-        .map((row) =>
-          toNumber(evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows })),
-        )
-        .filter((v) => !Number.isNaN(v));
+      const rowValues = rows.flatMap((row) => {
+        const v = toNumber(
+          evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows }),
+        );
+        return Number.isNaN(v) ? [] : [v];
+      });
       return aggregate(rowValues, 'sum');
     }
     default:

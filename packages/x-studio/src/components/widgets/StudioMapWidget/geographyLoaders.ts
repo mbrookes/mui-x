@@ -88,21 +88,19 @@ export async function loadWorldGeography(): Promise<ExtendedFeatureCollection> {
   const fc = await loadTopoFeatures(topo, 'countries');
   return {
     ...fc,
-    features: fc.features
-      .map((f: ExtendedFeature) => {
-        const numericId = typeof f.id === 'string' ? parseInt(f.id, 10) : (f.id as number);
-        // Exclude Antarctica (ISO 3166-1 numeric 010): no civilian population or country-level
-        // statistics, and its size is heavily distorted by the Mercator projection.
-        if (numericId === 10) {
-          return null;
-        }
-        const alpha2 = NUMERIC_TO_ALPHA2[numericId];
-        if (!alpha2) {
-          return null;
-        }
-        return { ...f, id: alpha2 };
-      })
-      .filter(Boolean) as ExtendedFeatureCollection['features'],
+    features: fc.features.flatMap((f: ExtendedFeature) => {
+      const numericId = typeof f.id === 'string' ? parseInt(f.id, 10) : (f.id as number);
+      // Exclude Antarctica (ISO 3166-1 numeric 010): no civilian population or country-level
+      // statistics, and its size is heavily distorted by the Mercator projection.
+      if (numericId === 10) {
+        return [];
+      }
+      const alpha2 = NUMERIC_TO_ALPHA2[numericId];
+      if (!alpha2) {
+        return [];
+      }
+      return [{ ...f, id: alpha2 }];
+    }) as ExtendedFeatureCollection['features'],
   };
 }
 
@@ -115,16 +113,14 @@ export async function loadUsaGeography(): Promise<ExtendedFeatureCollection> {
   const fc = await loadTopoFeatures(topo, 'states');
   return {
     ...fc,
-    features: fc.features
-      .map((f: ExtendedFeature) => {
-        const fips = typeof f.id === 'number' ? String(f.id).padStart(2, '0') : String(f.id ?? '');
-        const abbr = FIPS_TO_STATE_ABBR[fips];
-        if (!abbr) {
-          return null;
-        }
-        return { ...f, id: abbr };
-      })
-      .filter(Boolean) as ExtendedFeatureCollection['features'],
+    features: fc.features.flatMap((f: ExtendedFeature) => {
+      const fips = typeof f.id === 'number' ? String(f.id).padStart(2, '0') : String(f.id ?? '');
+      const abbr = FIPS_TO_STATE_ABBR[fips];
+      if (!abbr) {
+        return [];
+      }
+      return [{ ...f, id: abbr }];
+    }) as ExtendedFeatureCollection['features'],
   };
 }
 

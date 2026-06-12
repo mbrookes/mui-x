@@ -119,6 +119,17 @@ export const INITIAL_STATE: Partial<StudioState> = {
         ['widget-grid7-contacts'],
       ],
     },
+    'page-8': {
+      id: 'page-8',
+      title: 'Customer 360',
+      widgetRows: [
+        ['widget-text-customer360'],
+        ['widget-chart8-pipeline-by-segment'],
+        ['widget-chart8-revenue-by-segment'],
+        ['widget-chart8-deals-by-country'],
+        ['widget-grid8-cross-db-deals'],
+      ],
+    },
   },
   dataSources: {
     [PRODUCTS_SOURCE_ID]: productsSource,
@@ -192,6 +203,24 @@ export const INITIAL_STATE: Partial<StudioState> = {
       junctionSourceId: SHIPMENT_ITEMS_SOURCE_ID,
       junctionSourceField: 'orderItemId',
       junctionTargetField: 'shipmentId',
+    },
+    // Cross-database joins: CRM (deals/contacts) → Sales (customers)
+    // Both CRM sources share a `customerId` FK that maps to `customers.id`
+    {
+      id: 'rel-crm-deals-customers',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      sourceField: 'customerId',
+      targetId: CUSTOMERS_SOURCE_ID,
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+    {
+      id: 'rel-crm-contacts-customers',
+      sourceId: CRM_CONTACTS_SOURCE_ID,
+      sourceField: 'customerId',
+      targetId: CUSTOMERS_SOURCE_ID,
+      targetField: 'id',
+      type: 'many-to-one',
     },
   ],
   widgets: {
@@ -1071,6 +1100,92 @@ export const INITIAL_STATE: Partial<StudioState> = {
         gridSummaryFields: {},
       },
     },
+
+    // ── Page 8: Customer 360 ────────────────────────────────────────────────
+    // Widgets here join the CRM database (deals/contacts) to the Sales database
+    // (customers) via the shared `customerId` foreign key. Expression fields
+    // `expr-deal-segment` and `expr-deal-country` pull customer data from the
+    // sales DB into the CRM deals source, enabling cross-database analysis.
+
+    'widget-text-customer360': {
+      id: 'widget-text-customer360',
+      kind: 'text',
+      title: 'Customer 360',
+      subtitle: 'CRM pipeline data joined to sales customer records',
+      titleMode: 'manual' as const,
+      sourceId: undefined,
+      config: {
+        textTitleFontSize: 32,
+        textTitleAlign: 'center' as const,
+      },
+    },
+    'widget-chart8-pipeline-by-segment': {
+      id: 'widget-chart8-pipeline-by-segment',
+      kind: 'chart',
+      title: 'Pipeline Value by Customer Segment',
+      subtitle: 'CRM deals joined to sales customer segments',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        chartType: 'bar' as const,
+        xField: 'expr-deal-segment',
+        yField: 'value',
+        yAggregation: 'sum' as const,
+        chartSortBy: 'value' as const,
+        chartSortDirection: 'desc' as const,
+      },
+    },
+    'widget-chart8-revenue-by-segment': {
+      id: 'widget-chart8-revenue-by-segment',
+      kind: 'chart',
+      title: 'Revenue by Customer Segment',
+      subtitle: 'Orders joined to sales customer segments',
+      sourceId: ORDERS_SOURCE_ID,
+      config: {
+        chartType: 'bar' as const,
+        xField: 'expr-order-segment',
+        yField: 'total',
+        yAggregation: 'sum' as const,
+        chartSortBy: 'value' as const,
+        chartSortDirection: 'desc' as const,
+      },
+    },
+    'widget-chart8-deals-by-country': {
+      id: 'widget-chart8-deals-by-country',
+      kind: 'chart',
+      title: 'Pipeline Value by Customer Country',
+      subtitle: 'CRM deal values joined to customer country from the sales database',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        chartType: 'bar' as const,
+        barLayout: 'horizontal' as const,
+        xField: 'expr-deal-country',
+        yField: 'value',
+        yAggregation: 'sum' as const,
+        chartSortBy: 'value' as const,
+        chartSortDirection: 'desc' as const,
+      },
+    },
+    'widget-grid8-cross-db-deals': {
+      id: 'widget-grid8-cross-db-deals',
+      kind: 'grid',
+      title: 'All Deals — enriched with sales customer data',
+      subtitle: 'CRM deals joined to customer segment and country from the sales database',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        columns: [
+          { fieldId: 'title' },
+          { fieldId: 'stage' },
+          { fieldId: 'value' },
+          { fieldId: 'probability' },
+          { fieldId: 'openedDate' },
+          { fieldId: 'expr-deal-segment' },
+          { fieldId: 'expr-deal-country' },
+        ],
+        gridSortField: 'value',
+        gridSortDirection: 'desc' as const,
+        gridSummaryFields: { value: 'sum', probability: 'avg' },
+      },
+    },
   },
   filters: [
     // Page 1 KPI date filters — "Last 12 months" window used for trend comparisons
@@ -1415,6 +1530,58 @@ export const INITIAL_STATE: Partial<StudioState> = {
           { id: 'shipDate' },
           { id: 'actualDeliveryDate' },
         ],
+      },
+    },
+    // Cross-database expression fields: CRM deals → Sales customers
+    // These join the CRM database to the sales customer records via `customerId`,
+    // enabling CRM widgets to display and group by sales-side attributes.
+    {
+      id: 'expr-deal-segment',
+      label: 'Customer Segment',
+      description: 'Customer segment from the sales database, joined via customerId',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        joinSourceId: CUSTOMERS_SOURCE_ID,
+        fieldId: 'segment',
+      },
+    },
+    {
+      id: 'expr-deal-country',
+      label: 'Customer Country',
+      description: 'Customer country from the sales database, joined via customerId',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        joinSourceId: CUSTOMERS_SOURCE_ID,
+        fieldId: 'country',
+      },
+    },
+    // Cross-database expression fields: CRM contacts → Sales customers
+    {
+      id: 'expr-contact-segment',
+      label: 'Customer Segment',
+      description: 'Customer segment from the sales database, joined via customerId',
+      sourceId: CRM_CONTACTS_SOURCE_ID,
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        joinSourceId: CUSTOMERS_SOURCE_ID,
+        fieldId: 'segment',
+      },
+    },
+    {
+      id: 'expr-contact-country',
+      label: 'Customer Country',
+      description: 'Customer country from the sales database, joined via customerId',
+      sourceId: CRM_CONTACTS_SOURCE_ID,
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        joinSourceId: CUSTOMERS_SOURCE_ID,
+        fieldId: 'country',
       },
     },
   ],

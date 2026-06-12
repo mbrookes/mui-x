@@ -110,26 +110,29 @@ export function AddWidgetView() {
   // Combine built-in widget types with consumer-registered custom widget types
   const allWidgetTypes = React.useMemo<WidgetTypeEntry[]>(() => {
     const kindInfo = getBuiltInWidgetKindInfo(localeText);
-    const builtins = WIDGET_TYPES.filter((wt) => {
-      switch (wt.kind) {
-        case 'grid':
-          return features.grid !== false;
-        case 'chart':
-          return features.chart !== false;
-        case 'kpi':
-          return features.kpi !== false;
-        case 'text':
-          return features.text !== false;
-        case 'filter':
-          return features.filter !== false;
-        case 'pivot':
-          return features.pivot !== false;
-        case 'map':
-          return features.map !== false;
-        default:
-          return true;
-      }
-    }).map((wt) => ({ ...wt, ...(kindInfo[wt.kind] ?? {}) }));
+    const builtins = WIDGET_TYPES.flatMap((wt) => {
+      const include = (() => {
+        switch (wt.kind) {
+          case 'grid':
+            return features.grid !== false;
+          case 'chart':
+            return features.chart !== false;
+          case 'kpi':
+            return features.kpi !== false;
+          case 'text':
+            return features.text !== false;
+          case 'filter':
+            return features.filter !== false;
+          case 'pivot':
+            return features.pivot !== false;
+          case 'map':
+            return features.map !== false;
+          default:
+            return true;
+        }
+      })();
+      return include ? [{ ...wt, ...(kindInfo[wt.kind] ?? {}) }] : [];
+    });
     const customs = Array.from(customWidgetMap.values()).map((def) => ({
       kind: def.kind,
       label: def.label ?? def.kind,

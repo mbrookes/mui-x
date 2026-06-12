@@ -866,6 +866,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
         yField: 'id',
         yAggregation: 'count',
         chartSortBy: 'category' as const,
+        barLayout: 'horizontal' as const,
       },
     },
     'widget-chart5-revenue-mixed': {

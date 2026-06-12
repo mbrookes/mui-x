@@ -861,18 +861,11 @@ export const INITIAL_STATE: Partial<StudioState> = {
       titleMode: 'manual',
       sourceId: ORDERS_SOURCE_ID,
       config: {
-        chartType: 'funnel',
+        chartType: 'bar',
         xField: 'status',
         yField: 'id',
         yAggregation: 'count',
-        funnelCategoryOrder: [
-          'Pending',
-          'Processing',
-          'Shipped',
-          'Partially Delivered',
-          'Delivered',
-          'Cancelled',
-        ],
+        chartSortBy: 'category' as const,
       },
     },
     'widget-chart5-revenue-mixed': {

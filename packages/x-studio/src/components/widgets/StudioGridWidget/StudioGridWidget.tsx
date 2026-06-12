@@ -5,6 +5,8 @@ import {
   type GridColDef,
   type GridCellParams,
   type GridAggregationModel,
+  type GridRowClassNameParams,
+  type GridValidRowModel,
 } from '@mui/x-data-grid-premium';
 
 import { Box, Typography } from '@mui/material';
@@ -311,7 +313,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         disableColumnMenu
         rows={rows}
         pinnedRows={pinnedRows}
-        getRowId={(row) => {
+        getRowId={(row: GridValidRowModel) => {
           return String(
             // eslint-disable-next-line no-underscore-dangle -- summary rows use an internal synthetic identifier
             (row as Record<string, unknown>).__rowId ?? (row as Record<string, unknown>).id,
@@ -343,7 +345,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
           ...conditionalFormatSx,
         }}
         getCellClassName={getCellClassName}
-        getRowClassName={(params) => {
+        getRowClassName={(params: GridRowClassNameParams) => {
           if (params.id === '__summary__') {
             return '';
           }

@@ -1280,7 +1280,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           )
         : null;
       const yAxes = useIndependentAxes
-        ? effectiveMultiYData.series.map((s, i) => ({
+        ? effectiveMultiYData.series.map((_s, i) => ({
             id: `y-${i}`,
             position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
             width: 'auto' as const,
@@ -1928,7 +1928,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
     const useIndependentAxes = !isStacked && multiYData.series.length > 1;
     const yAxes = useIndependentAxes
-      ? multiYData.series.map((s, i) => ({
+      ? multiYData.series.map((_s, i) => ({
           id: `y-${i}`,
           position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
           width: 'auto' as const,

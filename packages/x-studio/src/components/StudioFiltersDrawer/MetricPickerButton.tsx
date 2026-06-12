@@ -1,76 +1,10 @@
 'use client';
 import * as React from 'react';
-import {
-  Autocomplete,
-  Box,
-  Chip,
-  FormControl,
-  IconButton,
-  InputLabel,
-  Menu,
-  MenuItem,
-  Select,
-  Stack,
-  TextField,
-  ToggleButton,
-  ToggleButtonGroup,
-  Tooltip,
-  Typography,
-} from '@mui/material';
-import { DatePicker } from '@mui/x-date-pickers/DatePicker';
-import type { Dayjs } from 'dayjs';
-import dayjs from 'dayjs';
-import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
-import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import { IconButton, Menu, MenuItem, Tooltip } from '@mui/material';
 import AddLinkIcon from '@mui/icons-material/AddLink';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
-import { NumberField } from '../../internals/NumberField';
-import type { StudioFilterOperator, StudioMetricRef } from '../../models';
-import type { RelativeDateUnit, RelativeDateValue } from '../../internals/filterTypes';
-import type { FieldType } from './filterDrawerTypes';
-import { isRelativeDateValue, absoluteToRelative, relativeToAbsolute } from './filterDrawerUtils';
 import { useStudioSelector, selectDataSources, useStudioLocaleText } from '../../context';
 import { fieldHasCapability } from '../../utils/fieldCapabilities';
-
-function getRelativeUnits(localeText: ReturnType<typeof useStudioLocaleText>) {
-  return [
-    { value: 'second', label: localeText.filterRelativeUnitSeconds },
-    { value: 'minute', label: localeText.filterRelativeUnitMinutes },
-    { value: 'hour', label: localeText.filterRelativeUnitHours },
-    { value: 'day', label: localeText.filterRelativeUnitDays },
-    { value: 'week', label: localeText.filterRelativeUnitWeeks },
-    { value: 'month', label: localeText.filterRelativeUnitMonths },
-    { value: 'year', label: localeText.filterRelativeUnitYears },
-  ] satisfies { value: RelativeDateUnit; label: string }[];
-}
-
-function getDatePresets(localeText: ReturnType<typeof useStudioLocaleText>) {
-  return [
-    {
-      label: localeText.filterDatePreset7Days,
-      value: { relative: true, amount: 7, unit: 'day', direction: 'past' },
-    },
-    {
-      label: localeText.filterDatePreset30Days,
-      value: { relative: true, amount: 30, unit: 'day', direction: 'past' },
-    },
-    {
-      label: localeText.filterDatePreset3Months,
-      value: { relative: true, amount: 3, unit: 'month', direction: 'past' },
-    },
-    {
-      label: localeText.filterDatePreset12Months,
-      value: { relative: true, amount: 12, unit: 'month', direction: 'past' },
-    },
-    {
-      label: localeText.filterDatePreset1Year,
-      value: { relative: true, amount: 1, unit: 'year', direction: 'past' },
-    },
-  ] satisfies { label: string; value: RelativeDateValue }[];
-}
-
-const OPERATORS_WITH_AUTOCOMPLETE = new Set<StudioFilterOperator>(['equals', 'not_equals']);
-const OPERATORS_NO_VALUE = new Set<StudioFilterOperator>(['is_empty', 'is_not_empty']);
 
 export interface MetricOption {
   label: string;

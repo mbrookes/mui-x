@@ -290,14 +290,15 @@ interface JoinDescriptorInternal {
  * - `column`: the logical ID to use in the `columns` array (unchanged for most fields).
  * - `physicalColumn`: when set, the actual DB column to SELECT (e.g. `customers.country`).
  *   The server SELECTs `physicalColumn AS column` to preserve the logical field ID in responses.
- * - `join`: JOIN descriptor to add when the field lives in a related table.
+ * - `joins`: JOIN descriptors to add when the field lives in a related table. Multiple JOINs
+ *   are emitted for multi-hop paths (e.g. order_items → orders → customers).
  * - `skip`: when true, the field is a server-side-incompatible expression (e.g. arithmetic);
  *   exclude it from columns and aggregations and return raw rows for client-side evaluation.
  */
 interface ResolvedField {
   column: string;
   physicalColumn?: string;
-  join?: JoinDescriptorInternal;
+  joins?: JoinDescriptorInternal[];
   skip?: boolean;
 }
 
@@ -316,16 +317,20 @@ function isJoinExpression(expr: unknown): expr is { joinSourceId: string; fieldI
 
 /**
  * Resolve a field ID to the correct SQL column reference for a query against
- * `primarySourceId`. Handles three cases:
+ * `primarySourceId`. Handles the following cases:
  *
  * 1. Physical field on the primary source — returned as-is.
- * 2. Expression field with a join expression — resolved to a LEFT JOIN + alias.
- * 3. Expression field with an arithmetic expression — marked `skip` so the
+ * 2. Expression field with a join expression on the primary source — resolved to a LEFT JOIN + alias.
+ * 3. Expression field with a join expression on a related source (e.g. an `expr-order-country`
+ *    field defined on ORDERS, used as a cross-filter on an ORDER_ITEMS widget) — resolved to
+ *    two LEFT JOINs: one hop from the primary source to the expression's owning source, then a
+ *    second hop through the expression's own join.
+ * 4. Expression field with an arithmetic expression — marked `skip` so the
  *    server returns raw rows and Studio evaluates the expression client-side.
- * 4. Physical field on a related source (cross-source reference) — resolved via
+ * 5. Physical field on a related source (cross-source reference) — resolved via
  *    the relationship graph to a LEFT JOIN + qualified column.
  *
- * Only `many-to-one` and `one-to-one` relationships are traversed (one hop).
+ * Only `many-to-one` and `one-to-one` relationships are traversed (one hop per step).
  */
 function resolveField(
   fieldId: string,
@@ -335,7 +340,7 @@ function resolveField(
   relationships: StudioRelationship[],
   expressionFields?: StudioExpressionField[],
 ): ResolvedField {
-  // ── 1. Check expression fields first ───────────────────────────────────────
+  // ── 1. Check expression fields on the primary source ───────────────────────
   if (expressionFields) {
     const exprField = expressionFields.find(
       (f) => f.id === fieldId && f.sourceId === primarySourceId,
@@ -363,7 +368,7 @@ function resolveField(
               return {
                 column: fieldId, // keep logical ID; server aliases physical → logical
                 physicalColumn: `${joinTable}.${joinFieldId}`,
-                join: { table: joinTable, type: 'left', on: [[leftCol, rightCol]] },
+                joins: [{ table: joinTable, type: 'left', on: [[leftCol, rightCol]] }],
               };
             }
           }
@@ -373,6 +378,71 @@ function resolveField(
       }
       // FunctionExpression or unknown — can't compute server-side
       return { column: fieldId, skip: true };
+    }
+
+    // ── 1b. Expression field on a related source ──────────────────────────────
+    // Handles cross-filters where the filter field is an expression (e.g. expr-order-country
+    // defined on ORDERS) applied to a widget on a different source (e.g. ORDER_ITEMS).
+    // Resolution: PRIMARY → exprField.sourceId (hop 1) → joinSourceId (hop 2).
+    const relatedExprField = expressionFields.find(
+      (f) => f.id === fieldId && f.sourceId !== primarySourceId,
+    );
+    if (relatedExprField) {
+      const exprSourceId = relatedExprField.sourceId;
+      const exprSource = dataSources[exprSourceId];
+      if (exprSource) {
+        const exprTable = exprSource.tableName ?? exprSourceId;
+        // Find hop 1: primarySource → exprField's source
+        for (const hop1Rel of relationships) {
+          if (hop1Rel.type === 'many-to-many') continue;
+          let hop1Left = '';
+          let hop1Right = '';
+          if (hop1Rel.sourceId === primarySourceId && hop1Rel.targetId === exprSourceId) {
+            hop1Left = `${primaryTableName}.${hop1Rel.sourceField}`;
+            hop1Right = `${exprTable}.${hop1Rel.targetField}`;
+          } else if (hop1Rel.targetId === primarySourceId && hop1Rel.sourceId === exprSourceId) {
+            hop1Left = `${exprTable}.${hop1Rel.sourceField}`;
+            hop1Right = `${primaryTableName}.${hop1Rel.targetField}`;
+          }
+          if (!hop1Left) continue;
+
+          if (isJoinExpression(relatedExprField.expression)) {
+            // Hop 2: exprField's source → the expression's join target
+            const { joinSourceId, fieldId: joinFieldId } = relatedExprField.expression;
+            const joinSource = dataSources[joinSourceId];
+            if (joinSource) {
+              const joinTable = joinSource.tableName ?? joinSourceId;
+              for (const hop2Rel of relationships) {
+                if (hop2Rel.type === 'many-to-many') continue;
+                let hop2Left = '';
+                let hop2Right = '';
+                if (hop2Rel.sourceId === exprSourceId && hop2Rel.targetId === joinSourceId) {
+                  hop2Left = `${exprTable}.${hop2Rel.sourceField}`;
+                  hop2Right = `${joinTable}.${hop2Rel.targetField}`;
+                } else if (
+                  hop2Rel.targetId === exprSourceId &&
+                  hop2Rel.sourceId === joinSourceId
+                ) {
+                  hop2Left = `${joinTable}.${hop2Rel.sourceField}`;
+                  hop2Right = `${exprTable}.${hop2Rel.targetField}`;
+                }
+                if (!hop2Left) continue;
+                return {
+                  column: fieldId, // keep logical ID; server aliases physical → logical
+                  physicalColumn: `${joinTable}.${joinFieldId}`,
+                  joins: [
+                    { table: exprTable, type: 'left', on: [[hop1Left, hop1Right]] },
+                    { table: joinTable, type: 'left', on: [[hop2Left, hop2Right]] },
+                  ],
+                };
+              }
+            }
+          } else {
+            // FunctionExpression in a related source — can't compute server-side
+            return { column: fieldId, skip: true };
+          }
+        }
+      }
     }
   }
 
@@ -415,7 +485,7 @@ function resolveField(
         const relatedTable = relatedSource.tableName ?? relatedSourceId;
         return {
           column: `${relatedTable}.${fieldId}`,
-          join: { table: relatedTable, type: 'left', on: [[leftCol, rightCol]] },
+          joins: [{ table: relatedTable, type: 'left', on: [[leftCol, rightCol]] }],
         };
       }
     }
@@ -484,8 +554,10 @@ function buildBatchWidgetDescriptor(
       relationships!,
       expressionFields,
     );
-    if (resolved.join && !joinsMap.has(resolved.join.table)) {
-      joinsMap.set(resolved.join.table, resolved.join);
+    for (const join of resolved.joins ?? []) {
+      if (!joinsMap.has(join.table)) {
+        joinsMap.set(join.table, join);
+      }
     }
     if (resolved.physicalColumn) {
       // Expression join field: keep logical ID in columns, alias to physical column
@@ -519,11 +591,16 @@ function buildBatchWidgetDescriptor(
     return aggs.length > 0 ? aggs : undefined;
   })();
 
-  // Filters — also resolve cross-source filter column references
+  // Filters — resolve cross-source filter column references, and use the physical
+  // column name (not the logical alias) so the server WHERE clause references a real column.
   const rawFilters = d.filter ? flattenFilterNode(d.filter) : [];
   const filters = rawFilters.flatMap((pred) => {
     const r = resolve(pred.column);
-    return r.skip ? [] : [{ ...pred, column: r.column }];
+    if (r.skip) return [];
+    // columnAliases maps logical ID → physical column (e.g. 'expr-order-country' → 'customers.country').
+    // WHERE clauses must reference the physical column; the alias is only used in SELECT.
+    const physicalColumn = columnAliases[r.column] ?? r.column;
+    return [{ ...pred, column: physicalColumn }];
   });
 
   // ORDER BY — use physical column for expression fields (server sees physical name)
@@ -539,7 +616,7 @@ function buildBatchWidgetDescriptor(
     filters: filters.length > 0 ? filters : undefined,
     orderBy:
       orderByColumn && !orderByColumn.skip
-        ? [{ column: orderByColumn.column, direction: 'asc' as const }]
+        ? [{ column: columnAliases[orderByColumn.column] ?? orderByColumn.column, direction: 'asc' as const }]
         : undefined,
   };
 }

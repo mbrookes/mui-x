@@ -844,6 +844,47 @@
 - `Studio.tsx` wraps the tree in `<DndProvider backend={HTML5Backend}>` with `<StudioDragLayer />` inside.
 - All 35 `cursor: pointer` occurrences removed from 19 files — arrow cursor is the default everywhere; pointer is reserved for hyperlinks per UX convention.
 
+### AI-05 · AI conversation state persistence + named threads (schema v2)
+
+- Added `StudioAIState` / `StudioAIChatThread` interfaces to `stateTypes.ts`; `StudioState.ai?` is now part of the core state
+- `SerializedStudioState` updated to carry `aiState?: StudioAIState`; `serializeState` / `deserializeState` read/write thread history; `migrateState` bumps schema v1 → v2
+- `CURRENT_SCHEMA_VERSION` = 2; `migrateState` is now exported for consumer use
+- `StudioChatPanel` renders a thread selector (dropdown + "+" button) in the header; threads persist across sessions when the host persists `studioState`
+- New AI tool `rename_thread` (18th tool) auto-called by the AI after the first exchange to give each thread a meaningful name
+- `studioBackendAdapter` passes `threadId` and `threadName` to the middleware; `agenticLoop` exposes them in the system prompt
+
+### AI-06 · `privateMode` flag — suppress dashboard state from system prompt
+
+- Added `privateMode?: boolean` to `StudioAIConfig`; when `true`, the `<dashboard_state>` block is omitted from the system prompt — suitable for public or multi-tenant deployments
+- `BuildAISystemPromptOptions` interface exported from middleware for typed usage
+
+### AI-07 · `execute_query` tool + async skill interface + `StudioDataResolver`
+
+- Added `execute_query` as the 19th AI tool; accepts a `sql` string and optional `sourceId`
+- New `StudioDataResolver` / `StudioDataResolverResult` interfaces: app-provided resolver passed via `StudioAIHandlerOptions.dataResolver` allows the AI to run ad-hoc SQL against live data and incorporate results in responses
+- `agenticLoop` handles `execute_query` as a special async case (bypasses synchronous `executeToolOnState`)
+- `StudioAISkill.tool.execute` return type widened to `SkillExecuteResult | Promise<SkillExecuteResult>` (backward-compatible); loop wraps with `await Promise.resolve(…)`
+- `skillHandlers` in `handleAIChat` and `StudioAIHandlerOptions` now correctly forwarded to `runAgenticLoop`
+
+### AI-08 · Forecast / trend bands in chart widgets
+
+- Added `StudioWidgetForecast` interface and `forecast?` to `StudioWidgetConfig`; exported from `@mui/x-studio`
+- Client-side `forecastUtils.ts`: `linearRegression` (OLS), `extendLabels` (calendar-aware for YYYY / YYYY-MM / YYYY-MM-DD), `computeWidgetForecast` (extended labels + historical / forecast series + confidence bands), plus `pearsonCorrelation` / `interpretCorrelation`
+- New AI tool `set_widget_forecast` (20th tool): validates `chartType` must be `line` or `area`; sets `forecast` config via `updateWidget` mutation
+- `StudioChartWidget` renders forecast series using `@mui/x-charts` stacking API: historical series + translucent forecast continuation + stacked upper/lower confidence band (lower rendered transparent so only the band gap is shaded)
+
+### AI-09 · Correlation analysis insight type
+
+- Added `'correlation'` to `StudioInsightOptions.type` and `GenerateInsightRequest.insightType`
+- `buildCorrelationSummary(widget, state)` computes pairwise Pearson r for all numeric fields; if the widget has fewer than 2 numeric fields it borrows extras from the source (up to 3)
+- `generateCorrelationInsight()` runs a single LLM call with a correlation-specialist system prompt; exported from `@mui/x-studio`
+
+### AI-10 · AI-assisted field description generation (`generateFieldDescriptions`)
+
+- `generateFieldDescriptions(fields, config)` in `@mui/x-studio-ai-middleware` sends all fields (id, label, type, sample values) in a single batch LLM call
+- Returns `FieldDescriptionResult[]` (`{ id, aiDescription }`); robust JSON parsing handles models that wrap the array in an object
+- Exported from middleware index for use in data-panel or setup wizards
+
 ## 📋 Planned
 
 _Nothing remaining — all tracked requirements are complete or WONTFIX._

@@ -213,6 +213,7 @@ export type {
   StudioCustomWidgetDef,
   StudioCustomWidgetProps,
   StudioCustomWidgetSetupPanelProps,
+  StudioWidgetForecast,
 } from './models';
 
 // ─── Utility types ────────────────────────────────────────────────────────────

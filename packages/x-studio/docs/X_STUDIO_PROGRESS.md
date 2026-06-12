@@ -824,6 +824,26 @@
 - `useChartWidgetData.ts` derives `xFieldOrderedValues` from the field definition and passes it to all seven aggregation call sites; cache keys updated.
 - CRM `stage` field assigned `orderedValues: ['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost']` — Closed Lost placed last (after Closed Won) to show conversion loss alongside the active funnel.
 
+### BUG-04 · Avg Unit Margin KPI sparkline SQL error "no such column: date" (BL-175)
+
+- `resolveField()` fallback (case 6) returned `{ column: fieldId }` unmodified when a field couldn't be resolved — neither in the primary source, nor an expression, nor in any directly-related source. `orders.date` used as a page-level date filter on the `products` widget (orders is 2 hops away via order_items) was emitted verbatim into the WHERE clause.
+- Added `unresolved?: boolean` to `ResolvedField`; fallback now returns `{ column: fieldId, unresolved: true }`. Filter construction skips predicates where `r.unresolved` is set. SELECT columns still pass through for backward-compatibility.
+- Also fixed: `resolve()` inner function return type updated to include `unresolved?` so TypeScript propagates the flag correctly.
+
+### BUG-05 · Active Customers KPI SQL error "ambiguous column name: customers.country" on map click (BL-176)
+
+- Case 1b in `resolveField()` built two LEFT JOINs for cross-filters from expression fields on related sources. For `expr-order-country` on a CUSTOMERS widget, hop 2 looped back to the primary table (`LEFT JOIN customers`) — causing `customers` to appear twice and `customers.country` to be ambiguous.
+- Fixed: when `expression.joinSourceId === primarySourceId`, case 1b short-circuits and returns the physical column directly with no JOINs — the column is already on the primary table.
+
+### UX-45 · Replace HTML5 DnD with react-dnd; remove cursor: pointer (BL-177)
+
+- Native HTML5 DnD has an unfixable cursor limitation: Chrome locks the OS pointer before `dragstart` fires (~3 px movement threshold), making any cursor CSS set in `dragstart` ineffective. All prior workarounds (setting `cursor` in `mousedown`, `documentElement.style.cursor` inline, `GlobalStyles`) failed in practice.
+- `react-dnd` with `getEmptyImage({ captureDraggingState: true })` makes `isDragging = true` on `mousedown` — before Chrome's threshold — allowing CSS `cursor: grabbing` to be set at the correct moment.
+- New files: `studioWidgetDndTypes.ts` (typed drag item interfaces), `StudioDragLayer.tsx` (drag-layer cursor management via `useDragLayer` + `GlobalStyles`).
+- `StudioWidgetCard` and `AddWidgetView.WidgetTypeCard` migrated to `useDrag`; `InsertionPoint` and `WidgetGap` in `StudioCanvas` migrated to `useDrop`.
+- `Studio.tsx` wraps the tree in `<DndProvider backend={HTML5Backend}>` with `<StudioDragLayer />` inside.
+- All 35 `cursor: pointer` occurrences removed from 19 files — arrow cursor is the default everywhere; pointer is reserved for hyperlinks per UX convention.
+
 ## 📋 Planned
 
 _Nothing remaining — all tracked requirements are complete or WONTFIX._

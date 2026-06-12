@@ -349,18 +349,13 @@ interface DashboardLayoutProps {
  * - `StudioCanvas` — the widget grid
  * - `CanvasScrollContext` — scroll-to-bottom after adding widgets
  */
-function DashboardLayout({
-  adapterMode,
-  aiConfig,
-  dataset,
-  onSnackbar,
-  featureFlags,
-  onFeatureFlagsChange,
-  locale,
-  onLocaleChange,
-}: DashboardLayoutProps) {
+// react-doctor-disable-next-line react-doctor/no-giant-component, react-doctor/prefer-useReducer -- dashboard orchestration state is intentionally broad and not naturally reducible
+function DashboardLayout({ adapterMode, aiConfig, dataset, onSnackbar, featureFlags, onFeatureFlagsChange, locale, onLocaleChange }: DashboardLayoutProps) {
   const controller = useStudioController();
-  const localStorageKeyRef = React.useRef(getLocalStorageKey(dataset));
+  const localStorageKeyRef = React.useRef<string | null>(null);
+  if (localStorageKeyRef.current === null) {
+    localStorageKeyRef.current = getLocalStorageKey(dataset);
+  }
 
   // Register Cmd+Z / Cmd+Shift+Z keyboard shortcuts
   useStudioKeyboardShortcuts();
@@ -391,7 +386,7 @@ function DashboardLayout({
           try {
             const state = controller.getState();
             const serialized = serializeState(state);
-            localStorage.setItem(localStorageKeyRef.current, JSON.stringify(serialized));
+            localStorage.setItem(localStorageKeyRef.current!, JSON.stringify(serialized));
           } catch {
             // Ignore storage quota errors
           }
@@ -479,9 +474,11 @@ function DashboardLayout({
     console.info('[x-studio] Adapter mode enabled — all sources routed through simulatedServer');
     // Intentionally runs only on mount; adapterMode is read from URL and stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional mount-only effect
   }, []);
 
   // Server mode: when STUDIO_SERVER_URL is set, route all data through the dev server
+  // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- example app: fetch without a data-fetching library is acceptable here
   React.useEffect(() => {
     const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
     if (!serverUrl || adapterMode) {
@@ -504,6 +501,7 @@ function DashboardLayout({
     console.info(`[x-studio] Server mode enabled — queries routed to ${dataEndpoint}`);
     // Intentionally runs only on mount; env vars and adapterMode are stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional mount-only effect
   }, []);
 
   // Sync active page id to the URL ?page= query param
@@ -558,7 +556,7 @@ function DashboardLayout({
   const handleRedo = React.useCallback(() => controller.redo(), [controller]);
 
   const handleReset = React.useCallback(() => {
-    localStorage.removeItem(localStorageKeyRef.current);
+    localStorage.removeItem(localStorageKeyRef.current!);
     onSnackbar('Local changes cleared — reloading demo…', 'info');
     setTimeout(() => window.location.reload(), 800);
   }, [onSnackbar]);
@@ -739,6 +737,7 @@ function DashboardLayout({
 
 // ── Root app — creates the controller, then provides it ───────────────────────
 
+// react-doctor-disable-next-line react-doctor/no-giant-component, react-doctor/prefer-useReducer -- top-level orchestration state is intentionally broad and not naturally reducible
 export default function App() {
   const adapterMode = React.useMemo(() => getUrlAdapterParam(), []);
   const dataset = React.useMemo(() => getUrlDatasetParam(), []);
@@ -764,6 +763,7 @@ export default function App() {
       return;
     }
     loadOfficeSuppliesData().then((data) => setOsData(data));
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- dataset is stable for the lifetime of the example app
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show a loading indicator while the OS dataset is being fetched.

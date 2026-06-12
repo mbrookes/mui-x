@@ -22,6 +22,7 @@ export interface AddWidgetFabProps {
  */
 export function AddWidgetFab({ onWidgetAdded }: AddWidgetFabProps) {
   const controller = useStudioController();
+  // react-doctor-disable-next-line react-doctor/no-react19-deprecated-apis -- useContext is acceptable in this example until the library adopts use()
   const canvasScrollRef = React.useContext(CanvasScrollContext);
 
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);

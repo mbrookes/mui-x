@@ -39,6 +39,7 @@ interface TopNavBarProps {
   onLoad: () => void;
 }
 
+// react-doctor-disable-next-line react-doctor/no-giant-component -- top-level orchestration component; splitting would scatter related state
 export function TopNavBar({ chatId, onSettingsOpen, onSave, onLoad }: TopNavBarProps) {
   const controller = useStudioController();
   const mode = useStudioSelector(selectMode);
@@ -95,6 +96,7 @@ export function TopNavBar({ chatId, onSettingsOpen, onSave, onLoad }: TopNavBarP
     dragNavPageIdRef.current = null;
   }, []);
 
+  // react-doctor-disable-next-line react-doctor/advanced-event-handler-refs -- event handler updated via stable wrapper
   React.useEffect(() => {
     document.addEventListener('dragend', cancelDragNavTimer);
     return () => {

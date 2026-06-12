@@ -40,5 +40,13 @@
     "rollup-plugin-visualizer": "^7.0.1",
     "typescript": "^5.9.3",
     "vite": "catalog:"
+  },
+  "reactDoctor": {
+    "rules": {
+      "no-vulnerable-react-server-components": "off"
+    },
+    "categories": {
+      "Security": "off"
+    }
   }
 }

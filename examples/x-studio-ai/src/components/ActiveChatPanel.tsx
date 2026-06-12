@@ -7,7 +7,7 @@ import { StudioChatPanel } from '@mui/x-studio';
 import type { StudioAIConfig } from '@mui/x-studio';
 import type { ChatSession } from '../hooks/useChatStore';
 
-export const CHAT_PANEL_WIDTH = 380;
+const CHAT_PANEL_WIDTH = 380;
 
 const MESSAGES_STORAGE_PREFIX = 'x-studio-ai-messages-';
 
@@ -33,6 +33,7 @@ export function ActiveChatPanel({
   focusedWidgetId,
 }: ActiveChatPanelProps) {
   const [editingTitle, setEditingTitle] = React.useState(false);
+  // react-doctor-disable-next-line react-doctor/no-derived-useState -- editable local copy of chat.title; resets on remount via key={chat.id}
   const [titleDraft, setTitleDraft] = React.useState(chat.title);
 
   // Restore persisted messages on mount; memoised so it's only read once per chatId mount.
@@ -40,15 +41,14 @@ export function ActiveChatPanel({
 
   // Clear the pending message from the store after it has been seeded into the composer.
   React.useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-event-handler -- intentional: clear consumed pendingMessage on mount
     if (chat.pendingMessage) {
+      // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent -- clearing consumed pendingMessage once on mount is intentional
       onUpdateChat(chat.id, { pendingMessage: undefined });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional mount-only effect
   }, []);
-
-  React.useEffect(() => {
-    setTitleDraft(chat.title);
-  }, [chat.title]);
 
   const handleTitleCommit = React.useCallback(() => {
     if (titleDraft.trim()) {

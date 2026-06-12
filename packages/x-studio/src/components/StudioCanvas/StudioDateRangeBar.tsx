@@ -207,7 +207,7 @@ export function StudioDateRangeBar() {
         exclusive
         onChange={handlePresetChange}
         size="small"
-        aria-label="Date range preset"
+        aria-label={localeText.dateRangePresetAriaLabel}
         sx={{ flexShrink: 0 }}
       >
         {dateRangePresets.map((p) => (

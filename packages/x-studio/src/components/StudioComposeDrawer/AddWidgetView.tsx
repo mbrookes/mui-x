@@ -113,7 +113,7 @@ function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) {
                 setOpen(false);
                 setStatus('idle');
               }}
-              aria-label="Close"
+              aria-label={localeText.composeCloseAriaLabel}
             >
               <ExpandLessIcon sx={{ fontSize: 16 }} />
             </IconButton>

@@ -59,6 +59,13 @@ export { STUDIO_AI_TOOLS } from './studioAITools';
 // Built-in skills
 export { dashboardNarratorSkill, insightSuggestorSkill } from './studioSkills';
 
+// Field description generation
+export { generateFieldDescriptions } from './generateFieldDescriptions';
+export type {
+  FieldDescriptionInput,
+  FieldDescriptionResult,
+} from './generateFieldDescriptions';
+
 // Widget factory — pure TS, no React; used by executeToolOnState and re-exported for widgetUtils
 export { createDefaultWidget } from './widgetFactory';
 

@@ -274,7 +274,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
             }
           >
             <MenuItem value="">
-              <em>Auto</em>
+              <em>{localeText.kpiGranularityAutoLabel}</em>
             </MenuItem>
             {granularities.map((g) => (
               <MenuItem key={g.value} value={g.value}>

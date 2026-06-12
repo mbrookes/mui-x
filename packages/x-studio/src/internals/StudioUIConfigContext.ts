@@ -356,6 +356,7 @@ export interface StudioLocaleText {
 
   // ── KPI widget ─────────────────────────────────────────────────────────────
   kpiGrandTotalTooltip: string;
+  kpiGranularityAutoLabel: string;
 
   // ── Grid setup panel ──────────────────────────────────────────────────────
   gridSetupDataSourceLabel: string;
@@ -829,6 +830,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // KPI widget
   kpiGrandTotalTooltip:
     'Grand total \u2014 active filter widgets are not applied to this KPI. Enable Cross-filter mode in KPI settings to respect them.',
+  kpiGranularityAutoLabel: 'Auto',
 
   // Grid setup panel
   gridSetupDataSourceLabel: 'Data source',

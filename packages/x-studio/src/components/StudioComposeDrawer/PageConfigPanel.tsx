@@ -72,7 +72,7 @@ export function PageConfigPanel() {
       />
 
       <FormControl size="small" fullWidth>
-        <InputLabel>Padding</InputLabel>
+        <InputLabel>{localeText.pageConfigPaddingLabel}</InputLabel>
         <Select
           label={localeText.pageConfigPaddingLabel}
           value={pageTheme.cardPadding ?? 2}

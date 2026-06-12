@@ -855,3 +855,19 @@ A second related bug: even for expression fields on the *primary* source that re
 1. **Multi-hop JOIN resolution** — new case 1b in `resolveField`: when the filter field is a `JoinFieldExpression` on a related source, two LEFT JOINs are emitted: `primaryTable → exprField.sourceId` (hop 1) and `exprField.sourceId → joinSourceId` (hop 2). For the canonical case, ORDER_ITEMS queries with an `expr-order-country` cross-filter now emit `LEFT JOIN orders … LEFT JOIN customers …` and filter `WHERE customers.country = 'USA'`.
 2. **`ResolvedField.join → joins`** — changed from a single `JoinDescriptorInternal` to `JoinDescriptorInternal[]` to support the multi-hop case. All single-hop callers now return a one-element array.
 3. **Filters and ORDER BY use physical columns** — filter predicates and ORDER BY clauses now resolve the physical column via `columnAliases[r.column] ?? r.column` so that `WHERE customers.country` (not `WHERE expr-order-country`) is generated for any expression-field filter.
+
+
+✅ BL-173: Deals by Stage pipeline chart should be sorted in logical stage order (Prospecting → Closed Won). Also consider where Closed Lost goes.
+
+**Decision** — Closed Lost is placed last, after Closed Won. It is a terminal exit stage useful for showing conversion/loss volume but should be visually separated from the active funnel.
+
+**Fixed** — Introduced `orderedValues?: string[]` on `StudioDataField`. When set on a field used as a chart x-axis, Studio respects the declared sequence instead of sorting alphabetically. Values absent from the list are appended alphabetically at the end. `chartSortBy: 'value'` still overrides `orderedValues` when explicitly set.
+
+Changes:
+- `models/dataTypes.ts`: added `orderedValues?: string[]` to `StudioDataField`
+- `internals/chartAggregation.ts`: added `applyCategoryOrder()` helper and a `categoryOrder?: string[]` parameter to `aggregateByField`, `aggregateByTwoFields`, and `aggregateMultipleSeries`
+- `widgets/StudioChartWidget/useChartWidgetData.ts`: derives `xFieldOrderedValues` from `dataSource.fields` and passes it to all seven aggregation call sites; cache keys include the ordered values
+- `examples/x-studio-shared/src/crmData/generator.ts`: added `orderedValues: ['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost']` to the CRM deals `stage` field
+- `docs/data/studio/data/data-sources/data-sources.md`: added `orderedValues` row to the `StudioDataField` table
+- `docs/data/studio/widgets/chart/chart.md`: added "Category order" section with usage example
+- `docs/data/studio/comparison/comparison.md`: mentioned `orderedValues` alongside `chartSortBy` in chart features list

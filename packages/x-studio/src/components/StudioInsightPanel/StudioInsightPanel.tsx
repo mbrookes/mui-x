@@ -31,13 +31,6 @@ export interface StudioInsightPanelProps {
   sx?: SxProps<Theme>;
 }
 
-const TYPE_LABELS: Record<StudioInsightOptions['type'], string> = {
-  summary: 'Summary',
-  analysis: 'Analysis',
-  forecast: 'Forecast',
-  anomaly: 'Anomaly Explanation',
-};
-
 export function StudioInsightPanel(props: StudioInsightPanelProps) {
   const {
     insight,
@@ -52,6 +45,13 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
 
   const localeText = useStudioLocaleText();
   const [copied, setCopied] = React.useState(false);
+
+  const typeLabels: Record<StudioInsightOptions['type'], string> = {
+    summary: localeText.insightTypeSummary,
+    analysis: localeText.insightTypeAnalysis,
+    forecast: localeText.insightTypeForecast,
+    anomaly: localeText.insightTypeAnomaly,
+  };
 
   const handleCopy = React.useCallback(() => {
     if (!insight?.text) {
@@ -114,7 +114,7 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
                 '&:hover': { bgcolor: activeType === t ? 'primary.dark' : 'action.hover' },
               }}
             >
-              {TYPE_LABELS[t]}
+              {typeLabels[t]}
             </Box>
           ))}
         </Box>

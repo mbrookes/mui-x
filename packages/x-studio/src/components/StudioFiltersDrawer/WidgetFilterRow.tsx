@@ -136,8 +136,8 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
             renderInput={(params) => (
               <TextField
                 {...params}
-                label="Select a field…"
-                helperText="Field this filter applies to"
+                label={localeText.filterSelectField}
+                helperText={localeText.widgetFilterFieldHelperText}
               />
             )}
           />

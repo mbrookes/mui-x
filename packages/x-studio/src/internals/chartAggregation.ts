@@ -661,6 +661,35 @@ export function resolveChartRowsForAggregation(
   return result;
 }
 
+/**
+ * Sort `labels` in-place according to `categoryOrder`.
+ *
+ * Labels present in `categoryOrder` appear first, in the defined sequence.
+ * Labels absent from `categoryOrder` are appended at the end, sorted
+ * alphabetically among themselves.
+ * When `sortDirection` is `'desc'` the whole resulting list is reversed.
+ */
+function applyCategoryOrder(
+  labels: (string | number)[],
+  categoryOrder: string[],
+  sortDirection?: 'asc' | 'desc',
+): void {
+  const orderMap = new Map(categoryOrder.map((v, i) => [v, i]));
+  labels.sort((a, b) => {
+    const ai = orderMap.get(String(a)) ?? Infinity;
+    const bi = orderMap.get(String(b)) ?? Infinity;
+    if (ai !== bi) {
+      return ai - bi;
+    }
+    // Both absent from orderMap — sort alphabetically
+    return String(a).localeCompare(String(b));
+  });
+  if (sortDirection === 'desc') {
+    labels.reverse();
+  }
+}
+
+
 export function aggregateByField(
   rows: Row[],
   xField: string,
@@ -669,6 +698,7 @@ export function aggregateByField(
   yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
   sortBy?: 'category' | 'value',
   sortDirection?: 'asc' | 'desc',
+  categoryOrder?: string[],
 ): AggregatedData {
   const grouped = new Map<string | number, number>();
   const counts = new Map<string | number, number>();
@@ -730,6 +760,11 @@ export function aggregateByField(
       values: pairs.map((p) => p.value),
     };
   }
+  if (categoryOrder && categoryOrder.length > 0) {
+    applyCategoryOrder(labels, categoryOrder, sortDirection);
+    values = labels.map((label) => grouped.get(label) ?? 0);
+    return { labels, values };
+  }
   if (sortDirection === 'desc') {
     labels.reverse();
     values = labels.map((label) => grouped.get(label) ?? 0);
@@ -758,6 +793,7 @@ export function aggregateByTwoFields(
   xGroupBy?: XGroupBy,
   sortBy?: 'category' | 'value',
   sortDirection?: 'asc' | 'desc',
+  categoryOrder?: string[],
 ): MultiSeriesData {
   // First pass: collect all unique x values and series values
   const xValuesSet = new Set<string | number>();
@@ -815,6 +851,15 @@ export function aggregateByTwoFields(
         return val !== undefined ? val : null;
       });
     }
+  } else if (categoryOrder && categoryOrder.length > 0) {
+    applyCategoryOrder(labels, categoryOrder, sortDirection);
+    for (const seriesName of seriesNames) {
+      seriesData[seriesName] = labels.map((label) => {
+        const seriesMap = dataMap.get(label);
+        const val = seriesMap?.get(seriesName);
+        return val !== undefined ? val : null;
+      });
+    }
   } else if (sortDirection === 'desc') {
     labels = [...labels].reverse();
     for (const seriesName of seriesNames) {
@@ -844,6 +889,7 @@ export function aggregateMultipleSeries(
   xGroupBy?: XGroupBy,
   sortBy?: 'category' | 'value',
   sortDirection?: 'asc' | 'desc',
+  categoryOrder?: string[],
 ): MultiYSeriesData {
   const labelOrder: (string | number)[] = [];
   const labelSet = new Set<string | number>();
@@ -876,6 +922,8 @@ export function aggregateMultipleSeries(
       }))
       .sort((a, b) => (a.total - b.total) * dir)
       .map((p) => p.label);
+  } else if (categoryOrder && categoryOrder.length > 0) {
+    applyCategoryOrder(sortedLabels, categoryOrder, sortDirection);
   } else if (sortDirection === 'desc') {
     sortedLabels = [...sortedLabels].reverse();
   }

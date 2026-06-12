@@ -34,6 +34,16 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
   const chartSortBy = config.chartSortBy;
   const chartSortDirection = config.chartSortDirection;
 
+  // Canonical label order defined on the xField (e.g. pipeline stages).
+  // Used by aggregation functions when chartSortBy is not 'value'.
+  const xFieldOrderedValues = React.useMemo(() => {
+    const xField = config.xField;
+    if (!xField || !dataSource) {
+      return undefined;
+    }
+    return dataSource.fields.find((f) => f.id === xField)?.orderedValues;
+  }, [config.xField, dataSource]);
+
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
@@ -124,7 +134,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       enrichedRows,
-      `sfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}`,
+      `sfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () =>
         applyRankToSeriesFieldData(
           aggregateByTwoFields(
@@ -135,6 +145,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
             xGroupBy,
             chartSortBy,
             chartSortDirection,
+            xFieldOrderedValues,
           ),
           widgetRankFilter,
         ),
@@ -148,6 +159,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     widgetRankFilter,
     chartSortBy,
     chartSortDirection,
+    xFieldOrderedValues,
   ]);
 
   // Full series names from non-cross-filtered data (with rank applied).
@@ -162,7 +174,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       allEnrichedRows,
-      `asn:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}`,
+      `asn:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () =>
         applyRankToSeriesFieldData(
           aggregateByTwoFields(
@@ -173,6 +185,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
             xGroupBy,
             chartSortBy,
             chartSortDirection,
+            xFieldOrderedValues,
           ),
           widgetRankFilter,
         ).seriesNames,
@@ -186,6 +199,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     widgetRankFilter,
     chartSortBy,
     chartSortDirection,
+    xFieldOrderedValues,
   ]);
 
   // Always-resolved palette: used for stable per-series color assignment.
@@ -211,7 +225,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       enrichedRows,
-      `cd:${xField}:${activeYFields[0]}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}`,
+      `cd:${xField}:${activeYFields[0]}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () => {
         const raw = aggregateByField(
           enrichedRows,
@@ -221,6 +235,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
           config.yAggregation,
           chartSortBy,
           chartSortDirection,
+          xFieldOrderedValues,
         );
         return applyRankToAggregated(raw, widgetRankFilter);
       },
@@ -235,6 +250,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     config.yAggregation,
     chartSortBy,
     chartSortDirection,
+    xFieldOrderedValues,
   ]);
 
   // Multi-Y-field data (multiple explicit series)
@@ -246,7 +262,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       enrichedRows,
-      `myd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}`,
+      `myd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () => {
         const raw = aggregateMultipleSeries(
           enrichedRows,
@@ -255,6 +271,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
           xGroupBy,
           chartSortBy,
           chartSortDirection,
+          xFieldOrderedValues,
         );
         return applyRankToMultiSeries(raw, widgetRankFilter);
       },
@@ -267,6 +284,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     xGroupBy,
     chartSortBy,
     chartSortDirection,
+    xFieldOrderedValues,
   ]);
 
   // Full (baseline) aggregations — used for ghost rendering when cross-filters are active.
@@ -282,7 +300,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       allEnrichedRows,
-      `acd:${xField}:${activeYFields[0]}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}`,
+      `acd:${xField}:${activeYFields[0]}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () => {
         const raw = aggregateByField(
           allEnrichedRows,
@@ -292,6 +310,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
           config.yAggregation,
           chartSortBy,
           chartSortDirection,
+          xFieldOrderedValues,
         );
         return applyRankToAggregated(raw, widgetRankFilter);
       },
@@ -307,6 +326,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     config.yAggregation,
     chartSortBy,
     chartSortDirection,
+    xFieldOrderedValues,
   ]);
 
   const allSeriesFieldData = React.useMemo(() => {
@@ -322,7 +342,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       allEnrichedRows,
-      `asfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}`,
+      `asfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () =>
         applyRankToSeriesFieldData(
           aggregateByTwoFields(
@@ -333,6 +353,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
             xGroupBy,
             chartSortBy,
             chartSortDirection,
+            xFieldOrderedValues,
           ),
           widgetRankFilter,
         ),
@@ -347,6 +368,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     widgetRankFilter,
     chartSortBy,
     chartSortDirection,
+    xFieldOrderedValues,
   ]);
 
   const allMultiYData = React.useMemo(() => {
@@ -360,7 +382,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       allEnrichedRows,
-      `amyd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}`,
+      `amyd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () => {
         const raw = aggregateMultipleSeries(
           allEnrichedRows,
@@ -369,6 +391,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
           xGroupBy,
           chartSortBy,
           chartSortDirection,
+          xFieldOrderedValues,
         );
         return applyRankToMultiSeries(raw, widgetRankFilter);
       },
@@ -382,6 +405,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     xGroupBy,
     chartSortBy,
     chartSortDirection,
+    xFieldOrderedValues,
   ]);
 
   // Data for scatter charts

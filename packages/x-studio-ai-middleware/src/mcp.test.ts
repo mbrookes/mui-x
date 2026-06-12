@@ -233,4 +233,52 @@ describe('buildStudioMcpServer', () => {
       ).rejects.toThrow(/Unknown prompt/);
     });
   });
+
+  describe('completion/complete — URI autocomplete', () => {
+    const COMPLETE = 'completion/complete';
+
+    it('returns sourceId completions for studio://schema/ prefix', async () => {
+      const stateBox = { current: makeStableState() };
+      const server = buildStudioMcpServer(stateBox);
+      const result = await getHandler(server, COMPLETE)({
+        params: { ref: { type: 'ref/resource', uri: 'studio://schema/' }, argument: { name: 'uri', value: 'studio://schema/' } },
+        method: COMPLETE,
+      });
+      const values = (result as any).completion.values as string[];
+      expect(values).toContain('studio://schema/source-orders');
+    });
+
+    it('filters completions by partial sourceId', async () => {
+      const stateBox = { current: makeStableState() };
+      const server = buildStudioMcpServer(stateBox);
+      const result = await getHandler(server, COMPLETE)({
+        params: { ref: { type: 'ref/resource', uri: 'studio://schema/source-ord' }, argument: { name: 'uri', value: 'studio://schema/source-ord' } },
+        method: COMPLETE,
+      });
+      const values = (result as any).completion.values as string[];
+      expect(values).toContain('studio://schema/source-orders');
+    });
+
+    it('returns data completions for studio://data/ prefix when source has tableName', async () => {
+      const stateBox = { current: makeStableState() };
+      const server = buildStudioMcpServer(stateBox);
+      const result = await getHandler(server, COMPLETE)({
+        params: { ref: { type: 'ref/resource', uri: 'studio://data/' }, argument: { name: 'uri', value: 'studio://data/' } },
+        method: COMPLETE,
+      });
+      const values = (result as any).completion.values as string[];
+      expect(values).toContain('studio://data/source-orders');
+    });
+
+    it('returns empty values for unknown URI prefix', async () => {
+      const stateBox = { current: makeStableState() };
+      const server = buildStudioMcpServer(stateBox);
+      const result = await getHandler(server, COMPLETE)({
+        params: { ref: { type: 'ref/resource', uri: 'studio://unknown/' }, argument: { name: 'uri', value: 'studio://unknown/' } },
+        method: COMPLETE,
+      });
+      const values = (result as any).completion.values as string[];
+      expect(values).toHaveLength(0);
+    });
+  });
 });

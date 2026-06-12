@@ -746,11 +746,12 @@ The documentation claims several AI features that were not in the original code:
 | `onToolError` callback                  | `tools.md` | ✅ Implemented (`studioAdapter.ts:766`)                 | —                               |
 | `extraTools` / `StudioAiTool`           | `tools.md` | ✅ Implemented (`studioAdapter.ts:52,455,734`)          | —                               |
 
-**Current tool count:** 15 tools — `get_dashboard_state`, `add_page`, `rename_page`, `remove_page`,
+**Current tool count:** 19 tools — `get_dashboard_state`, `add_page`, `rename_page`, `remove_page`,
 `set_active_page`, `set_dashboard_title`, `add_widget`, `update_widget`, `remove_widget`,
 `set_widget_layout`, `set_widget_width`, `add_page_filter`, `remove_page_filter`,
-`add_widget_filter`, `remove_widget_filter`.  
-Source: `packages/x-studio/src/StudioChatPanel/studioAITools.ts`
+`add_widget_filter`, `remove_widget_filter`, `summarise_page`, `apply_bulk_update`,
+`rename_thread`, `execute_query`, `set_widget_forecast`.  
+Source: `packages/x-studio-ai-middleware/src/studioAITools.ts`
 
 ### 🔴 Feature Status vs Competitors
 
@@ -764,13 +765,16 @@ Source: `packages/x-studio/src/StudioChatPanel/studioAITools.ts`
 | **Page navigation tools** (`set_active_page`, `rename_page`, `remove_page`) | P1       | ✅ Implemented (remove gated by confirmation)           | AG Grid Studio, Docs claim                            |
 | **Data source / field metadata** (`aiDescription`)                          | P1       | ✅ `StudioDataSource.aiDescription` + per-field         | AG Grid Studio (`aiDescription`), Reveal BI (catalog) |
 | **`onAiRequest` hook** on widget card                                       | P1       | ✅ Consumer-provided prop on `StudioWidgetCard`         | —                                                     |
-| **AI conversation state persistence**                                       | P1       | 🟡 `x-studio-ai` example only (localStorage)            | AG Grid Studio                                        |
-| **Named conversation threads**                                              | P2       | 🟡 `x-studio-ai` example only                           | AG Grid Studio                                        |
+| **AI conversation state persistence**                                       | P1       | ✅ Core `StudioState.ai` (schema v2), serialize/migrate | AG Grid Studio                                        |
+| **Named conversation threads**                                              | P2       | ✅ Thread selector UI + `rename_thread` tool (auto)     | AG Grid Studio                                        |
 | **`allowedTools` / `extraTools`** (API completeness)                        | P1       | ✅ Implemented (`studioAdapter.ts`)                     | AG Grid Studio (custom widget AI metadata)            |
-| **MCP server** for x-studio                                                 | P1       | ❌ Not implemented                                      | Tableau, Metabase, ThoughtSpot, Sisense, Hex          |
-| **Data question answering** (`execute_query` equivalent)                    | P2       | ❌ Not implemented                                      | AG Grid Studio (Data agent)                           |
-| **Forecasting / trend bands** in charts                                     | P2       | ❌ Not implemented                                      | Highcharts Orbit, Reveal BI                           |
-| **`privateMode`** flag (suppress query logging)                             | P2       | ❌ Not implemented                                      | DataGrid AI Assistant                                 |
+| **`skillHandlers` in `handleAIChat`**                                       | P1       | ✅ `StudioAIHandlerOptions.skillHandlers`               | —                                                     |
+| **MCP server** for x-studio                                                 | P1       | 🟡 `mcp.ts` in middleware — work in progress            | Tableau, Metabase, ThoughtSpot, Sisense, Hex          |
+| **Data question answering** (`execute_query`)                               | P2       | ✅ `execute_query` tool + `StudioDataResolver`          | AG Grid Studio (Data agent)                           |
+| **Forecasting / trend bands** in charts                                     | P2       | ✅ `StudioWidgetForecast` + `set_widget_forecast` tool  | Highcharts Orbit, Reveal BI                           |
+| **`privateMode`** flag (suppress dashboard state in system prompt)          | P2       | ✅ `StudioAIConfig.privateMode`                         | DataGrid AI Assistant                                 |
+| **Correlation analysis insight type**                                       | P2       | ✅ `generateCorrelationInsight` + Pearson r client-side | Highcharts Orbit                                      |
+| **AI-assisted field description generation**                                | P2       | ✅ `generateFieldDescriptions` (batch LLM call)         | Luzmo Metadata Agent, ThoughtSpot SpotterModel        |
 | **Token cost governance**                                                   | P3       | ❌ Not implemented                                      | Reveal BI (per-tenant/per-user limits)                |
 
 ### 🟡 Moderate: Remaining Code Quality Issues
@@ -862,53 +866,19 @@ All three functions are exported publicly from `src/index.ts:245-247` for consum
 
 ---
 
-### Phase 3: Conversation State Persistence (Priority 1) 🟡 PARTIAL
+### ~~Phase 3: Conversation State Persistence~~ ✅ DONE
 
-AG Grid Studio's key advantage: the full AI conversation history persists alongside the dashboard state via `getState()`/`setState()`.[^39]
+AI conversation state is now part of core `StudioState`:
 
-**Current state (`x-studio-ai` example):** The `examples/x-studio-ai` app demonstrates full multi-session persistence using localStorage:
+- `StudioState.ai?: StudioAIState` — threads keyed by ID, each with `ChatMessage[]`
+- `schemaVersion` bumped to `2`; v1→v2 migration is a no-op (additive field)
+- `serializeState`/`deserializeState` include the `ai` field
+- `StudioChatPanel` reads/writes threads via `controller.setState`
 
-- Per-chat conversation history via `slotProps.chatBox.onMessagesChange` (key: `x-studio-ai-messages-{chatId}`)
-- Per-chat dashboard state via `controller.subscribe()` + debounce auto-save
-- Chat session metadata (title, description, favourites flag) in `useChatStore`
-- AI-generated chat titles via a secondary LLM call (`useGenerateChatTitle`)
-
-**Remaining work for core integration in `StudioChatPanel`:**
-
-#### 3.1 Include AI State in `serializeState`/`deserializeState`
-
-```typescript
-interface StudioState {
-  // existing...
-  ai?: StudioAIState; // NEW: serialised conversation history
-}
-
-interface StudioAIState {
-  threads: StudioAIChatThread[];
-}
-
-interface StudioAIChatThread {
-  id: string;
-  name: string;
-  messages: ChatMessage[];
-  createdAt: string;
-}
-```
-
-This enables:
-
-- Pre-loaded demo conversations (show AI building the dashboard)
-- Cross-session memory (user continues conversation from yesterday)
-- Shareable dashboards with embedded AI context
-
-#### 3.2 Named Conversation Threads in Core `StudioChatPanel`
-
-Add a thread selector to the `StudioChatPanel` header:
-
-- "+" creates new thread; dropdown shows thread history
-- Each thread is independent (separate message history)
-- AI can `rename_thread` (new tool) based on conversation topic
-- Thread names appear in `set_widget_layout`-style conversations as context
+**Thread management:**
+- Thread selector UI in `StudioChatPanel` header (dropdown by `updatedAt`, "+" for new thread)
+- `rename_thread` AI tool — called automatically after the first message; keeps names ≤ 40 chars
+- `renameAIThread` `StateMutation` propagated via SSE → applied client-side
 
 ---
 
@@ -980,59 +950,61 @@ This would make x-studio accessible from Claude Desktop, Claude Code, Cursor, VS
 
 ---
 
-### Phase 7: Additional Enhancements (Priority 2–3)
+### ~~Phase 7: Additional Enhancements~~ ✅ DONE (except voice input and token governance)
 
 #### 7.1 Voice Input
 
 Add browser SpeechRecognition API support to `StudioChatPanel` (same approach as the DataGrid AI assistant which already implements this).[^41]
 
-#### 7.2 Forecast / Trend Bands in Charts
+#### ~~7.2 Forecast / Trend Bands in Charts~~ ✅ DONE
 
-Extend the chart widget to support AI-generated or statistical forecast bands:
+`StudioWidgetForecast` added to `StudioWidgetConfig`:
 
 ```typescript
-interface StudioChartConfig {
-  // existing...
-  forecast?: {
-    enabled: boolean;
-    periods: number; // how many periods forward
-    method: 'linear' | 'ai'; // linear regression (client-side) or LLM-based
-    showConfidenceBands: boolean;
-  };
+interface StudioWidgetForecast {
+  enabled: boolean;
+  periods?: number;         // default 3
+  method?: 'linear';        // OLS linear regression
+  showConfidenceBands?: boolean; // ±1 std error shaded band
 }
 ```
 
-Mirrors Highcharts Orbit's Forecast feature (linear regression + moving averages + confidence bands).
+`set_widget_forecast` AI tool updates `config.forecast`. `StudioChartWidget` renders
+a dashed forecast line (and optional confidence band) for `chartType: 'line' | 'area'`.
+Client-side computation via `forecastUtils.ts` (no external deps).
 
-#### 7.3 `privateMode` Flag
+#### ~~7.3 `privateMode` Flag~~ ✅ DONE
 
 ```typescript
-interface StudioAIConfig {
-  // existing...
-  privateMode?: boolean; // suppress logging of dashboard state in system prompt
-}
+// StudioAIConfig (client)
+privateMode?: boolean;
+
+// AgenticLoopOptions / StudioAIHandlerOptions (server)
+privateMode?: boolean;
+
+// buildAISystemPrompt options
+options?: BuildAISystemPromptOptions; // { privateMode?: boolean }
 ```
 
-Mirrors DataGrid AI's `privateMode` option.[^42]
+When `true`, `<dashboard_state>` is omitted from the system prompt. Wire type:
+`StudioAIRequest.privateMode` forwarded from client through the SSE endpoint.
 
-#### 7.4 Correlation Analysis Widget (or Chart Annotation)
+#### ~~7.4 Correlation Analysis~~ ✅ DONE
 
-Implement Pearson correlation between data series as a client-side compute, surfaced either:
+Pearson r correlation between numeric field pairs as a new `'correlation'` insight type:
 
-- As a new insight type in the AI Insights API
-- As a `correlations` section in the chart widget's analyze menu
+- `pearsonCorrelation(xs, ys)` + `interpretCorrelation(r)` in `forecastUtils.ts`
+- `buildCorrelationSummary(widget, state)` computes pairwise r and formats as a text table
+- `generateCorrelationInsight(widgetId, controller, aiConfig)` — passes matrix to LLM
+- `generateWidgetInsight(..., { type: 'correlation' })` delegates to it automatically
 
-Mirrors Highcharts Orbit's Correlations feature (Pearson coefficient between all series pairs).
+#### ~~7.5 AI-Assisted Semantic Model Suggestions~~ ✅ DONE
 
-#### 7.5 AI-Assisted Semantic Model Suggestions
+`generateFieldDescriptions(sourceLabel, fields, options)` in `@mui/x-studio-ai-middleware`:
 
-When a user connects a data source, trigger an AI call to:
-
-- Suggest field labels based on field names
-- Generate `aiDescription` values for each field
-- Recommend relationship definitions (foreign key detection)
-
-Mirrors Luzmo's Metadata Agent API and ThoughtSpot SpotterModel.
+- Single batch LLM call returns `{ id, aiDescription }` for all fields
+- Result can be spread into `StudioDataField.aiDescription` arrays
+- Robust JSON parsing; validates response schema before returning
 
 ---
 

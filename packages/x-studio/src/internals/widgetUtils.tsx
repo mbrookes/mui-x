@@ -2,11 +2,14 @@ import * as React from 'react';
 
 import type {
   StudioDataSource,
+  StudioFilterState,
   StudioGridColumn,
   StudioKpiAggregation,
   StudioWidget,
   StudioWidgetKind,
 } from '../models';
+import { isRelativeDateValue } from './filterUtils';
+import type { RelativeDateValue } from './filterTypes';
 import { formatFieldValue } from './numberFormat';
 import { TextWidgetIcon } from '../icons/TextWidgetIcon';
 import { KpiWidgetIcon } from '../icons/KpiWidgetIcon';
@@ -179,6 +182,103 @@ function summarizeFieldLabels(labels: string[], maxVisible = 3) {
   }
 
   return `${labels.slice(0, maxVisible).join(', ')} +${labels.length - maxVisible} more`;
+}
+
+const UNIT_LABELS: Record<RelativeDateValue['unit'], [string, string]> = {
+  year: ['year', 'years'],
+  month: ['month', 'months'],
+  week: ['week', 'weeks'],
+  day: ['day', 'days'],
+  hour: ['hour', 'hours'],
+  minute: ['minute', 'minutes'],
+  second: ['second', 'seconds'],
+};
+
+/**
+ * Returns a compact human-readable label for a date filter value,
+ * e.g. "Last 12 months", "Next 7 days", or a formatted absolute date.
+ */
+export function formatDateFilterLabel(filter: StudioFilterState): string {
+  const { value, value2, operator } = filter;
+
+  if (operator === 'between') {
+    const range = value as { from?: unknown; to?: unknown } | null;
+    const from = range?.from;
+    const to = range?.to;
+    if (isRelativeDateValue(from) && isRelativeDateValue(to)) {
+      return `${formatRelativeDateValue(from)} – ${formatRelativeDateValue(to)}`;
+    }
+    if (from && to) {
+      return `${formatAbsoluteDate(from)} – ${formatAbsoluteDate(to)}`;
+    }
+    if (from) {
+      return `From ${isRelativeDateValue(from) ? formatRelativeDateValue(from) : formatAbsoluteDate(from)}`;
+    }
+    return '';
+  }
+
+  if (isRelativeDateValue(value)) {
+    const label = formatRelativeDateValue(value);
+    if (operator === 'less_than_or_equal' || operator === 'less_than') {
+      return `Up to ${label.toLowerCase()}`;
+    }
+    return label;
+  }
+
+  if (operator === 'greater_than_or_equal' || operator === 'greater_than') {
+    return `Since ${formatAbsoluteDate(value)}`;
+  }
+  if (operator === 'less_than_or_equal' || operator === 'less_than') {
+    if (value2 !== undefined && value2 !== null) {
+      return `${formatAbsoluteDate(value)} – ${formatAbsoluteDate(value2)}`;
+    }
+    return `Until ${formatAbsoluteDate(value)}`;
+  }
+
+  return '';
+}
+
+function formatRelativeDateValue(rel: RelativeDateValue): string {
+  const [singular, plural] = UNIT_LABELS[rel.unit] ?? [rel.unit, `${rel.unit}s`];
+  const unitLabel = rel.amount === 1 ? singular : plural;
+  if (rel.direction === 'past') {
+    return `Last ${rel.amount} ${unitLabel}`;
+  }
+  return `Next ${rel.amount} ${unitLabel}`;
+}
+
+function formatAbsoluteDate(value: unknown): string {
+  if (!value) {
+    return '';
+  }
+  const d = new Date(String(value));
+  if (Number.isNaN(d.getTime())) {
+    return String(value);
+  }
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/**
+ * Returns an auto-generated subtitle for a KPI widget based on its date filter.
+ * Returns `null` if no relevant date filter is found.
+ */
+export function inferKpiDateSubtitle(
+  widget: StudioWidget,
+  filters: StudioFilterState[],
+): string | null {
+  if (widget.kind !== 'kpi') {
+    return null;
+  }
+  const relevant = filters.filter(
+    (f) =>
+      (f.scope === 'page' || (f.scope === 'widget' && f.widgetId === widget.id)) &&
+      (f.fieldType === 'date' || f.fieldType === 'datetime'),
+  );
+  const dateFilter = relevant[0];
+  if (!dateFilter) {
+    return null;
+  }
+  return formatDateFilterLabel(dateFilter) || null;
 }
 
 /**

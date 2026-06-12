@@ -152,7 +152,7 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
     <CollapsibleSection title={localeText.filterInteractiveSectionTitle}>
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ px: 1, pb: 1 }}>
-          No interactive filters active. Use filter widgets on the canvas to set filters.
+          {localeText.filterSectionNoInteractiveFilters}
         </Typography>
       ) : (
         <Stack spacing={1} sx={{ pb: 0.5 }}>
@@ -162,7 +162,9 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
               : null;
             let displayValue: string;
             if (Array.isArray(filter.value)) {
-              displayValue = `${(filter.value as unknown[]).length} selected`;
+              displayValue = localeText.filterSectionSelectedCount(
+                (filter.value as unknown[]).length,
+              );
             } else if (typeof filter.value === 'object' && filter.value !== null) {
               displayValue = Object.entries(filter.value as Record<string, unknown>)
                 .flatMap(([k, v]) => (v != null ? [`${k}: ${String(v)}`] : []))
@@ -253,8 +255,7 @@ export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }
     <CollapsibleSection title={localeText.filterCrossSectionTitle} secondaryAction={clearAction}>
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ px: 1, pb: 1 }}>
-          No cross-filters active. Click on chart elements or select grid rows to create
-          cross-filters.
+          {localeText.filterSectionNoCrossFilters}
         </Typography>
       ) : (
         <Stack spacing={1} sx={{ pb: 0.5 }}>
@@ -276,11 +277,11 @@ export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }
                 }}
               >
                 <Typography variant="body2">
-                  {fieldLabel} = {String(filter.value)}
+                  {localeText.filterSectionValueDisplay(fieldLabel, String(filter.value))}
                 </Typography>
                 {widgetTitle && (
                   <Typography variant="caption" color="text.secondary">
-                    From: {widgetTitle}
+                    {localeText.filterSectionSourcePrefix(widgetTitle)}
                   </Typography>
                 )}
                 <Tooltip title={localeText.filterRemoveCrossFilter}>

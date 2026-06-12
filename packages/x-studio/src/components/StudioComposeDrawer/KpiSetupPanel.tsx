@@ -3,7 +3,6 @@ import * as React from 'react';
 import {
   Box,
   Button,
-  Collapse,
   FormControl,
   InputLabel,
   MenuItem,
@@ -15,356 +14,24 @@ import {
   ToggleButtonGroup,
   Typography,
 } from '@mui/material';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FunctionsIcon from '@mui/icons-material/Functions';
 import {
   useStudioController,
   useStudioSelector,
   selectWidgets,
   selectDataSources,
-  selectFilters,
-  selectRelationships,
   selectExpressionFields,
   useStudioLocaleText,
 } from '../../context';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
-import { fieldHasCapability } from '../../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../../internals/chartUtils';
 import type { StudioKpiAggregation, StudioWidgetConfig, StudioCrossFilterMode } from '../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { SetupSection } from './SetupSection';
 import { MetricRefInput } from '../StudioFiltersDrawer/MetricRefInput';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
-
-function getKpiGranularities(localeText: ReturnType<typeof useStudioLocaleText>) {
-  return [
-    { value: 'day', label: localeText.timeGranDay },
-    { value: 'week', label: localeText.timeGranWeek },
-    { value: 'month', label: localeText.timeGranMonth },
-    { value: 'quarter', label: localeText.timeGranQuarter },
-    { value: 'year', label: localeText.timeGranYear },
-  ] satisfies {
-    value: NonNullable<StudioWidgetConfig['kpiSparklineGranularity']>;
-    label: string;
-  }[];
-}
-
-/**
- * A collapsible section with a labeled header row containing a switch toggle on the
- * right and an expand/collapse chevron on the left.  The switch turning ON also
- * expands the panel; turning OFF collapses it.  The chevron (and header row) toggle
- * expanded state independently when the switch is already on.
- */
-function CollapsibleFeatureSection({
-  label,
-  enabled,
-  onToggle,
-  children,
-}: {
-  label: string;
-  enabled: boolean;
-  onToggle: (next: boolean) => void;
-  children: React.ReactNode;
-}) {
-  const [expanded, setExpanded] = React.useState(false);
-
-  const handleSwitch = (next: boolean) => {
-    onToggle(next);
-    if (next) {
-      setExpanded(true);
-    } else {
-      setExpanded(false);
-    }
-  };
-
-  const handleHeaderClick = () => {
-    setExpanded((prev) => !prev);
-  };
-
-  const isOpen = expanded;
-  const Chevron = isOpen ? ExpandMoreIcon : ChevronRightIcon;
-
-  return (
-    <Box
-      sx={{
-        bgcolor: (theme) =>
-          theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-        borderRadius: 1,
-        overflow: 'hidden',
-      }}
-    >
-      {/* Header row */}
-      <Box
-        onClick={handleHeaderClick}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.5,
-          px: 1,
-          py: 0.5,
-          cursor: 'default',
-          userSelect: 'none',
-        }}
-      >
-        <Chevron
-          sx={{
-            fontSize: 18,
-            color: 'text.secondary',
-            flexShrink: 0,
-          }}
-        />
-        <Typography
-          variant="body2"
-          sx={{ flexGrow: 1, color: enabled ? 'text.primary' : 'text.disabled' }}
-        >
-          {label}
-        </Typography>
-        {/* Stop click from toggling expand when clicking the switch */}
-        <Box onClick={(evt) => evt.stopPropagation()}>
-          <Switch
-            size="small"
-            checked={enabled}
-            onChange={(evt) => handleSwitch(evt.target.checked)}
-          />
-        </Box>
-      </Box>
-
-      {/* Collapsible content */}
-      <Collapse in={isOpen}>
-        <Stack
-          spacing={1.5}
-          sx={{
-            px: 1.5,
-            pb: 1.5,
-            opacity: enabled ? 1 : 0.45,
-            pointerEvents: enabled ? 'auto' : 'none',
-          }}
-        >
-          {children}
-        </Stack>
-      </Collapse>
-    </Box>
-  );
-}
-
-function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConfig }) {
-  const { widgetId, config } = props;
-  const controller = useStudioController();
-  const localeText = useStudioLocaleText();
-  const granularities = getKpiGranularities(localeText);
-  const dataSources = useStudioSelector(selectDataSources);
-  const filters = useStudioSelector(selectFilters);
-  const widget = useStudioSelector(selectWidgets)[widgetId];
-
-  // Auto-detected date filter field
-  const sourceId = widget?.sourceId;
-  const source = sourceId ? dataSources[sourceId] : undefined;
-  const relationships = useStudioSelector(selectRelationships);
-
-  // Collect date fields from primary source + all directly related sources
-  const allDateFieldsWithJoined = React.useMemo<DataSourceFieldEntry[]>(() => {
-    if (!source || !sourceId) {
-      return [];
-    }
-    const result: DataSourceFieldEntry[] = [];
-    const seen = new Set<string>();
-    for (const f of source.fields) {
-      if (fieldHasCapability(f, 'temporal')) {
-        result.push({
-          id: f.id,
-          label: f.label,
-          type: f.type,
-          sourceId,
-          sourceLabel: source.label,
-        });
-        seen.add(`${f.id}:${sourceId}`);
-      }
-    }
-    for (const rel of relationships) {
-      let relatedId: string | null = null;
-      if (rel.sourceId === sourceId) {
-        relatedId = rel.targetId;
-      } else if (rel.targetId === sourceId) {
-        relatedId = rel.sourceId;
-      }
-      if (!relatedId) {
-        continue;
-      }
-      const relSource = dataSources[relatedId];
-      if (!relSource) {
-        continue;
-      }
-      for (const f of relSource.fields) {
-        const key = `${f.id}:${relatedId}`;
-        if (fieldHasCapability(f, 'temporal') && !seen.has(key)) {
-          seen.add(key);
-          result.push({
-            id: f.id,
-            label: f.label,
-            type: f.type,
-            sourceId: relatedId!,
-            sourceLabel: relSource.label,
-          });
-        }
-      }
-    }
-    return result;
-  }, [source, sourceId, relationships, dataSources]);
-
-  const autoDateFilter = React.useMemo(() => {
-    if (!sourceId) {
-      return null;
-    }
-    const relevant = filters.filter(
-      (f) => f.scope === 'page' || (f.scope === 'widget' && f.widgetId === widgetId),
-    );
-    return (
-      relevant.find((f) => {
-        return allDateFieldsWithJoined.some(
-          (df) => df.id === f.field && (!f.filterSourceId || f.filterSourceId === df.sourceId),
-        );
-      }) ?? null
-    );
-  }, [filters, sourceId, widgetId, allDateFieldsWithJoined]);
-
-  const autoFieldLabel = autoDateFilter
-    ? allDateFieldsWithJoined.find((f) => f.id === autoDateFilter.field)?.label
-    : null;
-
-  // The composite value stored in the select: "sourceId:fieldId" (or just "fieldId" for primary)
-  // — kept for reference but no longer used by the Select (now Autocomplete uses fieldId directly)
-
-  const plotType = config.kpiSparklinePlotType ?? 'line';
-  const isGauge = plotType === 'gauge';
-
-  return (
-    <React.Fragment>
-      {!isGauge &&
-        (autoDateFilter ? (
-          <Typography variant="caption" color="text.secondary">
-            Using date filter: <strong>{autoFieldLabel}</strong>
-          </Typography>
-        ) : (
-          <DataSourceFieldSelect
-            value={config.kpiSparklineField ?? ''}
-            onChange={(fieldId, fSourceId) => {
-              controller.updateWidgetConfig(widgetId, {
-                kpiSparklineField: fieldId || undefined,
-                kpiSparklineSourceId: fieldId && fSourceId !== sourceId ? fSourceId : undefined,
-              });
-            }}
-            fields={allDateFieldsWithJoined}
-            label={localeText.kpiSetupTimeFieldLabel}
-          />
-        ))}
-
-      {!isGauge && (
-        <FormControl size="small" fullWidth>
-          <InputLabel>{localeText.kpiSetupGranularityLabel}</InputLabel>
-          <Select
-            label={localeText.kpiSetupGranularityLabel}
-            value={config.kpiSparklineGranularity ?? ''}
-            onChange={(event) =>
-              controller.updateWidgetConfig(widgetId, {
-                kpiSparklineGranularity:
-                  (event.target.value as StudioWidgetConfig['kpiSparklineGranularity']) ||
-                  undefined,
-              })
-            }
-          >
-            <MenuItem value="">
-              <em>{localeText.kpiGranularityAutoLabel}</em>
-            </MenuItem>
-            {granularities.map((g) => (
-              <MenuItem key={g.value} value={g.value}>
-                {g.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      )}
-
-      <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.kpiSetupPlotTypeLabel}</InputLabel>
-        <Select
-          label={localeText.kpiSetupPlotTypeLabel}
-          value={plotType}
-          onChange={(event) =>
-            controller.updateWidgetConfig(widgetId, {
-              kpiSparklinePlotType: event.target.value as 'line' | 'bar' | 'gauge',
-            })
-          }
-        >
-          <MenuItem value="line">{localeText.kpiSetupChartLine}</MenuItem>
-          <MenuItem value="bar">{localeText.kpiSetupChartBar}</MenuItem>
-          <MenuItem value="gauge">{localeText.kpiSetupChartGauge}</MenuItem>
-        </Select>
-      </FormControl>
-
-      {plotType === 'gauge' && (
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField
-            size="small"
-            label={localeText.kpiSetupMinLabel}
-            type="number"
-            value={config.kpiSparklineGaugeMin ?? 0}
-            onChange={(event) => {
-              const n = Number(event.target.value);
-              if (Number.isFinite(n)) {
-                controller.updateWidgetConfig(widgetId, { kpiSparklineGaugeMin: n });
-              }
-            }}
-            sx={{ flex: 1 }}
-          />
-          <TextField
-            size="small"
-            label={localeText.kpiSetupMaxLabel}
-            type="number"
-            value={config.kpiSparklineGaugeMax ?? 100}
-            onChange={(event) => {
-              const n = Number(event.target.value);
-              if (Number.isFinite(n)) {
-                controller.updateWidgetConfig(widgetId, { kpiSparklineGaugeMax: n });
-              }
-            }}
-            sx={{ flex: 1 }}
-          />
-        </Box>
-      )}
-
-      {plotType === 'line' && (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="body2">Fill area</Typography>
-          <Switch
-            size="small"
-            checked={config.kpiSparklineArea ?? false}
-            onChange={(event) =>
-              controller.updateWidgetConfig(widgetId, {
-                kpiSparklineArea: event.target.checked,
-              })
-            }
-          />
-        </Box>
-      )}
-
-      {!isGauge && (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="body2">Cumulative (running total)</Typography>
-          <Switch
-            size="small"
-            checked={config.kpiSparklineCumulative ?? false}
-            onChange={(event) =>
-              controller.updateWidgetConfig(widgetId, {
-                kpiSparklineCumulative: event.target.checked,
-              })
-            }
-          />
-        </Box>
-      )}
-    </React.Fragment>
-  );
-}
+import { CollapsibleFeatureSection } from './CollapsibleFeatureSection';
+import { KpiSparklineOptions } from './KpiSparklineOptions';
 
 function getKpiAggregations(localeText: ReturnType<typeof useStudioLocaleText>) {
   return {
@@ -379,13 +46,13 @@ function getKpiAggregations(localeText: ReturnType<typeof useStudioLocaleText>) 
     boolean: [{ value: 'count', label: localeText.aggFnCount }],
     date: [
       { value: 'count', label: localeText.aggFnCount },
-      { value: 'min', label: 'Earliest' },
-      { value: 'max', label: 'Latest' },
+      { value: 'min', label: localeText.kpiSetupDateAggEarliest },
+      { value: 'max', label: localeText.kpiSetupDateAggLatest },
     ],
     datetime: [
       { value: 'count', label: localeText.aggFnCount },
-      { value: 'min', label: 'Earliest' },
-      { value: 'max', label: 'Latest' },
+      { value: 'min', label: localeText.kpiSetupDateAggEarliest },
+      { value: 'max', label: localeText.kpiSetupDateAggLatest },
     ],
   } satisfies Record<string, { value: StudioKpiAggregation; label: string }[]>;
 }
@@ -510,7 +177,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
               color: 'text.secondary',
             }}
           >
-            Calculated field…
+            {localeText.kpiSetupCalculatedField}
           </Button>
         )}
 
@@ -550,8 +217,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTarget: next })}
           >
             <Typography variant="caption" color="text.secondary">
-              Reference value for the target line on the sparkline. When Trend is also enabled, the
-              delta badge compares the current value against this target.
+              {localeText.kpiSetupTargetHelperText}
             </Typography>
             <MetricRefInput
               value={config.kpiTargetRef}
@@ -588,7 +254,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
               </Select>
             </FormControl>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Typography variant="body2">Invert colours (lower is better)</Typography>
+              <Typography variant="body2">{localeText.kpiSetupInvertColours}</Typography>
               <Switch
                 size="small"
                 checked={config.kpiTrendInvert ?? false}
@@ -623,10 +289,10 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             fullWidth
           >
             <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
-              Filter
+              {localeText.crossFilterModeFilter}
             </ToggleButton>
             <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
-              None
+              {localeText.crossFilterModeNone}
             </ToggleButton>
           </ToggleButtonGroup>
         </SetupSection>

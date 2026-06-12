@@ -444,6 +444,29 @@ export const STUDIO_AI_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'rename_thread',
+      description:
+        'Rename the current conversation thread to a concise, descriptive title based on the conversation topic. ' +
+        'Call this automatically after the user sends their first substantive message in a new thread. ' +
+        'The name appears in the thread selector so users can find conversations later. ' +
+        'Keep it under 40 characters. Do not ask the user for a name — generate it from context.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description:
+              'Concise thread name (max 40 characters). ' +
+              'Examples: "Add revenue chart", "Q3 filter by region", "Fix dashboard layout".',
+          },
+        },
+        required: ['name'],
+      },
+    },
+  },
 ] as const;
 
 export type StudioAIToolName =
@@ -463,4 +486,5 @@ export type StudioAIToolName =
   | 'add_widget_filter'
   | 'remove_widget_filter'
   | 'summarise_page'
-  | 'apply_bulk_update';
+  | 'apply_bulk_update'
+  | 'rename_thread';

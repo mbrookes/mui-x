@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 import type { StudioWidget, StudioDataSource } from '../../../models';
 import {
   useStudioController,
+  useStudioLocaleText,
   useStudioSelector,
   selectDataSources,
   selectRelationships,
@@ -62,6 +63,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   const { widget, dataSource, slots, slotProps } = props;
   const { config } = widget;
   const controller = useStudioController();
+  const localeText = useStudioLocaleText();
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const selectExpressionFields = React.useMemo(
@@ -212,7 +214,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     return (
       <Box sx={{ p: 1 }}>
         <Typography variant="body2" color="text.secondary">
-          No field configured. Select a field in the Compose panel.
+          {localeText.filterWidgetNoFieldConfigured}
         </Typography>
       </Box>
     );

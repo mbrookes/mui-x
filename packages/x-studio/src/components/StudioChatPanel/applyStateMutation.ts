@@ -108,6 +108,22 @@ export function applyStateMutation(mutation: StateMutation, controller: StudioCo
       break;
     }
 
+    case 'renameAIThread': {
+      const state = controller.getState();
+      const activeThreadId = state.ai?.activeThreadId;
+      if (!activeThreadId || !state.ai) break;
+      const updatedThreads = (state.ai.threads ?? []).map((t) =>
+        t.id === activeThreadId
+          ? { ...t, name: mutation.args.name, updatedAt: new Date().toISOString() }
+          : t,
+      );
+      controller.setState({
+        ...state,
+        ai: { ...state.ai, threads: updatedThreads },
+      });
+      break;
+    }
+
     default: {
       // Exhaustiveness check — TypeScript will warn if a new mutation type is added
       // without updating this function.

@@ -2,7 +2,7 @@
  * MCP (Model Context Protocol) server factory for @mui/x-studio-ai-middleware.
  *
  * Provides `buildStudioMcpServer`, a framework-agnostic factory that creates a
- * pre-configured `McpServer` with all x-studio AI tools registered and the
+ * pre-configured MCP `Server` with all x-studio AI tools registered and the
  * current dashboard state exposed as MCP resources.
  *
  * ## Usage in an Express server
@@ -54,8 +54,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import { executeToolOnState } from './executeToolOnState';
-import { buildAISystemPrompt } from './buildAISystemPrompt';
-import { serializeFieldForAI } from './buildAISystemPrompt';
+import { buildAISystemPrompt, serializeFieldForAI } from './buildAISystemPrompt';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 
 export type { StudioState, StudioCustomWidgetDef };
@@ -405,11 +404,11 @@ export function buildStudioMcpServer(
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> =
       toolsToRegister.map((toolDef) => ({
-      name: toolDef.function.name,
-      description: toolDef.function.description,
-      // STUDIO_AI_TOOLS parameters are standard JSON Schema objects — pass through directly.
-      inputSchema: toolDef.function.parameters as Record<string, unknown>,
-    }));
+        name: toolDef.function.name,
+        description: toolDef.function.description,
+        // STUDIO_AI_TOOLS parameters are standard JSON Schema objects — pass through directly.
+        inputSchema: toolDef.function.parameters as Record<string, unknown>,
+      }));
 
     if (data) {
       tools.push({
@@ -802,8 +801,12 @@ export function buildStudioMcpServer(
               }
             : null;
 
-        const examples2 = [countExample, sumExample].filter(Boolean);
-        return `### ${s.label} (sourceId: "${s.id}")\n${examples2.map((ex) => `- ${ex!.description}\n\`\`\`json\n${JSON.stringify({ ...ex, description: undefined }, null, 2)}\n\`\`\``).join('\n')}`;
+        const queries = [countExample, sumExample].filter(Boolean);
+        const lines = queries.map(
+          (ex) =>
+            `- ${ex!.description}\n\`\`\`json\n${JSON.stringify({ ...ex, description: undefined }, null, 2)}\n\`\`\``,
+        );
+        return `### ${s.label} (sourceId: "${s.id}")\n${lines.join('\n')}`;
       });
 
       return {

@@ -118,6 +118,7 @@ All x-studio AI tools are registered except `summarise_page` (which requires liv
 
 | Tool | Description |
 | ---- | ----------- |
+| `query_data_source` | **Query a data source** — retrieve rows, compute aggregations (count/sum/avg by group), filter, sort. Read-only. |
 | `add_widget` | Add a new widget to a page |
 | `update_widget` | Update an existing widget's configuration |
 | `remove_widget` | Remove a widget from a page |
@@ -132,6 +133,46 @@ All x-studio AI tools are registered except `summarise_page` (which requires liv
 | `update_filter` | Update a global filter |
 | `remove_filter` | Remove a global filter |
 | `move_widget` | Move a widget to a different position or page |
+
+#### `query_data_source` details
+
+Queries the underlying SQLite databases using structured filters and aggregations — not raw SQL. The full security pipeline from `@mui/x-studio-data-middleware` applies (table allowlisting, parameterised Knex queries).
+
+**Input parameters:**
+
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| `sourceId` | `string` (required) | Data source ID from dashboard state (e.g. `"source-orders"`, `"source-crm-deals"`) |
+| `columns` | `string[]` | Field IDs to return. Omit for all non-hidden fields. |
+| `filters` | `FilterPredicate[]` | WHERE predicates: `{ field, operator, value }`. Operators: `eq neq in lt lte gt gte like between` |
+| `aggregations` | `AggregationSpec[]` | GROUP BY + aggregate: `{ column, func: sum\|avg\|count\|min\|max, alias }` |
+| `orderBy` | `OrderBy[]` | Sort: `{ column, direction: asc\|desc }` |
+| `limit` | `number` | Max rows (default 1000) |
+
+**Example — top 5 products by revenue:**
+
+```json
+{
+  "sourceId": "source-order-items",
+  "columns": ["product"],
+  "aggregations": [{ "column": "total", "func": "sum", "alias": "revenue" }],
+  "orderBy": [{ "column": "revenue", "direction": "desc" }],
+  "limit": 5
+}
+```
+
+**Available data sources:**
+
+| Source ID | Table | Description |
+| --------- | ----- | ----------- |
+| `source-customers` | `customers` | Customer company and contact info |
+| `source-products` | `products` | Product catalogue with price/cost |
+| `source-orders` | `orders` | Orders with status and total |
+| `source-order-items` | `order_items` | Line items with product, quantity, unit price |
+| `source-shipments` | `shipments` | Shipment tracking and on-time status |
+| `source-crm-contacts` | `contacts` | CRM contacts with role and department |
+| `source-crm-deals` | `deals` | CRM deals with stage, value, probability |
+| `source-crm-activities` | `activities` | CRM activities with type, outcome, duration |
 
 ### Available MCP resources
 

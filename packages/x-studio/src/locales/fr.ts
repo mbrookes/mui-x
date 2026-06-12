@@ -744,6 +744,10 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chatVoiceInputStart: 'Démarrer la saisie vocale',
   chatVoiceInputStop: 'Arrêter la saisie vocale',
   chatVoiceInputNotSupported: 'La saisie vocale n\'est pas prise en charge dans ce navigateur',
+  chatMessageCopyTooltip: 'Copier',
+  chatMessageCopiedTooltip: 'Copié\u00a0!',
+  chatMessageCopyAriaLabel: 'Copier le message',
+  chatMessageRetryTooltip: 'Réessayer',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:
@@ -814,6 +818,12 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   dateFilterUnitMinutes: 'minutes',
   dateFilterUnitSecond: 'seconde',
   dateFilterUnitSeconds: 'secondes',
+
+  // Widget delete confirmation dialog
+  widgetDeleteConfirmTitle: 'Supprimer le widget\u00a0?',
+  widgetDeleteConfirmMessage: 'Ce widget sera définitivement supprimé de la page.',
+  widgetDeleteConfirmOk: 'Supprimer',
+  widgetDeleteConfirmCancel: 'Annuler',
 };
 
 export const fr: Localization = getStudioLocalization(frLocaleText);

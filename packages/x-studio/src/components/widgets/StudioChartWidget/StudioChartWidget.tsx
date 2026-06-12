@@ -49,6 +49,7 @@ import { StudioHeatmapChart } from './StudioHeatmapChart';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
+import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 
 import { PieHighlightContext } from './PieCrossHighlightContext';
 import { PIE_HIGHLIGHT_SLOTS } from './PieCrossHighlightSlots';
@@ -777,18 +778,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   // Gauge and Gantt chart handle their own unconfigured state separately below.
   if (isError) {
     return (
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: chartHeight,
-          color: 'error.main',
-          gap: 1,
-        }}
-      >
-        <Typography variant="body2">{errorMessage || localeText.widgetLoadError}</Typography>
-      </Box>
+      <StudioWidgetErrorOverlay message={errorMessage} height={chartHeight} />
     );
   }
 

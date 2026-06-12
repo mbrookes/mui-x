@@ -188,6 +188,7 @@ const StudioMessageActions = React.memo(function StudioMessageActions({
 }: StudioMessageActionsProps) {
   const message = useMessage(messageId);
   const { messages, sendMessage, isStreaming } = useChat();
+  const localeText = useStudioLocaleText();
   const [copied, setCopied] = React.useState(false);
 
   if (!message || isStreaming) return null;
@@ -218,14 +219,14 @@ const StudioMessageActions = React.memo(function StudioMessageActions({
 
   return (
     <React.Fragment>
-      <Tooltip title={copied ? 'Copied!' : 'Copy'}>
-        <IconButton size="small" onClick={handleCopy} aria-label="Copy message">
+      <Tooltip title={copied ? localeText.chatMessageCopiedTooltip : localeText.chatMessageCopyTooltip}>
+        <IconButton size="small" onClick={handleCopy} aria-label={localeText.chatMessageCopyAriaLabel}>
           <ContentCopyIcon />
         </IconButton>
       </Tooltip>
       {isAssistant && (
-        <Tooltip title="Retry">
-          <IconButton size="small" onClick={handleRetry} aria-label="Retry">
+        <Tooltip title={localeText.chatMessageRetryTooltip}>
+          <IconButton size="small" onClick={handleRetry} aria-label={localeText.chatMessageRetryTooltip}>
             <RefreshIcon />
           </IconButton>
         </Tooltip>

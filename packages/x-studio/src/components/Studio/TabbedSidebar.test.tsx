@@ -10,7 +10,7 @@ import { TabbedSidebar } from './TabbedSidebar';
 let controller: StudioController;
 let mockState: StudioState;
 
-vi.mock('../context', async (importOriginal) => {
+vi.mock('../../context', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../context')>();
   return {
     ...actual,

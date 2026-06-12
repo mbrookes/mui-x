@@ -1,11 +1,11 @@
 /**
- * Seed an in-memory node:sqlite database with demo sales data for the
+ * Seed an in-memory better-sqlite3 database (via Knex) with demo sales data for the
  * x-studio example server. The schema mirrors the StudioDataSource
  * field IDs so Studio's query descriptors map directly to SQL columns.
  *
  * NOTE: In a real app you'd connect to an existing database instead.
  */
-import { DatabaseSync } from 'node:sqlite';
+import type { Knex } from 'knex';
 
 // ── Simple PRNG (same seed as the UI generator so data is consistent) ─────────
 function mulberry32(seed: number): () => number {
@@ -31,30 +31,24 @@ function isoDate(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
-export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
+export async function seedDatabase(db: Knex, rowCount = 2000): Promise<void> {
   const rng = mulberry32(42);
   const now = Date.now();
   const TWO_YEARS = 2 * 365 * 24 * 3600 * 1000;
 
-  db.exec('PRAGMA journal_mode = WAL');
-
   // ── customers ──────────────────────────────────────────────────────────────
   // Column names match Studio source field IDs so descriptors map directly to SQL
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS customers (
-      id        INTEGER PRIMARY KEY,
-      company   TEXT NOT NULL,
-      contact   TEXT NOT NULL,
-      email     TEXT NOT NULL,
-      country   TEXT NOT NULL,
-      segment   TEXT NOT NULL,
-      since     TEXT NOT NULL
-    )
-  `);
-
-  const insertCustomer = db.prepare(
-    'INSERT INTO customers(id, company, contact, email, country, segment, since) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  );
+  if (!(await db.schema.hasTable('customers'))) {
+    await db.schema.createTable('customers', (t) => {
+      t.integer('id').primary();
+      t.string('company').notNullable();
+      t.string('contact').notNullable();
+      t.string('email').notNullable();
+      t.string('country').notNullable();
+      t.string('segment').notNullable();
+      t.string('since').notNullable();
+    });
+  }
 
   const SEGMENTS = ['Consumer', 'Corporate', 'Home Office'];
   const customerCount = Math.min(rowCount, 500);
@@ -65,7 +59,7 @@ export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
   const customerCountries: string[] = [];
   const customerSegments: string[] = [];
 
-  db.exec('BEGIN');
+  const customerRows = [];
   for (let i = 1; i <= customerCount; i++) {
     const country = pick(rng, COUNTRIES);
     const segment = pick(rng, SEGMENTS);
@@ -79,33 +73,26 @@ export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
     const year = 2018 + Math.floor(rng() * 7);
     const month = String(Math.floor(rng() * 12) + 1).padStart(2, '0');
     const day = String(Math.floor(rng() * 28) + 1).padStart(2, '0');
-    const since = `${year}-${month}-${day}`;
-    insertCustomer.run(i, company, contact, email, country, segment, since);
+    customerRows.push({ id: i, company, contact, email, country, segment, since: `${year}-${month}-${day}` });
   }
-  db.exec('COMMIT');
+  await db.batchInsert('customers', customerRows, 100);
 
   // ── products ───────────────────────────────────────────────────────────────
   // Column names match Studio source field IDs
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS products (
-      id           INTEGER PRIMARY KEY,
-      product      TEXT NOT NULL,
-      category     TEXT NOT NULL,
-      price        REAL NOT NULL,
-      cost         REAL NOT NULL,
-      stock        INTEGER NOT NULL,
-      reorderLevel INTEGER NOT NULL
-    )
-  `);
+  if (!(await db.schema.hasTable('products'))) {
+    await db.schema.createTable('products', (t) => {
+      t.integer('id').primary();
+      t.string('product').notNullable();
+      t.string('category').notNullable();
+      t.float('price').notNullable();
+      t.float('cost').notNullable();
+      t.integer('stock').notNullable();
+      t.integer('reorderLevel').notNullable();
+    });
+  }
 
-  const insertProduct = db.prepare(
-    'INSERT INTO products(id, product, category, price, cost, stock, reorderLevel) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  );
-
-  // Store product categories for denormalization
   const productCategories: string[] = [];
-
-  db.exec('BEGIN');
+  const productRows = [];
   for (let i = 1; i <= 100; i++) {
     const category = pick(rng, CATEGORIES);
     productCategories.push(category);
@@ -113,52 +100,45 @@ export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
     const cost = +(price * (0.4 + rng() * 0.3)).toFixed(2);
     const stock = Math.floor(rng() * 500);
     const reorderLevel = Math.floor(rng() * 50) + 10;
-    insertProduct.run(i, `Product ${i}`, category, price, cost, stock, reorderLevel);
+    productRows.push({ id: i, product: `Product ${i}`, category, price, cost, stock, reorderLevel });
   }
-  db.exec('COMMIT');
+  await db.batchInsert('products', productRows, 100);
 
   // ── orders ─────────────────────────────────────────────────────────────────
   // Column names match Studio source field IDs; country/segment/category are
   // denormalized for demo-friendly filtering without JOINs
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS orders (
-      id         INTEGER PRIMARY KEY,
-      customerId INTEGER NOT NULL,
-      status     TEXT NOT NULL,
-      date       TEXT NOT NULL,
-      total      REAL NOT NULL,
-      currency   TEXT NOT NULL,
-      country    TEXT NOT NULL,
-      segment    TEXT NOT NULL,
-      category   TEXT NOT NULL
-    )
-  `);
-
-  const insertOrder = db.prepare(
-    'INSERT INTO orders(id, customerId, status, date, total, currency, country, segment, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  );
+  if (!(await db.schema.hasTable('orders'))) {
+    await db.schema.createTable('orders', (t) => {
+      t.integer('id').primary();
+      t.integer('customerId').notNullable();
+      t.string('status').notNullable();
+      t.string('date').notNullable();
+      t.float('total').notNullable();
+      t.string('currency').notNullable();
+      t.string('country').notNullable();
+      t.string('segment').notNullable();
+      t.string('category').notNullable();
+    });
+  }
 
   // ── order_items ────────────────────────────────────────────────────────────
   // Column names match Studio source field IDs
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS order_items (
-      id        INTEGER PRIMARY KEY,
-      orderId   INTEGER NOT NULL,
-      productId INTEGER NOT NULL,
-      product   TEXT NOT NULL,
-      category  TEXT NOT NULL,
-      quantity  INTEGER NOT NULL,
-      unitPrice REAL NOT NULL,
-      discount  REAL NOT NULL,
-      total     REAL NOT NULL
-    )
-  `);
+  if (!(await db.schema.hasTable('order_items'))) {
+    await db.schema.createTable('order_items', (t) => {
+      t.integer('id').primary();
+      t.integer('orderId').notNullable();
+      t.integer('productId').notNullable();
+      t.string('product').notNullable();
+      t.string('category').notNullable();
+      t.integer('quantity').notNullable();
+      t.float('unitPrice').notNullable();
+      t.float('discount').notNullable();
+      t.float('total').notNullable();
+    });
+  }
 
-  const insertItem = db.prepare(
-    'INSERT INTO order_items(id, orderId, productId, product, category, quantity, unitPrice, discount, total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  );
-
-  db.exec('BEGIN');
+  const orderRows = [];
+  const itemRows = [];
   let itemId = 1;
   for (let i = 1; i <= rowCount; i++) {
     const customerId = Math.floor(rng() * customerCount) + 1;
@@ -168,26 +148,13 @@ export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
     const discount = +(rng() * 0.3).toFixed(2);
     const total = +(qty * price * (1 - discount)).toFixed(2);
     const productId = Math.floor(rng() * 100) + 1;
-
-    // Denormalize country/segment from customer, category from first product
     const country = customerCountries[customerId - 1];
     const segment = customerSegments[customerId - 1];
     const category = productCategories[productId - 1];
     const currency = pick(rng, ['USD', 'EUR', 'GBP', 'CAD', 'AUD']);
 
-    insertOrder.run(
-      i,
-      customerId,
-      pick(rng, STATUSES),
-      date,
-      total,
-      currency,
-      country,
-      segment,
-      category,
-    );
+    orderRows.push({ id: i, customerId, status: pick(rng, STATUSES), date, total, currency, country, segment, category });
 
-    // 1–3 items per order
     const itemCount = Math.floor(rng() * 3) + 1;
     for (let j = 0; j < itemCount; j++) {
       const iProductId = Math.floor(rng() * 100) + 1;
@@ -196,20 +163,11 @@ export function seedDatabase(db: DatabaseSync, rowCount = 2000): void {
       const iDiscount = +(rng() * 0.25).toFixed(2);
       const iTotal = +(iQty * iPrice * (1 - iDiscount)).toFixed(2);
       const iCategory = productCategories[iProductId - 1];
-      insertItem.run(
-        itemId++,
-        i,
-        iProductId,
-        `Product ${iProductId}`,
-        iCategory,
-        iQty,
-        iPrice,
-        iDiscount,
-        iTotal,
-      );
+      itemRows.push({ id: itemId++, orderId: i, productId: iProductId, product: `Product ${iProductId}`, category: iCategory, quantity: iQty, unitPrice: iPrice, discount: iDiscount, total: iTotal });
     }
   }
-  db.exec('COMMIT');
+  await db.batchInsert('orders', orderRows, 200);
+  await db.batchInsert('order_items', itemRows, 200);
 
   console.log(
     `  ${customerCount} customers, 100 products, ${rowCount} orders, ${itemId - 1} order items`,

@@ -530,3 +530,43 @@ describe('skill section', () => {
     expect(statePos).toBeGreaterThan(skillPos);
   });
 });
+
+describe('privateMode', () => {
+  it('omits <dashboard_state> block when privateMode is true', () => {
+    const state = makeState();
+    const prompt = buildAISystemPrompt(state, undefined, undefined, undefined, {
+      privateMode: true,
+    });
+    // The instructions mention <dashboard_state> in guardrail text, but the
+    // closing tag </dashboard_state> only appears when the block is rendered.
+    expect(prompt).not.toContain('</dashboard_state>');
+  });
+
+  it('includes <dashboard_state> block when privateMode is false (default)', () => {
+    const state = makeState();
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('</dashboard_state>');
+  });
+
+  it('includes static instructions even when privateMode is true', () => {
+    const state = makeState();
+    const prompt = buildAISystemPrompt(state, undefined, undefined, undefined, {
+      privateMode: true,
+    });
+    expect(prompt).toContain('x-studio');
+  });
+
+  it('includes skill sections even when privateMode is true', () => {
+    const state = makeState();
+    const skill = {
+      name: 'mySkill',
+      mode: 'instruction-only' as const,
+      promptFragment: 'Do something special.',
+    };
+    const prompt = buildAISystemPrompt(state, undefined, undefined, [skill], {
+      privateMode: true,
+    });
+    expect(prompt).toContain('Do something special.');
+    expect(prompt).not.toContain('</dashboard_state>');
+  });
+});

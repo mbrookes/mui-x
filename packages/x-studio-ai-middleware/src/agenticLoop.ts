@@ -121,6 +121,13 @@ export interface AgenticLoopOptions {
    * Skills without a registered handler return a descriptive error to the model.
    */
   skillHandlers?: StudioAISkill[];
+  /**
+   * When `true`, the `<dashboard_state>` block is omitted from the system prompt.
+   * The model operates without knowing current widget/field/layout details.
+   * Use when the dashboard contains sensitive business data.
+   * @default false
+   */
+  privateMode?: boolean;
 }
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
@@ -148,9 +155,16 @@ export async function* runAgenticLoop(
     signal,
     onToolError,
     skillHandlers = [],
+    privateMode = false,
   } = options;
 
-  const systemPrompt = buildAISystemPrompt(initialState, customWidgets, focusedWidgetId, skills);
+  const systemPrompt = buildAISystemPrompt(
+    initialState,
+    customWidgets,
+    focusedWidgetId,
+    skills,
+    { privateMode },
+  );
 
   // Build effective tool list
   const builtInTools = allowedTools

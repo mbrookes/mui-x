@@ -618,6 +618,20 @@ function buildSkillSection(skills?: SerializableSkill[]): string {
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
+ * Options for `buildAISystemPrompt`.
+ */
+export interface BuildAISystemPromptOptions {
+  /**
+   * When `true`, the `<dashboard_state>` block is omitted from the prompt.
+   * The model receives the static instructions and any skills but no widget,
+   * field, or layout information. Use this when the dashboard contains
+   * sensitive business data you don't want sent to the LLM provider.
+   * @default false
+   */
+  privateMode?: boolean;
+}
+
+/**
  * Builds an OpenAI-compatible system prompt that describes the current
  * x-studio dashboard state to the LLM.
  *
@@ -625,17 +639,19 @@ function buildSkillSection(skills?: SerializableSkill[]): string {
  * - `STUDIO_AI_INSTRUCTIONS` — a module-level constant (static, cacheable prefix)
  * - An optional `## Skills` section for enabled skills
  * - A dynamic `<dashboard_state>` block rebuilt on every request
+ *   (omitted when `options.privateMode` is `true`)
  */
 export function buildAISystemPrompt(
   state: StudioState,
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
   skills?: SerializableSkill[],
+  options?: BuildAISystemPromptOptions,
 ): string {
+  const { privateMode = false } = options ?? {};
   return (
     STUDIO_AI_INSTRUCTIONS +
     buildSkillSection(skills) +
-    '\n\n' +
-    buildDashboardState(state, customWidgets, focusedWidgetId)
+    (privateMode ? '' : '\n\n' + buildDashboardState(state, customWidgets, focusedWidgetId))
   );
 }

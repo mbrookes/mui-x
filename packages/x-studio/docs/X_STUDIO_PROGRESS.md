@@ -809,7 +809,20 @@
 - Contacts by Department changed to a horizontal bar chart; Deals by Stage layout retained horizontal
 - Total Revenue gauge removed from Overview page widgetRows
 
+### BUG-02 · Cross-filter SQL errors for expression fields on related sources (BL-172)
 
+- `resolveField()` in `createBatchingAdapter.ts` previously only searched expression fields where `f.sourceId === primarySourceId`. A cross-filter emitted by the "Revenue by Country" pie chart used `expr-order-country` (defined on the ORDERS source), which was invisible when resolving filters on ORDER_ITEMS widgets — the raw logical ID was passed to SQL, producing "no such column: expr-order-country" errors.
+- Fixed by adding **case 1b** (multi-hop JOIN resolution): when the filter field is an expression on a related source, two LEFT JOINs are emitted — `primaryTable → exprField.sourceId` (hop 1) and `exprField.sourceId → joinSourceId` (hop 2).
+- `ResolvedField.join` changed to `joins?: JoinDescriptorInternal[]` to support multi-hop; all single-hop callers return a one-element array.
+- Filter predicates and ORDER BY clauses now resolve the physical column via `columnAliases[r.column] ?? r.column` so `WHERE customers.country` (not `WHERE expr-order-country`) is generated.
+
+### BUG-03 · Deals by Stage pipeline chart sorted alphabetically instead of funnel order (BL-173)
+
+- Bars were sorted alphabetically ("Closed Lost", "Closed Won", "Negotiation", …) instead of matching the natural sales funnel sequence.
+- Added `orderedValues?: string[]` to `StudioDataField` — a field-level canonical label sequence applied to any chart using that field as its x-axis. Values absent from the list are appended alphabetically at the end. `chartSortBy: 'value'` still overrides it.
+- `applyCategoryOrder()` helper added to `chartAggregation.ts`; `categoryOrder?` param added to `aggregateByField`, `aggregateByTwoFields`, and `aggregateMultipleSeries`.
+- `useChartWidgetData.ts` derives `xFieldOrderedValues` from the field definition and passes it to all seven aggregation call sites; cache keys updated.
+- CRM `stage` field assigned `orderedValues: ['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost']` — Closed Lost placed last (after Closed Won) to show conversion loss alongside the active funnel.
 
 ## 📋 Planned
 

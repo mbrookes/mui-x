@@ -1255,6 +1255,52 @@ export const INITIAL_STATE: Partial<StudioState> = {
       widgetId: 'widget-grid4-top-customers',
       filterSourceId: ORDERS_SOURCE_ID,
     },
+    // Page 6 KPI date filters — "Last 12 months" window for CRM Pipeline KPIs
+    {
+      id: 'filter-kpi6-open-deals-date',
+      field: 'openedDate',
+      operator: 'greater_than_or_equal',
+      value: {
+        relative: true,
+        amount: 12,
+        unit: 'month',
+        direction: 'past',
+      } satisfies RelativeDateValue,
+      scope: 'widget' as const,
+      widgetId: 'widget-kpi6-open-deals',
+      fieldType: 'date' as const,
+      filterSourceId: CRM_DEALS_SOURCE_ID,
+    },
+    {
+      id: 'filter-kpi6-pipeline-value-date',
+      field: 'openedDate',
+      operator: 'greater_than_or_equal',
+      value: {
+        relative: true,
+        amount: 12,
+        unit: 'month',
+        direction: 'past',
+      } satisfies RelativeDateValue,
+      scope: 'widget' as const,
+      widgetId: 'widget-kpi6-pipeline-value',
+      fieldType: 'date' as const,
+      filterSourceId: CRM_DEALS_SOURCE_ID,
+    },
+    {
+      id: 'filter-kpi6-win-rate-date',
+      field: 'openedDate',
+      operator: 'greater_than_or_equal',
+      value: {
+        relative: true,
+        amount: 12,
+        unit: 'month',
+        direction: 'past',
+      } satisfies RelativeDateValue,
+      scope: 'widget' as const,
+      widgetId: 'widget-kpi6-win-rate',
+      fieldType: 'date' as const,
+      filterSourceId: CRM_DEALS_SOURCE_ID,
+    },
     // Page 7 KPI date filter — "Last 12 months" window for Activities Logged trend
     {
       id: 'filter-kpi7-activities-date',

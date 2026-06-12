@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { Badge, Box, Typography } from '@mui/material';
+import { useStudioLocaleText } from '../../context';
 
 import type { TabbedSidebarPanel } from './TabbedSidebar';
 
@@ -14,6 +15,7 @@ export interface TabbedSidebarTabEntryProps {
 }
 
 export function TabbedSidebarTabEntry({ isActive, onClick, panel }: TabbedSidebarTabEntryProps) {
+  const localeText = useStudioLocaleText();
   const label = (
     <Typography
       variant="caption"
@@ -35,7 +37,7 @@ export function TabbedSidebarTabEntry({ isActive, onClick, panel }: TabbedSideba
       role="tab"
       tabIndex={0}
       aria-selected={isActive}
-      aria-label={isActive ? `Close ${panel.label} panel` : `Open ${panel.label} panel`}
+      aria-label={localeText.sidebarPanelToggleAriaLabel(isActive, panel.label)}
       onClick={onClick}
       onKeyDown={(evt) => {
         if (evt.key === 'Enter' || evt.key === ' ') {

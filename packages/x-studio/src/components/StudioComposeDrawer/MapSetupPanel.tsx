@@ -166,10 +166,8 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   }
 
   const geoDef = allGeographies[mapGeography];
-  const fieldLabel = geoDef?.fieldLabel ?? 'Region field';
-  const fieldHint =
-    geoDef?.fieldHint ??
-    'A field containing region identifiers matching the geography feature IDs.';
+  const fieldLabel = geoDef?.fieldLabel ?? localeText.mapSetupRegionFieldLabel;
+  const fieldHint = geoDef?.fieldHint ?? localeText.mapSetupRegionFieldHelperText;
 
   return (
     <Stack spacing={2} sx={{ p: 1.5 }}>
@@ -206,7 +204,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
 
       <div>
         <Typography variant="subtitle2" gutterBottom>
-          Value field
+          {localeText.mapSetupValueFieldLabel}
         </Typography>
         <DataSourceFieldSelect
           label={localeText.mapSetupValueFieldLabel}

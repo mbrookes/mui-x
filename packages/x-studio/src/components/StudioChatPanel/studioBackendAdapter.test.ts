@@ -3,7 +3,7 @@ import { createBackendChatAdapter } from './studioBackendAdapter';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { StudioController } from '../../store/StudioController';
 import type { StudioAIConfig } from './studioBackendAdapter';
-import type { ChatMessageChunk } from '@mui/x-chat/headless';
+import type { ChatMessage, ChatMessageChunk, ChatStreamEnvelope } from '@mui/x-chat/headless';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -43,11 +43,30 @@ function makeSseBody(events: object[]): Uint8Array {
   return new TextEncoder().encode(text);
 }
 
+let messageIndex = 0;
+
+function makeUserMessage(text: string): ChatMessage {
+  return {
+    id: `m-${messageIndex++}`,
+    role: 'user',
+    parts: [{ type: 'text', text }],
+  };
+}
+
+function makeSendInput(messages: ChatMessage[] = [makeUserMessage('')]) {
+  const safeMessages = messages.length > 0 ? messages : [makeUserMessage('')];
+  return {
+    message: safeMessages[safeMessages.length - 1],
+    messages: safeMessages,
+    signal: new AbortController().signal,
+  };
+}
+
 async function collectChunks(
-  stream: ReadableStream<ChatMessageChunk>,
-): Promise<ChatMessageChunk[]> {
+  stream: ReadableStream<ChatMessageChunk | ChatStreamEnvelope>,
+): Promise<(ChatMessageChunk | ChatStreamEnvelope)[]> {
   const reader = stream.getReader();
-  const chunks: ChatMessageChunk[] = [];
+  const chunks: (ChatMessageChunk | ChatStreamEnvelope)[] = [];
   let done = false;
   while (!done) {
     const result = await reader.read();
@@ -57,6 +76,10 @@ async function collectChunks(
     }
   }
   return chunks;
+}
+
+function isChatMessageChunk(chunk: ChatMessageChunk | ChatStreamEnvelope): chunk is ChatMessageChunk {
+  return 'type' in chunk;
 }
 
 function mockFetch(ssePayload: Uint8Array) {
@@ -87,19 +110,18 @@ describe('createBackendChatAdapter: text-delta', () => {
 
     const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
     const adapter = createBackendChatAdapter(config, makeController());
-    const stream = await adapter.sendMessage({
-      messages: [{ role: 'user', content: 'Hi' }],
-    } as Parameters<typeof adapter.sendMessage>[0]);
+    const stream = await adapter.sendMessage(makeSendInput([makeUserMessage('Hi')]));
 
     const chunks = await collectChunks(stream);
-    const types = chunks.map((c) => c.type);
+    const chatChunks = chunks.filter(isChatMessageChunk);
+    const types = chatChunks.map((c) => c.type);
 
     expect(types).toContain('text-start');
     expect(types).toContain('text-delta');
     expect(types).toContain('text-end');
     expect(types).toContain('finish');
 
-    const deltaChunks = chunks.filter((c) => c.type === 'text-delta');
+    const deltaChunks = chatChunks.filter((c) => c.type === 'text-delta');
     const deltas = deltaChunks.map((c) => (c as { type: 'text-delta'; delta: string }).delta);
     expect(deltas).toEqual(['Hello', ' world']);
 
@@ -112,12 +134,11 @@ describe('createBackendChatAdapter: text-delta', () => {
 
     const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
     const adapter = createBackendChatAdapter(config, makeController());
-    const stream = await adapter.sendMessage({
-      messages: [],
-    } as Parameters<typeof adapter.sendMessage>[0]);
+    const stream = await adapter.sendMessage(makeSendInput([]));
 
     const chunks = await collectChunks(stream);
-    const types = chunks.map((c) => c.type);
+    const chatChunks = chunks.filter(isChatMessageChunk);
+    const types = chatChunks.map((c) => c.type);
 
     expect(types).not.toContain('text-start');
     expect(types).not.toContain('text-end');
@@ -143,9 +164,7 @@ describe('createBackendChatAdapter: state-mutation', () => {
     const controller = makeController();
     const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
     const adapter = createBackendChatAdapter(config, controller);
-    const stream = await adapter.sendMessage({
-      messages: [],
-    } as Parameters<typeof adapter.sendMessage>[0]);
+    const stream = await adapter.sendMessage(makeSendInput([]));
 
     await collectChunks(stream);
     expect(controller.setDashboardTitle).toHaveBeenCalledWith('Updated');
@@ -166,9 +185,7 @@ describe('createBackendChatAdapter: state-mutation', () => {
     const controller = makeController();
     const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
     const adapter = createBackendChatAdapter(config, controller);
-    const stream = await adapter.sendMessage({
-      messages: [],
-    } as Parameters<typeof adapter.sendMessage>[0]);
+    const stream = await adapter.sendMessage(makeSendInput([]));
 
     await collectChunks(stream);
     expect(controller.removeWidget).toHaveBeenCalledWith('widget-1');
@@ -202,12 +219,11 @@ describe('createBackendChatAdapter: tool-activity', () => {
 
     const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
     const adapter = createBackendChatAdapter(config, makeController());
-    const stream = await adapter.sendMessage({
-      messages: [],
-    } as Parameters<typeof adapter.sendMessage>[0]);
+    const stream = await adapter.sendMessage(makeSendInput([]));
 
     const chunks = await collectChunks(stream);
-    const types = chunks.map((c) => c.type);
+    const chatChunks = chunks.filter(isChatMessageChunk);
+    const types = chatChunks.map((c) => c.type);
 
     expect(types).toContain('tool-input-start');
     expect(types).toContain('tool-input-delta');
@@ -226,9 +242,7 @@ describe('createBackendChatAdapter: error events', () => {
 
     const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
     const adapter = createBackendChatAdapter(config, makeController());
-    const stream = await adapter.sendMessage({
-      messages: [],
-    } as Parameters<typeof adapter.sendMessage>[0]);
+    const stream = await adapter.sendMessage(makeSendInput([]));
 
     await expect(collectChunks(stream)).rejects.toThrow('Internal server error');
 
@@ -248,9 +262,7 @@ describe('createBackendChatAdapter: error events', () => {
 
     const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
     const adapter = createBackendChatAdapter(config, makeController());
-    const stream = await adapter.sendMessage({
-      messages: [],
-    } as Parameters<typeof adapter.sendMessage>[0]);
+    const stream = await adapter.sendMessage(makeSendInput([]));
 
     await expect(collectChunks(stream)).rejects.toThrow('HTTP 500');
 
@@ -273,12 +285,10 @@ describe('createBackendChatAdapter: unknown event types', () => {
 
     const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
     const adapter = createBackendChatAdapter(config, makeController());
-    const stream = await adapter.sendMessage({
-      messages: [],
-    } as Parameters<typeof adapter.sendMessage>[0]);
+    const stream = await adapter.sendMessage(makeSendInput([]));
 
     const chunks = await collectChunks(stream);
-    expect(chunks.some((c) => c.type === 'finish')).toBe(true);
+    expect(chunks.filter(isChatMessageChunk).some((c) => c.type === 'finish')).toBe(true);
     vi.unstubAllGlobals();
   });
 });
@@ -306,9 +316,7 @@ describe('createBackendChatAdapter: POST body', () => {
       allowedTools: ['add_widget', 'get_dashboard_state'],
     };
     const adapter = createBackendChatAdapter(config, controller);
-    const stream = await adapter.sendMessage({
-      messages: [{ role: 'user', content: 'add a chart' }],
-    } as Parameters<typeof adapter.sendMessage>[0]);
+    const stream = await adapter.sendMessage(makeSendInput([makeUserMessage('add a chart')]));
 
     await collectChunks(stream);
 

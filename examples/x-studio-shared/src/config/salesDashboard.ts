@@ -1044,6 +1044,8 @@ export const INITIAL_STATE: Partial<StudioState> = {
         yField: 'id',
         yAggregation: 'count',
         barLayout: 'horizontal' as const,
+        chartSortBy: 'value' as const,
+        chartSortDirection: 'desc' as const,
       },
     },
     'widget-grid7-contacts': {

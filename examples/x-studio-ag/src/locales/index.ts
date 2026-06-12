@@ -1,7 +1,10 @@
-export type SupportedLocale = 'en' | 'pt-BR';
+export type SupportedLocale = 'en' | 'fr' | 'de' | 'es' | 'pt-BR';
 
 export const LOCALE_LABELS: Record<SupportedLocale, string> = {
   en: 'English',
+  fr: 'Français',
+  de: 'Deutsch',
+  es: 'Español',
   'pt-BR': 'Português (Brasil)',
 };
 
@@ -82,5 +85,8 @@ export interface LocaleBundle {
 
 export const LOCALE_BUNDLES: Record<SupportedLocale, LocaleBundle> = {
   en: { appLocaleText: enLocaleText },
+  fr: { appLocaleText: enLocaleText },
+  de: { appLocaleText: enLocaleText },
+  es: { appLocaleText: enLocaleText },
   'pt-BR': { appLocaleText: ptBRLocaleText },
 };

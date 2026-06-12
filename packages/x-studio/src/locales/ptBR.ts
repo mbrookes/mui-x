@@ -347,6 +347,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   // KPI widget
   kpiGrandTotalTooltip:
     'Total geral \u2014 widgets de filtro ativos não são aplicados a este KPI. Ative o modo Filtro cruzado nas configurações do KPI para respeitá-los.',
+  kpiGranularityAutoLabel: 'Auto',
 
   // Grid setup panel
   gridSetupDataSourceLabel: 'Fonte de dados',

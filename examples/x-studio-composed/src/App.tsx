@@ -690,7 +690,7 @@ function DashboardLayout({
         <Box sx={{ flexGrow: 1, minWidth: 0, position: 'relative' }}>
           {adapterMode && (
             <Chip
-              label="Adapter Mode"
+              label={t.adapterModeLabel}
               size="small"
               color="info"
               sx={{

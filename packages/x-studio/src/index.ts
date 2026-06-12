@@ -238,6 +238,8 @@ export type {
 export type { StudioAIConfig } from './components/StudioChatPanel/studioBackendAdapter';
 export { createBackendChatAdapter } from './components/StudioChatPanel/studioBackendAdapter';
 export { applyStateMutation } from './components/StudioChatPanel/applyStateMutation';
+export { useSpeechRecognition } from './components/StudioChatPanel/useSpeechRecognition';
+export type { UseSpeechRecognitionReturn } from './components/StudioChatPanel/useSpeechRecognition';
 // AI protocol types — the minimal set the UI needs to consume SSE responses and accept config.
 // StudioAISkill (with server-side execute) and skill implementations live in @mui/x-studio-ai-middleware.
 export type {

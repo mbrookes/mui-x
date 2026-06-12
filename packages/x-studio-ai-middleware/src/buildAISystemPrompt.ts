@@ -124,6 +124,18 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     if ((cfg as any).scatterSizeField) {
       parts.push(`scatterSizeField: ${(cfg as any).scatterSizeField}`);
     }
+    if ((cfg as any).ganttLabelField) {
+      parts.push(`ganttLabelField: ${(cfg as any).ganttLabelField}`);
+    }
+    if ((cfg as any).ganttStartField) {
+      parts.push(`ganttStartField: ${(cfg as any).ganttStartField}`);
+    }
+    if ((cfg as any).ganttEndField) {
+      parts.push(`ganttEndField: ${(cfg as any).ganttEndField}`);
+    }
+    if ((cfg as any).ganttColorField) {
+      parts.push(`ganttColorField: ${(cfg as any).ganttColorField}`);
+    }
     if ((cfg as any).crossFilterMode) {
       parts.push(`crossFilterMode: ${(cfg as any).crossFilterMode}`);
     }
@@ -171,6 +183,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
       pivotRowField?: string;
       pivotColField?: string;
       pivotValueField?: string;
+      pivotAggregation?: string;
       pivotShowTotals?: boolean;
     };
     if (cfg2.pivotRowField) {
@@ -181,6 +194,9 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     }
     if (cfg2.pivotValueField) {
       parts.push(`valueField: ${cfg2.pivotValueField}`);
+    }
+    if (cfg2.pivotAggregation) {
+      parts.push(`aggregation: ${cfg2.pivotAggregation}`);
     }
     if (cfg2.pivotShowTotals != null) {
       parts.push(`showTotals: ${cfg2.pivotShowTotals}`);

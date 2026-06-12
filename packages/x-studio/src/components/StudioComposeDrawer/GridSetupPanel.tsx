@@ -300,7 +300,6 @@ export function GridSetupPanel(props: { widgetId: string }) {
     widget?.config?.gridAggregations ?? {};
   const sortField = widget?.config?.gridSortField ?? '';
   const sortDirection = widget?.config?.gridSortDirection ?? 'asc';
-  const gridHeight = widget?.config?.gridHeight ?? 400;
   const conditionalFormats: StudioConditionalFormat[] =
     widget?.config?.gridConditionalFormats ?? [];
 
@@ -718,22 +717,6 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   </ToggleButton>
                 </ToggleButtonGroup>
               </Box>
-
-              {/* Grid height */}
-              <TextField
-                label={localeText.gridSetupHeightLabel}
-                type="number"
-                size="small"
-                value={gridHeight}
-                slotProps={{ htmlInput: { min: 200, step: 50 } }}
-                onChange={(event) => {
-                  const parsed = parseInt(event.target.value, 10);
-                  if (!Number.isNaN(parsed) && parsed >= 200) {
-                    controller.updateWidgetConfig(widgetId, { gridHeight: parsed });
-                  }
-                }}
-                fullWidth
-              />
             </React.Fragment>
           )}
         </React.Fragment>

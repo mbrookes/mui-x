@@ -633,6 +633,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   insightTypeAnalysis: 'Análise',
   insightTypeForecast: 'Previsão',
   insightTypeAnomaly: 'Explicação de anomalia',
+  insightTypeCorrelation: 'Análise de correlação',
 
   // Filter widget controls
   filterWidgetClearAriaLabel: 'Limpar filtro',

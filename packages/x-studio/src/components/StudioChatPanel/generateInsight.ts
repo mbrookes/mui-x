@@ -67,7 +67,7 @@ function selectSampleRows(
     // the anomalous data points are always present in the sample.
     const anomalySet = new Set(anomalyAxisValues.map(String));
     const stride = Math.ceil(total / MAX_DATA_ROWS);
-    const strideIndices = rows.map((_, i) => i).filter((i) => i % stride === 0);
+    const strideIndices = rows.flatMap((_, i) => (i % stride === 0 ? [i] : []));
     const anomalyIndices = rows.reduce<number[]>((acc, r, i) => {
       if (anomalySet.has(String(r[xFieldId] ?? ''))) {
         acc.push(i);
@@ -75,7 +75,7 @@ function selectSampleRows(
       return acc;
     }, []);
     const allIndices = [...new Set([...strideIndices, ...anomalyIndices])]
-      .sort((a, b) => a - b)
+      .toSorted((a, b) => a - b)
       .slice(0, MAX_DATA_ROWS);
     return {
       sample: allIndices.map((i) => rows[i]),
@@ -115,12 +115,14 @@ function aggregateRows(
   const bucketSize = Math.ceil(total / MAX_DATA_ROWS);
   const sample: Record<string, unknown>[] = [];
 
+  const fieldById = new Map(sourceFields.map((f) => [f.id, f]));
+
   for (let i = 0; i < total; i += bucketSize) {
     const bucket = rows.slice(i, i + bucketSize);
     const row: Record<string, unknown> = {};
 
     for (const id of fieldIds) {
-      const field = sourceFields.find((f) => f.id === id);
+      const field = fieldById.get(id);
       const isNumeric = field?.type === 'number';
       const aggFn = field?.aiAggregation ?? (isNumeric ? 'avg' : 'first');
 
@@ -160,9 +162,10 @@ function buildNumericStats(
   fieldIds: string[],
   sourceFields: Array<{ id: string; label?: string; type?: string }>,
 ): string {
+  const fieldById = new Map(sourceFields.map((f) => [f.id, f]));
   const parts: string[] = [];
   for (const id of fieldIds) {
-    const field = sourceFields.find((f) => f.id === id);
+    const field = fieldById.get(id);
     if (field?.type !== 'number' && field?.type !== 'integer') {
       continue;
     }
@@ -548,16 +551,14 @@ export async function generateDashboardSummary(
   // Build a compact summary of all widgets on the active page
   const page = state.pages[state.dashboard.activePageId];
   const widgetIds = (page?.widgetRows ?? []).flat();
-  const widgetSummaries = widgetIds
-    .map((id: string) => {
-      const w = state.widgets[id];
-      if (!w) {
-        return null;
-      }
-      const dataSummary = buildWidgetDataSummary(w, state, { sampling: 'stride' });
-      return `### ${w.title} (${w.kind})\n${dataSummary || '(no data)'}`;
-    })
-    .filter(Boolean)
+  const widgetSummaries = widgetIds.flatMap((id: string) => {
+    const w = state.widgets[id];
+    if (!w) {
+      return [];
+    }
+    const dataSummary = buildWidgetDataSummary(w, state, { sampling: 'stride' });
+    return [`### ${w.title} (${w.kind})\n${dataSummary || '(no data)'}`];
+  })
     .join('\n\n');
 
   const text = await callInsightEndpoint(

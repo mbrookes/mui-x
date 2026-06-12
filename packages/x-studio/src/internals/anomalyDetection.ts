@@ -18,7 +18,7 @@ export function detectAnomaliesIQR(values: number[]): Set<number> {
   if (values.length < 4) {
     return new Set();
   }
-  const sorted = [...values].sort((a, b) => a - b);
+  const sorted = values.toSorted((a, b) => a - b);
   const q1 = median(sorted.slice(0, Math.floor(sorted.length / 2)));
   const q3 = median(sorted.slice(Math.ceil(sorted.length / 2)));
   const iqr = q3 - q1;

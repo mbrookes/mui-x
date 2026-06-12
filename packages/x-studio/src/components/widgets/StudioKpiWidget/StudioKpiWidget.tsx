@@ -449,6 +449,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     widget,
     resolvedTargetValue,
     crossFilterMode,
+    localeText,
   ]);
 
   const fieldDef = dataSource?.fields.find((f) => f.id === config.kpiValueField);

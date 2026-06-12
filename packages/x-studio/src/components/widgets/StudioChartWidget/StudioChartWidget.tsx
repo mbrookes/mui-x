@@ -1179,7 +1179,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             color: 'text.disabled',
           }}
         >
-          <Typography variant="body2">Mixed chart requires 2 or more measure fields.</Typography>
+          <Typography variant="body2">{localeText.chartMixedRequiresFieldsHint}</Typography>
         </Box>
       );
     }
@@ -2032,7 +2032,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const yFieldDef =
     dataSource?.fields.find((f) => f.id === activeYFields[0]) ??
     expressionFields.find((ef) => ef.id === activeYFields[0]);
-  const seriesLabel = yFieldDef?.label ?? activeYFields[0] ?? 'Value';
+  const seriesLabel = yFieldDef?.label ?? activeYFields[0] ?? localeText.chartDefaultSeriesLabel;
   const seriesValueFormatter = makeValueFormatter(
     yFieldDef?.format,
     yFieldDef?.currencyCode,

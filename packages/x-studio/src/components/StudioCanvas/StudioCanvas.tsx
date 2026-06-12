@@ -297,9 +297,10 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         // When dropping onto a different page, also remove the widget from the source page.
         const sourcePageUpdate: Record<string, StudioPage> = {};
         if (isCrossPage && sourcePageId && state.pages[sourcePageId]) {
-          const srcRows = (state.pages[sourcePageId].widgetRows ?? [])
-            .map((r) => r.filter((id) => id !== widgetId))
-            .filter((r) => r.length > 0);
+          const srcRows = (state.pages[sourcePageId].widgetRows ?? []).flatMap((r) => {
+            const row = r.filter((id) => id !== widgetId);
+            return row.length > 0 ? [row] : [];
+          });
           sourcePageUpdate[sourcePageId] = {
             ...state.pages[sourcePageId],
             widgetRows: srcRows,

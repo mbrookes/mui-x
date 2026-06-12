@@ -32,16 +32,27 @@ import type {
 } from './security/types';
 import { generateCacheKey } from './security/cacheKey';
 import { LRUCacheProvider } from './cache/LRUCacheProvider';
+import { MapTierCacheProvider } from './cache/MapTierCacheProvider';
 import { runPreflight, executeForTier } from './router/preflight';
-import type { CacheProvider } from './cache/types';
+import type { CacheProvider, TierCacheProvider } from './cache/types';
+
+const DEFAULT_TIER_CACHE_TTL_MS = 300_000; // 5 minutes
 
 let defaultCache: CacheProvider | undefined;
+let defaultTierCache: TierCacheProvider | undefined;
 
 function getDefaultCache(): CacheProvider {
   if (!defaultCache) {
     defaultCache = new LRUCacheProvider();
   }
   return defaultCache;
+}
+
+function getDefaultTierCache(): TierCacheProvider {
+  if (!defaultTierCache) {
+    defaultTierCache = new MapTierCacheProvider();
+  }
+  return defaultTierCache;
 }
 
 /**
@@ -58,6 +69,9 @@ export async function handleBatchQuery(
 ): Promise<BatchQueryResponse> {
   const { db, schemaAllowlist, columnAllowlist, thresholds, tenantColumn } = options;
   const cacheProvider = options.cacheProvider ?? getDefaultCache();
+  const tierCacheTtlMs = options.tierCacheTtlMs ?? DEFAULT_TIER_CACHE_TTL_MS;
+  const tierCacheProvider =
+    tierCacheTtlMs > 0 ? (options.tierCacheProvider ?? getDefaultTierCache()) : null;
 
   // ── Phase 2: Validate all requested tables upfront (Zero-Knowledge Rule) ──
   const allTables = body.widgets.flatMap((w: BatchWidgetDescriptor) => [
@@ -82,7 +96,16 @@ export async function handleBatchQuery(
 
   const results: WidgetQueryResult[] = await Promise.all(
     body.widgets.map((descriptor: BatchWidgetDescriptor) =>
-      processWidget(db, claims, descriptor, cacheProvider, thresholds, tenantColumn),
+      processWidget(
+        db,
+        claims,
+        descriptor,
+        cacheProvider,
+        tierCacheProvider,
+        tierCacheTtlMs,
+        thresholds,
+        tenantColumn,
+      ),
     ),
   );
 
@@ -146,6 +169,8 @@ async function processWidget(
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,
   cacheProvider: CacheProvider,
+  tierCacheProvider: TierCacheProvider | null,
+  tierCacheTtlMs: number,
   thresholds: HandleBatchQueryOptions['thresholds'],
   tenantColumn: HandleBatchQueryOptions['tenantColumn'],
 ): Promise<WidgetQueryResult> {
@@ -153,7 +178,7 @@ async function processWidget(
   const queryOptions = { tenantColumn };
 
   try {
-    // ── 1. Cache check ─────────────────────────────────────────────────────
+    // ── 1. Data cache check ────────────────────────────────────────────────
     const cached = await cacheProvider.get(cacheKey);
     if (cached) {
       return {
@@ -164,13 +189,30 @@ async function processWidget(
       };
     }
 
-    // ── 2. Pre-flight COUNT(*) → tier selection ────────────────────────────
-    const { rowCount, tier } = await runPreflight(db, claims, descriptor, thresholds, queryOptions);
+    // ── 2. Tier cache check — skip preflight on repeated cold misses ───────
+    let tier: 'client' | 'server' | 'db';
+    let rowCount: number;
 
-    // ── 3. Execute query for the selected tier ─────────────────────────────
+    const cachedTier = tierCacheProvider ? await tierCacheProvider.get(cacheKey) : undefined;
+    if (cachedTier) {
+      tier = cachedTier.tier;
+      rowCount = cachedTier.rowCount;
+    } else {
+      // ── 3. Pre-flight COUNT(*) → tier selection ────────────────────────
+      const preflight = await runPreflight(db, claims, descriptor, thresholds, queryOptions);
+      tier = preflight.tier;
+      rowCount = preflight.rowCount;
+
+      // Store tier result for future cold misses within the tier TTL window.
+      if (tierCacheProvider) {
+        await tierCacheProvider.set(cacheKey, { tier, rowCount }, tierCacheTtlMs);
+      }
+    }
+
+    // ── 4. Execute query for the selected tier ─────────────────────────────
     const rows = await executeForTier(db, claims, descriptor, tier, queryOptions);
 
-    // ── 4. Populate cache for client + server tiers ────────────────────────
+    // ── 5. Populate data cache for client + server tiers ──────────────────
     // DB push-down returns aggregated rows — not suitable for re-filtering
     if (tier !== 'db') {
       await cacheProvider.set(cacheKey, { rows, cachedAt: Date.now() });

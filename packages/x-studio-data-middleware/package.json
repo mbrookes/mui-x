@@ -13,7 +13,8 @@
   },
   "scripts": {
     "typescript": "tsc -p tsconfig.json",
-    "build": "echo 'build not yet implemented'"
+    "build": "echo 'build not yet implemented'",
+    "bench": "npx tsx src/benchmarks/run.ts"
   },
   "dependencies": {
     "knex": "^3.1.0",

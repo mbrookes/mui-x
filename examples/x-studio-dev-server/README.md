@@ -114,7 +114,7 @@ The dev server exposes an [MCP (Model Context Protocol)](https://modelcontextpro
 
 ### Available MCP tools
 
-All x-studio AI tools are registered except `summarise_page` (which requires live client-side row data):
+All x-studio AI tools are registered except `summarise_page` (requires live client-side row data) and `execute_query` (raw SQL — opt in via `allowedTools` if needed):
 
 | Tool | Description |
 | ---- | ----------- |

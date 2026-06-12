@@ -741,6 +741,34 @@ Each widget in the canvas is wrapped in `StudioWidgetCard`, which provides:
 - **Built-in insight panel** — when `aiConfig?.endpoint` is set, an `AutoAwesome` dropdown appears in the action overlay (both edit and view modes) with options: Summary, Analysis, Forecast. Selecting one calls `generateWidgetInsight()`, which sends up to 100 aggregated rows to the LLM and renders the result in `StudioInsightPanel` — an absolutely-positioned overlay inside the card (`bottom: 8, left: 8, right: 8, maxHeight: 60%`).
 - **Anomaly detection** — a `TroubleshootIcon` toggle button (chart widgets only, both modes) enables statistical anomaly detection. Detected anomalies show a count badge. When anomalies are present, an "Explain Anomaly" button appears; clicking it dynamically imports `generateAnomalyExplanation` (code-split) and displays the result in the same `StudioInsightPanel`.
 
+### 12.4.1 Drag-and-Drop (react-dnd)
+
+Canvas widget reposition and compose-panel-to-canvas drop use **react-dnd** (v16) with the HTML5 backend.
+
+**Why react-dnd instead of native HTML5 DnD:**  
+Chrome locks the OS pointer cursor before `dragstart` fires (~3 px movement threshold). Native DnD `cursor` CSS set in `dragstart` is ignored. `react-dnd` with `getEmptyImage({ captureDraggingState: true })` sets `isDragging = true` on `mousedown` — before the threshold — letting CSS `cursor: grabbing` take effect at the correct moment.
+
+**Architecture:**
+
+| Component | Role |
+|---|---|
+| `Studio.tsx` | Wraps tree in `<DndProvider backend={HTML5Backend}>` + renders `<StudioDragLayer />` |
+| `StudioDragLayer.tsx` | `useDragLayer` hook; `GlobalStyles` sets `cursor: grabbing !important` on `html.x-studio-dnd-active` and `cursor: copy` on `[data-studio-drop-active]` |
+| `studioWidgetDndTypes.ts` | Shared constants (`DRAG_TYPE_CANVAS_WIDGET`, `DRAG_TYPE_COMPOSE_WIDGET`) and typed item interfaces |
+| `StudioWidgetCard` | `useDrag` source; suppresses native ghost with `getEmptyImage`; sets `x-studio-dnd-active` on `<html>` while dragging; dims card opacity |
+| `AddWidgetView.WidgetTypeCard` | `useDrag` source for compose-panel widget type cards |
+| `InsertionPoint` (StudioCanvas) | `useDrop` target for horizontal row insertion |
+| `WidgetGap` (StudioCanvas) | `useDrop` target for vertical in-row insertion; also houses `RowResizeHandle` |
+
+**Cursor rules:**
+- Default arrow cursor (`default`) everywhere — no `cursor: pointer` on canvas elements
+- `cursor: grabbing` while any drag is in progress (set via `html.x-studio-dnd-active` class)
+- `cursor: copy` when hovering an active drop zone (`[data-studio-drop-active]` attribute)
+- `cursor: col-resize` on `RowResizeHandle` — intentional, not overridden
+
+**Adjacent gap exclusion (BL-112):**  
+`useDrag`'s `isDragging` effect sets `document.body.dataset.studioDraggingWidgetId`; `useDrop`'s `canDrop` callback calls `isAdjacentToDraggingWidget()` to disable the two gaps immediately flanking the dragged widget.
+
 ### 12.5 Keyboard shortcuts
 
 `useStudioKeyboardShortcuts` binds:

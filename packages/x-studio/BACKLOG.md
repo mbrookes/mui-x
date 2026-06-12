@@ -760,3 +760,17 @@ BL-174: Cursor appearance is inconsistent and non-standard. Keep it as the stand
 This caused `customers` to appear twice in the query, making `customers.country` ambiguous.
 
 **Fixed:** In case 1b, when `expression.joinSourceId === primarySourceId` (hop 2 would circle back to the primary table), skip both JOINs and return the physical column from the primary table directly. For `expr-order-country` on a CUSTOMERS widget: returns `customers.country` with no JOINs — the column is already available on the primary table.
+
+✅ BL-177: The pointer/cursor during drag-and-drop is broken — only visible when releasing, disappears mid-drag. Replace all native HTML5 DnD with react-dnd.
+
+**Root cause:** Chrome locks the OS-level cursor as soon as the pointer moves ~3 px (before `dragstart` fires). Any `cursor` CSS set in `dragstart` is too late. All attempts to pre-set the cursor in `mousedown` were unreliable because the browser ignores CSS `cursor` overrides once it has taken control of the pointer for a native DnD gesture. The only reliable fix is to suppress native DnD entirely.
+
+**Fixed:**
+- Added `react-dnd@^16` + `react-dnd-html5-backend@^16` as dependencies
+- Created `studioWidgetDndTypes.ts` — typed `CanvasWidgetDragItem` / `ComposeWidgetDragItem` union with `type` discriminants
+- Created `StudioDragLayer.tsx` — `useDragLayer` + MUI `GlobalStyles` applying `cursor: grabbing !important` on `html.x-studio-dnd-active` during drags; `cursor: copy` on `[data-studio-drop-active]` elements (insertion points)
+- `StudioWidgetCard.tsx` — replaced `handleDragStart/End/MouseDown` + `isDragging` state with `useDrag` + `getEmptyImage({ captureDraggingState: true })`. The `captureDraggingState` option makes `isDragging = true` on `mousedown`, before Chrome's 3px threshold — CSS `cursor: grabbing` is set at that moment and wins
+- `AddWidgetView.tsx` `WidgetTypeCard` — same pattern; removed `getCursor()` helper
+- `StudioCanvas.tsx` `InsertionPoint` + `WidgetGap` — migrated from manual `dragover/dragleave/drop` listeners to `useDrop`; removed `GlobalStyles` cursor block
+- `Studio.tsx` — wrapped in `<DndProvider backend={HTML5Backend}>` with `<StudioDragLayer />` inside
+- Removed all 35 `cursor: pointer` occurrences from 19 files (arrow cursor is default everywhere; pointer-style cursors are reserved for actual hyperlinks)

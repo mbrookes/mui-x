@@ -311,6 +311,10 @@ interface ResolvedField {
   physicalColumn?: string;
   joins?: JoinDescriptorInternal[];
   skip?: boolean;
+  /** True when the field cannot be resolved to any column in the primary or related sources.
+   *  The column is passed through as-is for SELECT (backward-compat) but MUST be dropped from
+   *  WHERE clauses to avoid "no such column" SQL errors. */
+  unresolved?: boolean;
 }
 
 /**
@@ -333,8 +337,12 @@ function isJoinExpression(expr: unknown): expr is { joinSourceId: string; fieldI
  *    second hop through the expression's own join.
  * 4. Expression field with an arithmetic expression — marked `skip` so the
  *    server returns raw rows and Studio evaluates the expression client-side.
- * 5. Physical field on a related source (cross-source reference) — resolved via
- *    the relationship graph to a LEFT JOIN + qualified column.
+ * 5. Physical field on a directly related source (one-hop cross-source reference) — resolved
+ *    via the relationship graph to a LEFT JOIN + qualified column.
+ * 6. Field not found anywhere (e.g. a field from a source 2+ hops away, like `orders.date`
+ *    used as a filter on a `products` widget) — returned with `unresolved: true`. Callers
+ *    should DROP this field from WHERE clauses (to avoid "no such column" SQL errors) but MAY
+ *    pass it through in SELECT for backward compatibility.
  *
  * Only `many-to-one` and `one-to-one` relationships are traversed (one hop per step).
  */
@@ -494,8 +502,9 @@ function resolveField(
     }
   }
 
-  // Field not found anywhere — pass through unqualified
-  return { column: fieldId };
+  // Field not found anywhere — pass through unqualified but mark as unresolved so
+  // callers can drop it from WHERE clauses (avoids "no such column" SQL errors).
+  return { column: fieldId, unresolved: true };
 }
 
 /**
@@ -596,10 +605,12 @@ function buildBatchWidgetDescriptor(
 
   // Filters — resolve cross-source filter column references, and use the physical
   // column name (not the logical alias) so the server WHERE clause references a real column.
+  // Filters whose field cannot be resolved to any column in this source (unresolved: true)
+  // are silently dropped — applying them would produce "no such column" SQL errors.
   const rawFilters = d.filter ? flattenFilterNode(d.filter) : [];
   const filters = rawFilters.flatMap((pred) => {
     const r = resolve(pred.column);
-    if (r.skip) return [];
+    if (r.skip || r.unresolved) return [];
     // columnAliases maps logical ID → physical column (e.g. 'expr-order-country' → 'customers.country').
     // WHERE clauses must reference the physical column; the alias is only used in SELECT.
     const physicalColumn = columnAliases[r.column] ?? r.column;

@@ -10,9 +10,24 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
+// Tool icons — each Studio AI tool gets a recognisable MUI icon in the tool call cards
+import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import DashboardIcon from '@mui/icons-material/Dashboard';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditNoteIcon from '@mui/icons-material/EditNote';
+import FilterAltIcon from '@mui/icons-material/FilterAlt';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import LayersIcon from '@mui/icons-material/Layers';
+import NoteAltIcon from '@mui/icons-material/NoteAlt';
+import SearchIcon from '@mui/icons-material/Search';
+import StorageIcon from '@mui/icons-material/Storage';
+import TitleIcon from '@mui/icons-material/Title';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import { ChatBox } from '@mui/x-chat';
 import type { ChatAdapter, ChatMessage, ChatPartRendererMap } from '@mui/x-chat/headless';
-import { useChat } from '@mui/x-chat/headless';
+import { useChat, createToolPartRenderer } from '@mui/x-chat/headless';
 
 import {
   useStudioController,
@@ -27,6 +42,49 @@ import type { StudioAIConfig } from './studioBackendAdapter';
 import { createBackendChatAdapter } from './studioBackendAdapter';
 import type { StudioCustomWidgetDef } from '../../models';
 import { useSpeechRecognition } from './useSpeechRecognition';
+
+// ── Per-tool icon map ─────────────────────────────────────────────────────────
+// Maps each Studio AI tool name to an MUI icon component for the tool call cards.
+// createToolPartRenderer() takes ToolPartExternalProps (including toolSlots) and
+// returns a ChatPartRenderer that wraps the default ToolPart.
+
+const STUDIO_TOOL_ICONS: Record<string, React.ComponentType> = {
+  // Dashboard-level tools
+  get_dashboard_state: InfoOutlinedIcon,
+  set_dashboard_title: TitleIcon,
+  // Page tools
+  add_page: LayersIcon,
+  rename_page: EditNoteIcon,
+  remove_page: DeleteIcon,
+  set_active_page: LayersIcon,
+  // Widget tools
+  add_widget: DashboardIcon,
+  update_widget: BarChartIcon,
+  remove_widget: DeleteIcon,
+  set_widget_layout: DashboardIcon,
+  set_widget_width: DashboardIcon,
+  set_widget_forecast: TrendingUpIcon,
+  // Filter tools
+  add_page_filter: FilterAltIcon,
+  remove_page_filter: FilterAltIcon,
+  add_widget_filter: FilterAltIcon,
+  remove_widget_filter: FilterAltIcon,
+  // Insight / utility tools
+  summarise_page: NoteAltIcon,
+  apply_bulk_update: AutoFixHighIcon,
+  rename_thread: EditNoteIcon,
+  execute_query: StorageIcon,
+  // Date / calendar tools
+  get_current_date: CalendarTodayIcon,
+  // MCP / search tools
+  search: SearchIcon,
+};
+
+const studioDynamicToolRenderer = createToolPartRenderer({
+  toolSlots: Object.fromEntries(
+    Object.entries(STUDIO_TOOL_ICONS).map(([name, icon]) => [name, { icon }]),
+  ),
+});
 
 // ── StudioSendButton — stop/send toggle for the composer ──────────────────────
 // Defined at module level so the reference is stable across renders (required by
@@ -351,6 +409,27 @@ export interface StudioChatPanelProps {
    * targets the fixed-position overlay panel (merged with Studio's defaults).
    */
   sx?: SxProps<Theme>;
+  /**
+   * Visual density of the chat UI.
+   * Passed directly to `ChatBox`. Useful for space-constrained dashboard layouts.
+   * @default 'standard'
+   */
+  density?: React.ComponentProps<typeof ChatBox>['density'];
+  /**
+   * Layout variant.
+   * Passed directly to `ChatBox`.
+   * @default 'default'
+   */
+  variant?: React.ComponentProps<typeof ChatBox>['variant'];
+  /**
+   * When provided, this prompt is pre-filled in the composer and automatically
+   * submitted on mount (no user interaction needed).
+   *
+   * Useful for context-triggered chats — e.g. right-clicking a widget and
+   * opening the assistant with a pre-built "Explain this widget" prompt.
+   * Only takes effect when the conversation is new (no existing messages).
+   */
+  initialPrompt?: string;
 }
 
 // react-doctor-disable-next-line react-doctor/no-giant-component -- chat panel orchestrates thread/message/suggestion state and cannot be split further
@@ -358,12 +437,15 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   const {
     aiConfig,
     customWidgets: customWidgetsProp,
+    density,
     focusedWidgetId,
+    initialPrompt,
     open = true,
     onClose,
     overlay = false,
     slotProps,
     sx,
+    variant,
   } = props;
 
   const controller = useStudioController();
@@ -548,8 +630,10 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     // Reasoning / "Thinking…" — show a "Thinking…" label while the model is working
     // and collapse the block into an expandable "Reasoning" section when done.
     reasoning: StudioReasoningPart as ChatPartRendererMap['reasoning'],
-    // When showToolCalls is false, suppress dynamic-tool cards entirely.
-    ...(aiConfig?.showToolCalls === false ? { 'dynamic-tool': () => null } : {}),
+    // Dynamic-tool parts: show per-tool icons, or hide entirely when showToolCalls is false.
+    'dynamic-tool': aiConfig?.showToolCalls === false
+      ? () => null
+      : studioDynamicToolRenderer as ChatPartRendererMap['dynamic-tool'],
   };
 
   const chatBox = (
@@ -643,12 +727,17 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
         <ChatBox
           {...slotProps?.chatBox}
           adapter={adapter}
+          density={density}
+          variant={variant}
           messages={slotProps?.chatBox?.messages ?? threadMessages}
           onMessagesChange={slotProps?.chatBox?.onMessagesChange ?? handleMessagesChange}
           onFinish={slotProps?.chatBox?.onFinish}
           onError={slotProps?.chatBox?.onError}
           composerValue={composerValue}
           onComposerValueChange={handleComposerValueChange}
+          // initialPrompt: pre-fill and auto-submit when there are no existing messages
+          initialComposerValue={threadMessages.length === 0 ? (initialPrompt ?? slotProps?.chatBox?.initialComposerValue) : slotProps?.chatBox?.initialComposerValue}
+          autoSubmitInitialValue={threadMessages.length === 0 && Boolean(initialPrompt)}
           suggestions={suggestions}
           suggestionsAutoSubmit
           currentUser={{ id: 'user', displayName: 'You', role: 'user' }}

@@ -278,6 +278,15 @@ export function createBackendChatAdapter(
                   output: String((event as { output?: string }).output ?? ''),
                 });
               }
+            } else if (type === 'step-start') {
+              // Emit an x-chat start-step chunk to visually separate agentic iterations.
+              streamController.enqueue({ type: 'start-step' });
+            } else if (type === 'message-metadata') {
+              // Forward model name + token counts into the assistant message metadata.
+              streamController.enqueue({
+                type: 'message-metadata',
+                metadata: (event as { metadata: Record<string, unknown> }).metadata,
+              });
             } else if (type === 'state-mutation') {
               try {
                 applyStateMutation((event as { mutation: StateMutation }).mutation, controller);

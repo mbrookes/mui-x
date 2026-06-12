@@ -45,7 +45,7 @@ export function FilterCard({
           gap: 0.5,
           px: 0.5,
           py: 0.5,
-          cursor: 'pointer',
+          cursor: 'default',
           userSelect: 'none',
         }}
         onClick={() => setExpanded((prev) => !prev)}

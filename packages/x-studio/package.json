@@ -43,6 +43,8 @@
     "@mui/x-internals": "workspace:*",
     "dayjs": "catalog:",
     "@mui/x-chat": "workspace:*",
+    "react-dnd": "^16.0.1",
+    "react-dnd-html5-backend": "^16.0.1",
     "reselect": "catalog:",
     "topojson-client": "^3.1.0",
     "us-atlas": "^3.0.1",

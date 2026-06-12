@@ -125,7 +125,7 @@ export default function DataSourcePreviewTooltip({
           component="span"
           variant="caption"
           onClick={handleOpenPreviewClick}
-          sx={{ opacity: 0.8, cursor: 'pointer', '&:hover': { opacity: 1 } }}
+          sx={{ opacity: 0.8, cursor: 'default', '&:hover': { opacity: 1 } }}
         >
           View source data →
         </Typography>

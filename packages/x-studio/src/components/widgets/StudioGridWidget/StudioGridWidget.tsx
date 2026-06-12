@@ -329,7 +329,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         onColumnVisibilityModelChange={() => {}}
         sx={{
           height: widget.config.gridHeight ?? 400,
-          '& .MuiDataGrid-cell': { cursor: 'pointer' },
+          '& .MuiDataGrid-cell': { cursor: 'default' },
           '& .StudioGrid-crossFilterMatch': {
             bgcolor: 'action.selected',
           },

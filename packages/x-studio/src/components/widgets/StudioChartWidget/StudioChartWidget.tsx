@@ -1126,7 +1126,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             },
           }}
           sx={{
-            cursor: 'pointer',
+            cursor: 'default',
             ...(ghostIds.size > 0 && {
               // Dim ghost series dots using CSS targeting — each ghost series
               // gets a lower-opacity fill. Ghost series are interleaved before
@@ -1377,7 +1377,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                   handleItemClick(params.axisValue);
                 }
               }}
-              sx={{ cursor: 'pointer' }}
+              sx={{ cursor: 'default' }}
               slots={multiYBarContext ? { bar: CrossFilterGhostBar } : undefined}
               slotProps={{
                 legend: {
@@ -1560,7 +1560,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 handleItemClick(label);
               }
             }}
-            sx={{ cursor: 'pointer' }}
+            sx={{ cursor: 'default' }}
           />
         </PieHighlightContext.Provider>
       </div>
@@ -1729,7 +1729,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 handleItemClick(params.axisValue);
               }
             }}
-            sx={{ cursor: 'pointer' }}
+            sx={{ cursor: 'default' }}
             slots={sfBarContext ? { bar: CrossFilterGhostBar } : undefined}
             slotProps={{
               legend: {
@@ -1863,7 +1863,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               handleItemClick(params.axisValue);
             }
           }}
-          sx={{ cursor: 'pointer' }}
+          sx={{ cursor: 'default' }}
           slotProps={{
             legend: {
               sx: {
@@ -1981,7 +1981,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               handleItemClick(params.axisValue);
             }
           }}
-          sx={{ cursor: 'pointer' }}
+          sx={{ cursor: 'default' }}
           slotProps={{
             legend: {
               sx: {
@@ -2102,7 +2102,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               handleItemClick(params.axisValue);
             }
           }}
-          sx={{ cursor: 'pointer' }}
+          sx={{ cursor: 'default' }}
           slotProps={{
             legend: {
               sx: {
@@ -2172,7 +2172,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               handleItemClick(params.axisValue);
             }
           }}
-          sx={{ cursor: 'pointer' }}
+          sx={{ cursor: 'default' }}
           slotProps={{
             legend: {
               sx: {
@@ -2235,7 +2235,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 handleItemClick(params.axisValue);
               }
             }}
-            sx={{ cursor: 'pointer' }}
+            sx={{ cursor: 'default' }}
             slots={singleBarContext ? { bar: CrossFilterGhostBar } : undefined}
             slotProps={{
               legend: {
@@ -2295,7 +2295,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               handleItemClick(params.axisValue);
             }
           }}
-          sx={{ cursor: 'pointer' }}
+          sx={{ cursor: 'default' }}
           slots={singleBarContext ? { bar: CrossFilterGhostBar } : undefined}
           slotProps={{
             legend: {

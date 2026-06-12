@@ -61,6 +61,12 @@ import {
   type StudioInsightOptions,
   type StudioInsightResult,
 } from '../StudioChatPanel/generateInsight';
+import { useDrag } from 'react-dnd';
+import { getEmptyImage } from 'react-dnd-html5-backend';
+import {
+  DRAG_TYPE_CANVAS_WIDGET,
+  type CanvasWidgetDragItem,
+} from '../StudioCanvas/studioWidgetDndTypes';
 
 export interface StudioWidgetCardProps {
   widgetId: string;
@@ -351,7 +357,38 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     deferredPartitioned !== partitioned;
 
   const LoadingOverlay = slots?.loadingOverlay ?? DefaultLoadingOverlay;
-  const [isDragging, setIsDragging] = React.useState(false);
+
+  const [{ isDragging }, dragRef, preview] = useDrag<
+    CanvasWidgetDragItem,
+    void,
+    { isDragging: boolean }
+  >({
+    type: DRAG_TYPE_CANVAS_WIDGET,
+    item: { type: DRAG_TYPE_CANVAS_WIDGET, widgetId, sourcePageId: activePageId },
+    canDrag: () => mode === 'edit',
+    collect: (monitor) => ({ isDragging: monitor.isDragging() }),
+  });
+
+  React.useEffect(() => {
+    preview(getEmptyImage(), { captureDraggingState: true });
+  }, [preview]);
+
+  React.useEffect(() => {
+    if (isDragging) {
+      document.documentElement.classList.add('x-studio-dnd-active');
+      document.body.dataset.studioDraggingWidgetId = widgetId;
+      if (ref.current) {
+        ref.current.style.opacity = '0.1';
+      }
+    } else {
+      document.documentElement.classList.remove('x-studio-dnd-active');
+      delete document.body.dataset.studioDraggingWidgetId;
+      if (ref.current) {
+        ref.current.style.opacity = '';
+      }
+    }
+  }, [isDragging, widgetId]);
+
   const [expanded, setExpanded] = React.useState(false);
   // Built-in edit dialog — only used when onEditRequest is not provided
   const [editDialogOpen, setEditDialogOpen] = React.useState(false);
@@ -363,9 +400,6 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       setEditDialogOpen(true);
     }
   }, [onEditRequest, widgetId]);
-  // Tracks the pointer position within the element at mousedown, used to position
-  // the drag ghost so the card appears grabbed from where the user clicked.
-  const dragOffsetRef = React.useRef({ x: 0, y: 0 });
 
   // Defer heavy widget content to after the first browser paint so the card
   // shells are visible immediately on initial load. Widgets that have already
@@ -390,159 +424,6 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     });
     return () => cancelAnimationFrame(raf);
   }, [showContent, widgetId]);
-
-  React.useEffect(() => {
-    if (mode !== 'edit') {
-      return undefined;
-    }
-    const node = ref.current;
-    if (!node) {
-      return undefined;
-    }
-
-    function handleDragStart(event: DragEvent) {
-      setIsDragging(true);
-      // Do NOT call setSelectedWidget here — it causes all N-1 other widget cards
-      // to re-render (dimmed selector) right at the performance-critical drag-start
-      // moment. Selection is set on click (see Paper onClick) or after a drop.
-      event.dataTransfer?.setData(
-        'application/json',
-        JSON.stringify({ type: 'canvas-widget', widgetId, sourcePageId: activePageId }),
-      );
-      if (event.dataTransfer) {
-        event.dataTransfer.effectAllowed = 'all';
-      }
-
-      // Create a wrapper container for the drag image that we can style
-      const ghostWrapper = document.createElement('div');
-      ghostWrapper.style.position = 'fixed';
-      ghostWrapper.style.left = '-9999px';
-      ghostWrapper.style.top = '0';
-      ghostWrapper.style.pointerEvents = 'none';
-
-      if (node) {
-        const { x, y } = dragOffsetRef.current;
-        const ghost = node.cloneNode(true) as HTMLElement;
-
-        const overlayEl = ghost.querySelector<HTMLElement>('[data-widget-overlay]');
-        if (overlayEl) {
-          overlayEl.style.visibility = 'hidden';
-        }
-
-        // --- CRITICAL FIX 1: Strip positioning ---
-        // Force the clone to sit exactly at the 0,0 origin of the wrapper
-        // by clearing any transforms or positional properties it inherited.
-        ghost.style.position = 'relative';
-        ghost.style.top = '0px';
-        ghost.style.left = '0px';
-        ghost.style.right = 'auto';
-        ghost.style.bottom = 'auto';
-        ghost.style.transform = 'none';
-        ghost.style.margin = '0px';
-
-        // Apply dimensions and styles
-        ghost.style.width = `${node.offsetWidth}px`;
-        ghost.style.height = `${node.offsetHeight}px`;
-        ghost.style.pointerEvents = 'none';
-        ghost.style.opacity = '0.75';
-        ghost.style.outline = '1px dashed #888'; // TODO: Use theme color
-        ghost.style.outlineOffset = '-1px';
-
-        // Append clone to wrapper, and wrapper to document
-        ghostWrapper.appendChild(ghost);
-        document.body.appendChild(ghostWrapper);
-
-        event.dataTransfer?.setDragImage(ghostWrapper, x, y);
-
-        // setTimeout guarantees the browser has enough time to snapshot the element
-        // before it is removed from the DOM.
-        setTimeout(() => {
-          if (document.body.contains(ghostWrapper)) {
-            document.body.removeChild(ghostWrapper);
-          }
-          // Dim original widget
-          node.style.opacity = '0.1';
-        }, 10);
-
-        requestAnimationFrame(() => {
-          document.body.removeChild(ghostWrapper);
-        });
-      }
-
-      // Force the grabbing cursor globally so it doesn't flicker to + or default
-      // as the pointer moves over insertion points or other non-draggable areas.
-      // CSS alone cannot override the native HTML5 DnD cursor on macOS/Chrome,
-      // so we also set an inline style on <html> which has the highest cascade
-      // priority and suppresses the OS cursor on most modern browsers.
-      document.body.classList.add('x-studio-dragging-widget');
-      document.documentElement.style.setProperty('cursor', 'move', 'important');
-      // Record which widget is being dragged so insertion points adjacent to it
-      // can disable themselves during dragover (BL-112).
-      document.body.dataset.studioDraggingWidgetId = widgetId;
-    }
-    function handleDragEnd() {
-      setIsDragging(false);
-      document.body.classList.remove('x-studio-dragging-widget');
-      document.documentElement.style.removeProperty('cursor');
-      delete document.body.dataset.studioDraggingWidgetId;
-
-      // Restore the original widget's opacity
-      if (node) {
-        node.style.opacity = '';
-      }
-    }
-    // Temporarily remove draggable when the pointer goes down inside a
-    // [data-no-drag] element (e.g. a slider). This must happen in mousedown
-    // capture — before the browser begins its drag-detection gesture — because
-    // calling preventDefault() on dragstart is too late: the browser has
-    // already captured the pointer away from child interactive controls.
-    function handleMouseDown(event: MouseEvent) {
-      if ((event.target as Element).closest('[data-no-drag]')) {
-        node!.removeAttribute('draggable');
-        const restoreDraggable = () => {
-          node!.setAttribute('draggable', 'true');
-          document.removeEventListener('mouseup', restoreDraggable, { capture: true });
-        };
-        document.addEventListener('mouseup', restoreDraggable, { capture: true });
-      }
-      // Record click position relative to the element so handleDragStart can use
-      // it as the setDragImage offset (grab point = where the user clicked).
-      const rect = node!.getBoundingClientRect();
-      dragOffsetRef.current = {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      };
-      // Apply move cursor immediately on mousedown so the cursor changes
-      // as soon as the user presses the button. Set both the body class (for
-      // GlobalStyles descendants) AND the documentElement inline style, which
-      // is the ONLY approach that reliably overrides Chrome's native DnD cursor.
-      // This must happen on mousedown — Chrome locks the DnD cursor before
-      // dragstart fires (as soon as the pointer moves ~3 px), so setting the
-      // override in dragstart alone is too late.
-      document.body.classList.add('x-studio-dragging-widget');
-      document.documentElement.style.setProperty('cursor', 'move', 'important');
-      const removeOnUp = () => {
-        // Only remove the class if no actual drag started (handleDragStart will
-        // re-add it if a drag does occur, so the class survives the transition).
-        if (!document.body.dataset.studioDraggingWidgetId) {
-          document.body.classList.remove('x-studio-dragging-widget');
-          document.documentElement.style.removeProperty('cursor');
-        }
-        document.removeEventListener('mouseup', removeOnUp, { capture: true });
-      };
-      document.addEventListener('mouseup', removeOnUp, { capture: true });
-    }
-    node.setAttribute('draggable', 'true');
-    node.addEventListener('mousedown', handleMouseDown, { capture: true });
-    node.addEventListener('dragstart', handleDragStart);
-    node.addEventListener('dragend', handleDragEnd);
-    return () => {
-      node.removeAttribute('draggable');
-      node.removeEventListener('mousedown', handleMouseDown, { capture: true });
-      node.removeEventListener('dragstart', handleDragStart);
-      node.removeEventListener('dragend', handleDragEnd);
-    };
-  }, [widgetId, mode, controller]);
 
   const handleExport = React.useCallback(
     (event: React.MouseEvent) => {
@@ -599,7 +480,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   return (
     <Box sx={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Paper
-        ref={ref}
+        ref={(el) => {
+          (ref as React.MutableRefObject<HTMLDivElement | null>).current =
+            el as HTMLDivElement | null;
+          if (mode === 'edit') dragRef(el);
+        }}
         variant="outlined"
         {...slotProps?.paper}
         onClick={() => {
@@ -639,7 +524,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           borderRadius:
             pageTheme?.cardRadius !== undefined ? `${pageTheme.cardRadius}px` : undefined,
           backgroundColor: pageTheme?.cardBackground ?? undefined,
-          cursor: isDragging ? 'move' : 'default',
+          cursor: isDragging ? 'grabbing' : 'default',
           p: pageTheme?.cardPadding ?? 2,
           boxSizing: 'border-box',
           height: '100%',

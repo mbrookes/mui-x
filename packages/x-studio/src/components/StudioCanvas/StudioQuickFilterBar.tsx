@@ -77,7 +77,7 @@ export function StudioQuickFilterBar() {
         borderBottom: 1,
         borderColor: 'divider',
         backgroundColor: 'action.hover',
-        cursor: 'pointer',
+        cursor: 'default',
       }}
       onClick={openFiltersDrawer}
     >

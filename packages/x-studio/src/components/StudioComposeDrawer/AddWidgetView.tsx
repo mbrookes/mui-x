@@ -36,10 +36,12 @@ import type { StudioWidget, StudioWidgetKind } from '../../models';
 import { useWidgetKindLabels } from './StudioComposeDrawerLabels';
 import { useStudioUIConfig, useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { createWidgetFromDescription } from '../StudioChatPanel/createWidgetFromDescription';
-
-function getCursor(isDragging: boolean) {
-  return isDragging ? 'move' : 'default';
-}
+import { useDrag } from 'react-dnd';
+import { getEmptyImage } from 'react-dnd-html5-backend';
+import {
+  DRAG_TYPE_COMPOSE_WIDGET,
+  type ComposeWidgetDragItem,
+} from '../StudioCanvas/studioWidgetDndTypes';
 
 // ── Natural language widget creator (BL-58) ──────────────────────────────────
 
@@ -182,63 +184,32 @@ interface WidgetTypeCardProps {
 }
 
 function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
-  const ref = React.useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = React.useState(false);
+  const [{ isDragging }, dragRef, preview] = useDrag<
+    ComposeWidgetDragItem,
+    void,
+    { isDragging: boolean }
+  >({
+    type: DRAG_TYPE_COMPOSE_WIDGET,
+    item: { type: DRAG_TYPE_COMPOSE_WIDGET, kind: wt.kind },
+    canDrag: () => canAdd,
+    collect: (monitor) => ({ isDragging: monitor.isDragging() }),
+  });
 
-  // react-doctor-disable-next-line react-doctor/no-effect-event-handler -- native mousedown/dragstart/dragend listeners required for setDragImage and capture-phase mousedown
   React.useEffect(() => {
-    if (!canAdd) {
-      return undefined;
+    preview(getEmptyImage(), { captureDraggingState: true });
+  }, [preview]);
+
+  React.useEffect(() => {
+    if (isDragging) {
+      document.documentElement.classList.add('x-studio-dnd-active');
+    } else {
+      document.documentElement.classList.remove('x-studio-dnd-active');
     }
-    const node = ref.current;
-    if (!node) {
-      return undefined;
-    }
-    function handleDragStart(event: DragEvent) {
-      setIsDragging(true);
-      event.dataTransfer?.setData(
-        'application/json',
-        JSON.stringify({ type: 'compose-widget', kind: wt.kind }),
-      );
-      if (node) {
-        event.dataTransfer?.setDragImage(node, 0, 0);
-      }
-      document.body.classList.add('x-studio-dragging-widget');
-      document.documentElement.style.setProperty('cursor', 'move', 'important');
-    }
-    function handleDragEnd() {
-      setIsDragging(false);
-      document.body.classList.remove('x-studio-dragging-widget');
-      document.documentElement.style.removeProperty('cursor');
-    }
-    function handleMouseDown() {
-      document.body.classList.add('x-studio-dragging-widget');
-      // Set the documentElement override on mousedown (before Chrome locks the DnD
-      // cursor at the start of the drag gesture, which happens before dragstart fires).
-      document.documentElement.style.setProperty('cursor', 'move', 'important');
-      const removeOnUp = () => {
-        if (!document.body.dataset.studioDraggingWidgetId) {
-          document.body.classList.remove('x-studio-dragging-widget');
-          document.documentElement.style.removeProperty('cursor');
-        }
-        document.removeEventListener('mouseup', removeOnUp, { capture: true });
-      };
-      document.addEventListener('mouseup', removeOnUp, { capture: true });
-    }
-    node.setAttribute('draggable', 'true');
-    node.addEventListener('mousedown', handleMouseDown, { capture: true });
-    node.addEventListener('dragstart', handleDragStart);
-    node.addEventListener('dragend', handleDragEnd);
-    return () => {
-      node.removeEventListener('mousedown', handleMouseDown, { capture: true });
-      node.removeEventListener('dragstart', handleDragStart);
-      node.removeEventListener('dragend', handleDragEnd);
-    };
-  }, [canAdd, wt.kind]);
+  }, [isDragging]);
 
   return (
     <Paper
-      ref={ref}
+      ref={(el) => { dragRef(el as HTMLElement | null); }}
       variant="outlined"
       onClick={() => {
         if (canAdd) {
@@ -261,7 +232,7 @@ function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
         display: 'flex',
         alignItems: 'center',
         gap: 1.5,
-        cursor: canAdd ? getCursor(isDragging) : 'not-allowed',
+        cursor: canAdd ? (isDragging ? 'grabbing' : 'default') : 'not-allowed',
         opacity: canAdd ? 1 : 0.5,
         transition: 'border-color 0.15s, background-color 0.15s',
         '&:hover': canAdd ? { borderColor: 'primary.main', bgcolor: 'action.hover' } : {},
@@ -309,7 +280,7 @@ function WidgetInstanceItem({ widget, isSelected, onSelect }: WidgetInstanceItem
         display: 'flex',
         alignItems: 'center',
         gap: 1,
-        cursor: 'pointer',
+        cursor: 'default',
         transition: 'border-color 0.15s, background-color 0.15s',
         borderColor: isSelected ? 'primary.main' : 'divider',
         bgcolor: isSelected ? 'primary.50' : undefined,

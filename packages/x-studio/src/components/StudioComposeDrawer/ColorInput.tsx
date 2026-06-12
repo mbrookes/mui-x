@@ -54,7 +54,7 @@ export function ColorSwatch({
           border: 1,
           borderColor: 'divider',
           borderRadius: '50%',
-          cursor: 'pointer',
+          cursor: 'default',
           display: 'block',
           '&::-webkit-color-swatch-wrapper': { padding: 0 },
           '&::-webkit-color-swatch': { borderRadius: '50%', border: 'none' },

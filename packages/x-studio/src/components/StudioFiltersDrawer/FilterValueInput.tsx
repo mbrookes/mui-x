@@ -188,7 +188,7 @@ function RelativeDateInput({
   const amountField = (
     <NumberField
       size="small"
-      label="Amount"
+      label={localeText.filterValueAmountLabel}
       value={value.amount}
       disabled={isLinked}
       onValueChange={(v) => {
@@ -526,7 +526,11 @@ export function FilterValueInput(props: {
     return (
       <FormControl size="small" sx={{ minWidth: 90, flexGrow: 1 }}>
         <InputLabel>Value</InputLabel>
-        <Select label={localeText.filterValueLabel} value={strVal} onChange={(event) => onChange(event.target.value)}>
+        <Select
+          label={localeText.filterValueLabel}
+          value={strVal}
+          onChange={(event) => onChange(event.target.value)}
+        >
           <MenuItem value="true">True</MenuItem>
           <MenuItem value="false">False</MenuItem>
         </Select>
@@ -548,7 +552,11 @@ export function FilterValueInput(props: {
         value={localText}
         onInputChange={(_, newVal) => handleTextChange(newVal)}
         renderInput={(params) => (
-          <TextField {...params} label={localeText.filterValueLabel} helperText={localeText.filterValueHelper} />
+          <TextField
+            {...params}
+            label={localeText.filterValueLabel}
+            helperText={localeText.filterValueHelper}
+          />
         )}
         sx={{ minWidth: 80, flexGrow: 1 }}
       />

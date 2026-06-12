@@ -1,7 +1,12 @@
 'use client';
 import * as React from 'react';
 import { Stack, TextField } from '@mui/material';
-import { useStudioController, useStudioSelector, selectWidgets, useStudioLocaleText } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  useStudioLocaleText,
+} from '../../context';
 
 export function TextSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;

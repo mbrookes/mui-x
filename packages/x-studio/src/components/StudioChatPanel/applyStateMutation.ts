@@ -10,10 +10,7 @@ import type { StateMutation } from '../../models';
  *
  * Called by the thin client adapter whenever a `state-mutation` SSE event arrives.
  */
-export function applyStateMutation(
-  mutation: StateMutation,
-  controller: StudioController,
-): void {
+export function applyStateMutation(mutation: StateMutation, controller: StudioController): void {
   switch (mutation.type) {
     case 'addPage': {
       // The server already chose the page ID; we need to set state directly
@@ -114,7 +111,10 @@ export function applyStateMutation(
     default: {
       // Exhaustiveness check — TypeScript will warn if a new mutation type is added
       // without updating this function.
-      console.warn('[StudioChatAdapter] Unknown state mutation type:', (mutation as { type: string }).type);
+      console.warn(
+        '[StudioChatAdapter] Unknown state mutation type:',
+        (mutation as { type: string }).type,
+      );
     }
   }
 }

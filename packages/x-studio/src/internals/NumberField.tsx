@@ -10,6 +10,7 @@ import OutlinedInput from '@mui/material/OutlinedInput';
 import type { SxProps, Theme } from '@mui/material/styles';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import { useStudioLocaleText } from './StudioUIConfigContext';
 
 /**
  * Placeholder that signals MUI's FormControl to shrink the label on SSR
@@ -47,6 +48,7 @@ export function NumberField({
   sx,
   ...other
 }: NumberFieldProps) {
+  const localeText = useStudioLocaleText();
   const generatedId = React.useId();
   const id = idProp ?? generatedId;
   const helperId = `${id}-helper-text`;
@@ -99,12 +101,16 @@ export function NumberField({
                 }}
               >
                 <BaseNumberField.Increment
-                  render={<IconButton size={size} aria-label="Increase" />}
+                  render={
+                    <IconButton size={size} aria-label={localeText.numberFieldIncreaseAriaLabel} />
+                  }
                 >
                   <KeyboardArrowUpIcon fontSize={size} sx={{ transform: 'translateY(2px)' }} />
                 </BaseNumberField.Increment>
                 <BaseNumberField.Decrement
-                  render={<IconButton size={size} aria-label="Decrease" />}
+                  render={
+                    <IconButton size={size} aria-label={localeText.numberFieldDecreaseAriaLabel} />
+                  }
                 >
                   <KeyboardArrowDownIcon fontSize={size} sx={{ transform: 'translateY(-2px)' }} />
                 </BaseNumberField.Decrement>

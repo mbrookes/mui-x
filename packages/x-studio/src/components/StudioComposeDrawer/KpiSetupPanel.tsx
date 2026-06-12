@@ -18,7 +18,16 @@ import {
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FunctionsIcon from '@mui/icons-material/Functions';
-import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectFilters, selectRelationships, selectExpressionFields, useStudioLocaleText } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectDataSources,
+  selectFilters,
+  selectRelationships,
+  selectExpressionFields,
+  useStudioLocaleText,
+} from '../../context';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { fieldHasCapability } from '../../utils/fieldCapabilities';
 import { getReachableSourceIds } from '../../internals/chartUtils';
@@ -246,15 +255,15 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
               });
             }}
             fields={allDateFieldsWithJoined}
-            label="Time field"
+            label={localeText.kpiSetupTimeFieldLabel}
           />
         ))}
 
       {!isGauge && (
         <FormControl size="small" fullWidth>
-          <InputLabel>Granularity</InputLabel>
+          <InputLabel>{localeText.kpiSetupGranularityLabel}</InputLabel>
           <Select
-            label="Granularity"
+            label={localeText.kpiSetupGranularityLabel}
             value={config.kpiSparklineGranularity ?? ''}
             onChange={(event) =>
               controller.updateWidgetConfig(widgetId, {
@@ -277,9 +286,9 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
       )}
 
       <FormControl size="small" fullWidth>
-        <InputLabel>Plot type</InputLabel>
+        <InputLabel>{localeText.kpiSetupPlotTypeLabel}</InputLabel>
         <Select
-          label="Plot type"
+          label={localeText.kpiSetupPlotTypeLabel}
           value={plotType}
           onChange={(event) =>
             controller.updateWidgetConfig(widgetId, {
@@ -297,7 +306,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
         <Box sx={{ display: 'flex', gap: 1 }}>
           <TextField
             size="small"
-            label="Min"
+            label={localeText.kpiSetupMinLabel}
             type="number"
             value={config.kpiSparklineGaugeMin ?? 0}
             onChange={(event) => {
@@ -310,7 +319,7 @@ function KpiSparklineOptions(props: { widgetId: string; config: StudioWidgetConf
           />
           <TextField
             size="small"
-            label="Max"
+            label={localeText.kpiSetupMaxLabel}
             type="number"
             value={config.kpiSparklineGaugeMax ?? 100}
             onChange={(event) => {
@@ -483,8 +492,8 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             }
           }}
           fields={allFields}
-          label="Value field"
-          helperText="Field to aggregate"
+          label={localeText.kpiSetupValueFieldLabel}
+          helperText={localeText.kpiSetupValueFieldHelperText}
         />
 
         {/* Calculated field button — opens full expression dialog for new measure fields */}
@@ -506,9 +515,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         )}
 
         <FormControl size="small" fullWidth disabled={onlyOneAgg}>
-          <InputLabel>Aggregation</InputLabel>
+          <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>
           <Select
-            label="Aggregation"
+            label={localeText.chartSetupAggregationLabel}
             value={selectedAgg}
             onChange={(event) =>
               controller.updateWidgetConfig(widgetId, {
@@ -526,7 +535,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
         {features.kpiSparkline !== false && (
           <CollapsibleFeatureSection
-            label="Sparkline"
+            label={localeText.kpiSetupSparklineLabel}
             enabled={config.kpiSparkline ?? false}
             onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiSparkline: next })}
           >
@@ -536,7 +545,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
         {features.kpiTarget !== false && (
           <CollapsibleFeatureSection
-            label="Target"
+            label={localeText.kpiSetupTargetLabel}
             enabled={config.kpiTarget ?? false}
             onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTarget: next })}
           >
@@ -553,14 +562,14 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
         {features.kpiTrend !== false && (
           <CollapsibleFeatureSection
-            label="Trend"
+            label={localeText.kpiSetupTrendLabel}
             enabled={config.kpiTrend ?? false}
             onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTrend: next })}
           >
             <FormControl size="small" fullWidth>
-              <InputLabel>Comparison period</InputLabel>
+              <InputLabel>{localeText.kpiSetupCompPeriodLabel}</InputLabel>
               <Select
-                label="Comparison period"
+                label={localeText.kpiSetupCompPeriodLabel}
                 value={config.kpiTrendComparison ?? 'previous-period'}
                 onChange={(event) =>
                   controller.updateWidgetConfig(widgetId, {
@@ -572,7 +581,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
                 }
               >
                 <MenuItem value="previous-period">{localeText.kpiSetupCompPrevPeriod}</MenuItem>
-                <MenuItem value="previous-calendar-period">{localeText.kpiSetupCompPrevCalendarPeriod}</MenuItem>
+                <MenuItem value="previous-calendar-period">
+                  {localeText.kpiSetupCompPrevCalendarPeriod}
+                </MenuItem>
                 <MenuItem value="year-over-year">{localeText.kpiSetupCompSameLastYear}</MenuItem>
               </Select>
             </FormControl>

@@ -410,7 +410,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                       sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
                     />
                   )}
-                  <Tooltip title="Rename view">
+                  <Tooltip title={localeText.filtersDrawerRenameViewTooltip}>
                     <IconButton
                       size="small"
                       onClick={() => handleRenameStart(preset.id, preset.name)}

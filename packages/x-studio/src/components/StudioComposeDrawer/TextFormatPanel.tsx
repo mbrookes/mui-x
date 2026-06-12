@@ -12,7 +12,12 @@ import {
   ToggleButtonGroup,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectWidgets, useStudioLocaleText } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  useStudioLocaleText,
+} from '../../context';
 import { CollapsibleSection } from '../../internals/CollapsibleSection';
 import type { StudioWidgetConfig } from '../../models';
 import { ColorInput } from './ColorInput';
@@ -41,14 +46,15 @@ function TextSectionFormat(props: TextSectionFormatProps) {
     onColorChange,
     onAlignChange,
   } = props;
+  const localeText = useStudioLocaleText();
 
   return (
     <CollapsibleSection title={label}>
       <Stack spacing={1.5} sx={{ pb: 1.5 }}>
         <FormControl size="small" fullWidth>
-          <InputLabel>Font family</InputLabel>
+          <InputLabel>{localeText.textFormatFontFamilyLabel}</InputLabel>
           <Select
-            label="Font family"
+            label={localeText.textFormatFontFamilyLabel}
             value={fontFamily ?? ''}
             onChange={(event) => {
               const v = event.target.value as string;
@@ -62,9 +68,9 @@ function TextSectionFormat(props: TextSectionFormatProps) {
         </FormControl>
 
         <FormControl size="small" fullWidth>
-          <InputLabel>Font size</InputLabel>
+          <InputLabel>{localeText.textFormatFontSizeLabel}</InputLabel>
           <Select
-            label="Font size"
+            label={localeText.textFormatFontSizeLabel}
             value={fontSize ?? 0}
             onChange={(event) => {
               const v = Number(event.target.value);
@@ -84,10 +90,10 @@ function TextSectionFormat(props: TextSectionFormatProps) {
         </FormControl>
 
         <ColorInput
-          label="Color"
+          label={localeText.textFormatColorLabel}
           value={color ?? ''}
           onChange={(v) => onColorChange(v || undefined)}
-          placeholder="Default"
+          placeholder={localeText.textFormatColorPlaceholder}
         />
 
         <div>
@@ -104,13 +110,13 @@ function TextSectionFormat(props: TextSectionFormatProps) {
               }
             }}
           >
-            <ToggleButton value="left" aria-label="Align left">
+            <ToggleButton value="left" aria-label={localeText.textFormatAlignLeftAriaLabel}>
               <FormatAlignLeftIcon fontSize="small" />
             </ToggleButton>
-            <ToggleButton value="center" aria-label="Align center">
+            <ToggleButton value="center" aria-label={localeText.textFormatAlignCenterAriaLabel}>
               <FormatAlignCenterIcon fontSize="small" />
             </ToggleButton>
-            <ToggleButton value="right" aria-label="Align right">
+            <ToggleButton value="right" aria-label={localeText.textFormatAlignRightAriaLabel}>
               <FormatAlignRightIcon fontSize="small" />
             </ToggleButton>
           </ToggleButtonGroup>

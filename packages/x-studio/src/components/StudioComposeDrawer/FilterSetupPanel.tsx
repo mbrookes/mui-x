@@ -9,10 +9,15 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, useStudioLocaleText } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectDataSources,
+  useStudioLocaleText,
+} from '../../context';
 import type { StudioFilterWidgetType } from '../../models';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
-
 
 export function FilterSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
@@ -22,28 +27,29 @@ export function FilterSetupPanel(props: { widgetId: string }) {
   const localeText = useStudioLocaleText();
 
   const config = widget?.config ?? {};
-  const filterWidgetTypes: { value: StudioFilterWidgetType; label: string; description: string }[] = [
-    {
-      value: 'multi-select',
-      label: localeText.filterSetupMultiSelect,
-      description: localeText.filterSetupMultiSelectDescription,
-    },
-    {
-      value: 'toggle',
-      label: localeText.filterSetupToggleChips,
-      description: localeText.filterSetupToggleChipsDescription,
-    },
-    {
-      value: 'date-range',
-      label: localeText.filterSetupDateRange,
-      description: localeText.filterSetupDateRangeDescription,
-    },
-    {
-      value: 'slider',
-      label: localeText.filterSetupSlider,
-      description: localeText.filterSetupSliderDescription,
-    },
-  ];
+  const filterWidgetTypes: { value: StudioFilterWidgetType; label: string; description: string }[] =
+    [
+      {
+        value: 'multi-select',
+        label: localeText.filterSetupMultiSelect,
+        description: localeText.filterSetupMultiSelectDescription,
+      },
+      {
+        value: 'toggle',
+        label: localeText.filterSetupToggleChips,
+        description: localeText.filterSetupToggleChipsDescription,
+      },
+      {
+        value: 'date-range',
+        label: localeText.filterSetupDateRange,
+        description: localeText.filterSetupDateRangeDescription,
+      },
+      {
+        value: 'slider',
+        label: localeText.filterSetupSlider,
+        description: localeText.filterSetupSliderDescription,
+      },
+    ];
 
   const filterType: StudioFilterWidgetType = config.filterWidgetType ?? 'multi-select';
   const fieldId = config.filterWidgetField ?? '';
@@ -105,7 +111,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
     <Stack spacing={2}>
       {/* Filter type */}
       <FormControl size="small" fullWidth>
-        <InputLabel>Control type</InputLabel>
+        <InputLabel>{localeText.filterSetupControlTypeLabel}</InputLabel>
         <Select
           value={filterType}
           label={localeText.filterSetupControlTypeLabel}
@@ -131,7 +137,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
         dataSources={dataSources}
         filterCapability={fieldCapability}
         getOptionDisabled={sliderGetOptionDisabled}
-        label="Field"
+        label={localeText.filterFieldLabel}
       />
 
       {/* Slider-specific: min / max / step */}

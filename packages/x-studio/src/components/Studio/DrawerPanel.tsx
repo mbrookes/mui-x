@@ -15,6 +15,7 @@ import {
   DrawerSubheaderContext,
   type DrawerSubheaderContextValue,
 } from './DrawerPanelContext';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 export interface DrawerPanelProps {
   drawer: StudioDrawer;
@@ -41,6 +42,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
     title,
   } = props;
   const controller = useStudioController();
+  const localeText = useStudioLocaleText();
   const shell = useStudioSelector(selectShell);
   const open = shell.openDrawers[drawer];
   const [injectedSubheader, setInjectedSubheader] = React.useState<React.ReactNode>(null);
@@ -149,7 +151,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
             <IconButton
               size="small"
               onClick={onBack}
-              aria-label="Close widget configuration"
+              aria-label={localeText.drawerPanelCloseAriaLabel}
               sx={{ mr: 0.5 }}
             >
               <CloseIcon fontSize="small" />

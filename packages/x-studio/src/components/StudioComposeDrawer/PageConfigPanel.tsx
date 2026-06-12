@@ -11,7 +11,12 @@ import {
   Switch,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectActivePage, useStudioLocaleText } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectActivePage,
+  useStudioLocaleText,
+} from '../../context';
 import { NumberField } from '../../internals/NumberField';
 import type { StudioPageTheme } from '../../models';
 import { ColorInput } from './ColorInput';

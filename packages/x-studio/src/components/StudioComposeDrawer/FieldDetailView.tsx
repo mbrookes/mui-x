@@ -10,7 +10,12 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectShell, selectDataSources } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectShell,
+  selectDataSources,
+} from '../../context';
 import type { StudioNumberFormat } from '../../models';
 import { useDataTypeLabels } from './StudioComposeDrawerLabels';
 
@@ -38,7 +43,10 @@ export function FieldDetailView() {
     { label: 'Source ID', value: `${source.id}.${field.id}` },
     { label: 'Name', value: field.label },
     { label: 'Description', value: field.description ?? field.label },
-    { label: 'Data Type', value: dataTypeLabels[field.type] ?? field.type.charAt(0).toUpperCase() + field.type.slice(1) },
+    {
+      label: 'Data Type',
+      value: dataTypeLabels[field.type] ?? field.type.charAt(0).toUpperCase() + field.type.slice(1),
+    },
     { label: 'Calculation Type', value: 'No Calculation' },
     { label: 'Format', value: dataTypeLabels[field.type] ?? field.type },
   ];

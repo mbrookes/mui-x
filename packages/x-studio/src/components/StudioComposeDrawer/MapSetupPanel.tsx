@@ -10,7 +10,14 @@ import {
   Switch,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectExpressionFields, useStudioLocaleText } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectDataSources,
+  selectExpressionFields,
+  useStudioLocaleText,
+} from '../../context';
 import { useStudioGeographies } from '../../internals/StudioUIConfigContext';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
@@ -167,9 +174,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   return (
     <Stack spacing={2} sx={{ p: 1.5 }}>
       <FormControl size="small" fullWidth>
-        <InputLabel>Map type</InputLabel>
+        <InputLabel>{localeText.mapSetupMapTypeLabel}</InputLabel>
         <Select
-          label="Map type"
+          label={localeText.mapSetupMapTypeLabel}
           value={mapGeography}
           onChange={(event) => update({ mapGeography: event.target.value as typeof mapGeography })}
         >
@@ -202,7 +209,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           Value field
         </Typography>
         <DataSourceFieldSelect
-          label="Value field (optional for count)"
+          label={localeText.mapSetupValueFieldLabel}
           value={config.mapValueField ?? ''}
           valueSourceId={config.mapValueSourceId}
           fields={numericFields}
@@ -216,9 +223,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       </div>
 
       <FormControl size="small" fullWidth disabled={!config.mapValueField}>
-        <InputLabel>Aggregation</InputLabel>
+        <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>
         <Select
-          label="Aggregation"
+          label={localeText.chartSetupAggregationLabel}
           value={config.mapValueField ? aggFn : 'count'}
           onChange={(event) => update({ mapAggregation: event.target.value as typeof aggFn })}
         >
@@ -231,9 +238,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       </FormControl>
 
       <FormControl size="small" fullWidth>
-        <InputLabel>Colour scheme</InputLabel>
+        <InputLabel>{localeText.mapSetupColourSchemeLabel}</InputLabel>
         <Select
-          label="Colour scheme"
+          label={localeText.mapSetupColourSchemeLabel}
           value={colorScheme}
           onChange={(event) => update({ mapColorScheme: event.target.value as typeof colorScheme })}
         >
@@ -246,9 +253,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       </FormControl>
 
       <FormControl size="small" fullWidth>
-        <InputLabel>Legend position</InputLabel>
+        <InputLabel>{localeText.mapSetupLegendPositionLabel}</InputLabel>
         <Select
-          label="Legend position"
+          label={localeText.mapSetupLegendPositionLabel}
           value={legendPosition}
           onChange={(event) =>
             update({ mapLegendPosition: event.target.value as typeof legendPosition })
@@ -270,7 +277,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
             onChange={(event) => update({ mapLegendZeroMin: event.target.checked })}
           />
         }
-        label="Scale from zero"
+        label={localeText.mapSetupScaleFromZeroLabel}
       />
 
       <FormControlLabel
@@ -281,7 +288,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
             onChange={(event) => update({ mapCrossFilterEmit: event.target.checked })}
           />
         }
-        label="Clickable (filter source)"
+        label={localeText.mapSetupClickableLabel}
       />
 
       <FormControlLabel
@@ -294,7 +301,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
             }
           />
         }
-        label="Respond to cross-filters"
+        label={localeText.mapSetupCrossFilterLabel}
       />
     </Stack>
   );

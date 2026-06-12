@@ -90,7 +90,7 @@ export default defineConfig({
       },
     ],
   },
-  envPrefix: ['VITE_'],
+  envPrefix: ['VITE_', 'STUDIO_'],
   server: {
     port: 3004,
   },

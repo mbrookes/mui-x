@@ -31,14 +31,14 @@ function readStoredLocale(): SupportedLocale {
 
 /**
  * Resolve the AI config from environment variables.
- * Requires VITE_STUDIO_SERVER_URL to be set (no direct LLM connection from client).
+ * Requires STUDIO_SERVER_URL to be set (no direct LLM connection from client).
  */
 function resolveAiConfig(): StudioAIConfig | undefined {
-  const serverUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+  const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
   if (!serverUrl) {
     return undefined;
   }
-  const token = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
+  const token = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
   return {
     endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai/chat`,
     headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,

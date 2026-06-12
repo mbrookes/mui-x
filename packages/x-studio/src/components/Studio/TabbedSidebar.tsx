@@ -1,14 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import { Badge, Box, Divider, IconButton, Typography } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
+import { Box } from '@mui/material';
 
 import { useStudioController, useStudioSelector, selectShell } from '../../context';
 import type { StudioDrawer } from '../../models';
-import { DRAWER_WIDTH, COLLAPSED_WIDTH, DrawerSubheaderContext } from './DrawerPanelContext';
-import type { DrawerSubheaderContextValue } from './DrawerPanelContext';
+import { COLLAPSED_WIDTH } from './DrawerPanelContext';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
+import { TabbedSidebarTabEntry } from './TabbedSidebarTabEntry';
+import { TabbedSidebarActivePanel } from './TabbedSidebarActivePanel';
 
 export interface TabbedSidebarPanel {
   drawer: StudioDrawer;
@@ -28,151 +28,6 @@ export interface TabbedSidebarProps {
   panels: TabbedSidebarPanel[];
   /** Which side of the canvas the sidebar is anchored to. Affects border placement and panel order. */
   side?: 'left' | 'right';
-}
-
-// ── Tab rail entry ────────────────────────────────────────────────────────────
-
-interface TabEntryProps {
-  panel: TabbedSidebarPanel;
-  isActive: boolean;
-  onClick: () => void;
-}
-
-function TabEntry({ isActive, onClick, panel }: TabEntryProps) {
-  const label = (
-    <Typography
-      variant="caption"
-      sx={{
-        writingMode: 'vertical-rl',
-        fontWeight: 600,
-        letterSpacing: 1,
-        textTransform: 'uppercase',
-        userSelect: 'none',
-        color: isActive ? 'primary.main' : 'text.secondary',
-      }}
-    >
-      {panel.label}
-    </Typography>
-  );
-
-  return (
-    <Box
-      role="tab"
-      tabIndex={0}
-      aria-selected={isActive}
-      aria-label={isActive ? `Close ${panel.label} panel` : `Open ${panel.label} panel`}
-      onClick={onClick}
-      onKeyDown={(evt) => {
-        if (evt.key === 'Enter' || evt.key === ' ') {
-          evt.preventDefault();
-          onClick();
-        }
-      }}
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 0.75,
-        px: 0.5,
-        py: 1.5,
-        cursor: 'default',
-
-        bgcolor: isActive ? 'action.selected' : 'transparent',
-        transition: 'background-color 0.15s, border-color 0.15s',
-        '&:hover': { bgcolor: isActive ? 'action.selected' : 'action.hover' },
-        '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: -2 },
-      }}
-    >
-      {panel.icon && (
-        <Box
-          sx={{
-            display: 'flex',
-            color: isActive ? 'primary.main' : 'action.active',
-            fontSize: 18,
-            '& svg': { fontSize: 'inherit' },
-          }}
-        >
-          {panel.icon}
-        </Box>
-      )}
-      {panel.badge != null && panel.badge > 0 && !isActive ? (
-        <Badge badgeContent={panel.badge} color="primary">
-          {label}
-        </Badge>
-      ) : (
-        label
-      )}
-    </Box>
-  );
-}
-
-// ── Panel content area ────────────────────────────────────────────────────────
-
-interface ActivePanelProps {
-  panel: TabbedSidebarPanel;
-  side?: 'left' | 'right';
-}
-
-function ActivePanel({ panel, side = 'left' }: ActivePanelProps) {
-  const localeText = useStudioLocaleText();
-  const [injectedSubheader, setInjectedSubheader] = React.useState<React.ReactNode>(null);
-  const ctxValue = React.useMemo<DrawerSubheaderContextValue>(
-    () => ({ setSubheader: setInjectedSubheader }),
-    [],
-  );
-
-  return (
-    <DrawerSubheaderContext.Provider value={ctxValue}>
-      <Box
-        sx={{
-          width: DRAWER_WIDTH,
-          flexShrink: 0,
-          ...(side === 'right' ? { borderLeft: 1 } : { borderRight: 1 }),
-          borderColor: 'divider',
-          bgcolor: 'background.paper',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
-        {panel.onBack && (
-          <React.Fragment>
-            <Box
-              sx={{
-                px: 1.5,
-                py: 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.5,
-                minHeight: 48,
-              }}
-            >
-              <IconButton
-                size="small"
-                onClick={panel.onBack}
-                aria-label={localeText.drawerPanelCloseAriaLabel}
-                sx={{ mr: 0.5 }}
-              >
-                <CloseIcon fontSize="small" />
-              </IconButton>
-              <Typography variant="subtitle2" sx={{ color: 'text.primary', flexGrow: 1 }} noWrap>
-                {panel.title ?? panel.label}
-              </Typography>
-            </Box>
-            <Divider />
-          </React.Fragment>
-        )}
-        {injectedSubheader && (
-          <React.Fragment>
-            {injectedSubheader}
-            <Divider />
-          </React.Fragment>
-        )}
-        <Box sx={{ p: 1.5, overflow: 'auto', flexGrow: 1 }}>{panel.children}</Box>
-      </Box>
-    </DrawerSubheaderContext.Provider>
-  );
 }
 
 // ── TabbedSidebar ─────────────────────────────────────────────────────────────
@@ -223,7 +78,7 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
     <Box sx={{ display: 'flex', flexShrink: 0, height: '100%' }}>
       {/* Active panel content — rendered before tab rail when on the right */}
       {side === 'right' && activePanel && (
-        <ActivePanel key={activePanel.drawer} panel={activePanel} side={side} />
+        <TabbedSidebarActivePanel key={activePanel.drawer} panel={activePanel} side={side} />
       )}
 
       {/* Tab rail */}
@@ -242,7 +97,7 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
         }}
       >
         {panels.map((panel) => (
-          <TabEntry
+          <TabbedSidebarTabEntry
             key={panel.drawer}
             panel={panel}
             isActive={panel.drawer === activeDrawer}
@@ -253,7 +108,7 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
 
       {/* Active panel content — rendered after tab rail when on the left (default) */}
       {side === 'left' && activePanel && (
-        <ActivePanel key={activePanel.drawer} panel={activePanel} side={side} />
+        <TabbedSidebarActivePanel key={activePanel.drawer} panel={activePanel} side={side} />
       )}
     </Box>
   );

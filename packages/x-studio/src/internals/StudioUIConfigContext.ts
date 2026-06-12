@@ -178,6 +178,11 @@ export interface StudioLocaleText {
   textFormatAlignLeftAriaLabel: string;
   textFormatAlignCenterAriaLabel: string;
   textFormatAlignRightAriaLabel: string;
+  textFormatDefaultFont: string;
+  textFormatSerifFont: string;
+  textFormatMonospaceFont: string;
+  textFormatDefaultSize: string;
+  textFormatAlignmentLabel: string;
 
   // ── Data drawer ────────────────────────────────────────────────────────────
   dataDrawerNoSources: string;
@@ -193,6 +198,22 @@ export interface StudioLocaleText {
   dataDrawerEditTooltip: string;
   dataDrawerDeleteTooltip: string;
   dataDrawerViewSourceTooltip: string;
+  dataDrawerAddCalculatedField: string;
+  dataDrawerNoData: (sourceLabel: string) => string;
+  dataDrawerMoreRows: (count: number) => string;
+  dataDrawerMoreColumns: (count: number) => string;
+  dataDrawerViewSourceLink: string;
+  dataDrawerMorePreviewRows: (count: number) => string;
+  lineageTypePrefix: (type: string) => string;
+  lineageJoinDetail: (
+    srcSource: string,
+    srcField: string,
+    tgtSource: string,
+    tgtField: string,
+  ) => string;
+  lineageViaDetail: (via: string) => string;
+  lineagePreviewAriaLabel: (label: string) => string;
+  lineageNoRelationships: string;
 
   // ── Relationship management ────────────────────────────────────────────────
   relationshipEditTooltip: string;
@@ -207,6 +228,18 @@ export interface StudioLocaleText {
   relationshipJunctionSourceLabel: string;
   relationshipJunctionSourceFkLabel: string;
   relationshipJunctionTargetFkLabel: string;
+  relationshipAddTitle: string;
+  relationshipEditTitle: string;
+  relationshipSourceManyLabel: string;
+  relationshipSourceLabel: string;
+  relationshipTargetOneLabel: string;
+  relationshipTargetLabel: string;
+  relationshipUpdate: string;
+  relationshipAdd: string;
+  relationshipSectionTitle: string;
+  relationshipAddButton: string;
+  relationshipNone: string;
+  relationshipVia: (junctionLabel: string) => string;
 
   // ── Filter conditions & values ─────────────────────────────────────────────
   filterConditionAnd: string;
@@ -237,6 +270,41 @@ export interface StudioLocaleText {
   filterMetricHelperText: string;
   filterFieldLabel: string;
   filterRankByLabel: string;
+  filterMetricCurrentValue: string;
+  filterSelectionNoValues: string;
+  filterSelectionAll: string;
+  filterSelectionSelectedCount: (count: number) => string;
+  filterSectionNoInteractiveFilters: string;
+  filterSectionNoCrossFilters: string;
+  filterSectionSelectedCount: (count: number) => string;
+  filterSectionValueDisplay: (fieldLabel: string, value: string) => string;
+  filterSectionSourcePrefix: (widgetTitle: string) => string;
+  filterBodyAddCondition: string;
+  filterBodyNarrowOptions: string;
+  filterModeFilter: string;
+  filterModeSelect: string;
+  filterModeRank: string;
+  filterRelativeUnitSeconds: string;
+  filterRelativeUnitMinutes: string;
+  filterRelativeUnitHours: string;
+  filterRelativeUnitDays: string;
+  filterRelativeUnitWeeks: string;
+  filterRelativeUnitMonths: string;
+  filterRelativeUnitYears: string;
+  filterDatePreset7Days: string;
+  filterDatePreset30Days: string;
+  filterDatePreset3Months: string;
+  filterDatePreset12Months: string;
+  filterDatePreset1Year: string;
+  filterRelativeDateAgo: string;
+  filterRelativeDateFromNow: string;
+  filterDateLabel: string;
+  filterRankAggSumLabel: string;
+  filterRankAggAvgLabel: string;
+  filterRankAggMaxLabel: string;
+  filterRankAggMinLabel: string;
+  filterRankTop: string;
+  filterRankBottom: string;
 
   // ── Expression field dialog ────────────────────────────────────────────────
   exprNodeTypeField: string;
@@ -281,8 +349,30 @@ export interface StudioLocaleText {
   // ── Shared sort direction labels ───────────────────────────────────────────
   sortAscendingAriaLabel: string;
   sortDescendingAriaLabel: string;
+  crossFilterModeHighlight: string;
+  crossFilterModeFilter: string;
+  crossFilterModeNone: string;
 
   // ── Chart setup panel ─────────────────────────────────────────────────────
+  chartTypePickerLabel: string;
+  chartTypeBarGrouped: string;
+  chartTypeBarStacked: string;
+  chartTypeBar100: string;
+  chartTypeBarHorizontal: string;
+  chartTypeBarStackedHorizontal: string;
+  chartTypeBar100Horizontal: string;
+  chartTypeLine: string;
+  chartTypeArea: string;
+  chartTypeAreaStacked: string;
+  chartTypeArea100: string;
+  chartTypeScatter: string;
+  chartTypeMixed: string;
+  chartTypeHeatmap: string;
+  chartTypeFunnel: string;
+  chartTypeGantt: string;
+  chartTypePie: string;
+  chartTypeDonut: string;
+  chartTypeGauge: string;
   chartSetupValueFieldLabel: string;
   chartSetupValueFieldHelperText: string;
   chartSetupAggregationLabel: string;
@@ -332,6 +422,31 @@ export interface StudioLocaleText {
   chartSetupGanttEndDateHelperText: string;
   chartSetupGanttColourByLabel: string;
   chartSetupGanttColourByHelperText: string;
+  chartSetupXFieldNumericLabel: string;
+  chartSetupXFieldCategoryVertLabel: string;
+  chartSetupXFieldCategoryHorizLabel: string;
+  chartSetupXFieldHorizontalHelperText: string;
+  chartSetupXFieldGroupVertHelperText: string;
+  chartSetupXFieldGroupHorizHelperText: string;
+  chartSetupYMeasureFieldsLabel: string;
+  chartSetupXMeasureFieldsLabel: string;
+  chartSetupYMeasureFieldLabel: string;
+  chartSetupXMeasureFieldLabel: string;
+  chartSetupNoDataAlert: string;
+  chartSetupSeriesLabel: (index: number) => string;
+  chartSetupSeriesNumericHorizHelperText: string;
+  chartSetupSeriesNumericSumHelperText: string;
+  chartSetupMixedSeriesBar: string;
+  chartSetupMixedSeriesLine: string;
+  chartSetupCalculatedField: string;
+  chartSetupCategoryFieldLabel: string;
+  chartSetupRemoveSplitByTooltip: string;
+  chartSetupInnerRingLabel: string;
+  chartSetupSplitByLabel: string;
+  chartSetupArcLabelsTitle: string;
+  chartSetupSplitByHelperText: string;
+  chartSetupSplitByDisabledHelperText: string;
+  chartSetupInnerRingHelperText: string;
 
   // ── KPI setup panel ────────────────────────────────────────────────────────
   kpiSetupChartLine: string;
@@ -353,10 +468,19 @@ export interface StudioLocaleText {
   kpiSetupTargetLabel: string;
   kpiSetupTrendLabel: string;
   kpiSetupCompPeriodLabel: string;
+  kpiSetupDateAggEarliest: string;
+  kpiSetupDateAggLatest: string;
+  kpiSetupFillAreaLabel: string;
+  kpiSetupCumulativeLabel: string;
+  kpiSetupAutoDateFilterPrefix: string;
+  kpiSetupCalculatedField: string;
+  kpiSetupTargetHelperText: string;
+  kpiSetupInvertColours: string;
 
   // ── KPI widget ─────────────────────────────────────────────────────────────
   kpiGrandTotalTooltip: string;
   kpiGranularityAutoLabel: string;
+  kpiWidgetComparisonTargetLabel: string;
 
   // ── Grid setup panel ──────────────────────────────────────────────────────
   gridSetupDataSourceLabel: string;
@@ -373,6 +497,28 @@ export interface StudioLocaleText {
   gridSetupRemoveRuleAriaLabel: string;
   gridSetupInteractionsTitle: string;
   gridSetupInteractionsDescription: string;
+  gridSetupChooseSourceHelper: string;
+  gridSetupNoSourceAlert: string;
+  gridSetupColumnsTitle: string;
+  gridSetupColumnOptionsAriaLabel: (label: string) => string;
+  gridSetupColumnGroupLabel: string;
+  gridSetupColumnRemove: string;
+  gridSetupColumnAggNone: string;
+  gridSetupColumnAggUnique: string;
+  gridSetupColumnAggSummaryTooltip: string;
+  gridSetupColumnAggLabel: (isGroupBy: boolean, aggLabel: string) => string;
+  gridSetupColumnSetAggTooltip: string;
+  gridSetupAddColumn: string;
+  gridSetupCalculatedColumn: string;
+  gridSetupAddRule: string;
+  gridSetupCFContains: string;
+  gridSetupCFIsEmpty: string;
+  gridSetupCFNotEmpty: string;
+  gridSetupCFStyleRed: string;
+  gridSetupCFStyleGreen: string;
+  gridSetupCFStyleYellow: string;
+  gridSetupCFStyleBlue: string;
+  gridSetupCFStyleBold: string;
 
   // ── Map setup panel ────────────────────────────────────────────────────────
   mapSetupMapTypeLabel: string;
@@ -392,6 +538,8 @@ export interface StudioLocaleText {
   mapSetupLegendLeft: string;
   mapSetupLegendRight: string;
   mapSetupLegendHidden: string;
+  mapSetupRegionFieldLabel: string;
+  mapSetupRegionFieldHelperText: string;
 
   // ── Pivot setup panel ─────────────────────────────────────────────────────
   pivotSetupDescription: string;
@@ -411,6 +559,12 @@ export interface StudioLocaleText {
   inlineFormulaBarAutoHelperText: string;
   inlineFormulaBarCancelButton: string;
   inlineFormulaBarAddButton: string;
+  inlineFormulaBarFieldOperandLabel: string;
+  inlineFormulaBarNumberOperandLabel: string;
+  inlineFormulaBarOperandTypeAriaLabel: (label: string) => string;
+  inlineFormulaBarButtonLabel: string;
+  inlineFormulaBarOperandALabel: string;
+  inlineFormulaBarOperandBLabel: string;
 
   // ── Field detail view ─────────────────────────────────────────────────────
   fieldDetailRowSourceId: string;
@@ -429,6 +583,10 @@ export interface StudioLocaleText {
 
   // ── Filters drawer ─────────────────────────────────────────────────────────────
   filtersDrawerRenameViewTooltip: string;
+  filtersSectionWidgetTitle: (title: string) => string;
+  filtersRenameViewAriaLabel: string;
+  filtersRenameViewButtonAriaLabel: (name: string) => string;
+  filtersDeleteViewAriaLabel: (name: string) => string;
 
   // ── Filter setup panel ────────────────────────────────────────────────────
   filterSetupControlTypeLabel: string;
@@ -444,6 +602,7 @@ export interface StudioLocaleText {
   filterSetupMaxLabel: string;
   filterSetupStepLabel: string;
   filterSetupSelectFieldAlert: string;
+  filterSetupSliderRangeHelperText: string;
 
   // ── Text setup panel ──────────────────────────────────────────────────────
   textSetupTitleLabel: string;
@@ -466,6 +625,10 @@ export interface StudioLocaleText {
   pageConfigBorderColourLabel: string;
   pageConfigBorderColourPlaceholder: string;
   pageConfigBorderWidthLabel: string;
+  pageConfigPaddingNone: string;
+  pageConfigPaddingSmall: string;
+  pageConfigPaddingMedium: string;
+  pageConfigPaddingLarge: string;
 
   // ── AI insight panel ──────────────────────────────────────────────────────
   insightTypeSummary: string;
@@ -485,6 +648,7 @@ export interface StudioLocaleText {
   filterWidgetExcludingLabel: string;
   filterWidgetDateFromLabel: string;
   filterWidgetDateToLabel: string;
+  filterWidgetNoFieldConfigured: string;
 
   // ── Date range bar ────────────────────────────────────────────────────────
   dateRangePresetAriaLabel: string;
@@ -494,6 +658,12 @@ export interface StudioLocaleText {
 
   // ── Widget filter row ─────────────────────────────────────────────────────
   widgetFilterFieldHelperText: string;
+  drawerPanelOpenAriaLabel: (title: string) => string;
+  drawerPanelCloseNamedAriaLabel: (title: string) => string;
+  sidebarPanelToggleAriaLabel: (isActive: boolean, label: string) => string;
+  addWidgetGroupAriaLabel: (groupLabel: string) => string;
+  addWidgetSelectAriaLabel: (label: string) => string;
+  formatPanelNoSubtitlePlaceholder: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -646,6 +816,11 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   textFormatAlignLeftAriaLabel: 'Align left',
   textFormatAlignCenterAriaLabel: 'Align center',
   textFormatAlignRightAriaLabel: 'Align right',
+  textFormatDefaultFont: 'Default (theme)',
+  textFormatSerifFont: 'Serif',
+  textFormatMonospaceFont: 'Monospace',
+  textFormatDefaultSize: 'Default',
+  textFormatAlignmentLabel: 'Alignment',
 
   // Data drawer
   dataDrawerNoSources:
@@ -661,6 +836,18 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   dataDrawerEditTooltip: 'Edit',
   dataDrawerDeleteTooltip: 'Delete',
   dataDrawerViewSourceTooltip: 'View source data',
+  dataDrawerAddCalculatedField: 'Add calculated field',
+  dataDrawerNoData: (sourceLabel) => `No data available for ${sourceLabel}.`,
+  dataDrawerMoreRows: (count) => `${count} more ${count === 1 ? 'row' : 'rows'}`,
+  dataDrawerMoreColumns: (count) => `${count} more ${count === 1 ? 'column' : 'columns'}`,
+  dataDrawerViewSourceLink: 'View source data →',
+  dataDrawerMorePreviewRows: (count) => `+${count} more`,
+  lineageTypePrefix: (type) => `Type: ${type}`,
+  lineageJoinDetail: (srcSource, srcField, tgtSource, tgtField) =>
+    `Join: ${srcSource}.${srcField} = ${tgtSource}.${tgtField}`,
+  lineageViaDetail: (via) => `Via: ${via}`,
+  lineagePreviewAriaLabel: (label) => `Preview ${label}`,
+  lineageNoRelationships: 'No relationships defined between sources',
 
   // Relationship management
   relationshipEditTooltip: 'Edit',
@@ -675,6 +862,18 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   relationshipJunctionSourceLabel: 'Junction source',
   relationshipJunctionSourceFkLabel: '\u2192 Source FK',
   relationshipJunctionTargetFkLabel: '\u2192 Target FK',
+  relationshipAddTitle: 'Add relationship',
+  relationshipEditTitle: 'Edit relationship',
+  relationshipSourceManyLabel: 'Many side',
+  relationshipSourceLabel: 'Source',
+  relationshipTargetOneLabel: 'One side',
+  relationshipTargetLabel: 'Target',
+  relationshipUpdate: 'Update',
+  relationshipAdd: 'Add',
+  relationshipSectionTitle: 'Relationships',
+  relationshipAddButton: 'Add',
+  relationshipNone: 'No relationships configured.',
+  relationshipVia: (junctionLabel) => `via ${junctionLabel}`,
 
   // Filter conditions & values
   filterConditionAnd: 'AND',
@@ -705,6 +904,43 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterMetricHelperText: 'Identifies the row in the business metrics table',
   filterFieldLabel: 'Field',
   filterRankByLabel: 'Rank by',
+  filterMetricCurrentValue: 'Current value:',
+  filterSelectionNoValues: 'No values found.',
+  filterSelectionAll: 'All',
+  filterSelectionSelectedCount: (count) => `${count} selected`,
+  filterSectionNoInteractiveFilters:
+    'No interactive filters active. Use filter widgets on the canvas to set filters.',
+  filterSectionNoCrossFilters:
+    'No cross-filters active. Click on chart elements or select grid rows to create cross-filters.',
+  filterSectionSelectedCount: (count) => `${count} selected`,
+  filterSectionValueDisplay: (fieldLabel, value) => `${fieldLabel} = ${value}`,
+  filterSectionSourcePrefix: (widgetTitle) => `From: ${widgetTitle}`,
+  filterBodyAddCondition: 'Add condition',
+  filterBodyNarrowOptions: 'Narrow options based on:',
+  filterModeFilter: 'Filter',
+  filterModeSelect: 'Select',
+  filterModeRank: 'Rank',
+  filterRelativeUnitSeconds: 'seconds',
+  filterRelativeUnitMinutes: 'minutes',
+  filterRelativeUnitHours: 'hours',
+  filterRelativeUnitDays: 'days',
+  filterRelativeUnitWeeks: 'weeks',
+  filterRelativeUnitMonths: 'months',
+  filterRelativeUnitYears: 'years',
+  filterDatePreset7Days: '7 days',
+  filterDatePreset30Days: '30 days',
+  filterDatePreset3Months: '3 months',
+  filterDatePreset12Months: '12 months',
+  filterDatePreset1Year: '1 year',
+  filterRelativeDateAgo: 'ago',
+  filterRelativeDateFromNow: 'from now',
+  filterDateLabel: 'Date',
+  filterRankAggSumLabel: 'Sum of all series',
+  filterRankAggAvgLabel: 'Average of all series',
+  filterRankAggMaxLabel: 'Max of all series',
+  filterRankAggMinLabel: 'Min of all series',
+  filterRankTop: 'Top',
+  filterRankBottom: 'Bottom',
 
   // Expression field dialog
   exprNodeTypeField: 'Field',
@@ -750,8 +986,30 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // Shared sort direction labels
   sortAscendingAriaLabel: 'Ascending',
   sortDescendingAriaLabel: 'Descending',
+  crossFilterModeHighlight: 'Highlight',
+  crossFilterModeFilter: 'Filter',
+  crossFilterModeNone: 'None',
 
   // Chart setup panel
+  chartTypePickerLabel: 'Chart type',
+  chartTypeBarGrouped: 'Bar (grouped)',
+  chartTypeBarStacked: 'Bar (stacked)',
+  chartTypeBar100: 'Bar (100%)',
+  chartTypeBarHorizontal: 'Bar (horizontal)',
+  chartTypeBarStackedHorizontal: 'Bar (stacked, horizontal)',
+  chartTypeBar100Horizontal: 'Bar (100%, horizontal)',
+  chartTypeLine: 'Line',
+  chartTypeArea: 'Area',
+  chartTypeAreaStacked: 'Area (stacked)',
+  chartTypeArea100: 'Area (100%)',
+  chartTypeScatter: 'Scatter',
+  chartTypeMixed: 'Mixed (bar + line)',
+  chartTypeHeatmap: 'Heatmap',
+  chartTypeFunnel: 'Funnel',
+  chartTypeGantt: 'Gantt / Timeline',
+  chartTypePie: 'Pie',
+  chartTypeDonut: 'Donut',
+  chartTypeGauge: 'Gauge',
   chartSetupValueFieldLabel: 'Value field',
   chartSetupValueFieldHelperText: 'Numeric field to aggregate',
   chartSetupAggregationLabel: 'Aggregation',
@@ -805,6 +1063,32 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupGanttColourByLabel: 'Colour by (optional)',
   chartSetupGanttColourByHelperText:
     'Categorical field used to colour-code bars (e.g. status or category)',
+  chartSetupXFieldNumericLabel: 'X field (numeric)',
+  chartSetupXFieldCategoryVertLabel: 'Y / Category field',
+  chartSetupXFieldCategoryHorizLabel: 'X / Category field',
+  chartSetupXFieldHorizontalHelperText: 'Plotted on the horizontal axis',
+  chartSetupXFieldGroupVertHelperText: 'Groups data along the vertical axis',
+  chartSetupXFieldGroupHorizHelperText: 'Groups data along the horizontal axis',
+  chartSetupYMeasureFieldsLabel: 'Y / Measure fields',
+  chartSetupXMeasureFieldsLabel: 'X / Measure fields',
+  chartSetupYMeasureFieldLabel: 'Y / Measure field',
+  chartSetupXMeasureFieldLabel: 'X / Measure field',
+  chartSetupNoDataAlert: 'No data fields available for chart configuration.',
+  chartSetupSeriesLabel: (index) => `Series ${index + 1}`,
+  chartSetupSeriesNumericHorizHelperText: 'Numeric field plotted along the horizontal axis',
+  chartSetupSeriesNumericSumHelperText: 'Numeric field summed or averaged per category',
+  chartSetupMixedSeriesBar: 'Bar',
+  chartSetupMixedSeriesLine: 'Line',
+  chartSetupCalculatedField: 'Calculated field…',
+  chartSetupCategoryFieldLabel: 'Category field',
+  chartSetupRemoveSplitByTooltip: 'Remove extra measure fields to enable split-by',
+  chartSetupInnerRingLabel: 'Inner ring category',
+  chartSetupSplitByLabel: 'Split by (series field)',
+  chartSetupArcLabelsTitle: 'Arc labels',
+  chartSetupSplitByHelperText: 'Divides data into a separate series per value',
+  chartSetupSplitByDisabledHelperText:
+    'Not available when multiple measure fields are configured',
+  chartSetupInnerRingHelperText: 'Adds a concentric inner ring grouped by this field',
 
   // KPI setup panel
   kpiSetupChartLine: 'Line',
@@ -826,11 +1110,21 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupTargetLabel: 'Target',
   kpiSetupTrendLabel: 'Trend',
   kpiSetupCompPeriodLabel: 'Comparison period',
+  kpiSetupDateAggEarliest: 'Earliest',
+  kpiSetupDateAggLatest: 'Latest',
+  kpiSetupFillAreaLabel: 'Fill area',
+  kpiSetupCumulativeLabel: 'Cumulative (running total)',
+  kpiSetupAutoDateFilterPrefix: 'Using date filter:',
+  kpiSetupCalculatedField: 'Calculated field…',
+  kpiSetupTargetHelperText:
+    'Reference value for the target line on the sparkline. When Trend is also enabled, the delta badge compares the current value against this target.',
+  kpiSetupInvertColours: 'Invert colours (lower is better)',
 
   // KPI widget
   kpiGrandTotalTooltip:
     'Grand total \u2014 active filter widgets are not applied to this KPI. Enable Cross-filter mode in KPI settings to respect them.',
   kpiGranularityAutoLabel: 'Auto',
+  kpiWidgetComparisonTargetLabel: 'target',
 
   // Grid setup panel
   gridSetupDataSourceLabel: 'Data source',
@@ -848,6 +1142,30 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   gridSetupRemoveRuleAriaLabel: 'Remove rule',
   gridSetupInteractionsTitle: 'Interactions',
   gridSetupInteractionsDescription: 'When other widgets are clicked, this table\u2026',
+  gridSetupChooseSourceHelper: 'Choose a data source to configure columns',
+  gridSetupNoSourceAlert:
+    'Select a data source above to configure this table’s columns and settings.',
+  gridSetupColumnsTitle: 'Columns',
+  gridSetupColumnOptionsAriaLabel: (label) => `Options for ${label}`,
+  gridSetupColumnGroupLabel: '(group)',
+  gridSetupColumnRemove: 'Remove',
+  gridSetupColumnAggNone: 'None',
+  gridSetupColumnAggUnique: 'Unique',
+  gridSetupColumnAggSummaryTooltip: 'Set summary / remove',
+  gridSetupColumnAggLabel: (isGroupBy, aggLabel) =>
+    `${isGroupBy ? 'Aggregate' : 'Summary'}: ${aggLabel}`,
+  gridSetupColumnSetAggTooltip: 'Set aggregation',
+  gridSetupAddColumn: 'Add column',
+  gridSetupCalculatedColumn: 'Calculated column…',
+  gridSetupAddRule: 'Add rule',
+  gridSetupCFContains: 'contains',
+  gridSetupCFIsEmpty: 'is empty',
+  gridSetupCFNotEmpty: 'not empty',
+  gridSetupCFStyleRed: 'Red',
+  gridSetupCFStyleGreen: 'Green',
+  gridSetupCFStyleYellow: 'Yellow',
+  gridSetupCFStyleBlue: 'Blue',
+  gridSetupCFStyleBold: 'Bold',
 
   // Map setup panel
   mapSetupMapTypeLabel: 'Map type',
@@ -867,6 +1185,9 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   mapSetupLegendLeft: 'Left',
   mapSetupLegendRight: 'Right',
   mapSetupLegendHidden: 'Hidden',
+  mapSetupRegionFieldLabel: 'Region field',
+  mapSetupRegionFieldHelperText:
+    'A field containing region identifiers matching the geography feature IDs.',
 
   // Pivot setup panel
   pivotSetupDescription:
@@ -887,6 +1208,12 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   inlineFormulaBarAutoHelperText: 'Auto-generated from the formula \u2014 edit to customise',
   inlineFormulaBarCancelButton: 'Cancel',
   inlineFormulaBarAddButton: 'Add',
+  inlineFormulaBarFieldOperandLabel: 'Field',
+  inlineFormulaBarNumberOperandLabel: 'Number',
+  inlineFormulaBarOperandTypeAriaLabel: (label) => `${label} type`,
+  inlineFormulaBarButtonLabel: 'Formula',
+  inlineFormulaBarOperandALabel: 'A',
+  inlineFormulaBarOperandBLabel: 'B',
 
   // Field detail view
   fieldDetailRowSourceId: 'Source ID',
@@ -905,6 +1232,10 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Filters drawer
   filtersDrawerRenameViewTooltip: 'Rename view',
+  filtersSectionWidgetTitle: (title) => `Widget: ${title}`,
+  filtersRenameViewAriaLabel: 'Rename saved view',
+  filtersRenameViewButtonAriaLabel: (name) => `Rename view "${name}"`,
+  filtersDeleteViewAriaLabel: (name) => `Delete view "${name}"`,
 
   // Filter setup panel
   filterSetupControlTypeLabel: 'Control type',
@@ -920,6 +1251,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterSetupMaxLabel: 'Max',
   filterSetupStepLabel: 'Step',
   filterSetupSelectFieldAlert: 'Select a field to configure the filter control.',
+  filterSetupSliderRangeHelperText: 'Slider range (leave blank to auto-detect from data)',
 
   // Text setup panel
   textSetupTitleLabel: 'Title',
@@ -942,6 +1274,10 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   pageConfigBorderColourLabel: 'Border colour',
   pageConfigBorderColourPlaceholder: 'e.g. #e0e0e0',
   pageConfigBorderWidthLabel: 'Border width (px)',
+  pageConfigPaddingNone: 'None',
+  pageConfigPaddingSmall: 'Small (8px)',
+  pageConfigPaddingMedium: 'Medium (16px)',
+  pageConfigPaddingLarge: 'Large (24px)',
 
   // AI insight panel
   insightTypeSummary: 'Summary',
@@ -960,6 +1296,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterWidgetExcludingLabel: '\u2298 Excluding selected',
   filterWidgetDateFromLabel: 'From',
   filterWidgetDateToLabel: 'To',
+  filterWidgetNoFieldConfigured: 'No field configured. Select a field in the Compose panel.',
 
   // Date range bar
   dateRangePresetAriaLabel: 'Date range preset',
@@ -969,6 +1306,13 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Widget filter row
   widgetFilterFieldHelperText: 'Field this filter applies to',
+  drawerPanelOpenAriaLabel: (title) => `Open ${title} panel`,
+  drawerPanelCloseNamedAriaLabel: (title) => `Close ${title} panel`,
+  sidebarPanelToggleAriaLabel: (isActive, label) =>
+    isActive ? `Close ${label} panel` : `Open ${label} panel`,
+  addWidgetGroupAriaLabel: (groupLabel) => `${groupLabel} widgets`,
+  addWidgetSelectAriaLabel: (label) => `Select widget: ${label}`,
+  formatPanelNoSubtitlePlaceholder: 'No subtitle',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

@@ -144,7 +144,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
       {filterType === 'slider' && (
         <Stack spacing={1.5}>
           <Typography variant="caption" color="text.secondary">
-            Slider range (leave blank to auto-detect from data)
+            {localeText.filterSetupSliderRangeHelperText}
           </Typography>
           <Stack direction="row" spacing={1}>
             <TextField

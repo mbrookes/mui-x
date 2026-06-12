@@ -160,6 +160,11 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   textFormatAlignLeftAriaLabel: 'Alinhar à esquerda',
   textFormatAlignCenterAriaLabel: 'Centralizar',
   textFormatAlignRightAriaLabel: 'Alinhar à direita',
+  textFormatDefaultFont: 'Padrão (tema)',
+  textFormatSerifFont: 'Serifa',
+  textFormatMonospaceFont: 'Monoespaçada',
+  textFormatDefaultSize: 'Padrão',
+  textFormatAlignmentLabel: 'Alinhamento',
 
   // Data drawer
   dataDrawerNoSources:
@@ -175,6 +180,18 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   dataDrawerEditTooltip: 'Editar',
   dataDrawerDeleteTooltip: 'Excluir',
   dataDrawerViewSourceTooltip: 'Ver dados da fonte',
+  dataDrawerAddCalculatedField: 'Adicionar campo calculado',
+  dataDrawerNoData: (sourceLabel) => `Sem dados disponíveis para ${sourceLabel}.`,
+  dataDrawerMoreRows: (count) => `${count} ${count === 1 ? 'linha' : 'linhas'} a mais`,
+  dataDrawerMoreColumns: (count) => `${count} ${count === 1 ? 'coluna' : 'colunas'} a mais`,
+  dataDrawerViewSourceLink: 'Ver dados da fonte →',
+  dataDrawerMorePreviewRows: (count) => `+${count} a mais`,
+  lineageTypePrefix: (type) => `Tipo: ${type}`,
+  lineageJoinDetail: (srcSource, srcField, tgtSource, tgtField) =>
+    `Junção: ${srcSource}.${srcField} = ${tgtSource}.${tgtField}`,
+  lineageViaDetail: (via) => `Via: ${via}`,
+  lineagePreviewAriaLabel: (label) => `Visualizar ${label}`,
+  lineageNoRelationships: 'Nenhum relacionamento definido entre as fontes',
 
   // Relationship management
   relationshipEditTooltip: 'Editar',
@@ -189,6 +206,18 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   relationshipJunctionSourceLabel: 'Fonte de junção',
   relationshipJunctionSourceFkLabel: '\u2192 FK de origem',
   relationshipJunctionTargetFkLabel: '\u2192 FK de destino',
+  relationshipAddTitle: 'Adicionar relacionamento',
+  relationshipEditTitle: 'Editar relacionamento',
+  relationshipSourceManyLabel: 'Lado muitos',
+  relationshipSourceLabel: 'Origem',
+  relationshipTargetOneLabel: 'Lado um',
+  relationshipTargetLabel: 'Destino',
+  relationshipUpdate: 'Atualizar',
+  relationshipAdd: 'Adicionar',
+  relationshipSectionTitle: 'Relacionamentos',
+  relationshipAddButton: 'Adicionar',
+  relationshipNone: 'Nenhum relacionamento configurado.',
+  relationshipVia: (junctionLabel) => `via ${junctionLabel}`,
 
   // Filter conditions & values
   filterConditionAnd: 'E',
@@ -219,6 +248,43 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   filterMetricHelperText: 'Identifica a linha na tabela de métricas de negócios',
   filterFieldLabel: 'Campo',
   filterRankByLabel: 'Classificar por',
+  filterMetricCurrentValue: 'Valor atual:',
+  filterSelectionNoValues: 'Nenhum valor encontrado.',
+  filterSelectionAll: 'Todos',
+  filterSelectionSelectedCount: (count) => `${count} selecionado${count === 1 ? '' : 's'}`,
+  filterSectionNoInteractiveFilters:
+    'Nenhum filtro interativo ativo. Use widgets de filtro na tela para definir filtros.',
+  filterSectionNoCrossFilters:
+    'Nenhum filtro cruzado ativo. Clique em elementos do gráfico ou selecione linhas da tabela para criar filtros cruzados.',
+  filterSectionSelectedCount: (count) => `${count} selecionado${count === 1 ? '' : 's'}`,
+  filterSectionValueDisplay: (fieldLabel, value) => `${fieldLabel} = ${value}`,
+  filterSectionSourcePrefix: (widgetTitle) => `De: ${widgetTitle}`,
+  filterBodyAddCondition: 'Adicionar condição',
+  filterBodyNarrowOptions: 'Restringir opções com base em:',
+  filterModeFilter: 'Filtrar',
+  filterModeSelect: 'Selecionar',
+  filterModeRank: 'Classificar',
+  filterRelativeUnitSeconds: 'segundos',
+  filterRelativeUnitMinutes: 'minutos',
+  filterRelativeUnitHours: 'horas',
+  filterRelativeUnitDays: 'dias',
+  filterRelativeUnitWeeks: 'semanas',
+  filterRelativeUnitMonths: 'meses',
+  filterRelativeUnitYears: 'anos',
+  filterDatePreset7Days: '7 dias',
+  filterDatePreset30Days: '30 dias',
+  filterDatePreset3Months: '3 meses',
+  filterDatePreset12Months: '12 meses',
+  filterDatePreset1Year: '1 ano',
+  filterRelativeDateAgo: 'atrás',
+  filterRelativeDateFromNow: 'a partir de agora',
+  filterDateLabel: 'Data',
+  filterRankAggSumLabel: 'Soma de todas as séries',
+  filterRankAggAvgLabel: 'Média de todas as séries',
+  filterRankAggMaxLabel: 'Máximo de todas as séries',
+  filterRankAggMinLabel: 'Mínimo de todas as séries',
+  filterRankTop: 'Maiores',
+  filterRankBottom: 'Menores',
 
   // Expression field dialog
   exprNodeTypeField: 'Campo',
@@ -265,8 +331,30 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   // Shared sort direction labels
   sortAscendingAriaLabel: 'Crescente',
   sortDescendingAriaLabel: 'Decrescente',
+  crossFilterModeHighlight: 'Destacar',
+  crossFilterModeFilter: 'Filtrar',
+  crossFilterModeNone: 'Nenhum',
 
   // Chart setup panel
+  chartTypePickerLabel: 'Tipo de gráfico',
+  chartTypeBarGrouped: 'Barra (agrupado)',
+  chartTypeBarStacked: 'Barra (empilhado)',
+  chartTypeBar100: 'Barra (100%)',
+  chartTypeBarHorizontal: 'Barra (horizontal)',
+  chartTypeBarStackedHorizontal: 'Barra (empilhado, horizontal)',
+  chartTypeBar100Horizontal: 'Barra (100%, horizontal)',
+  chartTypeLine: 'Linha',
+  chartTypeArea: 'Área',
+  chartTypeAreaStacked: 'Área (empilhada)',
+  chartTypeArea100: 'Área (100%)',
+  chartTypeScatter: 'Dispersão',
+  chartTypeMixed: 'Misto (barra + linha)',
+  chartTypeHeatmap: 'Mapa de calor',
+  chartTypeFunnel: 'Funil',
+  chartTypeGantt: 'Gantt / Linha do tempo',
+  chartTypePie: 'Pizza',
+  chartTypeDonut: 'Rosca',
+  chartTypeGauge: 'Medidor',
   chartSetupValueFieldLabel: 'Campo de valor',
   chartSetupValueFieldHelperText: 'Campo numérico a agregar',
   chartSetupAggregationLabel: 'Agregação',
@@ -322,6 +410,32 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chartSetupGanttColourByLabel: 'Colorir por (opcional)',
   chartSetupGanttColourByHelperText:
     'Campo categórico usado para colorir as barras (ex.: status ou categoria)',
+  chartSetupXFieldNumericLabel: 'Campo X (numérico)',
+  chartSetupXFieldCategoryVertLabel: 'Campo Y / categoria',
+  chartSetupXFieldCategoryHorizLabel: 'Campo X / categoria',
+  chartSetupXFieldHorizontalHelperText: 'Plotado no eixo horizontal',
+  chartSetupXFieldGroupVertHelperText: 'Agrupa os dados ao longo do eixo vertical',
+  chartSetupXFieldGroupHorizHelperText: 'Agrupa os dados ao longo do eixo horizontal',
+  chartSetupYMeasureFieldsLabel: 'Campos Y / medida',
+  chartSetupXMeasureFieldsLabel: 'Campos X / medida',
+  chartSetupYMeasureFieldLabel: 'Campo Y / medida',
+  chartSetupXMeasureFieldLabel: 'Campo X / medida',
+  chartSetupNoDataAlert: 'Nenhum campo de dados disponível para a configuração do gráfico.',
+  chartSetupSeriesLabel: (index) => `Série ${index + 1}`,
+  chartSetupSeriesNumericHorizHelperText: 'Campo numérico plotado ao longo do eixo horizontal',
+  chartSetupSeriesNumericSumHelperText: 'Campo numérico somado ou calculado em média por categoria',
+  chartSetupMixedSeriesBar: 'Barra',
+  chartSetupMixedSeriesLine: 'Linha',
+  chartSetupCalculatedField: 'Campo calculado…',
+  chartSetupCategoryFieldLabel: 'Campo de categoria',
+  chartSetupRemoveSplitByTooltip: 'Remova campos de medida extras para ativar dividir por',
+  chartSetupInnerRingLabel: 'Categoria do anel interno',
+  chartSetupSplitByLabel: 'Dividir por (campo de série)',
+  chartSetupArcLabelsTitle: 'Rótulos de arco',
+  chartSetupSplitByHelperText: 'Divide os dados em uma série separada por valor',
+  chartSetupSplitByDisabledHelperText:
+    'Não disponível quando vários campos de medida estão configurados',
+  chartSetupInnerRingHelperText: 'Adiciona um anel interno concêntrico agrupado por este campo',
 
   // KPI setup panel
   kpiSetupChartLine: 'Linha',
@@ -343,11 +457,21 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   kpiSetupTargetLabel: 'Meta',
   kpiSetupTrendLabel: 'Tendência',
   kpiSetupCompPeriodLabel: 'Período de comparação',
+  kpiSetupDateAggEarliest: 'Mais cedo',
+  kpiSetupDateAggLatest: 'Mais tarde',
+  kpiSetupFillAreaLabel: 'Preencher área',
+  kpiSetupCumulativeLabel: 'Acumulado (total cumulativo)',
+  kpiSetupAutoDateFilterPrefix: 'Usando filtro de data:',
+  kpiSetupCalculatedField: 'Campo calculado…',
+  kpiSetupTargetHelperText:
+    'Valor de referência para a linha de meta no minigráfico. Quando Tendência também estiver ativado, o indicador de delta compara o valor atual com essa meta.',
+  kpiSetupInvertColours: 'Inverter cores (menor é melhor)',
 
   // KPI widget
   kpiGrandTotalTooltip:
     'Total geral \u2014 widgets de filtro ativos não são aplicados a este KPI. Ative o modo Filtro cruzado nas configurações do KPI para respeitá-los.',
   kpiGranularityAutoLabel: 'Auto',
+  kpiWidgetComparisonTargetLabel: 'meta',
 
   // Grid setup panel
   gridSetupDataSourceLabel: 'Fonte de dados',
@@ -365,6 +489,30 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   gridSetupRemoveRuleAriaLabel: 'Remover regra',
   gridSetupInteractionsTitle: 'Interações',
   gridSetupInteractionsDescription: 'Quando outros widgets forem clicados, esta tabela\u2026',
+  gridSetupChooseSourceHelper: 'Escolha uma fonte de dados para configurar as colunas',
+  gridSetupNoSourceAlert:
+    'Selecione uma fonte de dados acima para configurar as colunas e as definições desta tabela.',
+  gridSetupColumnsTitle: 'Colunas',
+  gridSetupColumnOptionsAriaLabel: (label) => `Opções de ${label}`,
+  gridSetupColumnGroupLabel: '(grupo)',
+  gridSetupColumnRemove: 'Remover',
+  gridSetupColumnAggNone: 'Nenhum',
+  gridSetupColumnAggUnique: 'Único',
+  gridSetupColumnAggSummaryTooltip: 'Definir resumo / remover',
+  gridSetupColumnAggLabel: (isGroupBy, aggLabel) =>
+    `${isGroupBy ? 'Agregação' : 'Resumo'}: ${aggLabel}`,
+  gridSetupColumnSetAggTooltip: 'Definir agregação',
+  gridSetupAddColumn: 'Adicionar coluna',
+  gridSetupCalculatedColumn: 'Coluna calculada…',
+  gridSetupAddRule: 'Adicionar regra',
+  gridSetupCFContains: 'contém',
+  gridSetupCFIsEmpty: 'está vazio',
+  gridSetupCFNotEmpty: 'não está vazio',
+  gridSetupCFStyleRed: 'Vermelho',
+  gridSetupCFStyleGreen: 'Verde',
+  gridSetupCFStyleYellow: 'Amarelo',
+  gridSetupCFStyleBlue: 'Azul',
+  gridSetupCFStyleBold: 'Negrito',
 
   // Map setup panel
   mapSetupMapTypeLabel: 'Tipo de mapa',
@@ -384,6 +532,9 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   mapSetupLegendLeft: 'Esquerda',
   mapSetupLegendRight: 'Direita',
   mapSetupLegendHidden: 'Oculto',
+  mapSetupRegionFieldLabel: 'Campo de região',
+  mapSetupRegionFieldHelperText:
+    'Um campo que contém identificadores de região correspondentes aos IDs dos recursos geográficos.',
 
   // Pivot setup panel
   pivotSetupDescription:
@@ -405,6 +556,12 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
     'Gerado automaticamente a partir da fórmula \u2014 edite para personalizar',
   inlineFormulaBarCancelButton: 'Cancelar',
   inlineFormulaBarAddButton: 'Adicionar',
+  inlineFormulaBarFieldOperandLabel: 'Campo',
+  inlineFormulaBarNumberOperandLabel: 'Número',
+  inlineFormulaBarOperandTypeAriaLabel: (label) => `tipo de ${label}`,
+  inlineFormulaBarButtonLabel: 'Fórmula',
+  inlineFormulaBarOperandALabel: 'A',
+  inlineFormulaBarOperandBLabel: 'B',
 
   // Field detail view
   fieldDetailRowSourceId: 'ID da fonte',
@@ -423,6 +580,10 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
 
   // Filters drawer
   filtersDrawerRenameViewTooltip: 'Renomear visualização',
+  filtersSectionWidgetTitle: (title) => `Widget: ${title}`,
+  filtersRenameViewAriaLabel: 'Renomear visualização salva',
+  filtersRenameViewButtonAriaLabel: (name) => `Renomear visualização "${name}"`,
+  filtersDeleteViewAriaLabel: (name) => `Excluir visualização "${name}"`,
 
   // Filter setup panel
   filterSetupControlTypeLabel: 'Tipo de controle',
@@ -438,6 +599,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   filterSetupMaxLabel: 'Máx.',
   filterSetupStepLabel: 'Passo',
   filterSetupSelectFieldAlert: 'Selecione um campo para configurar o controle de filtro.',
+  filterSetupSliderRangeHelperText:
+    'Intervalo do controle deslizante (deixe em branco para detectar automaticamente a partir dos dados)',
 
   // Text setup panel
   textSetupTitleLabel: 'Título',
@@ -460,6 +623,10 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   pageConfigBorderColourLabel: 'Cor da borda',
   pageConfigBorderColourPlaceholder: 'ex.: #e0e0e0',
   pageConfigBorderWidthLabel: 'Largura da borda (px)',
+  pageConfigPaddingNone: 'Nenhum',
+  pageConfigPaddingSmall: 'Pequeno (8px)',
+  pageConfigPaddingMedium: 'Médio (16px)',
+  pageConfigPaddingLarge: 'Grande (24px)',
 
   // AI insight panel
   insightTypeSummary: 'Resumo',
@@ -478,6 +645,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   filterWidgetExcludingLabel: '\u2298 Excluindo selecionados',
   filterWidgetDateFromLabel: 'De',
   filterWidgetDateToLabel: 'Até',
+  filterWidgetNoFieldConfigured:
+    'Nenhum campo configurado. Selecione um campo no painel Compor.',
 
   // Date range bar
   dateRangePresetAriaLabel: 'Predefinição de intervalo de datas',
@@ -487,6 +656,13 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
 
   // Widget filter row
   widgetFilterFieldHelperText: 'Campo a que este filtro se aplica',
+  drawerPanelOpenAriaLabel: (title) => `Abrir painel ${title}`,
+  drawerPanelCloseNamedAriaLabel: (title) => `Fechar painel ${title}`,
+  sidebarPanelToggleAriaLabel: (isActive, label) =>
+    isActive ? `Fechar painel ${label}` : `Abrir painel ${label}`,
+  addWidgetGroupAriaLabel: (groupLabel) => `Widgets de ${groupLabel}`,
+  addWidgetSelectAriaLabel: (label) => `Selecionar widget: ${label}`,
+  formatPanelNoSubtitlePlaceholder: 'Sem subtítulo',
 };
 
 export const ptBR: Localization = getStudioLocalization(ptBRLocaleText);

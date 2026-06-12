@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
 import { DataGridPremium, type GridColDef } from '@mui/x-data-grid-premium';
+import { useStudioLocaleText } from '../../context';
 import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../../models';
 import { enrichRowsWithExpressions } from '../../utils/expressionEvaluator';
 import { formatFieldValue } from '../../internals/numberFormat';
@@ -24,6 +25,7 @@ export function DataSourcePreview({
   dataSources,
   relationships,
 }: DataSourcePreviewProps) {
+  const localeText = useStudioLocaleText();
   const enrichedRows = React.useMemo(() => {
     if (!source.rows || source.rows.length === 0) {
       return [];
@@ -92,7 +94,7 @@ export function DataSourcePreview({
     return (
       <Box sx={{ p: 2 }}>
         <Typography variant="body2" color="text.secondary">
-          No data available for {source.label}.
+          {localeText.dataDrawerNoData(source.label)}
         </Typography>
       </Box>
     );

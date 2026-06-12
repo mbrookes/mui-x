@@ -1211,6 +1211,7 @@ const pages: MuiPage[] = [
         children: [
           { pathname: '/x/react-studio/ai/setup', title: 'Setup' },
           { pathname: '/x/react-studio/ai/tools', title: 'AI tools' },
+          { pathname: '/x/react-studio/ai/mcp', title: 'MCP server' },
         ],
       },
       {

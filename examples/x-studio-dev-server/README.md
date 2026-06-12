@@ -4,8 +4,9 @@ A local development server for MUI X Studio that combines the data and AI middle
 
 ## What it does
 
-- **Data API** (`POST /api/studio-data`) — serves the Studio sales demo dataset via `@mui/x-studio-data-middleware`. Supports filtering, aggregation, joins, and caching.
-- **AI API** (`POST /api/ai/chat`) — proxies Studio AI chat requests through `@mui/x-studio-ai-middleware`. Adds the system prompt, runs the agentic loop server-side, and streams SSE responses back to the client.
+- **Sales data API** (`POST /api/studio-data`) — serves the Studio sales demo dataset via `@mui/x-studio-data-middleware`. Supports filtering, aggregation, joins, and caching.
+- **CRM data API** (`POST /api/crm-data`) — serves the CRM demo dataset (contacts, deals, activities) from a separate database. Demonstrates the multiple-endpoints pattern for cross-source relationships.
+- **AI API** (`POST /api/ai/chat`, `/insight`, `/title`, `/widget`) — handles all Studio AI operations through `@mui/x-studio-ai-middleware`. Builds the system prompt, runs the agentic loop, and streams SSE responses back to the client.
 - **Auto-seeds** on first run using the `x-studio-shared` data generator. Re-seed anytime with `--reseed`.
 - **SQLite by default** — no database setup required. Configurable for PostgreSQL or MySQL via `.env.local`.
 
@@ -33,7 +34,9 @@ All configuration is done via environment variables. See `.env.example` for the 
 |---|---|---|
 | `PORT` | `3020` | Server port |
 | `DB_CLIENT` | `better-sqlite3` | Database driver (`better-sqlite3`, `pg`, `mysql2`) |
-| `DB_FILENAME` | `./sales.db` | SQLite file path |
+| `DB_FILENAME` | `./sales.db` | SQLite file path (sales DB) |
+| `CRM_DB_FILENAME` | `./crm.db` | SQLite file path (CRM DB) |
+| `CRM_DB_NAME` | `<DB_NAME>_crm` | Database name for CRM (PostgreSQL/MySQL) |
 | `SEED_ORDER_COUNT` | `500` | Number of orders to generate on seed |
 | `LLM_API_KEY` | — | OpenAI-compatible API key (required for AI features) |
 | `LLM_ENDPOINT` | `https://api.openai.com/v1/chat/completions` | LLM endpoint URL |
@@ -73,9 +76,27 @@ Returns server status, database connectivity, and row counts.
 }
 ```
 
+### `POST /api/crm-data`
+
+Accepts a Studio batch query request body targeting the CRM database and returns query results.
+Available tables: `contacts`, `deals`, `activities`.
+
+### `POST /api/ai/insight`
+
+Accepts a widget insight request and returns a non-streaming AI-generated insight for a widget.
+
+### `POST /api/ai/title`
+
+Accepts a conversation history and returns a short AI-generated title for the chat session.
+
+### `POST /api/ai/widget`
+
+Accepts a natural-language description and returns an AI-generated widget configuration.
+```
+
 ### `POST /api/studio-data`
 
-Accepts a Studio batch query request body and returns query results.
+Accepts a Studio batch query request body targeting the sales database and returns query results.
 
 ### `POST /api/ai/chat`
 
@@ -126,7 +147,11 @@ DB_PASSWORD=studio
 x-studio-dev-server
   ├── @mui/x-studio-ai-middleware   (system prompt, agentic loop, tool execution)
   ├── @mui/x-studio-data-middleware (batch query handler, security, caching)
-  └── x-studio-shared               (sales data generator)
+  │     ├── sales DB (SQLite / pg / mysql2)   → POST /api/studio-data
+  │     └── CRM DB   (separate connection)    → POST /api/crm-data
+  └── x-studio-shared               (sales + CRM data generators)
 ```
 
 The server has **no dependency on `@mui/x-studio`** — it only imports from the two middleware packages and the shared data generator. This means it can run in any Node.js environment without any React or browser dependencies.
+
+The CRM and sales databases use separate Knex instances so they can point to different files or even different database engines. Widgets connecting a CRM source to a sales source will log a dev-mode warning because SQL JOINs cannot span separate database connections.

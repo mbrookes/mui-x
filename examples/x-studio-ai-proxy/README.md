@@ -2,9 +2,9 @@
 
 A minimal server-side proxy that keeps your LLM API key out of the browser.
 
-The proxy accepts requests from the x-studio example apps, adds the API key server-side, and forwards them to OpenAI (or any OpenAI-compatible endpoint). It streams the SSE response back so the x-studio AI chat adapter receives it in the same format as a direct API call.
+The proxy accepts chat completion requests, adds the API key server-side, and forwards them to OpenAI (or any OpenAI-compatible endpoint). It streams the SSE response back to the caller.
 
-> **Looking for more features?** [`examples/x-studio-dev-server`](../x-studio-dev-server/README.md) is a full-featured local backend that adds the system prompt server-side, serves the sales demo dataset via SQL, and handles tool execution — all without any `@mui/x-studio` dependency. The AI proxy is still useful as a lightweight key-guard when you want the client to build and send its own system prompt.
+> **Note:** The x-studio example apps (`x-studio`, `x-studio-composed`, `x-studio-ai`) no longer use the thin-proxy pattern. They connect directly to [`examples/x-studio-dev-server`](../x-studio-dev-server/README.md), which handles the full AI pipeline server-side (system prompt, agentic tool loop, tool execution). The AI proxy is useful for **custom integrations** where the client builds its own messages and needs a secure API-key guard, or for non-x-studio projects that want a lightweight OpenAI proxy.
 
 ## Quick start
 
@@ -29,24 +29,11 @@ Edit `.env` and set at least `LLM_API_KEY`.
 npm run dev        # starts on http://localhost:3010 with hot-reload
 ```
 
-### 4. Configure the x-studio example app
+### 4. Use with a custom integration
 
-In `examples/x-studio` (or `examples/x-studio-composed`), edit `.env.local`:
+For the bundled x-studio example apps, use [`examples/x-studio-dev-server`](../x-studio-dev-server/README.md) instead — the example apps connect to that server via `STUDIO_SERVER_URL`.
 
-```env
-# Point the app at your local proxy (no API key in the browser!)
-LLM_ENDPOINT=http://localhost:3010/v1/chat/completions
-
-# Optional: shared secret (must match STUDIO_TOKEN in the proxy .env)
-# LLM_TOKEN=change-me-to-a-random-secret
-```
-
-Then start the example app normally:
-
-```bash
-cd examples/x-studio
-npm run dev
-```
+For a custom integration where you want to use this proxy as a key-guard, point your client at `http://localhost:3010/v1/chat/completions` and include the `X-Studio-Token` header if you have set `STUDIO_TOKEN`.
 
 ## Environment variables
 

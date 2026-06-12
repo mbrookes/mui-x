@@ -368,7 +368,7 @@ export function StudioMapWidget({
           onItemClick={crossFilterEmit ? handleFeatureClick : undefined}
           loading={isLoading || !geography}
           margin={{ top: 8, bottom: 32, left: 8, right: 8 }}
-          sx={{ width: '100%', height: '100%', ...(crossFilterEmit && { cursor: 'pointer' }) }}
+          sx={{ width: '100%', height: '100%', ...(crossFilterEmit && { cursor: 'default' }) }}
         />
       </Box>
     </StudioMapTooltipContext.Provider>

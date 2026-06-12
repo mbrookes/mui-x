@@ -50,7 +50,7 @@ export function ToggleControl(props: StudioFilterToggleControlProps) {
                 }
               }}
               sx={{
-                cursor: 'pointer',
+                cursor: 'default',
                 color: 'text.secondary',
                 display: 'flex',
                 alignItems: 'center',

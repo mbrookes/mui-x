@@ -74,7 +74,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          cursor: 'pointer',
+          cursor: 'default',
           pt: 2,
           pb: 1,
           gap: 1,

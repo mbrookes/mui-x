@@ -91,7 +91,7 @@ export function SelectionFilterInput({
                 display: 'flex',
                 alignItems: 'center',
                 px: 0.5,
-                cursor: 'pointer',
+                cursor: 'default',
                 borderBottom: 1,
                 borderColor: 'divider',
               }}
@@ -116,7 +116,7 @@ export function SelectionFilterInput({
             {filtered.map((v) => (
               <Box
                 key={v}
-                sx={{ display: 'flex', alignItems: 'center', px: 0.5, cursor: 'pointer' }}
+                sx={{ display: 'flex', alignItems: 'center', px: 0.5, cursor: 'default' }}
                 onClick={() => toggle(v)}
               >
                 <Checkbox

@@ -572,7 +572,7 @@ function buildBatchWidgetDescriptor(
   // Maps logical field ID → physical SQL column (for expression fields)
   const columnAliases: Record<string, string> = {};
 
-  function resolve(fieldId: string): { column: string; skip?: boolean } {
+  function resolve(fieldId: string): { column: string; skip?: boolean; unresolved?: boolean } {
     const resolved = resolveField(
       fieldId,
       d.sourceId,
@@ -590,7 +590,7 @@ function buildBatchWidgetDescriptor(
       // Expression join field: keep logical ID in columns, alias to physical column
       columnAliases[resolved.column] = resolved.physicalColumn;
     }
-    return { column: resolved.column, skip: resolved.skip };
+    return { column: resolved.column, skip: resolved.skip, unresolved: resolved.unresolved };
   }
 
   // SELECT all fields (group-by AND aggregate-source fields), skipping server-incompatible

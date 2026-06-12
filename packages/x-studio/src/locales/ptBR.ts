@@ -740,6 +740,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   aiSuggestionSummarisePage: 'Resumir página',
   aiSuggestionWhatDataAvailable: 'Quais dados estão disponíveis?',
   chatNewConversationName: 'Nova conversa',
+  chatSwitchConversationTooltip: 'Trocar conversa',
 };
 
 export const ptBR: Localization = getStudioLocalization(ptBRLocaleText);

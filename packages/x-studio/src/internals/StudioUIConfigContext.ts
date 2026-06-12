@@ -745,6 +745,51 @@ export interface StudioLocaleText {
   /** Tooltip on the thread-switcher button */
   chatSwitchConversationTooltip: string;
 
+  // ── Auto-generated widget titles (inferWidgetTitles) ─────────────────────
+  /** Fallback when no source: e.g. "Chart" */
+  widgetAutoTitleChart: string;
+  /** Fallback: e.g. "KPI" */
+  widgetAutoTitleKpi: string;
+  /** Fallback: e.g. "Table" */
+  widgetAutoTitleTable: string;
+  /** Fallback: e.g. "Filter" */
+  widgetAutoTitleFilter: string;
+  /** Fallback: e.g. "Pivot Table" */
+  widgetAutoTitlePivot: string;
+  /** Fallback: e.g. "Map" */
+  widgetAutoTitleMap: string;
+  /** Fallback: e.g. "Widget" */
+  widgetAutoTitleDefault: string;
+  /** Glue word for scatter/pivot/map: "Revenue vs Units", "Row by Col" */
+  widgetAutoTitleVs: string;
+  widgetAutoTitleBy: string;
+  /** Suffix in chart subtitle: "split by Category" */
+  widgetAutoTitleSplitBy: string;
+  /** Glue word for map: "Total Revenue by Country" */
+  widgetAutoTitleByCountry: string;
+  /** Suffix on source-named fallback: e.g. "Orders chart" */
+  widgetAutoTitleSourceSuffixChart: string;
+  widgetAutoTitleSourceSuffixKpi: string;
+  widgetAutoTitleSourceSuffixPivot: string;
+  widgetAutoTitleSourceSuffixMap: string;
+  /** Label prefix for filter widget title: "Filter: {field}" */
+  widgetAutoTitleFilterPrefix: string;
+  /** KPI aggregation prefixes */
+  widgetAggPrefixSum: string;
+  widgetAggPrefixAvg: string;
+  widgetAggPrefixCount: string;
+  widgetAggPrefixMin: string;
+  widgetAggPrefixMax: string;
+  widgetAggPrefixCountDistinct: string;
+  /** Time-grouping prefixes for chart auto-titles */
+  widgetGroupByPrefixDay: string;
+  widgetGroupByPrefixWeek: string;
+  widgetGroupByPrefixMonth: string;
+  widgetGroupByPrefixQuarter: string;
+  widgetGroupByPrefixYear: string;
+  /** "+N more" in field list summaries */
+  widgetAutoTitleMoreFields: (count: number) => string;
+
   // ── Expression field dialog — measure checkbox ────────────────────────────
   exprMeasureLabel: string;
   exprMeasureHelperText: string;
@@ -1465,6 +1510,36 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiSuggestionWhatDataAvailable: 'What data is available?',
   chatNewConversationName: 'New conversation',
   chatSwitchConversationTooltip: 'Switch conversation',
+
+  // Auto-generated widget titles
+  widgetAutoTitleChart: 'Chart',
+  widgetAutoTitleKpi: 'KPI',
+  widgetAutoTitleTable: 'Table',
+  widgetAutoTitleFilter: 'Filter',
+  widgetAutoTitlePivot: 'Pivot Table',
+  widgetAutoTitleMap: 'Map',
+  widgetAutoTitleDefault: 'Widget',
+  widgetAutoTitleVs: 'vs',
+  widgetAutoTitleBy: 'by',
+  widgetAutoTitleSplitBy: 'split by',
+  widgetAutoTitleByCountry: 'by Country',
+  widgetAutoTitleSourceSuffixChart: 'chart',
+  widgetAutoTitleSourceSuffixKpi: 'KPI',
+  widgetAutoTitleSourceSuffixPivot: 'pivot',
+  widgetAutoTitleSourceSuffixMap: 'map',
+  widgetAutoTitleFilterPrefix: 'Filter',
+  widgetAggPrefixSum: 'Total',
+  widgetAggPrefixAvg: 'Average',
+  widgetAggPrefixCount: 'Count of',
+  widgetAggPrefixMin: 'Min',
+  widgetAggPrefixMax: 'Max',
+  widgetAggPrefixCountDistinct: 'Distinct',
+  widgetGroupByPrefixDay: 'Daily',
+  widgetGroupByPrefixWeek: 'Weekly',
+  widgetGroupByPrefixMonth: 'Monthly',
+  widgetGroupByPrefixQuarter: 'Quarterly',
+  widgetGroupByPrefixYear: 'Yearly',
+  widgetAutoTitleMoreFields: (count) => `+${count} more`,
 
   // Expression field dialog — measure checkbox
   exprMeasureLabel: 'Measure (aggregate)',

@@ -32,8 +32,9 @@ export { extractSecurityClaims } from './security/extractSecurityClaims';
 export { generateCacheKey } from './security/cacheKey';
 
 // ─── Cache providers ──────────────────────────────────────────────────────────
-export type { CacheProvider, CacheEntry } from './cache/types';
+export type { CacheProvider, CacheEntry, TierCacheProvider, TierEntry } from './cache/types';
 export { LRUCacheProvider } from './cache/LRUCacheProvider';
+export { MapTierCacheProvider } from './cache/MapTierCacheProvider';
 export { RedisCacheProvider } from './cache/RedisCacheProvider';
 export type { RedisClient, RedisCacheProviderOptions } from './cache/RedisCacheProvider';
 

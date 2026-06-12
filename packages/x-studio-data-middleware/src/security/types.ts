@@ -225,4 +225,24 @@ export interface HandleBatchQueryOptions {
     /** Max rows to use server-memory tier (above → DB push-down) */
     serverMemoryTier?: number;
   };
+  /**
+   * Tier routing cache provider (default: built-in `MapTierCacheProvider`).
+   *
+   * The tier cache stores the routing result (client/server/db) from the
+   * COUNT(*) preflight for a longer window than the data cache. This means
+   * repeated cold misses after data cache expiry skip the preflight entirely.
+   *
+   * For multi-node deployments, supply a Redis-backed implementation.
+   * Set `tierCacheTtlMs: 0` to disable the tier cache entirely.
+   */
+  tierCacheProvider?: import('../cache/types').TierCacheProvider;
+  /**
+   * TTL for tier routing cache entries in milliseconds.
+   *
+   * Must be larger than the data cache TTL (default 30 s) to be effective.
+   * Set to `0` to disable the tier cache.
+   *
+   * @default 300_000 (5 minutes)
+   */
+  tierCacheTtlMs?: number;
 }

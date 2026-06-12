@@ -31,3 +31,28 @@ export interface CacheProvider {
    */
   invalidatePrefix(prefix: string): Promise<void>;
 }
+
+/**
+ * Routing tier result stored in the tier cache.
+ * Avoids re-running a COUNT(*) preflight on repeated cold misses
+ * (after the data cache TTL has expired) within the tier cache window.
+ */
+export interface TierEntry {
+  tier: 'client' | 'server' | 'db';
+  rowCount: number;
+}
+
+/**
+ * Tier routing cache provider.
+ *
+ * Stores the routing tier (client/server/db) and preflight row count for a
+ * given query key. The tier cache TTL should be longer than the data cache TTL
+ * so that repeated cold misses within the tier window skip the COUNT(*) preflight.
+ *
+ * The host app can provide a Redis-backed implementation for multi-node deployments.
+ */
+export interface TierCacheProvider {
+  get(key: string): Promise<TierEntry | undefined>;
+  set(key: string, value: TierEntry, ttlMs?: number): Promise<void>;
+  invalidatePrefix(prefix: string): Promise<void>;
+}

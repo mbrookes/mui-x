@@ -829,3 +829,17 @@ Like this: ![partial screenshot from the AG Studio example](image-1.png)
 **Root cause** — `useItemTooltip<'choropleth'>()` returns `label = series.label` (series-level), NOT the per-datum `data[i].label`. Since `StudioMapWidget` sets no series-level label, `label` was always `undefined`.
 
 **Fixed** — Extended `StudioMapTooltipContextValue` with `featureIdToLabel: (featureId: string) => string`. `StudioMapWidget` passes its existing `featureIdToLabel` callback into the context provider. `StudioMapTooltipContent` now calls `featureIdToLabel(identifier.featureId)` (using `identifier` from `useItemTooltip`) to get the resolved region display name. The region name is shown in a styled `<caption>` header (`MapTooltipRegionLabel`) matching the `HeatmapTooltipAxesValue` style (secondary text color, border-bottom). Also improved `valueFieldLabel` derivation to prefer `dataSource.fields[].label` over string-transforming the field ID. Added 10 unit tests in `StudioMapTooltip.test.tsx`.
+
+
+✅ BL-171: Multiple charts show NaN values: Contacts by Department, Contacts by Role, Deals by Stage, Orders by Status (funnel), Margin % by Category. Remove Total Revenue gauge from Overview.
+
+**Root cause** — Three distinct issues:
+1. Bar charts with `yField: 'id'` (a string field) and no explicit `yAggregation` defaulted to `'sum'`. `Number('contact-1')` = `NaN`, and `NaN` propagated through all sums.
+2. The funnel chart renderer always summed `Number(row[funnelValueField])` ignoring `config.yAggregation` entirely — so even `yAggregation: 'count'` had no effect for funnel charts.
+3. Margin % by Category used the default `'sum'` aggregation, which sums per-product percentages per category (meaningless). The correct aggregation is `'avg'`.
+
+**Fixed**:
+- `aggregateByField` now pre-scans the first non-null yField value; if it is non-numeric (i.e. `Number(v)` is NaN), it automatically falls back to `'count'` aggregation — preventing future NaN from misconfigured charts.
+- Funnel chart rendering in `StudioChartWidget` now checks `config.yAggregation === 'count'` and also auto-detects non-numeric value fields, counting rows instead of summing them.
+- `salesDashboard.ts` config: added explicit `yAggregation: 'count'` to Contacts by Department, Contacts by Role, and Deals by Stage; added `yAggregation: 'avg'` to Margin % by Category; made Contacts by Department and Deals by Stage horizontal bar charts.
+- Removed `['widget-chart-revenue-gauge']` row from Overview page widgetRows.

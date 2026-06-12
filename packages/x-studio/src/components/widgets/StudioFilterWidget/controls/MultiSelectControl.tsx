@@ -14,6 +14,7 @@ import {
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
+import { useStudioLocaleText } from '../../../../internals/StudioUIConfigContext';
 
 export interface StudioFilterMultiSelectControlProps {
   label: string;
@@ -32,6 +33,7 @@ export interface StudioFilterMultiSelectControlProps {
 
 export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
   const { label, values, selected, onApply, onClear, exclude = false, onExcludeChange } = props;
+  const localeText = useStudioLocaleText();
   const [search, setSearch] = React.useState('');
   const isActive = selected.length > 0;
 
@@ -51,12 +53,12 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
     <Stack spacing={0.5} role="group" aria-label={label}>
       {isActive && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Tooltip title="Clear filter">
+          <Tooltip title={localeText.filterWidgetClearAriaLabel}>
             <Box
               component="span"
               role="button"
               tabIndex={0}
-              aria-label="Clear selection filter"
+              aria-label={localeText.filterWidgetClearAriaLabel}
               onClick={onClear}
               onKeyDown={(evt) => {
                 if (evt.key === 'Enter' || evt.key === ' ') {
@@ -84,9 +86,9 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
         displayEmpty
         renderValue={(sel) => {
           if ((sel as string[]).length === 0) {
-            return <em style={{ opacity: 0.5 }}>All</em>;
+            return <em style={{ opacity: 0.5 }}>{localeText.filterWidgetAllLabel}</em>;
           }
-          return `${(sel as string[]).length} selected`;
+          return localeText.filterWidgetSelectedCount((sel as string[]).length);
         }}
         MenuProps={{
           slotProps: { paper: { sx: { maxHeight: 320 } } },
@@ -103,7 +105,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
             <TextField
               size="small"
               fullWidth
-              placeholder="Search…"
+              placeholder={localeText.filterSearchValues}
               value={search}
               onChange={(evt) => setSearch(evt.target.value)}
               onClick={(evt) => evt.stopPropagation()}
@@ -122,7 +124,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                 component="span"
                 role="button"
                 tabIndex={0}
-                aria-label="Select all options"
+                aria-label={localeText.filterWidgetSelectAllLabel}
                 onClick={(evt) => {
                   evt.stopPropagation();
                   handleSelectionChange(values);
@@ -134,7 +136,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                 }}
                 sx={{ cursor: 'default', color: 'primary.main', fontSize: 12 }}
               >
-                Select all
+                {localeText.filterWidgetSelectAllLabel}
               </Box>
               <Typography variant="caption" color="text.disabled">
                 ·
@@ -143,7 +145,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                 component="span"
                 role="button"
                 tabIndex={0}
-                aria-label="Clear all selections"
+                aria-label={localeText.filterWidgetClearAllLabel}
                 onClick={(evt) => {
                   evt.stopPropagation();
                   onClear();
@@ -155,7 +157,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                 }}
                 sx={{ cursor: 'default', color: 'text.secondary', fontSize: 12 }}
               >
-                Clear all
+                {localeText.filterWidgetClearAllLabel}
               </Box>
             </Stack>
             {onExcludeChange && (
@@ -163,7 +165,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                 component="span"
                 role="button"
                 tabIndex={0}
-                aria-label={exclude ? 'Switch to include mode' : 'Switch to exclude mode'}
+                aria-label={exclude ? localeText.filterWidgetExcludingLabel : localeText.filterWidgetExcludeLabel}
                 aria-pressed={exclude}
                 onClick={(evt) => {
                   evt.stopPropagation();
@@ -181,7 +183,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                   mt: 0.5,
                 }}
               >
-                {exclude ? '⊘ Excluding selected' : 'Exclude selected'}
+                {exclude ? localeText.filterWidgetExcludingLabel : localeText.filterWidgetExcludeLabel}
               </Box>
             )}
           </Stack>
@@ -200,7 +202,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
         {filtered.length === 0 && (
           <MenuItem disabled>
             <Typography variant="caption" color="text.secondary">
-              No options found
+              {localeText.filterWidgetNoOptionsLabel}
             </Typography>
           </MenuItem>
         )}

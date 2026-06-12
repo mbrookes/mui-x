@@ -430,6 +430,33 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   pageConfigBorderColourLabel: 'Cor da borda',
   pageConfigBorderColourPlaceholder: 'ex.: #e0e0e0',
   pageConfigBorderWidthLabel: 'Largura da borda (px)',
+
+  // AI insight panel
+  insightTypeSummary: 'Resumo',
+  insightTypeAnalysis: 'Análise',
+  insightTypeForecast: 'Previsão',
+  insightTypeAnomaly: 'Explicação de anomalia',
+
+  // Filter widget controls
+  filterWidgetClearAriaLabel: 'Limpar filtro',
+  filterWidgetSelectAllLabel: 'Selecionar tudo',
+  filterWidgetClearAllLabel: 'Limpar tudo',
+  filterWidgetAllLabel: 'Todos',
+  filterWidgetNoOptionsLabel: 'Nenhuma opção encontrada',
+  filterWidgetSelectedCount: (count) => `${count} selecionado${count === 1 ? '' : 's'}`,
+  filterWidgetExcludeLabel: 'Excluir selecionados',
+  filterWidgetExcludingLabel: '\u2298 Excluindo selecionados',
+  filterWidgetDateFromLabel: 'De',
+  filterWidgetDateToLabel: 'Até',
+
+  // Date range bar
+  dateRangePresetAriaLabel: 'Predefinição de intervalo de datas',
+
+  // Data source field select
+  dataSourceClearFieldAriaLabel: 'Limpar campo',
+
+  // Widget filter row
+  widgetFilterFieldHelperText: 'Campo a que este filtro se aplica',
 };
 
 export const ptBR: Localization = getStudioLocalization(ptBRLocaleText);

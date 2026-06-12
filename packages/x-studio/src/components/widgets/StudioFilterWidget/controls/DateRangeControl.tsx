@@ -5,6 +5,7 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import CloseIcon from '@mui/icons-material/Close';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
+import { useStudioLocaleText } from '../../../../internals/StudioUIConfigContext';
 
 export interface StudioFilterDateRangeControlProps {
   label: string;
@@ -16,6 +17,7 @@ export interface StudioFilterDateRangeControlProps {
 
 export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
   const { label, fieldId, currentValue, onApply, onClear } = props;
+  const localeText = useStudioLocaleText();
   const [from, setFrom] = React.useState<Dayjs | null>(
     currentValue?.from ? dayjs(currentValue.from) : null,
   );
@@ -78,12 +80,12 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
     <Stack spacing={1} role="group" aria-label={label}>
       {isActive && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Tooltip title="Clear filter">
+          <Tooltip title={localeText.filterWidgetClearAriaLabel}>
             <Box
               component="span"
               role="button"
               tabIndex={0}
-              aria-label="Clear date range filter"
+              aria-label={localeText.filterWidgetClearAriaLabel}
               onClick={onClear}
               onKeyDown={(evt) => {
                 if (evt.key === 'Enter' || evt.key === ' ') {
@@ -104,14 +106,14 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
       )}
       <Stack direction="row" spacing={1}>
         <DatePicker
-          label="From"
+          label={localeText.filterWidgetDateFromLabel}
           value={from}
           onChange={handleFromChange}
           slotProps={{ textField: { size: 'small', fullWidth: true } }}
           data-field={fieldId}
         />
         <DatePicker
-          label="To"
+          label={localeText.filterWidgetDateToLabel}
           value={to}
           onChange={handleToChange}
           slotProps={{ textField: { size: 'small', fullWidth: true } }}

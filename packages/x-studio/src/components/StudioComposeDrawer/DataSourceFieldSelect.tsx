@@ -6,6 +6,7 @@ import { FieldOption } from './FieldOption';
 import { FieldTypeIcon, type FieldType } from '../../internals/FieldTypeIcon';
 import type { StudioDataSource, StudioDataField } from '../../models';
 import { fieldHasCapability, type FieldCapability } from '../../utils/fieldCapabilities';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 export interface DataSourceFieldEntry {
   id: string;
@@ -67,6 +68,7 @@ export function DataSourceFieldSelect({
   size = 'small',
   fullWidth = true,
 }: DataSourceFieldSelectProps) {
+  const localeText = useStudioLocaleText();
   const computedFields = React.useMemo<DataSourceFieldEntry[]>(() => {
     if (fieldsProp) {
       return fieldsProp;
@@ -147,7 +149,7 @@ export function DataSourceFieldSelect({
               <IconButton
                 size="small"
                 edge="end"
-                aria-label="Clear field"
+                aria-label={localeText.dataSourceClearFieldAriaLabel}
                 onClick={() => onChange('', '')}
                 disabled={disabled}
               >

@@ -436,6 +436,34 @@ export interface StudioLocaleText {
   pageConfigBorderColourLabel: string;
   pageConfigBorderColourPlaceholder: string;
   pageConfigBorderWidthLabel: string;
+
+  // ── AI insight panel ──────────────────────────────────────────────────────
+  insightTypeSummary: string;
+  insightTypeAnalysis: string;
+  insightTypeForecast: string;
+  insightTypeAnomaly: string;
+
+  // ── Filter widget controls ────────────────────────────────────────────────
+  filterWidgetClearAriaLabel: string;
+  filterWidgetSelectAllLabel: string;
+  filterWidgetClearAllLabel: string;
+  filterWidgetAllLabel: string;
+  filterWidgetNoOptionsLabel: string;
+  /** Returns a label like "3 selected" for the multi-select control. */
+  filterWidgetSelectedCount: (count: number) => string;
+  filterWidgetExcludeLabel: string;
+  filterWidgetExcludingLabel: string;
+  filterWidgetDateFromLabel: string;
+  filterWidgetDateToLabel: string;
+
+  // ── Date range bar ────────────────────────────────────────────────────────
+  dateRangePresetAriaLabel: string;
+
+  // ── Data source field select ──────────────────────────────────────────────
+  dataSourceClearFieldAriaLabel: string;
+
+  // ── Widget filter row ─────────────────────────────────────────────────────
+  widgetFilterFieldHelperText: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -855,6 +883,33 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   pageConfigBorderColourLabel: 'Border colour',
   pageConfigBorderColourPlaceholder: 'e.g. #e0e0e0',
   pageConfigBorderWidthLabel: 'Border width (px)',
+
+  // AI insight panel
+  insightTypeSummary: 'Summary',
+  insightTypeAnalysis: 'Analysis',
+  insightTypeForecast: 'Forecast',
+  insightTypeAnomaly: 'Anomaly Explanation',
+
+  // Filter widget controls
+  filterWidgetClearAriaLabel: 'Clear filter',
+  filterWidgetSelectAllLabel: 'Select all',
+  filterWidgetClearAllLabel: 'Clear all',
+  filterWidgetAllLabel: 'All',
+  filterWidgetNoOptionsLabel: 'No options found',
+  filterWidgetSelectedCount: (count) => `${count} selected`,
+  filterWidgetExcludeLabel: 'Exclude selected',
+  filterWidgetExcludingLabel: '\u2298 Excluding selected',
+  filterWidgetDateFromLabel: 'From',
+  filterWidgetDateToLabel: 'To',
+
+  // Date range bar
+  dateRangePresetAriaLabel: 'Date range preset',
+
+  // Data source field select
+  dataSourceClearFieldAriaLabel: 'Clear field',
+
+  // Widget filter row
+  widgetFilterFieldHelperText: 'Field this filter applies to',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

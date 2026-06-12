@@ -2,14 +2,17 @@
 
 import * as React from 'react';
 import type { SxProps, Theme } from '@mui/material';
-import { Box, Grow, IconButton, Menu, MenuItem, Tooltip, Typography } from '@mui/material';
+import { Box, Collapse, Grow, IconButton, Menu, MenuItem, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
+import StopCircleIcon from '@mui/icons-material/StopCircle';
 import { ChatBox } from '@mui/x-chat';
-import type { ChatAdapter, ChatMessage } from '@mui/x-chat/headless';
+import type { ChatAdapter, ChatMessage, ChatPartRendererMap } from '@mui/x-chat/headless';
+import { useChat } from '@mui/x-chat/headless';
 
 import {
   useStudioController,
@@ -24,6 +27,161 @@ import type { StudioAIConfig } from './studioBackendAdapter';
 import { createBackendChatAdapter } from './studioBackendAdapter';
 import type { StudioCustomWidgetDef } from '../../models';
 import { useSpeechRecognition } from './useSpeechRecognition';
+
+// ── StudioSendButton — stop/send toggle for the composer ──────────────────────
+// Defined at module level so the reference is stable across renders (required by
+// ChatBox slot system to avoid re-mounting the button on every render).
+
+const SEND_BTN_SX = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 36,
+  height: 36,
+  border: 'none',
+  borderRadius: '50%',
+  cursor: 'pointer',
+  flexShrink: 0,
+  p: 0,
+  fontSize: '1.25rem',
+  transition: (theme: Theme) =>
+    theme.transitions.create(['background-color', 'opacity'], {
+      duration: theme.transitions.duration.short,
+    }),
+} as const;
+
+const StudioSendButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
+  function StudioSendButton({ disabled, ...rest }, ref) {
+    const { isStreaming, stopStreaming } = useChat();
+
+    if (isStreaming) {
+      return (
+        <Box
+          component="button"
+          ref={ref as React.Ref<HTMLButtonElement>}
+          type="button"
+          onClick={(e: React.MouseEvent) => {
+            e.preventDefault();
+            stopStreaming();
+          }}
+          aria-label="Stop generating"
+          sx={{
+            ...SEND_BTN_SX,
+            bgcolor: 'error.main',
+            color: 'error.contrastText',
+            '&:hover': { bgcolor: 'error.dark' },
+          }}
+        >
+          <StopCircleIcon sx={{ width: '1em', height: '1em', fontSize: 'inherit' }} />
+        </Box>
+      );
+    }
+
+    return (
+      <Box
+        component="button"
+        ref={ref as React.Ref<HTMLButtonElement>}
+        type="submit"
+        disabled={disabled}
+        aria-label="Send message"
+        sx={{
+          ...SEND_BTN_SX,
+          bgcolor: disabled ? 'action.disabledBackground' : 'primary.main',
+          color: disabled ? 'action.disabled' : 'primary.contrastText',
+          '&:hover:not(:disabled)': { bgcolor: 'primary.dark' },
+          '&:disabled': { cursor: 'not-allowed', opacity: 'var(--mui-palette-action-disabledOpacity, 0.38)' },
+        }}
+        {...(rest as object)}
+      >
+        {/* Same paper-airplane SVG as the default ChatComposerSendButton */}
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style={{ width: '1em', height: '1em' }}>
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+        </svg>
+      </Box>
+    );
+  },
+);
+
+// ── StudioReasoningPart — "Thinking…" indicator + collapsible reasoning ────────
+
+interface ReasoningPartProps {
+  part: { text: string; state?: string };
+}
+
+function StudioReasoningPart({ part }: ReasoningPartProps) {
+  const [expanded, setExpanded] = React.useState(false);
+  const isStreaming = part.state === 'streaming';
+
+  // While waiting for the first response: show "Thinking…" with animated ellipsis.
+  if (isStreaming && !part.text) {
+    return (
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ display: 'block', fontStyle: 'italic', px: 0.5, py: 0.25 }}
+      >
+        Thinking…
+      </Typography>
+    );
+  }
+
+  // No content after completion: hide the part entirely.
+  if (!part.text) {
+    return null;
+  }
+
+  // Completed with content: collapsible "Reasoning" section.
+  return (
+    <Box sx={{ my: 0.5, borderRadius: 1, border: 1, borderColor: 'divider', overflow: 'hidden' }}>
+      <Box
+        component="button"
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          width: '100%',
+          gap: 0.5,
+          px: 1,
+          py: 0.5,
+          bgcolor: 'action.hover',
+          border: 'none',
+          cursor: 'pointer',
+          textAlign: 'left',
+          '&:hover': { bgcolor: 'action.selected' },
+        }}
+      >
+        <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+          Reasoning
+        </Typography>
+        <ExpandMoreIcon
+          sx={{
+            fontSize: 16,
+            color: 'text.secondary',
+            transform: expanded ? 'rotate(180deg)' : 'none',
+            transition: 'transform 200ms',
+          }}
+        />
+      </Box>
+      <Collapse in={expanded}>
+        <Typography
+          variant="caption"
+          component="pre"
+          sx={{
+            display: 'block',
+            m: 0,
+            p: 1,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            color: 'text.secondary',
+          }}
+        >
+          {part.text}
+        </Typography>
+      </Collapse>
+    </Box>
+  );
+}
 
 // ── Suggestion generator ──────────────────────────────────────────────────────
 
@@ -140,8 +298,11 @@ function generateSuggestions(
 export interface StudioChatPanelSlotProps {
   /**
    * Extra props spread onto `ChatBox` before Studio's own required props.
-   * Useful for `currentUser`, additional `features`, `localeText` overrides, etc.
-   * Studio's own `adapter`, `suggestions`, `sx`, `features`, and `localeText` always take precedence.
+   * Consumer-provided `features`, `localeText`, `partRenderers`, and `slots` are
+   * deep-merged with Studio's defaults so you can augment rather than replace them.
+   * Studio always enforces `features.conversationHeader: false` and
+   * `features.attachments: false`; `adapter`, `messages`, and `sx` are always
+   * set by Studio and cannot be overridden here.
    */
   chatBox?: Partial<React.ComponentProps<typeof ChatBox>>;
   /**
@@ -378,6 +539,19 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     return null;
   }
 
+  // ── ChatBox prop composition ────────────────────────────────────────────────
+  // Studio provides sensible defaults for all customizable props and then deep-merges
+  // consumer-supplied overrides from slotProps.chatBox on top, except for the small
+  // set of required settings that Studio must always enforce.
+
+  const studioPartRenderers: ChatPartRendererMap = {
+    // Reasoning / "Thinking…" — show a "Thinking…" label while the model is working
+    // and collapse the block into an expandable "Reasoning" section when done.
+    reasoning: StudioReasoningPart as ChatPartRendererMap['reasoning'],
+    // When showToolCalls is false, suppress dynamic-tool cards entirely.
+    ...(aiConfig?.showToolCalls === false ? { 'dynamic-tool': () => null } : {}),
+  };
+
   const chatBox = (
     <Box
       sx={[
@@ -471,13 +645,41 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
           adapter={adapter}
           messages={slotProps?.chatBox?.messages ?? threadMessages}
           onMessagesChange={slotProps?.chatBox?.onMessagesChange ?? handleMessagesChange}
+          onFinish={slotProps?.chatBox?.onFinish}
+          onError={slotProps?.chatBox?.onError}
           composerValue={composerValue}
           onComposerValueChange={handleComposerValueChange}
           suggestions={suggestions}
           suggestionsAutoSubmit
           currentUser={{ id: 'user', displayName: 'You', role: 'user' }}
-          features={{ conversationHeader: false, attachments: false }}
-          localeText={{ composerInputPlaceholder: 'How can I help?' }}
+          features={{
+            // Consumer can configure optional features …
+            ...slotProps?.chatBox?.features,
+            // … but Studio always enforces these: we manage the conversation header
+            // ourselves and don't support file attachments in the AI flow.
+            conversationHeader: false,
+            attachments: false,
+          }}
+          localeText={{
+            // Studio-appropriate empty-state and placeholder text
+            composerInputPlaceholder: 'How can I help?',
+            threadNoMessagesLabel: 'Ask me anything about your dashboard',
+            threadNoMessagesHelperText: 'I can add widgets, analyse your data, and more',
+            // Consumer overrides last so they can tailor every string
+            ...slotProps?.chatBox?.localeText,
+          }}
+          partRenderers={{
+            // Studio default part renderers (reasoning "Thinking…", optional tool-call hiding)
+            ...studioPartRenderers,
+            // Consumer can add custom renderers or override Studio's defaults
+            ...slotProps?.chatBox?.partRenderers,
+          }}
+          slots={{
+            // Studio overrides the send button to add a stop-streaming capability
+            composerSendButton: StudioSendButton,
+            // Consumer slot overrides come last
+            ...slotProps?.chatBox?.slots,
+          }}
           sx={{ height: '100%' }}
         />
         {/* Mic button — overlaid in the bottom-right corner of the composer area */}

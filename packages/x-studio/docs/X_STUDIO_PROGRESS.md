@@ -991,6 +991,22 @@ See `packages/x-studio/docs/AI_ASSISTANT_RESEARCH.md` for the full gap analysis.
 - `packages/x-studio-ai-middleware/src/models/protocol.ts`
 - `packages/x-studio-ai-middleware/src/agenticLoop.ts`
 
+**Batch 3 — message metadata display, doc fixes** (commit `77571abd0c`):
+
+- **Message metadata display** — `StudioMessageRoot` module-level component wraps `ChatMessage`
+  and appends a caption row below completed assistant messages. Reads `message.metadata` via
+  `useMessage()` (no prop-drilling needed). Shows model name (e.g. `gpt-4o`), total token count,
+  and turn count for multi-turn responses. Wired via `ChatBox.slots.messageRoot`.
+- **Research doc comparison table fixed** — `AI_ASSISTANT_RESEARCH.md` table comparing x-studio
+  to AG Grid Studio had many features marked `❌` that are now fully implemented. Corrected to `✅`
+  with accurate status notes for: `execute_query`, `add_page_filter`/`remove_page_filter`,
+  `add_widget_filter`, `rename_thread`, state persistence, named threads.
+- **Stale "zero tests" row removed** from moderate-issues table (18+ adapter tests now exist).
+
+**Files changed (batch 3):**
+- `packages/x-studio/src/components/StudioChatPanel/StudioChatPanel.tsx`
+- `packages/x-studio/docs/AI_ASSISTANT_RESEARCH.md`
+
 ## 📋 Planned
 
 _Nothing remaining — all tracked requirements are complete or WONTFIX._

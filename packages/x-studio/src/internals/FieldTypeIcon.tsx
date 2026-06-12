@@ -12,6 +12,7 @@ import { DateFieldGeneratedIcon } from '../icons/DateFieldGeneratedIcon';
 import { DateTimeFieldGeneratedIcon } from '../icons/DateTimeFieldGeneratedIcon';
 import { BooleanFieldGeneratedIcon } from '../icons/BooleanFieldGeneratedIcon';
 import type { StudioDataField } from '../models';
+import { useStudioLocaleText } from './StudioUIConfigContext';
 
 export type FieldType = StudioDataField['type'];
 
@@ -31,14 +32,6 @@ const TYPE_GENERATED_ICON: Record<FieldType, React.ComponentType<{ size?: number
   boolean: BooleanFieldGeneratedIcon,
 };
 
-const TYPE_LABEL: Record<FieldType, string> = {
-  string: 'Text',
-  number: 'Number',
-  date: 'Date',
-  datetime: 'Date & Time',
-  boolean: 'Boolean',
-};
-
 interface FieldTypeIconProps {
   type: FieldType;
   generated?: boolean;
@@ -46,9 +39,17 @@ interface FieldTypeIconProps {
 }
 
 export function FieldTypeIcon({ type, generated = false, size = 16 }: FieldTypeIconProps) {
+  const localeText = useStudioLocaleText();
+  const typeLabels: Record<FieldType, string> = {
+    string: localeText.dataTypeString,
+    number: localeText.dataTypeNumber,
+    date: localeText.dataTypeDate,
+    datetime: localeText.dataTypeDatetime,
+    boolean: localeText.dataTypeBoolean,
+  };
   const iconMap = generated ? TYPE_GENERATED_ICON : TYPE_ICON;
   const Icon = iconMap[type] ?? (generated ? StringFieldGeneratedIcon : StringFieldIcon);
-  const label = `${TYPE_LABEL[type] ?? type}${generated ? ' (generated)' : ''}`;
+  const label = `${typeLabels[type] ?? type}${generated ? ' (generated)' : ''}`;
 
   return (
     <Tooltip title={label} placement="top">

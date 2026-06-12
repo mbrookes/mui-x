@@ -42,6 +42,34 @@ import {
   DRAG_TYPE_COMPOSE_WIDGET,
   type ComposeWidgetDragItem,
 } from '../StudioCanvas/studioWidgetDndTypes';
+import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
+
+// ── Localized widget type metadata ────────────────────────────────────────────
+
+type WidgetKindLocalizedInfo = { label: string; description: string };
+
+function getBuiltInWidgetKindInfo(
+  localeText: StudioLocaleText,
+): Partial<Record<StudioWidgetKind, WidgetKindLocalizedInfo>> {
+  return {
+    text: { label: localeText.widgetKindText, description: localeText.widgetKindTextDescription },
+    kpi: { label: localeText.widgetKindKpi, description: localeText.widgetKindKpiDescription },
+    chart: {
+      label: localeText.widgetKindChart,
+      description: localeText.widgetKindChartDescription,
+    },
+    grid: { label: localeText.widgetKindGrid, description: localeText.widgetKindGridDescription },
+    filter: {
+      label: localeText.widgetKindFilter,
+      description: localeText.widgetKindFilterDescription,
+    },
+    pivot: {
+      label: localeText.widgetKindPivot,
+      description: localeText.widgetKindPivotDescription,
+    },
+    map: { label: localeText.widgetKindMap, description: localeText.widgetKindMapDescription },
+  };
+}
 
 // ── Natural language widget creator (BL-58) ──────────────────────────────────
 
@@ -330,10 +358,14 @@ function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
 
   const builtIn = WIDGET_TYPES.find((w) => w.kind === kind);
   const customDef = customWidgetMap.get(kind);
-  const wt = builtIn ?? {
+  const kindInfo = getBuiltInWidgetKindInfo(localeText);
+  const localizedBuiltIn = builtIn
+    ? { ...builtIn, ...(kindInfo[kind] ?? {}) }
+    : null;
+  const wt = localizedBuiltIn ?? {
     kind,
     label: customDef?.label ?? kind,
-    description: customDef?.description ?? 'Custom widget',
+    description: customDef?.description ?? localeText.composeCustomWidgetDescription,
     icon: customDef?.icon ?? null,
   };
 
@@ -464,6 +496,7 @@ export function AddWidgetView() {
 
   // Combine built-in widget types with consumer-registered custom widget types
   const allWidgetTypes = React.useMemo(() => {
+    const kindInfo = getBuiltInWidgetKindInfo(localeText);
     const builtins = WIDGET_TYPES.filter((wt) => {
       switch (wt.kind) {
         case 'grid':
@@ -483,15 +516,17 @@ export function AddWidgetView() {
         default:
           return true;
       }
-    });
+    }).map((wt) => ({ ...wt, ...(kindInfo[wt.kind] ?? {}) }));
     const customs = Array.from(customWidgetMap.values()).map((def) => ({
       kind: def.kind,
       label: def.label ?? def.kind,
-      description: def.description ?? 'Custom widget',
+      description: def.description ?? localeText.composeCustomWidgetDescription,
       icon: def.icon ?? null,
     }));
     return [...builtins, ...customs];
-  }, [features, customWidgetMap]);
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- localeText is stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [features, customWidgetMap, localeText]);
 
   if (selectedKind) {
     return (

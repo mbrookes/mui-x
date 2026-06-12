@@ -1,17 +1,10 @@
 import { Router, type Request, type Response } from 'express';
 import type { Knex } from 'knex';
 import { handleBatchQuery } from '@mui/x-studio-data-middleware';
-import type { JwtSecurityClaims } from '@mui/x-studio-data-middleware';
-import jwt from 'jsonwebtoken';
 import type { Config } from '../config.js';
+import { resolveClaims } from '../middleware/claims.js';
 
 const CRM_SCHEMA_ALLOWLIST = ['contacts', 'deals', 'activities'];
-
-const DEV_CLAIMS: JwtSecurityClaims = {
-  tenantId: 'dev',
-  userId: 'dev-user',
-  roleIds: ['admin'],
-};
 
 /**
  * POST /api/crm-data
@@ -47,24 +40,4 @@ export function makeCrmDataRouter(crmDb: Knex, config: Config): Router {
   });
 
   return router;
-}
-
-function resolveClaims(req: Request, config: Config): JwtSecurityClaims {
-  const authHeader = req.headers.authorization;
-
-  if (authHeader?.startsWith('Bearer ')) {
-    const token = authHeader.slice('Bearer '.length);
-    try {
-      const decoded = jwt.verify(token, config.jwtSecret) as JwtSecurityClaims;
-      return decoded;
-    } catch (err) {
-      throw new Error(`Invalid token: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  if (!config.studioToken) {
-    return DEV_CLAIMS;
-  }
-
-  throw new Error('Missing Authorization header');
 }

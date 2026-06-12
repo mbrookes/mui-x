@@ -11,6 +11,10 @@ import type {
 import { isRelativeDateValue } from './filterUtils';
 import type { RelativeDateValue } from './filterTypes';
 import { formatFieldValue } from './numberFormat';
+import {
+  DEFAULT_STUDIO_LOCALE_TEXT,
+  type StudioLocaleText,
+} from './StudioUIConfigContext';
 import { TextWidgetIcon } from '../icons/TextWidgetIcon';
 import { KpiWidgetIcon } from '../icons/KpiWidgetIcon';
 import { TableWidgetIcon } from '../icons/TableWidgetIcon';
@@ -159,29 +163,33 @@ export function getWidgetSubtypeIcon(widget: StudioWidget, size = 16): React.Rea
   return null;
 }
 
-const KPI_AGG_PREFIXES: Record<StudioKpiAggregation, string> = {
-  sum: 'Total',
-  avg: 'Average',
-  count: 'Count of',
-  min: 'Min',
-  max: 'Max',
-  count_distinct: 'Distinct',
+const KPI_AGG_PREFIXES_DEFAULT: Record<StudioKpiAggregation, keyof StudioLocaleText> = {
+  sum: 'widgetAggPrefixSum',
+  avg: 'widgetAggPrefixAvg',
+  count: 'widgetAggPrefixCount',
+  min: 'widgetAggPrefixMin',
+  max: 'widgetAggPrefixMax',
+  count_distinct: 'widgetAggPrefixCountDistinct',
 };
 
-const CHART_GROUP_BY_TITLE_PREFIXES = {
-  day: 'Daily',
-  week: 'Weekly',
-  month: 'Monthly',
-  quarter: 'Quarterly',
-  year: 'Yearly',
-} as const;
+const CHART_GROUP_BY_PREFIX_KEYS: Record<string, keyof StudioLocaleText> = {
+  day: 'widgetGroupByPrefixDay',
+  week: 'widgetGroupByPrefixWeek',
+  month: 'widgetGroupByPrefixMonth',
+  quarter: 'widgetGroupByPrefixQuarter',
+  year: 'widgetGroupByPrefixYear',
+};
 
-function summarizeFieldLabels(labels: string[], maxVisible = 3) {
+function summarizeFieldLabels(
+  labels: string[],
+  localeText: StudioLocaleText,
+  maxVisible = 3,
+) {
   if (labels.length <= maxVisible) {
     return labels.join(', ');
   }
 
-  return `${labels.slice(0, maxVisible).join(', ')} +${labels.length - maxVisible} more`;
+  return `${labels.slice(0, maxVisible).join(', ')} ${localeText.widgetAutoTitleMoreFields(labels.length - maxVisible)}`;
 }
 
 const UNIT_LABELS: Record<RelativeDateValue['unit'], [string, string]> = {
@@ -288,6 +296,7 @@ export function inferKpiDateSubtitle(
 export function inferWidgetTitles(
   widget: StudioWidget,
   dataSources: Record<string, StudioDataSource>,
+  localeText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT,
 ): { title: string; subtitle: string } {
   const source = widget.sourceId ? dataSources[widget.sourceId] : undefined;
   const config = widget.config;
@@ -307,6 +316,11 @@ export function inferWidgetTitles(
     return primaryFieldMap.get(fieldId);
   };
 
+  const aggPrefix = (agg: StudioKpiAggregation | undefined, fallback: StudioKpiAggregation) => {
+    const key = KPI_AGG_PREFIXES_DEFAULT[agg ?? fallback];
+    return (localeText[key] as string) ?? '';
+  };
+
   switch (widget.kind) {
     case 'chart': {
       const xLabel = findFieldLabel(config.xField);
@@ -320,26 +334,29 @@ export function inferWidgetTitles(
       const seriesLabel = findFieldLabel(config.seriesField);
       const chartType = config.chartType ?? 'bar';
       const isScatter = chartType === 'scatter';
-      const groupByTitlePrefix = config.xGroupBy
-        ? CHART_GROUP_BY_TITLE_PREFIXES[config.xGroupBy]
-        : undefined;
+      const groupByKey = config.xGroupBy ? CHART_GROUP_BY_PREFIX_KEYS[config.xGroupBy] : undefined;
+      const groupByTitlePrefix = groupByKey ? (localeText[groupByKey] as string) : undefined;
 
-      let title = source ? `${source.label} chart` : 'Chart';
+      let title = source
+        ? `${source.label} ${localeText.widgetAutoTitleSourceSuffixChart}`
+        : localeText.widgetAutoTitleChart;
       if (isScatter && xLabel && yLabels.length > 0) {
-        title = `${yLabels[0]} vs ${xLabel}`;
+        title = `${yLabels[0]} ${localeText.widgetAutoTitleVs} ${xLabel}`;
       } else if (groupByTitlePrefix) {
         const metricLabel = yLabels.length > 0 ? yLabels.join(', ') : title;
         title = `${groupByTitlePrefix} ${metricLabel}`;
         if (seriesLabel) {
-          title = `${title} by ${seriesLabel}`;
+          title = `${title} ${localeText.widgetAutoTitleBy} ${seriesLabel}`;
         }
       } else if (yLabels.length > 0 && xLabel) {
-        title = `${yLabels.join(', ')} by ${xLabel}`;
+        title = `${yLabels.join(', ')} ${localeText.widgetAutoTitleBy} ${xLabel}`;
       } else if (yLabels.length > 0) {
         title = yLabels.join(', ');
       }
 
-      const splitLabel = seriesLabel && !groupByTitlePrefix ? `split by ${seriesLabel}` : '';
+      const splitLabel = seriesLabel && !groupByTitlePrefix
+        ? `${localeText.widgetAutoTitleSplitBy} ${seriesLabel}`
+        : '';
       const subtitleParts = [source?.label, splitLabel].filter(Boolean);
       const subtitle = subtitleParts.join(' · ');
 
@@ -348,14 +365,16 @@ export function inferWidgetTitles(
 
     case 'kpi': {
       const fieldLabel = findFieldLabel(config.kpiValueField);
-      const aggPrefix = KPI_AGG_PREFIXES[config.kpiAggregation ?? 'sum'] ?? '';
-      const fallbackTitle = source ? `${source.label} KPI` : 'KPI';
-      const title = fieldLabel ? `${aggPrefix} ${fieldLabel}`.trim() : fallbackTitle;
+      const prefix = aggPrefix(config.kpiAggregation, 'sum');
+      const fallbackTitle = source
+        ? `${source.label} ${localeText.widgetAutoTitleSourceSuffixKpi}`
+        : localeText.widgetAutoTitleKpi;
+      const title = fieldLabel ? `${prefix} ${fieldLabel}`.trim() : fallbackTitle;
       return { title, subtitle: '' };
     }
 
     case 'grid': {
-      const title = source?.label ?? 'Table';
+      const title = source?.label ?? localeText.widgetAutoTitleTable;
       const visibleColumnLabels = (
         config.columns?.length
           ? columnFieldIds(config.columns)
@@ -366,46 +385,50 @@ export function inferWidgetTitles(
       });
 
       const subtitle =
-        visibleColumnLabels.length > 0 ? summarizeFieldLabels(visibleColumnLabels) : '';
+        visibleColumnLabels.length > 0
+          ? summarizeFieldLabels(visibleColumnLabels, localeText)
+          : '';
 
       return { title, subtitle };
     }
 
     case 'filter': {
       const fieldLabel = findFieldLabel(config.filterWidgetField, config.filterWidgetSourceId);
-      const title = fieldLabel ? `Filter: ${fieldLabel}` : 'Filter';
+      const title = fieldLabel
+        ? `${localeText.widgetAutoTitleFilterPrefix}: ${fieldLabel}`
+        : localeText.widgetAutoTitleFilter;
       return { title, subtitle: '' };
     }
 
     case 'pivot': {
       const rowLabel = findFieldLabel(config.pivotRowField);
       const colLabel = findFieldLabel(config.pivotColField);
-      let title = 'Pivot Table';
+      let title = localeText.widgetAutoTitlePivot;
       if (rowLabel && colLabel) {
-        title = `${rowLabel} by ${colLabel}`;
+        title = `${rowLabel} ${localeText.widgetAutoTitleBy} ${colLabel}`;
       } else if (source) {
-        title = `${source.label} pivot`;
+        title = `${source.label} ${localeText.widgetAutoTitleSourceSuffixPivot}`;
       }
       return { title, subtitle: source?.label ?? '' };
     }
 
     case 'map': {
       const valueLabel = findFieldLabel(config.mapValueField);
-      const aggPrefix = KPI_AGG_PREFIXES[config.mapAggregation ?? 'sum'] ?? '';
-      let title = 'Map';
+      const prefix = aggPrefix(config.mapAggregation, 'sum');
+      let title = localeText.widgetAutoTitleMap;
       if (valueLabel) {
-        title = `${aggPrefix} ${valueLabel} by Country`.trim();
+        title = `${prefix} ${valueLabel} ${localeText.widgetAutoTitleByCountry}`.trim();
       } else if (source) {
-        title = `${source.label} map`;
+        title = `${source.label} ${localeText.widgetAutoTitleSourceSuffixMap}`;
       }
       return { title, subtitle: source?.label ?? '' };
     }
 
     case 'text':
-      return { title: widget.title || 'Text', subtitle: widget.subtitle ?? '' };
+      return { title: widget.title || localeText.widgetAutoTitleDefault, subtitle: widget.subtitle ?? '' };
 
     default:
-      return { title: widget.title || widget.kind || 'Widget', subtitle: widget.subtitle ?? '' };
+      return { title: widget.title || widget.kind || localeText.widgetAutoTitleDefault, subtitle: widget.subtitle ?? '' };
   }
 }
 

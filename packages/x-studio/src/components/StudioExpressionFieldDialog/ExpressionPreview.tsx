@@ -11,6 +11,7 @@ import {
   evaluateMeasure,
 } from '../../utils/expressionEvaluator';
 import { formatNumber } from '../../internals/numberFormat';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 // ─── Preview ──────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,7 @@ export function ExpressionPreview({
   currentFieldId,
   precision,
 }: ExpressionPreviewProps) {
+  const localeText = useStudioLocaleText();
   const previewResult = React.useMemo(() => {
     const rows = dataSource.rows ?? [];
     const otherExprFields = expressionFields.filter((ef) => ef.id !== currentFieldId);
@@ -67,7 +69,7 @@ export function ExpressionPreview({
     return (
       <Box sx={{ mt: 1 }}>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          Preview (measure over {previewResult.count} rows)
+          {localeText.expressionPreviewMeasureLabel(previewResult.count)}
         </Typography>
         <Chip
           label={formatNumber(previewResult.value, undefined, undefined, undefined, precision)}
@@ -82,7 +84,7 @@ export function ExpressionPreview({
   return (
     <Box sx={{ mt: 1 }}>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-        Preview (first {previewResult.count} rows)
+        {localeText.expressionPreviewFirstRowsLabel(previewResult.count)}
       </Typography>
       <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
         {previewResult.values.map((v, i) => (

@@ -484,7 +484,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           }
         }}
         aria-selected={isSelected}
-        aria-label={`Widget: ${widget.title}`}
+        aria-label={localeText.filtersSectionWidgetTitle(widget.title ?? '')}
         data-widget-card
         tabIndex={0}
         onKeyDown={(event) => {

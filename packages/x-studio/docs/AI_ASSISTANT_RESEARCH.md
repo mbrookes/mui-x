@@ -1080,6 +1080,45 @@ Empty-thread state now shows Studio-appropriate text:
 - `reasoning-delta` — appends text to the open reasoning block
 - `reasoning-end` — closes the reasoning block
 
+#### ~~8.7 Agentic step dividers~~ ✅ DONE
+
+`agenticLoop.ts` now emits a `step-start` SSE event at the start of each iteration > 0.
+The adapter converts this to an x-chat `start-step` chunk, causing ChatBox to render a
+visual divider between agentic turns (e.g. "Turn 1" / "Turn 2" separators).
+
+#### ~~8.8 Per-tool icons~~ ✅ DONE
+
+`STUDIO_TOOL_ICONS` maps each built-in tool name to a MUI icon component.
+`createToolPartRenderer` (from `@mui/x-chat-headless`) produces the `dynamic-tool`
+`ChatPartRenderer` with tool-specific icon slots — tool cards show recognisable icons
+(Dashboard, Delete, BarChart, etc.) instead of a generic tool icon.
+
+#### ~~8.9 `density` / `variant` props~~ ✅ DONE
+
+`StudioChatPanelProps` now accepts `density` (`'compact' | 'standard' | 'comfortable'`) and
+`variant` props, forwarded to `ChatBox` for easy size/style customisation from the host app
+without needing a custom MUI theme.
+
+#### ~~8.10 `initialPrompt` prop~~ ✅ DONE
+
+When `threadMessages.length === 0` (new/empty thread), `StudioChatPanel` sets
+`ChatBox.initialComposerValue` + `autoSubmitInitialValue={true}` so the first turn is
+pre-populated (and optionally auto-submitted) — useful for guided onboarding flows.
+
+#### ~~8.11 `message-metadata` forwarding~~ ✅ DONE
+
+`agenticLoop.ts` yields a `message-metadata` event before `finish` carrying
+`{ model, inputTokens, outputTokens, iterations }`. The adapter forwards it as an x-chat
+`message-metadata` chunk so the data is stored on the assistant `ChatMessage.metadata`
+field for display or analytics use by the host app.
+
+#### ~~8.12 Adapter unit tests~~ ✅ DONE
+
+18 unit tests added to `studioBackendAdapter.test.ts` covering: synthetic reasoning
+lifecycle (start/end on text-delta, end on tool-activity, end on finish), step-start→start-step
+conversion, message-metadata forwarding, stop() cancellation, abort signal handling, and
+server-emitted reasoning event forwarding.
+
 ---
 
 ## 7. Architecture Diagram

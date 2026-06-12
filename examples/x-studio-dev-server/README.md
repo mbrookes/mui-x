@@ -119,6 +119,7 @@ All x-studio AI tools are registered except `summarise_page` (requires live clie
 | Tool | Description |
 | ---- | ----------- |
 | `query_data_source` | **Query a data source** — retrieve rows, compute aggregations (count/sum/avg by group), filter, sort. Read-only. |
+| `render_chart` | **Render a chart as SVG** — generate a bar, line (single or multi-series), or pie chart from raw data and receive it as a base64-encoded `image/svg+xml`. |
 | `add_widget` | Add a new widget to a page |
 | `update_widget` | Update an existing widget's configuration |
 | `remove_widget` | Remove a widget from a page |

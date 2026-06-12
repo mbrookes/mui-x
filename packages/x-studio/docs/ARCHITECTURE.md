@@ -893,7 +893,58 @@ All flags default to `true` (opt-out model). Setting any flag to `false` hides t
 
 ### 13.7 Locale / i18n
 
-All user-visible strings are defined in `StudioLocaleText` and passed via `localeText` prop on `<Studio>`. A complete `ptBRLocaleText` translation is provided. Partial override objects are merged over the English defaults.
+All user-visible strings are defined in `StudioLocaleText` (≈ 300 tokens) and passed via `localeText` prop on `<Studio>`. Tokens not provided fall back to the English defaults.
+
+#### Built-in locale bundles
+
+| Export      | Locale  | Language             |
+| ----------- | ------- | -------------------- |
+| `enUS`      | `en-US` | English (default)    |
+| `ptBR`      | `pt-BR` | Brazilian Portuguese |
+| `frFR`      | `fr-FR` | French               |
+| `deDE`      | `de-DE` | German               |
+| `esES`      | `es-ES` | Spanish              |
+
+Import the locale text object and pass it to `<Studio>`:
+
+```tsx
+import { Studio, ptBR } from '@mui/x-studio';
+import { createTheme, ThemeProvider } from '@mui/material/styles';
+
+// Approach 1: direct prop
+<Studio localeText={ptBR.components.MuiStudio.defaultProps.localeText} />
+
+// Approach 2: theme-level (integrates with other MUI X locales)
+const theme = createTheme(ptBR);
+<ThemeProvider theme={theme}><Studio /></ThemeProvider>
+```
+
+#### Helper functions that accept `localeText`
+
+Several utility functions used by the Studio internals accept an optional `localeText` argument so they can be called outside of the React tree with any locale:
+
+- `inferWidgetTitles(widget, sources, localeText?)` — auto-generates widget title + subtitle
+- `formatDateFilterLabel(filter, localeText?)` — formats a relative or absolute date filter as a string
+- `inferKpiDateSubtitle(widget, sources, localeText?)` — generates the KPI date-range subtitle
+- `aggregationLabel(aggFn, localeText?)` — returns the display label for an aggregation function
+- `computeGridSummary(rows, columns, localeText?)` — returns summary row labels for a grid
+
+#### Token categories
+
+The `StudioLocaleText` interface is grouped into the following categories (see `StudioUIConfigContext.ts` for full details):
+
+- Drawer titles, date range presets, quick filter bar
+- Filters panel (add/save/delete views, search)
+- Widget states and card actions
+- Widget edit dialog, compose drawer, format panel
+- Data drawer, relationship management, lineage graph
+- Filter conditions, relative date filters, filter widget controls
+- Expression field dialog (calculated fields)
+- Aggregation functions, time granularity, sort direction
+- Chart/KPI/Grid/Map/Pivot/Filter/Text/Page setup panels
+- AI chat suggestions and AI insight type labels
+- Auto-generated widget titles and date filter labels (grammar tokens)
+- Grid summary row labels
 
 ---
 

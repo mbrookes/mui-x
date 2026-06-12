@@ -1,12 +1,23 @@
 import type { StudioLocaleText } from '@mui/x-studio';
-import { ptBRLocaleText } from '@mui/x-studio';
-import { ptBR as pickersPtBR } from '@mui/x-date-pickers/locales';
+import { deLocaleText, esLocaleText, frLocaleText, ptBRLocaleText } from '@mui/x-studio';
+import {
+  deDE as pickersDeDE,
+  esES as pickersEsES,
+  frFR as pickersFrFR,
+  ptBR as pickersPtBR,
+} from '@mui/x-date-pickers/locales';
+import 'dayjs/locale/de';
+import 'dayjs/locale/es';
+import 'dayjs/locale/fr';
 import 'dayjs/locale/pt-br';
 
-export type SupportedLocale = 'en' | 'pt-BR';
+export type SupportedLocale = 'en' | 'fr' | 'de' | 'es' | 'pt-BR';
 
 export const LOCALE_LABELS: Record<SupportedLocale, string> = {
   en: 'English',
+  fr: 'Français',
+  de: 'Deutsch',
+  es: 'Español',
   'pt-BR': 'Português (Brasil)',
 };
 
@@ -248,6 +259,24 @@ export const LOCALE_BUNDLES: Record<SupportedLocale, LocaleBundle> = {
     dayjsLocale: 'en',
     studioLocaleText: undefined,
     pickersLocaleText: undefined,
+    appLocaleText: enAppLocaleText,
+  },
+  fr: {
+    dayjsLocale: 'fr',
+    studioLocaleText: frLocaleText,
+    pickersLocaleText: pickersFrFR.components.MuiLocalizationProvider.defaultProps.localeText,
+    appLocaleText: enAppLocaleText,
+  },
+  de: {
+    dayjsLocale: 'de',
+    studioLocaleText: deLocaleText,
+    pickersLocaleText: pickersDeDE.components.MuiLocalizationProvider.defaultProps.localeText,
+    appLocaleText: enAppLocaleText,
+  },
+  es: {
+    dayjsLocale: 'es',
+    studioLocaleText: esLocaleText,
+    pickersLocaleText: pickersEsES.components.MuiLocalizationProvider.defaultProps.localeText,
     appLocaleText: enAppLocaleText,
   },
   'pt-BR': {

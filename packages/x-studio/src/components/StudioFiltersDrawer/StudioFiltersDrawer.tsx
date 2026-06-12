@@ -37,12 +37,9 @@ import { getReachableSourceIds } from '../../internals/chartUtils';
 import type { StudioDataSource, StudioFilterState } from '../../models';
 import type { SimpleField } from './filterDrawerTypes';
 import { buildFieldOptions, generateId, summarizeFilter } from './filterDrawerUtils';
-import {
-  FilterSection,
-  WidgetFilterSection,
-  CrossFilterSection,
-  InteractiveFilterSection,
-} from './FilterSection';
+import { FilterSection, WidgetFilterSection } from './FilterSection';
+import { InteractiveFilterSection } from './InteractiveFilterSection';
+import { CrossFilterSection } from './CrossFilterSection';
 
 // react-doctor-disable-next-line react-doctor/no-giant-component -- filter drawer orchestrates many filter types and cannot be easily split
 export interface StudioFiltersDrawerProps {

@@ -20,7 +20,11 @@
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { extractSecurityClaims, generateCacheKey, LRUCacheProvider } from '@mui/x-studio-data-middleware';
+import {
+  extractSecurityClaims,
+  generateCacheKey,
+  LRUCacheProvider,
+} from '@mui/x-studio-data-middleware';
 import type { BatchQueryRequest, JwtSecurityClaims } from '@mui/x-studio-data-middleware';
 import { seedDatabase } from './seedDatabase.js';
 

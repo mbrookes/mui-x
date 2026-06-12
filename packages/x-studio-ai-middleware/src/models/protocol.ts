@@ -53,5 +53,3 @@ export type StudioAISSEEvent =
   | { type: 'finish'; finishReason: string }
   /** An unrecoverable error occurred. */
   | { type: 'error'; message: string };
-
-

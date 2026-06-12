@@ -1,7 +1,7 @@
 {
   "name": "@mui/x-studio-ai-middleware",
   "version": "8.25.0",
-  "description": "Server-side AI handler for MUI X Studio \u2014 builds the system prompt and runs the agentic loop",
+  "description": "Server-side AI handler for MUI X Studio — builds the system prompt and runs the agentic loop",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",

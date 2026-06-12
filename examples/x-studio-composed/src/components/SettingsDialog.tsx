@@ -91,7 +91,11 @@ export function SettingsDialog(props: SettingsDialogProps) {
             </FormControl>
 
             {needsReload && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', gap: 0.5 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'flex', gap: 0.5 }}
+              >
                 <InfoOutlinedIcon sx={{ fontSize: 14, mt: '1px' }} />
                 Dataset changes take effect after reload.
               </Typography>
@@ -106,9 +110,16 @@ export function SettingsDialog(props: SettingsDialogProps) {
                 value={locale}
                 onChange={(_evt, val) => onLocaleChange(val as SupportedLocale)}
               >
-                {(Object.entries(LOCALE_LABELS) as [SupportedLocale, string][]).map(([key, label]) => (
-                  <FormControlLabel key={key} value={key} control={<Radio size="small" />} label={label} />
-                ))}
+                {(Object.entries(LOCALE_LABELS) as [SupportedLocale, string][]).map(
+                  ([key, label]) => (
+                    <FormControlLabel
+                      key={key}
+                      value={key}
+                      control={<Radio size="small" />}
+                      label={label}
+                    />
+                  ),
+                )}
               </RadioGroup>
             </FormControl>
 
@@ -119,19 +130,16 @@ export function SettingsDialog(props: SettingsDialogProps) {
               <FormLabel sx={{ mb: 1 }}>Dev Server Connection</FormLabel>
               {(import.meta.env.STUDIO_SERVER_URL as string | undefined) ? (
                 <Typography variant="body2" color="text.secondary">
-                  Connected to:{' '}
-                  <strong>{import.meta.env.STUDIO_SERVER_URL as string}</strong>
+                  Connected to: <strong>{import.meta.env.STUDIO_SERVER_URL as string}</strong>
                   <br />
                   AI and data queries are routed through the dev server.
                   <br />
-                  To change, update <code>STUDIO_SERVER_URL</code> in{' '}
-                  <code>.env.local</code>.
+                  To change, update <code>STUDIO_SERVER_URL</code> in <code>.env.local</code>.
                 </Typography>
               ) : (
                 <Typography variant="body2" color="text.secondary">
-                  Not connected. Set <code>STUDIO_SERVER_URL</code> in{' '}
-                  <code>.env.local</code> to route queries through{' '}
-                  <code>examples/x-studio-dev-server</code>.
+                  Not connected. Set <code>STUDIO_SERVER_URL</code> in <code>.env.local</code> to
+                  route queries through <code>examples/x-studio-dev-server</code>.
                 </Typography>
               )}
             </FormControl>

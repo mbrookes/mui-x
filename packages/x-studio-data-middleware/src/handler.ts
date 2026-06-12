@@ -142,7 +142,6 @@ function validateColumns(
 }
 
 async function processWidget(
-   
   db: any,
   claims: JwtSecurityClaims,
   descriptor: BatchWidgetDescriptor,

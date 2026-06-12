@@ -437,7 +437,10 @@ interface WidgetQueryResult {
 ```ts
 // app/api/studio-data/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { handleBatchQuery, extractSecurityClaims } from '@mui/x-studio-data-middleware';
+import {
+  handleBatchQuery,
+  extractSecurityClaims,
+} from '@mui/x-studio-data-middleware';
 import { db, cache } from '@/lib/db';
 
 export async function POST(req: NextRequest) {

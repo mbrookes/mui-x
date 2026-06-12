@@ -88,7 +88,9 @@ describe('executeToolOnState: set_dashboard_title', () => {
     const state = makeState();
     const result = executeToolOnState('set_dashboard_title', { title: 'New Title' }, state);
     expect(result.mutation?.type).toBe('setDashboardTitle');
-    expect((result.mutation as { type: string; args: { title: string } }).args.title).toBe('New Title');
+    expect((result.mutation as { type: string; args: { title: string } }).args.title).toBe(
+      'New Title',
+    );
   });
 
   it('updates the dashboard title in nextState', () => {
@@ -133,7 +135,11 @@ describe('executeToolOnState: add_page', () => {
 describe('executeToolOnState: rename_page', () => {
   it('emits a renamePage mutation', () => {
     const state = makeState();
-    const result = executeToolOnState('rename_page', { pageId: 'page-1', title: 'Overview' }, state);
+    const result = executeToolOnState(
+      'rename_page',
+      { pageId: 'page-1', title: 'Overview' },
+      state,
+    );
     expect(result.mutation?.type).toBe('renamePage');
     const mut = result.mutation as { type: string; args: { pageId: string; title: string } };
     expect(mut.args.pageId).toBe('page-1');
@@ -142,7 +148,11 @@ describe('executeToolOnState: rename_page', () => {
 
   it('updates page title in nextState', () => {
     const state = makeState();
-    const result = executeToolOnState('rename_page', { pageId: 'page-1', title: 'Overview' }, state);
+    const result = executeToolOnState(
+      'rename_page',
+      { pageId: 'page-1', title: 'Overview' },
+      state,
+    );
     expect(result.nextState.pages['page-1'].title).toBe('Overview');
   });
 });
@@ -196,7 +206,10 @@ describe('executeToolOnState: add_widget', () => {
     const state = makeState();
     const result = executeToolOnState('add_widget', { kind: 'chart', title: 'Sales' }, state);
     expect(result.mutation?.type).toBe('addWidget');
-    const mut = result.mutation as { type: string; args: { widget: { id: string; kind: string; title: string } } };
+    const mut = result.mutation as {
+      type: string;
+      args: { widget: { id: string; kind: string; title: string } };
+    };
     expect(mut.args.widget.kind).toBe('chart');
     expect(mut.args.widget.title).toBe('Sales');
   });
@@ -216,19 +229,31 @@ describe('executeToolOnState: add_widget', () => {
 describe('executeToolOnState: update_widget', () => {
   it('emits an updateWidget mutation', () => {
     const state = makeState();
-    const result = executeToolOnState('update_widget', { widgetId: 'widget-1', title: 'Updated' }, state);
+    const result = executeToolOnState(
+      'update_widget',
+      { widgetId: 'widget-1', title: 'Updated' },
+      state,
+    );
     expect(result.mutation?.type).toBe('updateWidget');
   });
 
   it('updates the widget title in nextState', () => {
     const state = makeState();
-    const result = executeToolOnState('update_widget', { widgetId: 'widget-1', title: 'Updated' }, state);
+    const result = executeToolOnState(
+      'update_widget',
+      { widgetId: 'widget-1', title: 'Updated' },
+      state,
+    );
     expect(result.nextState.widgets['widget-1'].title).toBe('Updated');
   });
 
   it('returns an error output when widgetId is not found', () => {
     const state = makeState();
-    const result = executeToolOnState('update_widget', { widgetId: 'no-such-widget', title: 'x' }, state);
+    const result = executeToolOnState(
+      'update_widget',
+      { widgetId: 'no-such-widget', title: 'x' },
+      state,
+    );
     const out = parseOutput(result.output);
     expect(out.error).toBeDefined();
     expect(result.mutation).toBeUndefined();
@@ -332,7 +357,10 @@ describe('executeToolOnState: add_widget_filter', () => {
       state,
     );
     expect(result.mutation?.type).toBe('addFilter');
-    const mut = result.mutation as { type: string; args: { filter: { scope: string; widgetId: string } } };
+    const mut = result.mutation as {
+      type: string;
+      args: { filter: { scope: string; widgetId: string } };
+    };
     expect(mut.args.filter.scope).toBe('widget');
     expect(mut.args.filter.widgetId).toBe('widget-1');
   });

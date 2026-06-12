@@ -9,7 +9,7 @@ function deriveOrderTotals(
 ): NonNullable<StudioDataSource['rows']> {
   const totalsByOrderId = new Map<string, number>();
 
-  for (const item of (orderItemsSource.rows ?? [])) {
+  for (const item of orderItemsSource.rows ?? []) {
     const orderId = String(item.orderId);
     totalsByOrderId.set(
       orderId,

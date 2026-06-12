@@ -140,8 +140,15 @@ export async function* runAgenticLoop(
   skills: SerializableSkill[] | undefined,
   options: AgenticLoopOptions,
 ): AsyncGenerator<StudioAISSEEvent> {
-  const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders = {}, signal, onToolError, skillHandlers = [] } =
-    options;
+  const {
+    endpoint,
+    apiKey,
+    model = 'gpt-4o',
+    headers: extraHeaders = {},
+    signal,
+    onToolError,
+    skillHandlers = [],
+  } = options;
 
   const systemPrompt = buildAISystemPrompt(initialState, customWidgets, focusedWidgetId, skills);
 
@@ -283,7 +290,12 @@ export async function* runAgenticLoop(
 
     // ── Execute tool calls ────────────────────────────────────────────────────
 
-    const toolResults: Array<{ toolCallId: string; toolName: string; input: unknown; output: string }> = [];
+    const toolResults: Array<{
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      output: string;
+    }> = [];
     const assistantToolCallMsg: OpenAIAssistantMessage = {
       role: 'assistant',
       content: null,
@@ -319,7 +331,10 @@ export async function* runAgenticLoop(
       if (matchedSkill?.tool?.execute) {
         // Execute the skill server-side
         try {
-          const result = matchedSkill.tool.execute(toolInput as Record<string, unknown>, currentState);
+          const result = matchedSkill.tool.execute(
+            toolInput as Record<string, unknown>,
+            currentState,
+          );
           const output = result.output;
           if (result.mutation) {
             yield { type: 'state-mutation', mutation: result.mutation };

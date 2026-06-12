@@ -30,20 +30,20 @@ The server starts at `http://localhost:3020` and seeds the database on first run
 
 All configuration is done via environment variables. See `.env.example` for the full list.
 
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `3020` | Server port |
-| `DB_CLIENT` | `better-sqlite3` | Database driver (`better-sqlite3`, `pg`, `mysql2`) |
-| `DB_FILENAME` | `./sales.db` | SQLite file path (sales DB) |
-| `CRM_DB_FILENAME` | `./crm.db` | SQLite file path (CRM DB) |
-| `CRM_DB_NAME` | `<DB_NAME>_crm` | Database name for CRM (PostgreSQL/MySQL) |
-| `SEED_ORDER_COUNT` | `500` | Number of orders to generate on seed |
-| `LLM_API_KEY` | — | OpenAI-compatible API key (required for AI features) |
-| `LLM_ENDPOINT` | `https://api.openai.com/v1/chat/completions` | LLM endpoint URL |
-| `LLM_MODEL` | `gpt-4o` | Model name |
-| `JWT_SECRET` | `dev-secret-change-in-production` | Secret for signing dev JWTs |
-| `STUDIO_TOKEN` | — | If set, all API requests must include `Authorization: Bearer <token>` |
-| `ALLOWED_ORIGINS` | `http://localhost:3004,...` | CORS allowed origins (comma-separated) |
+| Variable           | Default                                      | Description                                                           |
+| ------------------ | -------------------------------------------- | --------------------------------------------------------------------- |
+| `PORT`             | `3020`                                       | Server port                                                           |
+| `DB_CLIENT`        | `better-sqlite3`                             | Database driver (`better-sqlite3`, `pg`, `mysql2`)                    |
+| `DB_FILENAME`      | `./sales.db`                                 | SQLite file path (sales DB)                                           |
+| `CRM_DB_FILENAME`  | `./crm.db`                                   | SQLite file path (CRM DB)                                             |
+| `CRM_DB_NAME`      | `<DB_NAME>_crm`                              | Database name for CRM (PostgreSQL/MySQL)                              |
+| `SEED_ORDER_COUNT` | `500`                                        | Number of orders to generate on seed                                  |
+| `LLM_API_KEY`      | —                                            | OpenAI-compatible API key (required for AI features)                  |
+| `LLM_ENDPOINT`     | `https://api.openai.com/v1/chat/completions` | LLM endpoint URL                                                      |
+| `LLM_MODEL`        | `gpt-4o`                                     | Model name                                                            |
+| `JWT_SECRET`       | `dev-secret-change-in-production`            | Secret for signing dev JWTs                                           |
+| `STUDIO_TOKEN`     | —                                            | If set, all API requests must include `Authorization: Bearer <token>` |
+| `ALLOWED_ORIGINS`  | `http://localhost:3004,...`                  | CORS allowed origins (comma-separated)                                |
 
 ## Scripts
 
@@ -92,7 +92,8 @@ Accepts a conversation history and returns a short AI-generated title for the ch
 ### `POST /api/ai/widget`
 
 Accepts a natural-language description and returns an AI-generated widget configuration.
-```
+
+````
 
 ### `POST /api/studio-data`
 
@@ -128,7 +129,7 @@ DB_PORT=5432
 DB_NAME=studio
 DB_USER=studio
 DB_PASSWORD=studio
-```
+````
 
 ### MySQL / MariaDB
 

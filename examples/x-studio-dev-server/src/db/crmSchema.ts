@@ -50,12 +50,24 @@ export async function createCrmTables(db: Knex): Promise<void> {
 
   // Indexes for common query patterns
   const indexes: [string, string][] = [
-    ['contacts_customerid_idx', 'CREATE INDEX IF NOT EXISTS contacts_customerid_idx ON contacts (customerId)'],
+    [
+      'contacts_customerid_idx',
+      'CREATE INDEX IF NOT EXISTS contacts_customerid_idx ON contacts (customerId)',
+    ],
     ['contacts_dept_idx', 'CREATE INDEX IF NOT EXISTS contacts_dept_idx ON contacts (department)'],
-    ['deals_customerid_idx', 'CREATE INDEX IF NOT EXISTS deals_customerid_idx ON deals (customerId)'],
+    [
+      'deals_customerid_idx',
+      'CREATE INDEX IF NOT EXISTS deals_customerid_idx ON deals (customerId)',
+    ],
     ['deals_stage_idx', 'CREATE INDEX IF NOT EXISTS deals_stage_idx ON deals (stage)'],
-    ['activities_contactid_idx', 'CREATE INDEX IF NOT EXISTS activities_contactid_idx ON activities (contactId)'],
-    ['activities_dealid_idx', 'CREATE INDEX IF NOT EXISTS activities_dealid_idx ON activities (dealId)'],
+    [
+      'activities_contactid_idx',
+      'CREATE INDEX IF NOT EXISTS activities_contactid_idx ON activities (contactId)',
+    ],
+    [
+      'activities_dealid_idx',
+      'CREATE INDEX IF NOT EXISTS activities_dealid_idx ON activities (dealId)',
+    ],
   ];
 
   for (const [, sql] of indexes) {

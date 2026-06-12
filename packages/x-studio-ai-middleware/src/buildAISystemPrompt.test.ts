@@ -170,7 +170,7 @@ describe('buildAISystemPrompt: Chart Configuration Guide', () => {
     expect(buildAISystemPrompt(state)).toContain('xGroupBy');
   });
 
-  it('includes do/don\'t examples section', () => {
+  it("includes do/don't examples section", () => {
     expect(buildAISystemPrompt(state)).toContain('Do/don');
   });
 });
@@ -208,7 +208,9 @@ describe('buildAISystemPrompt: describeSource field intelligence', () => {
 
   it('includes defaultAggregationFn when set', () => {
     const source = makeSource({
-      fields: [{ id: 'revenue', label: 'Revenue', type: 'number', defaultAggregationFn: 'avg' } as any],
+      fields: [
+        { id: 'revenue', label: 'Revenue', type: 'number', defaultAggregationFn: 'avg' } as any,
+      ],
     });
     const state = makeState({ dataSources: { src1: source } });
     const prompt = buildAISystemPrompt(state);
@@ -217,7 +219,9 @@ describe('buildAISystemPrompt: describeSource field intelligence', () => {
 
   it('includes capabilities override when set', () => {
     const source = makeSource({
-      fields: [{ id: 'score', label: 'Score', type: 'number', capabilities: ['categorical'] } as any],
+      fields: [
+        { id: 'score', label: 'Score', type: 'number', capabilities: ['categorical'] } as any,
+      ],
     });
     const state = makeState({ dataSources: { src1: source } });
     const prompt = buildAISystemPrompt(state);
@@ -273,7 +277,109 @@ describe('buildAISystemPrompt: chart types in dynamic state', () => {
   });
 });
 
+// ── describeWidget completeness ───────────────────────────────────────────────
 
+describe('buildAISystemPrompt: describeWidget chart config completeness', () => {
+  it('shows yAggregation in chart widget description', () => {
+    const widget = makeWidget('w1', {
+      config: { chartType: 'bar', xField: 'region', yField: 'id', yAggregation: 'count' },
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('yAggregation: count');
+  });
+
+  it('shows barLayout in chart widget description', () => {
+    const widget = makeWidget('w1', {
+      config: { chartType: 'bar', xField: 'region', yField: 'revenue', barLayout: 'horizontal' } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('barLayout: horizontal');
+  });
+
+  it('shows chartSortBy and chartSortDirection in chart widget description', () => {
+    const widget = makeWidget('w1', {
+      config: {
+        chartType: 'bar',
+        xField: 'dept',
+        yField: 'id',
+        yAggregation: 'count',
+        chartSortBy: 'value',
+        chartSortDirection: 'desc',
+      } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('chartSortBy: value');
+    expect(prompt).toContain('chartSortDirection: desc');
+  });
+
+  it('shows kpiTrend info in KPI widget description', () => {
+    const widget = makeWidget('w1', {
+      kind: 'kpi',
+      config: {
+        kpiValueField: 'revenue',
+        kpiAggregation: 'sum',
+        kpiTrend: true,
+        kpiTrendComparison: 'year-over-year',
+      } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('year-over-year');
+  });
+});
+
+// ── Filter widget guidance ────────────────────────────────────────────────────
+
+describe('buildAISystemPrompt: filter widget guidance', () => {
+  const state = makeState();
+
+  it('documents filterWidgetField field ID requirement', () => {
+    expect(buildAISystemPrompt(state)).toContain('filterWidgetField must be the exact field ID');
+  });
+
+  it('documents filter type selection heuristic', () => {
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('date-range');
+    expect(prompt).toContain('multi-select');
+    expect(prompt).toContain('slider');
+    expect(prompt).toContain('toggle');
+  });
+});
+
+// ── Page organisation guidance ────────────────────────────────────────────────
+
+describe('buildAISystemPrompt: page organisation guidance', () => {
+  const state = makeState();
+
+  it('documents page organisation heuristic', () => {
+    expect(buildAISystemPrompt(state)).toContain('Page Organisation');
+  });
+
+  it('documents apply_bulk_update title uniqueness warning', () => {
+    expect(buildAISystemPrompt(state)).toContain('unique title');
+  });
+});
+
+// ── Pivot / Map widget descriptions ──────────────────────────────────────────
 
 describe('buildAISystemPrompt: pivot and map widget descriptions', () => {
   it('includes pivot rowField, colField, valueField', () => {

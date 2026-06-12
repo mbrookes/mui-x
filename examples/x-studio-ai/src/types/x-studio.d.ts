@@ -16,7 +16,10 @@ declare module '@mui/x-studio' {
 
   export interface StudioState {
     dashboard: { activePageId?: string; [key: string]: unknown };
-    dataSources: Record<string, { id: string; rows?: Record<string, unknown>[]; [key: string]: unknown }>;
+    dataSources: Record<
+      string,
+      { id: string; rows?: Record<string, unknown>[]; [key: string]: unknown }
+    >;
     pages: Record<string, StudioPage>;
     widgets: Record<string, unknown>;
     filters: unknown[];

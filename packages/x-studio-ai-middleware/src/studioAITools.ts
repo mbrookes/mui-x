@@ -113,7 +113,8 @@ export const STUDIO_AI_TOOLS = [
           sourceId: { type: 'string', description: 'New data source ID (optional).' },
           config: {
             type: 'object',
-            description: 'Partial widget config to merge in (optional). Same keys as add_widget. Pass only the keys you are changing.',
+            description:
+              'Partial widget config to merge in (optional). Same keys as add_widget. Pass only the keys you are changing.',
           },
         },
         required: ['widgetId'],
@@ -391,7 +392,8 @@ export const STUDIO_AI_TOOLS = [
                 sourceId: { type: 'string', description: 'New data source ID (optional).' },
                 config: {
                   type: 'object',
-                  description: 'Partial widget config to merge in (optional). Same keys as add_widget.',
+                  description:
+                    'Partial widget config to merge in (optional). Same keys as add_widget.',
                 },
               },
               required: ['widgetId'],

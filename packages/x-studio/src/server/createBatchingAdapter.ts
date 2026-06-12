@@ -205,13 +205,21 @@ export function createBatchingAdapter(
   endpoint: string,
   options: BatchingAdapterOptions = {},
 ): StudioDataSourceAdapter {
-  const { batchDelayMs = 50, fetchFn = globalThis.fetch, dataSources, relationships, expressionFields } = options;
+  const {
+    batchDelayMs = 50,
+    fetchFn = globalThis.fetch,
+    dataSources,
+    relationships,
+    expressionFields,
+  } = options;
 
   function createBatchFn(): BatchFn<StudioQueryDescriptor, StudioQueryResult> {
     return async (descriptors) => {
       const body = {
         pageId: descriptors[0]?.sourceId ?? 'unknown',
-        widgets: descriptors.map((d) => buildBatchWidgetDescriptor(d, dataSources, relationships, expressionFields)),
+        widgets: descriptors.map((d) =>
+          buildBatchWidgetDescriptor(d, dataSources, relationships, expressionFields),
+        ),
       };
 
       const response = await fetchFn(endpoint, {
@@ -260,7 +268,10 @@ export function createBatchingAdapter(
     // Simple mode: use shared registry so multiple adapter instances pointing
     // at the same endpoint share one DataLoader (batching still works across instances).
     if (!loaderRegistry.has(endpoint)) {
-      loaderRegistry.set(endpoint, createLoader(createBatchFn(), (cb) => setTimeout(cb, batchDelayMs)));
+      loaderRegistry.set(
+        endpoint,
+        createLoader(createBatchFn(), (cb) => setTimeout(cb, batchDelayMs)),
+      );
     }
     loader = loaderRegistry.get(endpoint)!;
   }
@@ -307,12 +318,7 @@ interface ResolvedField {
  * (Duck-type check since we can't import expressionTypes here without a circular path.)
  */
 function isJoinExpression(expr: unknown): expr is { joinSourceId: string; fieldId: string } {
-  return (
-    typeof expr === 'object' &&
-    expr !== null &&
-    'joinSourceId' in expr &&
-    'fieldId' in expr
-  );
+  return typeof expr === 'object' && expr !== null && 'joinSourceId' in expr && 'fieldId' in expr;
 }
 
 /**
@@ -419,10 +425,7 @@ function resolveField(
                 if (hop2Rel.sourceId === exprSourceId && hop2Rel.targetId === joinSourceId) {
                   hop2Left = `${exprTable}.${hop2Rel.sourceField}`;
                   hop2Right = `${joinTable}.${hop2Rel.targetField}`;
-                } else if (
-                  hop2Rel.targetId === exprSourceId &&
-                  hop2Rel.sourceId === joinSourceId
-                ) {
+                } else if (hop2Rel.targetId === exprSourceId && hop2Rel.sourceId === joinSourceId) {
                   hop2Left = `${joinTable}.${hop2Rel.sourceField}`;
                   hop2Right = `${exprTable}.${hop2Rel.targetField}`;
                 }
@@ -616,12 +619,15 @@ function buildBatchWidgetDescriptor(
     filters: filters.length > 0 ? filters : undefined,
     orderBy:
       orderByColumn && !orderByColumn.skip
-        ? [{ column: columnAliases[orderByColumn.column] ?? orderByColumn.column, direction: 'asc' as const }]
+        ? [
+            {
+              column: columnAliases[orderByColumn.column] ?? orderByColumn.column,
+              direction: 'asc' as const,
+            },
+          ]
         : undefined,
   };
 }
-
-
 
 const OPERATOR_MAP: Partial<Record<StudioFilterOperator, FilterPredicate['operator']>> = {
   equals: 'eq',

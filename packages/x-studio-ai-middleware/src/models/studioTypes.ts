@@ -48,7 +48,13 @@ export type StudioChartType =
 export type StudioBarLayout = 'grouped' | 'stacked' | 'horizontal';
 export type StudioNumberFormat = 'integer' | 'decimal' | 'percent' | 'currency';
 export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
-export type StudioGridSummaryAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
+export type StudioGridSummaryAggregation =
+  | 'sum'
+  | 'avg'
+  | 'count'
+  | 'min'
+  | 'max'
+  | 'count_distinct';
 export type StudioCrossFilterMode = 'cross-highlight' | 'cross-filter' | 'none';
 
 export type StudioFilterOperator =
@@ -153,11 +159,28 @@ export interface StudioDataSource {
 // ── Expression types ──────────────────────────────────────────────────────────
 
 export type StudioExpressionOperator =
-  | 'add' | 'subtract' | 'multiply' | 'divide' | 'modulo'
-  | 'equals' | 'notEqual' | 'lessThan' | 'greaterThan'
-  | 'lessThanOrEqual' | 'greaterThanOrEqual'
-  | 'and' | 'or' | 'not' | 'negate' | 'if' | 'in'
-  | 'isTrue' | 'isFalse' | 'isNull' | 'isNotNull' | 'datediff';
+  | 'add'
+  | 'subtract'
+  | 'multiply'
+  | 'divide'
+  | 'modulo'
+  | 'equals'
+  | 'notEqual'
+  | 'lessThan'
+  | 'greaterThan'
+  | 'lessThanOrEqual'
+  | 'greaterThanOrEqual'
+  | 'and'
+  | 'or'
+  | 'not'
+  | 'negate'
+  | 'if'
+  | 'in'
+  | 'isTrue'
+  | 'isFalse'
+  | 'isNull'
+  | 'isNotNull'
+  | 'datediff';
 
 export interface StudioFunctionExpression {
   operator: StudioExpressionOperator;
@@ -472,7 +495,6 @@ export function createDefaultStudioState(overrides?: Partial<StudioState>): Stud
   };
 }
 
-
 /**
  * Creates a default `StudioWidget` for the given kind, with sensible empty config.
  * Used by `executeToolOnState` when the `add_widget` tool is called without a full config.
@@ -484,7 +506,12 @@ export function createDefaultWidget(
   const id = `widget-${kind}-${Date.now()}`;
 
   if (kind === 'text') {
-    return { id, kind, title: overrides?.title ?? 'Text block', config: { textSubtitle: '', textBody: '' } };
+    return {
+      id,
+      kind,
+      title: overrides?.title ?? 'Text block',
+      config: { textSubtitle: '', textBody: '' },
+    };
   }
   if (kind === 'grid') {
     return { id, kind, title: overrides?.title ?? '', config: { columns: [] } };
@@ -493,16 +520,31 @@ export function createDefaultWidget(
     return { id, kind, title: overrides?.title ?? '', config: { chartType: 'bar' } };
   }
   if (kind === 'filter') {
-    return { id, kind, title: overrides?.title ?? 'Filter', config: { filterWidgetType: 'multi-select' as const } };
+    return {
+      id,
+      kind,
+      title: overrides?.title ?? 'Filter',
+      config: { filterWidgetType: 'multi-select' as const },
+    };
   }
   if (kind === 'pivot') {
-    return { id, kind, title: overrides?.title ?? '', config: { pivotAggregation: 'sum' as const } };
+    return {
+      id,
+      kind,
+      title: overrides?.title ?? '',
+      config: { pivotAggregation: 'sum' as const },
+    };
   }
   if (kind === 'map') {
     return { id, kind, title: overrides?.title ?? '', config: { mapAggregation: 'sum' as const } };
   }
   if (!['grid', 'chart', 'kpi', 'text', 'filter', 'pivot', 'map'].includes(kind)) {
-    return { id, kind, title: overrides?.title ?? kind, config: { customConfig: overrides?.customConfig ?? {} } };
+    return {
+      id,
+      kind,
+      title: overrides?.title ?? kind,
+      config: { customConfig: overrides?.customConfig ?? {} },
+    };
   }
   // KPI
   return { id, kind, title: overrides?.title ?? '', config: { kpiAggregation: 'sum' } };

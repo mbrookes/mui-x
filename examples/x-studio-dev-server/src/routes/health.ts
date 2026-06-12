@@ -9,7 +9,14 @@ export function makeHealthRouter(db: Knex): Router {
     try {
       const rowCounts: Record<string, number> = {};
 
-      for (const table of ['customers', 'products', 'orders', 'order_items', 'shipments', 'shipment_items'] as unknown as Array<(typeof TABLE_NAMES)[number]>) {
+      for (const table of [
+        'customers',
+        'products',
+        'orders',
+        'order_items',
+        'shipments',
+        'shipment_items',
+      ] as unknown as Array<(typeof TABLE_NAMES)[number]>) {
         try {
           const result = await db(table).count('* as count').first();
           rowCounts[table] = Number(result?.count ?? 0);

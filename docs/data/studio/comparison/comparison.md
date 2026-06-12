@@ -94,7 +94,7 @@ AG Studio does not include a built-in map widget.
 | :----------------------------- | :-------------------------------------------------- | :------------------------ |
 | Inline (synchronous) rows      | ✅                                                  | ✅                        |
 | Async callback                 | ✅ (`createSimpleAdapter`, `createBatchingAdapter`) | ✅ (`getData()`)          |
-| Server-side data middleware    | ✅ (`@mui/x-studio-data-middleware`)                         | ✅ (`AgDataEngine`)       |
+| Server-side data middleware    | ✅ (`@mui/x-studio-data-middleware`)                | ✅ (`AgDataEngine`)       |
 | Shared engine (cross-instance) | ❌                                                  | ✅ (`createDataEngine()`) |
 | On-demand reload               | ❌                                                  | ✅ (`api.reload()`)       |
 
@@ -184,25 +184,25 @@ AG Studio documents `expressionFields` as a state configuration key but does not
 
 ## Layout Engine
 
-| Feature                    | MUI X Studio                                    | AG Studio                                |
-| :------------------------- | :---------------------------------------------- | :--------------------------------------- |
-| Layout model               | Equal-width rows (24-column col-spans)          | 24-column grid (configurable)            |
-| Widget resize              | ✅ (col-span drag handle)                       | ✅ (drag handle, snaps to grid)          |
-| Drag-and-drop reorder      | ✅ (auto-reflows row order)                     | ❌                                       |
-| Free-placement positioning | ❌                                              | ✅ (snap-to-grid; must clear space)      |
-| Page min/max width         | ❌                                              | ✅ (720px default min, configurable max) |
-| Fixed-height (poster) mode | ❌                                              | ✅                                       |
-| Mobile / responsive        | ✅ (`stackBreakpoint`, 3-tier layout)           | ⚠️ (scales; 720px min, configurable)     |
+| Feature                    | MUI X Studio                           | AG Studio                                |
+| :------------------------- | :------------------------------------- | :--------------------------------------- |
+| Layout model               | Equal-width rows (24-column col-spans) | 24-column grid (configurable)            |
+| Widget resize              | ✅ (col-span drag handle)              | ✅ (drag handle, snaps to grid)          |
+| Drag-and-drop reorder      | ✅ (auto-reflows row order)            | ❌                                       |
+| Free-placement positioning | ❌                                     | ✅ (snap-to-grid; must clear space)      |
+| Page min/max width         | ❌                                     | ✅ (720px default min, configurable max) |
+| Fixed-height (poster) mode | ❌                                     | ✅                                       |
+| Mobile / responsive        | ✅ (`stackBreakpoint`, 3-tier layout)  | ⚠️ (scales; 720px min, configurable)     |
 
 AG Studio's 24-column grid (see [AG Studio — Modes & Layout](https://www.ag-grid.com/studio/react/modes-layout/)) allows non-uniform column widths (an 8+16 split, a 6+6+12 layout, and so on).
 MUI X Studio uses a 24-column grid for col-spans — each widget defaults to equal width but can be resized via a drag handle between adjacent widgets that snaps to the grid (minimum span: 6 columns, or 25% of row width).
 MUI X Studio's `stackBreakpoint` prop (default 600px) controls view-mode responsive layout in three tiers:
 
-| Canvas width              | Behaviour                                                                 |
-| :------------------------ | :------------------------------------------------------------------------ |
-| ≥ `2 × stackBreakpoint`   | Configured col-spans used as-is (normal layout)                           |
-| `stackBreakpoint` to `2×` | Each widget's span is doubled (capped at 100%), giving a 2-up layout      |
-| < `stackBreakpoint`       | All widgets stack to full width (1-up layout)                             |
+| Canvas width              | Behaviour                                                            |
+| :------------------------ | :------------------------------------------------------------------- |
+| ≥ `2 × stackBreakpoint`   | Configured col-spans used as-is (normal layout)                      |
+| `stackBreakpoint` to `2×` | Each widget's span is doubled (capped at 100%), giving a 2-up layout |
+| < `stackBreakpoint`       | All widgets stack to full width (1-up layout)                        |
 
 For example, with the default `stackBreakpoint: 600` and four equal-width widgets (each 25%):
 four-across → two-across at 600–1200 px → single-column below 600 px.

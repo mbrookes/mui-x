@@ -404,7 +404,12 @@ describe('handleBatchQuery — cache', () => {
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
-    const opts = { db: makeDb(), schemaAllowlist: ['sales'], cacheProvider: cache, tenantColumn: 'tenant_id' };
+    const opts = {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      cacheProvider: cache,
+      tenantColumn: 'tenant_id',
+    };
 
     const acmeResult = await handleBatchQuery(body, ACME_CLAIMS, opts);
     const globexResult = await handleBatchQuery(body, GLOBEX_CLAIMS, opts);

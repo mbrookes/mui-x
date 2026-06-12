@@ -7,8 +7,12 @@ type NestedKindKey = 'kpi' | 'chart' | 'grid';
 /** Reads a sub-flag from a nested widget-kind flag. Defaults to `true`. */
 function getSubFlag(flags: StudioFeatureFlags, parentKey: NestedKindKey, subKey: string): boolean {
   const parent = flags[parentKey];
-  if (parent === false) {return false;}
-  if (parent === undefined || parent === true) {return true;}
+  if (parent === false) {
+    return false;
+  }
+  if (parent === undefined || parent === true) {
+    return true;
+  }
   return (parent as Record<string, boolean | undefined>)[subKey] ?? true;
 }
 

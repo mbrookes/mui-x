@@ -83,6 +83,7 @@ Each field describes one column of the data source:
 | `aggregatable`  | `boolean`            |          | When `true`, Studio can sum, average, count, etc. this field on charts and KPIs. Usually set on numeric fields.                              |
 | `format`        | `StudioNumberFormat` |          | Display format for numbers: `'number'`, `'currency'`, `'percent'`, `'compact'`.                                                              |
 | `currencyCode`  | `string`             |          | ISO 4217 currency code used when `format` is `'currency'` (e.g. `'USD'`).                                                                    |
+| `orderedValues` | `string[]`           |          | Canonical display order for categorical values. When set, chart x-axis labels follow this sequence instead of sorting alphabetically. Values not in the list are appended alphabetically at the end. Use for ordered enumerations such as pipeline stages or severity levels. |
 | `aiDescription` | `string`             |          | AI-facing description of this field's meaning. Included in the system prompt to guide the AI in field selection for axes, KPIs, and filters. |
 
 ## Field types

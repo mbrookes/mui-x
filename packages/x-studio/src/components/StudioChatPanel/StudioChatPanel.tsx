@@ -344,7 +344,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
           flexShrink: 0,
         }}
       >
-        <Tooltip title="Switch conversation">
+        <Tooltip title={localeText.chatSwitchConversationTooltip}>
           <Box
             component="button"
             onClick={(e: React.MouseEvent<HTMLElement>) => setThreadMenuAnchor(e.currentTarget)}
@@ -371,8 +371,8 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             <ArrowDropDownIcon sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />
           </Box>
         </Tooltip>
-        <Tooltip title="New conversation">
-          <IconButton size="small" onClick={handleNewThread} aria-label="New conversation">
+        <Tooltip title={localeText.chatNewConversationName}>
+          <IconButton size="small" onClick={handleNewThread} aria-label={localeText.chatNewConversationName}>
             <AddIcon fontSize="small" />
           </IconButton>
         </Tooltip>

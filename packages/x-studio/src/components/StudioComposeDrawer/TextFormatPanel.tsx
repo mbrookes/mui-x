@@ -61,9 +61,9 @@ function TextSectionFormat(props: TextSectionFormatProps) {
               onFontFamilyChange(v === '' ? undefined : (v as 'serif' | 'monospace'));
             }}
           >
-            <MenuItem value="">Default (theme)</MenuItem>
-            <MenuItem value="serif">Serif</MenuItem>
-            <MenuItem value="monospace">Monospace</MenuItem>
+            <MenuItem value="">{localeText.textFormatDefaultFont}</MenuItem>
+            <MenuItem value="serif">{localeText.textFormatSerifFont}</MenuItem>
+            <MenuItem value="monospace">{localeText.textFormatMonospaceFont}</MenuItem>
           </Select>
         </FormControl>
 
@@ -77,7 +77,7 @@ function TextSectionFormat(props: TextSectionFormatProps) {
               onFontSizeChange(v === 0 ? undefined : v);
             }}
           >
-            <MenuItem value={0}>Default</MenuItem>
+            <MenuItem value={0}>{localeText.textFormatDefaultSize}</MenuItem>
             <MenuItem value={12}>12 px</MenuItem>
             <MenuItem value={14}>14 px</MenuItem>
             <MenuItem value={16}>16 px</MenuItem>
@@ -98,7 +98,7 @@ function TextSectionFormat(props: TextSectionFormatProps) {
 
         <div>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-            Alignment
+            {localeText.textFormatAlignmentLabel}
           </Typography>
           <ToggleButtonGroup
             exclusive

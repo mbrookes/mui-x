@@ -103,6 +103,7 @@ function OperandEditor({
   onChange: (v: OperandState) => void;
   fields: FieldOption[];
 }) {
+  const localeText = useStudioLocaleText();
   return (
     <Stack spacing={0.5}>
       <ToggleButtonGroup
@@ -111,19 +112,19 @@ function OperandEditor({
         onChange={(_, t: OperandType) => t && onChange({ ...value, type: t })}
         size="small"
         sx={{ alignSelf: 'flex-start' }}
-        aria-label={`${label} type`}
+        aria-label={localeText.inlineFormulaBarOperandTypeAriaLabel(label)}
       >
         <ToggleButton
           value="field"
           sx={{ px: 1, py: 0.25, fontSize: '0.7rem', textTransform: 'none' }}
         >
-          Field
+          {localeText.inlineFormulaBarFieldOperandLabel}
         </ToggleButton>
         <ToggleButton
           value="const"
           sx={{ px: 1, py: 0.25, fontSize: '0.7rem', textTransform: 'none' }}
         >
-          Number
+          {localeText.inlineFormulaBarNumberOperandLabel}
         </ToggleButton>
       </ToggleButtonGroup>
 
@@ -249,7 +250,7 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
             color: 'text.secondary',
           }}
         >
-          Formula
+          {localeText.inlineFormulaBarButtonLabel}
         </Button>
       </Tooltip>
     );
@@ -269,7 +270,7 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
         <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
           <FunctionsIcon fontSize="small" color="action" />
           <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-            Formula
+            {localeText.inlineFormulaBarButtonLabel}
           </Typography>
         </Stack>
         <IconButton
@@ -284,7 +285,12 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
       {/* Operand row */}
       <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 1 }}>
         <Box sx={{ flex: 1 }}>
-          <OperandEditor label="A" value={left} onChange={setLeft} fields={fields} />
+          <OperandEditor
+            label={localeText.inlineFormulaBarOperandALabel}
+            value={left}
+            onChange={setLeft}
+            fields={fields}
+          />
         </Box>
 
         {/* Operator */}
@@ -309,7 +315,12 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
         </Box>
 
         <Box sx={{ flex: 1 }}>
-          <OperandEditor label="B" value={right} onChange={setRight} fields={fields} />
+          <OperandEditor
+            label={localeText.inlineFormulaBarOperandBLabel}
+            value={right}
+            onChange={setRight}
+            fields={fields}
+          />
         </Box>
       </Stack>
 

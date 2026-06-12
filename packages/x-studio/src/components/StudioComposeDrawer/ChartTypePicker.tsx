@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, Tooltip, Typography, useTheme } from '@mui/material';
+import { useStudioLocaleText } from '../../context';
 import type { StudioChartType, StudioBarLayout } from '../../models';
 import { AreaIcon } from '../../icons/charts/AreaIcon';
 import { Area100Icon } from '../../icons/charts/Area100Icon';
@@ -28,36 +29,43 @@ interface ChartTypeOption {
   Icon: React.FC<{ size?: number; color?: string; secondaryColor?: string }>;
 }
 
-const CHART_TYPE_OPTIONS: ChartTypeOption[] = [
-  { chartType: 'bar', label: 'Bar (grouped)', Icon: BarGroupedIcon },
-  { chartType: 'bar-stacked', label: 'Bar (stacked)', Icon: BarStackedIcon },
-  { chartType: 'bar-100', label: 'Bar (100%)', Icon: Bar100Icon },
-  { chartType: 'bar', barLayout: 'horizontal', label: 'Bar (horizontal)', Icon: BarHorizontalIcon },
-  {
-    chartType: 'bar-stacked',
-    barLayout: 'horizontal',
-    label: 'Bar (stacked, horizontal)',
-    Icon: BarStackedHorizontalIcon,
-  },
-  {
-    chartType: 'bar-100',
-    barLayout: 'horizontal',
-    label: 'Bar (100%, horizontal)',
-    Icon: Bar100HorizontalIcon,
-  },
-  { chartType: 'line', label: 'Line', Icon: LineIcon },
-  { chartType: 'area', label: 'Area', Icon: AreaIcon },
-  { chartType: 'area-stacked', label: 'Area (stacked)', Icon: AreaStackedIcon },
-  { chartType: 'area-100', label: 'Area (100%)', Icon: Area100Icon },
-  { chartType: 'scatter', label: 'Scatter', Icon: ScatterIcon },
-  { chartType: 'mixed', label: 'Mixed (bar + line)', Icon: MixedIcon },
-  { chartType: 'heatmap', label: 'Heatmap', Icon: HeatmapIcon },
-  { chartType: 'funnel', label: 'Funnel', Icon: FunnelIcon },
-  { chartType: 'gantt', label: 'Gantt / Timeline', Icon: GanttIcon },
-  { chartType: 'pie', label: 'Pie', Icon: PieIcon },
-  { chartType: 'donut', label: 'Donut', Icon: DonutIcon },
-  { chartType: 'gauge', label: 'Gauge', Icon: GaugeIcon },
-];
+function getChartTypeOptions(localeText: ReturnType<typeof useStudioLocaleText>): ChartTypeOption[] {
+  return [
+    { chartType: 'bar', label: localeText.chartTypeBarGrouped, Icon: BarGroupedIcon },
+    { chartType: 'bar-stacked', label: localeText.chartTypeBarStacked, Icon: BarStackedIcon },
+    { chartType: 'bar-100', label: localeText.chartTypeBar100, Icon: Bar100Icon },
+    {
+      chartType: 'bar',
+      barLayout: 'horizontal',
+      label: localeText.chartTypeBarHorizontal,
+      Icon: BarHorizontalIcon,
+    },
+    {
+      chartType: 'bar-stacked',
+      barLayout: 'horizontal',
+      label: localeText.chartTypeBarStackedHorizontal,
+      Icon: BarStackedHorizontalIcon,
+    },
+    {
+      chartType: 'bar-100',
+      barLayout: 'horizontal',
+      label: localeText.chartTypeBar100Horizontal,
+      Icon: Bar100HorizontalIcon,
+    },
+    { chartType: 'line', label: localeText.chartTypeLine, Icon: LineIcon },
+    { chartType: 'area', label: localeText.chartTypeArea, Icon: AreaIcon },
+    { chartType: 'area-stacked', label: localeText.chartTypeAreaStacked, Icon: AreaStackedIcon },
+    { chartType: 'area-100', label: localeText.chartTypeArea100, Icon: Area100Icon },
+    { chartType: 'scatter', label: localeText.chartTypeScatter, Icon: ScatterIcon },
+    { chartType: 'mixed', label: localeText.chartTypeMixed, Icon: MixedIcon },
+    { chartType: 'heatmap', label: localeText.chartTypeHeatmap, Icon: HeatmapIcon },
+    { chartType: 'funnel', label: localeText.chartTypeFunnel, Icon: FunnelIcon },
+    { chartType: 'gantt', label: localeText.chartTypeGantt, Icon: GanttIcon },
+    { chartType: 'pie', label: localeText.chartTypePie, Icon: PieIcon },
+    { chartType: 'donut', label: localeText.chartTypeDonut, Icon: DonutIcon },
+    { chartType: 'gauge', label: localeText.chartTypeGauge, Icon: GaugeIcon },
+  ];
+}
 
 export function ChartTypePicker({
   chartType,
@@ -69,13 +77,15 @@ export function ChartTypePicker({
   onChange: (chartType: StudioChartType, barLayout?: StudioBarLayout) => void;
 }) {
   const theme = useTheme();
+  const localeText = useStudioLocaleText();
   const primary = theme.palette.primary.main;
   const secondary = theme.palette.secondary.main || theme.palette.primary.light;
+  const chartTypeOptions = getChartTypeOptions(localeText);
 
   return (
     <div>
       <Typography variant="caption" color="text.secondary" sx={{ mb: 0.75, display: 'block' }}>
-        Chart type
+        {localeText.chartTypePickerLabel}
       </Typography>
       <Box
         sx={{
@@ -84,7 +94,7 @@ export function ChartTypePicker({
           gap: 0.5,
         }}
       >
-        {CHART_TYPE_OPTIONS.map((opt) => {
+        {chartTypeOptions.map((opt) => {
           const selected =
             opt.chartType === chartType &&
             (opt.barLayout ?? 'grouped') === (barLayout ?? 'grouped');

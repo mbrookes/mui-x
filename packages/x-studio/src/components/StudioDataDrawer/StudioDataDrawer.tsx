@@ -73,6 +73,22 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
 
   const selectedSource = lineageSourceId ? dataSources[lineageSourceId] : null;
   const previewSource = previewSourceId ? dataSources[previewSourceId] : null;
+  const selectedSourceCounts = selectedSource
+    ? `${selectedSource.rows?.length ?? 0} ${localeText.dataDrawerRowsLabel} · ${
+        selectedSource.fields.filter((f) => !f.hidden).length +
+        expressionFields.filter(
+          (ef) => ef.sourceId === selectedSource.id && !ef.hidden && !ef.isMeasure,
+        ).length
+      } ${localeText.dataDrawerFieldsLabel}`
+    : null;
+  const previewSourceCounts = previewSource
+    ? `${previewSource.rows?.length ?? 0} ${localeText.dataDrawerRowsLabel} · ${
+        previewSource.fields.filter((f) => !f.hidden).length +
+        expressionFields.filter(
+          (ef) => ef.sourceId === previewSource.id && !ef.hidden && !ef.isMeasure,
+        ).length
+      } ${localeText.dataDrawerFieldsLabel}`
+    : null;
 
   return (
     <Stack spacing={0} sx={sx}>
@@ -131,12 +147,7 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
                 <React.Fragment>
                   <span>{selectedSource.label}</span>
                   <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                    {selectedSource.rows?.length ?? 0} rows ·{' '}
-                    {selectedSource.fields.filter((f) => !f.hidden).length +
-                      expressionFields.filter(
-                        (ef) => ef.sourceId === selectedSource.id && !ef.hidden && !ef.isMeasure,
-                      ).length}{' '}
-                    fields
+                    {selectedSourceCounts}
                   </Typography>
                 </React.Fragment>
               ) : (
@@ -194,12 +205,7 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
           <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 6 }}>
             <span>{previewSource.label}</span>
             <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-              {previewSource.rows?.length ?? 0} rows ·{' '}
-              {previewSource.fields.filter((f) => !f.hidden).length +
-                expressionFields.filter(
-                  (ef) => ef.sourceId === previewSource.id && !ef.hidden && !ef.isMeasure,
-                ).length}{' '}
-              fields
+              {previewSourceCounts}
             </Typography>
             <IconButton
               aria-label={localeText.dataDrawerCloseAriaLabel}

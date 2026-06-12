@@ -3,12 +3,13 @@ import {
   normalizeGridColumn,
   type StudioState,
   type StudioExpressionField,
+  type StudioAIState,
 } from '../models';
 
 /**
  * Current schema version for the studio state
  */
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 /**
  * Serializable state format for persistence.
@@ -24,6 +25,11 @@ export interface SerializedStudioState {
   relationships?: StudioState['relationships'];
   expressionFields?: StudioExpressionField[];
   filterPresets?: StudioState['filterPresets'];
+  /**
+   * AI conversation threads. Optional — omitted when no threads exist.
+   * Populated by `StudioChatPanel` and passed back via `StudioProvider.onAIStateChange`.
+   */
+  ai?: StudioAIState;
 }
 
 /**
@@ -69,6 +75,8 @@ type MigrationFn = (state: Record<string, unknown>) => Record<string, unknown>;
 const migrations: Record<number, MigrationFn> = {
   // v0 → v1: first versioned schema. No structural changes needed; just stamp version.
   0: (state) => ({ ...state, schemaVersion: 1 }),
+  // v1 → v2: added optional `ai` field for conversation state. No structural changes needed.
+  1: (state) => ({ ...state, schemaVersion: 2 }),
 };
 
 /**
@@ -178,6 +186,7 @@ export function serializeState(state: StudioState): SerializedStudioState {
     relationships: state.relationships,
     expressionFields: state.expressionFields.length > 0 ? state.expressionFields : undefined,
     filterPresets: (state.filterPresets?.length ?? 0) > 0 ? state.filterPresets : undefined,
+    ai: state.ai?.threads && state.ai.threads.length > 0 ? state.ai : undefined,
   };
 }
 
@@ -194,7 +203,7 @@ export function deserializeState(
   const defaultState = createDefaultStudioState();
 
   return {
-    schemaVersion: serialized.schemaVersion as 1,
+    schemaVersion: serialized.schemaVersion as 1 | 2,
     mode: 'edit',
     dashboard: serialized.dashboard,
     pages: serialized.pages,
@@ -221,5 +230,6 @@ export function deserializeState(
       ...defaultState.shell,
       ...shellOverrides,
     },
+    ai: serialized.ai,
   };
 }

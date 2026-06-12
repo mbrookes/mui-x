@@ -216,7 +216,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
             }
           />
         }
-        label={<Typography variant="caption">Show totals row and column</Typography>}
+        label={<Typography variant="caption">{localeText.pivotSetupShowTotals}</Typography>}
         sx={{ ml: 0 }}
       />
     </Stack>

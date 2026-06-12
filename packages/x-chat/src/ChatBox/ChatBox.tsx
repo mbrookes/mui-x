@@ -175,6 +175,13 @@ ChatBox.propTypes = {
     stop: PropTypes.func,
     subscribe: PropTypes.func,
   }).isRequired,
+  /**
+   * When `true`, the current composer value is automatically submitted once on mount.
+   * Use together with `initialComposerValue` to send a pre-filled message without
+   * requiring user interaction.
+   * @default false
+   */
+  autoSubmitInitialValue: PropTypes.bool,
   children: PropTypes.node,
   /**
    * Override or extend the styles applied to the component.
@@ -616,13 +623,6 @@ ChatBox.propTypes = {
    * @default false
    */
   suggestionsAutoSubmit: PropTypes.bool,
-  /**
-   * When `true`, the current composer value is automatically submitted once on mount.
-   * Use together with `initialComposerValue` to send a pre-filled message without
-   * requiring user interaction.
-   * @default false
-   */
-  autoSubmitInitialValue: PropTypes.bool,
   sx: PropTypes.oneOfType([
     PropTypes.arrayOf(PropTypes.oneOfType([PropTypes.func, PropTypes.object, PropTypes.bool])),
     PropTypes.func,

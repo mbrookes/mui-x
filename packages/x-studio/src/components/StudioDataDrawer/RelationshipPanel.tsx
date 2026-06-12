@@ -90,7 +90,9 @@ function RelationshipDialog(props: {
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>{initial ? 'Edit relationship' : 'Add relationship'}</DialogTitle>
+      <DialogTitle>
+        {initial ? localeText.relationshipEditTitle : localeText.relationshipAddTitle}
+      </DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <FormControl size="small" fullWidth>
@@ -110,9 +112,17 @@ function RelationshipDialog(props: {
 
           <Stack direction="row" spacing={1}>
             <FormControl size="small" sx={{ flex: 1 }}>
-              <InputLabel>{isManyToMany ? 'Source' : 'Many side'}</InputLabel>
+              <InputLabel>
+                {isManyToMany
+                  ? localeText.relationshipSourceLabel
+                  : localeText.relationshipSourceManyLabel}
+              </InputLabel>
               <Select
-                label={isManyToMany ? 'Source' : 'Many side'}
+                label={
+                  isManyToMany
+                    ? localeText.relationshipSourceLabel
+                    : localeText.relationshipSourceManyLabel
+                }
                 value={form.sourceId}
                 onChange={(event) => {
                   field('sourceId')(event.target.value);
@@ -145,9 +155,17 @@ function RelationshipDialog(props: {
 
           <Stack direction="row" spacing={1}>
             <FormControl size="small" sx={{ flex: 1 }}>
-              <InputLabel>{isManyToMany ? 'Target' : 'One side'}</InputLabel>
+              <InputLabel>
+                {isManyToMany
+                  ? localeText.relationshipTargetLabel
+                  : localeText.relationshipTargetOneLabel}
+              </InputLabel>
               <Select
-                label={isManyToMany ? 'Target' : 'One side'}
+                label={
+                  isManyToMany
+                    ? localeText.relationshipTargetLabel
+                    : localeText.relationshipTargetOneLabel
+                }
                 value={form.targetId}
                 onChange={(event) => {
                   field('targetId')(event.target.value);
@@ -247,9 +265,9 @@ function RelationshipDialog(props: {
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose}>{localeText.relationshipCancel}</Button>
         <Button variant="contained" disabled={!isValid} onClick={() => onSave(form)}>
-          {initial ? 'Update' : 'Add'}
+          {initial ? localeText.relationshipUpdate : localeText.relationshipAdd}
         </Button>
       </DialogActions>
     </Dialog>
@@ -333,7 +351,7 @@ export function RelationshipPanel(props: {
     <Box sx={{ px: 1.5, pb: 1.5 }}>
       <Stack direction="row" sx={{ alignItems: 'center', mb: 0.5 }}>
         <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1, fontWeight: 600 }}>
-          Relationships
+          {localeText.relationshipSectionTitle}
         </Typography>
         <Button
           size="small"
@@ -344,13 +362,13 @@ export function RelationshipPanel(props: {
           }}
           sx={{ fontSize: 11 }}
         >
-          Add
+          {localeText.relationshipAddButton}
         </Button>
       </Stack>
 
       {relationships.length === 0 && (
         <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
-          No relationships configured.
+          {localeText.relationshipNone}
         </Typography>
       )}
 
@@ -382,7 +400,7 @@ export function RelationshipPanel(props: {
                   />
                   {jctLabel && (
                     <Chip
-                      label={`via ${jctLabel}`}
+                      label={localeText.relationshipVia(jctLabel)}
                       size="small"
                       variant="outlined"
                       sx={{ fontSize: 10, height: 16 }}

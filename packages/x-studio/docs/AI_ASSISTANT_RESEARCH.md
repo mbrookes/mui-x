@@ -112,14 +112,14 @@ graph TD
 
 | Feature                                  | AG Studio                           | x-studio                                |
 | ---------------------------------------- | ----------------------------------- | --------------------------------------- |
-| Multi-agent orchestration                | ✅ 5 agents                         | ❌ Single adapter                       |
-| Structured planning before execution     | ✅ Plan shown to user               | ❌                                      |
-| Named conversation threads               | ✅ Multiple persistent threads      | ❌ Single conversation                  |
-| `execute_query` (data questions)         | ✅                                  | ❌                                      |
-| `add_page_filter` / `remove_page_filter` | ✅                                  | ❌                                      |
-| `add_widget_filter` (per-widget)         | ✅                                  | ❌                                      |
-| `rename_thread`                          | ✅                                  | ❌                                      |
-| State persistence (AI + dashboard)       | ✅ `getState()`/`setState()`        | ❌ No AI state persistence              |
+| Multi-agent orchestration                | ✅ 5 agents                         | ⚠️ Single agentic loop (multi-turn)     |
+| Structured planning before execution     | ✅ Plan shown to user               | ⚠️ Not displayed (planned server-side)  |
+| Named conversation threads               | ✅ Multiple persistent threads      | ✅ Thread selector + `rename_thread`    |
+| `execute_query` (data questions)         | ✅                                  | ✅ Implemented                          |
+| `add_page_filter` / `remove_page_filter` | ✅                                  | ✅ Implemented                          |
+| `add_widget_filter` (per-widget)         | ✅                                  | ✅ Implemented                          |
+| `rename_thread`                          | ✅                                  | ✅ Auto-generated + renameable          |
+| State persistence (AI + dashboard)       | ✅ `getState()`/`setState()`        | ✅ `StudioState.ai` (schema v2)         |
 | Custom widget AI integration             | ✅ `formatShape` + `ai` metadata    | ⚠️ Partial (customWidgets context only) |
 | LLM-agnostic by design                   | ✅ Adapter interface                | ✅ OpenAI-compatible endpoint           |
 | Streaming                                | ✅ `AsyncIterable<AgAiStreamEvent>` | ✅ SSE streaming                        |
@@ -783,7 +783,7 @@ Source: `packages/x-studio-ai-middleware/src/studioAITools.ts`
 | Issue                                                                     | Location                   | Impact                                  |
 | ------------------------------------------------------------------------- | -------------------------- | --------------------------------------- |
 | `add_widget` in `executeTool` skips `createDefaultWidget()` normalisation | `studioAdapter.ts:170-189` | Partially configured widgets from chat  |
-| Zero automated tests for `StudioChatPanel`, `studioAdapter`, AI tools     | `x-studio/src/`            | No regression protection on AI features |
+| `add_data_source` tool not implemented                                    | `studioAITools.ts`         | AI cannot connect new data sources      |
 
 ### 🟢 Minor: Undocumented / Noteworthy Features
 

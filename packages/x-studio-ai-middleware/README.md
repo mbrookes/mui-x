@@ -296,6 +296,84 @@ The client adapter (`studioBackendAdapter`) strips the non-serializable `execute
 
 ---
 
+## MCP server
+
+`buildStudioMcpServer` creates a [Model Context Protocol](https://modelcontextprotocol.io/) server backed by the same AI tools and state as `handleAIChat`. Use it to let Claude Desktop, Cursor, or any other MCP client manipulate x-studio dashboards programmatically — no browser required.
+
+### Basic usage
+
+```ts
+import { buildStudioMcpServer, createDefaultStudioState, type StudioStateBox } from '@mui/x-studio-ai-middleware';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import express from 'express';
+import { randomUUID } from 'node:crypto';
+
+const router = express.Router();
+const transports: Record<string, StreamableHTTPServerTransport> = {};
+const stateBoxes: Record<string, StudioStateBox> = {};
+
+router.post('/', async (req, res) => {
+  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  if (sessionId && transports[sessionId]) {
+    await transports[sessionId].handleRequest(req, res, req.body);
+    return;
+  }
+  if (!sessionId && isInitializeRequest(req.body)) {
+    const stateBox: StudioStateBox = { current: createDefaultStudioState() };
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (sid) => { transports[sid] = transport; stateBoxes[sid] = stateBox; },
+    });
+    const server = buildStudioMcpServer(stateBox);
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  }
+});
+```
+
+Each MCP session gets its own isolated `StudioStateBox`. Mutations made by tool calls persist for the lifetime of the session.
+
+### `StudioMcpOptions`
+
+| Option | Type | Default | Description |
+| ------ | ---- | ------- | ----------- |
+| `serverName` | `string` | `'x-studio'` | Name reported in `initialize` response |
+| `serverVersion` | `string` | `'1.0.0'` | Version reported in `initialize` response |
+| `allowedTools` | `string[]` | all except `summarise_page`, `execute_query` | Exact list of tool names to expose |
+| `customWidgets` | `StudioCustomWidgetDef[]` | `[]` | Custom widget definitions for tool handling |
+| `data.queryDataSource` | `(params) => Promise<result>` | — | When provided, enables `query_data_source` tool and data resources |
+
+### Tools registered by default
+
+All `STUDIO_AI_TOOLS` except `summarise_page` (needs live row data) and `execute_query` (raw SQL — opt in explicitly via `allowedTools`).
+
+When `data.queryDataSource` is provided, the `query_data_source` tool is also registered.
+
+### Resources
+
+| URI | Description |
+| --- | ----------- |
+| `studio://dashboard/state` | Full dashboard JSON |
+| `studio://dashboard/system-prompt` | AI system prompt for the current state |
+| `studio://dashboard/data-health` | Row counts per source (requires `data` option) |
+| `studio://schema/{sourceId}` | Field definitions with type, format, sample values |
+| `studio://data/{sourceId}` | Raw row preview — up to 20 rows (requires `data` option) |
+
+All resources support `resources/subscribe`. Subscribe to `studio://dashboard/state` to receive `notifications/resources/updated` whenever a tool call mutates the dashboard.
+
+### Prompts
+
+| Name | Description |
+| ---- | ----------- |
+| `query_data_source_examples` | Auto-generated query templates for every data source |
+
+### URI autocomplete
+
+The server declares the `completions` capability and handles `completion/complete` for `ref/resource` references. Typing `studio://schema/` or `studio://data/` returns matching source IDs from the current dashboard state.
+
+---
+
 ## Limitations (v1)
 
 - **`instruction-only` skills** — fully supported.

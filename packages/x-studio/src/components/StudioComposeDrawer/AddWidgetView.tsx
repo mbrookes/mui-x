@@ -38,7 +38,7 @@ import { useStudioUIConfig, useStudioFeatures } from '../../internals/StudioUICo
 import { createWidgetFromDescription } from '../StudioChatPanel/createWidgetFromDescription';
 
 function getCursor(isDragging: boolean) {
-  return isDragging ? 'grabbing' : 'default';
+  return isDragging ? 'move' : 'default';
 }
 
 // ── Natural language widget creator (BL-58) ──────────────────────────────────
@@ -204,7 +204,7 @@ function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
         event.dataTransfer?.setDragImage(node, 0, 0);
       }
       document.body.classList.add('x-studio-dragging-widget');
-      document.documentElement.style.setProperty('cursor', 'grabbing', 'important');
+      document.documentElement.style.setProperty('cursor', 'move', 'important');
     }
     function handleDragEnd() {
       setIsDragging(false);
@@ -213,9 +213,13 @@ function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
     }
     function handleMouseDown() {
       document.body.classList.add('x-studio-dragging-widget');
+      // Set the documentElement override on mousedown (before Chrome locks the DnD
+      // cursor at the start of the drag gesture, which happens before dragstart fires).
+      document.documentElement.style.setProperty('cursor', 'move', 'important');
       const removeOnUp = () => {
         if (!document.body.dataset.studioDraggingWidgetId) {
           document.body.classList.remove('x-studio-dragging-widget');
+          document.documentElement.style.removeProperty('cursor');
         }
         document.removeEventListener('mouseup', removeOnUp, { capture: true });
       };
@@ -344,6 +348,7 @@ function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
   const activePage = useStudioSelector(selectActivePage);
   const widgetRows = React.useMemo(() => activePage?.widgetRows ?? [], [activePage]);
   const widgets = useStudioSelector(selectWidgets);
+  const customWidgetMap = useCustomWidgetMap();
 
   const pageWidgetIds = React.useMemo(() => new Set(widgetRows.flat()), [widgetRows]);
 
@@ -352,7 +357,14 @@ function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
     [widgets, kind, pageWidgetIds],
   );
 
-  const wt = WIDGET_TYPES.find((w) => w.kind === kind)!;
+  const builtIn = WIDGET_TYPES.find((w) => w.kind === kind);
+  const customDef = customWidgetMap.get(kind);
+  const wt = builtIn ?? {
+    kind,
+    label: customDef?.label ?? kind,
+    description: customDef?.description ?? 'Custom widget',
+    icon: customDef?.icon ?? null,
+  };
 
   return (
     <Stack spacing={1.5}>

@@ -475,7 +475,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       // so we also set an inline style on <html> which has the highest cascade
       // priority and suppresses the OS cursor on most modern browsers.
       document.body.classList.add('x-studio-dragging-widget');
-      document.documentElement.style.setProperty('cursor', 'grabbing', 'important');
+      document.documentElement.style.setProperty('cursor', 'move', 'important');
       // Record which widget is being dragged so insertion points adjacent to it
       // can disable themselves during dragover (BL-112).
       document.body.dataset.studioDraggingWidgetId = widgetId;
@@ -512,15 +512,21 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,
       };
-      // Apply grabbing cursor immediately on mousedown so the cursor changes
-      // as soon as the user presses the button (not only after dragstart fires,
-      // which can lag on macOS/Chrome due to OS-level cursor management).
+      // Apply move cursor immediately on mousedown so the cursor changes
+      // as soon as the user presses the button. Set both the body class (for
+      // GlobalStyles descendants) AND the documentElement inline style, which
+      // is the ONLY approach that reliably overrides Chrome's native DnD cursor.
+      // This must happen on mousedown — Chrome locks the DnD cursor before
+      // dragstart fires (as soon as the pointer moves ~3 px), so setting the
+      // override in dragstart alone is too late.
       document.body.classList.add('x-studio-dragging-widget');
+      document.documentElement.style.setProperty('cursor', 'move', 'important');
       const removeOnUp = () => {
         // Only remove the class if no actual drag started (handleDragStart will
         // re-add it if a drag does occur, so the class survives the transition).
         if (!document.body.dataset.studioDraggingWidgetId) {
           document.body.classList.remove('x-studio-dragging-widget');
+          document.documentElement.style.removeProperty('cursor');
         }
         document.removeEventListener('mouseup', removeOnUp, { capture: true });
       };
@@ -633,7 +639,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           borderRadius:
             pageTheme?.cardRadius !== undefined ? `${pageTheme.cardRadius}px` : undefined,
           backgroundColor: pageTheme?.cardBackground ?? undefined,
-          cursor: isDragging ? 'grabbing' : 'default',
+          cursor: isDragging ? 'move' : 'default',
           p: pageTheme?.cardPadding ?? 2,
           boxSizing: 'border-box',
           height: '100%',

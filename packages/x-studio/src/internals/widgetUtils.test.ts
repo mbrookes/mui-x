@@ -3,10 +3,13 @@ import {
   buildCsvContent,
   createDefaultWidget,
   exportGridToCsv,
+  formatDateFilterLabel,
+  inferKpiDateSubtitle,
   inferWidgetTitles,
   widgetKindRequiresDataSource,
 } from './widgetUtils';
-import type { StudioDataSource, StudioWidget } from '../models';
+import type { StudioDataSource, StudioFilterState, StudioWidget } from '../models';
+import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
 
 const SOURCES: Record<string, StudioDataSource> = {
   orders: {
@@ -546,5 +549,157 @@ describe('exportGridToCsv', () => {
     exportGridToCsv(widget, source, [{ id: 'ORD-1' }]);
 
     expect(appendSpy).toHaveBeenCalledOnce();
+  });
+});
+
+// ─── Locale token tests ────────────────────────────────────────────────────────
+
+/** Build a StudioFilterState with a relative date value (requires `relative: true`). */
+function relDateFilter(
+  direction: 'past' | 'next',
+  amount: number,
+  unit: 'day' | 'week' | 'month' | 'year',
+  operator: StudioFilterState['operator'] = 'equals',
+): StudioFilterState {
+  return {
+    id: 'f1',
+    field: 'date',
+    fieldType: 'date',
+    operator,
+    scope: 'page',
+    value: { relative: true, direction, amount, unit },
+  };
+}
+
+describe('formatDateFilterLabel — default EN tokens', () => {
+  it('formats "Last 7 days"', () => {
+    expect(formatDateFilterLabel(relDateFilter('past', 7, 'day'))).toBe('Last 7 days');
+  });
+
+  it('formats "Next 1 month" with singular unit', () => {
+    expect(formatDateFilterLabel(relDateFilter('next', 1, 'month'))).toBe('Next 1 month');
+  });
+
+  it('formats "Last 3 years"', () => {
+    expect(formatDateFilterLabel(relDateFilter('past', 3, 'year'))).toBe('Last 3 years');
+  });
+
+  it('formats "Last 1 week" with singular unit', () => {
+    expect(formatDateFilterLabel(relDateFilter('past', 1, 'week'))).toBe('Last 1 week');
+  });
+
+  it('formats "Next 2 weeks" with plural unit', () => {
+    expect(formatDateFilterLabel(relDateFilter('next', 2, 'week'))).toBe('Next 2 weeks');
+  });
+});
+
+describe('formatDateFilterLabel — custom locale tokens', () => {
+  const ptBRLike: Partial<StudioLocaleText> = {
+    dateFilterLast: (amount, unit) => `Últimos ${amount} ${unit}`,
+    dateFilterNext: (amount, unit) => `Próximos ${amount} ${unit}`,
+    dateFilterFrom: (date) => `A partir de ${date}`,
+    dateFilterUpTo: (label) => `Até ${label}`,
+    dateFilterSince: (date) => `Desde ${date}`,
+    dateFilterUntil: (date) => `Até ${date}`,
+    dateFilterUnitDay: 'dia',
+    dateFilterUnitDays: 'dias',
+    dateFilterUnitMonth: 'mês',
+    dateFilterUnitMonths: 'meses',
+    dateFilterUnitYear: 'ano',
+    dateFilterUnitYears: 'anos',
+    dateFilterUnitWeek: 'semana',
+    dateFilterUnitWeeks: 'semanas',
+    dateFilterUnitHour: 'hora',
+    dateFilterUnitHours: 'horas',
+    dateFilterUnitMinute: 'minuto',
+    dateFilterUnitMinutes: 'minutos',
+    dateFilterUnitSecond: 'segundo',
+    dateFilterUnitSeconds: 'segundos',
+  };
+  const lt = ptBRLike as StudioLocaleText;
+
+  it('uses custom "Last N days" translation', () => {
+    expect(formatDateFilterLabel(relDateFilter('past', 7, 'day'), lt)).toBe('Últimos 7 dias');
+  });
+
+  it('uses singular unit for amount=1', () => {
+    expect(formatDateFilterLabel(relDateFilter('next', 1, 'month'), lt)).toBe('Próximos 1 mês');
+  });
+
+  it('uses plural unit for amount>1', () => {
+    expect(formatDateFilterLabel(relDateFilter('past', 3, 'year'), lt)).toBe('Últimos 3 anos');
+  });
+});
+
+describe('inferWidgetTitles — locale glue words', () => {
+  const customLocale: Partial<StudioLocaleText> = {
+    widgetAutoTitleBy: 'par',
+    widgetAutoTitleVs: 'contre',
+    widgetAutoTitleSplitBy: 'divisé par',
+    widgetAggPrefixSum: 'Somme de',
+    widgetAggPrefixAvg: 'Moyenne de',
+    widgetGroupByPrefixMonth: 'Mensuel',
+    widgetAutoTitleSourceSuffixChart: 'graphique',
+    widgetAutoTitleSourceSuffixKpi: 'ICP',
+  };
+  const lt = customLocale as StudioLocaleText;
+
+  it('uses custom "by" glue word in chart title', () => {
+    const widget = makeWidget({
+      config: { xField: 'month', yField: 'revenue' },
+    });
+    const { title } = inferWidgetTitles(widget, SOURCES, lt);
+    expect(title).toContain('par');
+    expect(title).not.toContain(' by ');
+  });
+
+  it('uses custom aggregation prefix for KPI', () => {
+    const widget = makeWidget({
+      kind: 'kpi',
+      config: { kpiValueField: 'revenue', kpiAggregation: 'sum' },
+    });
+    const { title } = inferWidgetTitles(widget, SOURCES, lt);
+    expect(title).toMatch(/^Somme de/);
+  });
+
+  it('uses custom source suffix for chart fallback', () => {
+    const widget = makeWidget({ config: {} });
+    const { title } = inferWidgetTitles(widget, SOURCES, lt);
+    expect(title).toContain('graphique');
+  });
+
+  it('uses custom source suffix for KPI fallback', () => {
+    const widget = makeWidget({ kind: 'kpi', config: {} });
+    const { title } = inferWidgetTitles(widget, SOURCES, lt);
+    expect(title).toContain('ICP');
+  });
+});
+
+describe('inferKpiDateSubtitle — locale tokens', () => {
+  it('returns null when no date filters are present', () => {
+    const widget: StudioWidget = { id: 'kpi1', kind: 'kpi', title: 'KPI', config: {} };
+    expect(inferKpiDateSubtitle(widget, [])).toBeNull();
+  });
+
+  it('returns formatted date label for a matching page-scope date filter', () => {
+    const widget: StudioWidget = { id: 'kpi1', kind: 'kpi', title: 'KPI', config: {} };
+    const subtitle = inferKpiDateSubtitle(widget, [relDateFilter('past', 30, 'day')]);
+    expect(subtitle).toBe('Last 30 days');
+  });
+
+  it('uses custom locale text for the date subtitle', () => {
+    const widget: StudioWidget = { id: 'kpi1', kind: 'kpi', title: 'KPI', config: {} };
+    const lt = {
+      dateFilterLast: (amount: number, unit: string) => `Letzte ${amount} ${unit}`,
+      dateFilterUnitDay: 'Tag',
+      dateFilterUnitDays: 'Tage',
+    } as StudioLocaleText;
+    const subtitle = inferKpiDateSubtitle(widget, [relDateFilter('past', 30, 'day')], lt);
+    expect(subtitle).toBe('Letzte 30 Tage');
+  });
+
+  it('returns null for non-kpi widgets', () => {
+    const widget: StudioWidget = { id: 'c1', kind: 'chart', title: 'Chart', config: {} };
+    expect(inferKpiDateSubtitle(widget, [relDateFilter('past', 7, 'day')])).toBeNull();
   });
 });

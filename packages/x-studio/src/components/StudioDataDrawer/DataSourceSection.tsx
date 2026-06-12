@@ -4,7 +4,12 @@ import { Box, Collapse, List, ListItemButton, Stack, Typography } from '@mui/mat
 import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import { useStudioController, useStudioSelector, selectShell } from '../../context/index.ts';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectShell,
+  useStudioLocaleText,
+} from '../../context/index.ts';
 import type {
   StudioDataSource,
   StudioExpressionField,
@@ -32,6 +37,7 @@ export function DataSourceSection(props: {
   );
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);
+  const localeText = useStudioLocaleText();
   const selectedFieldId = shell.selectedFieldId;
   const selectedSourceId = shell.selectedSourceId;
 
@@ -66,7 +72,7 @@ export function DataSourceSection(props: {
   };
 
   const visibleFieldCount = source.fields.filter((f) => !f.hidden).length + sourceExprFields.length;
-  const sectionSecondaryText = `${visibleFieldCount} field${visibleFieldCount !== 1 ? 's' : ''} · ${source.rows?.length ?? 0} rows`;
+  const sectionSecondaryText = `${visibleFieldCount} ${localeText.dataDrawerFieldsLabel} · ${source.rows?.length ?? 0} ${localeText.dataDrawerRowsLabel}`;
 
   return (
     <div>
@@ -130,7 +136,7 @@ export function DataSourceSection(props: {
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
                 <AddIcon sx={{ fontSize: 15 }} />
                 <Typography variant="body2" color="primary">
-                  Add calculated field
+                  {localeText.dataDrawerAddCalculatedField}
                 </Typography>
               </Stack>
             </ListItemButton>

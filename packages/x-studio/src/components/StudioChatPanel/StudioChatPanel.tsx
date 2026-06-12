@@ -5,7 +5,7 @@ import type { SxProps, Theme } from '@mui/material';
 import { Box, Grow, IconButton, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { ChatBox } from '@mui/x-chat';
-import type { ChatAdapter } from '@mui/x-chat/headless';
+import type { ChatAdapter, ChatMessage } from '@mui/x-chat/headless';
 
 import {
   useStudioController,
@@ -220,6 +220,48 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     return createBackendChatAdapter(aiConfig, controller, customWidgets, focusedWidgetId);
   }, [aiConfig, controller, customWidgets, focusedWidgetId]);
 
+  // ── AI conversation thread state ──────────────────────────────────────────
+  // Use a stable default thread ID so the first thread is always available.
+  const defaultThreadId = React.useRef(`thread-${Date.now()}`);
+
+  const aiState = useStudioSelector((state) => state.ai);
+  const activeThreadId = aiState?.activeThreadId ?? defaultThreadId.current;
+
+  const activeThread = aiState?.threads.find((t) => t.id === activeThreadId);
+  const threadMessages = activeThread?.messages ?? [];
+
+  const handleMessagesChange = React.useCallback(
+    (messages: ChatMessage[]) => {
+      const state = controller.getState();
+      const existingThreads = state.ai?.threads ?? [];
+      const now = new Date().toISOString();
+
+      const updatedThreads = existingThreads.some((t) => t.id === activeThreadId)
+        ? existingThreads.map((t) =>
+            t.id === activeThreadId ? { ...t, messages, updatedAt: now } : t,
+          )
+        : [
+            ...existingThreads,
+            {
+              id: activeThreadId,
+              name: 'New conversation',
+              createdAt: now,
+              updatedAt: now,
+              messages,
+            },
+          ];
+
+      controller.setState({
+        ...state,
+        ai: {
+          threads: updatedThreads,
+          activeThreadId,
+        },
+      });
+    },
+    [controller, activeThreadId],
+  );
+
   // ── Dynamic suggestions ────────────────────────────────────────────────────
   const suggestions = React.useMemo(
     () => generateSuggestions(dataSources, widgets, activeWidgetIds),
@@ -242,6 +284,8 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
         <ChatBox
           {...slotProps?.chatBox}
           adapter={adapter}
+          messages={slotProps?.chatBox?.messages ?? threadMessages}
+          onMessagesChange={slotProps?.chatBox?.onMessagesChange ?? handleMessagesChange}
           suggestions={suggestions}
           suggestionsAutoSubmit
           currentUser={{ id: 'user', displayName: 'You', role: 'user' }}

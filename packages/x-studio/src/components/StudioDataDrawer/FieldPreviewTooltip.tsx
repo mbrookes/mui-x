@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Stack, Tooltip, Typography } from '@mui/material';
+import { useStudioLocaleText } from '../../context';
 import { formatFieldValue } from '../../internals/numberFormat';
 
 const PREVIEW_ROWS = 5;
@@ -21,6 +22,7 @@ export default function FieldPreviewTooltip({
   rows?: Record<string, unknown>[];
   children: React.ReactElement;
 }) {
+  const localeText = useStudioLocaleText();
   if (!rows || rows.length === 0) {
     return children;
   }
@@ -55,7 +57,7 @@ export default function FieldPreviewTooltip({
       ))}
       {rows.length > PREVIEW_ROWS && (
         <Typography variant="caption" sx={{ opacity: 0.5 }}>
-          +{rows.length - PREVIEW_ROWS} more
+          {localeText.dataDrawerMorePreviewRows(rows.length - PREVIEW_ROWS)}
         </Typography>
       )}
     </Stack>

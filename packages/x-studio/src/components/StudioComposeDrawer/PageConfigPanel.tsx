@@ -24,17 +24,16 @@ import { ColorInput } from './ColorInput';
 /** Stable empty theme used as fallback so the selector never returns a new object reference. */
 const EMPTY_PAGE_THEME: StudioPageTheme = {};
 
-const PADDING_OPTIONS = [
-  { value: 0, label: 'None' },
-  { value: 1, label: 'Small (8px)' },
-  { value: 2, label: 'Medium (16px)' },
-  { value: 3, label: 'Large (24px)' },
-];
-
 export function PageConfigPanel() {
   const controller = useStudioController();
   const pageTheme = useStudioSelector(selectActivePage)?.theme ?? EMPTY_PAGE_THEME;
   const localeText = useStudioLocaleText();
+  const paddingOptions = [
+    { value: 0, label: localeText.pageConfigPaddingNone },
+    { value: 1, label: localeText.pageConfigPaddingSmall },
+    { value: 2, label: localeText.pageConfigPaddingMedium },
+    { value: 3, label: localeText.pageConfigPaddingLarge },
+  ];
 
   const update = React.useCallback(
     (changes: Partial<StudioPageTheme>) => {
@@ -78,7 +77,7 @@ export function PageConfigPanel() {
           value={pageTheme.cardPadding ?? 2}
           onChange={(event) => update({ cardPadding: event.target.value as number })}
         >
-          {PADDING_OPTIONS.map((o) => (
+          {paddingOptions.map((o) => (
             <MenuItem key={o.value} value={o.value}>
               {o.label}
             </MenuItem>

@@ -950,14 +950,30 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       );
     }
     const valueFieldDef = dataSource?.fields.find((f) => f.id === funnelValueField);
-    // Aggregate: sum value per stage category
+    const useCount =
+      config.yAggregation === 'count' ||
+      (() => {
+        // Auto-detect: if the value field is non-numeric, fall back to count
+        for (const row of filteredRows) {
+          const v = row[funnelValueField];
+          if (v !== null && v !== undefined) {
+            return Number.isNaN(Number(v));
+          }
+        }
+        return false;
+      })();
+    // Aggregate: sum value (or count rows) per stage category
     const stageMap = new Map<string, number>();
     for (const row of filteredRows) {
       const label = String(row[funnelXField] ?? '');
       if (!label) {
         continue;
       }
-      stageMap.set(label, (stageMap.get(label) ?? 0) + Number(row[funnelValueField] ?? 0));
+      if (useCount) {
+        stageMap.set(label, (stageMap.get(label) ?? 0) + 1);
+      } else {
+        stageMap.set(label, (stageMap.get(label) ?? 0) + Number(row[funnelValueField] ?? 0));
+      }
     }
     // Sort by value descending (widest stage first)
     const stages = [...stageMap.entries()]

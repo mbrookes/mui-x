@@ -55,6 +55,8 @@ import {
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import { executeToolOnState } from './executeToolOnState';
 import { buildAISystemPrompt, serializeFieldForAI } from './buildAISystemPrompt';
+import { renderChartSvg } from './chartRenderer';
+import type { ChartRendererInput } from './chartRenderer';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 
 export type { StudioState, StudioCustomWidgetDef };
@@ -423,6 +425,65 @@ export function buildStudioMcpServer(
       });
     }
 
+    tools.push({
+      name: 'render_chart',
+      description:
+        'Render an arbitrary chart as a standalone SVG image. ' +
+        'Useful for visualising query results, comparisons, or any data the model has available. ' +
+        'Supported chart types: "bar", "line", "pie". ' +
+        'For bar and pie charts provide `data` as an array of { label, value } objects. ' +
+        'For single-series line charts use `data`; for multi-series lines use `xLabels` + `series`. ' +
+        'The SVG is returned as a base64-encoded image/svg+xml content item.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          type: {
+            type: 'string',
+            enum: ['bar', 'line', 'pie'],
+            description: 'Chart type.',
+          },
+          title: { type: 'string', description: 'Optional chart title.' },
+          data: {
+            type: 'array',
+            description: 'Data points for bar, pie, or single-series line charts.',
+            items: {
+              type: 'object',
+              properties: {
+                label: { type: 'string' },
+                value: { type: 'number' },
+              },
+              required: ['label', 'value'],
+            },
+          },
+          xLabels: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'X-axis labels for multi-series line charts.',
+          },
+          series: {
+            type: 'array',
+            description: 'Named series for multi-series line charts.',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                values: { type: 'array', items: { type: 'number' } },
+              },
+              required: ['name', 'values'],
+            },
+          },
+          width: { type: 'number', description: 'SVG width in pixels. Default: 600.' },
+          height: { type: 'number', description: 'SVG height in pixels. Default: 400.' },
+          colors: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Custom hex colour palette. Cycles if more series than colours.',
+          },
+        },
+        required: ['type'],
+      } as Record<string, unknown>,
+    });
+
     return { tools };
   });
 
@@ -484,6 +545,39 @@ export function buildStudioMcpServer(
             {
               type: 'text' as const,
               text: JSON.stringify({ sourceId, ...result }),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
+          isError: true,
+        };
+      }
+    }
+
+    // ── render_chart — pure SVG chart rendering ───────────────────────────
+    if (toolName === 'render_chart') {
+      try {
+        const chartInput = (args ?? {}) as unknown as ChartRendererInput;
+        if (!chartInput.type) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: '`type` is required (bar, line, or pie).' }) }],
+            isError: true,
+          };
+        }
+        const svgString = renderChartSvg(chartInput);
+        const base64 = Buffer.from(svgString).toString('base64');
+        return {
+          content: [
+            {
+              type: 'image' as const,
+              data: base64,
+              mimeType: 'image/svg+xml',
+            },
+            {
+              type: 'text' as const,
+              text: svgString,
             },
           ],
         };

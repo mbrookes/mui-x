@@ -960,10 +960,36 @@ See `packages/x-studio/docs/AI_ASSISTANT_RESEARCH.md` for the full gap analysis.
 - **`adapter.stop()` implemented** — Cancels the active response body reader for immediate
   resource cleanup when the user stops a stream.
 
-**Files changed:**
+**Files changed (batch 1):**
 - `packages/x-studio/src/components/StudioChatPanel/StudioChatPanel.tsx`
 - `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts`
 - `packages/x-studio-ai-middleware/src/models/protocol.ts`
+
+**Batch 2 — step dividers, per-tool icons, metadata, adapter tests** (commit `d8e7526e64`):
+
+- **Agentic step dividers** — `agenticLoop.ts` emits `step-start` SSE at each iteration > 0;
+  adapter converts to `start-step` x-chat chunks so ChatBox renders visual dividers between
+  multi-turn reasoning steps.
+- **Per-tool icons** — `STUDIO_TOOL_ICONS` map provides MUI icon components for each built-in
+  tool; `createToolPartRenderer` (from `@mui/x-chat-headless`) produces a `ChatPartRenderer` for
+  `dynamic-tool` parts that shows the right icon in each tool card.
+- **`density` / `variant` props** — `StudioChatPanelProps` now accepts `density` and `variant`,
+  forwarded to `ChatBox` for size/style customisation without needing a custom theme.
+- **`initialPrompt` prop** — Sets `ChatBox.initialComposerValue` + `autoSubmitInitialValue` only
+  on empty threads so the first message is pre-populated (and optionally auto-sent).
+- **`message-metadata` forwarding** — `agenticLoop.ts` yields `message-metadata` before `finish`
+  with `model`, `inputTokens`, `outputTokens`, `iterations`; adapter forwards as x-chat
+  `message-metadata` chunk so token/model info is stored on the assistant `ChatMessage`.
+- **Comprehensive adapter tests** — 18 unit tests added to `studioBackendAdapter.test.ts`
+  covering: synthetic reasoning lifecycle, step-start→start-step conversion, message-metadata,
+  stop() cancellation, abort signal handling, and server-emitted reasoning events.
+
+**Files changed (batch 2):**
+- `packages/x-studio/src/components/StudioChatPanel/StudioChatPanel.tsx`
+- `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts`
+- `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.test.ts`
+- `packages/x-studio-ai-middleware/src/models/protocol.ts`
+- `packages/x-studio-ai-middleware/src/agenticLoop.ts`
 
 ## 📋 Planned
 

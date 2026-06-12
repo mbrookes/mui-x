@@ -48,15 +48,15 @@ function buildInitialStudioState(): StudioState {
 
 /**
  * Build the data adapter for each source.
- * When VITE_STUDIO_SERVER_URL is set, routes through the dev server's
+ * When STUDIO_SERVER_URL is set, routes through the dev server's
  * /api/studio-data endpoint using a shared batching adapter.
  * Falls back to the in-memory adapter that uses the generated rows.
  */
 function buildDataAdapter(_sourceId: string, rows: Record<string, unknown>[]): StudioDataSourceAdapter {
-  const serverUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+  const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
   if (serverUrl) {
     const dataEndpoint = `${serverUrl.replace(/\/$/, '')}/api/studio-data`;
-    const serverToken = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
+    const serverToken = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
     const fetchFn: typeof fetch = serverToken
       ? (input, init) =>
           fetch(input, {

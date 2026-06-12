@@ -473,14 +473,14 @@ function DashboardLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Server mode: when VITE_STUDIO_SERVER_URL is set, route all data through the dev server
+  // Server mode: when STUDIO_SERVER_URL is set, route all data through the dev server
   React.useEffect(() => {
-    const serverUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+    const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
     if (!serverUrl || adapterMode) {
       return;
     }
     const dataEndpoint = `${serverUrl.replace(/\/$/, '')}/api/studio-data`;
-    const serverToken = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
+    const serverToken = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
     const fetchFn: typeof fetch = serverToken
       ? (input, init) =>
           fetch(input, {
@@ -736,11 +736,11 @@ export default function App() {
   const dataset = React.useMemo(() => getUrlDatasetParam(), []);
 
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
-    const serverUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+    const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
     if (!serverUrl) {
       return undefined;
     }
-    const token = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
+    const token = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
     return {
       endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai/chat`,
       headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,

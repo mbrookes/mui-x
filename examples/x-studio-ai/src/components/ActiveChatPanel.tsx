@@ -197,7 +197,7 @@ export function ActiveChatPanel({
         ) : (
           <Box sx={{ p: 2 }}>
             <Typography variant="body2" color="text.secondary">
-              AI is not configured. Set VITE_STUDIO_SERVER_URL in your .env.local file.
+              AI is not configured. Set STUDIO_SERVER_URL in your .env.local file.
             </Typography>
           </Box>
         )}

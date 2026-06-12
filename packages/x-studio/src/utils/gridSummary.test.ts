@@ -166,4 +166,39 @@ describe('aggregationLabel', () => {
   ] as const)('returns correct label for %s', (agg, expected) => {
     expect(aggregationLabel(agg)).toBe(expected);
   });
+
+  it('uses custom localeText when provided', () => {
+    const custom = {
+      gridSummaryLabelSum: 'Soma:',
+      gridSummaryLabelAvg: 'Méd:',
+      gridSummaryLabelCount: 'Cont:',
+      gridSummaryLabelCountDistinct: 'Únicos:',
+      gridSummaryLabelMin: 'Mín:',
+      gridSummaryLabelMax: 'Máx:',
+    } as import('../internals/StudioUIConfigContext').StudioLocaleText;
+    expect(aggregationLabel('sum', custom)).toBe('Soma:');
+    expect(aggregationLabel('avg', custom)).toBe('Méd:');
+    expect(aggregationLabel('count', custom)).toBe('Cont:');
+    expect(aggregationLabel('count_distinct', custom)).toBe('Únicos:');
+    expect(aggregationLabel('min', custom)).toBe('Mín:');
+    expect(aggregationLabel('max', custom)).toBe('Máx:');
+  });
+});
+
+describe('computeGridSummary with custom localeText', () => {
+  it('uses custom sum label', () => {
+    const lt = {
+      gridSummaryLabelSum: 'Summe:',
+    } as import('../internals/StudioUIConfigContext').StudioLocaleText;
+    const result = computeGridSummary(ROWS, [numField('amount')], { fields: { amount: 'sum' } }, lt);
+    expect(result.amount).toBe('Summe: 450');
+  });
+
+  it('uses custom count label', () => {
+    const lt = {
+      gridSummaryLabelCount: 'Total:',
+    } as import('../internals/StudioUIConfigContext').StudioLocaleText;
+    const result = computeGridSummary(ROWS, [numField('amount')], { fields: { amount: 'count' } }, lt);
+    expect(result.amount).toBe('Total: 3');
+  });
 });

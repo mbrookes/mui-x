@@ -10,13 +10,11 @@ applications: `examples/x-studio`, `examples/x-studio-composed`, and `examples/x
 1. [Three Example Apps — Overview](#1-three-example-apps--overview)
 2. [Entry Points per App](#2-entry-points-per-app)
 3. [AI System Prompt — `buildAISystemPrompt`](#3-ai-system-prompt--buildaisystemprompt)
-4. [Multi-Turn Chat Pipeline — `studioAdapter.ts`](#4-multi-turn-chat-pipeline--studioadapterts)
-   - 4.1 `createStudioChatAdapter`
-   - 4.2 `doRequest` — agentic loop
-   - 4.3 `processStream` — SSE streaming
-   - 4.4 `toOpenAIMessages` — message serialization
-   - 4.5 Tool definitions (all 17 tools)
-   - 4.6 `executeTool` — tool dispatch
+4. [Multi-Turn Chat Pipeline — `studioBackendAdapter.ts`](#4-multi-turn-chat-pipeline--studiobackendadapterts)
+   - 4.1 `createBackendChatAdapter`
+   - 4.2 Request flow
+   - 4.3 SSE event handling
+   - 4.4 Parallel tool dispatch
 5. [Data Summarization — `generateInsight.ts`](#5-data-summarization--generateinsightts)
    - 5.1 `generateWidgetInsight`
    - 5.2 `generateDashboardSummary`
@@ -48,9 +46,13 @@ applications: `examples/x-studio`, `examples/x-studio-composed`, and `examples/x
 | `examples/x-studio-composed` | `StudioProvider` + primitives | `<StudioChatPanel overlay={false}>` in sidebar | Compose only |
 | `examples/x-studio-ai` | `StudioProvider` + primitives | `<StudioChatPanel>` always-visible side panel | None — fully AI-driven |
 
-All three use the same underlying `@mui/x-studio` package.  The differences are purely
-compositional — the monolith `<Studio>` is itself thin orchestration over `StudioProvider` +
-`StudioCanvas` + drawer components.
+All three use the same underlying `@mui/x-studio` package and all require a backend server for
+AI features — `@mui/x-studio` is a pure UI package that never calls an LLM directly.
+The recommended local backend is [`examples/x-studio-dev-server`](../../../examples/x-studio-dev-server).
+Configure with `STUDIO_SERVER_URL=http://localhost:3020` in each app's `.env.local`.
+
+The differences between the apps are purely compositional — the monolith `<Studio>` is itself
+thin orchestration over `StudioProvider` + `StudioCanvas` + drawer components.
 
 ---
 
@@ -61,7 +63,7 @@ compositional — the monolith `<Studio>` is itself thin orchestration over `Stu
 ```
 src/App.tsx
   └─ <Studio
-       aiConfig={{ endpoint: import.meta.env.LLM_ENDPOINT, ... }}
+       aiConfig={{ endpoint: `${import.meta.env.STUDIO_SERVER_URL}/api/ai`, ... }}
        featureFlags={{ compose: true, filters: true, dataManagement: true, aiChat: true }}
        dataSources={...}
      />
@@ -125,10 +127,10 @@ auto-save pattern.  Per-chat conversation history is persisted via
 
 ## 3. AI System Prompt — `buildAISystemPrompt`
 
-**File:** `packages/x-studio/src/internals/buildAISystemPrompt.ts` (285 lines)
+**File:** `packages/x-studio-ai-middleware/src/buildAISystemPrompt.ts`
 
-Called from `createStudioChatAdapter` (`studioAdapter.ts:164`) at the start of every
-`doRequest` invocation to build a fresh snapshot of current state.
+Called from `runAgenticLoop` (`agenticLoop.ts`) at the start of every request turn
+to build a fresh snapshot of current dashboard state.
 
 ### 3.1 What it contains
 
@@ -181,181 +183,82 @@ The prompt is **schema-only** — it never includes raw data rows.
 
 ### 3.3 Live refresh
 
-The adapter calls `buildAISystemPrompt(controller.getState())` inside `doRequest` **on every
-request** (not cached), so the LLM always sees the latest dashboard state.  The `get_dashboard_state`
-tool (`studioAdapter.ts:179`) lets the model explicitly re-read state mid-conversation.
+The server calls `buildAISystemPrompt(state)` inside `runAgenticLoop` **on every request**
+(not cached), so the LLM always sees the latest dashboard state. The `get_dashboard_state`
+tool lets the model explicitly re-read state mid-conversation.
 
 ---
 
-## 4. Multi-Turn Chat Pipeline — `studioAdapter.ts`
+## 4. Multi-Turn Chat Pipeline — `studioBackendAdapter.ts`
 
-**File:** `packages/x-studio/src/StudioChatPanel/studioAdapter.ts` (~530 lines)
+**File:** `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts` (~200 lines)
 
-### 4.1 `createStudioChatAdapter`
+`@mui/x-studio` is a **pure UI package** — all AI logic (system prompt construction, LLM calls,
+tool execution) runs in `@mui/x-studio-ai-middleware` on the server. The client-side adapter is
+a thin SSE consumer that applies server-streamed state mutations to the local controller.
 
-```ts
-// studioAdapter.ts:140–220
-export function createStudioChatAdapter(
-  aiConfig: StudioAIConfig,
-  controller: StudioController,
-  onRemoveWidgetRequest: (widgetId: string) => Promise<boolean>,
-  onRemovePageRequest: (pageId: string) => Promise<boolean>,
-): StudioChatAdapter
-```
-
-Returns a `ChatAdapter`-compatible object:
+### 4.1 `createBackendChatAdapter`
 
 ```ts
-{
-  sendMessage: async (messages, options) => AsyncIterable<ChatAdapterEvent>
-}
-```
-
-This is the object that `StudioChatPanel` passes to `<ChatBox>` (or equivalent chat composer)
-from `@mui/x-chat`.  `@mui/x-chat` calls `adapter.sendMessage(messageHistory, { signal })`
-on every user submission, iterates the async iterable, and feeds events into its message store.
-
-### 4.2 `doRequest` — the agentic loop
-
-```ts
-// studioAdapter.ts:226–380
-async function* doRequest(
-  messages: OpenAIMessage[],
-  aiConfig: StudioAIConfig,
-  controller: StudioController,
-  tools: OpenAITool[],
-  systemPrompt: string,
-  onRemoveWidgetRequest,
-  onRemovePageRequest,
-  signal?: AbortSignal,
-): AsyncGenerator<ChatAdapterEvent>
-```
-
-The loop:
-
-```
-1. Build request body:
-     { model, stream: true, messages: [system, ...history], tools, tool_choice: 'auto' }
-
-2. fetch(aiConfig.endpoint, { method: 'POST', body: JSON.stringify(requestBody), signal })
-
-3. Yield events from processStream(response.body) — yields text deltas as they arrive
-
-4. After stream ends, check for tool_calls in accumulated response:
-     for each tool_call:
-       a. Yield { type: 'tool_call', name, args }
-       b. result = await executeTool(tool_call, controller, onRemoveWidgetRequest, onRemovePageRequest)
-       c. Yield { type: 'tool_result', toolCallId, result }
-
-5. If any tool was called:
-     Append assistant message + all tool results to messages
-     Recurse: yield* doRequest(updatedMessages, ...)  ← agentic follow-up
-
-6. If no tool was called (or all tools produced results with no further action):
-     Return — generator is exhausted
-```
-
-**Max depth:** not explicitly capped, but circular tool loops are prevented in practice because
-`executeTool` always returns a result and the LLM terminates when it has sufficient information.
-
-### 4.3 `processStream` — SSE streaming
-
-```ts
-// studioAdapter.ts:45–135
-async function* processStream(
-  body: ReadableStream<Uint8Array>,
-): AsyncGenerator<ChatAdapterEvent>
-```
-
-Parses the OpenAI streaming response format:
-
-```
-data: {"choices":[{"delta":{"content":"..."}}]}
-data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"add_widget",...}}]}}]}
-data: [DONE]
-```
-
-- Text deltas → `yield { type: 'text_delta', content: delta }` — these are streamed live to the
-  chat UI character-by-character
-- Tool call chunks → accumulated per-index in a `toolCallAccumulator` map (handles split chunks)
-- `[DONE]` → `yield { type: 'done', toolCalls: [...] }`
-
-### 4.4 `toOpenAIMessages`
-
-```ts
-// studioAdapter.ts:390–420
-function toOpenAIMessages(messages: ChatMessage[]): OpenAIMessage[]
-```
-
-Converts `@mui/x-chat` `ChatMessage[]` (which may contain `{ role, content, toolCalls, toolResults }`)
-into OpenAI wire format.  Key mappings:
-
-- `role: 'user'` → `{ role: 'user', content: string }`
-- `role: 'assistant'` with tool calls → `{ role: 'assistant', tool_calls: [...] }`
-- Tool results → separate `{ role: 'tool', tool_call_id, content: JSON.stringify(result) }` messages
-- `role: 'assistant'` text-only → `{ role: 'assistant', content: string }`
-
-### 4.5 Tool Definitions (all 17)
-
-Defined in `packages/x-studio/src/StudioChatPanel/studioAITools.ts`, passed as `tools: [...]` in every request.
-
-| Tool | Description |
-|---|---|
-| `get_dashboard_state` | Re-read full system prompt snapshot — model calls when state may have changed |
-| `add_page` | Create a new dashboard page (title) |
-| `rename_page` | Rename an existing page |
-| `remove_page` | Remove a page and all its widgets — gated by `onRemovePageRequest` confirmation |
-| `set_active_page` | Navigate to a page by id |
-| `set_dashboard_title` | Change the top-level dashboard title |
-| `add_widget` | Add a new widget (kind, title, sourceId, config, filters) to the active page |
-| `update_widget` | Patch a widget's config and/or title |
-| `remove_widget` | Remove a widget — gated by `onRemoveWidgetRequest` confirmation |
-| `set_widget_layout` | Rearrange widgets by specifying row groupings |
-| `set_widget_width` | Set the column span of a widget (3–12 columns) |
-| `add_page_filter` | Add a filter scoped to the active page |
-| `remove_page_filter` | Remove a page-scoped filter by ID |
-| `add_widget_filter` | Add a filter scoped to a specific widget |
-| `remove_widget_filter` | Remove a widget-scoped filter by ID |
-| `summarise_page` | Returns a rich data snapshot of every widget on the active page — per-widget sampled CSV, numeric stats, and anomaly axis values for chart widgets. Used by the **Summarise page** chat chip. |
-| `apply_bulk_update` | Applies multiple coordinated changes in a single `controller.setState()` — widget config patches, additions, removals, layout (`widgetRows`), and column spans (`widgetColSpans`). The system prompt instructs the AI to prefer this over individual tools when a prompt requires 3 or more related changes. |
-
-### 4.6 `executeTool` — dispatch
-
-```ts
-function executeTool(
-  name: string,
-  args: unknown,
+export function createBackendChatAdapter(
+  config: StudioAIConfig,
   controller: StudioController,
   customWidgets?: StudioCustomWidgetDef[],
-): string   // synchronous; returns JSON string fed back to model as tool result
+  focusedWidgetId?: string,
+): ChatAdapter
 ```
 
-Each tool name is handled in a `switch` statement.  Confirmation-gated tools (`remove_widget`,
-`remove_page`) are handled *before* `executeTool` in the dispatch loop and never reach it when
-the user declines.
+Returns a `ChatAdapter`-compatible object that `StudioChatPanel` passes to `<ChatBox>` from
+`@mui/x-chat`. On every user submission `@mui/x-chat` calls `adapter.sendMessage(messageHistory, { signal })`,
+which yields `ChatAdapterEvent` objects as the SSE stream arrives.
 
-### 4.7 Parallel tool call dispatch
+### 4.2 Request flow
 
-The model can return multiple `tool_calls` in a single assistant message (standard OpenAI API).
-The adapter collects all of them from the streaming response, dispatches them, then sends **all
-results back in one follow-up message** — one round-trip regardless of how many tools were called.
+```
+1. Serialize skills (strip execute functions → SerializableSkill[])
 
-**Execution order:**
+2. POST { messages, dashboardState, customWidgets?, focusedWidgetId?, allowedTools?, skills? }
+        to `config.endpoint + '/chat'`
+
+3. Read SSE stream, parse StudioAISSEEvent objects (via parseSSE)
+
+4. Route each event (see 4.3 below)
+
+5. On stream close → complete the ChatAdapter async iterable
+```
+
+### 4.3 SSE event handling
+
+| SSE event type   | Client action                                           |
+| :--------------- | :------------------------------------------------------ |
+| `text-delta`     | Yield `{ type: 'text_delta', content: delta }` to chat  |
+| `tool-activity`  | Yield `{ type: 'tool_activity', ... }` to chat UI       |
+| `state-mutation` | `applyStateMutation(mutation, controller)`              |
+| `finish`         | Yield `{ type: 'done' }` — closes the stream            |
+| `error`          | Yield `{ type: 'error', message }` — surfaces in chat   |
+
+`applyStateMutation` maps each `StateMutation` to the corresponding `StudioController` method.
+For `addPage`, the server-assigned page ID is preserved via `controller.setState()` rather than
+`controller.addPage()` (which would generate a new ID).
+
+### 4.4 Parallel tool dispatch
+
+Parallel tool execution happens entirely on the **server** (`runAgenticLoop` in
+`@mui/x-studio-ai-middleware`). The client adapter receives the resulting `state-mutation` events
+in order and applies them sequentially — it has no knowledge of parallelism.
+
+**Server-side execution order:**
 
 | Tool type | Execution |
 |---|---|
-| Built-in state-mutating (`add_widget`, `update_widget`, etc.) | Sequential — each reads the state updated by the previous |
+| Built-in state-mutating (`add_widget`, `update_widget`, etc.) | Sequential — each reads state updated by the previous |
 | Built-in read-only (`get_dashboard_state`, `summarise_page`) | Sequential (synchronous, effectively instant) |
-| `extraTool` / skill tool with `parallel: false` (default) | Sequential |
-| `extraTool` / skill tool with `parallel: true` | Concurrent with adjacent `parallel: true` tools via `Promise.all` |
+| Skill tool with `parallel: false` (default) | Sequential |
+| Skill tool with `parallel: true` | Concurrent with adjacent `parallel: true` tools via `Promise.all` |
 
-The dispatch loop groups adjacent `parallel: true` async tools and flushes each group before
-continuing with the next sequential tool. `toolResults[]` preserves original order for the
-follow-up message.
-
-**`parallel: true`** is opt-in on `StudioAiTool` and `StudioAISkill.tool`. Use it for
-read-only/side-effect-free async operations (e.g., fetching live data for several widgets
-simultaneously). Never mark a tool `parallel: true` if it reads then mutates state.
+**`parallel: true`** is opt-in on `StudioAISkill.tool`. Use it for read-only/side-effect-free
+async operations (e.g., fetching live data for several widgets simultaneously). Never mark a
+tool `parallel: true` if it reads then mutates state.
 
 ---
 
@@ -437,7 +340,7 @@ export async function buildWidgetDataSummary(
 ): Promise<string>   // CSV preamble string
 ```
 
-`buildWidgetDataSummary` is **exported** (since the `summarise_page` tool in `studioAdapter.ts` calls it directly).
+`buildWidgetDataSummary` is **exported** (the `summarise_page` tool in `@mui/x-studio-ai-middleware` calls it via the server-side `executeToolOnState`).
 
 `MAX_DATA_ROWS = 100` rows are included.
 
@@ -474,7 +377,7 @@ export async function createWidgetFromDescription(
 **Only called from:** `AddWidgetView.tsx:70` inside the Compose Drawer's "Describe widget" UI.  
 **Not available in** `x-studio-ai` (no Compose Drawer rendered).
 
-This is the only AI feature that bypasses `studioAdapter.ts` entirely and calls `addWidget`
+This is the only AI feature that does not go through the chat pipeline — it calls `addWidget`
 synchronously from a UI action (not from a chat message).
 
 ---
@@ -612,7 +515,7 @@ Rank-mode widget filters are applied **post-aggregation** (inside `resolveRowsCa
 
 ## 9. Result Display per Path
 
-### Path A — Multi-turn chat (`studioAdapter.ts`)
+### Path A — Multi-turn chat (`studioBackendAdapter.ts`)
 
 **Entry:** User types into `StudioChatPanel` → `@mui/x-chat`'s `ChatBox` calls
 `adapter.sendMessage(messageHistory)`.
@@ -655,7 +558,7 @@ detected anomalies populate `anomalyAnnotations` → "Explain Anomaly" button ap
 present and `aiConfig` is configured).
 
 **Flow:** The chat sends "Summarise the current page." → the AI calls the `summarise_page` tool →
-`studioAdapter.ts` iterates widgets, calls `buildWidgetDataSummary` with kind-appropriate sampling
+The server's `executeToolOnState` calls `buildWidgetDataSummary` with kind-appropriate sampling
 (`'aggregate'` for charts, `'stride'` for others), runs `detectWidgetAnomalies` for chart widgets,
 and returns a JSON blob with per-widget data → the AI writes a narrative summary in the chat thread.
 
@@ -797,8 +700,7 @@ flowchart TD
 | File | Lines | Purpose |
 |---|---|---|
 | `packages/x-studio/src/Studio/Studio.tsx` | 741 | Monolithic `<Studio>` component, FAB wiring, lazy `StudioChatPanel` |
-| `packages/x-studio/src/StudioChatPanel/studioAdapter.ts` | ~1130 | `createStudioChatAdapter`, agentic loop, `executeTool` (direct/proxy mode) |
-| `packages/x-studio/src/StudioChatPanel/studioBackendAdapter.ts` | ~200 | Thin client for `x-studio-ai-middleware` endpoints (`mode: 'x-studio-ai-middleware'`) |
+| `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts` | ~200 | Thin SSE client: POST → SSE → `applyStateMutation` |
 | `packages/x-studio/src/StudioChatPanel/applyStateMutation.ts` | ~120 | Maps `StateMutation` events → `StudioController` calls |
 | `packages/x-studio/src/internals/buildAISystemPrompt.ts` | ~390 | System prompt builder: `STUDIO_AI_INSTRUCTIONS` + `buildDashboardState()` |
 | `packages/x-studio/src/StudioChatPanel/generateInsight.ts` | 525 | `generateWidgetInsight`, `generateDashboardSummary`, `generateAnomalyExplanation`, `buildWidgetDataSummary` |
@@ -860,8 +762,7 @@ studioBackendAdapter.ts
   - On finish → closes stream
 ```
 
-Activated by `StudioAIConfig.mode = 'x-studio-ai-middleware'`. `StudioChatPanel` dispatches
-to `createBackendChatAdapter` instead of `createStudioChatAdapter`.
+`StudioChatPanel` always dispatches to `createBackendChatAdapter` — there is no client-direct mode.
 
 ### 12.2 `handleAIChat` — pure function entry point
 
@@ -963,10 +864,10 @@ export function createBackendChatAdapter(
 ): ChatAdapter
 ```
 
-Replaces the 1100-line `studioAdapter.ts` agentic loop with a ~200-line thin SSE client:
+A ~200-line thin SSE client (all AI logic lives in `@mui/x-studio-ai-middleware`):
 
 - Serializes skills (strips `execute` functions)
-- POSTs `StudioAIRequest` to `config.endpoint`
+- POSTs `StudioAIRequest` to `config.endpoint + '/chat'`
 - Reads `StudioAISSEEvent` SSE stream
 - Routes events: text → chat stream, state-mutation → `applyStateMutation`
 

@@ -8,7 +8,7 @@ import {
   makeSelectWidgetSource,
   useCustomWidgetMap,
 } from '../../context';
-import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
+import { useStudioFeatures, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
 import { ChartSetupPanel } from '../StudioComposeDrawer/ChartSetupPanel';
 import { FilterSetupPanel } from '../StudioComposeDrawer/FilterSetupPanel';
@@ -98,6 +98,7 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
   const widgets = useStudioSelector(selectWidgets);
   const widget = widgets[widgetId];
   const features = useStudioFeatures();
+  const localeText = useStudioLocaleText();
   const showFiltersTab = features.widgetFilters !== false;
   const widgetKindLabels = useWidgetKindLabels();
 
@@ -168,7 +169,7 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
           {/* Card-style header mirrors the canvas widget card layout */}
           <Box sx={{ mb: 0.5, minWidth: 0 }}>
             <Typography variant="h6" noWrap>
-              {widget.title || `Untitled ${kindLabel}`}
+              {widget.title || localeText.widgetUntitledLabel(kindLabel)}
             </Typography>
             {widget.subtitle && (
               <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
@@ -212,10 +213,15 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
               {kindLabel}
             </Typography>
             <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600 }}>
-              {widget.title || `Untitled ${kindLabel}`}
+              {widget.title || localeText.widgetUntitledLabel(kindLabel)}
             </Typography>
           </Box>
-          <IconButton size="small" onClick={onClose} aria-label="Close edit dialog" sx={{ ml: 1 }}>
+          <IconButton
+            size="small"
+            onClick={onClose}
+            aria-label={localeText.widgetEditDialogCloseAriaLabel}
+            sx={{ ml: 1 }}
+          >
             <CloseIcon fontSize="small" />
           </IconButton>
         </DialogTitle>
@@ -226,9 +232,9 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
           onChange={handleTabChange}
           sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
         >
-          <Tab label="Setup" />
-          {showFiltersTab && <Tab label="Filters" />}
-          <Tab label="Format" />
+          <Tab label={localeText.widgetEditDialogTabSetup} />
+          {showFiltersTab && <Tab label={localeText.widgetEditDialogTabFilters} />}
+          <Tab label={localeText.widgetEditDialogTabFormat} />
         </Tabs>
 
         {/* Tab panels — scrollable */}

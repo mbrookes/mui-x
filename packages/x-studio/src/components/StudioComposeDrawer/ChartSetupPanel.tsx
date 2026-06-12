@@ -21,7 +21,15 @@ import {
   Typography,
 } from '@mui/material';
 import FunctionsIcon from '@mui/icons-material/Functions';
-import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectExpressionFields, selectRelationships, useStudioLocaleText } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectDataSources,
+  selectExpressionFields,
+  selectRelationships,
+  useStudioLocaleText,
+} from '../../context';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { fieldsForCapability } from '../../utils/fieldCapabilities';
 import {
@@ -344,7 +352,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               }}
               fields={fieldsForCapability(allFields, 'numeric')}
               label={localeText.chartSetupValueFieldLabel}
-              helperText="Numeric field to aggregate"
+              helperText={localeText.chartSetupValueFieldHelperText}
             />
 
             <FormControl size="small" fullWidth>
@@ -469,7 +477,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     }
                   }}
                   size="small"
-                  aria-label="Sort direction"
+                  aria-label={localeText.chartSetupSortDirectionAriaLabel}
                 >
                   <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
                     ↑ Asc
@@ -493,8 +501,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     });
                   }}
                   fields={numericFields}
-                  label="Y field (numeric)"
-                  helperText="Numeric field plotted on the vertical axis"
+                  label={localeText.chartSetupYFieldLabel}
+                  helperText={localeText.chartSetupYFieldHelperText}
                 />
                 <DataSourceFieldSelect
                   value={config.scatterColorField ?? ''}
@@ -504,8 +512,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     })
                   }
                   fields={categoryFields}
-                  label="Color by (optional)"
-                  helperText="Splits points into colour-coded series per category"
+                  label={localeText.chartSetupColorByLabel}
+                  helperText={localeText.chartSetupColorByHelperText}
                 />
                 <DataSourceFieldSelect
                   value={config.scatterSizeField ?? ''}
@@ -515,14 +523,14 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     })
                   }
                   fields={numericFields}
-                  label="Size by (optional)"
-                  helperText="Numeric field that controls bubble radius (produces a bubble chart)"
+                  label={localeText.chartSetupSizeByLabel}
+                  helperText={localeText.chartSetupSizeByHelperText}
                 />
                 {config.scatterSizeField && (
                   <Stack direction="row" spacing={1}>
                     <TextField
                       size="small"
-                      label="Min radius"
+                      label={localeText.chartSetupMinRadiusLabel}
                       type="number"
                       value={config.scatterMinRadius ?? 4}
                       onChange={(evt) =>
@@ -535,7 +543,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     />
                     <TextField
                       size="small"
-                      label="Max radius"
+                      label={localeText.chartSetupMaxRadiusLabel}
                       type="number"
                       value={config.scatterMaxRadius ?? 40}
                       onChange={(evt) =>
@@ -563,7 +571,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 }}
                 fields={numericFields}
                 label={localeText.chartSetupValueFieldLabel}
-                helperText="Numeric field summed per stage — stages are sorted by value (largest first)"
+                helperText={localeText.chartSetupFunnelValueHelperText}
               />
             )}
 
@@ -576,8 +584,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     controller.updateWidgetConfig(widgetId, { heatYField: fieldId || undefined })
                   }
                   fields={categoryFields}
-                  label="Row axis field"
-                  helperText="Categorical field for the vertical (row) axis, event.g. hour of day"
+                  label={localeText.chartSetupHeatmapRowAxisLabel}
+                  helperText={localeText.chartSetupHeatmapRowAxisHelperText}
                 />
                 <DataSourceFieldSelect
                   value={config.yField ?? ySeries[0]?.fieldId ?? ''}
@@ -588,13 +596,13 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     });
                   }}
                   fields={numericFields}
-                  label="Value / colour field"
-                  helperText="Numeric field summed per cell to determine colour intensity"
+                  label={localeText.chartSetupHeatmapValueLabel}
+                  helperText={localeText.chartSetupHeatmapValueHelperText}
                 />
                 <FormControl size="small" fullWidth>
-                  <InputLabel>Colour scheme</InputLabel>
+                  <InputLabel>{localeText.chartSetupHeatmapColourSchemeLabel}</InputLabel>
                   <Select
-                    label="Colour scheme"
+                    label={localeText.chartSetupHeatmapColourSchemeLabel}
                     value={config.heatColorScheme ?? 'primary'}
                     onChange={(evt) =>
                       controller.updateWidgetConfig(widgetId, {
@@ -755,9 +763,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     }
                   />
                 }
-                label={
-                  <Typography variant="caption">{localeText.chartSetupDualYAxis}</Typography>
-                }
+                label={<Typography variant="caption">{localeText.chartSetupDualYAxis}</Typography>}
                 sx={{ ml: 0 }}
               />
             )}
@@ -815,9 +821,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   Arc labels
                 </Typography>
                 <FormControl size="small" fullWidth>
-                  <InputLabel>Arc label</InputLabel>
+                  <InputLabel>{localeText.chartSetupArcLabelLabel}</InputLabel>
                   <Select
-                    label="Arc label"
+                    label={localeText.chartSetupArcLabelLabel}
                     value={config.pieArcLabel ?? 'none'}
                     onChange={(evt) =>
                       controller.updateWidgetConfig(widgetId, {
@@ -833,10 +839,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 {(config.pieArcLabel ?? 'none') !== 'none' && (
                   <TextField
                     size="small"
-                    label="Minimum angle (°)"
+                    label={localeText.chartSetupMinAngleLabel}
                     type="number"
                     value={config.pieArcLabelMinAngle ?? 20}
-                    helperText="Slices smaller than this angle (degrees) won't show a label"
+                    helperText={localeText.chartSetupMinAngleHelperText}
                     onChange={(evt) =>
                       controller.updateWidgetConfig(widgetId, {
                         pieArcLabelMinAngle: Math.max(0, Number(evt.target.value)),
@@ -859,8 +865,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 controller.updateWidgetConfig(widgetId, { ganttLabelField: fieldId || undefined })
               }
               fields={allFields}
-              label="Label field"
-              helperText="Field shown as the row label on the Y axis (event.g. task or order name)"
+              label={localeText.chartSetupGanttLabelFieldLabel}
+              helperText={localeText.chartSetupGanttLabelFieldHelperText}
             />
             <DataSourceFieldSelect
               value={config.ganttStartField ?? ''}
@@ -868,8 +874,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 controller.updateWidgetConfig(widgetId, { ganttStartField: fieldId || undefined })
               }
               fields={dateFields}
-              label="Start date field"
-              helperText="Date / datetime field for the start of each bar"
+              label={localeText.chartSetupGanttStartDateLabel}
+              helperText={localeText.chartSetupGanttStartDateHelperText}
             />
             <DataSourceFieldSelect
               value={config.ganttEndField ?? ''}
@@ -877,8 +883,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 controller.updateWidgetConfig(widgetId, { ganttEndField: fieldId || undefined })
               }
               fields={dateFields}
-              label="End date field"
-              helperText="Date / datetime field for the end of each bar"
+              label={localeText.chartSetupGanttEndDateLabel}
+              helperText={localeText.chartSetupGanttEndDateHelperText}
             />
             <DataSourceFieldSelect
               value={config.ganttColorField ?? ''}
@@ -886,8 +892,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 controller.updateWidgetConfig(widgetId, { ganttColorField: fieldId || undefined })
               }
               fields={categoryFields}
-              label="Colour by (optional)"
-              helperText="Categorical field used to colour-code bars (event.g. status or category)"
+              label={localeText.chartSetupGanttColourByLabel}
+              helperText={localeText.chartSetupGanttColourByHelperText}
             />
           </Stack>
         )}
@@ -957,7 +963,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     </FormControl>
                     <TextField
                       size="small"
-                      label="Value"
+                      label={localeText.chartSetupReferenceLineValueLabel}
                       value={ann.value}
                       onChange={(event) => {
                         const raw = event.target.value;
@@ -972,7 +978,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     />
                     <TextField
                       size="small"
-                      label="Label"
+                      label={localeText.chartSetupReferenceLineLabelLabel}
                       value={ann.label ?? ''}
                       onChange={(event) => {
                         controller.updateWidgetConfig(widgetId, {

@@ -166,7 +166,12 @@ export function createBackendChatAdapter(
                 delta: String(event.delta ?? ''),
               });
             } else if (type === 'tool-activity') {
-              const { phase, toolCallId, toolName, input: toolInput } = event as {
+              const {
+                phase,
+                toolCallId,
+                toolName,
+                input: toolInput,
+              } = event as {
                 phase: string;
                 toolCallId: string;
                 toolName: string;
@@ -194,10 +199,7 @@ export function createBackendChatAdapter(
               }
             } else if (type === 'state-mutation') {
               try {
-                applyStateMutation(
-                  (event as { mutation: StateMutation }).mutation,
-                  controller,
-                );
+                applyStateMutation((event as { mutation: StateMutation }).mutation, controller);
               } catch (err) {
                 console.error('[StudioBackendAdapter] Failed to apply state mutation:', err);
               }

@@ -2,7 +2,11 @@ import { formatNumber } from '../../../internals/numberFormat';
 import type { MultiYSeriesData } from '../../../internals/chartUtils';
 import type { StudioChartType, StudioDataField, StudioNumberFormat } from '../../../models';
 
-function makeValueFormatter(format?: StudioNumberFormat, currencyCode?: string, precision?: number) {
+function makeValueFormatter(
+  format?: StudioNumberFormat,
+  currencyCode?: string,
+  precision?: number,
+) {
   if (!format && precision == null) {
     return undefined;
   }

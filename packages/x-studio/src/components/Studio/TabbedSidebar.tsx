@@ -8,6 +8,7 @@ import { useStudioController, useStudioSelector, selectShell } from '../../conte
 import type { StudioDrawer } from '../../models';
 import { DRAWER_WIDTH, COLLAPSED_WIDTH, DrawerSubheaderContext } from './DrawerPanelContext';
 import type { DrawerSubheaderContextValue } from './DrawerPanelContext';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 export interface TabbedSidebarPanel {
   drawer: StudioDrawer;
@@ -114,6 +115,7 @@ interface ActivePanelProps {
 }
 
 function ActivePanel({ panel, side = 'left' }: ActivePanelProps) {
+  const localeText = useStudioLocaleText();
   const [injectedSubheader, setInjectedSubheader] = React.useState<React.ReactNode>(null);
   const ctxValue = React.useMemo<DrawerSubheaderContextValue>(
     () => ({ setSubheader: setInjectedSubheader }),
@@ -149,7 +151,7 @@ function ActivePanel({ panel, side = 'left' }: ActivePanelProps) {
               <IconButton
                 size="small"
                 onClick={panel.onBack}
-                aria-label="Close widget configuration"
+                aria-label={localeText.drawerPanelCloseAriaLabel}
                 sx={{ mr: 0.5 }}
               >
                 <CloseIcon fontSize="small" />
@@ -195,6 +197,7 @@ function ActivePanel({ panel, side = 'left' }: ActivePanelProps) {
  * ```
  */
 export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
+  const localeText = useStudioLocaleText();
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);
 
@@ -226,7 +229,7 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
       {/* Tab rail */}
       <Box
         role="tablist"
-        aria-label="Sidebar panels"
+        aria-label={localeText.sidebarPanelsAriaLabel}
         sx={{
           width: COLLAPSED_WIDTH,
           flexShrink: 0,

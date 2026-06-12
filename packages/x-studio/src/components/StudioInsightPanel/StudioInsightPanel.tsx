@@ -7,6 +7,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import type { StudioInsightOptions, StudioInsightResult } from '../StudioChatPanel/generateInsight';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 export interface StudioInsightPanelProps {
   /** The generated insight, or null if loading/not yet generated. */
@@ -49,6 +50,7 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
     sx,
   } = props;
 
+  const localeText = useStudioLocaleText();
   const [copied, setCopied] = React.useState(false);
 
   const handleCopy = React.useCallback(() => {
@@ -90,7 +92,7 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <AutoAwesomeIcon sx={{ fontSize: 16, color: 'primary.main' }} />
         <Typography variant="caption" sx={{ flex: 1, fontWeight: 600 }}>
-          AI Insight
+          {localeText.aiSummaryTitle}
         </Typography>
         {/* Type switcher */}
         <Box sx={{ display: 'flex', gap: 0.25 }}>
@@ -117,13 +119,13 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
           ))}
         </Box>
         {insight && (
-          <Tooltip title={copied ? 'Copied!' : 'Copy'}>
+          <Tooltip title={copied ? localeText.aiCopiedTooltip : localeText.aiCopyTooltip}>
             <IconButton size="small" onClick={handleCopy} sx={{ p: 0.25 }}>
               <ContentCopyIcon sx={{ fontSize: 14 }} />
             </IconButton>
           </Tooltip>
         )}
-        <Tooltip title="Regenerate">
+        <Tooltip title={localeText.aiRegenerateTooltip}>
           <IconButton
             size="small"
             onClick={() => onRegenerate(activeType)}
@@ -133,7 +135,7 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
             <RefreshIcon sx={{ fontSize: 14 }} />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Close">
+        <Tooltip title={localeText.aiCloseTooltip}>
           <IconButton size="small" onClick={onClose} sx={{ p: 0.25 }}>
             <CloseIcon sx={{ fontSize: 14 }} />
           </IconButton>

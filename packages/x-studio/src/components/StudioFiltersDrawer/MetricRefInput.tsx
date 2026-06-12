@@ -81,7 +81,7 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       <FormControl size="small" fullWidth>
-        <InputLabel>Source</InputLabel>
+        <InputLabel>{localeText.filterSourceLabel}</InputLabel>
         <Select
           label={localeText.filterSourceLabel}
           value={value?.sourceId ?? ''}
@@ -107,7 +107,7 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
             <TextField
               {...params}
               label={localeText.filterMetricRowLabel}
-              helperText="Identifies the row in the business metrics table"
+              helperText={localeText.filterMetricHelperText}
             />
           )}
         />
@@ -115,9 +115,9 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
 
       {selectedSource && numericFields.length > 0 && (
         <FormControl size="small" fullWidth>
-          <InputLabel>Field</InputLabel>
+          <InputLabel>{localeText.filterFieldLabel}</InputLabel>
           <Select
-            label="Field"
+            label={localeText.filterFieldLabel}
             value={value?.field ?? ''}
             onChange={(event) => handleFieldChange(event.target.value)}
           >

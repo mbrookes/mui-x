@@ -1,18 +1,15 @@
 'use client';
 import * as React from 'react';
-import {
-  Box,
-  Collapse,
-  List,
-  ListItemButton,
-  Stack,
-  Typography,
-} from '@mui/material';
+import { Box, Collapse, List, ListItemButton, Stack, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { useStudioController, useStudioSelector, selectShell } from '../../context/index.ts';
-import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../../models/index.ts';
+import type {
+  StudioDataSource,
+  StudioExpressionField,
+  StudioRelationship,
+} from '../../models/index.ts';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 import { enrichRowsWithExpressions, evaluateMeasure } from '../../utils/expressionEvaluator.ts';
 import DataSourcePreviewTooltip from './DataSourcePreviewTooltip.tsx';

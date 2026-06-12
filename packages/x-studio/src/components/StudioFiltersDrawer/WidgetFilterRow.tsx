@@ -2,7 +2,12 @@
 import * as React from 'react';
 import { Autocomplete, Box, IconButton, Stack, TextField } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioController, useStudioSelector, selectFilters, useStudioLocaleText } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectFilters,
+  useStudioLocaleText,
+} from '../../context';
 import type { StudioFilterState } from '../../models';
 import type { FieldOption, FilterMode } from './filterDrawerTypes';
 import {
@@ -136,7 +141,11 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
               />
             )}
           />
-          <IconButton size="small" onClick={() => onRemove(filter.id)} aria-label={localeText.filterRemoveAriaLabel}>
+          <IconButton
+            size="small"
+            onClick={() => onRemove(filter.id)}
+            aria-label={localeText.filterRemoveAriaLabel}
+          >
             <CloseIcon fontSize="small" />
           </IconButton>
         </Box>

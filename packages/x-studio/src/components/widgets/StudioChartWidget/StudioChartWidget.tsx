@@ -100,7 +100,9 @@ export interface StudioChartWidgetProps {
    * Use this to surface the anomaly count or detected values in parent UI.
    * @param annotations
    */
-  onAnomalyDetected?: (annotations: import('../../../models/baseTypes').StudioChartAnnotation[]) => void;
+  onAnomalyDetected?: (
+    annotations: import('../../../models/baseTypes').StudioChartAnnotation[],
+  ) => void;
   /**
    * Additional annotations generated outside the widget (e.g. anomaly detection markers).
    * Merged with `widget.config.annotations` when rendering reference lines.
@@ -590,11 +592,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       return new Set([CROSS_FILTER_SERIES_ID]);
     }
 
-    if (
-      chartType === 'bar' ||
-      chartType === 'bar-stacked' ||
-      chartType === 'bar-100'
-    ) {
+    if (chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100') {
       if (seriesFieldData && seriesFieldData.seriesNames.length > 0) {
         return new Set(seriesFieldData.seriesNames.map((name) => String(name)));
       }
@@ -617,10 +615,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const controlledHighlightedAxis = !hasActiveXFilter ? (hoveredAxis ?? []) : [];
 
   // Grouped or stacked bar charts (by category field OR multiple y-fields)
-  const isBar =
-    chartType === 'bar' ||
-    chartType === 'bar-stacked' ||
-    chartType === 'bar-100';
+  const isBar = chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100';
 
   const barChartData = React.useMemo(() => {
     if (!isBar || !chartData) {
@@ -797,10 +792,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     );
   }
 
-  if (
-    !dataSource ||
-    (!config.xField && chartType !== 'gauge' && chartType !== 'gantt')
-  ) {
+  if (!dataSource || (!config.xField && chartType !== 'gauge' && chartType !== 'gantt')) {
     return (
       <Box
         sx={{
@@ -1574,9 +1566,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   if (
     barSeriesFieldData &&
     barSeriesFieldData.seriesNames.length > 0 &&
-    (chartType === 'bar' ||
-      chartType === 'bar-stacked' ||
-      chartType === 'bar-100')
+    (chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100')
   ) {
     // When ghost-rendering, use all-data as basis so ghost bars show full extent.
     // Exception: if the incoming cross-filter constrains the same foreign source that
@@ -2117,11 +2107,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     );
   }
 
-  if (
-    chartType === 'area' ||
-    chartType === 'area-stacked' ||
-    chartType === 'area-100'
-  ) {
+  if (chartType === 'area' || chartType === 'area-stacked' || chartType === 'area-100') {
     // Single-series: stacking has no visual effect; area-100 shows a flat 100% fill
     const xAxis = createLineXAxis(effectiveSingleSeriesData!.labels, CROSS_FILTER_AXIS_ID);
     const lineColor = resolvedChartColors[0];

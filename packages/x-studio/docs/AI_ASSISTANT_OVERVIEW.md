@@ -331,7 +331,43 @@ export async function generateAnomalyExplanation(
 
 **Only called from:** `StudioWidgetCard.tsx:297–322` (with a dynamic `import()` code-split).
 
-### 5.4 `buildWidgetDataSummary` — sampling strategies
+### 5.4 `generateCorrelationInsight` — Pearson r analysis
+
+```ts
+// generateInsight.ts
+export async function generateCorrelationInsight(
+  widgetId: string,
+  controller: StudioController,
+  aiConfig: StudioAIConfig,
+  options?: Pick<StudioInsightOptions, 'signal'>,
+): Promise<StudioInsightResult>;
+```
+
+1. Calls `buildCorrelationSummary(widget, state)` which computes pairwise Pearson r
+   between all numeric fields in the widget's data source
+2. Formats as a text table: `fieldA vs fieldB: r=0.87 (strong positive)`
+3. Combined with a data sample and sent to the LLM as `insightType: 'correlation'`
+4. Returns `{ text }` — a 3–5 sentence plain-language interpretation
+
+The `pearsonCorrelation(xs, ys)` and `interpretCorrelation(r)` utilities are in
+`packages/x-studio/src/internals/forecastUtils.ts` and are also exported from `src/index.ts`.
+
+### 5.5 `generateFieldDescriptions` (server-side)
+
+```ts
+// packages/x-studio-ai-middleware/src/generateFieldDescriptions.ts
+export async function generateFieldDescriptions(
+  sourceLabel: string,
+  fields: FieldDescriptionInput[],
+  options: GenerateInsightOptions,
+): Promise<FieldDescriptionResult[]>;
+```
+
+Sends field metadata (id, label, type, sample values) in a single batch LLM call and
+returns `{ id, aiDescription }` pairs. Results can be spread into `StudioDataField.aiDescription`
+to improve AI assistant quality across all subsequent chat and insight calls.
+
+### 5.6 `buildWidgetDataSummary` — sampling strategies
 
 ```ts
 // generateInsight.ts

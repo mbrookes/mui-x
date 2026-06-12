@@ -158,7 +158,7 @@ export function FormatPanel(props: { widgetId: string }) {
         fullWidth
         helperText={localeText.formatPanelSubtitleHelperText}
         value={subtitle}
-        placeholder={isAutoSubtitle ? '' : 'No subtitle'}
+        placeholder={isAutoSubtitle ? '' : localeText.formatPanelNoSubtitlePlaceholder}
         onChange={(event) => {
           setFormState((prev) => ({ ...prev, subtitle: event.target.value, subtitleDirty: true }));
         }}

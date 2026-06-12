@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, Popover, Typography, useTheme } from '@mui/material';
+import { useStudioLocaleText } from '../../context';
 import type { StudioDataSource, StudioRelationship } from '../../models';
 
 interface NodeLayout {
@@ -131,6 +132,7 @@ interface EdgeLabelProps {
 
 function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }: EdgeLabelProps) {
   const [anchorEl, setAnchorEl] = React.useState<SVGElement | null>(null);
+  const localeText = useStudioLocaleText();
 
   // Compute label position (midpoint of bezier)
   const srcIsLeft = srcNode.x + srcNode.width <= tgtNode.x;
@@ -241,14 +243,21 @@ function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }: EdgeLa
                 {srcSource?.label ?? rel.sourceId} → {tgtSource?.label ?? rel.targetId}
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Type: {rel.type}
+                {localeText.lineageTypePrefix(rel.type)}
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Join: {srcSource?.label}.{srcFieldLabel} = {tgtSource?.label}.{tgtFieldLabel}
+                {localeText.lineageJoinDetail(
+                  srcSource?.label ?? rel.sourceId,
+                  srcFieldLabel,
+                  tgtSource?.label ?? rel.targetId,
+                  tgtFieldLabel,
+                )}
               </Typography>
               {rel.type === 'many-to-many' && rel.junctionSourceId && (
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  Via: {sources[rel.junctionSourceId]?.label ?? rel.junctionSourceId}
+                  {localeText.lineageViaDetail(
+                    sources[rel.junctionSourceId]?.label ?? rel.junctionSourceId,
+                  )}
                 </Typography>
               )}
             </Box>
@@ -272,6 +281,7 @@ export interface DataLineageGraphProps {
  */
 export function DataLineageGraph({ sources, relationships, onNodeClick }: DataLineageGraphProps) {
   const theme = useTheme();
+  const localeText = useStudioLocaleText();
   const nodeColor = theme.palette.primary.main;
   const edgeColor = theme.palette.text.secondary;
   const edgeHoverColor = theme.palette.primary.main;
@@ -349,7 +359,7 @@ export function DataLineageGraph({ sources, relationships, onNodeClick }: DataLi
             }
             role={onNodeClick ? 'button' : undefined}
             tabIndex={onNodeClick ? 0 : undefined}
-            aria-label={onNodeClick ? `Preview ${node.label}` : undefined}
+            aria-label={onNodeClick ? localeText.lineagePreviewAriaLabel(node.label) : undefined}
             style={onNodeClick ? { cursor: 'default' } : undefined}
           >
             <rect
@@ -383,7 +393,7 @@ export function DataLineageGraph({ sources, relationships, onNodeClick }: DataLi
           color="text.secondary"
           sx={{ display: 'block', mt: 0.5, textAlign: 'center' }}
         >
-          No relationships defined between sources
+          {localeText.lineageNoRelationships}
         </Typography>
       )}
     </Box>

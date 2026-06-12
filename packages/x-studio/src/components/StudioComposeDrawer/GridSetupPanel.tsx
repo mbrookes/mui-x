@@ -59,26 +59,6 @@ const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = [
 ];
 const STRING_AGGREGATIONS: StudioGridSummaryAggregation[] = ['count', 'count_distinct'];
 
-const CF_OPERATORS: { value: StudioConditionalFormat['operator']; label: string }[] = [
-  { value: 'equals', label: '=' },
-  { value: 'not_equals', label: '≠' },
-  { value: 'greater_than', label: '>' },
-  { value: 'greater_than_or_equal', label: '≥' },
-  { value: 'less_than', label: '<' },
-  { value: 'less_than_or_equal', label: '≤' },
-  { value: 'contains', label: 'contains' },
-  { value: 'is_empty', label: 'is empty' },
-  { value: 'is_not_empty', label: 'not empty' },
-];
-
-const CF_STYLE_PRESETS: { label: string; style: StudioConditionalFormat['style'] }[] = [
-  { label: 'Red', style: { backgroundColor: '#ffcdd2', color: '#b71c1c' } },
-  { label: 'Green', style: { backgroundColor: '#c8e6c9', color: '#1b5e20' } },
-  { label: 'Yellow', style: { backgroundColor: '#fff9c4', color: '#f57f17' } },
-  { label: 'Blue', style: { backgroundColor: '#bbdefb', color: '#0d47a1' } },
-  { label: 'Bold', style: { fontWeight: 'bold' } },
-];
-
 /** A selectable field entry with its source context */
 interface SelectableField {
   fieldId: string;
@@ -106,10 +86,28 @@ export function GridSetupPanel(props: { widgetId: string }) {
     sum: localeText.aggFnSum,
     avg: localeText.aggFnAverage,
     count: localeText.aggFnCount,
-    count_distinct: 'Unique',
+    count_distinct: localeText.gridSetupColumnAggUnique,
     min: localeText.aggFnMin,
     max: localeText.aggFnMax,
   };
+  const cfOperators: { value: StudioConditionalFormat['operator']; label: string }[] = [
+    { value: 'equals', label: '=' },
+    { value: 'not_equals', label: '≠' },
+    { value: 'greater_than', label: '>' },
+    { value: 'greater_than_or_equal', label: '≥' },
+    { value: 'less_than', label: '<' },
+    { value: 'less_than_or_equal', label: '≤' },
+    { value: 'contains', label: localeText.gridSetupCFContains },
+    { value: 'is_empty', label: localeText.gridSetupCFIsEmpty },
+    { value: 'is_not_empty', label: localeText.gridSetupCFNotEmpty },
+  ];
+  const cfStylePresets: { label: string; style: StudioConditionalFormat['style'] }[] = [
+    { label: localeText.gridSetupCFStyleRed, style: { backgroundColor: '#ffcdd2', color: '#b71c1c' } },
+    { label: localeText.gridSetupCFStyleGreen, style: { backgroundColor: '#c8e6c9', color: '#1b5e20' } },
+    { label: localeText.gridSetupCFStyleYellow, style: { backgroundColor: '#fff9c4', color: '#f57f17' } },
+    { label: localeText.gridSetupCFStyleBlue, style: { backgroundColor: '#bbdefb', color: '#0d47a1' } },
+    { label: localeText.gridSetupCFStyleBold, style: { fontWeight: 'bold' } },
+  ];
 
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
 
@@ -430,14 +428,12 @@ export function GridSetupPanel(props: { widgetId: string }) {
                 {...params}
                 label={localeText.gridSetupDataSourceLabel}
                 placeholder={localeText.gridSetupDataSourcePlaceholder}
-                helperText={!source ? 'Choose a data source to configure columns' : undefined}
+                helperText={!source ? localeText.gridSetupChooseSourceHelper : undefined}
               />
             )}
           />
           {!source && (
-            <Alert severity="info">
-              Select a data source above to configure this table&apos;s columns and settings.
-            </Alert>
+          <Alert severity="info">{localeText.gridSetupNoSourceAlert}</Alert>
           )}
         </React.Fragment>
       )}
@@ -446,7 +442,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
       {(source || tableSourceMode === 'implicit') && (
         <React.Fragment>
           <Typography variant="caption" color="text.secondary">
-            Columns
+            {localeText.gridSetupColumnsTitle}
           </Typography>
 
           {/* Selected columns list */}
@@ -460,11 +456,14 @@ export function GridSetupPanel(props: { widgetId: string }) {
               : summaryFields[col.fieldId];
             const isGroupByField = col.fieldId === groupByField && !col.sourceId;
             const isDraggingOver = dragOverIndex === index && dragIndex !== index;
-            let aggregationTooltipTitle = 'Set summary / remove';
+            let aggregationTooltipTitle = localeText.gridSetupColumnAggSummaryTooltip;
             if (currentAgg) {
-              aggregationTooltipTitle = `${groupByField ? 'Aggregate' : 'Summary'}: ${aggLabels[currentAgg]}`;
+              aggregationTooltipTitle = localeText.gridSetupColumnAggLabel(
+                Boolean(groupByField),
+                aggLabels[currentAgg],
+              );
             } else if (groupByField) {
-              aggregationTooltipTitle = 'Set aggregation';
+              aggregationTooltipTitle = localeText.gridSetupColumnSetAggTooltip;
             }
 
             return (
@@ -513,13 +512,15 @@ export function GridSetupPanel(props: { widgetId: string }) {
                 )}
                 {isGroupByField && (
                   <Typography variant="caption" color="text.secondary">
-                    (group)
+                    {localeText.gridSetupColumnGroupLabel}
                   </Typography>
                 )}
                 <Tooltip title={aggregationTooltipTitle}>
                   <IconButton
                     size="small"
-                    aria-label={`Options for ${fieldInfo?.label ?? col.fieldId}`}
+                    aria-label={localeText.gridSetupColumnOptionsAriaLabel(
+                      fieldInfo?.label ?? col.fieldId,
+                    )}
                     aria-haspopup="true"
                     aria-expanded={menuAnchor?.key === colKey}
                     onClick={(evt) => setMenuAnchor({ key: colKey, el: evt.currentTarget })}
@@ -538,7 +539,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     <ListItemIcon>
                       <DeleteIcon fontSize="small" />
                     </ListItemIcon>
-                    Remove
+                    {localeText.gridSetupColumnRemove}
                   </MenuItem>
                   {!isGroupByField && <Divider />}
                   {!isGroupByField && (
@@ -557,7 +558,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                       ) : (
                         <ListItemIcon />
                       )}
-                      None
+                      {localeText.gridSetupColumnAggNone}
                     </MenuItem>
                   )}
                   {!isGroupByField &&
@@ -594,7 +595,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
             onClick={(evt) => setAddMenuAnchor(evt.currentTarget)}
             fullWidth
           >
-            Add column
+            {localeText.gridSetupAddColumn}
           </Button>
           <Menu
             open={Boolean(addMenuAnchor)}
@@ -612,7 +613,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                 <ListItemIcon>
                   <FunctionsIcon fontSize="small" />
                 </ListItemIcon>
-                Calculated column…
+                {localeText.gridSetupCalculatedColumn}
               </MenuItem>
             )}
             {features.calculatedFields !== false &&
@@ -746,7 +747,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
               {conditionalFormats.map((rule, i) => {
                 const noValueOp = rule.operator === 'is_empty' || rule.operator === 'is_not_empty';
                 const fieldEntry = source.fields.find((f) => f.id === rule.fieldId);
-                const preset = CF_STYLE_PRESETS.find(
+                const preset = cfStylePresets.find(
                   (p) =>
                     p.style.backgroundColor === rule.style.backgroundColor &&
                     p.style.color === rule.style.color &&
@@ -787,7 +788,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                       }}
                       sx={{ fontSize: 12, flex: '0 0 auto', minWidth: 60 }}
                     >
-                      {CF_OPERATORS.map((op) => (
+                      {cfOperators.map((op) => (
                         <MenuItem key={op.value} value={op.value} dense sx={{ fontSize: 12 }}>
                           {op.label}
                         </MenuItem>
@@ -816,7 +817,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                       size="small"
                       value={preset?.label ?? '__custom__'}
                       onChange={(event) => {
-                        const selected = CF_STYLE_PRESETS.find(
+                        const selected = cfStylePresets.find(
                           (p) => p.label === event.target.value,
                         );
                         if (selected) {
@@ -827,7 +828,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                       }}
                       sx={{ fontSize: 12, flex: '0 0 auto', minWidth: 64 }}
                     >
-                      {CF_STYLE_PRESETS.map((p) => (
+                      {cfStylePresets.map((p) => (
                         <MenuItem key={p.label} value={p.label} dense sx={{ fontSize: 12 }}>
                           {p.label}
                         </MenuItem>
@@ -867,14 +868,14 @@ export function GridSetupPanel(props: { widgetId: string }) {
                       fieldId: firstField.id,
                       operator: 'greater_than',
                       value: 0,
-                      style: CF_STYLE_PRESETS[0].style,
+                      style: cfStylePresets[0].style,
                     },
                   ];
                   controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
                 }}
                 sx={{ alignSelf: 'flex-start', fontSize: 12 }}
               >
-                Add rule
+                {localeText.gridSetupAddRule}
               </Button>
             </Stack>
           </SetupSection>
@@ -901,13 +902,13 @@ export function GridSetupPanel(props: { widgetId: string }) {
               fullWidth
             >
               <ToggleButton value="cross-highlight" sx={{ fontSize: 11, textTransform: 'none' }}>
-                Highlight
+                {localeText.crossFilterModeHighlight}
               </ToggleButton>
               <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
-                Filter
+                {localeText.crossFilterModeFilter}
               </ToggleButton>
               <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
-                None
+                {localeText.crossFilterModeNone}
               </ToggleButton>
             </ToggleButtonGroup>
           </SetupSection>

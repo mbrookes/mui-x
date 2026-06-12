@@ -263,9 +263,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const isPieOrDonut = chartType === 'pie' || chartType === 'donut';
   let seriesFieldHelperText = 'Divides data into a separate series per value';
   if (seriesFieldDisabled) {
-    seriesFieldHelperText = 'Not available when multiple measure fields are configured';
+    seriesFieldHelperText = localeText.chartSetupSplitByDisabledHelperText;
   } else if (isPieOrDonut) {
-    seriesFieldHelperText = 'Adds a concentric inner ring grouped by this field';
+    seriesFieldHelperText = localeText.chartSetupInnerRingHelperText;
+  } else {
+    seriesFieldHelperText = localeText.chartSetupSplitByHelperText;
   }
   const isGauge = chartType === 'gauge';
   const isMixed = chartType === 'mixed';
@@ -290,7 +292,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   if (allFields.length === 0) {
     return (
       <Alert severity="warning" sx={{ mt: 1 }}>
-        No data fields available for chart configuration.
+        {localeText.chartSetupNoDataAlert}
       </Alert>
     );
   }
@@ -298,30 +300,36 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   // Computed labels to avoid nested ternaries in JSX
   let xFieldLabel: string;
   if (isScatter) {
-    xFieldLabel = 'X field (numeric)';
+    xFieldLabel = localeText.chartSetupXFieldNumericLabel;
   } else if (isHorizontalBarChart) {
-    xFieldLabel = 'Y / Category field';
+    xFieldLabel = localeText.chartSetupXFieldCategoryVertLabel;
   } else {
-    xFieldLabel = 'X / Category field';
+    xFieldLabel = localeText.chartSetupXFieldCategoryHorizLabel;
   }
 
   let xFieldHelperText: string;
   if (isScatter) {
-    xFieldHelperText = 'Plotted on the horizontal axis';
+    xFieldHelperText = localeText.chartSetupXFieldHorizontalHelperText;
   } else if (isHorizontalBarChart) {
-    xFieldHelperText = 'Groups data along the vertical axis';
+    xFieldHelperText = localeText.chartSetupXFieldGroupVertHelperText;
   } else {
-    xFieldHelperText = 'Groups data along the horizontal axis';
+    xFieldHelperText = localeText.chartSetupXFieldGroupHorizHelperText;
   }
 
   let yMeasureLabel: string;
   if (supportsMultipleSeries) {
-    yMeasureLabel = isHorizontalBarChart ? 'X / Measure fields' : 'Y / Measure fields';
+    yMeasureLabel = isHorizontalBarChart
+      ? localeText.chartSetupXMeasureFieldsLabel
+      : localeText.chartSetupYMeasureFieldsLabel;
   } else {
-    yMeasureLabel = isHorizontalBarChart ? 'X / Measure field' : 'Y / Measure field';
+    yMeasureLabel = isHorizontalBarChart
+      ? localeText.chartSetupXMeasureFieldLabel
+      : localeText.chartSetupYMeasureFieldLabel;
   }
 
-  const ySeriesLabelBase = isHorizontalBarChart ? 'X / Measure field' : 'Y / Measure field';
+  const ySeriesLabelBase = isHorizontalBarChart
+    ? localeText.chartSetupXMeasureFieldLabel
+    : localeText.chartSetupYMeasureFieldLabel;
 
   return (
     <React.Fragment>
@@ -480,10 +488,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   aria-label={localeText.chartSetupSortDirectionAriaLabel}
                 >
                   <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
-                    ↑ Asc
+                    {`↑ ${localeText.sortAscendingAriaLabel}`}
                   </ToggleButton>
                   <ToggleButton value="desc" aria-label={localeText.sortDescendingAriaLabel}>
-                    ↓ Desc
+                    {`↓ ${localeText.sortDescendingAriaLabel}`}
                   </ToggleButton>
                 </ToggleButtonGroup>
               </Stack>
@@ -634,8 +642,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     <Tooltip
                       title={
                         usedYFieldIds.length >= numericFields.length
-                          ? '{localeText.chartSetupNoMoreFields}'
-                          : '{localeText.chartSetupAddSeries}'
+                          ? localeText.chartSetupNoMoreFields
+                          : localeText.chartSetupAddSeries
                       }
                     >
                       <span>
@@ -669,11 +677,15 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                                 }),
                               }).supported)
                           }
-                          label={ySeries.length > 1 ? `Series ${index + 1}` : ySeriesLabelBase}
+                          label={
+                            ySeries.length > 1
+                              ? localeText.chartSetupSeriesLabel(index)
+                              : ySeriesLabelBase
+                          }
                           helperText={
                             isHorizontalBarChart
-                              ? 'Numeric field plotted along the horizontal axis'
-                              : 'Numeric field summed or averaged per category'
+                              ? localeText.chartSetupSeriesNumericHorizHelperText
+                              : localeText.chartSetupSeriesNumericSumHelperText
                           }
                         />
                         {ySeries.length > 1 && (
@@ -701,10 +713,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                           sx={{ mt: 0.5, mb: 0.5 }}
                         >
                           <ToggleButton value="bar" sx={{ px: 1.5, py: 0.25, fontSize: 11 }}>
-                            Bar
+                            {localeText.chartSetupMixedSeriesBar}
                           </ToggleButton>
                           <ToggleButton value="line" sx={{ px: 1.5, py: 0.25, fontSize: 11 }}>
-                            Line
+                            {localeText.chartSetupMixedSeriesLine}
                           </ToggleButton>
                         </ToggleButtonGroup>
                       )}
@@ -723,11 +735,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       getOptionDisabled={(option) =>
                         !analyzeCombination({ yFields: [option.id] }).supported
                       }
-                      label={isHorizontalBarChart ? 'X / Measure field' : 'Y / Measure field'}
+                      label={ySeriesLabelBase}
                       helperText={
                         isHorizontalBarChart
-                          ? 'Numeric field plotted along the horizontal axis'
-                          : 'Numeric field summed or averaged per category'
+                          ? localeText.chartSetupSeriesNumericHorizHelperText
+                          : localeText.chartSetupSeriesNumericSumHelperText
                       }
                     />
                   )}
@@ -748,7 +760,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   color: 'text.secondary',
                 }}
               >
-                Calculated field…
+                {localeText.chartSetupCalculatedField}
               </Button>
             )}
             {/* Dual Y axis toggle — only for mixed chart with 2+ series */}
@@ -775,12 +787,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   color="text.secondary"
                   sx={{ display: 'block', mb: 0.5 }}
                 >
-                  Category field
+                  {localeText.chartSetupCategoryFieldLabel}
                 </Typography>
                 <Tooltip
-                  title={
-                    seriesFieldDisabled ? 'Remove extra measure fields to enable split-by' : ''
-                  }
+                  title={seriesFieldDisabled ? localeText.chartSetupRemoveSplitByTooltip : ''}
                   placement="top"
                 >
                   <span>
@@ -802,7 +812,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                         return !analyzeCombination({ seriesField: option.id }).supported;
                       }}
                       disabled={seriesFieldDisabled}
-                      label={isPieOrDonut ? 'Inner ring category' : 'Split by (series field)'}
+                      label={
+                        isPieOrDonut
+                          ? localeText.chartSetupInnerRingLabel
+                          : localeText.chartSetupSplitByLabel
+                      }
                       helperText={seriesFieldHelperText}
                     />
                   </span>
@@ -818,7 +832,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   color="text.secondary"
                   sx={{ display: 'block', mb: 0.5 }}
                 >
-                  Arc labels
+                  {localeText.chartSetupArcLabelsTitle}
                 </Typography>
                 <FormControl size="small" fullWidth>
                   <InputLabel>{localeText.chartSetupArcLabelLabel}</InputLabel>
@@ -1027,13 +1041,13 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             fullWidth
           >
             <ToggleButton value="cross-highlight" sx={{ fontSize: 11, textTransform: 'none' }}>
-              Highlight
+              {localeText.crossFilterModeHighlight}
             </ToggleButton>
             <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
-              Filter
+              {localeText.crossFilterModeFilter}
             </ToggleButton>
             <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
-              None
+              {localeText.crossFilterModeNone}
             </ToggleButton>
           </ToggleButtonGroup>
         </div>

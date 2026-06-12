@@ -2,6 +2,7 @@ import type { StudioMode, StudioDrawer, StudioFilterOperator, StudioMetricRef } 
 import type { StudioWidget, StudioPage, StudioPageTheme } from './widgetTypes';
 import type { StudioDataSource, StudioDataField } from './dataTypes';
 import type { StudioExpressionField, StudioRelationship } from './expressionTypes';
+import type { StudioAIState } from './aiTypes';
 
 export type StudioDateRangePreset =
   | 'this_month'
@@ -96,7 +97,7 @@ export interface StudioFilterPreset {
 }
 
 export interface StudioState {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   mode: StudioMode;
   dashboard: StudioDashboardState;
   pages: Record<string, StudioPage>;
@@ -109,13 +110,21 @@ export interface StudioState {
   /** Saved filter presets (named snapshots of page-level filters). */
   filterPresets?: StudioFilterPreset[];
   shell: StudioShellState;
+  /**
+   * AI assistant conversation state. Persisted alongside the dashboard so
+   * conversation history travels with the saved state.
+   *
+   * When `undefined`, no threads exist yet. The `StudioChatPanel` creates
+   * the first thread on the user's first message.
+   */
+  ai?: StudioAIState;
 }
 
 const defaultPageId = 'page-1';
 
 export function createDefaultStudioState(overrides?: Partial<StudioState>): StudioState {
   const baseState: StudioState = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     mode: 'edit',
     dashboard: {
       id: 'dashboard-1',

@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, Stack, Tooltip, Typography } from '@mui/material';
+import { useStudioLocaleText } from '../../context';
 import { formatFieldValue } from '../../internals/numberFormat';
 
 import type { StudioDataSource } from '../../models';
@@ -20,6 +21,7 @@ export default function DataSourcePreviewTooltip({
   children: React.ReactElement;
 }) {
   const [tooltipOpen, setTooltipOpen] = React.useState(false);
+  const localeText = useStudioLocaleText();
 
   const rows = source.rows;
   if (!rows || rows.length === 0) {
@@ -110,11 +112,9 @@ export default function DataSourcePreviewTooltip({
         <Typography variant="caption" sx={{ opacity: 0.5 }}>
           {[
             rows.length > DS_PREVIEW_ROWS
-              ? `${rows.length - DS_PREVIEW_ROWS} more ${rows.length - DS_PREVIEW_ROWS === 1 ? 'row' : 'rows'}`
+              ? localeText.dataDrawerMoreRows(rows.length - DS_PREVIEW_ROWS)
               : null,
-            columnDelta > 0
-              ? `${columnDelta} more ${columnDelta === 1 ? 'column' : 'columns'}`
-              : null,
+            columnDelta > 0 ? localeText.dataDrawerMoreColumns(columnDelta) : null,
           ]
             .filter(Boolean)
             .join(' · ')}
@@ -127,7 +127,7 @@ export default function DataSourcePreviewTooltip({
           onClick={handleOpenPreviewClick}
           sx={{ opacity: 0.8, cursor: 'default', '&:hover': { opacity: 1 } }}
         >
-          View source data →
+          {localeText.dataDrawerViewSourceLink}
         </Typography>
       )}
     </Stack>

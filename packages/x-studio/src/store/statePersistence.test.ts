@@ -64,6 +64,17 @@ describe('migrateState', () => {
       CURRENT_SCHEMA_VERSION,
     );
   });
+
+  it('migrates from version 1 to 2 (adds optional ai field — no structural changes)', () => {
+    const v1State = { schemaVersion: 1, widgets: {}, pages: {}, filters: [], dashboard: {} };
+    const result = migrateState(v1State);
+    expect(result.success).toBe(true);
+    expect(result.fromVersion).toBe(1);
+    expect(result.toVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect((result.state as unknown as Record<string, unknown>).schemaVersion).toBe(
+      CURRENT_SCHEMA_VERSION,
+    );
+  });
 });
 
 // ─── serializeState ───────────────────────────────────────────────────────────
@@ -137,6 +148,31 @@ describe('serializeState', () => {
     const serialized = serializeState(state) as unknown as Record<string, unknown>;
     expect(serialized.shell).toBeUndefined();
   });
+
+  it('omits ai when no threads exist', () => {
+    const state = createDefaultStudioState();
+    expect(serializeState(state).ai).toBeUndefined();
+  });
+
+  it('omits ai when threads array is empty', () => {
+    const state = createDefaultStudioState({ ai: { threads: [] } });
+    expect(serializeState(state).ai).toBeUndefined();
+  });
+
+  it('includes ai when threads are present', () => {
+    const thread = {
+      id: 'thread-1',
+      name: 'Sales Q3',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      messages: [],
+    };
+    const state = createDefaultStudioState({ ai: { threads: [thread], activeThreadId: 'thread-1' } });
+    const serialized = serializeState(state);
+    expect(serialized.ai).toBeDefined();
+    expect(serialized.ai!.threads).toHaveLength(1);
+    expect(serialized.ai!.threads[0].id).toBe('thread-1');
+    expect(serialized.ai!.activeThreadId).toBe('thread-1');
+  });
 });
 
 // ─── deserializeState ─────────────────────────────────────────────────────────
@@ -175,6 +211,29 @@ describe('deserializeState', () => {
   it('restores mode as "edit"', () => {
     const state = deserializeState(minimalSerialized, {});
     expect(state.mode).toBe('edit');
+  });
+
+  it('restores ai state when present in serialized data', () => {
+    const thread = {
+      id: 'thread-1',
+      name: 'Q3 Analysis',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      messages: [],
+    };
+    const stateWithAI = createDefaultStudioState({
+      ai: { threads: [thread], activeThreadId: 'thread-1' },
+    });
+    const serialized = serializeState(stateWithAI);
+    const restored = deserializeState(serialized, {});
+    expect(restored.ai).toBeDefined();
+    expect(restored.ai!.threads).toHaveLength(1);
+    expect(restored.ai!.threads[0].name).toBe('Q3 Analysis');
+    expect(restored.ai!.activeThreadId).toBe('thread-1');
+  });
+
+  it('leaves ai undefined when not in serialized data', () => {
+    const state = deserializeState(minimalSerialized, {});
+    expect(state.ai).toBeUndefined();
   });
 });
 

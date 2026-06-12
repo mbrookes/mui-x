@@ -192,7 +192,7 @@ function getUrlFilterValuesParam(): string | null {
 
 // ── LocalStorage persistence ──────────────────────────────────────────────────
 
-const LOCAL_STORAGE_KEY = 'x-studio-composed-state-v3';
+const LOCAL_STORAGE_KEY = 'x-studio-composed-state-v4';
 
 function getLocalStorageKey(dataset: 'sales' | 'ag-studio') {
   return `${LOCAL_STORAGE_KEY}-${dataset}`;

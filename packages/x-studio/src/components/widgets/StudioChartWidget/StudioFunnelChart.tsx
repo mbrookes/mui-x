@@ -143,6 +143,7 @@ export function StudioFunnelChart({
                   height: ROW_H,
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
                 <Tooltip title={`${stage.label}: ${formatter(stage.value)}`} placement="top">

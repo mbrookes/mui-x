@@ -970,8 +970,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         stageMap.set(label, (stageMap.get(label) ?? 0) + Number(row[funnelValueField] ?? 0));
       }
     }
-    // Sort: use explicit category order when provided, otherwise sort by value descending
-    const categoryOrder = config.funnelCategoryOrder;
+    // Sort: explicit funnelCategoryOrder → chartSortBy:'category' orderedValues → value descending
+    const categoryOrder =
+      config.funnelCategoryOrder ??
+      (config.chartSortBy === 'category'
+        ? (dataSource?.fields.find((f) => f.id === funnelXField)?.orderedValues ?? undefined)
+        : undefined);
     let stages: { label: string; value: number }[];
     if (categoryOrder && categoryOrder.length > 0) {
       const orderMap = new Map(categoryOrder.map((v, i) => [v, i]));

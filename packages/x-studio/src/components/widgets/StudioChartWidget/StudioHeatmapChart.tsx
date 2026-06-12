@@ -62,7 +62,7 @@ export function StudioHeatmapChart({
 
   // Layout constants
   const Y_LABEL_WIDTH = 90;
-  const X_LABEL_HEIGHT = 28;
+  const X_LABEL_HEIGHT = 64;
   const CELL_MIN_WIDTH = 28;
   const CELL_HEIGHT = 24;
 
@@ -147,12 +147,22 @@ export function StudioHeatmapChart({
                   display: 'flex',
                   justifyContent: 'center',
                   alignItems: 'flex-end',
+                  overflow: 'hidden',
                 }}
               >
                 <Typography
                   variant="caption"
-                  noWrap
-                  sx={{ fontSize: 10, color: 'text.secondary', maxWidth: '100%' }}
+                  sx={{
+                    fontSize: 10,
+                    color: 'text.secondary',
+                    writingMode: 'vertical-rl',
+                    transform: 'rotate(180deg)',
+                    whiteSpace: 'nowrap',
+                    lineHeight: 1,
+                    maxHeight: X_LABEL_HEIGHT - 4,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
                 >
                   {xLbl}
                 </Typography>

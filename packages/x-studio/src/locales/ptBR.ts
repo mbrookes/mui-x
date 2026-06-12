@@ -771,6 +771,28 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   widgetGroupByPrefixQuarter: 'Trimestral',
   widgetGroupByPrefixYear: 'Anual',
   widgetAutoTitleMoreFields: (count) => `+${count} mais`,
+
+  // Date filter labels
+  dateFilterLast: (amount, unit) => `Últimos ${amount} ${unit}`,
+  dateFilterNext: (amount, unit) => `Próximos ${amount} ${unit}`,
+  dateFilterFrom: (date) => `A partir de ${date}`,
+  dateFilterUpTo: (label) => `Até ${label}`,
+  dateFilterSince: (date) => `Desde ${date}`,
+  dateFilterUntil: (date) => `Até ${date}`,
+  dateFilterUnitYear: 'ano',
+  dateFilterUnitYears: 'anos',
+  dateFilterUnitMonth: 'mês',
+  dateFilterUnitMonths: 'meses',
+  dateFilterUnitWeek: 'semana',
+  dateFilterUnitWeeks: 'semanas',
+  dateFilterUnitDay: 'dia',
+  dateFilterUnitDays: 'dias',
+  dateFilterUnitHour: 'hora',
+  dateFilterUnitHours: 'horas',
+  dateFilterUnitMinute: 'minuto',
+  dateFilterUnitMinutes: 'minutos',
+  dateFilterUnitSecond: 'segundo',
+  dateFilterUnitSeconds: 'segundos',
 };
 
 export const ptBR: Localization = getStudioLocalization(ptBRLocaleText);

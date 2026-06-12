@@ -192,21 +192,36 @@ function summarizeFieldLabels(
   return `${labels.slice(0, maxVisible).join(', ')} ${localeText.widgetAutoTitleMoreFields(labels.length - maxVisible)}`;
 }
 
-const UNIT_LABELS: Record<RelativeDateValue['unit'], [string, string]> = {
-  year: ['year', 'years'],
-  month: ['month', 'months'],
-  week: ['week', 'weeks'],
-  day: ['day', 'days'],
-  hour: ['hour', 'hours'],
-  minute: ['minute', 'minutes'],
-  second: ['second', 'seconds'],
+type UnitKey = RelativeDateValue['unit'];
+
+const UNIT_SINGULAR_KEYS: Record<UnitKey, keyof StudioLocaleText> = {
+  year: 'dateFilterUnitYear',
+  month: 'dateFilterUnitMonth',
+  week: 'dateFilterUnitWeek',
+  day: 'dateFilterUnitDay',
+  hour: 'dateFilterUnitHour',
+  minute: 'dateFilterUnitMinute',
+  second: 'dateFilterUnitSecond',
+};
+
+const UNIT_PLURAL_KEYS: Record<UnitKey, keyof StudioLocaleText> = {
+  year: 'dateFilterUnitYears',
+  month: 'dateFilterUnitMonths',
+  week: 'dateFilterUnitWeeks',
+  day: 'dateFilterUnitDays',
+  hour: 'dateFilterUnitHours',
+  minute: 'dateFilterUnitMinutes',
+  second: 'dateFilterUnitSeconds',
 };
 
 /**
  * Returns a compact human-readable label for a date filter value,
  * e.g. "Last 12 months", "Next 7 days", or a formatted absolute date.
  */
-export function formatDateFilterLabel(filter: StudioFilterState): string {
+export function formatDateFilterLabel(
+  filter: StudioFilterState,
+  localeText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT,
+): string {
   const { value, value2, operator } = filter;
 
   if (operator === 'between') {
@@ -214,45 +229,55 @@ export function formatDateFilterLabel(filter: StudioFilterState): string {
     const from = range?.from;
     const to = range?.to;
     if (isRelativeDateValue(from) && isRelativeDateValue(to)) {
-      return `${formatRelativeDateValue(from)} – ${formatRelativeDateValue(to)}`;
+      return `${formatRelativeDateValue(from, localeText)} \u2013 ${formatRelativeDateValue(to, localeText)}`;
     }
     if (from && to) {
-      return `${formatAbsoluteDate(from)} – ${formatAbsoluteDate(to)}`;
+      return `${formatAbsoluteDate(from)} \u2013 ${formatAbsoluteDate(to)}`;
     }
     if (from) {
-      return `From ${isRelativeDateValue(from) ? formatRelativeDateValue(from) : formatAbsoluteDate(from)}`;
+      return localeText.dateFilterFrom(
+        isRelativeDateValue(from)
+          ? formatRelativeDateValue(from, localeText)
+          : formatAbsoluteDate(from),
+      );
     }
     return '';
   }
 
   if (isRelativeDateValue(value)) {
-    const label = formatRelativeDateValue(value);
+    const label = formatRelativeDateValue(value, localeText);
     if (operator === 'less_than_or_equal' || operator === 'less_than') {
-      return `Up to ${label.toLowerCase()}`;
+      return localeText.dateFilterUpTo(label.toLowerCase());
     }
     return label;
   }
 
   if (operator === 'greater_than_or_equal' || operator === 'greater_than') {
-    return `Since ${formatAbsoluteDate(value)}`;
+    return localeText.dateFilterSince(formatAbsoluteDate(value));
   }
   if (operator === 'less_than_or_equal' || operator === 'less_than') {
     if (value2 !== undefined && value2 !== null) {
-      return `${formatAbsoluteDate(value)} – ${formatAbsoluteDate(value2)}`;
+      return `${formatAbsoluteDate(value)} \u2013 ${formatAbsoluteDate(value2)}`;
     }
-    return `Until ${formatAbsoluteDate(value)}`;
+    return localeText.dateFilterUntil(formatAbsoluteDate(value));
   }
 
   return '';
 }
 
-function formatRelativeDateValue(rel: RelativeDateValue): string {
-  const [singular, plural] = UNIT_LABELS[rel.unit] ?? [rel.unit, `${rel.unit}s`];
+function formatRelativeDateValue(
+  rel: RelativeDateValue,
+  localeText: StudioLocaleText,
+): string {
+  const singularKey = UNIT_SINGULAR_KEYS[rel.unit];
+  const pluralKey = UNIT_PLURAL_KEYS[rel.unit];
+  const singular = singularKey ? (localeText[singularKey] as string) : rel.unit;
+  const plural = pluralKey ? (localeText[pluralKey] as string) : `${rel.unit}s`;
   const unitLabel = rel.amount === 1 ? singular : plural;
   if (rel.direction === 'past') {
-    return `Last ${rel.amount} ${unitLabel}`;
+    return localeText.dateFilterLast(rel.amount, unitLabel);
   }
-  return `Next ${rel.amount} ${unitLabel}`;
+  return localeText.dateFilterNext(rel.amount, unitLabel);
 }
 
 function formatAbsoluteDate(value: unknown): string {
@@ -273,6 +298,7 @@ function formatAbsoluteDate(value: unknown): string {
 export function inferKpiDateSubtitle(
   widget: StudioWidget,
   filters: StudioFilterState[],
+  localeText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT,
 ): string | null {
   if (widget.kind !== 'kpi') {
     return null;
@@ -286,7 +312,7 @@ export function inferKpiDateSubtitle(
   if (!dateFilter) {
     return null;
   }
-  return formatDateFilterLabel(dateFilter) || null;
+  return formatDateFilterLabel(dateFilter, localeText) || null;
 }
 
 /**

@@ -477,13 +477,13 @@ export default function App() {
     [],
   );
 
-  // AI config — requires dev server (VITE_STUDIO_SERVER_URL)
+  // AI config — requires dev server (STUDIO_SERVER_URL)
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
-    const serverUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+    const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
     if (!serverUrl) {
       return undefined;
     }
-    const token = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
+    const token = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
     return {
       endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai/chat`,
       headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,
@@ -516,14 +516,14 @@ export default function App() {
   }, [adapterMode, studioKey]);
 
   // Server mode: route widget queries through a real server endpoint.
-  // Priority: VITE_STUDIO_SERVER_URL env var → ?server=URL query param
-  // Activate via env: VITE_STUDIO_SERVER_URL=http://localhost:3020
+  // Priority: STUDIO_SERVER_URL env var → ?server=URL query param
+  // Activate via env: STUDIO_SERVER_URL=http://localhost:3020
   // Activate via URL: ?server=http://localhost:3001/api/studio-data
   //
   // CRM sources (id prefix "source-crm-") are routed to /api/crm-data on the same server.
   // All other sources are routed to /api/studio-data.
   const serverEndpoint = React.useMemo(() => {
-    const envServerUrl = import.meta.env.VITE_STUDIO_SERVER_URL as string | undefined;
+    const envServerUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
     if (envServerUrl) {
       return `${envServerUrl.replace(/\/$/, '')}/api/studio-data`;
     }
@@ -540,7 +540,7 @@ export default function App() {
       return;
     }
 
-    const serverToken = import.meta.env.VITE_STUDIO_SERVER_TOKEN as string | undefined;
+    const serverToken = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
     const fetchFn: typeof fetch = serverToken
       ? (input, init) =>
           fetch(input, {

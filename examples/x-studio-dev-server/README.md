@@ -182,6 +182,7 @@ Queries the underlying SQLite databases using structured filters and aggregation
 | `studio://dashboard/system-prompt` | AI system prompt built from current dashboard state |
 | `studio://dashboard/data-health` | Row counts for all configured data sources |
 | `studio://schema/{sourceId}` | Field definitions for a specific data source (one per source) |
+| `studio://data/{sourceId}` | Raw row preview — up to 20 rows (requires `data` option) |
 
 All resources support `resources/subscribe` — subscribe to `studio://dashboard/state` or `studio://dashboard/system-prompt` to receive `notifications/resources/updated` whenever a tool call mutates the dashboard.
 
@@ -198,6 +199,14 @@ All resources support `resources/subscribe` — subscribe to `studio://dashboard
   ]
 }
 ```
+
+### Available MCP prompts
+
+| Name | Description |
+| ---- | ----------- |
+| `query_data_source_examples` | Example `query_data_source` invocations for all data sources |
+
+Use `prompts/get` with `name: "query_data_source_examples"` to get ready-to-use query templates for every data source, including count-by-category and sum/avg-by-category examples with correct field names and aggregations.
 
 ### Claude Desktop configuration
 

@@ -63,6 +63,7 @@ import { theme } from './theme';
 import { createAdapter } from './simulatedServer';
 import { ukRegionsGeography } from './config/geographies/ukRegions';
 import { type SupportedLocale, LOCALE_BUNDLES } from './locales';
+import { AppLocaleProvider, useAppLocaleText } from './locales/AppLocaleContext';
 
 // ── Custom geography registrations ────────────────────────────────────────────
 // This is where developers register additional map geographies beyond the
@@ -350,8 +351,18 @@ interface DashboardLayoutProps {
  * - `CanvasScrollContext` — scroll-to-bottom after adding widgets
  */
 // react-doctor-disable-next-line react-doctor/no-giant-component, react-doctor/prefer-useReducer -- dashboard orchestration state is intentionally broad and not naturally reducible
-function DashboardLayout({ adapterMode, aiConfig, dataset, onSnackbar, featureFlags, onFeatureFlagsChange, locale, onLocaleChange }: DashboardLayoutProps) {
+function DashboardLayout({
+  adapterMode,
+  aiConfig,
+  dataset,
+  onSnackbar,
+  featureFlags,
+  onFeatureFlagsChange,
+  locale,
+  onLocaleChange,
+}: DashboardLayoutProps) {
   const controller = useStudioController();
+  const t = useAppLocaleText();
   const localStorageKeyRef = React.useRef<string | null>(null);
   if (localStorageKeyRef.current === null) {
     localStorageKeyRef.current = getLocalStorageKey(dataset);
@@ -435,9 +446,9 @@ function DashboardLayout({ adapterMode, aiConfig, dataset, onSnackbar, featureFl
   }, []);
 
   const handleAddPage = React.useCallback(() => {
-    const newId = controller.addPage('New Page');
+    const newId = controller.addPage(t.newPageLabel);
     controller.setActivePage(newId);
-  }, [controller]);
+  }, [controller, t]);
 
   const handlePageClose = React.useCallback(
     (pageId: string) => {
@@ -557,9 +568,9 @@ function DashboardLayout({ adapterMode, aiConfig, dataset, onSnackbar, featureFl
 
   const handleReset = React.useCallback(() => {
     localStorage.removeItem(localStorageKeyRef.current!);
-    onSnackbar('Local changes cleared — reloading demo…', 'info');
+    onSnackbar(t.resetDemoReloadingMessage, 'info');
     setTimeout(() => window.location.reload(), 800);
-  }, [onSnackbar]);
+  }, [onSnackbar, t]);
 
   const handleSave = React.useCallback(() => {
     const serialized = controller.serializeState();
@@ -571,8 +582,8 @@ function DashboardLayout({ adapterMode, aiConfig, dataset, onSnackbar, featureFl
       '_',
     );
     downloadJson(serialized, `${title}_dashboard.json`);
-    onSnackbar('Dashboard saved successfully', 'success');
-  }, [controller, onSnackbar]);
+    onSnackbar(t.dashboardSavedMessage, 'success');
+  }, [controller, onSnackbar, t]);
 
   const handleLoad = React.useCallback(async () => {
     try {
@@ -582,19 +593,19 @@ function DashboardLayout({ adapterMode, aiConfig, dataset, onSnackbar, featureFl
       if (result.success) {
         if (result.fromVersion !== result.toVersion) {
           onSnackbar(
-            `Dashboard loaded and migrated from v${result.fromVersion} to v${result.toVersion}`,
+            t.dashboardLoadedMigratedMessage(result.fromVersion, result.toVersion),
             'info',
           );
         } else {
-          onSnackbar('Dashboard loaded successfully', 'success');
+          onSnackbar(t.dashboardLoadedMessage, 'success');
         }
       } else {
-        onSnackbar(result.errors.join('; ') || 'Failed to load dashboard', 'error');
+        onSnackbar(result.errors.join('; ') || t.dashboardLoadFailedMessage, 'error');
       }
     } catch (error) {
-      onSnackbar(error instanceof Error ? error.message : 'Failed to load dashboard', 'error');
+      onSnackbar(error instanceof Error ? error.message : t.dashboardLoadFailedMessage, 'error');
     }
-  }, [controller, onSnackbar]);
+  }, [controller, onSnackbar, t]);
 
   const handlePageChange = React.useCallback(
     (_event: React.SyntheticEvent, pageId: string) => {
@@ -815,47 +826,53 @@ export default function App() {
         localeText={localeBundle.pickersLocaleText}
       >
         <CssBaseline />
-        {isLoading ? (
-          <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              height: '100vh',
-            }}
-          >
-            <CircularProgress />
-          </Box>
-        ) : (
-          /* StudioProvider makes the controller available to all descendants */
-          <StudioProvider
-            controller={controller}
-            featureFlags={featureFlags}
-            geographies={CUSTOM_GEOGRAPHIES}
-            localeText={localeBundle.studioLocaleText}
-          >
-            <DashboardLayout
-              adapterMode={adapterMode}
-              aiConfig={aiConfig}
-              dataset={dataset}
-              onSnackbar={handleSnackbar}
+        <AppLocaleProvider localeText={localeBundle.appLocaleText}>
+          {isLoading ? (
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                height: '100vh',
+              }}
+            >
+              <CircularProgress />
+            </Box>
+          ) : (
+            /* StudioProvider makes the controller available to all descendants */
+            <StudioProvider
+              controller={controller}
               featureFlags={featureFlags}
-              onFeatureFlagsChange={setFeatureFlags}
-              locale={locale}
-              onLocaleChange={setLocale}
-            />
-          </StudioProvider>
-        )}
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={4000}
-          onClose={handleCloseSnackbar}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        >
-          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
-            {snackbar.message}
-          </Alert>
-        </Snackbar>
+              geographies={CUSTOM_GEOGRAPHIES}
+              localeText={localeBundle.studioLocaleText}
+            >
+              <DashboardLayout
+                adapterMode={adapterMode}
+                aiConfig={aiConfig}
+                dataset={dataset}
+                onSnackbar={handleSnackbar}
+                featureFlags={featureFlags}
+                onFeatureFlagsChange={setFeatureFlags}
+                locale={locale}
+                onLocaleChange={setLocale}
+              />
+            </StudioProvider>
+          )}
+          <Snackbar
+            open={snackbar.open}
+            autoHideDuration={4000}
+            onClose={handleCloseSnackbar}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+          >
+            <Alert
+              onClose={handleCloseSnackbar}
+              severity={snackbar.severity}
+              sx={{ width: '100%' }}
+            >
+              {snackbar.message}
+            </Alert>
+          </Snackbar>
+        </AppLocaleProvider>
       </LocalizationProvider>
     </ThemeProvider>
   );

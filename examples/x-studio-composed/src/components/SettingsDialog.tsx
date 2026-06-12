@@ -20,6 +20,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import type { StudioFeatureFlags } from '@mui/x-studio';
 import { FeatureFlagSettings } from 'x-studio-shared';
 import { type SupportedLocale, LOCALE_LABELS } from '../locales';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 export type DatasetMode = 'sales' | 'ag-studio';
 
@@ -33,19 +34,15 @@ export interface SettingsDialogProps {
   onLocaleChange: (locale: SupportedLocale) => void;
 }
 
-// react-doctor-disable-next-line react-doctor/no-event-handler -- immediate prop callbacks are acceptable in this small settings form
 export function SettingsDialog(props: SettingsDialogProps) {
-  // react-doctor-disable-next-line react-doctor/no-event-handler -- immediate prop callbacks are acceptable in this small settings form
-  const { open, onClose, dataset, featureFlags, onFeatureFlagsChange, locale, onLocaleChange } = props;
-
+  const { open, onClose, dataset, featureFlags, onFeatureFlagsChange, locale, onLocaleChange } =
+    props;
   const [tab, setTab] = React.useState(0);
-  // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
   const [pendingDataset, setPendingDataset] = React.useState<DatasetMode>(dataset);
+  const t = useAppLocaleText();
 
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change, react-doctor/no-cascading-set-state -- intentional batch reset of buffered form state when dialog opens
   React.useEffect(() => {
     if (open) {
-      // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
       setPendingDataset(dataset);
     }
   }, [open, dataset]);
@@ -64,19 +61,18 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ pb: 0 }}>Settings</DialogTitle>
+      <DialogTitle sx={{ pb: 0 }}>{t.settingsDialogTitle}</DialogTitle>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ px: 3 }}>
-        <Tab label="Settings" />
-        <Tab label="Features" />
+        <Tab label={t.settingsTabLabel} />
+        <Tab label={t.featuresTabLabel} />
       </Tabs>
       <DialogContent
         sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 2, overflowY: 'auto' }}
       >
         {tab === 0 && (
           <React.Fragment>
-            {/* Dataset — requires reload (top) */}
             <FormControl>
-              <FormLabel>Dataset</FormLabel>
+              <FormLabel>{t.datasetLabel}</FormLabel>
               <RadioGroup
                 value={pendingDataset}
                 onChange={(_evt, val) => setPendingDataset(val as DatasetMode)}
@@ -84,12 +80,12 @@ export function SettingsDialog(props: SettingsDialogProps) {
                 <FormControlLabel
                   value="sales"
                   control={<Radio size="small" />}
-                  label="MUI X Sales (generated)"
+                  label={t.datasetSales}
                 />
                 <FormControlLabel
                   value="ag-studio"
                   control={<Radio size="small" />}
-                  label="AG Studio Office Supplies"
+                  label={t.datasetAg}
                 />
               </RadioGroup>
             </FormControl>
@@ -101,15 +97,14 @@ export function SettingsDialog(props: SettingsDialogProps) {
                 sx={{ display: 'flex', gap: 0.5 }}
               >
                 <InfoOutlinedIcon sx={{ fontSize: 14, mt: '1px' }} />
-                Dataset changes take effect after reload.
+                {t.settingsReloadHint}
               </Typography>
             )}
 
             <Divider />
 
-            {/* Language — immediate, no reload needed */}
             <FormControl>
-              <FormLabel>Language</FormLabel>
+              <FormLabel>{t.languageLabel}</FormLabel>
               <RadioGroup
                 value={locale}
                 onChange={(_evt, val) => onLocaleChange(val as SupportedLocale)}
@@ -129,21 +124,20 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
             <Divider />
 
-            {/* Dev server connection — informational only (set via .env.local) */}
             <FormControl>
-              <FormLabel sx={{ mb: 1 }}>Dev Server Connection</FormLabel>
+              <FormLabel sx={{ mb: 1 }}>{t.devServerConnectionLabel}</FormLabel>
               {(import.meta.env.STUDIO_SERVER_URL as string | undefined) ? (
                 <Typography variant="body2" color="text.secondary">
-                  Connected to: <strong>{import.meta.env.STUDIO_SERVER_URL as string}</strong>
+                  {t.devServerConnectedLabel}{' '}
+                  <strong>{import.meta.env.STUDIO_SERVER_URL as string}</strong>
                   <br />
-                  AI and data queries are routed through the dev server.
+                  {t.devServerConnectedDescription}
                   <br />
-                  To change, update <code>STUDIO_SERVER_URL</code> in <code>.env.local</code>.
+                  {t.devServerChangeInstructions}
                 </Typography>
               ) : (
                 <Typography variant="body2" color="text.secondary">
-                  Not connected. Set <code>STUDIO_SERVER_URL</code> in <code>.env.local</code> to
-                  route queries through <code>examples/x-studio-dev-server</code>.
+                  {t.devServerNotConnectedDescription}
                 </Typography>
               )}
             </FormControl>
@@ -162,10 +156,10 @@ export function SettingsDialog(props: SettingsDialogProps) {
       <DialogActions>
         {tab === 0 && needsReload && (
           <Button variant="contained" onClick={applyAndReload}>
-            Apply &amp; reload
+            {t.applyReloadButtonLabel}
           </Button>
         )}
-        <Button onClick={onClose}>Close</Button>
+        <Button onClick={onClose}>{t.closeButtonLabel}</Button>
       </DialogActions>
     </Dialog>
   );

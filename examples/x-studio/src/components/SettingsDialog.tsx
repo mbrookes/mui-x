@@ -23,6 +23,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import type { StudioFeatureFlags } from '@mui/x-studio';
 import { FeatureFlagSettings } from 'x-studio-shared';
 import { type SupportedLocale, LOCALE_LABELS } from '../locales';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 export type SidebarLayout = 'stacked' | 'tabbed';
 export type SidebarSide = 'left' | 'right';
@@ -60,6 +61,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
   const { onTableSourceModeChange, onStackBreakpointChange, featureFlags } = props;
   const { onFeatureFlagsChange, locale, onLocaleChange } = props;
 
+  const t = useAppLocaleText();
   const [tab, setTab] = React.useState(0);
   // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
   const [rowInput, setRowInput] = React.useState(
@@ -127,17 +129,17 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ pb: 0 }}>Settings</DialogTitle>
+      <DialogTitle sx={{ pb: 0 }}>{t.settingsDialogTitle}</DialogTitle>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ px: 3 }}>
-        <Tab label="Settings" />
-        <Tab label="Features" />
+        <Tab label={t.settingsTabLabel} />
+        <Tab label={t.featuresTabLabel} />
       </Tabs>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 2 }}>
         {tab === 0 && (
           <React.Fragment>
             {/* Dataset — requires reload (top) */}
             <FormControl>
-              <FormLabel>Dataset</FormLabel>
+              <FormLabel>{t.datasetLabel}</FormLabel>
               <RadioGroup
                 value={pendingDataset}
                 onChange={(_evt, val) => setPendingDataset(val as DatasetMode)}
@@ -145,12 +147,12 @@ export function SettingsDialog(props: SettingsDialogProps) {
                 <FormControlLabel
                   value="sales"
                   control={<Radio size="small" />}
-                  label="MUI X Sales (generated)"
+                  label={t.datasetSales}
                 />
                 <FormControlLabel
                   value="ag-studio"
                   control={<Radio size="small" />}
-                  label="AG Studio Office Supplies"
+                  label={t.datasetAg}
                 />
               </RadioGroup>
             </FormControl>
@@ -159,7 +161,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
             {/* Language — immediate */}
             <FormControl>
-              <FormLabel>Language</FormLabel>
+              <FormLabel>{t.languageLabel}</FormLabel>
               <RadioGroup
                 value={locale}
                 onChange={(_evt, val) => onLocaleChange(val as SupportedLocale)}
@@ -181,37 +183,49 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
             {/* Sidebar layout — immediate */}
             <FormControl>
-              <FormLabel>Sidebar layout</FormLabel>
+              <FormLabel>{t.sidebarLayoutLabel}</FormLabel>
               <RadioGroup
                 row
                 value={values.sidebarLayout}
                 onChange={(_evt, val) => onSidebarLayoutChange(val as SidebarLayout)}
               >
-                <FormControlLabel value="tabbed" control={<Radio size="small" />} label="Tabbed" />
+                <FormControlLabel
+                  value="tabbed"
+                  control={<Radio size="small" />}
+                  label={t.sidebarLayoutTabbed}
+                />
                 <FormControlLabel
                   value="stacked"
                   control={<Radio size="small" />}
-                  label="Stacked"
+                  label={t.sidebarLayoutStacked}
                 />
               </RadioGroup>
             </FormControl>
 
             {/* Sidebar side — immediate */}
             <FormControl>
-              <FormLabel>Sidebar position</FormLabel>
+              <FormLabel>{t.sidebarPositionLabel}</FormLabel>
               <RadioGroup
                 row
                 value={values.sidebarSide}
                 onChange={(_evt, val) => onSidebarSideChange(val as SidebarSide)}
               >
-                <FormControlLabel value="left" control={<Radio size="small" />} label="Left" />
-                <FormControlLabel value="right" control={<Radio size="small" />} label="Right" />
+                <FormControlLabel
+                  value="left"
+                  control={<Radio size="small" />}
+                  label={t.sidebarPositionLeft}
+                />
+                <FormControlLabel
+                  value="right"
+                  control={<Radio size="small" />}
+                  label={t.sidebarPositionRight}
+                />
               </RadioGroup>
             </FormControl>
 
             {/* Table source mode — immediate */}
             <FormControl>
-              <FormLabel>Table source mode</FormLabel>
+              <FormLabel>{t.tableSourceModeLabel}</FormLabel>
               <RadioGroup
                 row
                 value={values.tableSourceMode}
@@ -220,20 +234,20 @@ export function SettingsDialog(props: SettingsDialogProps) {
                 <FormControlLabel
                   value="explicit"
                   control={<Radio size="small" />}
-                  label="Explicit (picker)"
+                  label={t.tableSourceExplicit}
                 />
                 <FormControlLabel
                   value="implicit"
                   control={<Radio size="small" />}
-                  label="Implicit (inferred)"
+                  label={t.tableSourceImplicit}
                 />
               </RadioGroup>
             </FormControl>
 
             {/* Responsive stack breakpoint — immediate */}
             <TextField
-              label="Responsive stack breakpoint"
-              helperText="Canvas width (px) below which widgets stack. Set to 0 to disable."
+              label={t.stackBreakpointLabel}
+              helperText={t.stackBreakpointHelper}
               value={values.stackBreakpoint}
               onChange={(evt) => {
                 const n = Number.parseInt(evt.target.value, 10);
@@ -253,14 +267,16 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
             {/* Data rows — requires reload */}
             <TextField
-              label="Generated row count"
-              helperText="Leave blank to use the default bundled data"
+              label={t.rowCountLabel}
+              helperText={t.rowCountHelper}
               value={rowInput}
               onChange={handleRowInputChange}
               size="small"
               type="number"
               slotProps={{
-                input: { endAdornment: <InputAdornment position="end">rows</InputAdornment> },
+                input: {
+                  endAdornment: <InputAdornment position="end">{t.rowCountUnit}</InputAdornment>,
+                },
                 htmlInput: { min: 1, step: 1 },
               }}
             />
@@ -274,7 +290,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
                   size="small"
                 />
               }
-              label="Simulated server adapter"
+              label={t.serverAdapterLabel}
             />
 
             {needsReload && (
@@ -284,7 +300,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
                 sx={{ display: 'flex', gap: 0.5 }}
               >
                 <InfoOutlinedIcon sx={{ fontSize: 14, mt: '1px' }} />
-                Dataset, row count and adapter changes take effect after reload.
+                {t.settingsReloadHint}
               </Typography>
             )}
 
@@ -292,19 +308,19 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
             {/* Dev server connection — informational only (set via .env.local) */}
             <FormControl>
-              <FormLabel sx={{ mb: 1 }}>Dev Server Connection</FormLabel>
+              <FormLabel sx={{ mb: 1 }}>{t.devServerConnectionLabel}</FormLabel>
               {(import.meta.env.STUDIO_SERVER_URL as string | undefined) ? (
                 <Typography variant="body2" color="text.secondary">
-                  Connected to: <strong>{import.meta.env.STUDIO_SERVER_URL as string}</strong>
+                  {t.devServerConnectedLabel}{' '}
+                  <strong>{import.meta.env.STUDIO_SERVER_URL as string}</strong>
                   <br />
-                  AI and data queries are routed through the dev server.
+                  {t.devServerConnectedDescription}
                   <br />
-                  To change, update <code>STUDIO_SERVER_URL</code> in <code>.env.local</code>.
+                  {t.devServerChangeInstructions}
                 </Typography>
               ) : (
                 <Typography variant="body2" color="text.secondary">
-                  Not connected. Set <code>STUDIO_SERVER_URL</code> in <code>.env.local</code> to
-                  route queries through <code>examples/x-studio-dev-server</code>.
+                  {t.devServerNotConnectedDescription}
                 </Typography>
               )}
             </FormControl>
@@ -321,10 +337,10 @@ export function SettingsDialog(props: SettingsDialogProps) {
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Close</Button>
+        <Button onClick={onClose}>{t.closeButtonLabel}</Button>
         {tab === 0 && needsReload && (
           <Button variant="contained" onClick={applyAndReload}>
-            Apply &amp; Reload
+            {t.applyReloadButtonLabel}
           </Button>
         )}
       </DialogActions>

@@ -4,12 +4,14 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloseIcon from '@mui/icons-material/Close';
 import { StudioChatPanel, useStudioSelector } from '@mui/x-studio';
 import type { StudioAIConfig } from '@mui/x-studio';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 function selectWidgetTitle(
   state: { widgets: Record<string, { title?: string }> },
   widgetId: string,
+  fallbackTitle: string,
 ): string {
-  return state.widgets[widgetId]?.title || 'Widget';
+  return state.widgets[widgetId]?.title || fallbackTitle;
 }
 
 function selectWidgetExists(
@@ -27,18 +29,16 @@ export interface WidgetAiDialogProps {
 }
 
 export function WidgetAiDialog({ open, widgetId, aiConfig, onClose }: WidgetAiDialogProps) {
+  const t = useAppLocaleText();
   const widgetTitle = useStudioSelector((state) =>
-    widgetId ? selectWidgetTitle(state, widgetId) : '',
+    widgetId ? selectWidgetTitle(state, widgetId, t.widgetFallbackTitle) : '',
   );
   const widgetExists = useStudioSelector((state) =>
     widgetId ? selectWidgetExists(state, widgetId) : false,
   );
 
-  // Auto-close if the focused widget is deleted while the dialog is open
   React.useEffect(() => {
-    // react-doctor-disable-next-line react-doctor/no-event-handler -- intentional: close the dialog when the focused widget disappears
     if (open && widgetId && !widgetExists) {
-      // react-doctor-disable-next-line react-doctor/no-prop-callback-in-effect -- intentional: notify parent when the focused widget disappears
       onClose();
     }
   }, [open, widgetId, widgetExists, onClose]);
@@ -64,7 +64,6 @@ export function WidgetAiDialog({ open, widgetId, aiConfig, onClose }: WidgetAiDi
         },
       }}
     >
-      {/* Header */}
       <Box
         sx={{
           display: 'flex',
@@ -80,20 +79,19 @@ export function WidgetAiDialog({ open, widgetId, aiConfig, onClose }: WidgetAiDi
         <AutoAwesomeIcon fontSize="small" color="primary" />
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 600 }} noWrap>
-            AI assistant
+            {t.aiAssistantTitle}
           </Typography>
           <Typography variant="caption" color="text.secondary" noWrap>
             {widgetTitle}
           </Typography>
         </Box>
-        <Tooltip title="Close">
-          <IconButton size="small" onClick={onClose} aria-label="Close AI assistant">
+        <Tooltip title={t.closeTooltip}>
+          <IconButton size="small" onClick={onClose} aria-label={t.closeAiAssistantAriaLabel}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </Tooltip>
       </Box>
 
-      {/* Chat */}
       <DialogContent
         sx={{ p: 0, display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}
       >

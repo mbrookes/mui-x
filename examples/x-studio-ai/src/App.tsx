@@ -6,6 +6,7 @@ import { StudioProvider } from '@mui/x-studio';
 import type { StudioAIConfig } from '@mui/x-studio';
 import { ukRegionsGeography } from './config/geographies/ukRegions';
 import { LOCALE_BUNDLES, type SupportedLocale } from './locales';
+import { AppLocaleProvider } from './locales/AppLocaleContext';
 import { theme } from './theme';
 import { AppLayout } from './AppLayout';
 import { useChatControllers } from './hooks/useChatControllers';
@@ -55,6 +56,7 @@ export default function App() {
 
   const { generateTitle } = useGenerateChatTitle(aiConfig);
   const localeBundle = LOCALE_BUNDLES[locale];
+  const t = localeBundle.appLocaleText;
 
   React.useEffect(() => {
     localStorage.setItem(LOCALE_STORAGE_KEY, locale);
@@ -73,7 +75,7 @@ export default function App() {
 
   const handleHomeSubmit = React.useCallback(
     async (message: string) => {
-      const chat = createChat('New Chat', message);
+      const chat = createChat(t.newChatTitle, message);
       generateTitle(message).then(({ title, description }) => {
         updateChat(chat.id, { title, description });
       });
@@ -96,26 +98,28 @@ export default function App() {
         localeText={localeBundle.pickersLocaleText}
       >
         <CssBaseline />
-        <StudioProvider
-          key={activeChatId ?? '__home__'}
-          controller={activeController}
-          aiConfig={aiConfig}
-          geographies={CUSTOM_GEOGRAPHIES}
-          localeText={localeBundle.studioLocaleText}
-        >
-          <AppLayout
+        <AppLocaleProvider localeText={localeBundle.appLocaleText}>
+          <StudioProvider
+            key={activeChatId ?? '__home__'}
+            controller={activeController}
             aiConfig={aiConfig}
-            chats={chats}
-            activeChatId={activeChatId}
-            locale={locale}
-            onLocaleChange={setLocale}
-            onNewChat={handleNewChat}
-            onSubmitHome={handleHomeSubmit}
-            onChatSelect={handleChatSelect}
-            onUpdateChat={updateChat}
-            onSaveController={saveController}
-          />
-        </StudioProvider>
+            geographies={CUSTOM_GEOGRAPHIES}
+            localeText={localeBundle.studioLocaleText}
+          >
+            <AppLayout
+              aiConfig={aiConfig}
+              chats={chats}
+              activeChatId={activeChatId}
+              locale={locale}
+              onLocaleChange={setLocale}
+              onNewChat={handleNewChat}
+              onSubmitHome={handleHomeSubmit}
+              onChatSelect={handleChatSelect}
+              onUpdateChat={updateChat}
+              onSaveController={saveController}
+            />
+          </StudioProvider>
+        </AppLocaleProvider>
       </LocalizationProvider>
     </ThemeProvider>
   );

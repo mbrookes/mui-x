@@ -48,6 +48,7 @@ import { AlertBannerSetupPanel } from './components/AlertBannerSetupPanel';
 import { theme } from './theme';
 import { createAdapter } from './simulatedServer';
 import { type SupportedLocale, LOCALE_BUNDLES } from './locales';
+import { AppLocaleProvider } from './locales/AppLocaleContext';
 
 function slugifyPageTitle(title: string) {
   return title
@@ -460,6 +461,7 @@ export default function App() {
   });
   const [locale, setLocale] = React.useState<SupportedLocale>('en');
   const localeBundle = LOCALE_BUNDLES[locale];
+  const t = localeBundle.appLocaleText;
 
   // Keep dayjs locale in sync with the selected language
   React.useEffect(() => {
@@ -671,7 +673,7 @@ export default function App() {
       '_',
     );
     downloadJson(serialized, `${dashboardTitle}_dashboard.json`);
-    setSnackbar({ open: true, message: 'Dashboard saved successfully', severity: 'success' });
+    setSnackbar({ open: true, message: t.dashboardSavedMessage, severity: 'success' });
   }, []);
 
   const handleLoad = React.useCallback(async () => {
@@ -685,27 +687,27 @@ export default function App() {
         if (result.fromVersion !== result.toVersion) {
           setSnackbar({
             open: true,
-            message: `Dashboard loaded and migrated from v${result.fromVersion} to v${result.toVersion}`,
+            message: t.dashboardLoadedMigratedMessage(result.fromVersion, result.toVersion),
             severity: 'info',
           });
         } else {
           setSnackbar({
             open: true,
-            message: 'Dashboard loaded successfully',
+            message: t.dashboardLoadedMessage,
             severity: 'success',
           });
         }
       } else {
         setSnackbar({
           open: true,
-          message: result.errors.join('; ') || 'Failed to load dashboard',
+          message: result.errors.join('; ') || t.dashboardLoadFailedMessage,
           severity: 'error',
         });
       }
     } catch (error) {
       setSnackbar({
         open: true,
-        message: error instanceof Error ? error.message : 'Failed to load dashboard',
+        message: error instanceof Error ? error.message : t.dashboardLoadFailedMessage,
         severity: 'error',
       });
     }
@@ -719,7 +721,7 @@ export default function App() {
     localStorage.removeItem(localStorageKeyRef.current!);
     setSnackbar({
       open: true,
-      message: 'Local changes cleared — reloading demo…',
+      message: t.resetDemoReloadingMessage,
       severity: 'info',
     });
     setTimeout(() => window.location.reload(), 800);
@@ -756,149 +758,155 @@ export default function App() {
         localeText={localeBundle.pickersLocaleText}
       >
         <CssBaseline />
-        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-          <AppToolbar
-            title={title}
-            mode={mode}
-            onModeChange={handleModeChange}
-            onSave={handleSave}
-            onLoad={handleLoad}
-            onReset={handleReset}
-            onOpenSettings={handleOpenSettings}
-            pages={pageList}
-            activePageId={activePageId}
-            onPageChange={handlePageChange}
-            onPageClose={handlePageClose}
-            onPageReorder={handlePageReorder}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-            onPageDragNavigate={handlePageDragNavigate}
-          />
-          <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
-            {adapterMode && (
-              <Chip
-                label="Adapter Mode"
-                size="small"
-                color="info"
-                sx={{
-                  position: 'absolute',
-                  bottom: 12,
-                  left: 12,
-                  zIndex: 10,
-                  fontWeight: 600,
-                  letterSpacing: 0.3,
-                  opacity: 0.5,
-                }}
-              />
-            )}
-            {serverEndpoint && !adapterMode && (
-              <Chip
-                label="Server Mode"
-                size="small"
-                color="success"
-                sx={{
-                  position: 'absolute',
-                  bottom: 12,
-                  left: 12,
-                  zIndex: 10,
-                  fontWeight: 600,
-                  letterSpacing: 0.3,
-                  opacity: 0.5,
-                }}
-              />
-            )}
-            {!serverEndpoint && !adapterMode && rowCount !== undefined && (
-              <Chip
-                label={`Generated · ${rowCount.toLocaleString()} rows`}
-                size="small"
-                sx={{
-                  position: 'absolute',
-                  bottom: 12,
-                  left: 12,
-                  zIndex: 10,
-                  fontWeight: 600,
-                  letterSpacing: 0.3,
-                  opacity: 0.5,
-                }}
-              />
-            )}
-            {!serverEndpoint && !adapterMode && rowCount === undefined && (
-              <Chip
-                label="Demo Data"
-                size="small"
-                sx={{
-                  position: 'absolute',
-                  bottom: 12,
-                  left: 12,
-                  zIndex: 10,
-                  fontWeight: 600,
-                  letterSpacing: 0.3,
-                  opacity: 0.5,
-                }}
-              />
-            )}
-            {isGenerating ? (
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  height: '100%',
-                }}
-              >
-                <CircularProgress />
-              </Box>
-            ) : (
-              <Studio
-                key={studioKey}
-                ref={studioRef}
-                initialState={initialState}
-                onStateChange={handleStateChange}
-                sidebarLayout={sidebarLayout}
-                sidebarSide={sidebarSide}
-                tableSourceMode={tableSourceMode}
-                stackBreakpoint={stackBreakpoint}
-                featureFlags={featureFlags}
-                aiConfig={aiConfig}
-                customWidgets={customWidgets}
-                localeText={localeBundle.studioLocaleText}
-              />
-            )}
+        <AppLocaleProvider localeText={localeBundle.appLocaleText}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+            <AppToolbar
+              title={title}
+              mode={mode}
+              onModeChange={handleModeChange}
+              onSave={handleSave}
+              onLoad={handleLoad}
+              onReset={handleReset}
+              onOpenSettings={handleOpenSettings}
+              pages={pageList}
+              activePageId={activePageId}
+              onPageChange={handlePageChange}
+              onPageClose={handlePageClose}
+              onPageReorder={handlePageReorder}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
+              onPageDragNavigate={handlePageDragNavigate}
+            />
+            <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
+              {adapterMode && (
+                <Chip
+                  label={t.adapterModeLabel}
+                  size="small"
+                  color="info"
+                  sx={{
+                    position: 'absolute',
+                    bottom: 12,
+                    left: 12,
+                    zIndex: 10,
+                    fontWeight: 600,
+                    letterSpacing: 0.3,
+                    opacity: 0.5,
+                  }}
+                />
+              )}
+              {serverEndpoint && !adapterMode && (
+                <Chip
+                  label={t.serverModeLabel}
+                  size="small"
+                  color="success"
+                  sx={{
+                    position: 'absolute',
+                    bottom: 12,
+                    left: 12,
+                    zIndex: 10,
+                    fontWeight: 600,
+                    letterSpacing: 0.3,
+                    opacity: 0.5,
+                  }}
+                />
+              )}
+              {!serverEndpoint && !adapterMode && rowCount !== undefined && (
+                <Chip
+                  label={t.generatedRowsLabel(rowCount)}
+                  size="small"
+                  sx={{
+                    position: 'absolute',
+                    bottom: 12,
+                    left: 12,
+                    zIndex: 10,
+                    fontWeight: 600,
+                    letterSpacing: 0.3,
+                    opacity: 0.5,
+                  }}
+                />
+              )}
+              {!serverEndpoint && !adapterMode && rowCount === undefined && (
+                <Chip
+                  label={t.demoDataLabel}
+                  size="small"
+                  sx={{
+                    position: 'absolute',
+                    bottom: 12,
+                    left: 12,
+                    zIndex: 10,
+                    fontWeight: 600,
+                    letterSpacing: 0.3,
+                    opacity: 0.5,
+                  }}
+                />
+              )}
+              {isGenerating ? (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '100%',
+                  }}
+                >
+                  <CircularProgress />
+                </Box>
+              ) : (
+                <Studio
+                  key={studioKey}
+                  ref={studioRef}
+                  initialState={initialState}
+                  onStateChange={handleStateChange}
+                  sidebarLayout={sidebarLayout}
+                  sidebarSide={sidebarSide}
+                  tableSourceMode={tableSourceMode}
+                  stackBreakpoint={stackBreakpoint}
+                  featureFlags={featureFlags}
+                  aiConfig={aiConfig}
+                  customWidgets={customWidgets}
+                  localeText={localeBundle.studioLocaleText}
+                />
+              )}
+            </Box>
           </Box>
-        </Box>
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={4000}
-          onClose={handleCloseSnackbar}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        >
-          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
-            {snackbar.message}
-          </Alert>
-        </Snackbar>
-        <SettingsDialog
-          open={settingsOpen}
-          onClose={handleCloseSettings}
-          values={{
-            sidebarLayout,
-            sidebarSide,
-            tableSourceMode,
-            stackBreakpoint,
-            rowCount: getUrlRowsParam(),
-            adapterEnabled: adapterMode,
-            dataset: getUrlDatasetParam(),
-          }}
-          onSidebarLayoutChange={setSidebarLayout}
-          onSidebarSideChange={setSidebarSide}
-          onTableSourceModeChange={setTableSourceMode}
-          onStackBreakpointChange={handleStackBreakpointChange}
-          featureFlags={featureFlags}
-          onFeatureFlagsChange={setFeatureFlags}
-          locale={locale}
-          onLocaleChange={setLocale}
-        />
+          <Snackbar
+            open={snackbar.open}
+            autoHideDuration={4000}
+            onClose={handleCloseSnackbar}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+          >
+            <Alert
+              onClose={handleCloseSnackbar}
+              severity={snackbar.severity}
+              sx={{ width: '100%' }}
+            >
+              {snackbar.message}
+            </Alert>
+          </Snackbar>
+          <SettingsDialog
+            open={settingsOpen}
+            onClose={handleCloseSettings}
+            values={{
+              sidebarLayout,
+              sidebarSide,
+              tableSourceMode,
+              stackBreakpoint,
+              rowCount: getUrlRowsParam(),
+              adapterEnabled: adapterMode,
+              dataset: getUrlDatasetParam(),
+            }}
+            onSidebarLayoutChange={setSidebarLayout}
+            onSidebarSideChange={setSidebarSide}
+            onTableSourceModeChange={setTableSourceMode}
+            onStackBreakpointChange={handleStackBreakpointChange}
+            featureFlags={featureFlags}
+            onFeatureFlagsChange={setFeatureFlags}
+            locale={locale}
+            onLocaleChange={setLocale}
+          />
+        </AppLocaleProvider>
       </LocalizationProvider>
     </ThemeProvider>
   );

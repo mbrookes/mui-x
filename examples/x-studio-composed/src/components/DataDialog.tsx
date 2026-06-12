@@ -2,6 +2,7 @@ import { Dialog, DialogContent, DialogTitle, IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import StorageIcon from '@mui/icons-material/Storage';
 import { StudioDataDrawer } from '@mui/x-studio';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 export interface DataDialogProps {
   open: boolean;
@@ -9,6 +10,8 @@ export interface DataDialogProps {
 }
 
 export function DataDialog({ open, onClose }: DataDialogProps) {
+  const t = useAppLocaleText();
+
   return (
     <Dialog
       open={open}
@@ -19,10 +22,10 @@ export function DataDialog({ open, onClose }: DataDialogProps) {
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1.5 }}>
         <StorageIcon fontSize="small" color="action" />
-        Data sources
+        {t.dataSourcesTitle}
         <IconButton
           autoFocus
-          aria-label="Close data dialog"
+          aria-label={t.closeDataDialogAriaLabel}
           onClick={onClose}
           size="small"
           sx={{ ml: 'auto' }}

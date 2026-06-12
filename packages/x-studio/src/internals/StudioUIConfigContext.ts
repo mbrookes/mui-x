@@ -635,6 +635,7 @@ export interface StudioLocaleText {
   insightTypeAnalysis: string;
   insightTypeForecast: string;
   insightTypeAnomaly: string;
+  insightTypeCorrelation: string;
 
   // ── Filter widget controls ────────────────────────────────────────────────
   filterWidgetClearAriaLabel: string;
@@ -1284,6 +1285,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   insightTypeAnalysis: 'Analysis',
   insightTypeForecast: 'Forecast',
   insightTypeAnomaly: 'Anomaly Explanation',
+  insightTypeCorrelation: 'Correlation Analysis',
 
   // Filter widget controls
   filterWidgetClearAriaLabel: 'Clear filter',

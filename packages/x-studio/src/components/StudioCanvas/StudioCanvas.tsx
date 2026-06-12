@@ -176,6 +176,7 @@ function InsertionPoint({
   return (
     <Box
       ref={ref}
+      data-studio-drop-active={isOver ? '' : undefined}
       sx={{
         position: 'relative',
         ...(orientation === 'vertical'
@@ -773,7 +774,10 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
 
   if (!widgetRows || widgetRows.length === 0) {
     return (
-      <Box ref={canvasRef} sx={[{ p: mode === 'edit' ? 0 : '8px' }, ...(Array.isArray(sx) ? sx : [sx])]}>
+      <Box
+        ref={canvasRef}
+        sx={[{ p: mode === 'edit' ? 0 : '8px' }, ...(Array.isArray(sx) ? sx : [sx])]}
+      >
         <Paper
           variant="outlined"
           sx={{
@@ -802,14 +806,19 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
 
   return (
     <React.Fragment>
-      {/* Force grabbing cursor across all elements during a widget drag.
+      {/* Force move cursor across all elements during a widget drag.
           CSS alone cannot override the native HTML5 DnD cursor, so we also
-          set an inline style on <html> via JS (see StudioWidgetCard handleDragStart). */}
+          set an inline style on <html> via JS (see StudioWidgetCard handleDragStart).
+          Drop zones override with copy ("+") when hovered. */}
       <GlobalStyles
         styles={{
           'body.x-studio-dragging-widget, body.x-studio-dragging-widget *': {
-            cursor: 'grabbing !important',
+            cursor: 'move !important',
           },
+          'body.x-studio-dragging-widget [data-studio-drop-active], body.x-studio-dragging-widget [data-studio-drop-active] *':
+            {
+              cursor: 'copy !important',
+            },
         }}
       />
       <Box

@@ -38,7 +38,7 @@ import { useStudioUIConfig, useStudioFeatures } from '../../internals/StudioUICo
 import { createWidgetFromDescription } from '../StudioChatPanel/createWidgetFromDescription';
 
 function getCursor(isDragging: boolean) {
-  return isDragging ? 'grabbing' : 'grab';
+  return isDragging ? 'move' : 'default';
 }
 
 // ── Natural language widget creator (BL-58) ──────────────────────────────────
@@ -204,7 +204,7 @@ function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
         event.dataTransfer?.setDragImage(node, 0, 0);
       }
       document.body.classList.add('x-studio-dragging-widget');
-      document.documentElement.style.setProperty('cursor', 'grabbing', 'important');
+      document.documentElement.style.setProperty('cursor', 'move', 'important');
     }
     function handleDragEnd() {
       setIsDragging(false);
@@ -357,7 +357,11 @@ function WidgetInstanceList({ kind, onBack, onAdd }: WidgetInstanceListProps) {
   return (
     <Stack spacing={1.5}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <IconButton size="small" onClick={onBack} aria-label={localeText.composeBackToWidgetTypesAriaLabel}>
+        <IconButton
+          size="small"
+          onClick={onBack}
+          aria-label={localeText.composeBackToWidgetTypesAriaLabel}
+        >
           <ArrowBackIcon fontSize="small" />
         </IconButton>
         <Box sx={{ color: 'primary.main', display: 'flex' }}>{wt.icon}</Box>

@@ -1054,34 +1054,67 @@ export interface HeatmapData {
  * Aggregates rows into a heatmap grid.
  *
  * @param rows - The rows to aggregate.
- * @param xField - Column (X) axis field (categorical).
+ * @param xField - Column (X) axis field (categorical or date).
  * @param yField - Row (Y) axis field (categorical).
- * @param valueField - Numeric field to sum per cell.
+ * @param valueField - Numeric field to aggregate per cell.
+ * @param xGroupBy - Optional date granularity to truncate the X axis values.
+ * @param yAggregation - Aggregation function to apply per cell (default: 'sum').
  */
 export function aggregateHeatmap(
   rows: Row[],
   xField: string,
   yField: string,
   valueField: string,
+  xGroupBy?: XGroupBy,
+  yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
 ): HeatmapData {
   const xSet = new Set<string>();
   const ySet = new Set<string>();
-  const cellMap = new Map<string, number>();
+  const cellSum = new Map<string, number>();
+  const cellCount = new Map<string, number>();
 
   for (const row of rows) {
-    const xVal = String(row[xField] ?? '');
+    const raw = toXValue(row[xField]);
+    const xVal = String(applyXGroupBy(raw, xGroupBy));
     const yVal = String(row[yField] ?? '');
-    const numVal = Number(row[valueField] ?? 0);
     if (!xVal || !yVal) {
+      continue;
+    }
+    const numVal = Number(row[valueField]);
+    // Skip rows where the value field is null/undefined/NaN (e.g. in-transit
+    // shipments with no actual delivery date produce a null datediff)
+    if (Number.isNaN(numVal) || row[valueField] == null) {
       continue;
     }
     xSet.add(xVal);
     ySet.add(yVal);
     const key = `${xVal}\x00${yVal}`;
-    cellMap.set(key, (cellMap.get(key) ?? 0) + numVal);
+    const prev = cellSum.get(key) ?? 0;
+    const count = (cellCount.get(key) ?? 0) + 1;
+    cellCount.set(key, count);
+
+    if (yAggregation === 'count') {
+      cellSum.set(key, count);
+    } else if (yAggregation === 'sum' || yAggregation === 'avg') {
+      cellSum.set(key, prev + numVal);
+    } else if (yAggregation === 'min') {
+      cellSum.set(key, count === 1 ? numVal : Math.min(prev, numVal));
+    } else if (yAggregation === 'max') {
+      cellSum.set(key, count === 1 ? numVal : Math.max(prev, numVal));
+    }
   }
 
-  const xLabels = [...xSet];
+  // Finalise averages
+  const cellMap = new Map<string, number>();
+  for (const [key, sum] of cellSum) {
+    if (yAggregation === 'avg') {
+      cellMap.set(key, sum / (cellCount.get(key) ?? 1));
+    } else {
+      cellMap.set(key, sum);
+    }
+  }
+
+  const xLabels = sortLabels([...xSet]) as string[];
   const yLabels = [...ySet];
 
   let minValue = Infinity;

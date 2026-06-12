@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, Tooltip, Typography, useTheme } from '@mui/material';
+import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 
 export interface GanttItem {
   label: string;
@@ -66,6 +67,7 @@ export function StudioGanttChart({
   categories = EMPTY_CATEGORIES,
 }: StudioGanttChartProps) {
   const theme = useTheme();
+  const localeText = useStudioLocaleText();
 
   // Build a stable colour map from the theme palette series
   const paletteColors: string[] = React.useMemo(() => {
@@ -259,7 +261,7 @@ export function StudioGanttChart({
             }}
           >
             <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
-              +{hiddenCount} more rows not shown: increase widget height to see all
+              {localeText.ganttHiddenRowsLabel(hiddenCount)}
             </Typography>
           </Box>
         )}

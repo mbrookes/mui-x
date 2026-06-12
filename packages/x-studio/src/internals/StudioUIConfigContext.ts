@@ -665,6 +665,30 @@ export interface StudioLocaleText {
   addWidgetGroupAriaLabel: (groupLabel: string) => string;
   addWidgetSelectAriaLabel: (label: string) => string;
   formatPanelNoSubtitlePlaceholder: string;
+
+  // ── Widget filters panel (always-on widget-level conditions) ──────────────
+  widgetFiltersPanelNoSource: string;
+  widgetFiltersPanelDescription: string;
+  widgetFiltersPanelNoFilters: string;
+  widgetFiltersPanelAddButton: string;
+
+  // ── Expression field preview ───────────────────────────────────────────────
+  /** Returns label like "Preview (measure over 1,000 rows)" */
+  expressionPreviewMeasureLabel: (count: number) => string;
+  /** Returns label like "Preview (first 100 rows)" */
+  expressionPreviewFirstRowsLabel: (count: number) => string;
+
+  // ── Pivot widget ──────────────────────────────────────────────────────────
+  /** Returns e.g. "12 rows × 5 columns" */
+  pivotRowsColumnsLabel: (rowCount: number, colCount: number) => string;
+
+  // ── Gantt chart ───────────────────────────────────────────────────────────
+  /** Returns e.g. "+3 more rows not shown: increase widget height to see all" */
+  ganttHiddenRowsLabel: (count: number) => string;
+
+  // ── Color input ───────────────────────────────────────────────────────────
+  /** Returns e.g. "Clear background colour" */
+  colorInputClearAriaLabel: (label: string) => string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1315,6 +1339,28 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   addWidgetGroupAriaLabel: (groupLabel) => `${groupLabel} widgets`,
   addWidgetSelectAriaLabel: (label) => `Select widget: ${label}`,
   formatPanelNoSubtitlePlaceholder: 'No subtitle',
+
+  // Widget filters panel
+  widgetFiltersPanelNoSource: 'This widget has no data source.',
+  widgetFiltersPanelDescription:
+    "Always-on conditions applied to this widget\u2019s data before any interactive filters.",
+  widgetFiltersPanelNoFilters: 'No filters, all data is shown.',
+  widgetFiltersPanelAddButton: 'Add filter',
+
+  // Expression field preview
+  expressionPreviewMeasureLabel: (count) =>
+    `Preview (measure over ${count.toLocaleString()} rows)`,
+  expressionPreviewFirstRowsLabel: (count) => `Preview (first ${count.toLocaleString()} rows)`,
+
+  // Pivot widget
+  pivotRowsColumnsLabel: (rowCount, colCount) => `${rowCount} rows \u00d7 ${colCount} columns`,
+
+  // Gantt chart
+  ganttHiddenRowsLabel: (count) =>
+    `+${count} more rows not shown: increase widget height to see all`,
+
+  // Color input
+  colorInputClearAriaLabel: (label) => `Clear ${label.toLowerCase()}`,
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

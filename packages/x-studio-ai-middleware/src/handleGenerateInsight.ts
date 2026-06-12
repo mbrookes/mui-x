@@ -9,6 +9,8 @@
  * PURE FUNCTION GUARANTEE: no HTTP framework imports, no global state.
  */
 
+import { WIDGET_CONFIG_DESCRIPTION } from './studioAITools';
+
 export interface GenerateInsightOptions {
   /** LLM endpoint (OpenAI-compatible, e.g. `https://api.openai.com/v1/chat/completions`) */
   endpoint: string;
@@ -202,8 +204,8 @@ export async function handleCreateWidget(
   const systemPrompt =
     'You are a dashboard widget builder. The user will describe a widget they want.\n' +
     'Respond ONLY with valid JSON: {"kind":"...","title":"...","sourceId":"...","config":{...}}\n\n' +
-    'Widget kinds: chart (bar, line, area, pie, donut, scatter, bar-stacked, area-stacked, ' +
-    'heatmap, funnel, gantt, gauge, mixed), kpi, grid, filter, pivot, map, text.\n\n' +
+    'Widget kinds: chart, kpi, grid, filter, pivot, map, text.\n\n' +
+    `${WIDGET_CONFIG_DESCRIPTION}\n\n` +
     `Available data sources:\n${sourceLines || '  (none yet)'}\n\n` +
     'Pick sensible field selections. Prefer numeric fields for values/Y-axis and categorical/date fields for grouping/X-axis.';
 

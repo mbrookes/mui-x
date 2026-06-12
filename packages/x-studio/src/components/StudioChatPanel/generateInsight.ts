@@ -253,6 +253,15 @@ export function buildWidgetDataSummary(
     if (cfg.ganttEndField) {
       fieldIds.push(cfg.ganttEndField);
     }
+    if (cfg.ganttColorField) {
+      fieldIds.push(cfg.ganttColorField);
+    }
+    if (cfg.scatterColorField) {
+      fieldIds.push(cfg.scatterColorField);
+    }
+    if (cfg.scatterSizeField) {
+      fieldIds.push(cfg.scatterSizeField);
+    }
   } else if (widget.kind === 'kpi') {
     if (cfg.kpiValueField) {
       fieldIds.push(cfg.kpiValueField);

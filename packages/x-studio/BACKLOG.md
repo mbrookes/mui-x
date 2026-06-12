@@ -750,3 +750,13 @@ BL-174: Cursor appearance is inconsistent and non-standard. Keep it as the stand
 - Filter construction now checks `r.skip || r.unresolved` to drop unresolvable filter predicates silently
 - SELECT columns continue to pass through (backward-compatible; they don't typically cause SQL errors)
 - `resolveField` JSDoc updated with case 6 description
+
+✅ BL-176: Clicking a country in Revenue by Country map causes "ambiguous column name: customers.country" in Active Customers KPI
+
+**Root cause:** Case 1b in `resolveField()` builds two LEFT JOINs for a cross-filter using an expression field on a related source. When `expr-order-country` (defined on ORDERS, joins to CUSTOMERS.country) is applied to an Active Customers widget (primary source = CUSTOMERS), the two-hop resolution produced:
+- Hop 1: `LEFT JOIN orders ON orders.customerId = customers.id`
+- Hop 2: `LEFT JOIN customers ON orders.customerId = customers.id` ← duplicate! `customers` is already the primary table
+
+This caused `customers` to appear twice in the query, making `customers.country` ambiguous.
+
+**Fixed:** In case 1b, when `expression.joinSourceId === primarySourceId` (hop 2 would circle back to the primary table), skip both JOINs and return the physical column from the primary table directly. For `expr-order-country` on a CUSTOMERS widget: returns `customers.country` with no JOINs — the column is already available on the primary table.

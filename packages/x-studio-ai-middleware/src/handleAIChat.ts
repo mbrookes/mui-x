@@ -137,7 +137,7 @@ export function handleAIChat(
   body: StudioAIRequest,
   options: StudioAIHandlerOptions,
 ): ReadableStream<string> {
-  const { messages, dashboardState, customWidgets, focusedWidgetId, allowedTools, skills } = body;
+  const { messages, dashboardState, customWidgets, focusedWidgetId, allowedTools, skills, privateMode } = body;
 
   return new ReadableStream<string>({
     async start(controller) {
@@ -157,6 +157,7 @@ export function handleAIChat(
             signal: options.signal,
             onToolError: options.onToolError,
             skillHandlers: options.skillHandlers,
+            privateMode,
           },
         );
 

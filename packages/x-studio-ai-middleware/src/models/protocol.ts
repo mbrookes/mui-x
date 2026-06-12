@@ -27,6 +27,14 @@ export interface StudioAIRequest {
   allowedTools?: string[];
   /** Serialized skills (prompt fragments + optional tool definitions). */
   skills?: SerializableSkill[];
+  /**
+   * When `true`, the current `<dashboard_state>` is omitted from the system prompt.
+   * The model receives schema information only — no widget configurations, field names,
+   * or layout. Use this when the dashboard contains sensitive business data you don't
+   * want sent to the LLM provider.
+   * @default false
+   */
+  privateMode?: boolean;
 }
 
 // ── SSE events ────────────────────────────────────────────────────────────────

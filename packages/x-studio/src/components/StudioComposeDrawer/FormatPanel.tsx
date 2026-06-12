@@ -109,6 +109,22 @@ export function FormatPanel(props: { widgetId: string }) {
           label={localeText.formatPanelCompactNumbers}
         />
       )}
+      {widget?.kind === 'grid' && (
+        <TextField
+          label={localeText.gridSetupHeightLabel}
+          type="number"
+          size="small"
+          fullWidth
+          value={widget.config.gridHeight ?? 400}
+          slotProps={{ htmlInput: { min: 200, step: 50 } }}
+          onChange={(event) => {
+            const parsed = parseInt(event.target.value, 10);
+            if (!Number.isNaN(parsed) && parsed >= 200) {
+              controller.updateWidgetConfig(widgetId, { gridHeight: parsed });
+            }
+          }}
+        />
+      )}
       <TextField
         label={localeText.formatPanelWidgetTitleLabel}
         size="small"

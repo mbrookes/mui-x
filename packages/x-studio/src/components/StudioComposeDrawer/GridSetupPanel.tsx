@@ -33,7 +33,15 @@ import type {
   StudioGridColumn,
   StudioGridSummaryAggregation,
 } from '../../models';
-import { useStudioController, useStudioSelector, selectWidgets, selectDataSources, selectRelationships, selectExpressionFields, useStudioLocaleText } from '../../context';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectWidgets,
+  selectDataSources,
+  selectRelationships,
+  selectExpressionFields,
+  useStudioLocaleText,
+} from '../../context';
 import { getReachableSourceIds } from '../../internals/chartUtils';
 import { StudioUIConfigContext, useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { FieldTypeIcon } from '../../internals/FieldTypeIcon';
@@ -50,7 +58,6 @@ const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = [
   'count_distinct',
 ];
 const STRING_AGGREGATIONS: StudioGridSummaryAggregation[] = ['count', 'count_distinct'];
-
 
 const CF_OPERATORS: { value: StudioConditionalFormat['operator']; label: string }[] = [
   { value: 'equals', label: '=' },
@@ -422,7 +429,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
               <TextField
                 {...params}
                 label={localeText.gridSetupDataSourceLabel}
-                placeholder="Select a data source…"
+                placeholder={localeText.gridSetupDataSourcePlaceholder}
                 helperText={!source ? 'Choose a data source to configure columns' : undefined}
               />
             )}
@@ -699,12 +706,12 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   sx={{ height: 40, flexShrink: 0 }}
                 >
                   <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
-                    <Tooltip title="Ascending">
+                    <Tooltip title={localeText.sortAscendingAriaLabel}>
                       <ArrowUpwardIcon fontSize="small" />
                     </Tooltip>
                   </ToggleButton>
                   <ToggleButton value="desc" aria-label={localeText.sortDescendingAriaLabel}>
-                    <Tooltip title="Descending">
+                    <Tooltip title={localeText.sortDescendingAriaLabel}>
                       <ArrowDownwardIcon fontSize="small" />
                     </Tooltip>
                   </ToggleButton>
@@ -713,7 +720,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
 
               {/* Grid height */}
               <TextField
-                label="Height (px)"
+                label={localeText.gridSetupHeightLabel}
                 type="number"
                 size="small"
                 value={gridHeight}

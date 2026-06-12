@@ -475,7 +475,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       // so we also set an inline style on <html> which has the highest cascade
       // priority and suppresses the OS cursor on most modern browsers.
       document.body.classList.add('x-studio-dragging-widget');
-      document.documentElement.style.setProperty('cursor', 'move', 'important');
+      document.documentElement.style.setProperty('cursor', 'grabbing', 'important');
       // Record which widget is being dragged so insertion points adjacent to it
       // can disable themselves during dragover (BL-112).
       document.body.dataset.studioDraggingWidgetId = widgetId;
@@ -633,7 +633,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           borderRadius:
             pageTheme?.cardRadius !== undefined ? `${pageTheme.cardRadius}px` : undefined,
           backgroundColor: pageTheme?.cardBackground ?? undefined,
-          cursor: isDragging ? 'move' : 'default',
+          cursor: isDragging ? 'grabbing' : 'default',
           p: pageTheme?.cardPadding ?? 2,
           boxSizing: 'border-box',
           height: '100%',

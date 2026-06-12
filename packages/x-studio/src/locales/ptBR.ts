@@ -76,6 +76,18 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   aiAssistantOpenTooltip: 'Abrir assistente de IA',
   aiAssistantCloseTooltip: 'Fechar assistente de IA',
 
+  // Drawer panel / sidebar
+  drawerPanelCloseAriaLabel: 'Fechar configuração do widget',
+  sidebarPanelsAriaLabel: 'Painéis laterais',
+
+  // NumberField
+  numberFieldIncreaseAriaLabel: 'Aumentar',
+  numberFieldDecreaseAriaLabel: 'Diminuir',
+
+  // Widget card (expanded state)
+  widgetCardCloseExpandedAriaLabel: 'Fechar gráfico expandido',
+  widgetCardExportPngAriaLabel: 'Exportar gráfico expandido como PNG',
+
   // Natural language widget creation
   aiCreateWidgetLabel: 'Descrever um widget',
   aiCreateWidgetPlaceholder:
@@ -124,6 +136,20 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   formatResetTitle: 'Redefinir para título gerado automaticamente',
   formatAutoSubtitle: 'Subtítulo gerado automaticamente',
   formatResetSubtitle: 'Redefinir para subtítulo gerado automaticamente',
+  formatPanelCompactNumbers: 'Números compactos',
+  formatPanelWidgetTitleLabel: 'Título do widget',
+  formatPanelWidgetTitleHelperText: 'Exibido no cabeçalho do widget',
+  formatPanelSubtitleLabel: 'Subtítulo',
+  formatPanelSubtitleHelperText: 'Linha opcional exibida abaixo do título',
+
+  // Text format panel
+  textFormatFontFamilyLabel: 'Família da fonte',
+  textFormatFontSizeLabel: 'Tamanho da fonte',
+  textFormatColorLabel: 'Cor',
+  textFormatColorPlaceholder: 'Padrão',
+  textFormatAlignLeftAriaLabel: 'Alinhar à esquerda',
+  textFormatAlignCenterAriaLabel: 'Centralizar',
+  textFormatAlignRightAriaLabel: 'Alinhar à direita',
 
   // Data drawer
   dataDrawerNoSources:
@@ -147,6 +173,12 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   relationshipTypeManyToOne: 'Muitos-para-um',
   relationshipTypeOneToOne: 'Um-para-um',
   relationshipTypeManyToMany: 'Muitos-para-muitos',
+  relationshipTypeLabel: 'Tipo',
+  relationshipJoinFieldLabel: 'Campo de junção',
+  relationshipJunctionTableLabel: 'Tabela de junção (ponte)',
+  relationshipJunctionSourceLabel: 'Fonte de junção',
+  relationshipJunctionSourceFkLabel: '\u2192 FK de origem',
+  relationshipJunctionTargetFkLabel: '\u2192 FK de destino',
 
   // Filter conditions & values
   filterConditionAnd: 'E',
@@ -163,15 +195,18 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   filterInteractiveSectionTitle: 'Filtros interativos',
   filterCrossSectionTitle: 'Filtros cruzados',
   filterClearFilter: 'Limpar filtro',
+  filterClearInteractiveAriaLabel: 'Limpar filtro interativo',
   filterClearAllCrossFilters: 'Limpar todos os filtros cruzados',
   filterRemoveCrossFilter: 'Remover filtro cruzado',
   filterSearchValues: 'Pesquisar valores\u2026',
   filterSelectField: 'Selecione um campo\u2026',
   filterValueLabel: 'Valor',
   filterValueHelper: 'Valor para comparar',
+  filterValueAmountLabel: 'Valor',
   filterSelectParent: 'Selecione o filtro pai\u2026',
   filterSourceLabel: 'Fonte',
   filterMetricRowLabel: 'Linha de métrica',
+  filterMetricHelperText: 'Identifica a linha na tabela de métricas de negócios',
   filterFieldLabel: 'Campo',
   filterRankByLabel: 'Classificar por',
 
@@ -190,6 +225,16 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   exprCancel: 'Cancelar',
   exprSave: 'Salvar',
   exprAddField: 'Adicionar campo',
+  expressionNameLabel: 'Nome',
+  expressionNameHelperText: 'Usado como rótulo do campo em seletores e colunas da tabela',
+  expressionNamePlaceholder: 'ex.: Lucro, Receita por Unidade',
+  expressionDescriptionLabel: 'Descrição',
+  expressionDescriptionHelperText:
+    'Opcional. Exibido como dica de ferramenta nos seletores de campo',
+  expressionDescriptionPlaceholder: 'Opcional: descreva o que este campo calcula',
+  expressionPrecisionLabel: 'Precisão',
+  expressionPrecisionHelperText:
+    'Casas decimais (0\u201310) usadas na formatação deste campo calculado',
 
   // Shared aggregation function labels
   aggFnSum: 'Soma',
@@ -213,6 +258,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
 
   // Chart setup panel
   chartSetupValueFieldLabel: 'Campo de valor',
+  chartSetupValueFieldHelperText: 'Campo numérico a agregar',
   chartSetupAggregationLabel: 'Agregação',
   chartSetupMinLabel: 'Mín.',
   chartSetupMaxLabel: 'Máx.',
@@ -222,6 +268,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chartSetupSortValue: 'Valor',
   chartSetupSortNone: 'Nenhum',
   chartSetupSortPercent: 'Percentual',
+  chartSetupSortDirectionAriaLabel: 'Direção da ordenação',
   chartSetupAnnotationsTitle: 'Anotações',
   chartSetupInteractionsTitle: 'Interações',
   chartSetupInteractionsDescription: 'Quando outros widgets forem clicados, este gráfico\u2026',
@@ -232,6 +279,39 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chartSetupRemoveAnnotation: 'Remover anotação',
   chartSetupNoReferenceLines: 'Sem linhas de referência. Clique em + para adicionar uma.',
   chartSetupDualYAxis: 'Eixo Y duplo (série de linha no eixo direito)',
+  chartSetupReferenceLineValueLabel: 'Valor',
+  chartSetupReferenceLineLabelLabel: 'Rótulo',
+  chartSetupYFieldLabel: 'Campo Y (numérico)',
+  chartSetupYFieldHelperText: 'Campo numérico plotado no eixo vertical',
+  chartSetupColorByLabel: 'Colorir por (opcional)',
+  chartSetupColorByHelperText: 'Divide os pontos em séries por categoria com código de cores',
+  chartSetupSizeByLabel: 'Tamanho por (opcional)',
+  chartSetupSizeByHelperText:
+    'Campo numérico que controla o raio da bolha (produz um gráfico de bolhas)',
+  chartSetupMinRadiusLabel: 'Raio mínimo',
+  chartSetupMaxRadiusLabel: 'Raio máximo',
+  chartSetupFunnelValueHelperText:
+    'Campo numérico somado por estágio \u2014 os estágios são ordenados por valor (maior primeiro)',
+  chartSetupHeatmapRowAxisLabel: 'Campo do eixo de linha',
+  chartSetupHeatmapRowAxisHelperText:
+    'Campo categórico para o eixo vertical (linha), ex.: hora do dia',
+  chartSetupHeatmapValueLabel: 'Campo de valor / cor',
+  chartSetupHeatmapValueHelperText:
+    'Campo numérico somado por célula para determinar a intensidade da cor',
+  chartSetupHeatmapColourSchemeLabel: 'Esquema de cores',
+  chartSetupArcLabelLabel: 'Rótulo de arco',
+  chartSetupMinAngleLabel: 'Ângulo mínimo (\u00b0)',
+  chartSetupMinAngleHelperText: 'Fatias menores que este ângulo (graus) n\u00e3o exibirão rótulo',
+  chartSetupGanttLabelFieldLabel: 'Campo de rótulo',
+  chartSetupGanttLabelFieldHelperText:
+    'Campo exibido como rótulo de linha no eixo Y (ex.: nome de tarefa ou pedido)',
+  chartSetupGanttStartDateLabel: 'Campo de data de início',
+  chartSetupGanttStartDateHelperText: 'Campo de data/hora para o início de cada barra',
+  chartSetupGanttEndDateLabel: 'Campo de data de fim',
+  chartSetupGanttEndDateHelperText: 'Campo de data/hora para o fim de cada barra',
+  chartSetupGanttColourByLabel: 'Colorir por (opcional)',
+  chartSetupGanttColourByHelperText:
+    'Campo categórico usado para colorir as barras (ex.: status ou categoria)',
 
   // KPI setup panel
   kpiSetupChartLine: 'Linha',
@@ -242,6 +322,17 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   kpiSetupCompSameLastYear: 'Mesmo período do ano passado',
   kpiSetupInteractionsTitle: 'Interações',
   kpiSetupInteractionsDescription: 'Quando outros widgets forem clicados, este KPI\u2026',
+  kpiSetupTimeFieldLabel: 'Campo de tempo',
+  kpiSetupGranularityLabel: 'Granularidade',
+  kpiSetupPlotTypeLabel: 'Tipo de gráfico',
+  kpiSetupMinLabel: 'Mín.',
+  kpiSetupMaxLabel: 'Máx.',
+  kpiSetupValueFieldLabel: 'Campo de valor',
+  kpiSetupValueFieldHelperText: 'Campo a agregar',
+  kpiSetupSparklineLabel: 'Minigráfico',
+  kpiSetupTargetLabel: 'Meta',
+  kpiSetupTrendLabel: 'Tendência',
+  kpiSetupCompPeriodLabel: 'Período de comparação',
 
   // KPI widget
   kpiGrandTotalTooltip:
@@ -249,6 +340,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
 
   // Grid setup panel
   gridSetupDataSourceLabel: 'Fonte de dados',
+  gridSetupDataSourcePlaceholder: 'Selecione uma fonte de dados\u2026',
   gridSetupAllColumnsAdded: 'Todas as colunas disponíveis foram adicionadas',
   gridSetupCrossFilterFieldLabel: 'Campo de filtro cruzado',
   gridSetupCrossFilterFieldHelper:
@@ -256,6 +348,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   gridSetupGroupByLabel: 'Agrupar por',
   gridSetupGroupByHelper: 'Recolher linhas em grupos \u2014 defina a agregação por coluna abaixo',
   gridSetupDefaultSortLabel: 'Ordenação padrão',
+  gridSetupHeightLabel: 'Altura (px)',
   gridSetupConditionalFormattingTitle: 'Formatação condicional',
   gridSetupConditionalCustom: 'Personalizado',
   gridSetupRemoveRuleAriaLabel: 'Remover regra',
@@ -263,6 +356,13 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   gridSetupInteractionsDescription: 'Quando outros widgets forem clicados, esta tabela\u2026',
 
   // Map setup panel
+  mapSetupMapTypeLabel: 'Tipo de mapa',
+  mapSetupValueFieldLabel: 'Campo de valor (opcional para contagem)',
+  mapSetupColourSchemeLabel: 'Esquema de cores',
+  mapSetupLegendPositionLabel: 'Posição da legenda',
+  mapSetupScaleFromZeroLabel: 'Escalar a partir do zero',
+  mapSetupClickableLabel: 'Clicável (fonte de filtro)',
+  mapSetupCrossFilterLabel: 'Responder a filtros cruzados',
   mapSetupColorBlues: 'Azuis',
   mapSetupColorReds: 'Vermelhos',
   mapSetupColorGreens: 'Verdes',
@@ -284,6 +384,15 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   pivotSetupValueFieldLabel: 'Campo de valor',
   pivotSetupValueFieldHelper: 'Campo numérico agregado em cada célula',
   pivotSetupShowTotals: 'Mostrar linha e coluna de totais',
+  pivotSetupAggregationLabel: 'Agregação',
+
+  // Inline formula bar
+  inlineFormulaBarAddTooltip: 'Adicionar campo de fórmula calculada',
+  inlineFormulaBarCloseAriaLabel: 'Fechar barra de fórmula',
+  inlineFormulaBarLabelLabel: 'Rótulo',
+
+  // Filters drawer
+  filtersDrawerRenameViewTooltip: 'Renomear visualização',
 
   // Filter setup panel
   filterSetupControlTypeLabel: 'Tipo de controle',

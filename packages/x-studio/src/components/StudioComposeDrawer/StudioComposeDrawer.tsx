@@ -2,7 +2,13 @@
 import * as React from 'react';
 import { Box, Tab, Tabs } from '@mui/material';
 import { useDrawerSubheader } from '../Studio/DrawerPanelContext';
-import { useStudioSelector, selectWidgets, selectShell, useCustomWidgetMap, useStudioLocaleText } from '../../context';
+import {
+  useStudioSelector,
+  selectWidgets,
+  selectShell,
+  useCustomWidgetMap,
+  useStudioLocaleText,
+} from '../../context';
 import { StudioUIConfigContext } from '../../internals/StudioUIConfigContext';
 import { AddWidgetView } from './AddWidgetView';
 import { ChartSetupPanel } from './ChartSetupPanel';

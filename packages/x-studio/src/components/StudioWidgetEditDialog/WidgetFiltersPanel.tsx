@@ -16,6 +16,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import type { StudioDataField, StudioFilterOperator, StudioFilterState } from '../../models';
 import { useStudioController } from '../../context/StudioContext';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import {
   selectDataSources,
   selectFilters,
@@ -97,6 +98,7 @@ function FilterRow(props: {
   onUpdate: (patch: Partial<StudioFilterState>) => void;
 }) {
   const { filter, fieldOptions, onRemove, onUpdate } = props;
+  const localeText = useStudioLocaleText();
   const fieldMeta = fieldOptions.find(
     (f) => f.id === filter.field && (f.sourceId ?? null) === (filter.filterSourceId ?? null),
   );
@@ -195,7 +197,7 @@ function FilterRow(props: {
       {!noValue && (
         <TextField
           size="small"
-          placeholder="Value"
+          placeholder={localeText.filterValueLabel}
           value={filter.value === undefined || filter.value === null ? '' : String(filter.value)}
           onChange={(evt) => onUpdate({ value: evt.target.value })}
           sx={{ flex: 1, minWidth: 80 }}
@@ -204,8 +206,8 @@ function FilterRow(props: {
       {noValue && <Box sx={{ flex: 1 }} />}
 
       {/* Remove */}
-      <Tooltip title="Remove filter">
-        <IconButton size="small" onClick={onRemove} aria-label="Remove filter">
+      <Tooltip title={localeText.filterRemoveAriaLabel}>
+        <IconButton size="small" onClick={onRemove} aria-label={localeText.filterRemoveAriaLabel}>
           <DeleteOutlineOutlinedIcon fontSize="small" />
         </IconButton>
       </Tooltip>

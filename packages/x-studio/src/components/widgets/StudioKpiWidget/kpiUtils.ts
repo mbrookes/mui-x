@@ -4,7 +4,10 @@
  */
 import type { StudioDataSource, StudioFilterState, StudioKpiAggregation } from '../../../models';
 import { normalizeToDate } from '../../../internals/chartUtils';
-import { isRelativeDateValue, relativeToAbsolute } from '../../StudioFiltersDrawer/filterDrawerUtils';
+import {
+  isRelativeDateValue,
+  relativeToAbsolute,
+} from '../../StudioFiltersDrawer/filterDrawerUtils';
 
 // ─── Granularity ──────────────────────────────────────────────────────────────
 

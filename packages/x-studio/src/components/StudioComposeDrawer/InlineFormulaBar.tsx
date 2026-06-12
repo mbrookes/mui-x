@@ -19,6 +19,7 @@ import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import FunctionsIcon from '@mui/icons-material/Functions';
 import { useStudioController } from '../../context';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioExpressionField, StudioExpression } from '../../models';
 
 // ─── Operator options ────────────────────────────────────────────────────────
@@ -186,6 +187,7 @@ export interface InlineFormulaBarProps {
 // react-doctor-disable-next-line react-doctor/prefer-useReducer -- each useState is independent; useReducer would add complexity without benefit
 export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFormulaBarProps) {
   const controller = useStudioController();
+  const localeText = useStudioLocaleText();
   const [open, setOpen] = React.useState(false);
   const firstFieldId = fields[0]?.id ?? '';
   const [left, setLeft] = React.useState<OperandState>(() => defaultOperand(firstFieldId));
@@ -233,7 +235,7 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
 
   if (!open) {
     return (
-      <Tooltip title="Add a calculated formula field">
+      <Tooltip title={localeText.inlineFormulaBarAddTooltip}>
         <Button
           size="small"
           variant="text"
@@ -270,7 +272,11 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
             Formula
           </Typography>
         </Stack>
-        <IconButton size="small" onClick={handleCancel} aria-label="Close formula bar">
+        <IconButton
+          size="small"
+          onClick={handleCancel}
+          aria-label={localeText.inlineFormulaBarCloseAriaLabel}
+        >
           <CloseIcon fontSize="small" />
         </IconButton>
       </Stack>
@@ -310,7 +316,7 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
       {/* Label row */}
       <TextField
         size="small"
-        label="Label"
+        label={localeText.inlineFormulaBarLabelLabel}
         placeholder={autoLabel}
         value={labelOverride}
         onChange={(event) => setLabelOverride(event.target.value)}

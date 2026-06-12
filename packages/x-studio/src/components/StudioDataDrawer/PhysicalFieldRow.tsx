@@ -1,9 +1,5 @@
 'use client';
-import {
-  ListItemButton,
-  Stack,
-  Typography,
-} from '@mui/material';
+import { ListItemButton, Stack, Typography } from '@mui/material';
 import type { StudioDataSource } from '../../models';
 import { FieldTypeIcon } from '../../internals/FieldTypeIcon';
 import FieldPreviewTooltip from './FieldPreviewTooltip';

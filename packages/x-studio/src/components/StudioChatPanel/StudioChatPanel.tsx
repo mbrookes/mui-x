@@ -15,7 +15,7 @@ import {
   selectPages,
   selectDashboard,
 } from '../../context';
-import { useStudioUIConfig } from '../../internals/StudioUIConfigContext';
+import { useStudioUIConfig, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioAIConfig } from './studioBackendAdapter';
 import { createBackendChatAdapter } from './studioBackendAdapter';
 import type { StudioCustomWidgetDef } from '../../models';
@@ -204,6 +204,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   const pages = useStudioSelector(selectPages);
   const dashboard = useStudioSelector(selectDashboard);
   const { customWidgets: contextCustomWidgets } = useStudioUIConfig();
+  const localeText = useStudioLocaleText();
 
   // Prefer explicit prop; fall back to Studio context
   const customWidgets = customWidgetsProp ?? contextCustomWidgets;
@@ -217,12 +218,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
       return null;
     }
     return createBackendChatAdapter(aiConfig, controller, customWidgets, focusedWidgetId);
-  }, [
-    aiConfig,
-    controller,
-    customWidgets,
-    focusedWidgetId,
-  ]);
+  }, [aiConfig, controller, customWidgets, focusedWidgetId]);
 
   // ── Dynamic suggestions ────────────────────────────────────────────────────
   const suggestions = React.useMemo(
@@ -308,8 +304,12 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             AI Assistant
           </Typography>
           {onClose && (
-            <Tooltip title="Close">
-              <IconButton size="small" onClick={onClose} aria-label="Close AI assistant">
+            <Tooltip title={localeText.aiCloseTooltip}>
+              <IconButton
+                size="small"
+                onClick={onClose}
+                aria-label={localeText.aiAssistantCloseTooltip}
+              >
                 <CloseIcon fontSize="small" />
               </IconButton>
             </Tooltip>

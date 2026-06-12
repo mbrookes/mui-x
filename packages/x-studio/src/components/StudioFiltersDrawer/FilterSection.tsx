@@ -149,7 +149,7 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
   const localeText = useStudioLocaleText();
 
   return (
-    <CollapsibleSection title="Interactive filters">
+    <CollapsibleSection title={localeText.filterInteractiveSectionTitle}>
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ px: 1, pb: 1 }}>
           No interactive filters active. Use filter widgets on the canvas to set filters.
@@ -194,7 +194,7 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
                   <IconButton
                     size="small"
                     onClick={() => controller.removeFilter(filter.id)}
-                    aria-label="Clear interactive filter"
+                    aria-label={localeText.filterClearInteractiveAriaLabel}
                     sx={{ position: 'absolute', top: 2, right: 2 }}
                   >
                     <CloseIcon fontSize="small" />
@@ -211,6 +211,7 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
 
 export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }) {
   const controller = useStudioController();
+  const localeText = useStudioLocaleText();
   const widgets = useStudioSelector(selectWidgets);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const dataSources = useStudioSelector(selectDataSources);
@@ -233,7 +234,7 @@ export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }
 
   const clearAction =
     filters.length > 0 ? (
-      <Tooltip title="Clear all cross-filters">
+      <Tooltip title={localeText.filterClearAllCrossFilters}>
         <IconButton
           size="small"
           color="inherit"
@@ -241,7 +242,7 @@ export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }
             event.stopPropagation();
             controller.clearAllCrossFilters();
           }}
-          aria-label="Clear all cross-filters"
+          aria-label={localeText.filterClearAllCrossFilters}
         >
           <CloseIcon fontSize="small" />
         </IconButton>
@@ -249,7 +250,7 @@ export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }
     ) : undefined;
 
   return (
-    <CollapsibleSection title="Cross-filters" secondaryAction={clearAction}>
+    <CollapsibleSection title={localeText.filterCrossSectionTitle} secondaryAction={clearAction}>
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ px: 1, pb: 1 }}>
           No cross-filters active. Click on chart elements or select grid rows to create
@@ -282,11 +283,11 @@ export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }
                     From: {widgetTitle}
                   </Typography>
                 )}
-                <Tooltip title="Remove cross-filter">
+                <Tooltip title={localeText.filterRemoveCrossFilter}>
                   <IconButton
                     size="small"
                     onClick={() => controller.removeFilter(filter.id)}
-                    aria-label="Remove cross-filter"
+                    aria-label={localeText.filterRemoveCrossFilter}
                     sx={{ position: 'absolute', top: 2, right: 2 }}
                   >
                     <CloseIcon fontSize="small" />

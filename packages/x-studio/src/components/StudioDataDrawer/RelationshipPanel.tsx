@@ -26,7 +26,6 @@ import type { StudioDataSource, StudioRelationship } from '../../models';
 
 // ─── Relationship editor ──────────────────────────────────────────────────────
 
-
 function generateRelId() {
   return `rel-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -95,9 +94,9 @@ function RelationshipDialog(props: {
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <FormControl size="small" fullWidth>
-            <InputLabel>Type</InputLabel>
+            <InputLabel>{localeText.relationshipTypeLabel}</InputLabel>
             <Select
-              label="Type"
+              label={localeText.relationshipTypeLabel}
               value={form.type}
               onChange={(event) => field('type')(event.target.value)}
             >
@@ -128,9 +127,9 @@ function RelationshipDialog(props: {
               </Select>
             </FormControl>
             <FormControl size="small" sx={{ flex: 1 }}>
-              <InputLabel>Join field</InputLabel>
+              <InputLabel>{localeText.relationshipJoinFieldLabel}</InputLabel>
               <Select
-                label="Join field"
+                label={localeText.relationshipJoinFieldLabel}
                 value={form.sourceField}
                 onChange={(event) => field('sourceField')(event.target.value)}
                 disabled={!form.sourceId}
@@ -167,9 +166,9 @@ function RelationshipDialog(props: {
               </Select>
             </FormControl>
             <FormControl size="small" sx={{ flex: 1 }}>
-              <InputLabel>Join field</InputLabel>
+              <InputLabel>{localeText.relationshipJoinFieldLabel}</InputLabel>
               <Select
-                label="Join field"
+                label={localeText.relationshipJoinFieldLabel}
                 value={form.targetField}
                 onChange={(event) => field('targetField')(event.target.value)}
                 disabled={!form.targetId}
@@ -187,12 +186,12 @@ function RelationshipDialog(props: {
             <React.Fragment>
               <Divider />
               <Typography variant="caption" color="text.secondary">
-                Junction (bridge) table
+                {localeText.relationshipJunctionTableLabel}
               </Typography>
               <FormControl size="small" fullWidth>
-                <InputLabel>Junction source</InputLabel>
+                <InputLabel>{localeText.relationshipJunctionSourceLabel}</InputLabel>
                 <Select
-                  label="Junction source"
+                  label={localeText.relationshipJunctionSourceLabel}
                   value={form.junctionSourceId}
                   onChange={(event) => {
                     field('junctionSourceId')(event.target.value);
@@ -213,9 +212,9 @@ function RelationshipDialog(props: {
               </FormControl>
               <Stack direction="row" spacing={1}>
                 <FormControl size="small" sx={{ flex: 1 }}>
-                  <InputLabel>→ Source FK</InputLabel>
+                  <InputLabel>{localeText.relationshipJunctionSourceFkLabel}</InputLabel>
                   <Select
-                    label="→ Source FK"
+                    label={localeText.relationshipJunctionSourceFkLabel}
                     value={form.junctionSourceField}
                     onChange={(event) => field('junctionSourceField')(event.target.value)}
                     disabled={!form.junctionSourceId}
@@ -228,9 +227,9 @@ function RelationshipDialog(props: {
                   </Select>
                 </FormControl>
                 <FormControl size="small" sx={{ flex: 1 }}>
-                  <InputLabel>→ Target FK</InputLabel>
+                  <InputLabel>{localeText.relationshipJunctionTargetFkLabel}</InputLabel>
                   <Select
-                    label="→ Target FK"
+                    label={localeText.relationshipJunctionTargetFkLabel}
                     value={form.junctionTargetField}
                     onChange={(event) => field('junctionTargetField')(event.target.value)}
                     disabled={!form.junctionSourceId}

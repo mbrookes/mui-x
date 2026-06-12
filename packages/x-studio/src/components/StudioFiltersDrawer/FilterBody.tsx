@@ -96,7 +96,7 @@ function SecondCondition(props: SecondConditionProps) {
         </Tooltip>
       </Box>
       <FormControl size="small">
-        <InputLabel>Operator</InputLabel>
+        <InputLabel>{localeText.filterOperatorLabel}</InputLabel>
         <Select
           label={localeText.filterOperatorLabel}
           value={activeOperator2}
@@ -182,7 +182,7 @@ export function FilterBody({
       {mode === 'condition' && (
         <React.Fragment>
           <FormControl size="small">
-            <InputLabel>Operator</InputLabel>
+            <InputLabel>{localeText.filterOperatorLabel}</InputLabel>
             <Select
               label={localeText.filterOperatorLabel}
               value={activeOperator}
@@ -242,7 +242,7 @@ export function FilterBody({
                 value={selectedDependencies}
                 onChange={(_, next) => onDependencyChange(next.map((opt) => opt.id))}
                 renderInput={(params) => (
-                  <TextField {...params} placeholder="Select parent filter…" />
+                  <TextField {...params} placeholder={localeText.filterSelectParent} />
                 )}
                 isOptionEqualToValue={(opt, val) => opt.id === val.id}
                 disableCloseOnSelect

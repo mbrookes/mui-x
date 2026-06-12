@@ -38,7 +38,7 @@ import { useStudioUIConfig, useStudioFeatures } from '../../internals/StudioUICo
 import { createWidgetFromDescription } from '../StudioChatPanel/createWidgetFromDescription';
 
 function getCursor(isDragging: boolean) {
-  return isDragging ? 'move' : 'default';
+  return isDragging ? 'grabbing' : 'default';
 }
 
 // ── Natural language widget creator (BL-58) ──────────────────────────────────
@@ -204,7 +204,7 @@ function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
         event.dataTransfer?.setDragImage(node, 0, 0);
       }
       document.body.classList.add('x-studio-dragging-widget');
-      document.documentElement.style.setProperty('cursor', 'move', 'important');
+      document.documentElement.style.setProperty('cursor', 'grabbing', 'important');
     }
     function handleDragEnd() {
       setIsDragging(false);

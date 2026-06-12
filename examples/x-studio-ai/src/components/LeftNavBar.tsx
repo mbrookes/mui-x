@@ -15,6 +15,7 @@ import HistoryIcon from '@mui/icons-material/History';
 import SearchIcon from '@mui/icons-material/Search';
 import StarIcon from '@mui/icons-material/Star';
 import type { ChatSession } from '../hooks/useChatStore';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 const NAV_WIDTH = 48;
 
@@ -45,6 +46,8 @@ function ChatListPopover({
   onClose,
   emptyText,
 }: ChatListPopoverProps) {
+  const t = useAppLocaleText();
+
   return (
     <Popover
       open={Boolean(anchorEl)}
@@ -63,7 +66,7 @@ function ChatListPopover({
       </Typography>
       {chats.length === 0 ? (
         <Typography variant="body2" sx={{ p: 1.5, color: 'text.secondary' }}>
-          {emptyText ?? 'No chats yet'}
+          {emptyText ?? t.chatsEmptyText}
         </Typography>
       ) : (
         <List dense disablePadding>
@@ -98,6 +101,7 @@ export function LeftNavBar({
 }: LeftNavBarProps) {
   const [recentAnchor, setRecentAnchor] = React.useState<HTMLElement | null>(null);
   const [favoritesAnchor, setFavoritesAnchor] = React.useState<HTMLElement | null>(null);
+  const t = useAppLocaleText();
 
   const recentChats = chats.slice(0, 20);
   const favoriteChats = chats.filter((chat) => chat.isFavorite);
@@ -124,47 +128,55 @@ export function LeftNavBar({
         },
       }}
     >
-      <Tooltip title="New Chat" placement="right">
-        <IconButton onClick={onNewChat} size="small">
+      <Tooltip title={t.newChatTooltip} placement="right">
+        <IconButton onClick={onNewChat} size="small" aria-label={t.newChatTooltip}>
           <AddIcon fontSize="small" />
         </IconButton>
       </Tooltip>
 
       <Divider flexItem sx={{ my: 0.5 }} />
 
-      <Tooltip title="Search" placement="right">
-        <IconButton onClick={onSearch} size="small">
+      <Tooltip title={t.searchTooltip} placement="right">
+        <IconButton onClick={onSearch} size="small" aria-label={t.searchTooltip}>
           <SearchIcon fontSize="small" />
         </IconButton>
       </Tooltip>
 
-      <Tooltip title="Recent Chats" placement="right">
-        <IconButton size="small" onClick={(event) => setRecentAnchor(event.currentTarget)}>
+      <Tooltip title={t.recentChatsTooltip} placement="right">
+        <IconButton
+          size="small"
+          onClick={(event) => setRecentAnchor(event.currentTarget)}
+          aria-label={t.recentChatsTooltip}
+        >
           <HistoryIcon fontSize="small" />
         </IconButton>
       </Tooltip>
       <ChatListPopover
         anchorEl={recentAnchor}
-        title="Recent Chats"
+        title={t.recentChatsTitle}
         chats={recentChats}
         activeChatId={activeChatId}
         onSelect={onChatSelect}
         onClose={() => setRecentAnchor(null)}
       />
 
-      <Tooltip title="Favorites" placement="right">
-        <IconButton size="small" onClick={(event) => setFavoritesAnchor(event.currentTarget)}>
+      <Tooltip title={t.favoritesTooltip} placement="right">
+        <IconButton
+          size="small"
+          onClick={(event) => setFavoritesAnchor(event.currentTarget)}
+          aria-label={t.favoritesTooltip}
+        >
           <StarIcon fontSize="small" />
         </IconButton>
       </Tooltip>
       <ChatListPopover
         anchorEl={favoritesAnchor}
-        title="Favorites"
+        title={t.favoritesTitle}
         chats={favoriteChats}
         activeChatId={activeChatId}
         onSelect={onChatSelect}
         onClose={() => setFavoritesAnchor(null)}
-        emptyText="No favorites yet"
+        emptyText={t.favoritesEmptyText}
       />
     </Drawer>
   );

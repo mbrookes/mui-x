@@ -14,6 +14,7 @@ import {
   Typography,
 } from '@mui/material';
 import { type SupportedLocale, LOCALE_LABELS } from '../locales';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 export interface SettingsDialogProps {
   open: boolean;
@@ -29,13 +30,14 @@ export function SettingsDialog({ open, onClose, locale, onLocaleChange }: Settin
 
   const envServerUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
   const isEnvConfigured = Boolean(envServerUrl);
+  const t = useAppLocaleText();
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ pb: 1 }}>Settings</DialogTitle>
+      <DialogTitle sx={{ pb: 1 }}>{t.settingsDialogTitle}</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 3, pt: 1 }}>
         <FormControl>
-          <FormLabel>Language</FormLabel>
+          <FormLabel>{t.languageLabel}</FormLabel>
           <RadioGroup
             value={locale}
             onChange={(_event, value) => onLocaleChange(value as SupportedLocale)}
@@ -52,29 +54,28 @@ export function SettingsDialog({ open, onClose, locale, onLocaleChange }: Settin
         </FormControl>
 
         <FormControl>
-          <FormLabel sx={{ mb: 1 }}>Dev Server Connection</FormLabel>
+          <FormLabel sx={{ mb: 1 }}>{t.devServerConnectionLabel}</FormLabel>
           {isEnvConfigured ? (
             <Typography variant="body2" color="text.secondary">
-              Connected to: <strong>{envServerUrl}</strong>
+              {t.devServerConnectedLabel} <strong>{envServerUrl}</strong>
               <br />
-              AI and data queries are routed through the dev server.
+              {t.devServerConnectedDescription}
               <br />
-              To change, update <code>STUDIO_SERVER_URL</code> in <code>.env.local</code>.
+              {t.devServerChangeInstructions}
             </Typography>
           ) : (
             <>
               <TextField
                 size="small"
-                label="Server URL"
-                placeholder="http://localhost:3020"
+                label={t.serverUrlLabel}
+                placeholder={t.serverUrlPlaceholder}
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
-                helperText="Optional. Set STUDIO_SERVER_URL in .env.local to persist."
+                helperText={t.serverUrlHelper}
               />
               {serverUrl && (
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                  URL changes here apply only for this session — the page must reload to take
-                  effect. Add to .env.local to persist.
+                  {t.serverUrlSessionHint}
                 </Typography>
               )}
             </>
@@ -82,7 +83,7 @@ export function SettingsDialog({ open, onClose, locale, onLocaleChange }: Settin
         </FormControl>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Close</Button>
+        <Button onClick={onClose}>{t.closeButtonLabel}</Button>
       </DialogActions>
     </Dialog>
   );

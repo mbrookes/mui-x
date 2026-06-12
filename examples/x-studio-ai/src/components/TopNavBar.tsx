@@ -31,6 +31,7 @@ import {
   useStudioSelector,
 } from '@mui/x-studio';
 import type { StudioPage } from '@mui/x-studio';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 interface TopNavBarProps {
   chatId: string | null;
@@ -42,6 +43,7 @@ interface TopNavBarProps {
 // react-doctor-disable-next-line react-doctor/no-giant-component -- top-level orchestration component; splitting would scatter related state
 export function TopNavBar({ chatId, onSettingsOpen, onSave, onLoad }: TopNavBarProps) {
   const controller = useStudioController();
+  const t = useAppLocaleText();
   const mode = useStudioSelector(selectMode);
   const pages = useStudioSelector(selectPages);
   const activePage = useStudioSelector(selectActivePage);
@@ -386,11 +388,11 @@ export function TopNavBar({ chatId, onSettingsOpen, onSave, onLoad }: TopNavBarP
           )}
 
           {mode === 'edit' && (
-            <Tooltip title="Add page">
+            <Tooltip title={t.addPageTooltip}>
               <IconButton
                 size="small"
-                onClick={() => controller.addPage(`Page ${pageList.length + 1}`)}
-                aria-label="Add page"
+                onClick={() => controller.addPage(t.newPageTitle(pageList.length + 1))}
+                aria-label={t.addPageAriaLabel}
                 sx={{ ml: pageList.length > 0 ? 0.5 : 0 }}
               >
                 <AddIcon fontSize="small" />
@@ -436,48 +438,48 @@ export function TopNavBar({ chatId, onSettingsOpen, onSave, onLoad }: TopNavBarP
           document.body,
         )}
 
-      <Tooltip title="Download dashboard">
+      <Tooltip title={t.downloadTooltip}>
         <span>
           <IconButton
             size="small"
             onClick={onSave}
-            aria-label="Download dashboard"
+            aria-label={t.downloadAriaLabel}
             disabled={!chatId}
           >
             <FileDownloadIcon fontSize="small" />
           </IconButton>
         </span>
       </Tooltip>
-      <Tooltip title="Upload dashboard">
+      <Tooltip title={t.uploadTooltip}>
         <span>
           <IconButton
             size="small"
             onClick={onLoad}
-            aria-label="Upload dashboard"
+            aria-label={t.uploadAriaLabel}
             disabled={!chatId}
           >
             <FileUploadIcon fontSize="small" />
           </IconButton>
         </span>
       </Tooltip>
-      <Tooltip title="Settings">
-        <IconButton size="small" onClick={onSettingsOpen} aria-label="Settings">
+      <Tooltip title={t.settingsTooltip}>
+        <IconButton size="small" onClick={onSettingsOpen} aria-label={t.settingsAriaLabel}>
           <SettingsIcon fontSize="small" />
         </IconButton>
       </Tooltip>
       <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>
-          View
+          {t.viewLabel}
         </Typography>
         <Switch
           checked={mode === 'edit'}
           onChange={(_event, checked) => controller.setMode(checked ? 'edit' : 'view')}
           size="small"
-          slotProps={{ input: { 'aria-label': 'Toggle edit mode' } }}
+          slotProps={{ input: { 'aria-label': t.toggleEditModeAriaLabel } }}
         />
         <Typography variant="body2" color={mode === 'edit' ? 'text.primary' : 'text.secondary'}>
-          Edit
+          {t.editLabel}
         </Typography>
       </Box>
 
@@ -487,15 +489,12 @@ export function TopNavBar({ chatId, onSettingsOpen, onSave, onLoad }: TopNavBarP
         maxWidth="xs"
         fullWidth
       >
-        <DialogTitle>Remove page?</DialogTitle>
+        <DialogTitle>{t.removePageTitle}</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            Remove &ldquo;{confirmPage?.title}&rdquo; and all its widgets? This action can be
-            undone.
-          </DialogContentText>
+          <DialogContentText>{t.removePageDescription(confirmPage?.title ?? '')}</DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmPageId(null)}>Cancel</Button>
+          <Button onClick={() => setConfirmPageId(null)}>{t.cancelButtonLabel}</Button>
           <Button
             color="error"
             variant="contained"
@@ -506,7 +505,7 @@ export function TopNavBar({ chatId, onSettingsOpen, onSave, onLoad }: TopNavBarP
               setConfirmPageId(null);
             }}
           >
-            Remove
+            {t.removeButtonLabel}
           </Button>
         </DialogActions>
       </Dialog>

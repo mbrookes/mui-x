@@ -9,15 +9,9 @@ import {
 } from '@mui/material';
 import { useStudioController, useStudioSelector } from '@mui/x-studio';
 import type { StudioCustomWidgetSetupPanelProps } from '@mui/x-studio';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 type Severity = 'success' | 'info' | 'warning' | 'error';
-
-const SEVERITY_OPTIONS: { value: Severity; label: string }[] = [
-  { value: 'info', label: 'Info' },
-  { value: 'success', label: 'Success' },
-  { value: 'warning', label: 'Warning' },
-  { value: 'error', label: 'Error' },
-];
 
 /**
  * Compose-drawer setup panel for the Alert Banner custom widget.
@@ -26,10 +20,18 @@ const SEVERITY_OPTIONS: { value: Severity; label: string }[] = [
 export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanelProps) {
   const controller = useStudioController();
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
+  const t = useAppLocaleText();
 
   if (!widget) {
     return null;
   }
+
+  const severityOptions: { value: Severity; label: string }[] = [
+    { value: 'info', label: t.alertSeverityInfo },
+    { value: 'success', label: t.alertSeveritySuccess },
+    { value: 'warning', label: t.alertSeverityWarning },
+    { value: 'error', label: t.alertSeverityError },
+  ];
 
   const custom = (widget.config.customConfig ?? {}) as Record<string, unknown>;
   const title = (custom.title as string | undefined) ?? '';
@@ -45,17 +47,17 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
   return (
     <Stack spacing={2}>
       <Typography variant="subtitle2" color="text.secondary">
-        Alert Banner settings
+        {t.alertBannerSettingsTitle}
       </Typography>
       <TextField
-        label="Title (optional)"
+        label={t.alertTitleLabel}
         value={title}
         onChange={(event) => updateCustomConfig({ title: event.target.value })}
         size="small"
         fullWidth
       />
       <TextField
-        label="Message"
+        label={t.alertMessageLabel}
         value={message}
         onChange={(event) => updateCustomConfig({ message: event.target.value })}
         size="small"
@@ -64,13 +66,13 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
         rows={3}
       />
       <FormControl size="small" fullWidth>
-        <InputLabel>Severity</InputLabel>
+        <InputLabel>{t.alertSeverityLabel}</InputLabel>
         <Select
           value={severity}
-          label="Severity"
+          label={t.alertSeverityLabel}
           onChange={(event) => updateCustomConfig({ severity: event.target.value as Severity })}
         >
-          {SEVERITY_OPTIONS.map((opt) => (
+          {severityOptions.map((opt) => (
             <MenuItem key={opt.value} value={opt.value}>
               {opt.label}
             </MenuItem>

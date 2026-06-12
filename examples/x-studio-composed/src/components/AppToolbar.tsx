@@ -31,6 +31,7 @@ import TuneIcon from '@mui/icons-material/Tune';
 import UndoIcon from '@mui/icons-material/Undo';
 import type { StudioMode, StudioPage } from '@mui/x-studio';
 import { StudioWordmark } from '@mui/x-studio';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 export interface AppToolbarProps {
   title: string;
@@ -65,6 +66,8 @@ export interface AppToolbarProps {
 
 // react-doctor-disable-next-line react-doctor/no-giant-component -- top-level orchestration component; splitting would scatter related state
 export function AppToolbar(props: AppToolbarProps) {
+  const t = useAppLocaleText();
+
   const {
     title,
     mode,
@@ -401,8 +404,13 @@ export function AppToolbar(props: AppToolbarProps) {
             ))}
           </Tabs>
           {mode === 'edit' && onAddPage && !hasEmptyPage && (
-            <Tooltip title="Add page">
-              <IconButton size="small" onClick={onAddPage} aria-label="Add page" sx={{ ml: 0.5 }}>
+            <Tooltip title={t.addPageTooltip}>
+              <IconButton
+                size="small"
+                onClick={onAddPage}
+                aria-label={t.addPageAriaLabel}
+                sx={{ ml: 0.5 }}
+              >
                 <AddIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -453,15 +461,12 @@ export function AppToolbar(props: AppToolbarProps) {
         maxWidth="xs"
         fullWidth
       >
-        <DialogTitle>Remove page?</DialogTitle>
+        <DialogTitle>{t.removePageTitle}</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            Remove &ldquo;{confirmPage?.title}&rdquo; and all its widgets? This action can be
-            undone.
-          </DialogContentText>
+          <DialogContentText>{t.removePageDescription(confirmPage?.title ?? '')}</DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmPageId(null)}>Cancel</Button>
+          <Button onClick={() => setConfirmPageId(null)}>{t.cancelButtonLabel}</Button>
           <Button
             color="error"
             variant="contained"
@@ -472,37 +477,51 @@ export function AppToolbar(props: AppToolbarProps) {
               setConfirmPageId(null);
             }}
           >
-            Remove
+            {t.removeButtonLabel}
           </Button>
         </DialogActions>
       </Dialog>
       {mode === 'edit' && (
         <React.Fragment>
-          <Tooltip title="Undo (⌘Z)">
+          <Tooltip title={t.undoTooltip}>
             <span>
-              <IconButton size="small" onClick={onUndo} disabled={!canUndo} aria-label="Undo">
+              <IconButton
+                size="small"
+                onClick={onUndo}
+                disabled={!canUndo}
+                aria-label={t.undoAriaLabel}
+              >
                 <UndoIcon fontSize="small" />
               </IconButton>
             </span>
           </Tooltip>
-          <Tooltip title="Redo (⌘⇧Z)">
+          <Tooltip title={t.redoTooltip}>
             <span>
-              <IconButton size="small" onClick={onRedo} disabled={!canRedo} aria-label="Redo">
+              <IconButton
+                size="small"
+                onClick={onRedo}
+                disabled={!canRedo}
+                aria-label={t.redoAriaLabel}
+              >
                 <RedoIcon fontSize="small" />
               </IconButton>
             </span>
           </Tooltip>
           <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
           {onDataOpen && (
-            <Tooltip title="Data sources">
-              <IconButton size="small" onClick={onDataOpen} aria-label="Data sources">
+            <Tooltip title={t.dataSourcesTooltip}>
+              <IconButton size="small" onClick={onDataOpen} aria-label={t.dataSourcesAriaLabel}>
                 <StorageIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           )}
           {onComposeOpen && (
-            <Tooltip title="Configure widget">
-              <IconButton size="small" onClick={onComposeOpen} aria-label="Configure widget">
+            <Tooltip title={t.configureWidgetTooltip}>
+              <IconButton
+                size="small"
+                onClick={onComposeOpen}
+                aria-label={t.configureWidgetAriaLabel}
+              >
                 <TuneIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -511,44 +530,44 @@ export function AppToolbar(props: AppToolbarProps) {
         </React.Fragment>
       )}
       {onFiltersOpen && (
-        <Tooltip title="Filters">
-          <IconButton size="small" onClick={onFiltersOpen} aria-label="Filters">
+        <Tooltip title={t.filtersTooltip}>
+          <IconButton size="small" onClick={onFiltersOpen} aria-label={t.filtersAriaLabel}>
             <FilterListIcon fontSize="small" />
           </IconButton>
         </Tooltip>
       )}
       {onChatToggle && (
-        <Tooltip title={chatOpen ? 'Close AI assistant' : 'Open AI assistant'}>
+        <Tooltip title={chatOpen ? t.closeAiAssistantTooltip : t.openAiAssistantTooltip}>
           <IconButton
             size="small"
             onClick={onChatToggle}
             color={chatOpen ? 'primary' : 'default'}
-            aria-label={chatOpen ? 'Close AI assistant' : 'Open AI assistant'}
+            aria-label={chatOpen ? t.closeAiAssistantAriaLabel : t.openAiAssistantAriaLabel}
           >
             <AutoAwesomeIcon fontSize="small" />
           </IconButton>
         </Tooltip>
       )}
-      <Tooltip title="Download dashboard">
-        <IconButton size="small" onClick={onSave} aria-label="Download dashboard">
+      <Tooltip title={t.downloadTooltip}>
+        <IconButton size="small" onClick={onSave} aria-label={t.downloadAriaLabel}>
           <FileDownloadIcon fontSize="small" />
         </IconButton>
       </Tooltip>
-      <Tooltip title="Upload dashboard">
-        <IconButton size="small" onClick={onLoad} aria-label="Upload dashboard">
+      <Tooltip title={t.uploadTooltip}>
+        <IconButton size="small" onClick={onLoad} aria-label={t.uploadAriaLabel}>
           <FileUploadIcon fontSize="small" />
         </IconButton>
       </Tooltip>
       {onReset && (
-        <Tooltip title="Reset demo">
-          <IconButton size="small" onClick={onReset} aria-label="Reset to demo">
+        <Tooltip title={t.resetTooltip}>
+          <IconButton size="small" onClick={onReset} aria-label={t.resetAriaLabel}>
             <RestoreIcon fontSize="small" />
           </IconButton>
         </Tooltip>
       )}
       {onSettingsOpen && (
-        <Tooltip title="Settings">
-          <IconButton size="small" onClick={onSettingsOpen} aria-label="Settings">
+        <Tooltip title={t.settingsTooltip}>
+          <IconButton size="small" onClick={onSettingsOpen} aria-label={t.settingsAriaLabel}>
             <SettingsIcon fontSize="small" />
           </IconButton>
         </Tooltip>
@@ -556,16 +575,16 @@ export function AppToolbar(props: AppToolbarProps) {
       <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <Typography variant="body2" color={mode === 'view' ? 'text.primary' : 'text.secondary'}>
-          View
+          {t.viewLabel}
         </Typography>
         <Switch
           checked={mode === 'edit'}
           onChange={onModeChange}
           size="small"
-          slotProps={{ input: { 'aria-label': 'Toggle edit mode' } }}
+          slotProps={{ input: { 'aria-label': t.toggleEditModeAriaLabel } }}
         />
         <Typography variant="body2" color={mode === 'edit' ? 'text.primary' : 'text.secondary'}>
-          Edit
+          {t.editLabel}
         </Typography>
       </Box>
     </Box>

@@ -110,7 +110,7 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
                 px: 0.75,
                 py: 0.25,
                 fontSize: '0.65rem',
-                cursor: 'pointer',
+                cursor: 'default',
                 '&:hover': { bgcolor: activeType === t ? 'primary.dark' : 'action.hover' },
               }}
             >

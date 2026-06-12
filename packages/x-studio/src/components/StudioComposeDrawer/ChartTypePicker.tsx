@@ -114,7 +114,7 @@ export function ChartTypePicker({
                   border: 1,
                   borderColor: selected ? 'primary.main' : 'divider',
                   bgcolor: selected ? 'primary.main18' : 'transparent',
-                  cursor: 'pointer',
+                  cursor: 'default',
                   transition: 'all 0.15s',
                   color: selected ? 'primary.main' : 'text.secondary',
                   '&:hover': {

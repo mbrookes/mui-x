@@ -64,7 +64,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                 }
               }}
               sx={{
-                cursor: 'pointer',
+                cursor: 'default',
                 color: 'text.secondary',
                 display: 'flex',
                 alignItems: 'center',
@@ -132,7 +132,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                     handleSelectionChange(values);
                   }
                 }}
-                sx={{ cursor: 'pointer', color: 'primary.main', fontSize: 12 }}
+                sx={{ cursor: 'default', color: 'primary.main', fontSize: 12 }}
               >
                 Select all
               </Box>
@@ -153,7 +153,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                     onClear();
                   }
                 }}
-                sx={{ cursor: 'pointer', color: 'text.secondary', fontSize: 12 }}
+                sx={{ cursor: 'default', color: 'text.secondary', fontSize: 12 }}
               >
                 Clear all
               </Box>
@@ -175,7 +175,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                   }
                 }}
                 sx={{
-                  cursor: 'pointer',
+                  cursor: 'default',
                   fontSize: 12,
                   color: exclude ? 'error.main' : 'text.secondary',
                   mt: 0.5,

@@ -91,7 +91,7 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
                 }
               }}
               sx={{
-                cursor: 'pointer',
+                cursor: 'default',
                 color: 'text.secondary',
                 display: 'flex',
                 alignItems: 'center',

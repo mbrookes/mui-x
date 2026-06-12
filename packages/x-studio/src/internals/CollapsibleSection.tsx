@@ -38,7 +38,7 @@ export function CollapsibleSection(props: CollapsibleSectionProps) {
   return (
     <div>
       <Box
-        sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+        sx={{ display: 'flex', alignItems: 'center', cursor: 'default', userSelect: 'none' }}
         onClick={() => setExpanded((prev) => !prev)}
       >
         <IconButton size="small" tabIndex={-1}>

@@ -905,8 +905,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
     const xFieldDef = dataSource?.fields.find((f) => f.id === heatXField);
     const yFieldDef = dataSource?.fields.find((f) => f.id === heatYField);
-    const valueFieldDef = dataSource?.fields.find((f) => f.id === heatValueField);
-    const heatData = aggregateHeatmap(filteredRows, heatXField, heatYField, heatValueField);
+    const valueFieldDef =
+      dataSource?.fields.find((f) => f.id === heatValueField) ??
+      expressionFields.find((f) => f.id === heatValueField);
+    const heatAggregation = (config.yAggregation as 'sum' | 'avg' | 'count' | 'min' | 'max') ?? 'sum';
+    const heatData = aggregateHeatmap(filteredRows, heatXField, heatYField, heatValueField, xGroupBy, heatAggregation);
     return (
       <StudioHeatmapChart
         data={heatData}

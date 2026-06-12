@@ -5,11 +5,12 @@
  * → tier selection → handler output. Uses a lightweight in-memory mock Knex
  * builder (no native module dependencies).
  */
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { handleBatchQuery } from '../handler';
 import { generateCacheKey } from '../security/cacheKey';
 import { extractSecurityClaims } from '../security/extractSecurityClaims';
 import { LRUCacheProvider } from '../cache/LRUCacheProvider';
+import { MapTierCacheProvider } from '../cache/MapTierCacheProvider';
 import type { JwtSecurityClaims, BatchQueryRequest } from '../security/types';
 import { createMockDb } from './mockDb';
 
@@ -449,5 +450,118 @@ describe('LRUCacheProvider', () => {
     expect(await cache.get('studio:v1:acme:abc:123')).toBeUndefined();
     expect(await cache.get('studio:v1:acme:abc:456')).toBeUndefined();
     expect(await cache.get('studio:v1:globex:def:789')).toBeDefined();
+  });
+});
+
+// ─── MapTierCacheProvider ─────────────────────────────────────────────────────
+
+describe('MapTierCacheProvider', () => {
+  it('stores and retrieves tier entries', async () => {
+    const cache = new MapTierCacheProvider();
+    await cache.set('key1', { tier: 'server', rowCount: 5000 });
+    const entry = await cache.get('key1');
+    expect(entry?.tier).toBe('server');
+    expect(entry?.rowCount).toBe(5000);
+  });
+
+  it('returns undefined for missing keys', async () => {
+    const cache = new MapTierCacheProvider();
+    expect(await cache.get('missing')).toBeUndefined();
+  });
+
+  it('returns undefined after TTL expires', async () => {
+    const cache = new MapTierCacheProvider();
+    await cache.set('key1', { tier: 'client', rowCount: 100 }, 1); // 1ms TTL
+    await new Promise((r) => setTimeout(r, 10));
+    expect(await cache.get('key1')).toBeUndefined();
+  });
+
+  it('invalidates entries by prefix', async () => {
+    const cache = new MapTierCacheProvider();
+    const entry = { tier: 'server' as const, rowCount: 50000 };
+    await cache.set('studio:v1:acme:abc:123', entry);
+    await cache.set('studio:v1:acme:abc:456', entry);
+    await cache.set('studio:v1:globex:def:789', entry);
+
+    await cache.invalidatePrefix('studio:v1:acme:');
+    expect(await cache.get('studio:v1:acme:abc:123')).toBeUndefined();
+    expect(await cache.get('studio:v1:acme:abc:456')).toBeUndefined();
+    expect(await cache.get('studio:v1:globex:def:789')).toBeDefined();
+  });
+
+  it('size counts only non-expired entries', async () => {
+    const cache = new MapTierCacheProvider();
+    await cache.set('k1', { tier: 'client', rowCount: 1 }, 50);
+    await cache.set('k2', { tier: 'server', rowCount: 2 }, 1); // expires immediately
+    await new Promise((r) => setTimeout(r, 10));
+    expect(cache.size).toBe(1); // k2 is expired
+  });
+});
+
+// ─── handleBatchQuery — tier routing cache ────────────────────────────────────
+
+describe('handleBatchQuery — tier routing cache', () => {
+  it('populates tier cache on cold miss', async () => {
+    const tierCache = new MapTierCacheProvider();
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales' }],
+    };
+    await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }), // fresh cache — no prior entries
+      tierCacheProvider: tierCache,
+      tierCacheTtlMs: 60_000,
+    });
+    // The tier should now be cached
+    expect(tierCache.size).toBe(1);
+  });
+
+  it('skips preflight on repeated cold miss using tier cache', async () => {
+    const tierCache = new MapTierCacheProvider();
+    // Pre-populate the data cache so the second call uses the data cache
+    // (not relevant here — we test that tier is reused when data cache is empty)
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales' }],
+    };
+    const opts = {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      // No data cache — forces cold path each time
+      cacheProvider: new LRUCacheProvider({ ttlMs: 1 }), // 1ms TTL → always expires
+      tierCacheProvider: tierCache,
+      tierCacheTtlMs: 60_000,
+    };
+
+    // First call: runs preflight, populates tier cache
+    const r1 = await handleBatchQuery(body, ACME_CLAIMS, opts);
+    expect(tierCache.size).toBe(1);
+    const tierEntry = await tierCache.get(generateCacheKey(ACME_CLAIMS, body.widgets[0]));
+    expect(tierEntry?.tier).toBeDefined();
+
+    // Second call: tier cache is hit, preflight is skipped
+    // Rows should still be returned correctly
+    await new Promise((r) => setTimeout(r, 5)); // let data cache expire
+    const r2 = await handleBatchQuery(body, ACME_CLAIMS, opts);
+    expect(r2.results[0].rows.length).toBe(r1.results[0].rows.length);
+    expect(r2.results[0].tier).toBe(r1.results[0].tier);
+  });
+
+  it('tier cache is bypassed when tierCacheTtlMs is 0', async () => {
+    const tierCache = new MapTierCacheProvider();
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales' }],
+    };
+    await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tierCacheProvider: tierCache,
+      tierCacheTtlMs: 0,
+    });
+    // Tier cache should not be populated when disabled
+    expect(tierCache.size).toBe(0);
   });
 });

@@ -323,7 +323,9 @@ export function TopNavBar({ chatId, onSettingsOpen, onSave, onLoad }: TopNavBarP
                 <Tab
                   key={page.id}
                   value={page.id}
-                  onPointerDown={showDragHandles ? (event) => handleTabPointerDown(event, index) : undefined}
+                  onPointerDown={
+                    showDragHandles ? (event) => handleTabPointerDown(event, index) : undefined
+                  }
                   onDragEnter={(event) => handleTabWidgetDragEnter(event, page.id)}
                   onDragLeave={(event) => handleTabWidgetDragLeave(event, page.id)}
                   onDoubleClick={() => {
@@ -434,14 +436,24 @@ export function TopNavBar({ chatId, onSettingsOpen, onSave, onLoad }: TopNavBarP
 
       <Tooltip title="Download dashboard">
         <span>
-          <IconButton size="small" onClick={onSave} aria-label="Download dashboard" disabled={!chatId}>
+          <IconButton
+            size="small"
+            onClick={onSave}
+            aria-label="Download dashboard"
+            disabled={!chatId}
+          >
             <FileDownloadIcon fontSize="small" />
           </IconButton>
         </span>
       </Tooltip>
       <Tooltip title="Upload dashboard">
         <span>
-          <IconButton size="small" onClick={onLoad} aria-label="Upload dashboard" disabled={!chatId}>
+          <IconButton
+            size="small"
+            onClick={onLoad}
+            aria-label="Upload dashboard"
+            disabled={!chatId}
+          >
             <FileUploadIcon fontSize="small" />
           </IconButton>
         </span>
@@ -467,11 +479,17 @@ export function TopNavBar({ chatId, onSettingsOpen, onSave, onLoad }: TopNavBarP
         </Typography>
       </Box>
 
-      <Dialog open={Boolean(confirmPage)} onClose={() => setConfirmPageId(null)} maxWidth="xs" fullWidth>
+      <Dialog
+        open={Boolean(confirmPage)}
+        onClose={() => setConfirmPageId(null)}
+        maxWidth="xs"
+        fullWidth
+      >
         <DialogTitle>Remove page?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Remove &ldquo;{confirmPage?.title}&rdquo; and all its widgets? This action can be undone.
+            Remove &ldquo;{confirmPage?.title}&rdquo; and all its widgets? This action can be
+            undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

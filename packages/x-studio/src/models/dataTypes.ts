@@ -1,5 +1,9 @@
 import type { FieldCapability } from '../utils/fieldCapabilities';
-import type { StudioNumberFormat, StudioFilterOperator, StudioGridSummaryAggregation } from './baseTypes';
+import type {
+  StudioNumberFormat,
+  StudioFilterOperator,
+  StudioGridSummaryAggregation,
+} from './baseTypes';
 
 export interface StudioDataField {
   id: string;

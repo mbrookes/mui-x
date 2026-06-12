@@ -17,7 +17,11 @@ npm install @mui/x-studio-data-middleware knex lru-cache
 ```ts
 import express from 'express';
 import knex from 'knex';
-import { handleBatchQuery, extractSecurityClaims, LRUCacheProvider } from '@mui/x-studio-data-middleware';
+import {
+  handleBatchQuery,
+  extractSecurityClaims,
+  LRUCacheProvider,
+} from '@mui/x-studio-data-middleware';
 
 const db = knex({ client: 'pg', connection: process.env.DATABASE_URL });
 const cache = new LRUCacheProvider({ maxSizeBytes: 256 * 1024 * 1024 });
@@ -97,16 +101,16 @@ Cache keys incorporate a security hash so users with different row-level permiss
 
 ### `handleBatchQuery(body, claims, options)`
 
-| Parameter                             | Type                            | Description                                                   |
-| :------------------------------------ | :------------------------------ | :------------------------------------------------------------ |
-| `body`                                | `BatchQueryRequest`             | Parsed request body from the client                           |
-| `claims`                              | `JwtSecurityClaims`             | Pre-verified JWT claims                                       |
-| `options.db`                          | `Knex.Knex`                     | **Required.** Configured Knex instance                        |
-| `options.schemaAllowlist`             | `string[]`                      | **Required.** Permitted table names                           |
-| `options.columnAllowlist`             | `Record<string, string[]>`      | Per-table column allowlist — strongly recommended in production |
-| `options.cacheProvider`               | `CacheProvider`                 | Default: shared `LRUCacheProvider`                            |
-| `options.thresholds.clientTier`       | `number`                        | Default: `10_000`                                             |
-| `options.thresholds.serverMemoryTier` | `number`                        | Default: `100_000`                                            |
+| Parameter                             | Type                       | Description                                                     |
+| :------------------------------------ | :------------------------- | :-------------------------------------------------------------- |
+| `body`                                | `BatchQueryRequest`        | Parsed request body from the client                             |
+| `claims`                              | `JwtSecurityClaims`        | Pre-verified JWT claims                                         |
+| `options.db`                          | `Knex.Knex`                | **Required.** Configured Knex instance                          |
+| `options.schemaAllowlist`             | `string[]`                 | **Required.** Permitted table names                             |
+| `options.columnAllowlist`             | `Record<string, string[]>` | Per-table column allowlist — strongly recommended in production |
+| `options.cacheProvider`               | `CacheProvider`            | Default: shared `LRUCacheProvider`                              |
+| `options.thresholds.clientTier`       | `number`                   | Default: `10_000`                                               |
+| `options.thresholds.serverMemoryTier` | `number`                   | Default: `100_000`                                              |
 
 ### Column allowlist (recommended)
 

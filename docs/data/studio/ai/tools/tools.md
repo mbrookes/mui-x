@@ -49,10 +49,10 @@ prompts, and Studio executes them to mutate the dashboard state.
 
 ### Utility tools
 
-| Tool                  | Action                                                                                       |
-| :-------------------- | :------------------------------------------------------------------------------------------- |
-| `get_dashboard_state` | Returns the current dashboard state (pages, widgets, data sources)                           |
-| `summarise_page`      | Returns a rich data snapshot of every widget on the active page, including per-widget sampled CSV data, numeric stats, and anomaly axis values for chart widgets. The AI uses this to write a narrative page summary. |
+| Tool                  | Action                                                                                                                                                                                                                                      |
+| :-------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `get_dashboard_state` | Returns the current dashboard state (pages, widgets, data sources)                                                                                                                                                                          |
+| `summarise_page`      | Returns a rich data snapshot of every widget on the active page, including per-widget sampled CSV data, numeric stats, and anomaly axis values for chart widgets. The AI uses this to write a narrative page summary.                       |
 | `apply_bulk_update`   | Applies multiple coordinated changes (widget updates, additions, removals, layout, column spans) in a single atomic operation. The AI uses this instead of multiple individual tool calls when a prompt requires 3 or more related changes. |
 
 ## Parallel tool calls
@@ -81,7 +81,11 @@ Tool execution runs on the server inside `@mui/x-studio-ai-middleware`. The serv
 
 ```ts
 // Server (automatic — inside handleAIChat)
-const { output, mutation, nextState } = executeToolOnState('add_widget', args, currentState);
+const { output, mutation, nextState } = executeToolOnState(
+  'add_widget',
+  args,
+  currentState,
+);
 // → streams: { type: 'state-mutation', mutation: { type: 'addWidget', args: { widget } } }
 
 // Client (automatic — inside studioBackendAdapter)
@@ -156,8 +160,6 @@ Studio handles this flow with `createWidgetFromDescription()`:
 This uses the same `aiConfig` object that powers the chat assistant, so no additional AI setup is required.
 
 The underlying `add_widget` AI tool schema accepts every `StudioWidgetKind`, including `pivot` and `map`.
-
-
 
 ## See also
 

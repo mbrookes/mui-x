@@ -123,7 +123,10 @@ export function executeToolOnState(
       const widgetId = String(args.widgetId ?? '');
       const widget = state.widgets[widgetId];
       if (!widget) {
-        return { output: JSON.stringify({ error: `Widget ${widgetId} not found.` }), nextState: state };
+        return {
+          output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
+          nextState: state,
+        };
       }
 
       const changes: Partial<Omit<StudioWidget, 'id'>> = {};
@@ -132,7 +135,10 @@ export function executeToolOnState(
 
       const newConfig =
         args.config !== undefined
-          ? ({ ...widget.config, ...(args.config as StudioWidget['config']) } as StudioWidget['config'])
+          ? ({
+              ...widget.config,
+              ...(args.config as StudioWidget['config']),
+            } as StudioWidget['config'])
           : undefined;
 
       const updatedWidget: StudioWidget = {
@@ -182,7 +188,10 @@ export function executeToolOnState(
     case 'set_widget_layout': {
       const rows = args.rows as string[][];
       if (!Array.isArray(rows)) {
-        return { output: JSON.stringify({ error: 'set_widget_layout requires a "rows" array.' }), nextState: state };
+        return {
+          output: JSON.stringify({ error: 'set_widget_layout requires a "rows" array.' }),
+          nextState: state,
+        };
       }
       const activePageId = state.dashboard.activePageId;
       const activePage = state.pages[activePageId];
@@ -206,12 +215,16 @@ export function executeToolOnState(
     case 'set_widget_width': {
       const { widgetId, columns } = args as { widgetId: string; columns: number | null };
       if (typeof widgetId !== 'string') {
-        return { output: JSON.stringify({ error: 'set_widget_width requires a "widgetId" string.' }), nextState: state };
+        return {
+          output: JSON.stringify({ error: 'set_widget_width requires a "widgetId" string.' }),
+          nextState: state,
+        };
       }
       const activePageId = state.dashboard.activePageId;
       const activePage = state.pages[activePageId];
-      const rowWidgetIds =
-        activePage?.widgetRows?.find((row) => row.includes(widgetId)) ?? [widgetId];
+      const rowWidgetIds = activePage?.widgetRows?.find((row) => row.includes(widgetId)) ?? [
+        widgetId,
+      ];
       const nextColSpans = { ...(activePage?.widgetColSpans ?? {}) };
       if (columns === null) {
         // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
@@ -365,16 +378,29 @@ export function executeToolOnState(
       // 1. Removals
       const removals = (args.widgetRemovals as string[] | undefined) ?? [];
       for (const wid of removals) {
-        if (!pageWidgets[wid]) { skipped.push(`remove ${wid}: not found`); continue; }
+        if (!pageWidgets[wid]) {
+          skipped.push(`remove ${wid}: not found`);
+          continue;
+        }
         // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
         delete pageWidgets[wid];
-        widgetRows = widgetRows.map((row) => row.filter((id) => id !== wid)).filter((row) => row.length > 0);
+        widgetRows = widgetRows
+          .map((row) => row.filter((id) => id !== wid))
+          .filter((row) => row.length > 0);
         applied.removed += 1;
       }
 
       // 2. Additions
       const addedTitleToId: Record<string, string> = {};
-      const additions = (args.widgetAdditions as Array<{ kind: string; title: string; sourceId?: string; config?: Record<string, unknown> }> | undefined) ?? [];
+      const additions =
+        (args.widgetAdditions as
+          | Array<{
+              kind: string;
+              title: string;
+              sourceId?: string;
+              config?: Record<string, unknown>;
+            }>
+          | undefined) ?? [];
       for (const addition of additions) {
         const kind = String(addition.kind ?? 'chart') as StudioWidget['kind'];
         const title = String(addition.title ?? '');
@@ -401,17 +427,31 @@ export function executeToolOnState(
       }
 
       // 3. Updates
-      const updates = (args.widgetUpdates as Array<{ widgetId: string; title?: string; sourceId?: string; config?: Record<string, unknown> }> | undefined) ?? [];
+      const updates =
+        (args.widgetUpdates as
+          | Array<{
+              widgetId: string;
+              title?: string;
+              sourceId?: string;
+              config?: Record<string, unknown>;
+            }>
+          | undefined) ?? [];
       for (const update of updates) {
         const wid = String(update.widgetId ?? '');
         const widget = pageWidgets[wid];
-        if (!widget) { skipped.push(`update ${wid}: not found`); continue; }
+        if (!widget) {
+          skipped.push(`update ${wid}: not found`);
+          continue;
+        }
         pageWidgets[wid] = {
           ...widget,
           ...(update.title !== undefined ? { title: String(update.title) } : {}),
           ...(update.sourceId !== undefined ? { sourceId: String(update.sourceId) } : {}),
           config: update.config
-            ? ({ ...widget.config, ...(update.config as StudioWidget['config']) } as StudioWidget['config'])
+            ? ({
+                ...widget.config,
+                ...(update.config as StudioWidget['config']),
+              } as StudioWidget['config'])
             : widget.config,
         };
         applied.updated += 1;
@@ -420,7 +460,9 @@ export function executeToolOnState(
       // 4. Layout
       const rawLayout = args.layout as string[][] | undefined;
       if (rawLayout && Array.isArray(rawLayout)) {
-        widgetRows = rawLayout.map((row) => row.map((ref) => addedTitleToId[ref] ?? ref)).filter((row) => row.length > 0);
+        widgetRows = rawLayout
+          .map((row) => row.map((ref) => addedTitleToId[ref] ?? ref))
+          .filter((row) => row.length > 0);
         applied.layout = true;
       }
 
@@ -442,7 +484,11 @@ export function executeToolOnState(
         },
       };
       return {
-        output: JSON.stringify({ success: true, applied, ...(skipped.length > 0 ? { skipped } : {}) }),
+        output: JSON.stringify({
+          success: true,
+          applied,
+          ...(skipped.length > 0 ? { skipped } : {}),
+        }),
         mutation: {
           type: 'applyBulkUpdate',
           args: { widgets: pageWidgets, widgetRows, widgetColSpans: colSpans, activePageId },

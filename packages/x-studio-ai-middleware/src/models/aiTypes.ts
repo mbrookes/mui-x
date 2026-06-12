@@ -7,11 +7,7 @@
  * TypeScript structural typing ensures values from @mui/x-studio remain
  * assignable to these types at the app boundary.
  */
-import type {
-  StudioState,
-  StudioFilterState,
-  StudioWidget,
-} from './studioTypes';
+import type { StudioState, StudioFilterState, StudioWidget } from './studioTypes';
 
 // ── Protocol types (mirrored in @mui/x-studio for UI consumers) ──────────────
 
@@ -113,4 +109,3 @@ export interface StudioAISkill extends SerializableSkill {
     };
   };
 }
-

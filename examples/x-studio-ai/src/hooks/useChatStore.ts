@@ -45,9 +45,7 @@ export function useChatStore() {
 
   const updateChat = React.useCallback((id: string, update: Partial<ChatSession>) => {
     setChats((prev) =>
-      prev.map((chat) =>
-        chat.id === id ? { ...chat, ...update, updatedAt: Date.now() } : chat,
-      ),
+      prev.map((chat) => (chat.id === id ? { ...chat, ...update, updatedAt: Date.now() } : chat)),
     );
   }, []);
 

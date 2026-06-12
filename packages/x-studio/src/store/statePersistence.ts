@@ -177,8 +177,7 @@ export function serializeState(state: StudioState): SerializedStudioState {
     filters: state.filters.filter((f) => f.scope !== 'cross-filter'),
     relationships: state.relationships,
     expressionFields: state.expressionFields.length > 0 ? state.expressionFields : undefined,
-    filterPresets:
-      (state.filterPresets?.length ?? 0) > 0 ? state.filterPresets : undefined,
+    filterPresets: (state.filterPresets?.length ?? 0) > 0 ? state.filterPresets : undefined,
   };
 }
 

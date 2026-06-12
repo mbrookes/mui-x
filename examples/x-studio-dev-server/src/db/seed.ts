@@ -58,11 +58,11 @@ async function seed(db: Knex, opts: SeedOptions): Promise<void> {
 
   console.log(
     `[seed] Inserting ${customersSource.rows?.length ?? 0} customers, ` +
-    `${productsSource.rows?.length ?? 0} products, ` +
-    `${ordersSource.rows?.length ?? 0} orders, ` +
-    `${orderItemsSource.rows?.length ?? 0} order_items, ` +
-    `${shipmentsSource.rows?.length ?? 0} shipments, ` +
-    `${shipmentItemsSource.rows?.length ?? 0} shipment_items…`,
+      `${productsSource.rows?.length ?? 0} products, ` +
+      `${ordersSource.rows?.length ?? 0} orders, ` +
+      `${orderItemsSource.rows?.length ?? 0} order_items, ` +
+      `${shipmentsSource.rows?.length ?? 0} shipments, ` +
+      `${shipmentItemsSource.rows?.length ?? 0} shipment_items…`,
   );
 
   // Insert in dependency order (FK integrity for databases that enforce it)

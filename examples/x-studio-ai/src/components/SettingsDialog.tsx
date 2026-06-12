@@ -22,14 +22,9 @@ export interface SettingsDialogProps {
   onLocaleChange: (locale: SupportedLocale) => void;
 }
 
-export function SettingsDialog({
-  open,
-  onClose,
-  locale,
-  onLocaleChange,
-}: SettingsDialogProps) {
+export function SettingsDialog({ open, onClose, locale, onLocaleChange }: SettingsDialogProps) {
   const [serverUrl, setServerUrl] = React.useState(
-    () => import.meta.env.STUDIO_SERVER_URL as string | undefined ?? '',
+    () => (import.meta.env.STUDIO_SERVER_URL as string | undefined) ?? '',
   );
 
   const envServerUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
@@ -78,8 +73,8 @@ export function SettingsDialog({
               />
               {serverUrl && (
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                  URL changes here apply only for this session — the page must reload to take effect.
-                  Add to .env.local to persist.
+                  URL changes here apply only for this session — the page must reload to take
+                  effect. Add to .env.local to persist.
                 </Typography>
               )}
             </>

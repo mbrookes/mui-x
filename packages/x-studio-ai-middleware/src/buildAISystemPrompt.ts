@@ -23,39 +23,50 @@ const WIDGET_KIND_DESCRIPTIONS: Record<StudioWidgetKind, string> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Serializes a single data field to a compact AI-readable tag string.
+ * Used by describeSource() and by the createWidgetFromDescription payload builder.
+ *
+ * @param f - The field definition
+ * @param distinctValues - Optional pre-computed distinct values for cardinality hints
+ */
+export function serializeFieldForAI(
+  f: { id: string; type: string; label?: string; format?: string; capabilities?: string[]; defaultAggregationFn?: string; aiDescription?: string },
+  distinctValues?: string[],
+): string {
+  const tags: string[] = [f.type];
+  // format hint: helps LLM choose correct aggregation (sum vs avg)
+  if (f.format) {
+    tags.push(f.format);
+  }
+  // capabilities override: only when non-default (e.g. number marked categorical)
+  if (f.capabilities && f.capabilities.length > 0) {
+    tags.push(f.capabilities.join('+'));
+  }
+  // developer-preferred aggregation function
+  if (f.defaultAggregationFn) {
+    tags.push(`default:${f.defaultAggregationFn}`);
+  }
+  // field cardinality from pre-computed distinct values
+  if (distinctValues) {
+    if (distinctValues.length <= 8) {
+      tags.push(`${distinctValues.length}: ${distinctValues.join('|')}`);
+    } else if (distinctValues.length <= 30) {
+      tags.push(`${distinctValues.length} values`);
+    }
+    // >30 values: omit (high-cardinality, not useful for chart type selection)
+  }
+  if (f.label && f.label !== f.id) {
+    tags.push(`label: "${f.label}"`);
+  }
+  const aiDesc = f.aiDescription ? ` — ${f.aiDescription}` : '';
+  return `${f.id} (${tags.join(', ')})${aiDesc}`;
+}
+
 function describeSource(source: StudioDataSource): string {
   const visibleFields = source.fields.filter((f) => !f.hidden);
   const fieldList = visibleFields
-    .map((f) => {
-      const tags: string[] = [f.type];
-      // format hint: helps LLM choose correct aggregation (sum vs avg)
-      if (f.format) {
-        tags.push(f.format);
-      }
-      // capabilities override: only when non-default (e.g. number marked categorical)
-      if (f.capabilities && f.capabilities.length > 0) {
-        tags.push(f.capabilities.join('+'));
-      }
-      // developer-preferred aggregation function
-      if (f.defaultAggregationFn) {
-        tags.push(`default:${f.defaultAggregationFn}`);
-      }
-      // field cardinality from pre-computed distinct values
-      const vals = source.fieldDistinctValues?.[f.id];
-      if (vals) {
-        if (vals.length <= 8) {
-          tags.push(`${vals.length}: ${vals.join('|')}`);
-        } else if (vals.length <= 30) {
-          tags.push(`${vals.length} values`);
-        }
-        // >30 values: omit (high-cardinality, not useful for chart type selection)
-      }
-      if (f.label !== f.id) {
-        tags.push(`label: "${f.label}"`);
-      }
-      const aiDesc = f.aiDescription ? ` — ${f.aiDescription}` : '';
-      return `${f.id} (${tags.join(', ')})${aiDesc}`;
-    })
+    .map((f) => serializeFieldForAI(f, source.fieldDistinctValues?.[f.id]))
     .join(', ');
   const sourceDesc = source.aiDescription ? `\n  Description: ${source.aiDescription}` : '';
   return `- ${source.label} [id: ${source.id}]:${sourceDesc} ${visibleFields.length} fields: ${fieldList}`;
@@ -78,14 +89,46 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     if (cfg.xField) {
       parts.push(`xField: ${cfg.xField}`);
     }
+    if ((cfg as any).heatYField) {
+      parts.push(`heatYField: ${(cfg as any).heatYField}`);
+    }
     if (cfg.yField) {
       parts.push(`yField: ${cfg.yField}`);
     }
+    if (cfg.yAggregation) {
+      parts.push(`yAggregation: ${cfg.yAggregation}`);
+    }
+    if ((cfg as any).barLayout) {
+      parts.push(`barLayout: ${(cfg as any).barLayout}`);
+    }
+    if ((cfg as any).xGroupBy) {
+      parts.push(`xGroupBy: ${(cfg as any).xGroupBy}`);
+    }
+    if ((cfg as any).chartSortBy) {
+      parts.push(`chartSortBy: ${(cfg as any).chartSortBy}`);
+    }
+    if ((cfg as any).chartSortDirection) {
+      parts.push(`chartSortDirection: ${(cfg as any).chartSortDirection}`);
+    }
     if (cfg.ySeries?.length) {
-      parts.push(`ySeries: [${cfg.ySeries.map((s) => s.fieldId).join(', ')}]`);
+      parts.push(
+        `ySeries: [${cfg.ySeries.map((s) => `${s.fieldId}(${s.yAggregation ?? 'sum'})`).join(', ')}]`,
+      );
     }
     if (cfg.seriesField) {
       parts.push(`seriesField: ${cfg.seriesField}`);
+    }
+    if ((cfg as any).scatterColorField) {
+      parts.push(`scatterColorField: ${(cfg as any).scatterColorField}`);
+    }
+    if ((cfg as any).scatterSizeField) {
+      parts.push(`scatterSizeField: ${(cfg as any).scatterSizeField}`);
+    }
+    if ((cfg as any).crossFilterMode) {
+      parts.push(`crossFilterMode: ${(cfg as any).crossFilterMode}`);
+    }
+    if ((cfg as any).crossFilterField) {
+      parts.push(`crossFilterField: ${(cfg as any).crossFilterField}`);
     }
   } else if (widget.kind === 'kpi') {
     if (cfg.kpiValueField) {
@@ -94,9 +137,27 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     if (cfg.kpiAggregation) {
       parts.push(`aggregation: ${cfg.kpiAggregation}`);
     }
+    if (cfg.kpiSparkline) {
+      const plotType = cfg.kpiSparklinePlotType ?? 'line';
+      parts.push(`sparkline: ${plotType}`);
+    }
+    if ((cfg as any).kpiTrend) {
+      const comparison = (cfg as any).kpiTrendComparison ?? 'previous-period';
+      const invert = (cfg as any).kpiTrendInvert ? ', invert' : '';
+      parts.push(`trend: ${comparison}${invert}`);
+    }
+    if ((cfg as any).kpiTarget != null) {
+      parts.push(`target: ${(cfg as any).kpiTarget}`);
+    }
   } else if (widget.kind === 'grid') {
     if (cfg.columns?.length) {
       parts.push(`columns: [${cfg.columns.map((c) => c.fieldId).join(', ')}]`);
+    }
+    if ((cfg as any).gridSortField) {
+      parts.push(`sortField: ${(cfg as any).gridSortField}(${(cfg as any).gridSortDirection ?? 'asc'})`);
+    }
+    if ((cfg as any).gridGroupByField) {
+      parts.push(`groupBy: ${(cfg as any).gridGroupByField}`);
     }
   } else if (widget.kind === 'filter') {
     if (cfg.filterWidgetType) {
@@ -110,6 +171,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
       pivotRowField?: string;
       pivotColField?: string;
       pivotValueField?: string;
+      pivotShowTotals?: boolean;
     };
     if (cfg2.pivotRowField) {
       parts.push(`rowField: ${cfg2.pivotRowField}`);
@@ -120,13 +182,27 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     if (cfg2.pivotValueField) {
       parts.push(`valueField: ${cfg2.pivotValueField}`);
     }
+    if (cfg2.pivotShowTotals != null) {
+      parts.push(`showTotals: ${cfg2.pivotShowTotals}`);
+    }
   } else if (widget.kind === 'map') {
-    const cfg2 = cfg as { mapCountryField?: string; mapValueField?: string };
+    const cfg2 = cfg as {
+      mapCountryField?: string;
+      mapValueField?: string;
+      mapAggregation?: string;
+      crossFilterMode?: string;
+    };
     if (cfg2.mapCountryField) {
       parts.push(`countryField: ${cfg2.mapCountryField}`);
     }
     if (cfg2.mapValueField) {
       parts.push(`valueField: ${cfg2.mapValueField}`);
+    }
+    if (cfg2.mapAggregation) {
+      parts.push(`aggregation: ${cfg2.mapAggregation}`);
+    }
+    if (cfg2.crossFilterMode) {
+      parts.push(`crossFilterMode: ${cfg2.crossFilterMode}`);
     }
   }
 
@@ -193,11 +269,29 @@ set_widget_layout WRONG: omitting any widget — omitted widgets are removed fro
 apply_bulk_update layout CORRECT: widgetRows is string[][] — an array of rows, each row an array of widget IDs.
 apply_bulk_update layout WRONG: widgetRows as a flat string[] — this is not valid.
 
+apply_bulk_update widgetAdditions CORRECT: give each new widget a unique title within the additions array.
+apply_bulk_update widgetAdditions WRONG: two additions with the same title — layout references are resolved by title, so duplicates are ambiguous.
+
 update_widget CORRECT: pass only the keys you are changing (partial patch).
 update_widget WRONG: pass a full widget config object — only changed keys belong here.
 
 Filter operator CORRECT: use exact strings: equals, not_equals, contains, does_not_contain, starts_with, ends_with, greater_than, less_than, greater_than_or_equal, less_than_or_equal, between, in, not_in, is_empty, is_not_empty.
 Filter operator WRONG: free-form strings like "==" or "eq" — these are not valid operators.
+
+## Filter Widget
+When adding a filter widget, filterWidgetField must be the exact field ID (not a display label) that other widgets on the page use. A filter on a field not used by any other widget silently has no effect.
+
+Filter type selection:
+- date-range: for date or datetime fields
+- multi-select: for string fields with low cardinality (≤15 distinct values) — check the cardinality hints in ## Data Sources
+- slider: for numeric fields where a range selection makes sense
+- toggle: for boolean fields or low-cardinality string fields (≤4 values)
+
+## Page Organisation
+- Same topic or data source → add widgets to the existing page.
+- Distinct analytical narratives (e.g. "Sales Overview" vs "HR Analytics") → separate pages.
+- Prefer ≤8 widgets per page for readability.
+- Use add_page to create a new page; it becomes the active page automatically.
 
 ## Chart Configuration Guide
 
@@ -418,16 +512,34 @@ function buildDashboardState(
   }
   lines.push('');
   lines.push('## Chart Types (required config keys shown)');
-  lines.push('- bar / bar-stacked / bar-100: xField (categorical), yField, yAggregation. Optional: barLayout ("horizontal"), seriesField, chartSortBy ("value"|"category"), chartSortDirection ("asc"|"desc"), xGroupBy.');
-  lines.push('- line / area / area-stacked / area-100: xField (date/datetime), yField, yAggregation, xGroupBy. Optional: seriesField.');
-  lines.push('- pie / donut: xField (categorical, ≤7 values), yField, yAggregation. Optional: pieArcLabel ("value"|"percent"|"none").');
-  lines.push('- scatter: xField (numeric), yField (numeric). Optional: scatterColorField (categorical), scatterSizeField (numeric for bubbles), yField2.');
-  lines.push('- heatmap: xField (columns), heatYField (rows), yField (intensity), yAggregation. Optional: heatColorScheme ("primary"|"success"|"warning"|"error").');
-  lines.push('- funnel: xField (stages in order), yField, yAggregation (use "count" for string yField).');
-  lines.push('- gantt: ganttLabelField, ganttStartField (date), ganttEndField (date). Optional: ganttColorField.');
+  lines.push(
+    '- bar / bar-stacked / bar-100: xField (categorical), yField, yAggregation. Optional: barLayout ("horizontal"), seriesField, chartSortBy ("value"|"category"), chartSortDirection ("asc"|"desc"), xGroupBy.',
+  );
+  lines.push(
+    '- line / area / area-stacked / area-100: xField (date/datetime), yField, yAggregation, xGroupBy. Optional: seriesField.',
+  );
+  lines.push(
+    '- pie / donut: xField (categorical, ≤7 values), yField, yAggregation. Optional: pieArcLabel ("value"|"percent"|"none").',
+  );
+  lines.push(
+    '- scatter: xField (numeric), yField (numeric). Optional: scatterColorField (categorical), scatterSizeField (numeric for bubbles), yField2.',
+  );
+  lines.push(
+    '- heatmap: xField (columns), heatYField (rows), yField (intensity), yAggregation. Optional: heatColorScheme ("primary"|"success"|"warning"|"error").',
+  );
+  lines.push(
+    '- funnel: xField (stages in order), yField, yAggregation (use "count" for string yField).',
+  );
+  lines.push(
+    '- gantt: ganttLabelField, ganttStartField (date), ganttEndField (date). Optional: ganttColorField.',
+  );
   lines.push('- gauge: yField, yAggregation, gaugeMin (default 0), gaugeMax. No xField.');
-  lines.push('- mixed: ySeries (array of {fieldId, label, type: "bar"|"line", yAggregation}). Optional: dualYAxis (boolean).');
-  lines.push('KPI sparkline plotType: line, bar, gauge (kpiSparklineGaugeMin, kpiSparklineGaugeMax).');
+  lines.push(
+    '- mixed: ySeries (array of {fieldId, label, type: "bar"|"line", yAggregation}). Optional: dualYAxis (boolean).',
+  );
+  lines.push(
+    'KPI sparkline plotType: line, bar, gauge (kpiSparklineGaugeMin, kpiSparklineGaugeMax).',
+  );
   lines.push('');
 
   // Guidelines (kept in dynamic block as they reference field and widget IDs from state)

@@ -108,6 +108,11 @@ export function buildConfig(): Config {
     },
     jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
     studioToken: optional('STUDIO_TOKEN'),
-    allowedOrigins: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:3004,http://localhost:3005,http://localhost:3006').split(',').map((s) => s.trim()),
+    allowedOrigins: (
+      process.env.ALLOWED_ORIGINS ??
+      'http://localhost:3004,http://localhost:3005,http://localhost:3006'
+    )
+      .split(',')
+      .map((s) => s.trim()),
   };
 }

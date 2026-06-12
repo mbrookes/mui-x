@@ -40,11 +40,11 @@ applications: `examples/x-studio`, `examples/x-studio-composed`, and `examples/x
 
 ## 1. Three Example Apps — Overview
 
-| App | Entry | AI mode | Drawers |
-|---|---|---|---|
-| `examples/x-studio` | `<Studio>` monolith | FAB overlay | Compose / Data / Filters — all shown |
-| `examples/x-studio-composed` | `StudioProvider` + primitives | `<StudioChatPanel overlay={false}>` in sidebar | Compose only |
-| `examples/x-studio-ai` | `StudioProvider` + primitives | `<StudioChatPanel>` always-visible side panel | None — fully AI-driven |
+| App                          | Entry                         | AI mode                                        | Drawers                              |
+| ---------------------------- | ----------------------------- | ---------------------------------------------- | ------------------------------------ |
+| `examples/x-studio`          | `<Studio>` monolith           | FAB overlay                                    | Compose / Data / Filters — all shown |
+| `examples/x-studio-composed` | `StudioProvider` + primitives | `<StudioChatPanel overlay={false}>` in sidebar | Compose only                         |
+| `examples/x-studio-ai`       | `StudioProvider` + primitives | `<StudioChatPanel>` always-visible side panel  | None — fully AI-driven               |
 
 All three use the same underlying `@mui/x-studio` package and all require a backend server for
 AI features — `@mui/x-studio` is a pure UI package that never calls an LLM directly.
@@ -91,7 +91,7 @@ src/App.tsx
 ```
 
 `StudioChatPanel` is rendered **eagerly** (not lazy) since the app controls the import directly.
-The panel is always-mounted; `open` prop controls visibility.  No dashboard summary FAB;
+The panel is always-mounted; `open` prop controls visibility. No dashboard summary FAB;
 no `generateDashboardSummary` call.
 
 ### 2.3 `examples/x-studio-ai`
@@ -120,7 +120,7 @@ ActiveChatPanel.tsx
 Multiple chat sessions each own a `StudioController` stored in a `Map<chatId, StudioController>`
 held in a `useRef` (survives `StudioProvider` remounts triggered by `key={activeChatId}`).
 Per-chat dashboard state is serialized to `localStorage` via a `subscribe()` + debounce
-auto-save pattern.  Per-chat conversation history is persisted via
+auto-save pattern. Per-chat conversation history is persisted via
 `slotProps.chatBox.onMessagesChange` to `localStorage`.
 
 ---
@@ -205,7 +205,7 @@ export function createBackendChatAdapter(
   controller: StudioController,
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
-): ChatAdapter
+): ChatAdapter;
 ```
 
 Returns a `ChatAdapter`-compatible object that `StudioChatPanel` passes to `<ChatBox>` from
@@ -229,13 +229,13 @@ which yields `ChatAdapterEvent` objects as the SSE stream arrives.
 
 ### 4.3 SSE event handling
 
-| SSE event type   | Client action                                           |
-| :--------------- | :------------------------------------------------------ |
-| `text-delta`     | Yield `{ type: 'text_delta', content: delta }` to chat  |
-| `tool-activity`  | Yield `{ type: 'tool_activity', ... }` to chat UI       |
-| `state-mutation` | `applyStateMutation(mutation, controller)`              |
-| `finish`         | Yield `{ type: 'done' }` — closes the stream            |
-| `error`          | Yield `{ type: 'error', message }` — surfaces in chat   |
+| SSE event type   | Client action                                          |
+| :--------------- | :----------------------------------------------------- |
+| `text-delta`     | Yield `{ type: 'text_delta', content: delta }` to chat |
+| `tool-activity`  | Yield `{ type: 'tool_activity', ... }` to chat UI      |
+| `state-mutation` | `applyStateMutation(mutation, controller)`             |
+| `finish`         | Yield `{ type: 'done' }` — closes the stream           |
+| `error`          | Yield `{ type: 'error', message }` — surfaces in chat  |
 
 `applyStateMutation` maps each `StateMutation` to the corresponding `StudioController` method.
 For `addPage`, the server-assigned page ID is preserved via `controller.setState()` rather than
@@ -249,12 +249,12 @@ in order and applies them sequentially — it has no knowledge of parallelism.
 
 **Server-side execution order:**
 
-| Tool type | Execution |
-|---|---|
-| Built-in state-mutating (`add_widget`, `update_widget`, etc.) | Sequential — each reads state updated by the previous |
-| Built-in read-only (`get_dashboard_state`, `summarise_page`) | Sequential (synchronous, effectively instant) |
-| Skill tool with `parallel: false` (default) | Sequential |
-| Skill tool with `parallel: true` | Concurrent with adjacent `parallel: true` tools via `Promise.all` |
+| Tool type                                                     | Execution                                                         |
+| ------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Built-in state-mutating (`add_widget`, `update_widget`, etc.) | Sequential — each reads state updated by the previous             |
+| Built-in read-only (`get_dashboard_state`, `summarise_page`)  | Sequential (synchronous, effectively instant)                     |
+| Skill tool with `parallel: false` (default)                   | Sequential                                                        |
+| Skill tool with `parallel: true`                              | Concurrent with adjacent `parallel: true` tools via `Promise.all` |
 
 **`parallel: true`** is opt-in on `StudioAISkill.tool`. Use it for read-only/side-effect-free
 async operations (e.g., fetching live data for several widgets simultaneously). Never mark a
@@ -266,8 +266,8 @@ tool `parallel: true` if it reads then mutates state.
 
 **File:** `packages/x-studio/src/StudioChatPanel/generateInsight.ts` (525 lines)
 
-These functions are **completely separate** from the multi-turn chat pipeline.  They make
-**single non-streaming** `fetch` calls and return `Promise<{ text: string }>`.  They are the only
+These functions are **completely separate** from the multi-turn chat pipeline. They make
+**single non-streaming** `fetch` calls and return `Promise<{ text: string }>`. They are the only
 paths that send row data to the LLM.
 
 ### 5.1 `generateWidgetInsight`
@@ -278,8 +278,8 @@ export async function generateWidgetInsight(
   widgetId: string,
   controller: StudioController,
   aiConfig: StudioAIConfig,
-  options: StudioInsightOptions,   // type: 'summary' | 'analysis' | 'forecast'
-): Promise<StudioInsightResult>
+  options: StudioInsightOptions, // type: 'summary' | 'analysis' | 'forecast'
+): Promise<StudioInsightResult>;
 ```
 
 1. Reads widget config + data source fields from `controller.getState()`
@@ -300,7 +300,7 @@ export async function generateDashboardSummary(
   controller: StudioController,
   aiConfig: StudioAIConfig,
   options?: Pick<StudioInsightOptions, 'signal'>,
-): Promise<StudioInsightResult>
+): Promise<StudioInsightResult>;
 ```
 
 1. Calls `buildAISystemPrompt(controller.getState())` — schema-only, **no row data**
@@ -319,7 +319,7 @@ export async function generateAnomalyExplanation(
   controller: StudioController,
   aiConfig: StudioAIConfig,
   options?: Pick<StudioInsightOptions, 'signal'>,
-): Promise<StudioInsightResult>
+): Promise<StudioInsightResult>;
 ```
 
 1. Calls `buildWidgetDataSummary(widgetId, controller, aiConfig, { sampling: 'anomaly', anomalyAxisValues })`
@@ -336,23 +336,23 @@ export async function generateAnomalyExplanation(
 export async function buildWidgetDataSummary(
   widget: StudioWidget,
   state: StudioState,
-  options: { sampling: 'aggregate' | 'stride' | 'tail' | 'anomaly'; anomalyAxisValues?: string[] }
-): Promise<string>   // CSV preamble string
+  options: { sampling: 'aggregate' | 'stride' | 'tail' | 'anomaly'; anomalyAxisValues?: string[] },
+): Promise<string>; // CSV preamble string
 ```
 
 `buildWidgetDataSummary` is **exported** (the `summarise_page` tool in `@mui/x-studio-ai-middleware` calls it via the server-side `executeToolOnState`).
 
 `MAX_DATA_ROWS = 100` rows are included.
 
-| Strategy | Description |
-|---|---|
+| Strategy    | Description                                                                                                                  |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `aggregate` | Groups by x-axis field, aggregates numeric fields (sum/avg/count per `aiAggregation`). Used for summary, analysis, forecast. |
-| `stride` | Evenly-spaced sample across all rows. Used for large datasets where trend matters more than precision. |
-| `tail` | Most-recent N rows. Used for forecast (recency bias). |
-| `anomaly` | Normal sample + oversampled rows around anomaly timestamps. Ensures anomalous points are in the sample. |
+| `stride`    | Evenly-spaced sample across all rows. Used for large datasets where trend matters more than precision.                       |
+| `tail`      | Most-recent N rows. Used for forecast (recency bias).                                                                        |
+| `anomaly`   | Normal sample + oversampled rows around anomaly timestamps. Ensures anomalous points are in the sample.                      |
 
 The `aiAggregation` field on `StudioDataField` (values: `'sum' | 'avg' | 'count' | 'none'`)
-controls per-field aggregation behavior.  It has **no effect on the main chat pipeline** — only
+controls per-field aggregation behavior. It has **no effect on the main chat pipeline** — only
 `buildWidgetDataSummary` reads it.
 
 ---
@@ -366,7 +366,7 @@ export async function createWidgetFromDescription(
   description: string,
   config: StudioAIConfig,
   controller: StudioController,
-): Promise<CreateWidgetResult>
+): Promise<CreateWidgetResult>;
 ```
 
 1. Single non-streaming fetch with `tools: [add_widget_tool]` and `tool_choice: { type: 'function', name: 'add_widget' }` — forces the model to produce an `add_widget` call
@@ -386,7 +386,7 @@ synchronously from a UI action (not from a chat message).
 
 **File:** `packages/x-studio/src/store/StudioController.ts` (1,299 lines)
 
-`StudioController` wraps a `Store<StudioState>` from `@mui/x-internals`.  All mutations are
+`StudioController` wraps a `Store<StudioState>` from `@mui/x-internals`. All mutations are
 **immutable state transitions** via `commitState()`.
 
 ### 7.1 `commitState`
@@ -402,40 +402,42 @@ private commitState = (nextState: StudioState, options?: { undoable?: boolean; r
 };
 ```
 
-`MAX_UNDO_HISTORY = 100`.  **Non-undoable** calls: `setActivePage`, `applyInteractiveFilter`,
+`MAX_UNDO_HISTORY = 100`. **Non-undoable** calls: `setActivePage`, `applyInteractiveFilter`,
 `clearInteractiveFilter`, `loadSerializedState`.
 
 ### 7.2 Key mutation methods
 
-| Method | Undoable | Notes |
-|---|---|---|
-| `addWidget(widget)` | ✅ | Appends new row at bottom of active page |
-| `removeWidget(widgetId)` | ✅ | Cleans widgetColSpans, removes widget-scoped filters |
-| `updateWidgetConfig(widgetId, config)` | ✅ | `undefined` values DELETE config keys; auto-infers titles |
-| `addFilter(filter)` | ✅ | Page-scope filters stamped with active pageId |
-| `removeFilter(filterId)` | ✅ | |
-| `addPage(title)` | ✅ | Returns new page id; immediately activates |
-| `removePage(pageId)` | ✅ | Removes child widgets + page-scoped filters |
-| `setActivePage(pageId)` | ❌ | UI navigation only |
-| `setWidgetLayout(rows)` | ✅ | Validates all widget IDs present |
-| `setWidgetColSpanInRow` | ✅ | Clamped to [3,12]; auto-adjusts sibling spans |
-| `setDataSourceAdapter` | ❌ | Invalidates `studioRequestCache` for sourceId |
-| `loadSerializedState` | ❌ | Wipes undo/redo history |
+| Method                                 | Undoable | Notes                                                     |
+| -------------------------------------- | -------- | --------------------------------------------------------- |
+| `addWidget(widget)`                    | ✅       | Appends new row at bottom of active page                  |
+| `removeWidget(widgetId)`               | ✅       | Cleans widgetColSpans, removes widget-scoped filters      |
+| `updateWidgetConfig(widgetId, config)` | ✅       | `undefined` values DELETE config keys; auto-infers titles |
+| `addFilter(filter)`                    | ✅       | Page-scope filters stamped with active pageId             |
+| `removeFilter(filterId)`               | ✅       |                                                           |
+| `addPage(title)`                       | ✅       | Returns new page id; immediately activates                |
+| `removePage(pageId)`                   | ✅       | Removes child widgets + page-scoped filters               |
+| `setActivePage(pageId)`                | ❌       | UI navigation only                                        |
+| `setWidgetLayout(rows)`                | ✅       | Validates all widget IDs present                          |
+| `setWidgetColSpanInRow`                | ✅       | Clamped to [3,12]; auto-adjusts sibling spans             |
+| `setDataSourceAdapter`                 | ❌       | Invalidates `studioRequestCache` for sourceId             |
+| `loadSerializedState`                  | ❌       | Wipes undo/redo history                                   |
 
 ### 7.3 `serializeState` / `loadSerializedState`
 
 `serializeState()` excludes: `shell`, `dataSources`, cross-filter-scoped filters, empty arrays.
 
 `loadSerializedState(serialized, shellOverrides?)`:
+
 1. `migrateState(serialized)` — runs sequential version migrations (currently v0→v1)
 2. `deserializeState(migratedState, currentDataSources)` — re-merges host-app dataSources
 3. `commitState(fullState, { undoable: false, resetHistory: true })`
 
-**Implication for `x-studio-ai`:** Adapters are not serialized.  Pattern:
+**Implication for `x-studio-ai`:** Adapters are not serialized. Pattern:
+
 ```ts
 controller = new StudioController();
-registerAdapters(controller, salesRows);   // must be done BEFORE loadSerializedState
-controller.loadSerializedState(saved);     // merges with current dataSources
+registerAdapters(controller, salesRows); // must be done BEFORE loadSerializedState
+controller.loadSerializedState(saved); // merges with current dataSources
 ```
 
 ### 7.4 `subscribe`
@@ -445,13 +447,15 @@ subscribe = (listener: (state: StudioState) => void) => this.store.subscribe(lis
 // Returns unsubscribe function
 ```
 
-The React context uses `useSyncExternalStore(store.subscribe, store.getSnapshot)`.  The
+The React context uses `useSyncExternalStore(store.subscribe, store.getSnapshot)`. The
 `x-studio-ai` app uses `subscribe()` directly in `AppLayout.tsx` for its auto-save debounce:
 
 ```ts
-controller.subscribe(debounce((state) => {
-  localStorage.setItem(key, JSON.stringify(controller.serializeState()));
-}, 300));
+controller.subscribe(
+  debounce((state) => {
+    localStorage.setItem(key, JSON.stringify(controller.serializeState()));
+  }, 300),
+);
 ```
 
 ---
@@ -477,7 +481,7 @@ studioRequestCache.get(cacheKey)
   → setAdapterRows(result)  ← React setState → re-render
 ```
 
-`StudioRequestCache` is a module-singleton SWR-style cache.  Invalidated by
+`StudioRequestCache` is a module-singleton SWR-style cache. Invalidated by
 `controller.setDataSourceAdapter()` (via `studioRequestCache.invalidateSource(sourceId)`).
 
 ### 8.2 Sync in-memory path
@@ -502,12 +506,12 @@ L4: enrichWithCrossSourceFields(filteredRows, ...)
 
 ### 8.3 Filter scopes
 
-| Scope | Applied by | Source |
-|---|---|---|
-| `page` | All widgets on active page | `addFilter` / AI `add_page_filter` tool |
-| `widget` | Only the target widget | `addFilter` / AI `add_widget_filter` tool |
-| `cross-filter` | Widgets sharing a source | Interactive cross-filtering |
-| `interactive` | Applied by quick-filter bar | `applyInteractiveFilter` (non-undoable) |
+| Scope          | Applied by                  | Source                                    |
+| -------------- | --------------------------- | ----------------------------------------- |
+| `page`         | All widgets on active page  | `addFilter` / AI `add_page_filter` tool   |
+| `widget`       | Only the target widget      | `addFilter` / AI `add_widget_filter` tool |
+| `cross-filter` | Widgets sharing a source    | Interactive cross-filtering               |
+| `interactive`  | Applied by quick-filter bar | `applyInteractiveFilter` (non-undoable)   |
 
 Rank-mode widget filters are applied **post-aggregation** (inside `resolveRowsCached`).
 
@@ -521,6 +525,7 @@ Rank-mode widget filters are applied **post-aggregation** (inside `resolveRowsCa
 `adapter.sendMessage(messageHistory)`.
 
 **Display:**
+
 - Streaming text deltas → `@mui/x-chat` renders into the chat thread in real time
 - Tool call events → `StudioChatPanel` renders a subtle inline indicator (e.g., "Adding widget…")
 - Tool results → stored in message history; used as context for the next LLM turn
@@ -569,7 +574,7 @@ and returns a JSON blob with per-widget data → the AI writes a narrative summa
 
 **Entry:** User opens Compose Drawer → Add Widget → types description in text field → Enter.
 
-**Display:** No text response shown; the widget is added directly to the canvas.  On success,
+**Display:** No text response shown; the widget is added directly to the canvas. On success,
 `onCreated()` is called and the canvas scrolls to the bottom to reveal the new widget.
 On error, an inline `FormHelperText` error message appears in the Compose Drawer.  
 **Only available in `examples/x-studio` and `examples/x-studio-composed`** (have Compose Drawer).
@@ -578,21 +583,21 @@ On error, an inline `FormHelperText` error message appears in the Compose Drawer
 
 ## 10. Feature Comparison Matrix
 
-| Feature | `x-studio` | `x-studio-composed` | `x-studio-ai` |
-|---|:---:|:---:|:---:|
-| Multi-turn AI chat | ✅ (FAB overlay) | ✅ (sidebar) | ✅ (always visible) |
-| Widget insight (summary/analysis/forecast) | ✅ | ✅ | ✅ |
-| Anomaly detection & explanation | ✅ | ✅ | ✅ |
-| Summarise page chip (chat) | ✅ | ✅ | ✅ |
-| Create widget from description | ✅ | ✅ | ❌ |
-| Compose Drawer | ✅ | ✅ | ❌ |
-| Data Drawer | ✅ | ❌ | ❌ |
-| Filters Drawer | ✅ | ❌ | ❌ |
-| Multiple chat sessions | ❌ | ❌ | ✅ |
-| Chat history persistence | ❌ | ❌ | ✅ |
-| Dashboard state per-chat | ❌ | ❌ | ✅ |
-| AI-generated chat titles | ❌ | ❌ | ✅ |
-| Chat search / favourites | ❌ | ❌ | ✅ |
+| Feature                                    |    `x-studio`    | `x-studio-composed` |    `x-studio-ai`    |
+| ------------------------------------------ | :--------------: | :-----------------: | :-----------------: |
+| Multi-turn AI chat                         | ✅ (FAB overlay) |    ✅ (sidebar)     | ✅ (always visible) |
+| Widget insight (summary/analysis/forecast) |        ✅        |         ✅          |         ✅          |
+| Anomaly detection & explanation            |        ✅        |         ✅          |         ✅          |
+| Summarise page chip (chat)                 |        ✅        |         ✅          |         ✅          |
+| Create widget from description             |        ✅        |         ✅          |         ❌          |
+| Compose Drawer                             |        ✅        |         ✅          |         ❌          |
+| Data Drawer                                |        ✅        |         ❌          |         ❌          |
+| Filters Drawer                             |        ✅        |         ❌          |         ❌          |
+| Multiple chat sessions                     |        ❌        |         ❌          |         ✅          |
+| Chat history persistence                   |        ❌        |         ❌          |         ✅          |
+| Dashboard state per-chat                   |        ❌        |         ❌          |         ✅          |
+| AI-generated chat titles                   |        ❌        |         ❌          |         ✅          |
+| Chat search / favourites                   |        ❌        |         ❌          |         ✅          |
 
 ---
 
@@ -697,39 +702,39 @@ flowchart TD
 
 ## Key Source File Index
 
-| File | Lines | Purpose |
-|---|---|---|
-| `packages/x-studio/src/Studio/Studio.tsx` | 741 | Monolithic `<Studio>` component, FAB wiring, lazy `StudioChatPanel` |
-| `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts` | ~200 | Thin SSE client: POST → SSE → `applyStateMutation` |
-| `packages/x-studio/src/StudioChatPanel/applyStateMutation.ts` | ~120 | Maps `StateMutation` events → `StudioController` calls |
-| `packages/x-studio/src/internals/buildAISystemPrompt.ts` | ~390 | System prompt builder: `STUDIO_AI_INSTRUCTIONS` + `buildDashboardState()` |
-| `packages/x-studio/src/StudioChatPanel/generateInsight.ts` | 525 | `generateWidgetInsight`, `generateDashboardSummary`, `generateAnomalyExplanation`, `buildWidgetDataSummary` |
-| `packages/x-studio/src/StudioChatPanel/createWidgetFromDescription.ts` | 131 | AI-forced `add_widget` tool call from Compose Drawer |
-| `packages/x-studio/src/StudioChatPanel/StudioChatPanel.tsx` | 380 | Chat panel component, confirmation dialogs, overlay vs persistent mode |
-| `packages/x-studio/src/StudioChatPanel/studioSkills.ts` | ~50 | Built-in skills: `dashboardNarratorSkill`, `insightSuggestorSkill` |
-| `packages/x-studio/src/models/aiTypes.ts` | ~130 | `StudioAISkill`, `StateMutation`, `SerializableSkill` types |
-| `packages/x-studio/src/store/StudioController.ts` | 1,299 | All state mutations, undo/redo, serialize/load, subscribe |
-| `packages/x-studio/src/store/statePersistence.ts` | 227 | `serializeState`, `deserializeState`, `migrateState` |
-| `packages/x-studio/src/StudioWidgetCard/StudioWidgetCard.tsx` | ~960 | AI insight state machine, `onAiRequest` prop passthrough |
-| `packages/x-studio/src/StudioWidgetCard/StudioWidgetCardActionsOverlay.tsx` | 454 | AI action buttons (insight menu, anomaly explain, onAiRequest) |
-| `packages/x-studio/src/StudioInsightPanel/StudioInsightPanel.tsx` | 163 | Widget-level insight display component (inside card) |
-| `packages/x-studio/src/internals/StudioPipeline.ts` | 156 | `createStudioPipeline` factory, `resolveWidgetRows` |
-| `packages/x-studio/src/internals/useWidgetRows.ts` | 534 | React hook — async adapter + sync in-memory data paths |
-| `packages/x-studio/src/internals/StudioRequestCache.ts` | 116 | SWR-style cache for async adapter results |
-| `packages/x-studio/src/context/StudioContext.tsx` | 125 | `StudioProvider`, `useStudioController`, `useStudioSelector` |
-| `packages/x-studio-ai-middleware/src/handleAIChat.ts` | ~120 | Pure-function backend entry point |
-| `packages/x-studio-ai-middleware/src/agenticLoop.ts` | ~290 | Server-side agentic loop generator |
-| `packages/x-studio-ai-middleware/src/executeToolOnState.ts` | ~380 | All 17 tools executing against `StudioState` |
-| `packages/x-studio-ai-middleware/src/parseSSE.ts` | ~45 | Reusable SSE parser |
-| `packages/x-studio-ai-middleware/src/models/protocol.ts` | ~65 | `StudioAIRequest`, `StudioAISSEEvent` types |
-| `examples/x-studio/src/App.tsx` | ~80 | Monolithic entry: `<Studio>` with all flags enabled |
-| `examples/x-studio-composed/src/App.tsx` | ~180 | Composable entry: `StudioProvider` + `StudioChatPanel overlay={false}` |
-| `examples/x-studio-ai/src/App.tsx` | ~120 | AI-first entry: per-chat controller map, `handleHomeSubmit` |
-| `examples/x-studio-ai/src/hooks/useChatControllers.ts` | ~90 | `Map<chatId, StudioController>`, adapter registration |
-| `examples/x-studio-ai/src/hooks/useChatStore.ts` | ~110 | `ChatSession` CRUD + localStorage |
-| `examples/x-studio-ai/src/hooks/useGenerateChatTitle.ts` | ~60 | Secondary LLM call for chat title + description |
-| `examples/x-studio-ai/src/components/ActiveChatPanel.tsx` | ~220 | Per-chat `StudioChatPanel` + message history persistence |
-| `examples/x-studio-ai/src/dataAdapter.ts` | ~280 | In-memory query engine (filter tree, aggregation, groupBy, sort) |
+| File                                                                        | Lines | Purpose                                                                                                     |
+| --------------------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------- |
+| `packages/x-studio/src/Studio/Studio.tsx`                                   | 741   | Monolithic `<Studio>` component, FAB wiring, lazy `StudioChatPanel`                                         |
+| `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts`  | ~200  | Thin SSE client: POST → SSE → `applyStateMutation`                                                          |
+| `packages/x-studio/src/StudioChatPanel/applyStateMutation.ts`               | ~120  | Maps `StateMutation` events → `StudioController` calls                                                      |
+| `packages/x-studio/src/internals/buildAISystemPrompt.ts`                    | ~390  | System prompt builder: `STUDIO_AI_INSTRUCTIONS` + `buildDashboardState()`                                   |
+| `packages/x-studio/src/StudioChatPanel/generateInsight.ts`                  | 525   | `generateWidgetInsight`, `generateDashboardSummary`, `generateAnomalyExplanation`, `buildWidgetDataSummary` |
+| `packages/x-studio/src/StudioChatPanel/createWidgetFromDescription.ts`      | 131   | AI-forced `add_widget` tool call from Compose Drawer                                                        |
+| `packages/x-studio/src/StudioChatPanel/StudioChatPanel.tsx`                 | 380   | Chat panel component, confirmation dialogs, overlay vs persistent mode                                      |
+| `packages/x-studio/src/StudioChatPanel/studioSkills.ts`                     | ~50   | Built-in skills: `dashboardNarratorSkill`, `insightSuggestorSkill`                                          |
+| `packages/x-studio/src/models/aiTypes.ts`                                   | ~130  | `StudioAISkill`, `StateMutation`, `SerializableSkill` types                                                 |
+| `packages/x-studio/src/store/StudioController.ts`                           | 1,299 | All state mutations, undo/redo, serialize/load, subscribe                                                   |
+| `packages/x-studio/src/store/statePersistence.ts`                           | 227   | `serializeState`, `deserializeState`, `migrateState`                                                        |
+| `packages/x-studio/src/StudioWidgetCard/StudioWidgetCard.tsx`               | ~960  | AI insight state machine, `onAiRequest` prop passthrough                                                    |
+| `packages/x-studio/src/StudioWidgetCard/StudioWidgetCardActionsOverlay.tsx` | 454   | AI action buttons (insight menu, anomaly explain, onAiRequest)                                              |
+| `packages/x-studio/src/StudioInsightPanel/StudioInsightPanel.tsx`           | 163   | Widget-level insight display component (inside card)                                                        |
+| `packages/x-studio/src/internals/StudioPipeline.ts`                         | 156   | `createStudioPipeline` factory, `resolveWidgetRows`                                                         |
+| `packages/x-studio/src/internals/useWidgetRows.ts`                          | 534   | React hook — async adapter + sync in-memory data paths                                                      |
+| `packages/x-studio/src/internals/StudioRequestCache.ts`                     | 116   | SWR-style cache for async adapter results                                                                   |
+| `packages/x-studio/src/context/StudioContext.tsx`                           | 125   | `StudioProvider`, `useStudioController`, `useStudioSelector`                                                |
+| `packages/x-studio-ai-middleware/src/handleAIChat.ts`                       | ~120  | Pure-function backend entry point                                                                           |
+| `packages/x-studio-ai-middleware/src/agenticLoop.ts`                        | ~290  | Server-side agentic loop generator                                                                          |
+| `packages/x-studio-ai-middleware/src/executeToolOnState.ts`                 | ~380  | All 17 tools executing against `StudioState`                                                                |
+| `packages/x-studio-ai-middleware/src/parseSSE.ts`                           | ~45   | Reusable SSE parser                                                                                         |
+| `packages/x-studio-ai-middleware/src/models/protocol.ts`                    | ~65   | `StudioAIRequest`, `StudioAISSEEvent` types                                                                 |
+| `examples/x-studio/src/App.tsx`                                             | ~80   | Monolithic entry: `<Studio>` with all flags enabled                                                         |
+| `examples/x-studio-composed/src/App.tsx`                                    | ~180  | Composable entry: `StudioProvider` + `StudioChatPanel overlay={false}`                                      |
+| `examples/x-studio-ai/src/App.tsx`                                          | ~120  | AI-first entry: per-chat controller map, `handleHomeSubmit`                                                 |
+| `examples/x-studio-ai/src/hooks/useChatControllers.ts`                      | ~90   | `Map<chatId, StudioController>`, adapter registration                                                       |
+| `examples/x-studio-ai/src/hooks/useChatStore.ts`                            | ~110  | `ChatSession` CRUD + localStorage                                                                           |
+| `examples/x-studio-ai/src/hooks/useGenerateChatTitle.ts`                    | ~60   | Secondary LLM call for chat title + description                                                             |
+| `examples/x-studio-ai/src/components/ActiveChatPanel.tsx`                   | ~220  | Per-chat `StudioChatPanel` + message history persistence                                                    |
+| `examples/x-studio-ai/src/dataAdapter.ts`                                   | ~280  | In-memory query engine (filter tree, aggregation, groupBy, sort)                                            |
 
 ---
 
@@ -771,7 +776,7 @@ studioBackendAdapter.ts
 export function handleAIChat(
   body: StudioAIRequest,
   options: StudioAIHandlerOptions,
-): ReadableStream<string>
+): ReadableStream<string>;
 ```
 
 **Pure function contract** (same pattern as `x-studio-data-middleware/handleBatchQuery`):
@@ -792,12 +797,12 @@ export function executeToolOnState(
   input: unknown,
   state: StudioState,
   customWidgets?: StudioCustomWidgetDef[],
-): ToolExecutionResult
+): ToolExecutionResult;
 
 interface ToolExecutionResult {
-  output: string;          // JSON string fed back to the LLM
+  output: string; // JSON string fed back to the LLM
   mutation?: StateMutation; // state change for the client to apply
-  nextState: StudioState;  // updated state for next tool call in same turn
+  nextState: StudioState; // updated state for next tool call in same turn
 }
 ```
 
@@ -839,10 +844,7 @@ An async generator that:
 
 ```ts
 // packages/x-studio/src/components/StudioChatPanel/applyStateMutation.ts
-export function applyStateMutation(
-  mutation: StateMutation,
-  controller: StudioController,
-): void
+export function applyStateMutation(mutation: StateMutation, controller: StudioController): void;
 ```
 
 Receives a `StateMutation` from the SSE stream and calls the matching `StudioController` method.
@@ -861,7 +863,7 @@ export function createBackendChatAdapter(
   controller: StudioController,
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
-): ChatAdapter
+): ChatAdapter;
 ```
 
 A ~200-line thin SSE client (all AI logic lives in `@mui/x-studio-ai-middleware`):
@@ -886,7 +888,7 @@ interface StudioAISkill {
   name: string;
   mode: 'instruction-only' | 'client-handler';
   promptFragment: string;
-  tool?: { name, description, parameters, execute, parallel? };
+  tool?: { name; description; parameters; execute; parallel? };
 }
 
 // SerializableSkill (stripped, wire format)
@@ -894,7 +896,7 @@ interface SerializableSkill {
   name: string;
   mode: 'instruction-only' | 'client-handler';
   promptFragment: string;
-  tool?: { name, description, parameters }; // no execute
+  tool?: { name; description; parameters }; // no execute
 }
 ```
 

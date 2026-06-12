@@ -28,7 +28,10 @@ export { StudioGridWidget } from './components/widgets/StudioGridWidget/StudioGr
 export type { StudioGridWidgetProps } from './components/widgets/StudioGridWidget/StudioGridWidget';
 
 // ─── StudioChartWidget ────────────────────────────────────────────────────────
-export { StudioChartWidget, CHART_MIN_HEIGHT } from './components/widgets/StudioChartWidget/StudioChartWidget';
+export {
+  StudioChartWidget,
+  CHART_MIN_HEIGHT,
+} from './components/widgets/StudioChartWidget/StudioChartWidget';
 export type {
   StudioChartWidgetProps,
   StudioChartWidgetSlots,
@@ -236,17 +239,16 @@ export { createBackendChatAdapter } from './components/StudioChatPanel/studioBac
 export { applyStateMutation } from './components/StudioChatPanel/applyStateMutation';
 // AI protocol types — the minimal set the UI needs to consume SSE responses and accept config.
 // StudioAISkill (with server-side execute) and skill implementations live in @mui/x-studio-ai-middleware.
-export type {
-  StateMutation,
-  SerializableSkill,
-  StudioAIToolName,
-} from './models/aiTypes';
+export type { StateMutation, SerializableSkill, StudioAIToolName } from './models/aiTypes';
 export {
   generateWidgetInsight,
   generateDashboardSummary,
   generateAnomalyExplanation,
 } from './components/StudioChatPanel/generateInsight';
-export type { StudioInsightOptions, StudioInsightResult } from './components/StudioChatPanel/generateInsight';
+export type {
+  StudioInsightOptions,
+  StudioInsightResult,
+} from './components/StudioChatPanel/generateInsight';
 
 // ─── Server adapter utilities ─────────────────────────────────────────────────
 export { createBatchingAdapter } from './server/createBatchingAdapter';

@@ -97,10 +97,10 @@ Defaults are the English strings shown in the right column.
 
 ### Quick filter date range bar
 
-| Token                      | Default        |
-| :------------------------- | :------------- |
-| `dateRangeBarFieldLabel`   | `'Date range'` |
-| `filterFieldLabel`         | `'Field'`      |
+| Token                    | Default        |
+| :----------------------- | :------------- |
+| `dateRangeBarFieldLabel` | `'Date range'` |
+| `filterFieldLabel`       | `'Field'`      |
 
 ### Filters panel
 
@@ -118,6 +118,7 @@ Defaults are the English strings shown in the right column.
 | `filtersDeleteViewTooltip`        | `'Delete view'`                                            |
 | `filtersNoSavedViews`             | `'No saved views. Apply page filters and save them here.'` |
 | `filtersAddDataSourceHint`        | `'Add a data source and widgets first.'`                   |
+| `filtersDrawerRenameViewTooltip`  | `'Rename view'`                                            |
 
 ### Widget states
 
@@ -140,37 +141,43 @@ Defaults are the English strings shown in the right column.
 
 ### Widget card actions
 
-| Token                         | Default               |
-| :---------------------------- | :-------------------- |
-| `widgetEditTooltip`           | `'Edit widget'`       |
-| `widgetExportCsvTooltip`      | `'Export as CSV'`     |
-| `widgetExportPngTooltip`      | `'Export as PNG'`     |
-| `widgetExpandTooltip`         | `'Expand chart'`      |
-| `widgetMoveToPageLabel`       | `'Move to page'`      |
-| `widgetDuplicateTooltip`      | `'Duplicate widget'`  |
-| `widgetDeleteTooltip`         | `'Delete widget'`     |
-| `widgetAiAssistantTooltip`    | `'AI assistant'`      |
-| `widgetAiInsightTooltip`      | `'AI insight'`        |
-| `widgetDetectAnomalyTooltip`  | `'Detect anomalies'`  |
-| `widgetHideAnomalyTooltip`    | `'Hide anomalies'`    |
-| `widgetExplainAnomalyTooltip` | `'Explain anomalies'` |
+| Token                             | Default                              |
+| :-------------------------------- | :----------------------------------- |
+| `widgetEditTooltip`               | `'Edit widget'`                      |
+| `widgetExportCsvTooltip`          | `'Export as CSV'`                    |
+| `widgetExportPngTooltip`          | `'Export as PNG'`                    |
+| `widgetExpandTooltip`             | `'Expand chart'`                     |
+| `widgetMoveToPageLabel`           | `'Move to page'`                     |
+| `widgetDuplicateTooltip`          | `'Duplicate widget'`                 |
+| `widgetDeleteTooltip`             | `'Delete widget'`                    |
+| `widgetAiAssistantTooltip`        | `'AI assistant'`                     |
+| `widgetAiInsightTooltip`          | `'AI insight'`                       |
+| `widgetDetectAnomalyTooltip`      | `'Detect anomalies'`                 |
+| `widgetHideAnomalyTooltip`        | `'Hide anomalies'`                   |
+| `widgetExplainAnomalyTooltip`     | `'Explain anomalies'`                |
+| `widgetCardCloseExpandedAriaLabel` | `'Close expanded chart'`            |
+| `widgetCardExportPngAriaLabel`    | `'Export expanded chart as PNG'`     |
+| `numberFieldIncreaseAriaLabel`    | `'Increase'`                         |
+| `numberFieldDecreaseAriaLabel`    | `'Decrease'`                         |
 
 ### Widget edit dialog
 
-| Token                            | Default                                               |
-| :------------------------------- | :---------------------------------------------------- |
-| `widgetEditDialogTabSetup`       | `'Setup'`                                             |
-| `widgetEditDialogTabFilters`     | `'Filters'`                                           |
-| `widgetEditDialogTabFormat`      | `'Format'`                                            |
-| `widgetEditDialogCloseAriaLabel` | `'Close edit dialog'`                                 |
-| `widgetUntitledLabel`            | `(kindLabel: string) => string`                       |
+| Token                            | Default                         |
+| :------------------------------- | :------------------------------ |
+| `widgetEditDialogTabSetup`       | `'Setup'`                       |
+| `widgetEditDialogTabFilters`     | `'Filters'`                     |
+| `widgetEditDialogTabFormat`      | `'Format'`                      |
+| `widgetEditDialogCloseAriaLabel` | `'Close edit dialog'`           |
+| `widgetUntitledLabel`            | `(kindLabel: string) => string` |
 
 ### AI assistant
 
-| Token                     | Default                |
-| :------------------------ | :--------------------- |
-| `aiAssistantOpenTooltip`  | `'Open AI assistant'`  |
-| `aiAssistantCloseTooltip` | `'Close AI assistant'` |
+| Token                     | Default                          |
+| :------------------------ | :------------------------------- |
+| `aiAssistantOpenTooltip`  | `'Open AI assistant'`            |
+| `aiAssistantCloseTooltip` | `'Close AI assistant'`           |
+| `drawerPanelCloseAriaLabel` | `'Close widget configuration'` |
+| `sidebarPanelsAriaLabel`  | `'Sidebar panels'`               |
 
 ### Natural language widget creation
 
@@ -219,101 +226,135 @@ These tokens are retained as public API for consumers who call `generateDashboar
 
 ### Compose drawer / widget picker
 
-| Token                               | Default                                                             |
-| :---------------------------------- | :------------------------------------------------------------------ |
-| `composeDrawerTabSetup`             | `'Setup'`                                                           |
-| `composeChooseWidgetType`           | `'Choose a widget type'`                                            |
-| `composeNoDataSources`              | `'No data sources available yet. Only text widgets can be added.'`  |
-| `composeOnThisPage`                 | `'On this page'`                                                    |
-| `composeAddWidgetLabel`             | `(widgetTypeLabel: string) => string`                               |
-| `composeCloseAriaLabel`             | `'Close'`                                                           |
-| `composeBackToWidgetTypesAriaLabel` | `'Back to widget types'`                                            |
-| `composeCancel`                     | `'Cancel'`                                                          |
+| Token                               | Default                                                            |
+| :---------------------------------- | :----------------------------------------------------------------- |
+| `composeDrawerTabSetup`             | `'Setup'`                                                          |
+| `composeChooseWidgetType`           | `'Choose a widget type'`                                           |
+| `composeNoDataSources`              | `'No data sources available yet. Only text widgets can be added.'` |
+| `composeOnThisPage`                 | `'On this page'`                                                   |
+| `composeAddWidgetLabel`             | `(widgetTypeLabel: string) => string`                              |
+| `composeCloseAriaLabel`             | `'Close'`                                                          |
+| `composeBackToWidgetTypesAriaLabel` | `'Back to widget types'`                                           |
+| `composeCancel`                     | `'Cancel'`                                                         |
 
 ### Format panel
 
-| Token                 | Default                              |
-| :-------------------- | :----------------------------------- |
-| `formatAutoTitle`     | `'Auto-generated title'`             |
-| `formatResetTitle`    | `'Reset to auto-generated title'`    |
-| `formatAutoSubtitle`  | `'Auto-generated subtitle'`          |
-| `formatResetSubtitle` | `'Reset to auto-generated subtitle'` |
+| Token                            | Default                              |
+| :------------------------------- | :----------------------------------- |
+| `formatAutoTitle`                | `'Auto-generated title'`             |
+| `formatResetTitle`               | `'Reset to auto-generated title'`    |
+| `formatAutoSubtitle`             | `'Auto-generated subtitle'`          |
+| `formatResetSubtitle`            | `'Reset to auto-generated subtitle'` |
+| `formatPanelCompactNumbers`      | `'Compact numbers'`                  |
+| `formatPanelWidgetTitleLabel`    | `'Widget title'`                     |
+| `formatPanelWidgetTitleHelperText` | `'Shown in the widget header'`      |
+| `formatPanelSubtitleLabel`       | `'Subtitle'`                         |
+| `formatPanelSubtitleHelperText`  | `'Optional line shown beneath the title'` |
+
+### Text format panel
+
+| Token                            | Default          |
+| :------------------------------- | :--------------- |
+| `textFormatFontFamilyLabel`      | `'Font family'`  |
+| `textFormatFontSizeLabel`        | `'Font size'`    |
+| `textFormatColorLabel`           | `'Color'`        |
+| `textFormatColorPlaceholder`     | `'Default'`      |
+| `textFormatAlignLeftAriaLabel`   | `'Align left'`   |
+| `textFormatAlignCenterAriaLabel` | `'Align center'` |
+| `textFormatAlignRightAriaLabel`  | `'Align right'`  |
 
 ### Data drawer
 
-| Token                      | Default                                                                           |
-| :------------------------- | :-------------------------------------------------------------------------------- |
-| `dataDrawerNoSources`      | `'No data sources configured. Add a widget from the canvas to load sample data.'` |
-| `dataDrawerViewLineage`    | `'View data lineage'`                                                             |
-| `dataDrawerLineageTitle`   | `'Data lineage'`                                                                  |
-| `dataDrawerLineageHelper`  | `'Click a node to preview its data. Click an edge to inspect join key fields.'`   |
-| `dataDrawerRowsLabel`      | `'rows'`                                                                          |
-| `dataDrawerFieldsLabel`    | `'fields'`                                                                        |
-| `dataDrawerBackAriaLabel`  | `'Back to lineage graph'`                                                         |
-| `dataDrawerCloseAriaLabel` | `'Close data lineage'`                                                            |
-| `dataDrawerEditTooltip`    | `'Edit'`                                                                          |
-| `dataDrawerDeleteTooltip`  | `'Delete'`                                                                        |
-| `dataDrawerViewSourceTooltip` | `'View source data'`                                                           |
+| Token                         | Default                                                                           |
+| :---------------------------- | :-------------------------------------------------------------------------------- |
+| `dataDrawerNoSources`         | `'No data sources configured. Add a widget from the canvas to load sample data.'` |
+| `dataDrawerViewLineage`       | `'View data lineage'`                                                             |
+| `dataDrawerLineageTitle`      | `'Data lineage'`                                                                  |
+| `dataDrawerLineageHelper`     | `'Click a node to preview its data. Click an edge to inspect join key fields.'`   |
+| `dataDrawerRowsLabel`         | `'rows'`                                                                          |
+| `dataDrawerFieldsLabel`       | `'fields'`                                                                        |
+| `dataDrawerBackAriaLabel`     | `'Back to lineage graph'`                                                         |
+| `dataDrawerCloseAriaLabel`    | `'Close data lineage'`                                                            |
+| `dataDrawerEditTooltip`       | `'Edit'`                                                                          |
+| `dataDrawerDeleteTooltip`     | `'Delete'`                                                                        |
+| `dataDrawerViewSourceTooltip` | `'View source data'`                                                              |
 
 ### Relationship management
 
-| Token                        | Default          |
-| :--------------------------- | :--------------- |
-| `relationshipEditTooltip`    | `'Edit'`         |
-| `relationshipRemoveTooltip`  | `'Remove'`       |
-| `relationshipCancel`         | `'Cancel'`       |
-| `relationshipTypeManyToOne`  | `'Many-to-one'`  |
-| `relationshipTypeOneToOne`   | `'One-to-one'`   |
-| `relationshipTypeManyToMany` | `'Many-to-many'` |
+| Token                              | Default                       |
+| :--------------------------------- | :---------------------------- |
+| `relationshipEditTooltip`          | `'Edit'`                      |
+| `relationshipRemoveTooltip`        | `'Remove'`                    |
+| `relationshipCancel`               | `'Cancel'`                    |
+| `relationshipTypeManyToOne`        | `'Many-to-one'`               |
+| `relationshipTypeOneToOne`         | `'One-to-one'`                |
+| `relationshipTypeManyToMany`       | `'Many-to-many'`              |
+| `relationshipTypeLabel`            | `'Type'`                      |
+| `relationshipJoinFieldLabel`       | `'Join field'`                |
+| `relationshipJunctionTableLabel`   | `'Junction (bridge) table'`   |
+| `relationshipJunctionSourceLabel`  | `'Junction source'`           |
+| `relationshipJunctionSourceFkLabel` | `'→ Source FK'`              |
+| `relationshipJunctionTargetFkLabel` | `'→ Target FK'`              |
 
 ### Filter conditions and values
 
-| Token                           | Default                      |
-| :------------------------------ | :--------------------------- |
-| `filterConditionAnd`            | `'AND'`                      |
-| `filterConditionOr`             | `'OR'`                       |
-| `filterOperatorLabel`           | `'Operator'`                 |
-| `filterRemoveSecondCondition`   | `'Remove second condition'`  |
-| `filterAbsoluteDate`            | `'Absolute date'`            |
-| `filterRelativeDate`            | `'Relative date'`            |
-| `filterLinkToField`             | `'Link to field'`            |
-| `filterRemoveFieldLink`         | `'Remove field link'`        |
-| `filterBooleanTrue`             | `'True'`                     |
-| `filterBooleanFalse`            | `'False'`                    |
-| `filterRemoveAriaLabel`         | `'Remove filter'`            |
-| `filterInteractiveSectionTitle` | `'Interactive filters'`      |
-| `filterCrossSectionTitle`       | `'Cross-filters'`            |
-| `filterClearFilter`             | `'Clear filter'`             |
-| `filterClearAllCrossFilters`    | `'Clear all cross-filters'`  |
-| `filterRemoveCrossFilter`       | `'Remove cross-filter'`      |
-| `filterSearchValues`            | `'Search values…'`           |
-| `filterSelectField`             | `'Select a field…'`          |
-| `filterValueLabel`              | `'Value'`                    |
-| `filterValueHelper`             | `'Value to compare against'` |
-| `filterSelectParent`            | `'Select parent filter…'`    |
-| `filterSourceLabel`             | `'Source'`                   |
-| `filterMetricRowLabel`          | `'Metric row'`               |
-| `filterFieldLabel`              | `'Field'`                    |
-| `filterRankByLabel`             | `'Rank by'`                  |
+| Token                             | Default                       |
+| :-------------------------------- | :---------------------------- |
+| `filterConditionAnd`              | `'AND'`                       |
+| `filterConditionOr`               | `'OR'`                        |
+| `filterOperatorLabel`             | `'Operator'`                  |
+| `filterRemoveSecondCondition`     | `'Remove second condition'`   |
+| `filterAbsoluteDate`              | `'Absolute date'`             |
+| `filterRelativeDate`              | `'Relative date'`             |
+| `filterLinkToField`               | `'Link to field'`             |
+| `filterRemoveFieldLink`           | `'Remove field link'`         |
+| `filterBooleanTrue`               | `'True'`                      |
+| `filterBooleanFalse`              | `'False'`                     |
+| `filterRemoveAriaLabel`           | `'Remove filter'`             |
+| `filterInteractiveSectionTitle`   | `'Interactive filters'`       |
+| `filterCrossSectionTitle`         | `'Cross-filters'`             |
+| `filterClearFilter`               | `'Clear filter'`              |
+| `filterClearInteractiveAriaLabel` | `'Clear interactive filter'`  |
+| `filterClearAllCrossFilters`      | `'Clear all cross-filters'`   |
+| `filterRemoveCrossFilter`         | `'Remove cross-filter'`       |
+| `filterSearchValues`              | `'Search values…'`            |
+| `filterSelectField`               | `'Select a field…'`           |
+| `filterValueLabel`                | `'Value'`                     |
+| `filterValueHelper`               | `'Value to compare against'`  |
+| `filterValueAmountLabel`          | `'Amount'`                    |
+| `filterSelectParent`              | `'Select parent filter…'`     |
+| `filterSourceLabel`               | `'Source'`                    |
+| `filterMetricRowLabel`            | `'Metric row'`                |
+| `filterMetricHelperText`          | `'Identifies the row in the business metrics table'` |
+| `filterFieldLabel`                | `'Field'`                     |
+| `filterRankByLabel`               | `'Rank by'`                   |
 
 ### Expression field dialog
 
-| Token                    | Default          |
-| :----------------------- | :--------------- |
-| `exprNodeTypeField`      | `'Field'`        |
-| `exprNodeTypeLiteral`    | `'Literal'`      |
-| `exprNodeTypeFunction`   | `'Function'`     |
-| `exprDataTypeNumber`     | `'Number'`       |
-| `exprDataTypeText`       | `'Text'`         |
-| `exprDataTypeBoolean`    | `'Boolean'`      |
-| `exprBooleanTrue`        | `'True'`         |
-| `exprBooleanFalse`       | `'False'`        |
-| `exprExpandTooltip`      | `'Expand'`       |
-| `exprCollapseTooltip`    | `'Collapse'`     |
-| `exprRemoveInputTooltip` | `'Remove input'` |
-| `exprCancel`             | `'Cancel'`       |
-| `exprSave`               | `'Save'`         |
-| `exprAddField`           | `'Add Field'`    |
+| Token                          | Default                                                              |
+| :----------------------------- | :------------------------------------------------------------------- |
+| `exprNodeTypeField`            | `'Field'`                                                            |
+| `exprNodeTypeLiteral`          | `'Literal'`                                                          |
+| `exprNodeTypeFunction`         | `'Function'`                                                         |
+| `exprDataTypeNumber`           | `'Number'`                                                           |
+| `exprDataTypeText`             | `'Text'`                                                             |
+| `exprDataTypeBoolean`          | `'Boolean'`                                                          |
+| `exprBooleanTrue`              | `'True'`                                                             |
+| `exprBooleanFalse`             | `'False'`                                                            |
+| `exprExpandTooltip`            | `'Expand'`                                                           |
+| `exprCollapseTooltip`          | `'Collapse'`                                                         |
+| `exprRemoveInputTooltip`       | `'Remove input'`                                                     |
+| `exprCancel`                   | `'Cancel'`                                                           |
+| `exprSave`                     | `'Save'`                                                             |
+| `exprAddField`                 | `'Add Field'`                                                        |
+| `expressionNameLabel`          | `'Name'`                                                             |
+| `expressionNameHelperText`     | `'Used as the field label in pickers and grid columns'`              |
+| `expressionNamePlaceholder`    | `'e.g. Profit, Revenue per Unit'`                                    |
+| `expressionDescriptionLabel`   | `'Description'`                                                      |
+| `expressionDescriptionHelperText` | `'Optional. Shown as a tooltip in field pickers'`                 |
+| `expressionDescriptionPlaceholder` | `'Optional: describe what this field computes'`                  |
+| `expressionPrecisionLabel`     | `'Precision'`                                                        |
+| `expressionPrecisionHelperText` | `'Decimal places (0–10) used when formatting this calculated field'` |
 
 ### Aggregation functions
 
@@ -346,28 +387,57 @@ These tokens are retained as public API for consumers who call `generateDashboar
 
 ### Chart setup panel
 
-| Token                               | Default                                         |
-| :---------------------------------- | :---------------------------------------------- |
-| `chartSetupValueFieldLabel`         | `'Value field'`                                 |
-| `chartSetupAggregationLabel`        | `'Aggregation'`                                 |
-| `chartSetupMinLabel`                | `'Min'`                                         |
-| `chartSetupMaxLabel`                | `'Max'`                                         |
-| `chartSetupGroupByLabel`            | `'Group by'`                                    |
-| `chartSetupSortByLabel`             | `'Sort by'`                                     |
-| `chartSetupSortCategory`            | `'Category'`                                    |
-| `chartSetupSortValue`               | `'Value'`                                       |
-| `chartSetupSortNone`                | `'None'`                                        |
-| `chartSetupSortPercent`             | `'Percent'`                                     |
-| `chartSetupAnnotationsTitle`        | `'Annotations'`                                 |
-| `chartSetupInteractionsTitle`       | `'Interactions'`                                |
-| `chartSetupInteractionsDescription` | `'When other widgets are clicked, this chart…'` |
-| `chartSetupAddSeries`               | `'Add series'`                                  |
-| `chartSetupNoMoreFields`            | `'No more fields to add'`                       |
-| `chartSetupRemoveSeries`            | `'Remove series'`                               |
-| `chartSetupAddReferenceLine`        | `'Add reference line'`                          |
-| `chartSetupRemoveAnnotation`        | `'Remove annotation'`                           |
-| `chartSetupNoReferenceLines`        | `'No reference lines. Click + to add one.'`     |
-| `chartSetupDualYAxis`               | `'Dual Y axis (line series on right axis)'`     |
+| Token                               | Default                                          |
+| :---------------------------------- | :----------------------------------------------- |
+| `chartSetupValueFieldLabel`         | `'Value field'`                                  |
+| `chartSetupValueFieldHelperText`    | `'Numeric field to aggregate'`                   |
+| `chartSetupAggregationLabel`        | `'Aggregation'`                                  |
+| `chartSetupMinLabel`                | `'Min'`                                          |
+| `chartSetupMaxLabel`                | `'Max'`                                          |
+| `chartSetupGroupByLabel`            | `'Group by'`                                     |
+| `chartSetupSortByLabel`             | `'Sort by'`                                      |
+| `chartSetupSortCategory`            | `'Category'`                                     |
+| `chartSetupSortValue`               | `'Value'`                                        |
+| `chartSetupSortNone`                | `'None'`                                         |
+| `chartSetupSortPercent`             | `'Percent'`                                      |
+| `chartSetupSortDirectionAriaLabel`  | `'Sort direction'`                               |
+| `chartSetupAnnotationsTitle`        | `'Annotations'`                                  |
+| `chartSetupInteractionsTitle`       | `'Interactions'`                                 |
+| `chartSetupInteractionsDescription` | `'When other widgets are clicked, this chart…'`  |
+| `chartSetupAddSeries`               | `'Add series'`                                   |
+| `chartSetupNoMoreFields`            | `'No more fields to add'`                        |
+| `chartSetupRemoveSeries`            | `'Remove series'`                                |
+| `chartSetupAddReferenceLine`        | `'Add reference line'`                           |
+| `chartSetupRemoveAnnotation`        | `'Remove annotation'`                            |
+| `chartSetupNoReferenceLines`        | `'No reference lines. Click + to add one.'`      |
+| `chartSetupDualYAxis`               | `'Dual Y axis (line series on right axis)'`      |
+| `chartSetupReferenceLineValueLabel` | `'Value'`                                        |
+| `chartSetupReferenceLineLabelLabel` | `'Label'`                                        |
+| `chartSetupYFieldLabel`             | `'Y field (numeric)'`                            |
+| `chartSetupYFieldHelperText`        | `'Numeric field plotted on the vertical axis'`   |
+| `chartSetupColorByLabel`            | `'Color by (optional)'`                          |
+| `chartSetupColorByHelperText`       | `'Splits points into colour-coded series per category'` |
+| `chartSetupSizeByLabel`             | `'Size by (optional)'`                           |
+| `chartSetupSizeByHelperText`        | `'Numeric field that controls bubble radius (produces a bubble chart)'` |
+| `chartSetupMinRadiusLabel`          | `'Min radius'`                                   |
+| `chartSetupMaxRadiusLabel`          | `'Max radius'`                                   |
+| `chartSetupFunnelValueHelperText`   | `'Numeric field summed per stage — stages are sorted by value (largest first)'` |
+| `chartSetupHeatmapRowAxisLabel`     | `'Row axis field'`                               |
+| `chartSetupHeatmapRowAxisHelperText` | `'Categorical field for the vertical (row) axis, e.g. hour of day'` |
+| `chartSetupHeatmapValueLabel`       | `'Value / colour field'`                         |
+| `chartSetupHeatmapValueHelperText`  | `'Numeric field summed per cell to determine colour intensity'` |
+| `chartSetupHeatmapColourSchemeLabel` | `'Colour scheme'`                               |
+| `chartSetupArcLabelLabel`           | `'Arc label'`                                    |
+| `chartSetupMinAngleLabel`           | `'Minimum angle (°)'`                            |
+| `chartSetupMinAngleHelperText`      | `"Slices smaller than this angle (degrees) won't show a label"` |
+| `chartSetupGanttLabelFieldLabel`    | `'Label field'`                                  |
+| `chartSetupGanttLabelFieldHelperText` | `'Field shown as the row label on the Y axis (e.g. task or order name)'` |
+| `chartSetupGanttStartDateLabel`     | `'Start date field'`                             |
+| `chartSetupGanttStartDateHelperText` | `'Date / datetime field for the start of each bar'` |
+| `chartSetupGanttEndDateLabel`       | `'End date field'`                               |
+| `chartSetupGanttEndDateHelperText`  | `'Date / datetime field for the end of each bar'` |
+| `chartSetupGanttColourByLabel`      | `'Colour by (optional)'`                         |
+| `chartSetupGanttColourByHelperText` | `'Categorical field used to colour-code bars (e.g. status or category)'` |
 
 ### KPI setup panel
 
@@ -381,6 +451,17 @@ These tokens are retained as public API for consumers who call `generateDashboar
 | `kpiSetupCompSameLastYear`        | `'Same period last year'`                                            |
 | `kpiSetupInteractionsTitle`       | `'Interactions'`                                                     |
 | `kpiSetupInteractionsDescription` | `'When other widgets are clicked, this KPI…'`                        |
+| `kpiSetupTimeFieldLabel`          | `'Time field'`                                                       |
+| `kpiSetupGranularityLabel`        | `'Granularity'`                                                      |
+| `kpiSetupPlotTypeLabel`           | `'Plot type'`                                                        |
+| `kpiSetupMinLabel`                | `'Min'`                                                              |
+| `kpiSetupMaxLabel`                | `'Max'`                                                              |
+| `kpiSetupValueFieldLabel`         | `'Value field'`                                                      |
+| `kpiSetupValueFieldHelperText`    | `'Field to aggregate'`                                               |
+| `kpiSetupSparklineLabel`          | `'Sparkline'`                                                        |
+| `kpiSetupTargetLabel`             | `'Target'`                                                           |
+| `kpiSetupTrendLabel`              | `'Trend'`                                                            |
+| `kpiSetupCompPeriodLabel`         | `'Comparison period'`                                                |
 | `kpiGrandTotalTooltip`            | `'Grand total — active filter widgets are not applied to this KPI…'` |
 
 ### Grid setup panel
@@ -388,12 +469,14 @@ These tokens are retained as public API for consumers who call `generateDashboar
 | Token                                 | Default                                                          |
 | :------------------------------------ | :--------------------------------------------------------------- |
 | `gridSetupDataSourceLabel`            | `'Data source'`                                                  |
+| `gridSetupDataSourcePlaceholder`      | `'Select a data source…'`                                        |
 | `gridSetupAllColumnsAdded`            | `'All available columns added'`                                  |
 | `gridSetupCrossFilterFieldLabel`      | `'Cross-filter field'`                                           |
 | `gridSetupCrossFilterFieldHelper`     | `'Field applied to other widgets when a row is selected…'`       |
 | `gridSetupGroupByLabel`               | `'Group by'`                                                     |
 | `gridSetupGroupByHelper`              | `'Collapse rows into groups — set per-column aggregation below'` |
 | `gridSetupDefaultSortLabel`           | `'Default sort'`                                                 |
+| `gridSetupHeightLabel`                | `'Height (px)'`                                                  |
 | `gridSetupConditionalFormattingTitle` | `'Conditional formatting'`                                       |
 | `gridSetupConditionalCustom`          | `'Custom'`                                                       |
 | `gridSetupRemoveRuleAriaLabel`        | `'Remove rule'`                                                  |
@@ -402,18 +485,25 @@ These tokens are retained as public API for consumers who call `generateDashboar
 
 ### Map setup panel
 
-| Token                  | Default     |
-| :--------------------- | :---------- |
-| `mapSetupColorBlues`   | `'Blues'`   |
-| `mapSetupColorReds`    | `'Reds'`    |
-| `mapSetupColorGreens`  | `'Greens'`  |
-| `mapSetupColorOranges` | `'Oranges'` |
-| `mapSetupColorPurples` | `'Purples'` |
-| `mapSetupLegendBottom` | `'Bottom'`  |
-| `mapSetupLegendTop`    | `'Top'`     |
-| `mapSetupLegendLeft`   | `'Left'`    |
-| `mapSetupLegendRight`  | `'Right'`   |
-| `mapSetupLegendHidden` | `'Hidden'`  |
+| Token                        | Default                              |
+| :--------------------------- | :----------------------------------- |
+| `mapSetupMapTypeLabel`       | `'Map type'`                         |
+| `mapSetupValueFieldLabel`    | `'Value field (optional for count)'` |
+| `mapSetupColourSchemeLabel`  | `'Colour scheme'`                    |
+| `mapSetupLegendPositionLabel` | `'Legend position'`                 |
+| `mapSetupScaleFromZeroLabel` | `'Scale from zero'`                  |
+| `mapSetupClickableLabel`     | `'Clickable (filter source)'`        |
+| `mapSetupCrossFilterLabel`   | `'Respond to cross-filters'`         |
+| `mapSetupColorBlues`         | `'Blues'`                            |
+| `mapSetupColorReds`          | `'Reds'`                             |
+| `mapSetupColorGreens`        | `'Greens'`                           |
+| `mapSetupColorOranges`       | `'Oranges'`                          |
+| `mapSetupColorPurples`       | `'Purples'`                          |
+| `mapSetupLegendBottom`       | `'Bottom'`                           |
+| `mapSetupLegendTop`          | `'Top'`                              |
+| `mapSetupLegendLeft`         | `'Left'`                             |
+| `mapSetupLegendRight`        | `'Right'`                            |
+| `mapSetupLegendHidden`       | `'Hidden'`                           |
 
 ### Pivot setup panel
 
@@ -427,6 +517,15 @@ These tokens are retained as public API for consumers who call `generateDashboar
 | `pivotSetupValueFieldLabel`  | `'Value field'`                                                                        |
 | `pivotSetupValueFieldHelper` | `'Numeric field aggregated into each cell'`                                            |
 | `pivotSetupShowTotals`       | `'Show totals row and column'`                                                         |
+| `pivotSetupAggregationLabel` | `'Aggregation'`                                                                        |
+
+### Inline formula bar
+
+| Token                          | Default                             |
+| :----------------------------- | :---------------------------------- |
+| `inlineFormulaBarAddTooltip`   | `'Add a calculated formula field'`  |
+| `inlineFormulaBarCloseAriaLabel` | `'Close formula bar'`             |
+| `inlineFormulaBarLabelLabel`   | `'Label'`                           |
 
 ### Filter setup panel
 

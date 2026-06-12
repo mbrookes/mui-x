@@ -19,7 +19,9 @@
     "paths": {
       "@mui/x-studio": ["src/types/x-studio.d.ts"],
       "@mui/x-date-pickers/AdapterDayjs": ["src/types/x-date-pickers-adapter-dayjs.d.ts"],
-      "@mui/x-date-pickers/LocalizationProvider": ["src/types/x-date-pickers-localization-provider.d.ts"],
+      "@mui/x-date-pickers/LocalizationProvider": [
+        "src/types/x-date-pickers-localization-provider.d.ts"
+      ],
       "@mui/x-date-pickers/locales": ["src/types/x-date-pickers-locales.d.ts"],
       "@mui/x-charts": ["src/types/x-charts.d.ts"],
       "@mui/x-charts/themeAugmentation": ["src/types/x-charts-theme-augmentation.d.ts"],

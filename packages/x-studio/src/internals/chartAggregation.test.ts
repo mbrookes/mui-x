@@ -1055,6 +1055,38 @@ describe('aggregateMultipleSeries', () => {
     const marIdx = result.labels.indexOf('2024-03');
     expect(result.series[0].values[marIdx]).toBe(300); // 100 + 200
   });
+
+  it('auto-promotes to count when yField is a string (avoids NaN)', () => {
+    const stringRows = [
+      { category: 'A', id: 'contact-1' },
+      { category: 'A', id: 'contact-2' },
+      { category: 'B', id: 'contact-3' },
+    ];
+    const result = aggregateMultipleSeries(stringRows, 'category', ['id']);
+    const idSeries = result.series.find((s) => s.fieldId === 'id')!;
+    // Should count occurrences, not produce NaN
+    const aIdx = result.labels.indexOf('A');
+    const bIdx = result.labels.indexOf('B');
+    expect(idSeries.values[aIdx]).toBe(2);
+    expect(idSeries.values[bIdx]).toBe(1);
+    idSeries.values.forEach((v) => expect(Number.isNaN(v)).toBe(false));
+  });
+
+  it('counts string fields and sums numeric fields in the same call', () => {
+    const mixed = [
+      { dept: 'Eng', employee_id: 'e-1', salary: 80000 },
+      { dept: 'Eng', employee_id: 'e-2', salary: 90000 },
+      { dept: 'HR', employee_id: 'e-3', salary: 70000 },
+    ];
+    const result = aggregateMultipleSeries(mixed, 'dept', ['employee_id', 'salary']);
+    const idSeries = result.series.find((s) => s.fieldId === 'employee_id')!;
+    const salSeries = result.series.find((s) => s.fieldId === 'salary')!;
+    const engIdx = result.labels.indexOf('Eng');
+    // employee_id is a string → counted
+    expect(idSeries.values[engIdx]).toBe(2);
+    // salary is numeric → summed
+    expect(salSeries.values[engIdx]).toBe(170000);
+  });
 });
 
 // ─── prepareScatterData ───────────────────────────────────────────────────────

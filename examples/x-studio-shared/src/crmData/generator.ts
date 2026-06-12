@@ -51,29 +51,93 @@ function makeDateSampler(from: string, to: string): (rng: Rng) => string {
 // ─── Static vocabulary ────────────────────────────────────────────────────────
 
 const FIRST_NAMES = [
-  'James', 'Emma', 'Liam', 'Olivia', 'Noah', 'Ava', 'William', 'Sophia',
-  'Benjamin', 'Isabella', 'Lucas', 'Mia', 'Henry', 'Charlotte', 'Alexander',
-  'Amelia', 'Mason', 'Harper', 'Ethan', 'Evelyn', 'Hans', 'Petra', 'Marie',
-  'Pierre', 'Sarah', 'Michael', 'Anna', 'Lars', 'Ingrid', 'Piotr',
+  'James',
+  'Emma',
+  'Liam',
+  'Olivia',
+  'Noah',
+  'Ava',
+  'William',
+  'Sophia',
+  'Benjamin',
+  'Isabella',
+  'Lucas',
+  'Mia',
+  'Henry',
+  'Charlotte',
+  'Alexander',
+  'Amelia',
+  'Mason',
+  'Harper',
+  'Ethan',
+  'Evelyn',
+  'Hans',
+  'Petra',
+  'Marie',
+  'Pierre',
+  'Sarah',
+  'Michael',
+  'Anna',
+  'Lars',
+  'Ingrid',
+  'Piotr',
 ] as const;
 
 const LAST_NAMES = [
-  'Mueller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Smith', 'Johnson',
-  'Williams', 'Brown', 'Jones', 'Martin', 'Bernard', 'Dubois', 'Thomas',
-  'Laurent', 'Anderson', 'Taylor', 'Wilson', 'Harris', 'Jackson',
-  'Kowalski', 'Nowak', 'Jensen', 'Nielsen', 'Larsson',
+  'Mueller',
+  'Schmidt',
+  'Schneider',
+  'Fischer',
+  'Weber',
+  'Smith',
+  'Johnson',
+  'Williams',
+  'Brown',
+  'Jones',
+  'Martin',
+  'Bernard',
+  'Dubois',
+  'Thomas',
+  'Laurent',
+  'Anderson',
+  'Taylor',
+  'Wilson',
+  'Harris',
+  'Jackson',
+  'Kowalski',
+  'Nowak',
+  'Jensen',
+  'Nielsen',
+  'Larsson',
 ] as const;
 
 const ROLES = [
-  'CEO', 'CFO', 'CTO', 'VP Sales', 'VP Marketing', 'VP Engineering',
-  'Head of Procurement', 'Head of IT', 'Account Manager', 'Sales Director',
-  'Procurement Manager', 'IT Manager', 'Finance Director', 'Operations Manager',
+  'CEO',
+  'CFO',
+  'CTO',
+  'VP Sales',
+  'VP Marketing',
+  'VP Engineering',
+  'Head of Procurement',
+  'Head of IT',
+  'Account Manager',
+  'Sales Director',
+  'Procurement Manager',
+  'IT Manager',
+  'Finance Director',
+  'Operations Manager',
   'Business Development Manager',
 ] as const;
 
 const DEPARTMENTS = [
-  'Sales', 'Finance', 'IT', 'Operations', 'Procurement',
-  'Marketing', 'Executive', 'Engineering',
+  'Sales',
+  'Finance',
+  'IT',
+  'Operations',
+  'Procurement',
+  'Marketing',
+  'Executive',
+  'Engineering',
 ] as const;
 
 const DEAL_STAGES = [
@@ -137,7 +201,10 @@ interface GeneratedContact extends Record<string, unknown> {
   department: string;
 }
 
-function generateContacts(rng: Rng, customerRows: Record<string, unknown>[]): {
+function generateContacts(
+  rng: Rng,
+  customerRows: Record<string, unknown>[],
+): {
   source: StudioDataSource;
   rows: GeneratedContact[];
   byCustomerId: Map<string, GeneratedContact[]>;
@@ -256,12 +323,17 @@ function generateDeals(
       const stage = pickWeighted(rng, DEAL_STAGES, DEAL_STAGE_WEIGHTS);
       const value = Math.round(randInt(rng, 5000, 250000) / 500) * 500;
       const probability =
-        stage === 'Closed Won' ? 100
-        : stage === 'Closed Lost' ? 0
-        : stage === 'Negotiation' ? randInt(rng, 60, 80)
-        : stage === 'Proposal' ? randInt(rng, 40, 60)
-        : stage === 'Qualification' ? randInt(rng, 20, 40)
-        : randInt(rng, 5, 20);
+        stage === 'Closed Won'
+          ? 100
+          : stage === 'Closed Lost'
+            ? 0
+            : stage === 'Negotiation'
+              ? randInt(rng, 60, 80)
+              : stage === 'Proposal'
+                ? randInt(rng, 40, 60)
+                : stage === 'Qualification'
+                  ? randInt(rng, 20, 40)
+                  : randInt(rng, 5, 20);
 
       const openedDate = sampleOpenedDate(rng);
       const closeDate = addDays(openedDate, randInt(rng, 30, 180));
@@ -298,8 +370,19 @@ function generateDeals(
         { id: 'customerId', label: 'Company ID', type: 'string', hidden: true },
         { id: 'primaryContactId', label: 'Contact ID', type: 'string', hidden: true },
         { id: 'title', label: 'Deal Title', type: 'string' },
-        { id: 'stage', label: 'Stage', type: 'string',
-          orderedValues: ['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost'] },
+        {
+          id: 'stage',
+          label: 'Stage',
+          type: 'string',
+          orderedValues: [
+            'Prospecting',
+            'Qualification',
+            'Proposal',
+            'Negotiation',
+            'Closed Won',
+            'Closed Lost',
+          ],
+        },
         { id: 'value', label: 'Deal Value', type: 'number', format: 'currency' },
         { id: 'probability', label: 'Probability', type: 'number', format: 'percent' },
         { id: 'openedDate', label: 'Opened', type: 'date' },
@@ -397,11 +480,11 @@ export function generateCrmData(opts?: CrmGeneratorOptions): GeneratedCrmData {
   const rng = mulberry32(seed + 1_000_000);
 
   const { source: contactsSource, byCustomerId } = generateContacts(rng, customerRows);
-  const { source: dealsSource, rows: dealRows, byDealId: _ } = generateDeals(
-    rng,
-    customerRows,
-    byCustomerId,
-  );
+  const {
+    source: dealsSource,
+    rows: dealRows,
+    byDealId: _,
+  } = generateDeals(rng, customerRows, byCustomerId);
   const activitiesSource = generateActivities(rng, dealRows, byCustomerId);
 
   return { contactsSource, dealsSource, activitiesSource };

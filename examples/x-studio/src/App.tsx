@@ -566,9 +566,7 @@ export default function App() {
       studioRef.current?.setDataSourceAdapter(source.id, adapter);
     }
     // eslint-disable-next-line no-console
-    console.info(
-      `[x-studio] Server mode enabled — sales → ${salesEndpoint}, CRM → ${crmEndpoint}`,
-    );
+    console.info(`[x-studio] Server mode enabled — sales → ${salesEndpoint}, CRM → ${crmEndpoint}`);
     // Re-run after Studio remounts (studioKey changes when generated data arrives).
   }, [serverEndpoint, adapterMode, studioKey]);
 

@@ -31,7 +31,6 @@ export const LOCALE_BUNDLES: Record<SupportedLocale, LocaleBundle> = {
   'pt-BR': {
     dayjsLocale: 'pt-br',
     studioLocaleText: ptBRLocaleText,
-    pickersLocaleText:
-      pickersPtBR.components.MuiLocalizationProvider.defaultProps.localeText,
+    pickersLocaleText: pickersPtBR.components.MuiLocalizationProvider.defaultProps.localeText,
   },
 };

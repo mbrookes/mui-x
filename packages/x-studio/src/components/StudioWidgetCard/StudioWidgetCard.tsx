@@ -63,6 +63,7 @@ import {
 } from '../StudioChatPanel/generateInsight';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
+import { SliderFilterPill } from './SliderFilterPill';
 import {
   DRAG_TYPE_CANVAS_WIDGET,
   type CanvasWidgetDragItem,
@@ -123,38 +124,6 @@ export interface StudioWidgetCardProps {
 // so rearranging cards doesn't cause a visible blank-shell flash.
 const hydratedWidgets = new Set<string>();
 
-function SliderFilterPill({
-  filter,
-  source,
-  onClear,
-}: {
-  filter: { field: string; value: unknown };
-  source: { fields: { id: string; type?: string }[] } | undefined;
-  onClear: () => void;
-}) {
-  const val = filter.value as { from?: string | number; to?: string | number } | null;
-  const fieldType = source?.fields.find((f) => f.id === filter.field)?.type;
-  const isDate = fieldType === 'date' || fieldType === 'datetime';
-  const fmt = (v: string | number | undefined) => {
-    if (v == null) {
-      return '';
-    }
-    return isDate ? dayjs(v as string).format('DD MMM YYYY') : Number(v).toLocaleString();
-  };
-  if (!val) {
-    return null;
-  }
-  return (
-    <Chip
-      size="small"
-      label={`${fmt(val.from)} – ${fmt(val.to)}`}
-      onDelete={onClear}
-      color="primary"
-      variant="outlined"
-      sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
-    />
-  );
-}
 const KPI_WIDGET_MIN_HEIGHT = 160;
 const FILTER_WIDGET_MIN_HEIGHT = KPI_WIDGET_MIN_HEIGHT / 2;
 const MAP_WIDGET_DEFAULT_HEIGHT = 400;

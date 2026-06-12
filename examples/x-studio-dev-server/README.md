@@ -180,6 +180,24 @@ Queries the underlying SQLite databases using structured filters and aggregation
 | --- | ----------- |
 | `studio://dashboard/state` | Full dashboard JSON (pages, widgets, sources, filters) |
 | `studio://dashboard/system-prompt` | AI system prompt built from current dashboard state |
+| `studio://dashboard/data-health` | Row counts for all configured data sources |
+| `studio://schema/{sourceId}` | Field definitions for a specific data source (one per source) |
+
+All resources support `resources/subscribe` — subscribe to `studio://dashboard/state` or `studio://dashboard/system-prompt` to receive `notifications/resources/updated` whenever a tool call mutates the dashboard.
+
+**Schema resource example** (`studio://schema/source-orders`):
+```json
+{
+  "id": "source-orders",
+  "label": "Orders",
+  "tableName": "orders",
+  "fields": [
+    { "id": "id", "label": "Order ID", "type": "string", "serialized": "id (string)" },
+    { "id": "total", "label": "Total", "type": "number", "format": "currency", "defaultAggregationFn": "sum", "serialized": "total (number, currency, default:sum)" },
+    { "id": "status", "label": "Status", "type": "string", "sampleValues": ["pending", "shipped", "delivered"], "serialized": "status (string, 3: pending|shipped|delivered)" }
+  ]
+}
+```
 
 ### Claude Desktop configuration
 

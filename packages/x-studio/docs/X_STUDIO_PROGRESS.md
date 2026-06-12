@@ -897,6 +897,16 @@
 - `onUsage?` callback added to `StudioAIConfig` (client-side) — called when the `usage` SSE event arrives
 - 5 new unit tests in `agenticLoop.test.ts`
 
+### AI-12 · `render_chart` MCP tool — arbitrary chart → SVG
+
+- New `packages/x-studio-ai-middleware/src/chartRenderer.ts`: pure TypeScript SVG chart renderer with no DOM, React, or runtime dependencies
+- Supports `bar`, `line` (single and multi-series with `xLabels + series`), and `pie` chart types
+- `renderChartSvg(input): string` produces a standalone `<svg>` with axes, grid lines, labels, legend, title, and a default 10-colour palette
+- `render_chart` MCP tool registered in `buildStudioMcpServer`: accepts `type`, `title`, `data`, `xLabels`, `series`, `width`, `height`, `colors`
+- Returns `{ type: 'image', data: base64(svg), mimeType: 'image/svg+xml' }` (visual in Claude Desktop + compatible MCP clients) plus a text fallback of the raw SVG
+- `renderChartSvg`, `ChartRendererInput`, `ChartDataPoint`, `ChartSeries`, `ChartType` all exported from middleware public API
+- 21 unit tests in `chartRenderer.test.ts`
+
 ## 📋 Planned
 
 _Nothing remaining — all tracked requirements are complete or WONTFIX._

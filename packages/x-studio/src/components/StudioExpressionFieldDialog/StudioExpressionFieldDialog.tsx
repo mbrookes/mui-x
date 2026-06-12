@@ -198,11 +198,11 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
               }
               label={
                 <Stack>
-                  <Typography variant="body2">Measure (aggregate)</Typography>
+                  <Typography variant="body2">{localeText.exprMeasureLabel}</Typography>
                   <Typography variant="caption" color="text.secondary">
                     {isMeasure
-                      ? 'Computes a single value over the full dataset (e.g. total revenue).'
-                      : 'Computes a value per row (e.g. price × quantity).'}
+                      ? localeText.exprMeasureHelperText
+                      : localeText.exprDimensionHelperText}
                   </Typography>
                 </Stack>
               }

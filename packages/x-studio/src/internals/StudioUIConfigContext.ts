@@ -740,6 +740,19 @@ export interface StudioLocaleText {
   aiSuggestionAddPage: string;
   aiSuggestionSummarisePage: string;
   aiSuggestionWhatDataAvailable: string;
+  /** Default name for a new AI chat thread */
+  chatNewConversationName: string;
+
+  // ── Expression field dialog — measure checkbox ────────────────────────────
+  exprMeasureLabel: string;
+  exprMeasureHelperText: string;
+  exprDimensionHelperText: string;
+
+  // ── Chart color scheme options ────────────────────────────────────────────
+  chartColorSchemePrimary: string;
+  chartColorSchemeSuccess: string;
+  chartColorSchemeWarning: string;
+  chartColorSchemeError: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1448,6 +1461,19 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiSuggestionAddPage: 'Add a new page',
   aiSuggestionSummarisePage: 'Summarise page',
   aiSuggestionWhatDataAvailable: 'What data is available?',
+  chatNewConversationName: 'New conversation',
+
+  // Expression field dialog — measure checkbox
+  exprMeasureLabel: 'Measure (aggregate)',
+  exprMeasureHelperText:
+    'Computes a single value over the full dataset (e.g. total revenue).',
+  exprDimensionHelperText: 'Computes a value per row (e.g. price \u00d7 quantity).',
+
+  // Chart color scheme options
+  chartColorSchemePrimary: 'Primary (blue)',
+  chartColorSchemeSuccess: 'Success (green)',
+  chartColorSchemeWarning: 'Warning (orange)',
+  chartColorSchemeError: 'Error (red)',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

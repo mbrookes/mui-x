@@ -622,10 +622,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       })
                     }
                   >
-                    <MenuItem value="primary">Primary (blue)</MenuItem>
-                    <MenuItem value="success">Success (green)</MenuItem>
-                    <MenuItem value="warning">Warning (orange)</MenuItem>
-                    <MenuItem value="error">Error (red)</MenuItem>
+                    <MenuItem value="primary">{localeText.chartColorSchemePrimary}</MenuItem>
+                    <MenuItem value="success">{localeText.chartColorSchemeSuccess}</MenuItem>
+                    <MenuItem value="warning">{localeText.chartColorSchemeWarning}</MenuItem>
+                    <MenuItem value="error">{localeText.chartColorSchemeError}</MenuItem>
                   </Select>
                 </FormControl>
               </React.Fragment>

@@ -484,6 +484,93 @@ describe('executeToolOnState: nextState chaining', () => {
   });
 });
 
+// ── set_widget_forecast ────────────────────────────────────────────────────────
+
+describe('executeToolOnState: set_widget_forecast', () => {
+  it('returns error when widgetId is missing', () => {
+    const state = makeState();
+    const result = executeToolOnState('set_widget_forecast', { enabled: true }, state);
+    expect(parseOutput(result.output).error).toMatch(/widgetId/);
+  });
+
+  it('returns error when widget does not exist', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'set_widget_forecast',
+      { widgetId: 'no-such-widget', enabled: true },
+      state,
+    );
+    expect(parseOutput(result.output).error).toMatch(/not found/);
+  });
+
+  it('returns error when chart type is not line/area', () => {
+    const state = makeState(); // makeState widget has chartType: 'bar'
+    const result = executeToolOnState(
+      'set_widget_forecast',
+      { widgetId: 'widget-1', enabled: true },
+      state,
+    );
+    expect(parseOutput(result.output).error).toMatch(/line.*area/i);
+  });
+
+  it('enables forecast on a line chart widget', () => {
+    const baseState = makeState();
+    const lineState = {
+      ...baseState,
+      widgets: {
+        'widget-1': { ...baseState.widgets['widget-1'], config: { chartType: 'line' as const } },
+      },
+    };
+    const result = executeToolOnState(
+      'set_widget_forecast',
+      { widgetId: 'widget-1', enabled: true, periods: 6 },
+      lineState,
+    );
+    expect(parseOutput(result.output).success).toBe(true);
+    expect(result.nextState.widgets['widget-1'].config.forecast?.enabled).toBe(true);
+    expect(result.nextState.widgets['widget-1'].config.forecast?.periods).toBe(6);
+    expect(result.mutation?.type).toBe('updateWidget');
+  });
+
+  it('disables forecast by setting enabled: false', () => {
+    const baseState = makeState();
+    const lineState = {
+      ...baseState,
+      widgets: {
+        'widget-1': {
+          ...baseState.widgets['widget-1'],
+          config: {
+            chartType: 'line' as const,
+            forecast: { enabled: true, periods: 3 },
+          },
+        },
+      },
+    };
+    const result = executeToolOnState(
+      'set_widget_forecast',
+      { widgetId: 'widget-1', enabled: false },
+      lineState,
+    );
+    expect(result.nextState.widgets['widget-1'].config.forecast?.enabled).toBe(false);
+  });
+
+  it('enables forecast with confidence bands', () => {
+    const baseState = makeState();
+    const areaState = {
+      ...baseState,
+      widgets: {
+        'widget-1': { ...baseState.widgets['widget-1'], config: { chartType: 'area' as const } },
+      },
+    };
+    const result = executeToolOnState(
+      'set_widget_forecast',
+      { widgetId: 'widget-1', enabled: true, showConfidenceBands: true },
+      areaState,
+    );
+    expect(result.nextState.widgets['widget-1'].config.forecast?.showConfidenceBands).toBe(true);
+  });
+});
+
 // ── handleAIChat integration ──────────────────────────────────────────────────
 
 describe('handleAIChat', () => {

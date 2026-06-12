@@ -273,6 +273,12 @@ export interface StudioWidgetConfig {
   gaugeMin?: number;
   gaugeMax?: number;
   annotations?: StudioChartAnnotation[];
+  forecast?: {
+    enabled: boolean;
+    periods?: number;
+    method?: 'linear';
+    showConfidenceBands?: boolean;
+  };
   // KPI
   kpiValueField?: string;
   kpiAggregation?: StudioKpiAggregation;

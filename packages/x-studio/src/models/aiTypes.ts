@@ -98,7 +98,8 @@ export type StudioAIToolName =
   | 'remove_widget_filter'
   | 'summarise_page'
   | 'apply_bulk_update'
-  | 'rename_thread';
+  | 'rename_thread'
+  | 'execute_query';
 
 // ── Conversation state ────────────────────────────────────────────────────────
 

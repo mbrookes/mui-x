@@ -9,7 +9,7 @@
  */
 import type { ChatMessage } from '@mui/x-chat-headless';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
-import type { StateMutation, SerializableSkill, StudioAISkill } from './models/aiTypes';
+import type { StateMutation, SerializableSkill, StudioAISkill, StudioDataResolver } from './models/aiTypes';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import { parseSSE } from './parseSSE';
@@ -122,6 +122,13 @@ export interface AgenticLoopOptions {
    */
   skillHandlers?: StudioAISkill[];
   /**
+   * App-provided data resolver for the `execute_query` tool.
+   * When set, the AI can call `execute_query` to run ad-hoc queries against
+   * the connected data sources and incorporate live results into its response.
+   * If not provided, `execute_query` calls return an informative error.
+   */
+  dataResolver?: StudioDataResolver;
+  /**
    * When `true`, the `<dashboard_state>` block is omitted from the system prompt.
    * The model operates without knowing current widget/field/layout details.
    * Use when the dashboard contains sensitive business data.
@@ -155,6 +162,7 @@ export async function* runAgenticLoop(
     signal,
     onToolError,
     skillHandlers = [],
+    dataResolver,
     privateMode = false,
   } = options;
 
@@ -343,11 +351,10 @@ export async function* runAgenticLoop(
         .find((s) => s.tool!.name === tc.name);
 
       if (matchedSkill?.tool?.execute) {
-        // Execute the skill server-side
+        // Execute the skill server-side (may be sync or async)
         try {
-          const result = matchedSkill.tool.execute(
-            toolInput as Record<string, unknown>,
-            currentState,
+          const result = await Promise.resolve(
+            matchedSkill.tool.execute(toolInput as Record<string, unknown>, currentState),
           );
           const output = result.output;
           if (result.mutation) {
@@ -377,6 +384,38 @@ export async function* runAgenticLoop(
             output,
           };
         }
+        continue;
+      }
+
+      // execute_query — resolved via the app-provided dataResolver
+      if (tc.name === 'execute_query') {
+        let output: string;
+        try {
+          if (!dataResolver) {
+            output = JSON.stringify({
+              error:
+                'execute_query is not available: no dataResolver was configured on the server. ' +
+                'Pass a dataResolver in AgenticLoopOptions to enable this tool.',
+            });
+          } else {
+            const args = toolInput as { query: string; sourceId?: string };
+            const result = await dataResolver.resolve(args.query, args.sourceId);
+            output = JSON.stringify(result);
+          }
+        } catch (queryErr) {
+          const queryError = queryErr instanceof Error ? queryErr : new Error(String(queryErr));
+          onToolError?.(tc.name, queryError);
+          output = JSON.stringify({ error: queryError.message });
+        }
+        toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
+        yield {
+          type: 'tool-activity',
+          toolCallId: tc.id,
+          toolName: tc.name,
+          phase: 'complete',
+          input: toolInput,
+          output,
+        };
         continue;
       }
 

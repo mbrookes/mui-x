@@ -581,6 +581,8 @@ Supports 15 chart types: `bar`, `bar-stacked`, `bar-100`, `line`, `area`, `area-
 
 **Aggregation safety** — `aggregateByField` pre-scans the first non-null value of the y-field before aggregating. If the value is non-numeric (e.g. a string ID field used as a count proxy), the effective aggregation is automatically promoted to `'count'`, preventing `NaN` from propagating into the chart. The same auto-detection applies to the funnel chart renderer, which also respects an explicit `config.yAggregation === 'count'`.
 
+**Category ordering** — when `xField`'s `StudioDataField` definition carries an `orderedValues` array, `useChartWidgetData` passes it as `categoryOrder` to all aggregation functions. `applyCategoryOrder()` sorts labels by their position in the array; labels absent from the list are appended alphabetically. This takes effect only when `chartSortBy` is not `'value'`; `sortDirection: 'desc'` reverses the sequence.
+
 Chart annotations (`config.annotations`) render horizontal or vertical reference lines on the chart (not supported for pie/donut/gauge).
 
 Cross-filter emission: clicking a data point emits a `cross-filter` for `xField` value.

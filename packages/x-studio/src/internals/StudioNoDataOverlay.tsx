@@ -19,6 +19,9 @@ export function StudioNoDataOverlay({ message, height, style, ...rest }: StudioN
   const localeText = useStudioLocaleText();
   return (
     <Box
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
       {...rest}
       style={height != null ? { height, ...style } : style}
       sx={{

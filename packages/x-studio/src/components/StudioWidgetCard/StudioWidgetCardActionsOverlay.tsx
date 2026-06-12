@@ -1,6 +1,19 @@
 'use client';
 import * as React from 'react';
-import { Badge, IconButton, Menu, MenuItem, Stack, Tooltip } from '@mui/material';
+import {
+  Badge,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  IconButton,
+  Menu,
+  MenuItem,
+  Stack,
+  Tooltip,
+} from '@mui/material';
 import type { SxProps } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloseIcon from '@mui/icons-material/Close';
@@ -77,21 +90,40 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
 
   const [moveMenuAnchor, setMoveMenuAnchor] = React.useState<HTMLElement | null>(null);
   const [insightMenuAnchor, setInsightMenuAnchor] = React.useState<HTMLElement | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
+  const deleteButtonRef = React.useRef<HTMLButtonElement>(null);
   const localeText = useStudioLocaleText();
+
+  const handleDeleteClick = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleDeleteConfirm = () => {
+    setDeleteConfirmOpen(false);
+    onDelete();
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteConfirmOpen(false);
+    // Return focus to the delete button so keyboard users don't lose their place.
+    requestAnimationFrame(() => deleteButtonRef.current?.focus());
+  };
 
   if (mode === 'edit') {
     return (
-      <Stack
-        data-widget-overlay
-        direction="row"
-        spacing={0.5}
-        sx={{
-          position: 'absolute',
-          ...overlayTopSx,
-          right: 6,
-          zIndex: 1,
-          alignItems: 'center',
-          bgcolor: 'background.paper',
+      <React.Fragment>
+        <Stack
+          data-widget-overlay
+          direction="row"
+          spacing={0.5}
+          sx={{
+            position: 'absolute',
+            ...overlayTopSx,
+            right: 6,
+            zIndex: 1,
+            alignItems: 'center',
+            bgcolor: 'background.paper',
           border: 1,
           borderColor: 'divider',
           borderRadius: 1,
@@ -303,12 +335,10 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
         )}
         <Tooltip title={localeText.widgetDeleteTooltip}>
           <IconButton
+            ref={deleteButtonRef}
             size="small"
             sx={actionButtonSx}
-            onClick={(event) => {
-              event.stopPropagation();
-              onDelete();
-            }}
+            onClick={handleDeleteClick}
             aria-label={localeText.widgetDeleteTooltip}
             tabIndex={showEditActions ? 0 : -1}
           >
@@ -316,6 +346,31 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           </IconButton>
         </Tooltip>
       </Stack>
+      <Dialog
+        open={deleteConfirmOpen}
+        onClose={handleDeleteCancel}
+        onClick={(e) => e.stopPropagation()}
+        aria-labelledby="widget-delete-dialog-title"
+        aria-describedby="widget-delete-dialog-desc"
+      >
+        <DialogTitle id="widget-delete-dialog-title">
+          {localeText.widgetDeleteConfirmTitle}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="widget-delete-dialog-desc">
+            {localeText.widgetDeleteConfirmMessage}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteCancel} autoFocus>
+            {localeText.widgetDeleteConfirmCancel}
+          </Button>
+          <Button onClick={handleDeleteConfirm} color="error">
+            {localeText.widgetDeleteConfirmOk}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      </React.Fragment>
     );
   }
 

@@ -16,6 +16,7 @@ import { getCachedEnrichedRows } from '../../../internals/enrichedRowsCache';
 import { collectSelectFields } from '../../../internals/queryDescriptor';
 import { usePageChartColors } from '../../../internals/usePageChartColors';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
+import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import {
   useStudioSelector,
   useStudioLocaleText,
@@ -507,11 +508,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         overflow: 'hidden',
       }}
     >
-      {isError && (
-        <Typography variant="caption" color="error.main" sx={{ px: 1, pt: 0.5 }}>
-          {errorMessage || localeText.widgetLoadError}
-        </Typography>
-      )}
+      {isError && <StudioWidgetErrorOverlay message={errorMessage} sx={{ px: 1, pt: 0.5, py: 1 }} />}
       <Box
         sx={{
           display: 'flex',

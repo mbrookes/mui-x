@@ -1,5 +1,9 @@
 import type { StudioDataField, StudioGridSummaryAggregation } from '../models';
 import { formatFieldValue } from '../internals/numberFormat';
+import {
+  DEFAULT_STUDIO_LOCALE_TEXT,
+  type StudioLocaleText,
+} from '../internals/StudioUIConfigContext';
 
 export interface GridSummaryConfig {
   /** Map of fieldId → aggregation function. Only listed fields get a summary cell. */
@@ -18,6 +22,7 @@ export function computeGridSummary(
   rows: Record<string, unknown>[],
   fields: StudioDataField[],
   config: GridSummaryConfig,
+  localeText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT,
 ): Record<string, string> {
   const result: Record<string, string> = {};
 
@@ -74,7 +79,7 @@ export function computeGridSummary(
       continue;
     }
 
-    const label = aggregationLabel(effectiveAgg);
+    const label = aggregationLabel(effectiveAgg, localeText);
 
     if (effectiveAgg === 'count' || effectiveAgg === 'count_distinct') {
       result[fieldId] = `${label} ${raw.toLocaleString()}`;
@@ -88,20 +93,23 @@ export function computeGridSummary(
 }
 
 /** Short prefix label shown before the computed value in a summary cell. */
-export function aggregationLabel(agg: StudioGridSummaryAggregation): string {
+export function aggregationLabel(
+  agg: StudioGridSummaryAggregation,
+  localeText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT,
+): string {
   switch (agg) {
     case 'sum':
-      return 'Total:';
+      return localeText.gridSummaryLabelSum;
     case 'avg':
-      return 'Avg:';
+      return localeText.gridSummaryLabelAvg;
     case 'count':
-      return 'Count:';
+      return localeText.gridSummaryLabelCount;
     case 'count_distinct':
-      return 'Unique:';
+      return localeText.gridSummaryLabelCountDistinct;
     case 'min':
-      return 'Min:';
+      return localeText.gridSummaryLabelMin;
     case 'max':
-      return 'Max:';
+      return localeText.gridSummaryLabelMax;
     default:
       return '';
   }

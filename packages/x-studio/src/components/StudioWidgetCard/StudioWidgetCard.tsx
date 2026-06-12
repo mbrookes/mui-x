@@ -29,6 +29,7 @@ import {
   selectMode,
   selectPages,
   selectActivePageId,
+  selectFilters,
   selectPartitionedBaseFilters,
   makeSelectWidget,
   makeSelectIsWidgetSelected,
@@ -53,7 +54,7 @@ import { StudioFilterWidget } from '../widgets/StudioFilterWidget';
 import type { StudioFilterWidgetProps } from '../widgets/StudioFilterWidget';
 import { StudioPivotWidget } from '../widgets/StudioPivotWidget/StudioPivotWidget';
 import { StudioMapWidget } from '../widgets/StudioMapWidget';
-import { exportGridToCsv, exportChartToPng } from '../../internals/widgetUtils';
+import { exportGridToCsv, exportChartToPng, inferKpiDateSubtitle } from '../../internals/widgetUtils';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
 import { StudioInsightPanel } from '../StudioInsightPanel/StudioInsightPanel';
 import {
@@ -189,9 +190,24 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const activeCrossFilter = useStudioSelector(selectCrossFilterFn);
   const pages = useStudioSelector(selectPages);
   const activePageId = useStudioSelector(selectActivePageId);
+  const allFilters = useStudioSelector(selectFilters);
   const localeText = useStudioLocaleText();
   const customWidgetMap = useCustomWidgetMap();
   const { aiConfig } = useStudioUIConfig();
+
+  // For KPI widgets with auto subtitle and no user-set subtitle, derive a date range label
+  // dynamically from the active date filters so it always reflects current filter state.
+  const effectiveSubtitle = React.useMemo(() => {
+    if (!widget) {
+      return '';
+    }
+    const isAutoSubtitle =
+      widget.subtitleMode === 'auto' || (!widget.subtitleMode && !widget.subtitle);
+    if (widget.kind === 'kpi' && isAutoSubtitle) {
+      return inferKpiDateSubtitle(widget, allFilters) ?? widget.subtitle ?? '';
+    }
+    return widget.subtitle ?? '';
+  }, [widget, allFilters]);
   // Look up the custom widget definition for non-builtin widget kinds
   const customDef =
     widget && !['grid', 'chart', 'kpi', 'text', 'filter', 'pivot', 'map'].includes(widget.kind)
@@ -634,9 +650,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                 />
               )}
             </Stack>
-            {widget.subtitle && (
+            {effectiveSubtitle && (
               <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-                {widget.subtitle}
+                {effectiveSubtitle}
               </Typography>
             )}
           </Box>
@@ -748,14 +764,14 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                 <Typography variant="h6" noWrap>
                   {widget.title || 'Chart'}
                 </Typography>
-                {widget.subtitle && (
+                {effectiveSubtitle && (
                   <Typography
                     variant="caption"
                     color="text.secondary"
                     noWrap
                     sx={{ display: 'block' }}
                   >
-                    {widget.subtitle}
+                    {effectiveSubtitle}
                   </Typography>
                 )}
               </Box>

@@ -786,6 +786,18 @@ export function handleAIChat(
 - All dependencies injected via `options`
 - Returns a `ReadableStream<string>` of SSE-encoded `StudioAISSEEvent` objects
 
+**`StudioAIHandlerOptions`:**
+
+| Option | Type | Description |
+| :--- | :--- | :--- |
+| `endpoint` | `string` | OpenAI-compatible completions URL |
+| `apiKey` | `string?` | LLM API key (omit for server-side proxy) |
+| `model` | `string?` | Model ID; defaults to `'gpt-4o'` |
+| `headers` | `Record<string,string>?` | Extra headers forwarded to LLM |
+| `onToolError` | `(name, err) => void?` | Called on tool execution error |
+| `signal` | `AbortSignal?` | Cancellation signal |
+| `skillHandlers` | `StudioAISkill[]?` | Server-side skill handlers with `execute` functions. The `skills` in the POST body carry only serialisable metadata; pass the full `StudioAISkill` instances here so the loop can call `execute` for `server-tool` skills. |
+
 The host wraps it in whatever route handler it uses. See section 12 of the README for examples.
 
 ### 12.3 `executeToolOnState` — server-side tool execution
@@ -886,7 +898,7 @@ be JSON-serialized in the POST body:
 // StudioAISkill (full, client-side)
 interface StudioAISkill {
   name: string;
-  mode: 'instruction-only' | 'client-handler';
+  mode: 'instruction-only' | 'server-tool' | 'client-handler';
   promptFragment: string;
   tool?: { name; description; parameters; execute; parallel? };
 }
@@ -894,7 +906,7 @@ interface StudioAISkill {
 // SerializableSkill (stripped, wire format)
 interface SerializableSkill {
   name: string;
-  mode: 'instruction-only' | 'client-handler';
+  mode: 'instruction-only' | 'server-tool' | 'client-handler';
   promptFragment: string;
   tool?: { name; description; parameters }; // no execute
 }

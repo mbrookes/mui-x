@@ -56,6 +56,7 @@
  */
 import { runAgenticLoop } from './agenticLoop';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
+import type { StudioAISkill } from './models/aiTypes';
 
 /**
  * Options for the AI chat handler.
@@ -89,6 +90,33 @@ export interface StudioAIHandlerOptions {
    * Optional `AbortSignal` for request cancellation.
    */
   signal?: AbortSignal;
+  /**
+   * Server-side skill handlers with `execute` functions.
+   *
+   * The `skills` field in the request body carries the serialisable skill metadata
+   * (name, mode, promptFragment, tool schema), but `execute` functions are stripped
+   * before the request is sent — functions are not JSON-serialisable.
+   *
+   * Pass the full `StudioAISkill` instances here so the agentic loop can call
+   * `execute` when the model invokes a `server-tool` skill's tool.
+   *
+   * Only skills with `mode: 'server-tool'` and a `tool.execute` function are used.
+   * Skills listed in `body.skills` that have no matching entry here will receive a
+   * descriptive error from the model ("no registered handler on the server").
+   *
+   * @example
+   * ```ts
+   * import { handleAIChat, type StudioAIHandlerOptions } from '@mui/x-studio-ai-middleware';
+   * import { myCustomSkill } from './skills';
+   *
+   * const stream = handleAIChat(body, {
+   *   endpoint: process.env.OPENAI_ENDPOINT,
+   *   apiKey: process.env.OPENAI_API_KEY,
+   *   skillHandlers: [myCustomSkill],
+   * });
+   * ```
+   */
+  skillHandlers?: StudioAISkill[];
 }
 
 /**
@@ -128,6 +156,7 @@ export function handleAIChat(
             headers: options.headers,
             signal: options.signal,
             onToolError: options.onToolError,
+            skillHandlers: options.skillHandlers,
           },
         );
 

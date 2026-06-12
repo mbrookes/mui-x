@@ -746,7 +746,7 @@ The documentation claims several AI features that were not in the original code:
 | `onToolError` callback                  | `tools.md` | ✅ Implemented (`studioAdapter.ts:766`)                 | —                               |
 | `extraTools` / `StudioAiTool`           | `tools.md` | ✅ Implemented (`studioAdapter.ts:52,455,734`)          | —                               |
 
-**Current tool count:** 19 tools — `get_dashboard_state`, `add_page`, `rename_page`, `remove_page`,
+**Current tool count:** 20 tools — `get_dashboard_state`, `add_page`, `rename_page`, `remove_page`,
 `set_active_page`, `set_dashboard_title`, `add_widget`, `update_widget`, `remove_widget`,
 `set_widget_layout`, `set_widget_width`, `add_page_filter`, `remove_page_filter`,
 `add_widget_filter`, `remove_widget_filter`, `summarise_page`, `apply_bulk_update`,

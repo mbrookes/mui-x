@@ -734,13 +734,13 @@ The documentation claims several AI features that were not in the original code:
 
 | Documented Feature                      | In Docs    | In Code                                                 | Impact                          |
 | --------------------------------------- | ---------- | ------------------------------------------------------- | ------------------------------- |
-| `configure_widget`                      | `tools.md` | ❌ (real tool is `update_widget`)                       | Doc inconsistency — update docs |
+| `configure_widget`                      | old docs   | ✅ (real tool name: `update_widget`)                    | Resolved — use `update_widget`  |
 | `remove_page` tool                      | `tools.md` | ✅ Implemented (with user confirmation)                 | —                               |
 | `rename_page` tool                      | `tools.md` | ✅ Implemented                                          | —                               |
 | `set_active_page` tool                  | `tools.md` | ✅ Implemented                                          | —                               |
-| `add_data_source` tool                  | `tools.md` | ❌                                                      | AI cannot connect new data      |
+| `add_data_source` tool                  | —          | ❌ Not implemented                                      | AI cannot connect new data      |
 | `add_page_filter` / `add_widget_filter` | `tools.md` | ✅ Implemented (separate page- and widget-scoped tools) | —                               |
-| `update_dashboard_title`                | `tools.md` | ❌ (real: `set_dashboard_title`)                        | Doc inconsistency               |
+| `update_dashboard_title`                | old docs   | ✅ (real tool name: `set_dashboard_title`)              | Resolved — use `set_dashboard_title` |
 | `allowedTools` on `aiConfig`            | `tools.md` | ✅ Implemented (`studioAdapter.ts:451–453`)             | —                               |
 | `allowedTools: []` disable all          | `tools.md` | ✅ Implemented                                          | —                               |
 | `onToolError` callback                  | `tools.md` | ✅ Implemented (`studioAdapter.ts:766`)                 | —                               |
@@ -769,7 +769,7 @@ Source: `packages/x-studio-ai-middleware/src/studioAITools.ts`
 | **Named conversation threads**                                              | P2       | ✅ Thread selector UI + `rename_thread` tool (auto)     | AG Grid Studio                                        |
 | **`allowedTools` / `extraTools`** (API completeness)                        | P1       | ✅ Implemented (`studioAdapter.ts`)                     | AG Grid Studio (custom widget AI metadata)            |
 | **`skillHandlers` in `handleAIChat`**                                       | P1       | ✅ `StudioAIHandlerOptions.skillHandlers`               | —                                                     |
-| **MCP server** for x-studio                                                 | P1       | 🟡 `mcp.ts` in middleware — work in progress            | Tableau, Metabase, ThoughtSpot, Sisense, Hex          |
+| **MCP server** for x-studio                                                 | P1       | ✅ `buildStudioMcpServer` in `mcp.ts` — production-ready; 20 tools; `render_chart` SVG tool | Tableau, Metabase, ThoughtSpot, Sisense, Hex          |
 | **Data question answering** (`execute_query`)                               | P2       | ✅ `execute_query` tool + `StudioDataResolver`          | AG Grid Studio (Data agent)                           |
 | **Forecasting / trend bands** in charts                                     | P2       | ✅ `StudioWidgetForecast` + `set_widget_forecast` tool  | Highcharts Orbit, Reveal BI                           |
 | **`privateMode`** flag (suppress dashboard state in system prompt)          | P2       | ✅ `StudioAIConfig.privateMode`                         | DataGrid AI Assistant                                 |
@@ -793,7 +793,8 @@ Source: `packages/x-studio-ai-middleware/src/studioAITools.ts`
 | `extra_content`/`thought_signature` handling                               | `studioAdapter.ts`                       | Gemini reasoning tokens handled silently               |
 | Insight pipeline is separate from chat — no LLM row data in chat path      | `generateInsight.ts`, `studioAdapter.ts` | Chat uses schema only; row data only via insight tools |
 | `generateInsight.ts` functions are exported publicly from `src/index.ts`   | `src/index.ts:245-247`                   | Consumers can build custom insight UIs                 |
-| `createWidgetFromDescription` is independent of chat — Compose Drawer only | `createWidgetFromDescription.ts`         | Bypasses `studioAdapter.ts` entirely                   |
+| `createWidgetFromDescription` is independent of chat — Compose Drawer only | `createWidgetFromDescription.ts`         | Bypasses `studioAdapter.ts`; uses `WIDGET_CONFIG_DESCRIPTION` from middleware |
+| `WIDGET_CONFIG_DESCRIPTION` exported from middleware                       | `studioAITools.ts`                       | Consumers can build their own widget-creation prompts  |
 
 ---
 
@@ -819,7 +820,7 @@ page-scoped filters (stamped with `activePageId` automatically), and `add_widget
 
 All three are implemented in `studioAdapter.ts`:
 
-- `allowedTools?: StudioAIToolName[]` — whitelist; `undefined` = all 15 tools enabled
+- `allowedTools?: StudioAIToolName[]` — whitelist; `undefined` = all 20 tools enabled
 - `extraTools?: StudioAiTool[]` — custom app-specific tools appended to the built-in list
 - `onToolError?: (toolName: string, error: Error) => void` — called when any tool throws
 
@@ -832,13 +833,16 @@ interface StudioAiTool {
 }
 ```
 
-#### 1.4 Fix `createWidgetFromDescription` Schema
+#### ~~1.4 Fix `createWidgetFromDescription` Schema~~ ✅ DONE
 
-Import and use `STUDIO_AI_TOOLS.find(t => t.name === 'add_widget')` instead of the inline subset schema. This ensures the compose drawer NL field can create heatmap, gantt, gauge, and mixed chart widgets.
+Extracted `WIDGET_CONFIG_DESCRIPTION` constant from `studioAITools.ts` and reused it in
+`handleCreateWidget`'s system prompt. The compose-drawer NL field now correctly handles
+all chart types including heatmap, gantt, gauge, and mixed.
 
-#### 1.5 Fix `buildAISystemPrompt` for Pivot and Map Widgets
+#### ~~1.5 Fix `buildAISystemPrompt` for Pivot and Map Widgets~~ ✅ DONE (was already implemented)
 
-Add `pivot` and `map` cases to `describeWidget()` so the LLM can reason about existing widgets of these types.
+`describeWidget()` already contains `pivot` and `map` branches — the doc was mistaken.
+Both types are correctly serialized to the LLM system prompt.
 
 ---
 
@@ -922,9 +926,10 @@ Mirrors AG Grid Studio's `field.aiDescription` and `source.description`.[^40]
 
 ---
 
-### Phase 6: MCP Server for x-studio (Priority 2)
+### ~~Phase 6: MCP Server for x-studio~~ ✅ DONE
 
-A production-ready MCP server (`@mui/x-studio-mcp`) that exposes x-studio dashboard capabilities to external AI agents:
+`buildStudioMcpServer` in `@mui/x-studio-ai-middleware` provides a production-ready MCP server
+that exposes all x-studio dashboard tools to external AI agents (Claude Desktop, Claude Code, Cursor, etc.):
 
 ```json
 {
@@ -936,18 +941,20 @@ A production-ready MCP server (`@mui/x-studio-mcp`) that exposes x-studio dashbo
 }
 ```
 
-**MCP Tools to expose:**
+**Implemented MCP tools:**
 
 | Tool                  | Description                                                             |
 | --------------------- | ----------------------------------------------------------------------- |
 | `get_dashboard_state` | Read current dashboard pages, widgets, layout                           |
 | `query_data_source`   | Run aggregation query against a data source (governed, security-scoped) |
+| `render_chart`        | Generate a bar/line/pie SVG chart from raw data (returns `image/svg+xml`) |
 | `add_widget`          | Add a widget to the dashboard                                           |
 | `update_widget`       | Update an existing widget                                               |
-| `set_page_filter`     | Apply a page-level filter                                               |
-| `generate_insight`    | Get AI-powered insight (summary/analysis/forecast) for a widget         |
+| `add_page_filter`     | Apply a page-level filter                                               |
+| `remove_page_filter`  | Remove a page-level filter                                              |
+| + all other tools     | All 20 studio AI tools are available (subject to `allowedTools`)        |
 
-This would make x-studio accessible from Claude Desktop, Claude Code, Cursor, VS Code Copilot — turning it from a UI tool into a data service that AI agents can call.
+See `packages/x-studio-ai-middleware/src/mcp.ts` and the [MCP server dev-server integration](../../../examples/x-studio-dev-server/README.md).
 
 ---
 

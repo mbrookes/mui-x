@@ -272,7 +272,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
         <React.Fragment>
           <Divider />
           <WidgetFilterSection
-            title={`Widget: ${selectedWidget?.title ?? selectedWidgetId}`}
+            title={localeText.filtersSectionWidgetTitle(selectedWidget?.title ?? selectedWidgetId)}
             filters={visibleWidgetFilters}
             widgetSourceId={selectedWidget?.sourceId}
             fieldOptions={widgetFieldOptions}
@@ -398,7 +398,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                         }
                       }}
                       onBlur={handleRenameConfirm}
-                      slotProps={{ input: { 'aria-label': 'Rename saved view' } }}
+                      slotProps={{ input: { 'aria-label': localeText.filtersRenameViewAriaLabel } }}
                     />
                   ) : (
                     <Chip
@@ -414,7 +414,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                     <IconButton
                       size="small"
                       onClick={() => handleRenameStart(preset.id, preset.name)}
-                      aria-label={`Rename view "${preset.name}"`}
+                      aria-label={localeText.filtersRenameViewButtonAriaLabel(preset.name)}
                     >
                       <EditIcon fontSize="small" />
                     </IconButton>
@@ -423,7 +423,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                     <IconButton
                       size="small"
                       onClick={() => controller.deleteFilterPreset(preset.id)}
-                      aria-label={`Delete view "${preset.name}"`}
+                      aria-label={localeText.filtersDeleteViewAriaLabel(preset.name)}
                     >
                       <DeleteOutlineOutlinedIcon fontSize="small" />
                     </IconButton>

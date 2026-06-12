@@ -32,23 +32,42 @@ import { isRelativeDateValue, absoluteToRelative, relativeToAbsolute } from './f
 import { useStudioSelector, selectDataSources, useStudioLocaleText } from '../../context';
 import { fieldHasCapability } from '../../utils/fieldCapabilities';
 
-const RELATIVE_UNITS: { value: RelativeDateUnit; label: string }[] = [
-  { value: 'second', label: 'seconds' },
-  { value: 'minute', label: 'minutes' },
-  { value: 'hour', label: 'hours' },
-  { value: 'day', label: 'days' },
-  { value: 'week', label: 'weeks' },
-  { value: 'month', label: 'months' },
-  { value: 'year', label: 'years' },
-];
+function getRelativeUnits(localeText: ReturnType<typeof useStudioLocaleText>) {
+  return [
+    { value: 'second', label: localeText.filterRelativeUnitSeconds },
+    { value: 'minute', label: localeText.filterRelativeUnitMinutes },
+    { value: 'hour', label: localeText.filterRelativeUnitHours },
+    { value: 'day', label: localeText.filterRelativeUnitDays },
+    { value: 'week', label: localeText.filterRelativeUnitWeeks },
+    { value: 'month', label: localeText.filterRelativeUnitMonths },
+    { value: 'year', label: localeText.filterRelativeUnitYears },
+  ] satisfies { value: RelativeDateUnit; label: string }[];
+}
 
-const DATE_PRESETS: { label: string; value: RelativeDateValue }[] = [
-  { label: '7 days', value: { relative: true, amount: 7, unit: 'day', direction: 'past' } },
-  { label: '30 days', value: { relative: true, amount: 30, unit: 'day', direction: 'past' } },
-  { label: '3 months', value: { relative: true, amount: 3, unit: 'month', direction: 'past' } },
-  { label: '12 months', value: { relative: true, amount: 12, unit: 'month', direction: 'past' } },
-  { label: '1 year', value: { relative: true, amount: 1, unit: 'year', direction: 'past' } },
-];
+function getDatePresets(localeText: ReturnType<typeof useStudioLocaleText>) {
+  return [
+    {
+      label: localeText.filterDatePreset7Days,
+      value: { relative: true, amount: 7, unit: 'day', direction: 'past' },
+    },
+    {
+      label: localeText.filterDatePreset30Days,
+      value: { relative: true, amount: 30, unit: 'day', direction: 'past' },
+    },
+    {
+      label: localeText.filterDatePreset3Months,
+      value: { relative: true, amount: 3, unit: 'month', direction: 'past' },
+    },
+    {
+      label: localeText.filterDatePreset12Months,
+      value: { relative: true, amount: 12, unit: 'month', direction: 'past' },
+    },
+    {
+      label: localeText.filterDatePreset1Year,
+      value: { relative: true, amount: 1, unit: 'year', direction: 'past' },
+    },
+  ] satisfies { label: string; value: RelativeDateValue }[];
+}
 
 const OPERATORS_WITH_AUTOCOMPLETE = new Set<StudioFilterOperator>(['equals', 'not_equals']);
 const OPERATORS_NO_VALUE = new Set<StudioFilterOperator>(['is_empty', 'is_not_empty']);
@@ -185,6 +204,8 @@ function RelativeDateInput({
 }) {
   const localeText = useStudioLocaleText();
   const isLinked = Boolean(valueRef);
+  const relativeUnits = getRelativeUnits(localeText);
+  const datePresets = getDatePresets(localeText);
   const amountField = (
     <NumberField
       size="small"
@@ -206,7 +227,7 @@ function RelativeDateInput({
     <Stack spacing={0.75} sx={{ flexGrow: 1, minWidth: 0 }}>
       {/* Quick preset chips */}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-        {DATE_PRESETS.map((preset) => {
+        {datePresets.map((preset) => {
           const isActive =
             value.amount === preset.value.amount &&
             value.unit === preset.value.unit &&
@@ -269,7 +290,7 @@ function RelativeDateInput({
           value={value.unit}
           onChange={(event) => onChange({ ...value, unit: event.target.value as RelativeDateUnit })}
         >
-          {RELATIVE_UNITS.map((u) => (
+          {relativeUnits.map((u) => (
             <MenuItem key={u.value} value={u.value}>
               {u.label}
             </MenuItem>
@@ -283,8 +304,8 @@ function RelativeDateInput({
             onChange({ ...value, direction: event.target.value as 'past' | 'next' })
           }
         >
-          <MenuItem value="past">ago</MenuItem>
-          <MenuItem value="next">from now</MenuItem>
+          <MenuItem value="past">{localeText.filterRelativeDateAgo}</MenuItem>
+          <MenuItem value="next">{localeText.filterRelativeDateFromNow}</MenuItem>
         </Select>
       </FormControl>
     </Stack>
@@ -342,7 +363,7 @@ function DateValueInput({
       <Box sx={{ minWidth: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           <DatePicker
-            label={label ?? 'Date'}
+            label={label ?? localeText.filterDateLabel}
             value={dayjsVal?.isValid() ? dayjsVal : null}
             disabled={isLinked}
             onChange={(d) => {
@@ -384,7 +405,7 @@ function DateValueInput({
   } else {
     dateContent = (
       <DatePicker
-        label={label ?? 'Date'}
+        label={label ?? localeText.filterDateLabel}
         value={dayjsVal?.isValid() ? dayjsVal : null}
         onChange={(d) => {
           onChange(d?.isValid() ? d.format('YYYY-MM-DD') : '');

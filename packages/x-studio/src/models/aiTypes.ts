@@ -70,6 +70,10 @@ export type StateMutation =
         widgetColSpans: Record<string, number>;
         activePageId: string;
       };
+    }
+  | {
+      type: 'renameAIThread';
+      args: { name: string };
     };
 
 /**
@@ -93,7 +97,8 @@ export type StudioAIToolName =
   | 'add_widget_filter'
   | 'remove_widget_filter'
   | 'summarise_page'
-  | 'apply_bulk_update';
+  | 'apply_bulk_update'
+  | 'rename_thread';
 
 // ── Conversation state ────────────────────────────────────────────────────────
 

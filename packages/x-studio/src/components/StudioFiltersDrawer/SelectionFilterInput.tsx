@@ -81,7 +81,7 @@ export function SelectionFilterInput({
       >
         {filtered.length === 0 ? (
           <Typography variant="caption" color="text.secondary" sx={{ p: 1, display: 'block' }}>
-            No values found.
+            {localeText.filterSelectionNoValues}
           </Typography>
         ) : (
           <React.Fragment>
@@ -109,7 +109,7 @@ export function SelectionFilterInput({
                 variant="body2"
                 sx={{ ml: 0.5, color: 'text.secondary', fontStyle: 'italic' }}
               >
-                All
+                {localeText.filterSelectionAll}
               </Typography>
             </Box>
             <Divider />
@@ -136,7 +136,7 @@ export function SelectionFilterInput({
       </Box>
       {selected.length > 0 && (
         <Typography variant="caption" color="text.secondary">
-          {selected.length} selected
+          {localeText.filterSelectionSelectedCount(selected.length)}
         </Typography>
       )}
     </Stack>

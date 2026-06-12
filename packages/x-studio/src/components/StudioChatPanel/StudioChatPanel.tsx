@@ -2,8 +2,10 @@
 
 import * as React from 'react';
 import type { SxProps, Theme } from '@mui/material';
-import { Box, Grow, IconButton, Tooltip, Typography } from '@mui/material';
+import { Box, Grow, IconButton, Menu, MenuItem, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import AddIcon from '@mui/icons-material/Add';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import { ChatBox } from '@mui/x-chat';
 import type { ChatAdapter, ChatMessage } from '@mui/x-chat/headless';
 
@@ -262,6 +264,53 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     [controller, activeThreadId],
   );
 
+  // ── Thread management actions ────────────────────────────────────────────────
+  const [threadMenuAnchor, setThreadMenuAnchor] = React.useState<HTMLElement | null>(null);
+
+  const handleNewThread = React.useCallback(() => {
+    const newId = `thread-${Date.now()}`;
+    const now = new Date().toISOString();
+    const state = controller.getState();
+    const existingThreads = state.ai?.threads ?? [];
+    controller.setState({
+      ...state,
+      ai: {
+        threads: [
+          ...existingThreads,
+          { id: newId, name: 'New conversation', createdAt: now, messages: [] },
+        ],
+        activeThreadId: newId,
+      },
+    });
+    // Update the stable ref so the next message goes to the new thread.
+    defaultThreadId.current = newId;
+  }, [controller]);
+
+  const handleSelectThread = React.useCallback(
+    (threadId: string) => {
+      const state = controller.getState();
+      controller.setState({
+        ...state,
+        ai: { ...(state.ai ?? { threads: [] }), activeThreadId: threadId },
+      });
+      defaultThreadId.current = threadId;
+      setThreadMenuAnchor(null);
+    },
+    [controller],
+  );
+
+  const sortedThreads = React.useMemo(
+    () =>
+      [...(aiState?.threads ?? [])].sort((a, b) => {
+        const aTime = a.updatedAt ?? a.createdAt;
+        const bTime = b.updatedAt ?? b.createdAt;
+        return bTime.localeCompare(aTime);
+      }),
+    [aiState?.threads],
+  );
+
+  const activeThreadName = activeThread?.name ?? 'New conversation';
+
   // ── Dynamic suggestions ────────────────────────────────────────────────────
   const suggestions = React.useMemo(
     () => generateSuggestions(dataSources, widgets, activeWidgetIds),
@@ -279,6 +328,85 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
         ...(!overlay ? (Array.isArray(sx) ? sx : sx ? [sx] : []) : []),
       ]}
     >
+      {/* Thread selector header */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+          px: 1,
+          py: 0.5,
+          borderBottom: 1,
+          borderColor: 'divider',
+          minHeight: 40,
+          flexShrink: 0,
+        }}
+      >
+        <Tooltip title="Switch conversation">
+          <Box
+            component="button"
+            onClick={(e: React.MouseEvent<HTMLElement>) => setThreadMenuAnchor(e.currentTarget)}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.25,
+              flexGrow: 1,
+              background: 'none',
+              border: 'none',
+              cursor: 'default',
+              p: 0.5,
+              borderRadius: 1,
+              textAlign: 'left',
+              '&:hover': { bgcolor: 'action.hover' },
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{ flexGrow: 1, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {activeThreadName}
+            </Typography>
+            <ArrowDropDownIcon sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />
+          </Box>
+        </Tooltip>
+        <Tooltip title="New conversation">
+          <IconButton size="small" onClick={handleNewThread} aria-label="New conversation">
+            <AddIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      {/* Thread switcher dropdown */}
+      <Menu
+        anchorEl={threadMenuAnchor}
+        open={Boolean(threadMenuAnchor)}
+        onClose={() => setThreadMenuAnchor(null)}
+        slotProps={{ paper: { sx: { minWidth: 220, maxWidth: 320, maxHeight: 320 } } }}
+      >
+        {sortedThreads.length === 0 && (
+          <MenuItem disabled>
+            <Typography variant="caption" color="text.secondary">
+              No conversations yet
+            </Typography>
+          </MenuItem>
+        )}
+        {sortedThreads.map((thread) => (
+          <MenuItem
+            key={thread.id}
+            selected={thread.id === activeThreadId}
+            onClick={() => handleSelectThread(thread.id)}
+            sx={{ maxWidth: 320 }}
+          >
+            <Typography
+              variant="body2"
+              sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {thread.name}
+            </Typography>
+          </MenuItem>
+        ))}
+      </Menu>
+
       {/* Chat box */}
       <Box sx={{ flexGrow: 1, minHeight: 0 }}>
         <ChatBox

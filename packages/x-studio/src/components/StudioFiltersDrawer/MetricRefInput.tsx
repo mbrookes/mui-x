@@ -132,7 +132,7 @@ export function MetricRefInput({ value, onChange }: MetricRefInputProps) {
 
       {resolvedValue !== undefined && (
         <Typography variant="caption" color="text.secondary">
-          Current value:{' '}
+          {localeText.filterMetricCurrentValue}{' '}
           <strong>
             {typeof resolvedValue === 'object'
               ? JSON.stringify(resolvedValue)

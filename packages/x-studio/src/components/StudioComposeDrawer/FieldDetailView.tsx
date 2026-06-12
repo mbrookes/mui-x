@@ -18,13 +18,7 @@ import {
 } from '../../context';
 import type { StudioNumberFormat } from '../../models';
 import { useDataTypeLabels } from './StudioComposeDrawerLabels';
-
-const NUMBER_FORMAT_OPTIONS: { value: StudioNumberFormat; label: string }[] = [
-  { value: 'integer', label: 'Integer' },
-  { value: 'decimal', label: 'Decimal' },
-  { value: 'percent', label: 'Percent' },
-  { value: 'currency', label: 'Currency' },
-];
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 export function FieldDetailView() {
   const controller = useStudioController();
@@ -32,6 +26,7 @@ export function FieldDetailView() {
   const dataSources = useStudioSelector(selectDataSources);
   const selectedFieldId = shell.selectedFieldId;
   const dataTypeLabels = useDataTypeLabels();
+  const localeText = useStudioLocaleText();
   const source = shell.selectedSourceId ? dataSources[shell.selectedSourceId] : null;
   const field = source?.fields.find((f) => f.id === selectedFieldId) ?? null;
 
@@ -39,16 +34,23 @@ export function FieldDetailView() {
     return null;
   }
 
+  const numberFormatOptions: { value: StudioNumberFormat; label: string }[] = [
+    { value: 'integer', label: localeText.fieldDetailFormatInteger },
+    { value: 'decimal', label: localeText.fieldDetailFormatDecimal },
+    { value: 'percent', label: localeText.fieldDetailFormatPercent },
+    { value: 'currency', label: localeText.fieldDetailFormatCurrency },
+  ];
+
   const rows: { label: string; value: string }[] = [
-    { label: 'Source ID', value: `${source.id}.${field.id}` },
-    { label: 'Name', value: field.label },
-    { label: 'Description', value: field.description ?? field.label },
+    { label: localeText.fieldDetailRowSourceId, value: `${source.id}.${field.id}` },
+    { label: localeText.fieldDetailRowName, value: field.label },
+    { label: localeText.fieldDetailRowDescription, value: field.description ?? field.label },
     {
-      label: 'Data Type',
+      label: localeText.fieldDetailRowDataType,
       value: dataTypeLabels[field.type] ?? field.type.charAt(0).toUpperCase() + field.type.slice(1),
     },
-    { label: 'Calculation Type', value: 'No Calculation' },
-    { label: 'Format', value: dataTypeLabels[field.type] ?? field.type },
+    { label: localeText.fieldDetailRowCalculationType, value: localeText.fieldDetailRowNoCalculation },
+    { label: localeText.fieldDetailRowFormat, value: dataTypeLabels[field.type] ?? field.type },
   ];
 
   return (
@@ -69,10 +71,10 @@ export function FieldDetailView() {
           <Divider />
           <Box sx={{ py: 1.25 }}>
             <FormControl fullWidth size="small">
-              <InputLabel id="field-number-format-label">Number Format</InputLabel>
+              <InputLabel id="field-number-format-label">{localeText.fieldDetailNumberFormatLabel}</InputLabel>
               <Select
                 labelId="field-number-format-label"
-                label="Number Format"
+                label={localeText.fieldDetailNumberFormatLabel}
                 value={field.format ?? ''}
                 onChange={(event) => {
                   const val = event.target.value as StudioNumberFormat | '';
@@ -83,9 +85,9 @@ export function FieldDetailView() {
                 displayEmpty
               >
                 <MenuItem value="">
-                  <em>Default</em>
+                  <em>{localeText.fieldDetailNumberFormatDefault}</em>
                 </MenuItem>
-                {NUMBER_FORMAT_OPTIONS.map((opt) => (
+                {numberFormatOptions.map((opt) => (
                   <MenuItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </MenuItem>

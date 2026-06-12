@@ -321,13 +321,13 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
         value={labelOverride}
         onChange={(event) => setLabelOverride(event.target.value)}
         fullWidth
-        helperText="Auto-generated from the formula — edit to customise"
+        helperText={localeText.inlineFormulaBarAutoHelperText}
         sx={{ mb: 1 }}
       />
 
       <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
         <Button size="small" variant="text" onClick={handleCancel} sx={{ textTransform: 'none' }}>
-          Cancel
+          {localeText.inlineFormulaBarCancelButton}
         </Button>
         <Button
           size="small"
@@ -337,7 +337,7 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
           startIcon={<AddIcon fontSize="small" />}
           sx={{ textTransform: 'none' }}
         >
-          Add
+          {localeText.inlineFormulaBarAddButton}
         </Button>
       </Stack>
     </Box>

@@ -113,6 +113,16 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   widgetKindPivot: 'Tabela Dinâmica',
   widgetKindMap: 'Mapa',
 
+  // Widget type descriptions
+  widgetKindTextDescription: 'Título, subtítulo e corpo de texto',
+  widgetKindKpiDescription: 'Métrica única com agregação',
+  widgetKindChartDescription: 'Visualize dados com um gráfico configurável',
+  widgetKindGridDescription: 'Grade de dados com ordenação e filtragem',
+  widgetKindFilterDescription: 'Controle de filtro interativo para o modo de visualização',
+  widgetKindPivotDescription: 'Tabulação cruzada com dimensões de linha e coluna',
+  widgetKindMapDescription: 'Mapa coroplético mundial por país',
+  composeCustomWidgetDescription: 'Widget personalizado',
+
   // Data type labels
   dataTypeString: 'Texto',
   dataTypeNumber: 'Número',
@@ -390,6 +400,25 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   inlineFormulaBarAddTooltip: 'Adicionar campo de fórmula calculada',
   inlineFormulaBarCloseAriaLabel: 'Fechar barra de fórmula',
   inlineFormulaBarLabelLabel: 'Rótulo',
+  inlineFormulaBarAutoHelperText:
+    'Gerado automaticamente a partir da fórmula \u2014 edite para personalizar',
+  inlineFormulaBarCancelButton: 'Cancelar',
+  inlineFormulaBarAddButton: 'Adicionar',
+
+  // Field detail view
+  fieldDetailRowSourceId: 'ID da fonte',
+  fieldDetailRowName: 'Nome',
+  fieldDetailRowDescription: 'Descrição',
+  fieldDetailRowDataType: 'Tipo de dado',
+  fieldDetailRowCalculationType: 'Tipo de cálculo',
+  fieldDetailRowNoCalculation: 'Sem cálculo',
+  fieldDetailRowFormat: 'Formato',
+  fieldDetailNumberFormatLabel: 'Formato numérico',
+  fieldDetailNumberFormatDefault: 'Padrão',
+  fieldDetailFormatInteger: 'Inteiro',
+  fieldDetailFormatDecimal: 'Decimal',
+  fieldDetailFormatPercent: 'Percentual',
+  fieldDetailFormatCurrency: 'Moeda',
 
   // Filters drawer
   filtersDrawerRenameViewTooltip: 'Renomear visualização',

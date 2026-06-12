@@ -285,8 +285,8 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     if (!summaryConfig || Object.keys(summaryConfig).length === 0 || !dataSource) {
       return null;
     }
-    return computeGridSummary(summaryBasisRows, dataSource.fields, { fields: summaryConfig });
-  }, [summaryBasisRows, dataSource, summaryConfig]);
+    return computeGridSummary(summaryBasisRows, dataSource.fields, { fields: summaryConfig }, localeText);
+  }, [summaryBasisRows, dataSource, summaryConfig, localeText]);
 
   // Build a pinned bottom row for DataGridPremium using the summary values.
   // We use a separate `__rowId` field for the row identity so that the `id`

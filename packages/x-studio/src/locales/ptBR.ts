@@ -742,6 +742,14 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chatNewConversationName: 'Nova conversa',
   chatSwitchConversationTooltip: 'Trocar conversa',
 
+  // Grid summary labels
+  gridSummaryLabelSum: 'Total:',
+  gridSummaryLabelAvg: 'Média:',
+  gridSummaryLabelCount: 'Contagem:',
+  gridSummaryLabelCountDistinct: 'Únicos:',
+  gridSummaryLabelMin: 'Mín.:',
+  gridSummaryLabelMax: 'Máx.:',
+
   // Auto-generated widget titles
   widgetAutoTitleChart: 'Gráfico',
   widgetAutoTitleKpi: 'KPI',

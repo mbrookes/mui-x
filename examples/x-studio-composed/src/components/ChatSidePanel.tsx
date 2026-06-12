@@ -2,6 +2,7 @@ import { Box, IconButton, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { StudioChatPanel } from '@mui/x-studio';
 import type { StudioAIConfig } from '@mui/x-studio';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 export interface ChatSidePanelProps {
   aiConfig: StudioAIConfig;
@@ -12,6 +13,8 @@ export interface ChatSidePanelProps {
 const PANEL_WIDTH = 380;
 
 export function ChatSidePanel({ aiConfig, open, onClose }: ChatSidePanelProps) {
+  const t = useAppLocaleText();
+
   return (
     <Box
       sx={{
@@ -30,7 +33,6 @@ export function ChatSidePanel({ aiConfig, open, onClose }: ChatSidePanelProps) {
         bgcolor: 'background.paper',
       }}
     >
-      {/* Fixed-width inner box prevents the chat from re-flowing during transition */}
       <Box sx={{ width: PANEL_WIDTH, height: '100%', display: 'flex', flexDirection: 'column' }}>
         <Box
           sx={{
@@ -44,10 +46,10 @@ export function ChatSidePanel({ aiConfig, open, onClose }: ChatSidePanelProps) {
           }}
         >
           <Typography variant="subtitle2" sx={{ flexGrow: 1, fontWeight: 600 }}>
-            AI Assistant
+            {t.aiAssistantTitle}
           </Typography>
-          <Tooltip title="Close">
-            <IconButton size="small" onClick={onClose} aria-label="Close AI assistant">
+          <Tooltip title={t.closeTooltip}>
+            <IconButton size="small" onClick={onClose} aria-label={t.closeAiAssistantAriaLabel}>
               <CloseIcon fontSize="small" />
             </IconButton>
           </Tooltip>

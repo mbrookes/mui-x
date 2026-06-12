@@ -13,6 +13,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
 import type { ChatSession } from '../hooks/useChatStore';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 interface ChatSearchDialogProps {
   open: boolean;
@@ -23,6 +24,7 @@ interface ChatSearchDialogProps {
 
 export function ChatSearchDialog({ open, onClose, chats, onSelect }: ChatSearchDialogProps) {
   const [query, setQuery] = React.useState('');
+  const t = useAppLocaleText();
 
   const filtered = query.trim()
     ? chats.filter(
@@ -39,19 +41,19 @@ export function ChatSearchDialog({ open, onClose, chats, onSelect }: ChatSearchD
         <InputBase
           autoFocus
           fullWidth
-          placeholder="Search chats…"
+          placeholder={t.searchPlaceholder}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           sx={{ fontSize: '1rem' }}
         />
-        <IconButton size="small" onClick={onClose}>
+        <IconButton size="small" onClick={onClose} aria-label={t.closeButtonLabel}>
           <CloseIcon fontSize="small" />
         </IconButton>
       </DialogTitle>
       <DialogContent sx={{ pt: 0, px: 1, pb: 1 }}>
         {filtered.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ px: 1.5, py: 1 }}>
-            {query ? 'No chats match your search.' : 'No chats yet.'}
+            {query ? t.searchNoResultsText : t.searchEmptyText}
           </Typography>
         ) : (
           <List dense disablePadding>

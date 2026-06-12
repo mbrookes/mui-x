@@ -51,6 +51,7 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
     analysis: localeText.insightTypeAnalysis,
     forecast: localeText.insightTypeForecast,
     anomaly: localeText.insightTypeAnomaly,
+    correlation: localeText.insightTypeCorrelation,
   };
 
   const handleCopy = React.useCallback(() => {

@@ -8,6 +8,7 @@ import { makeDataRouter } from './routes/data.js';
 import { makeCrmDataRouter } from './routes/crmData.js';
 import { makeAIRouter } from './routes/ai.js';
 import { makeDevTokenRouter } from './routes/devToken.js';
+import { makeMcpRouter } from './routes/mcp.js';
 
 export function buildApp(db: Knex, crmDb: Knex, config: Config): express.Application {
   const app = express();
@@ -15,8 +16,8 @@ export function buildApp(db: Knex, crmDb: Knex, config: Config): express.Applica
   app.use(
     cors({
       origin: config.allowedOrigins,
-      methods: ['GET', 'POST', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Studio-Token'],
+      methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Studio-Token', 'Mcp-Session-Id'],
     }),
   );
 
@@ -31,6 +32,7 @@ export function buildApp(db: Knex, crmDb: Knex, config: Config): express.Applica
   app.use('/api/crm-data', makeCrmDataRouter(crmDb, config));
   app.use('/api/ai', makeAIRouter(config));
   app.use('/api/dev-token', makeDevTokenRouter(config));
+  app.use('/api/mcp', makeMcpRouter());
 
   // Global error handler
   app.use(

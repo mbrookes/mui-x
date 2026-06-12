@@ -148,6 +148,35 @@ const chartConfig: StudioChartConfig = {
 };
 ```
 
+## Category order
+
+By default, string x-axis labels are sorted alphabetically. For fields whose values have a natural semantic sequence — like pipeline stages or severity levels — set `orderedValues` on the `StudioDataField` definition. All charts that use that field as their x-axis will automatically respect the declared order.
+
+```ts
+const dealsSource: StudioDataSource = {
+  id: 'deals',
+  label: 'Deals',
+  fields: [
+    {
+      id: 'stage',
+      label: 'Stage',
+      type: 'string',
+      orderedValues: [
+        'Prospecting',
+        'Qualification',
+        'Proposal',
+        'Negotiation',
+        'Closed Won',
+        'Closed Lost',
+      ],
+    },
+    // …
+  ],
+};
+```
+
+Values absent from `orderedValues` are appended at the end, sorted alphabetically among themselves. Setting `chartSortBy: 'value'` in the widget config still overrides `orderedValues` and sorts bars by their aggregated y-value.
+
 ## Cross-filter emission
 
 When a user clicks a data point, the chart widget emits a cross-filter

@@ -1,9 +1,10 @@
 /**
- * Unit tests for buildStudioMcpServer — Phase 2 features:
- * - resources/list: static + schema resources + data-health
- * - resources/read: schema, data-health, state, system-prompt
+ * Unit tests for buildStudioMcpServer:
+ * - resources/list: static + schema + data preview + data-health resources
+ * - resources/read: state, system-prompt, schema, data-health, data preview
  * - resources/subscribe + unsubscribe
- * - Mutation notifications to subscribed URIs
+ * - prompts/list + prompts/get (query_data_source_examples)
+ * - completion/complete (URI autocomplete for schema + data URIs)
  */
 
 import { describe, expect, it, vi } from 'vitest';

@@ -124,9 +124,11 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Customer 360',
       widgetRows: [
         ['widget-text-customer360'],
-        ['widget-chart8-pipeline-by-segment'],
-        ['widget-chart8-revenue-by-segment'],
-        ['widget-chart8-deals-by-country'],
+        ['widget-kpi8-pipeline-value', 'widget-kpi8-avg-duration'],
+        ['widget-chart8-pipeline-by-segment', 'widget-chart8-deals-by-country'],
+        ['widget-chart8-revenue-by-segment', 'widget-chart8-pipeline-by-contact-role'],
+        ['widget-chart8-activities-by-type', 'widget-chart8-activities-by-outcome'],
+        ['widget-chart8-activity-by-department'],
         ['widget-grid8-cross-db-deals'],
       ],
     },
@@ -203,6 +205,31 @@ export const INITIAL_STATE: Partial<StudioState> = {
       junctionSourceId: SHIPMENT_ITEMS_SOURCE_ID,
       junctionSourceField: 'orderItemId',
       junctionTargetField: 'shipmentId',
+    },
+    // CRM-internal relationships (all within the CRM database — SQL JOINs work server-side)
+    {
+      id: 'rel-crm-activities-contacts',
+      sourceId: CRM_ACTIVITIES_SOURCE_ID,
+      sourceField: 'contactId',
+      targetId: CRM_CONTACTS_SOURCE_ID,
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+    {
+      id: 'rel-crm-activities-deals',
+      sourceId: CRM_ACTIVITIES_SOURCE_ID,
+      sourceField: 'dealId',
+      targetId: CRM_DEALS_SOURCE_ID,
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+    {
+      id: 'rel-crm-deals-contacts',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      sourceField: 'primaryContactId',
+      targetId: CRM_CONTACTS_SOURCE_ID,
+      targetField: 'id',
+      type: 'many-to-one',
     },
     // Cross-database joins: CRM (deals/contacts) → Sales (customers)
     // Both CRM sources share a `customerId` FK that maps to `customers.id`
@@ -1106,6 +1133,8 @@ export const INITIAL_STATE: Partial<StudioState> = {
     // (customers) via the shared `customerId` foreign key. Expression fields
     // `expr-deal-segment` and `expr-deal-country` pull customer data from the
     // sales DB into the CRM deals source, enabling cross-database analysis.
+    // Same-DB CRM expression fields (expr-deal-contact-role, expr-activity-*)
+    // use SQL JOINs within the CRM database and resolve fully server-side.
 
     'widget-text-customer360': {
       id: 'widget-text-customer360',
@@ -1117,6 +1146,36 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         textTitleFontSize: 32,
         textTitleAlign: 'center' as const,
+      },
+    },
+    'widget-kpi8-pipeline-value': {
+      id: 'widget-kpi8-pipeline-value',
+      kind: 'kpi',
+      title: 'Total Pipeline Value',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        kpiValueField: 'value',
+        kpiAggregation: 'sum',
+        kpiCompact: true,
+        kpiSparkline: true,
+        kpiSparklineField: 'openedDate',
+        kpiSparklinePlotType: 'bar',
+        kpiSparklineGranularity: 'quarter',
+      },
+    },
+    'widget-kpi8-avg-duration': {
+      id: 'widget-kpi8-avg-duration',
+      kind: 'kpi',
+      title: 'Avg Activity Duration',
+      subtitle: 'minutes per activity',
+      sourceId: CRM_ACTIVITIES_SOURCE_ID,
+      config: {
+        kpiValueField: 'durationMin',
+        kpiAggregation: 'avg',
+        kpiSparkline: true,
+        kpiSparklineField: 'date',
+        kpiSparklinePlotType: 'line',
+        kpiSparklineGranularity: 'month',
       },
     },
     'widget-chart8-pipeline-by-segment': {
@@ -1184,6 +1243,65 @@ export const INITIAL_STATE: Partial<StudioState> = {
         gridSortField: 'value',
         gridSortDirection: 'desc' as const,
         gridSummaryFields: { value: 'sum', probability: 'avg' },
+      },
+    },
+    'widget-chart8-pipeline-by-contact-role': {
+      id: 'widget-chart8-pipeline-by-contact-role',
+      kind: 'chart',
+      title: 'Pipeline Value by Primary Contact Role',
+      subtitle: 'CRM deals joined to primary contact role (same-database join)',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        chartType: 'bar' as const,
+        barLayout: 'horizontal' as const,
+        xField: 'expr-deal-contact-role',
+        yField: 'value',
+        yAggregation: 'sum' as const,
+        chartSortBy: 'value' as const,
+        chartSortDirection: 'desc' as const,
+      },
+    },
+    'widget-chart8-activities-by-type': {
+      id: 'widget-chart8-activities-by-type',
+      kind: 'chart',
+      title: 'Activities by Type',
+      subtitle: 'CRM activity count broken down by interaction type',
+      sourceId: CRM_ACTIVITIES_SOURCE_ID,
+      config: {
+        chartType: 'bar' as const,
+        xField: 'type',
+        yField: 'id',
+        yAggregation: 'count' as const,
+        chartSortBy: 'value' as const,
+        chartSortDirection: 'desc' as const,
+      },
+    },
+    'widget-chart8-activities-by-outcome': {
+      id: 'widget-chart8-activities-by-outcome',
+      kind: 'chart',
+      title: 'Activities by Outcome',
+      subtitle: 'CRM activity count broken down by recorded outcome',
+      sourceId: CRM_ACTIVITIES_SOURCE_ID,
+      config: {
+        chartType: 'donut' as const,
+        xField: 'outcome',
+        yField: 'id',
+        yAggregation: 'count' as const,
+      },
+    },
+    'widget-chart8-activity-by-department': {
+      id: 'widget-chart8-activity-by-department',
+      kind: 'chart',
+      title: 'Activity Count by Contact Department',
+      subtitle: 'Activities joined to the contact\'s department (same-database join)',
+      sourceId: CRM_ACTIVITIES_SOURCE_ID,
+      config: {
+        chartType: 'bar' as const,
+        xField: 'expr-activity-department',
+        yField: 'id',
+        yAggregation: 'count' as const,
+        chartSortBy: 'value' as const,
+        chartSortDirection: 'desc' as const,
       },
     },
   },
@@ -1582,6 +1700,69 @@ export const INITIAL_STATE: Partial<StudioState> = {
       expression: {
         joinSourceId: CUSTOMERS_SOURCE_ID,
         fieldId: 'country',
+      },
+    },
+    // CRM-internal expression fields: deals → contacts (same CRM database — resolved via SQL JOIN)
+    {
+      id: 'expr-deal-contact-role',
+      label: 'Primary Contact Role',
+      description: 'Role of the primary contact on this deal',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        joinSourceId: CRM_CONTACTS_SOURCE_ID,
+        fieldId: 'role',
+      },
+    },
+    {
+      id: 'expr-deal-contact-dept',
+      label: 'Primary Contact Department',
+      description: 'Department of the primary contact on this deal',
+      sourceId: CRM_DEALS_SOURCE_ID,
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        joinSourceId: CRM_CONTACTS_SOURCE_ID,
+        fieldId: 'department',
+      },
+    },
+    // CRM-internal expression fields: activities → contacts (same CRM database — resolved via SQL JOIN)
+    {
+      id: 'expr-activity-department',
+      label: 'Contact Department',
+      description: 'Department of the contact who performed this activity',
+      sourceId: CRM_ACTIVITIES_SOURCE_ID,
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        joinSourceId: CRM_CONTACTS_SOURCE_ID,
+        fieldId: 'department',
+      },
+    },
+    {
+      id: 'expr-activity-role',
+      label: 'Contact Role',
+      description: 'Role of the contact who performed this activity',
+      sourceId: CRM_ACTIVITIES_SOURCE_ID,
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        joinSourceId: CRM_CONTACTS_SOURCE_ID,
+        fieldId: 'role',
+      },
+    },
+    // CRM-internal expression fields: activities → deals (same CRM database — resolved via SQL JOIN)
+    {
+      id: 'expr-activity-deal-stage',
+      label: 'Deal Stage',
+      description: 'Sales stage of the deal this activity is linked to',
+      sourceId: CRM_ACTIVITIES_SOURCE_ID,
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        joinSourceId: CRM_DEALS_SOURCE_ID,
+        fieldId: 'stage',
       },
     },
   ],

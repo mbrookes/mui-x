@@ -261,7 +261,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   };
 
   const isPieOrDonut = chartType === 'pie' || chartType === 'donut';
-  let seriesFieldHelperText = 'Divides data into a separate series per value';
+  let seriesFieldHelperText = localeText.chartSetupSplitByHelperText;
   if (seriesFieldDisabled) {
     seriesFieldHelperText = localeText.chartSetupSplitByDisabledHelperText;
   } else if (isPieOrDonut) {

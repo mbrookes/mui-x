@@ -511,6 +511,22 @@ export function executeToolOnState(
       };
     }
 
+    case 'rename_thread': {
+      const { name } = args as { name?: string };
+      if (!name || typeof name !== 'string') {
+        return {
+          output: JSON.stringify({ error: 'rename_thread requires a non-empty name string.' }),
+          nextState: state,
+        };
+      }
+      const trimmed = name.trim().slice(0, 40);
+      return {
+        output: JSON.stringify({ success: true, name: trimmed }),
+        mutation: { type: 'renameAIThread', args: { name: trimmed } },
+        nextState: state,
+      };
+    }
+
     default:
       return { output: JSON.stringify({ error: `Unknown tool: ${toolName}` }), nextState: state };
   }

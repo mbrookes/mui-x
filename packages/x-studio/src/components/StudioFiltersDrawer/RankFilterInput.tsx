@@ -18,13 +18,6 @@ export interface AvailableSeries {
   label: string;
 }
 
-const AGGREGATE_OPTIONS = [
-  { value: '__sum', label: 'Sum of all series' },
-  { value: '__avg', label: 'Average of all series' },
-  { value: '__max', label: 'Max of all series' },
-  { value: '__min', label: 'Min of all series' },
-];
-
 export function RankFilterInput({
   direction,
   n,
@@ -40,6 +33,12 @@ export function RankFilterInput({
 }) {
   const localeText = useStudioLocaleText();
   const showRankBy = availableSeries && availableSeries.length > 1;
+  const aggregateOptions = [
+    { value: '__sum', label: localeText.filterRankAggSumLabel },
+    { value: '__avg', label: localeText.filterRankAggAvgLabel },
+    { value: '__max', label: localeText.filterRankAggMaxLabel },
+    { value: '__min', label: localeText.filterRankAggMinLabel },
+  ];
 
   return (
     <Stack spacing={1}>
@@ -55,13 +54,13 @@ export function RankFilterInput({
         }}
       >
         <ToggleButton value="top" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: 'none' }}>
-          Top
+          {localeText.filterRankTop}
         </ToggleButton>
         <ToggleButton
           value="bottom"
           sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: 'none' }}
         >
-          Bottom
+          {localeText.filterRankBottom}
         </ToggleButton>
       </ToggleButtonGroup>
 
@@ -81,7 +80,7 @@ export function RankFilterInput({
             value={rankMultiSeriesBy ?? '__sum'}
             onChange={(event) => onChange({ rankMultiSeriesBy: event.target.value })}
           >
-            {AGGREGATE_OPTIONS.map((opt) => (
+            {aggregateOptions.map((opt) => (
               <MenuItem key={opt.value} value={opt.value}>
                 {opt.label}
               </MenuItem>

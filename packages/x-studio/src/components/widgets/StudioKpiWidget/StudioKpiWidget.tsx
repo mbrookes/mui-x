@@ -301,13 +301,13 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           kpiTrend = {
             delta: (value - resolvedTargetValue) / Math.abs(resolvedTargetValue),
             previousValue: resolvedTargetValue,
-            comparisonLabel: 'target',
+            comparisonLabel: localeText.kpiWidgetComparisonTargetLabel,
           };
         } else if (value !== 0) {
           kpiTrend = {
             delta: Infinity,
             previousValue: resolvedTargetValue,
-            comparisonLabel: 'target',
+            comparisonLabel: localeText.kpiWidgetComparisonTargetLabel,
           };
         }
       } else {

@@ -57,7 +57,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
       <Box
         role="button"
         tabIndex={0}
-        aria-label={`Open ${title} panel`}
+        aria-label={localeText.drawerPanelOpenAriaLabel(title)}
         onClick={() => controller.setDrawerOpen(drawer, true)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -121,7 +121,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
             event.stopPropagation();
             controller.setDrawerOpen(drawer, true);
           }}
-          aria-label={`Open ${title} panel`}
+          aria-label={localeText.drawerPanelOpenAriaLabel(title)}
           tabIndex={-1}
         >
           <ChevronDownIcon fontSize="small" />
@@ -168,7 +168,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
           <IconButton
             size="small"
             onClick={() => controller.setDrawerOpen(drawer, false)}
-            aria-label={`Close ${title} panel`}
+            aria-label={localeText.drawerPanelCloseNamedAriaLabel(title)}
           >
             {side === 'right' ? (
               <ChevronLeftIcon fontSize="small" />

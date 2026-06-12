@@ -2,8 +2,8 @@
  * MCP (Model Context Protocol) server factory for @mui/x-studio-ai-middleware.
  *
  * Provides `buildStudioMcpServer`, a framework-agnostic factory that creates a
- * pre-configured `McpServer` with all 16 x-studio AI tools registered and the
- * current dashboard state exposed as an MCP resource.
+ * pre-configured `McpServer` with all x-studio AI tools registered and the
+ * current dashboard state exposed as MCP resources.
  *
  * ## Usage in an Express server
  *
@@ -55,6 +55,76 @@ import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 export type { StudioState, StudioCustomWidgetDef };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Data query types (framework-agnostic — no Knex dependency in this package)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Structured filter predicate for `query_data_source`.
+ * Operators match those accepted by `@mui/x-studio-data-middleware`'s
+ * `FilterPredicate` type so the dev server can forward them unchanged.
+ */
+export interface StudioDataFilter {
+  /** Field ID (column name) to filter on. */
+  field: string;
+  /** Comparison operator. */
+  operator: 'eq' | 'neq' | 'in' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'between';
+  /** Filter value. For `between`, this is the lower bound; supply `value2` for the upper. */
+  value: unknown;
+  /** Upper bound for `between` operator. */
+  value2?: unknown;
+}
+
+/** Single aggregation function for `query_data_source`. */
+export interface StudioDataAggregation {
+  /** Column to aggregate (field ID / column name). */
+  column: string;
+  /** Aggregation function. */
+  func: 'sum' | 'avg' | 'count' | 'min' | 'max';
+  /** Alias used as the result column key in returned rows. */
+  alias: string;
+}
+
+/** Sort descriptor for `query_data_source`. */
+export interface StudioDataOrderBy {
+  /** Column name (field ID or aggregation alias). */
+  column: string;
+  /** Sort direction. */
+  direction: 'asc' | 'desc';
+}
+
+/** Arguments for the `query_data_source` MCP tool. */
+export interface StudioDataQueryParams {
+  /** Data source ID from the dashboard state (e.g. `"source-orders"`). */
+  sourceId: string;
+  /**
+   * Physical table name resolved from the data source.
+   * Set internally by the tool handler — callers should not need to set this.
+   */
+  tableName: string;
+  /** Field IDs to project. Omit to return all non-hidden fields. */
+  columns?: string[];
+  /** Structured WHERE predicates. Never raw SQL. */
+  filters?: StudioDataFilter[];
+  /**
+   * Aggregation functions applied via GROUP BY.
+   * Non-aggregated `columns` entries form the GROUP BY list.
+   */
+  aggregations?: StudioDataAggregation[];
+  /** Sort order. */
+  orderBy?: StudioDataOrderBy[];
+  /** Maximum rows to return. Default 1000. */
+  limit?: number;
+}
+
+/** Result returned by `queryDataSource` and surfaced in the `query_data_source` tool response. */
+export interface StudioDataQueryResult {
+  rows: Record<string, unknown>[];
+  rowCount: number;
+  /** Routing tier applied by the data middleware. */
+  tier?: 'client' | 'server' | 'db';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Public types
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -84,6 +154,46 @@ export interface StudioMcpOptions {
    * explicitly in `allowedTools` only if you have a custom handler for it.
    */
   allowedTools?: string[];
+  /**
+   * Optional data access configuration.
+   *
+   * When provided, the `query_data_source` MCP tool becomes available, allowing
+   * MCP clients to query the underlying data sources (order history, CRM contacts,
+   * products, etc.) using structured filters and aggregations.
+   *
+   * Supply a `queryDataSource` callback that routes queries to the correct database.
+   * The dev server implements this via `handleBatchQuery` from `@mui/x-studio-data-middleware`.
+   * Your own server can provide any implementation as long as it returns `StudioDataQueryResult`.
+   *
+   * @example
+   * ```ts
+   * import { handleBatchQuery } from '@mui/x-studio-data-middleware';
+   *
+   * const options: StudioMcpOptions = {
+   *   data: {
+   *     queryDataSource: async (params) => {
+   *       const result = await handleBatchQuery(
+   *         { pageId: 'mcp', widgets: [{ id: 'q', table: params.tableName,
+   *           columns: params.columns, filters: params.filters as any,
+   *           aggregations: params.aggregations as any, orderBy: params.orderBy as any,
+   *           limit: params.limit }] },
+   *         claims,
+   *         { db, schemaAllowlist }
+   *       );
+   *       const r = result.results[0];
+   *       return { rows: r.rows, rowCount: r.rowCount, tier: r.tier };
+   *     }
+   *   }
+   * };
+   * ```
+   */
+  data?: {
+    /**
+     * Execute a structured query against a data source.
+     * The implementation is responsible for security, allowlisting, and DB routing.
+     */
+    queryDataSource: (params: StudioDataQueryParams) => Promise<StudioDataQueryResult>;
+  };
 }
 
 /**
@@ -105,7 +215,7 @@ export interface StudioStateBox {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tools excluded from MCP by default
+// Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -114,8 +224,97 @@ export interface StudioStateBox {
  */
 const DEFAULT_EXCLUDED_TOOLS = new Set(['summarise_page']);
 
+/** JSON Schema for the `query_data_source` tool input. */
+const QUERY_DATA_SOURCE_SCHEMA = {
+  type: 'object',
+  properties: {
+    sourceId: {
+      type: 'string',
+      description:
+        'The data source ID from the dashboard state (e.g. "source-orders", "source-crm-deals"). ' +
+        'Read the studio://dashboard/state resource to discover available sources and their field IDs.',
+    },
+    columns: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Field IDs to return. Omit to return all non-hidden fields. ' +
+        'Field IDs exactly match the column names in the database (camelCase).',
+    },
+    filters: {
+      type: 'array',
+      description:
+        'Structured WHERE predicates. Each filter narrows the result set. ' +
+        'Do NOT use raw SQL — use these structured operators only.',
+      items: {
+        type: 'object',
+        properties: {
+          field: { type: 'string', description: 'Field ID (column name) to filter on.' },
+          operator: {
+            type: 'string',
+            enum: ['eq', 'neq', 'in', 'lt', 'lte', 'gt', 'gte', 'like', 'between'],
+            description:
+              'eq=equal, neq=not equal, in=one of array, lt/lte/gt/gte=numeric comparison, ' +
+              'like=substring (%value%), between=inclusive range (supply value + value2).',
+          },
+          value: { description: 'Filter value. For between, this is the lower bound.' },
+          value2: { description: 'Upper bound for the between operator.' },
+        },
+        required: ['field', 'operator', 'value'],
+      },
+    },
+    aggregations: {
+      type: 'array',
+      description:
+        'Aggregation functions applied via GROUP BY. ' +
+        'Non-aggregated columns in `columns` become the GROUP BY list. ' +
+        'Examples: count orders per status, sum revenue per category.',
+      items: {
+        type: 'object',
+        properties: {
+          column: { type: 'string', description: 'Field ID to aggregate.' },
+          func: {
+            type: 'string',
+            enum: ['sum', 'avg', 'count', 'min', 'max'],
+            description:
+              'Use count for counting rows, sum for totals, avg for averages, min/max for extremes.',
+          },
+          alias: {
+            type: 'string',
+            description: 'Output key for this aggregated value in returned rows.',
+          },
+        },
+        required: ['column', 'func', 'alias'],
+      },
+    },
+    orderBy: {
+      type: 'array',
+      description: 'Sort the result rows. Apply after aggregations when using GROUP BY.',
+      items: {
+        type: 'object',
+        properties: {
+          column: {
+            type: 'string',
+            description: 'Column name or aggregation alias to sort by.',
+          },
+          direction: { type: 'string', enum: ['asc', 'desc'] },
+        },
+        required: ['column', 'direction'],
+      },
+    },
+    limit: {
+      type: 'number',
+      description:
+        'Maximum rows to return. Default 1000. Use a smaller value for exploration; ' +
+        'use aggregations instead of high limits for analytical summaries.',
+      default: 1000,
+    },
+  },
+  required: ['sourceId'],
+} as const;
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Core: build a McpServer bound to a specific session's state box
+// Core factory
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -126,13 +325,16 @@ const DEFAULT_EXCLUDED_TOOLS = new Set(['summarise_page']);
  * The handler writes `nextState` back to `stateBox.current` so subsequent tool
  * calls in the same session see the updated dashboard state.
  *
- * The server also registers two readable MCP resources:
+ * The server also registers MCP resources:
  * - `studio://dashboard/state` — the full `StudioState` JSON
  * - `studio://dashboard/system-prompt` — the AI system prompt built from current state
  *
+ * When `options.data` is provided, the `query_data_source` tool is also registered,
+ * enabling MCP clients to query the underlying databases.
+ *
  * @param stateBox  A boxed `StudioState` reference, shared across all tool handlers.
  *                  Typically `{ current: createDefaultStudioState() }` or loaded from a DB.
- * @param options   Optional configuration (server name/version, custom widgets, allowed tools).
+ * @param options   Optional configuration (server name/version, custom widgets, allowed tools, data access).
  *
  * @example
  * ```ts
@@ -154,6 +356,7 @@ export function buildStudioMcpServer(
     serverName = 'x-studio',
     serverVersion = '1.0.0',
     allowedTools,
+    data,
   } = options;
 
   const server = new Server(
@@ -161,7 +364,7 @@ export function buildStudioMcpServer(
     { capabilities: { tools: {}, resources: {} } },
   );
 
-  // Determine which tools to expose.
+  // Determine which dashboard-mutation tools to expose.
   // - By default, exclude tools that require live client-side row data.
   // - If allowedTools is provided, use that exact list (caller takes responsibility).
   const toolsToRegister = STUDIO_AI_TOOLS.filter((toolDef) => {
@@ -174,19 +377,101 @@ export function buildStudioMcpServer(
 
   // ── tools/list ───────────────────────────────────────────────────────────
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: toolsToRegister.map((toolDef) => ({
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> =
+      toolsToRegister.map((toolDef) => ({
       name: toolDef.function.name,
       description: toolDef.function.description,
       // STUDIO_AI_TOOLS parameters are standard JSON Schema objects — pass through directly.
       inputSchema: toolDef.function.parameters as Record<string, unknown>,
-    })),
-  }));
+    }));
+
+    if (data) {
+      tools.push({
+        name: 'query_data_source',
+        description:
+          'Query a data source (database table) with structured filters, aggregations, and sorting. ' +
+          'Use this to retrieve data rows, compute aggregates (totals, averages, counts by group), ' +
+          'or explore the underlying data before configuring widgets. ' +
+          'Results are read-only — this tool never modifies data. ' +
+          'Tip: use the studio://dashboard/state resource to discover available sourceIds and field names.',
+        inputSchema: QUERY_DATA_SOURCE_SCHEMA as unknown as Record<string, unknown>,
+      });
+    }
+
+    return { tools };
+  });
 
   // ── tools/call ───────────────────────────────────────────────────────────
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name: toolName, arguments: args } = request.params;
+
+    // ── query_data_source — routed separately from state-mutation tools ──
+    if (toolName === 'query_data_source') {
+      if (!data) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                error:
+                  'query_data_source is not available: this MCP server was started without data access configuration.',
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const { sourceId, columns, filters, aggregations, orderBy, limit = 1000 } = (args ?? {}) as {
+        sourceId: string;
+        columns?: string[];
+        filters?: StudioDataFilter[];
+        aggregations?: StudioDataAggregation[];
+        orderBy?: StudioDataOrderBy[];
+        limit?: number;
+      };
+
+      if (!sourceId) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: 'sourceId is required' }) }],
+          isError: true,
+        };
+      }
+
+      // Resolve the physical table name from the current dashboard state.
+      const source = stateBox.current.dataSources[sourceId];
+      const tableName = source?.tableName ?? sourceId;
+
+      try {
+        const result = await data.queryDataSource({
+          sourceId,
+          tableName,
+          columns,
+          filters,
+          aggregations,
+          orderBy,
+          limit,
+        });
+
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ sourceId, ...result }),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
+          isError: true,
+        };
+      }
+    }
+
+    // ── dashboard-mutation tools ──────────────────────────────────────────
 
     if (!toolsToRegister.some((t) => t.function.name === toolName)) {
       return {

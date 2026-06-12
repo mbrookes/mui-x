@@ -55,7 +55,7 @@ function SecondCondition(props: SecondConditionProps) {
           p: 0,
         }}
       >
-        Add condition
+        {localeText.filterBodyAddCondition}
       </Button>
     );
   }
@@ -232,7 +232,7 @@ export function FilterBody({
                 color="text.secondary"
                 sx={{ mb: 0.5, display: 'block' }}
               >
-                Narrow options based on:
+                {localeText.filterBodyNarrowOptions}
               </Typography>
               <Autocomplete
                 multiple

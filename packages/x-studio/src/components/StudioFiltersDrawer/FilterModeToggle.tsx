@@ -1,5 +1,6 @@
 'use client';
 import { ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { useStudioLocaleText } from '../../context';
 import type { FilterMode } from './filterDrawerTypes';
 
 export function FilterModeToggle({
@@ -14,6 +15,7 @@ export function FilterModeToggle({
   compact?: boolean;
   disableRank?: boolean;
 }) {
+  const localeText = useStudioLocaleText();
   const px = compact ? 0.75 : 1.5;
   const py = compact ? 0.1 : 0.25;
   const fontSize = compact ? 10 : 11;
@@ -31,17 +33,17 @@ export function FilterModeToggle({
       sx={{ alignSelf: 'stretch', width: '100%' }}
     >
       <ToggleButton value="condition" sx={{ px, py, fontSize, textTransform: 'none', flexGrow: 1 }}>
-        Filter
+        {localeText.filterModeFilter}
       </ToggleButton>
       <ToggleButton value="selection" sx={{ px, py, fontSize, textTransform: 'none', flexGrow: 1 }}>
-        Select
+        {localeText.filterModeSelect}
       </ToggleButton>
       <ToggleButton
         value="rank"
         disabled={disableRank}
         sx={{ px, py, fontSize, textTransform: 'none', flexGrow: 1 }}
       >
-        Rank
+        {localeText.filterModeRank}
       </ToggleButton>
     </ToggleButtonGroup>
   );

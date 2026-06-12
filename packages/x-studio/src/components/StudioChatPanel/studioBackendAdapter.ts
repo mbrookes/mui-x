@@ -110,7 +110,9 @@ export function createBackendChatAdapter(
   focusedWidgetId?: string,
 ): ChatAdapter {
   const { endpoint, headers: extraHeaders, allowedTools, skills, privateMode, onUsage } = config;
-  const chatUrl = `${endpoint.replace(/\/?$/, '')}/chat`;
+  const baseUrl = endpoint.replace(/\/?$/, '');
+  const chatUrl = `${baseUrl}/chat`;
+  const approvalUrl = `${baseUrl}/approval`;
 
   // Skills are already in serializable form — the execute function (if present) is stripped
   // by the caller (StudioAISkill satisfies SerializableSkill structurally).
@@ -287,6 +289,15 @@ export function createBackendChatAdapter(
                 type: 'message-metadata',
                 metadata: (event as { metadata: Record<string, unknown> }).metadata,
               });
+            } else if (type === 'tool-approval-request') {
+              // Forward the approval request as an x-chat chunk so the UI can
+              // render an inline confirmation card (via ChatConfirmation / ToolPart).
+              streamController.enqueue({
+                type: 'tool-approval-request',
+                toolCallId: String((event as { toolCallId?: string }).toolCallId ?? ''),
+                toolName: String((event as { toolName?: string }).toolName ?? ''),
+                input: (event as { input?: unknown }).input ?? {},
+              });
             } else if (type === 'state-mutation') {
               try {
                 applyStateMutation((event as { mutation: StateMutation }).mutation, controller);
@@ -347,6 +358,22 @@ export function createBackendChatAdapter(
       // is a best-effort cleanup to free resources immediately.
       activeReader?.cancel().catch(() => {});
       activeReader = null;
+    },
+
+    async addToolApprovalResponse({
+      id,
+      approved,
+      reason,
+    }: {
+      id: string;
+      approved: boolean;
+      reason?: string;
+    }) {
+      await fetch(approvalUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...extraHeaders },
+        body: JSON.stringify({ id, approved, reason }),
+      });
     },
   };
 }

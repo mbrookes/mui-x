@@ -161,6 +161,35 @@ export interface StudioAIHandlerOptions {
    * ```
    */
   rateLimit?: StudioAIRateLimit;
+  /**
+   * Shared map for human-in-the-loop tool approval.
+   *
+   * When set, destructive tools (`remove_page`, `remove_widget`, `apply_bulk_update`)
+   * pause before execution and emit a `tool-approval-request` SSE event. The stream
+   * holds open while awaiting approval. Your approval endpoint resolves the pending
+   * entry using the `toolCallId` as the key.
+   *
+   * @example
+   * ```ts
+   * // Shared state (module-level in your route file)
+   * const pendingApprovals = new Map<string, (approved: boolean, reason?: string) => void>();
+   *
+   * // Chat route — pass the map to handleAIChat
+   * app.post('/api/ai/chat', (req, res) => {
+   *   const stream = handleAIChat(req.body, { ..., approvalPending: pendingApprovals });
+   *   // ... stream to response
+   * });
+   *
+   * // Approval route — resolve the pending approval
+   * app.post('/api/ai/approval', (req, res) => {
+   *   const { id, approved, reason } = req.body;
+   *   const resolve = pendingApprovals.get(id);
+   *   if (resolve) { resolve(approved, reason); pendingApprovals.delete(id); }
+   *   res.json({ ok: true });
+   * });
+   * ```
+   */
+  approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
 }
 
 /**
@@ -204,6 +233,7 @@ export function handleAIChat(
             dataResolver: options.dataResolver,
             privateMode,
             rateLimit: options.rateLimit,
+            approvalPending: options.approvalPending,
           },
         );
 

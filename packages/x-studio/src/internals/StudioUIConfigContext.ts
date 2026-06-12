@@ -744,6 +744,20 @@ export interface StudioLocaleText {
   chatNewConversationName: string;
   /** Tooltip on the thread-switcher button */
   chatSwitchConversationTooltip: string;
+  /** Tooltip on the mic button when voice input is inactive */
+  chatVoiceInputStart: string;
+  /** Tooltip on the mic button when voice input is active (click to stop) */
+  chatVoiceInputStop: string;
+  /** Tooltip/aria-label shown when SpeechRecognition is not available */
+  chatVoiceInputNotSupported: string;
+
+  // ── Chart cross-source error messages ────────────────────────────────────
+  chartUnsupportedFieldNotFound: string;
+  chartUnsupportedMixedCrossSource: string;
+  chartUnsupportedScatterCrossSource: string;
+  chartUnsupportedDefault: string;
+  /** Label for the forecast trend series in the chart legend */
+  chartForecastSeriesLabel: string;
 
   // ── Grid summary row aggregation labels ──────────────────────────────────
   gridSummaryLabelSum: string;
@@ -1547,6 +1561,19 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiSuggestionWhatDataAvailable: 'What data is available?',
   chatNewConversationName: 'New conversation',
   chatSwitchConversationTooltip: 'Switch conversation',
+  chatVoiceInputStart: 'Start voice input',
+  chatVoiceInputStop: 'Stop voice input',
+  chatVoiceInputNotSupported: 'Voice input is not supported in this browser',
+
+  // Chart cross-source error messages
+  chartUnsupportedFieldNotFound:
+    'This chart configuration uses fields that are not available on the widget source or a directly related source.',
+  chartUnsupportedMixedCrossSource:
+    'This chart configuration mixes cross-source fields in a way that does not have a single safe aggregation grain yet.',
+  chartUnsupportedScatterCrossSource:
+    'Scatter charts do not support cross-source field combinations yet.',
+  chartUnsupportedDefault: 'This chart configuration is not supported yet.',
+  chartForecastSeriesLabel: 'Forecast',
 
   // Grid summary row aggregation labels
   gridSummaryLabelSum: 'Total:',

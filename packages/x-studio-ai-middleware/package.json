@@ -16,8 +16,8 @@
     "build": "echo 'build not yet implemented'",
     "test:unit": "vitest --config vitest.config.mts"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@mui/x-chat-headless": "workspace:*"
   }
 }

@@ -533,16 +533,34 @@ export function resolveChartRowsForAggregation(
   // the relationship graph again (O(fields × relationships) saved per call).
   const fieldOwners = support.fieldOwners ?? new Map<string, string>();
 
+  // Determine which requested fields are expression fields on the widget source.
+  const exprFieldIdsOnSource = new Set(
+    expressionFields
+      .filter((ef) => ef.sourceId === anchorSourceId && !ef.isMeasure)
+      .map((ef) => ef.id),
+  );
+  const needsExpressionEnrichment = requestedFields.some((f) => exprFieldIdsOnSource.has(f));
+
   let result: Row[];
 
   if (anchorSourceId === widgetSourceId) {
-    result = enrichRowsWithRelatedFields(
+    const related = enrichRowsWithRelatedFields(
       widgetRows,
       widgetSourceId,
       requestedFields,
       dataSources,
       relationships,
     );
+    result = needsExpressionEnrichment
+      ? enrichSourceRowsWithExpressions(
+          related,
+          widgetSourceId,
+          dataSources,
+          relationships,
+          expressionFields,
+          new Set(requestedFields),
+        )
+      : related;
   } else {
     const anchorRelationship = findDirectRelationship(
       widgetSourceId,

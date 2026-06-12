@@ -18,7 +18,8 @@ import FunctionsIcon from '@mui/icons-material/Functions';
 import { useStudioController } from '../../context';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioExpressionField, StudioExpression } from '../../models';
-import { OperandEditor, defaultOperand, type FieldOption, type OperandState } from './OperandEditor';
+import { OperandEditor } from './OperandEditor';
+import { defaultOperand, type FieldOption, type OperandState } from './operandEditorTypes';
 
 // ─── Operator options ────────────────────────────────────────────────────────
 

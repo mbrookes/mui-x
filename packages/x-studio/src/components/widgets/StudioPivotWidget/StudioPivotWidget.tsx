@@ -5,7 +5,8 @@ import DownloadIcon from '@mui/icons-material/Download';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { useStudioLocaleText } from '../../../context';
 import type { StudioDataSource, StudioWidget } from '../../../models';
-import { PivotTable, buildPivotMatrix, pivotToCsv, downloadCsv } from './PivotTable';
+import { PivotTable } from './PivotTable';
+import { buildPivotMatrix, pivotToCsv, downloadCsv } from './pivotUtils';
 
 export interface StudioPivotWidgetProps {
   widget: StudioWidget;

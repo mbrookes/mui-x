@@ -5,12 +5,9 @@ import {
   Box,
   FormControl,
   InputLabel,
-  Menu,
   MenuItem,
   Select,
-  Stack,
   TextField,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import type { StudioFilterOperator, StudioMetricRef } from '../../models';
@@ -206,4 +203,3 @@ export function FilterValueInput(props: {
     </Box>
   );
 }
-

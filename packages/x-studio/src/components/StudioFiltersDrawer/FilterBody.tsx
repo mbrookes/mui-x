@@ -2,19 +2,14 @@
 import * as React from 'react';
 import {
   Autocomplete,
-  Box,
   FormControl,
-  FormControlLabel,
-  IconButton,
   InputLabel,
   MenuItem,
   Select,
   Stack,
   TextField,
-  Tooltip,
   Typography,
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
 import type { StudioFilterOperator, StudioFilterState } from '../../models';
 import type { FieldType, FilterMode } from './filterDrawerTypes';
 import type { AvailableSeries } from './RankFilterInput';

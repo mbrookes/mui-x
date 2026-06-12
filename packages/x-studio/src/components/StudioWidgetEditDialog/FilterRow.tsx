@@ -1,8 +1,6 @@
 'use client';
-import * as React from 'react';
 import {
   Box,
-  Button,
   FormControl,
   IconButton,
   MenuItem,
@@ -10,20 +8,10 @@ import {
   Stack,
   TextField,
   Tooltip,
-  Typography,
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import type { StudioDataField, StudioFilterOperator, StudioFilterState } from '../../models';
-import { useStudioController } from '../../context/StudioContext';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
-import {
-  selectDataSources,
-  selectFilters,
-  selectRelationships,
-  selectWidgets,
-  useStudioSelector,
-} from '../../context';
 
 export interface FieldOption {
   id: string;
@@ -214,4 +202,3 @@ export function FilterRow(props: {
     </Stack>
   );
 }
-

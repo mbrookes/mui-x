@@ -1,5 +1,4 @@
 'use client';
-import * as React from 'react';
 import {
   FormControl,
   InputLabel,
@@ -13,7 +12,6 @@ import {
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 import type { FieldOption, OperandState, OperandType } from './operandEditorTypes';
-import { defaultOperand } from './operandEditorTypes';
 
 export function OperandEditor({
   label,

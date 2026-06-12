@@ -148,7 +148,132 @@ describe('buildAISystemPrompt: aiDescription', () => {
   });
 });
 
-// ── Pivot / Map widget descriptions ──────────────────────────────────────────
+// ── Chart Configuration Guide ─────────────────────────────────────────────────
+
+describe('buildAISystemPrompt: Chart Configuration Guide', () => {
+  const state = makeState();
+
+  it('includes barLayout guidance', () => {
+    expect(buildAISystemPrompt(state)).toContain('barLayout');
+  });
+
+  it('includes yAggregation critical rules', () => {
+    expect(buildAISystemPrompt(state)).toContain('yAggregation');
+    expect(buildAISystemPrompt(state)).toContain('NaN');
+  });
+
+  it('includes crossFilterMode', () => {
+    expect(buildAISystemPrompt(state)).toContain('crossFilterMode');
+  });
+
+  it('includes xGroupBy guidance', () => {
+    expect(buildAISystemPrompt(state)).toContain('xGroupBy');
+  });
+
+  it('includes do/don\'t examples section', () => {
+    expect(buildAISystemPrompt(state)).toContain('Do/don');
+  });
+});
+
+// ── Cross-Widget Interaction ───────────────────────────────────────────────────
+
+describe('buildAISystemPrompt: Cross-Widget Interaction', () => {
+  const state = makeState();
+
+  it('includes Cross-Widget Interaction section', () => {
+    expect(buildAISystemPrompt(state)).toContain('Cross-Widget Interaction');
+  });
+
+  it('documents cross-filter wiring pattern', () => {
+    expect(buildAISystemPrompt(state)).toContain('cross-filter');
+    expect(buildAISystemPrompt(state)).toContain('cross-highlight');
+  });
+
+  it('documents mapCrossFilterEmit', () => {
+    expect(buildAISystemPrompt(state)).toContain('mapCrossFilterEmit');
+  });
+});
+
+// ── describeSource field intelligence ─────────────────────────────────────────
+
+describe('buildAISystemPrompt: describeSource field intelligence', () => {
+  it('includes format tag for number fields', () => {
+    const source = makeSource({
+      fields: [{ id: 'margin', label: 'Margin %', type: 'number', format: 'percent' } as any],
+    });
+    const state = makeState({ dataSources: { src1: source } });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('percent');
+  });
+
+  it('includes defaultAggregationFn when set', () => {
+    const source = makeSource({
+      fields: [{ id: 'revenue', label: 'Revenue', type: 'number', defaultAggregationFn: 'avg' } as any],
+    });
+    const state = makeState({ dataSources: { src1: source } });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('default:avg');
+  });
+
+  it('includes capabilities override when set', () => {
+    const source = makeSource({
+      fields: [{ id: 'score', label: 'Score', type: 'number', capabilities: ['categorical'] } as any],
+    });
+    const state = makeState({ dataSources: { src1: source } });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('categorical');
+  });
+
+  it('shows distinct values inline when ≤8', () => {
+    const source = makeSource({
+      fields: [{ id: 'status', label: 'Status', type: 'string' }],
+      fieldDistinctValues: { status: ['pending', 'shipped', 'delivered', 'returned'] },
+    } as any);
+    const state = makeState({ dataSources: { src1: source } });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('pending|shipped|delivered|returned');
+  });
+
+  it('shows count only when 9–30 distinct values', () => {
+    const source = makeSource({
+      fields: [{ id: 'category', label: 'Category', type: 'string' }],
+      fieldDistinctValues: {
+        category: Array.from({ length: 15 }, (_, i) => `cat${i}`),
+      },
+    } as any);
+    const state = makeState({ dataSources: { src1: source } });
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('15 values');
+  });
+
+  it('omits cardinality when >30 distinct values', () => {
+    const source = makeSource({
+      fields: [{ id: 'customer', label: 'Customer', type: 'string' }],
+      fieldDistinctValues: {
+        customer: Array.from({ length: 50 }, (_, i) => `cust${i}`),
+      },
+    } as any);
+    const state = makeState({ dataSources: { src1: source } });
+    const prompt = buildAISystemPrompt(state);
+    // High-cardinality: no count shown for customer field
+    expect(prompt).not.toContain('50 values');
+  });
+});
+
+// ── Chart Types block in dynamic state ───────────────────────────────────────
+
+describe('buildAISystemPrompt: chart types in dynamic state', () => {
+  it('lists chart types per-type with required keys', () => {
+    const state = makeState();
+    const prompt = buildAISystemPrompt(state);
+    expect(prompt).toContain('## Chart Types');
+    expect(prompt).toContain('heatmap');
+    expect(prompt).toContain('scatterColorField');
+    expect(prompt).toContain('pieArcLabel');
+  });
+});
+
+
 
 describe('buildAISystemPrompt: pivot and map widget descriptions', () => {
   it('includes pivot rowField, colField, valueField', () => {

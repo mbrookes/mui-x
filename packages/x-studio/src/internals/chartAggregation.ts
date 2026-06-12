@@ -673,31 +673,46 @@ export function aggregateByField(
   const grouped = new Map<string | number, number>();
   const counts = new Map<string | number, number>();
 
+  // Pre-detect: if the yField is non-numeric (e.g. a string ID), fall back to
+  // count so callers that omit yAggregation don't get NaN in the chart.
+  let effectiveAggregation = yAggregation;
+  if (effectiveAggregation !== 'count') {
+    for (const row of rows) {
+      const v = row[yField];
+      if (v !== null && v !== undefined) {
+        if (Number.isNaN(Number(v))) {
+          effectiveAggregation = 'count';
+        }
+        break;
+      }
+    }
+  }
+
   for (const row of rows) {
     const raw = toXValue(row[xField]);
     const xVal = applyXGroupBy(raw, xGroupBy);
     const count = (counts.get(xVal) ?? 0) + 1;
     counts.set(xVal, count);
 
-    if (yAggregation === 'count') {
+    if (effectiveAggregation === 'count') {
       grouped.set(xVal, count);
     } else {
       const yVal = Number(row[yField] ?? 0);
       const prev = grouped.get(xVal) ?? 0;
-      if (yAggregation === 'sum') {
+      if (effectiveAggregation === 'sum') {
         grouped.set(xVal, prev + yVal);
-      } else if (yAggregation === 'avg') {
+      } else if (effectiveAggregation === 'avg') {
         // Store running sum; divide by count at the end
         grouped.set(xVal, prev + yVal);
-      } else if (yAggregation === 'min') {
+      } else if (effectiveAggregation === 'min') {
         grouped.set(xVal, count === 1 ? yVal : Math.min(prev, yVal));
-      } else if (yAggregation === 'max') {
+      } else if (effectiveAggregation === 'max') {
         grouped.set(xVal, count === 1 ? yVal : Math.max(prev, yVal));
       }
     }
   }
 
-  if (yAggregation === 'avg') {
+  if (effectiveAggregation === 'avg') {
     for (const [key, sum] of grouped) {
       grouped.set(key, sum / (counts.get(key) ?? 1));
     }

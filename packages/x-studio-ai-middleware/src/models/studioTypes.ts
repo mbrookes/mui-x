@@ -78,7 +78,9 @@ export type StudioFilterOperator =
 
 export interface StudioChartSeries {
   fieldId: string;
+  label?: string;
   seriesType?: 'bar' | 'line';
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
 }
 
 export interface StudioMetricRef {

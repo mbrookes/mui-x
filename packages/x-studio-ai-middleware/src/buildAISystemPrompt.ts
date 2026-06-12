@@ -89,8 +89,8 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     if (cfg.xField) {
       parts.push(`xField: ${cfg.xField}`);
     }
-    if ((cfg as any).heatYField) {
-      parts.push(`heatYField: ${(cfg as any).heatYField}`);
+    if (cfg.heatYField) {
+      parts.push(`heatYField: ${cfg.heatYField}`);
     }
     if (cfg.yField) {
       parts.push(`yField: ${cfg.yField}`);
@@ -98,49 +98,49 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     if (cfg.yAggregation) {
       parts.push(`yAggregation: ${cfg.yAggregation}`);
     }
-    if ((cfg as any).barLayout) {
-      parts.push(`barLayout: ${(cfg as any).barLayout}`);
+    if (cfg.barLayout) {
+      parts.push(`barLayout: ${cfg.barLayout}`);
     }
-    if ((cfg as any).xGroupBy) {
-      parts.push(`xGroupBy: ${(cfg as any).xGroupBy}`);
+    if (cfg.xGroupBy) {
+      parts.push(`xGroupBy: ${cfg.xGroupBy}`);
     }
-    if ((cfg as any).chartSortBy) {
-      parts.push(`chartSortBy: ${(cfg as any).chartSortBy}`);
+    if (cfg.chartSortBy) {
+      parts.push(`chartSortBy: ${cfg.chartSortBy}`);
     }
-    if ((cfg as any).chartSortDirection) {
-      parts.push(`chartSortDirection: ${(cfg as any).chartSortDirection}`);
+    if (cfg.chartSortDirection) {
+      parts.push(`chartSortDirection: ${cfg.chartSortDirection}`);
     }
     if (cfg.ySeries?.length) {
       parts.push(
-        `ySeries: [${cfg.ySeries.map((s) => `${s.fieldId}(${(s as any).yAggregation ?? 'sum'})`).join(', ')}]`,
+        `ySeries: [${cfg.ySeries.map((s) => `${s.fieldId}(${s.yAggregation ?? 'sum'})`).join(', ')}]`,
       );
     }
     if (cfg.seriesField) {
       parts.push(`seriesField: ${cfg.seriesField}`);
     }
-    if ((cfg as any).scatterColorField) {
-      parts.push(`scatterColorField: ${(cfg as any).scatterColorField}`);
+    if (cfg.scatterColorField) {
+      parts.push(`scatterColorField: ${cfg.scatterColorField}`);
     }
-    if ((cfg as any).scatterSizeField) {
-      parts.push(`scatterSizeField: ${(cfg as any).scatterSizeField}`);
+    if (cfg.scatterSizeField) {
+      parts.push(`scatterSizeField: ${cfg.scatterSizeField}`);
     }
-    if ((cfg as any).ganttLabelField) {
-      parts.push(`ganttLabelField: ${(cfg as any).ganttLabelField}`);
+    if (cfg.ganttLabelField) {
+      parts.push(`ganttLabelField: ${cfg.ganttLabelField}`);
     }
-    if ((cfg as any).ganttStartField) {
-      parts.push(`ganttStartField: ${(cfg as any).ganttStartField}`);
+    if (cfg.ganttStartField) {
+      parts.push(`ganttStartField: ${cfg.ganttStartField}`);
     }
-    if ((cfg as any).ganttEndField) {
-      parts.push(`ganttEndField: ${(cfg as any).ganttEndField}`);
+    if (cfg.ganttEndField) {
+      parts.push(`ganttEndField: ${cfg.ganttEndField}`);
     }
-    if ((cfg as any).ganttColorField) {
-      parts.push(`ganttColorField: ${(cfg as any).ganttColorField}`);
+    if (cfg.ganttColorField) {
+      parts.push(`ganttColorField: ${cfg.ganttColorField}`);
     }
-    if ((cfg as any).crossFilterMode) {
-      parts.push(`crossFilterMode: ${(cfg as any).crossFilterMode}`);
+    if (cfg.crossFilterMode) {
+      parts.push(`crossFilterMode: ${cfg.crossFilterMode}`);
     }
-    if ((cfg as any).crossFilterField) {
-      parts.push(`crossFilterField: ${(cfg as any).crossFilterField}`);
+    if (cfg.crossFilterField) {
+      parts.push(`crossFilterField: ${cfg.crossFilterField}`);
     }
   } else if (widget.kind === 'kpi') {
     if (cfg.kpiValueField) {

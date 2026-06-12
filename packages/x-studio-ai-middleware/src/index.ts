@@ -49,6 +49,8 @@ export type {
   StudioAIToolName,
   StudioDataResolver,
   StudioDataResolverResult,
+  StudioAIRateLimit,
+  StudioAIUsage,
 } from './models/aiTypes';
 
 // Prompt builder and tool definitions — consumed by the server

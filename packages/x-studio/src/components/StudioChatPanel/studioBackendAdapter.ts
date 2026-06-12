@@ -257,6 +257,7 @@ export function createBackendChatAdapter(
           try {
             while (true) {
               // eslint-disable-next-line no-await-in-loop -- sequential streaming read
+              // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential stream: each chunk depends on the previous
               const { done, value } = await reader.read();
               if (done) break;
 

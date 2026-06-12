@@ -775,7 +775,7 @@ Source: `packages/x-studio-ai-middleware/src/studioAITools.ts`
 | **`privateMode`** flag (suppress dashboard state in system prompt)          | P2       | ✅ `StudioAIConfig.privateMode`                         | DataGrid AI Assistant                                 |
 | **Correlation analysis insight type**                                       | P2       | ✅ `generateCorrelationInsight` + Pearson r client-side | Highcharts Orbit                                      |
 | **AI-assisted field description generation**                                | P2       | ✅ `generateFieldDescriptions` (batch LLM call)         | Luzmo Metadata Agent, ThoughtSpot SpotterModel        |
-| **Token cost governance**                                                   | P3       | ❌ Not implemented                                      | Reveal BI (per-tenant/per-user limits)                |
+| **Token cost governance**                                                   | P3       | ✅ `StudioAIRateLimit` in `StudioAIHandlerOptions` — `maxTokensPerRequest`, `maxTurnsPerRequest`, `onLimitReached`; `usage` SSE event | Reveal BI (per-tenant/per-user limits)                |
 
 ### 🟡 Moderate: Remaining Code Quality Issues
 

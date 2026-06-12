@@ -5,6 +5,7 @@ import { Gauge } from '@mui/x-charts/Gauge';
 import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { StudioNumberFormat } from '../../../models';
 import { formatNumber } from '../../../internals/numberFormat';
+import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 
 export interface KpiSparklineProps {
   /** Bucketed time-series values; null means not yet computed. */
@@ -45,6 +46,7 @@ export function KpiSparkline(props: KpiSparklineProps) {
     gaugeMin = 0,
     gaugeMax = 100,
   } = props;
+  const localeText = useStudioLocaleText();
 
   if (plotType === 'gauge') {
     const value = kpiValue ?? 0;
@@ -103,7 +105,7 @@ export function KpiSparkline(props: KpiSparklineProps) {
           margin={{ top: 4, bottom: 4, left: 4, right: 4 }}
         >
           {targetValue !== undefined && (
-            <ChartsReferenceLine y={targetValue} label="Target" labelAlign="end" />
+            <ChartsReferenceLine y={targetValue} label={localeText.kpiSetupTargetLabel} labelAlign="end" />
           )}
         </SparkLineChart>
       </Box>

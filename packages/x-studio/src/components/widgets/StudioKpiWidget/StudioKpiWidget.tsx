@@ -547,7 +547,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         )}
         {hasIgnoredInteractiveFilters && (
           <Tooltip
-            title="Grand total — active filter widgets are not applied to this KPI. Enable Cross-filter mode in KPI settings to respect them."
+          title={localeText.kpiGrandTotalTooltip}
             placement="top"
           >
             <InfoOutlinedIcon

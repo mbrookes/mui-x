@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Box, Chip, InputAdornment, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
+import { useStudioLocaleText } from '../../../../internals/StudioUIConfigContext';
 
 export interface StudioFilterToggleControlProps {
   label: string;
@@ -16,6 +17,7 @@ const TOGGLE_SEARCH_THRESHOLD = 12;
 
 export function ToggleControl(props: StudioFilterToggleControlProps) {
   const { label, values, selected, onApply, onClear } = props;
+  const localeText = useStudioLocaleText();
   const isActive = selected.length > 0;
   const showSearch = values.length > TOGGLE_SEARCH_THRESHOLD;
   const [search, setSearch] = React.useState('');
@@ -37,12 +39,12 @@ export function ToggleControl(props: StudioFilterToggleControlProps) {
     <Stack spacing={1} role="group" aria-label={label}>
       {isActive && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Tooltip title="Clear filter">
+          <Tooltip title={localeText.filterWidgetClearAriaLabel}>
             <Box
               component="span"
               role="button"
               tabIndex={0}
-              aria-label="Clear toggle filter"
+              aria-label={localeText.filterWidgetClearAriaLabel}
               onClick={onClear}
               onKeyDown={(evt) => {
                 if (evt.key === 'Enter' || evt.key === ' ') {
@@ -65,7 +67,7 @@ export function ToggleControl(props: StudioFilterToggleControlProps) {
         <TextField
           size="small"
           fullWidth
-          placeholder="Search…"
+          placeholder={localeText.filterSearchValues}
           value={search}
           onChange={(evt) => setSearch(evt.target.value)}
           slotProps={{
@@ -94,7 +96,7 @@ export function ToggleControl(props: StudioFilterToggleControlProps) {
         </Box>
       ) : (
         <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-          No options found
+          {localeText.filterWidgetNoOptionsLabel}
         </Typography>
       )}
     </Stack>

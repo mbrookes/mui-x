@@ -2,12 +2,15 @@ import { Box, Typography } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { StudioChatPanel } from '@mui/x-studio';
 import type { StudioAIConfig } from '@mui/x-studio';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 export interface EmptyPagePromptProps {
   aiConfig: StudioAIConfig;
 }
 
 export function EmptyPagePrompt({ aiConfig }: EmptyPagePromptProps) {
+  const t = useAppLocaleText();
+
   return (
     <Box
       sx={{
@@ -49,10 +52,10 @@ export function EmptyPagePrompt({ aiConfig }: EmptyPagePromptProps) {
           <AutoAwesomeIcon fontSize="small" color="primary" />
           <Box>
             <Typography variant="subtitle2" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
-              Build this page with AI
+              {t.buildPageWithAiTitle}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Describe what you'd like to add and the AI will build it for you.
+              {t.buildPageWithAiDescription}
             </Typography>
           </Box>
         </Box>

@@ -2,6 +2,7 @@ import { Dialog, DialogContent, DialogTitle, IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import { StudioFiltersDrawer } from '@mui/x-studio';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 export interface FiltersDialogProps {
   open: boolean;
@@ -9,6 +10,8 @@ export interface FiltersDialogProps {
 }
 
 export function FiltersDialog({ open, onClose }: FiltersDialogProps) {
+  const t = useAppLocaleText();
+
   return (
     <Dialog
       open={open}
@@ -19,10 +22,10 @@ export function FiltersDialog({ open, onClose }: FiltersDialogProps) {
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1.5 }}>
         <FilterListIcon fontSize="small" color="action" />
-        Filters
+        {t.filtersTitle}
         <IconButton
           autoFocus
-          aria-label="Close filters dialog"
+          aria-label={t.closeFiltersDialogAriaLabel}
           onClick={onClose}
           size="small"
           sx={{ ml: 'auto' }}

@@ -19,6 +19,7 @@ import {
   useStudioController,
   useStudioSelector,
 } from '@mui/x-studio';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 export interface ComposeDialogProps {
   open: boolean;
@@ -38,11 +39,12 @@ export function ComposeDialog({ open, onClose }: ComposeDialogProps) {
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);
   const widgets = useStudioSelector(selectWidgets);
+  const t = useAppLocaleText();
 
   const { selectedWidgetId, selectedFieldId, selectedSourceId } = shell;
 
   const selectedWidget = selectedWidgetId ? (widgets[selectedWidgetId] ?? null) : null;
-  const title = selectedWidget?.title ?? 'Configure widget';
+  const title = selectedWidget?.title ?? t.configureWidgetTitle;
 
   const hasNestedSelection = Boolean(selectedFieldId ?? selectedSourceId);
 
@@ -57,9 +59,6 @@ export function ComposeDialog({ open, onClose }: ComposeDialogProps) {
     }
   }, [controller, hasNestedSelection]);
 
-  // Capture the subheader (Setup/Format tabs) injected by WidgetConfigView via
-  // useDrawerSubheader. The provider must wrap both the injection site
-  // (StudioComposeDrawer) and the render site (between title and content).
   const [injectedSubheader, setInjectedSubheader] = React.useState<React.ReactNode>(null);
   const subheaderCtx = React.useMemo(() => ({ setSubheader: setInjectedSubheader }), []);
 
@@ -71,11 +70,10 @@ export function ComposeDialog({ open, onClose }: ComposeDialogProps) {
       fullWidth
       slotProps={{ paper: { sx: { height: '80vh', display: 'flex', flexDirection: 'column' } } }}
     >
-      {/* Provider wraps all dialog children so useDrawerSubheader can inject tabs */}
       <DrawerSubheaderContext.Provider value={subheaderCtx}>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1.5 }}>
           {hasNestedSelection && (
-            <IconButton aria-label="Back" onClick={handleBack} size="small" edge="start">
+            <IconButton aria-label={t.backAriaLabel} onClick={handleBack} size="small" edge="start">
               <ArrowBackIcon fontSize="small" />
             </IconButton>
           )}
@@ -83,7 +81,7 @@ export function ComposeDialog({ open, onClose }: ComposeDialogProps) {
           {title}
           <IconButton
             autoFocus
-            aria-label="Close compose dialog"
+            aria-label={t.closeComposeDialogAriaLabel}
             onClick={handleClose}
             size="small"
             sx={{ ml: 'auto' }}
@@ -92,7 +90,6 @@ export function ComposeDialog({ open, onClose }: ComposeDialogProps) {
           </IconButton>
         </DialogTitle>
 
-        {/* Setup/Format tabs injected by WidgetConfigView */}
         {injectedSubheader && (
           <React.Fragment>
             <Divider />
@@ -106,7 +103,7 @@ export function ComposeDialog({ open, onClose }: ComposeDialogProps) {
 
         <DialogActions sx={{ px: 2, py: 1.5 }}>
           <Button onClick={handleClose} variant="contained" disableElevation>
-            Done
+            {t.doneButtonLabel}
           </Button>
         </DialogActions>
       </DrawerSubheaderContext.Provider>

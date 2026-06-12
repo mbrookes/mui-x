@@ -2,15 +2,7 @@ import * as React from 'react';
 import { Box, Chip, IconButton, InputBase, Typography } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import SendIcon from '@mui/icons-material/Send';
-
-const SUGGESTIONS = [
-  'Show revenue by category as a bar chart',
-  'Which products have the highest margin?',
-  'Add a KPI for total orders this month',
-  'Show customer distribution by country',
-  'Identify any anomalies in the sales data',
-  'Build an overview dashboard with key metrics',
-];
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 interface ChatHomePanelProps {
   onSubmit: (message: string) => void;
@@ -20,6 +12,7 @@ interface ChatHomePanelProps {
 export function ChatHomePanel({ onSubmit, isLoading = false }: ChatHomePanelProps) {
   const [value, setValue] = React.useState('');
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const t = useAppLocaleText();
 
   const handleSubmit = React.useCallback(() => {
     const trimmed = value.trim();
@@ -70,11 +63,11 @@ export function ChatHomePanel({ onSubmit, isLoading = false }: ChatHomePanelProp
         >
           <AutoAwesomeIcon color="primary" sx={{ fontSize: 28 }} />
           <Typography variant="h4" sx={{ fontWeight: 700 }}>
-            What would you like to build?
+            {t.chatHomeTitle}
           </Typography>
         </Box>
         <Typography variant="body1" color="text.secondary">
-          Describe a dashboard and AI will build it from your sales data.
+          {t.chatHomeDescription}
         </Typography>
       </Box>
 
@@ -103,7 +96,7 @@ export function ChatHomePanel({ onSubmit, isLoading = false }: ChatHomePanelProp
           value={value}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask me anything about your data…"
+          placeholder={t.chatInputPlaceholder}
           sx={{ p: 1.5, fontSize: '0.9375rem' }}
         />
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, pb: 0.75 }}>
@@ -112,6 +105,7 @@ export function ChatHomePanel({ onSubmit, isLoading = false }: ChatHomePanelProp
             color="primary"
             onClick={handleSubmit}
             disabled={!value.trim() || isLoading}
+            aria-label={t.newChatTitle}
           >
             <SendIcon fontSize="small" />
           </IconButton>
@@ -128,7 +122,7 @@ export function ChatHomePanel({ onSubmit, isLoading = false }: ChatHomePanelProp
           justifyContent: 'center',
         }}
       >
-        {SUGGESTIONS.map((suggestion) => (
+        {t.homeSuggestions.map((suggestion) => (
           <Chip
             key={suggestion}
             label={suggestion}

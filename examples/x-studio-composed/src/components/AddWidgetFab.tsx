@@ -8,6 +8,7 @@ import {
   useStudioController,
 } from '@mui/x-studio';
 import type { StudioWidgetKind } from '@mui/x-studio';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 export interface AddWidgetFabProps {
   /** Called after a widget is added — use to open a configuration dialog for the new widget. */
@@ -22,6 +23,7 @@ export interface AddWidgetFabProps {
  */
 export function AddWidgetFab({ onWidgetAdded }: AddWidgetFabProps) {
   const controller = useStudioController();
+  const t = useAppLocaleText();
   // react-doctor-disable-next-line react-doctor/no-react19-deprecated-apis -- useContext is acceptable in this example until the library adopts use()
   const canvasScrollRef = React.useContext(CanvasScrollContext);
 
@@ -41,7 +43,6 @@ export function AddWidgetFab({ onWidgetAdded }: AddWidgetFabProps) {
       setAnchorEl(null);
       const widget = createDefaultWidget(kind);
       controller.addWidget(widget);
-      // Scroll canvas to bottom so the new widget is visible
       requestAnimationFrame(() => {
         canvasScrollRef?.current?.scrollTo({
           top: canvasScrollRef.current.scrollHeight,
@@ -55,11 +56,11 @@ export function AddWidgetFab({ onWidgetAdded }: AddWidgetFabProps) {
 
   return (
     <React.Fragment>
-      <Tooltip title="Add widget" placement="left">
+      <Tooltip title={t.addWidgetTooltip} placement="left">
         <Fab
           color="primary"
           size="medium"
-          aria-label="Add widget"
+          aria-label={t.addWidgetAriaLabel}
           aria-controls={open ? 'add-widget-menu' : undefined}
           aria-haspopup="true"
           aria-expanded={open ? 'true' : undefined}

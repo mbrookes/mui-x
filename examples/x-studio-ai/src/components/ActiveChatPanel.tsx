@@ -6,6 +6,7 @@ import StarBorderIcon from '@mui/icons-material/StarBorder';
 import { StudioChatPanel } from '@mui/x-studio';
 import type { StudioAIConfig } from '@mui/x-studio';
 import type { ChatSession } from '../hooks/useChatStore';
+import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 const CHAT_PANEL_WIDTH = 380;
 
@@ -32,6 +33,7 @@ export function ActiveChatPanel({
   onUpdateChat,
   focusedWidgetId,
 }: ActiveChatPanelProps) {
+  const t = useAppLocaleText();
   const [editingTitle, setEditingTitle] = React.useState(false);
   // react-doctor-disable-next-line react-doctor/no-derived-useState -- editable local copy of chat.title; resets on remount via key={chat.id}
   const [titleDraft, setTitleDraft] = React.useState(chat.title);
@@ -132,7 +134,7 @@ export function ActiveChatPanel({
             >
               {chat.title}
             </Typography>
-            <Tooltip title="Rename">
+            <Tooltip title={t.renameTooltip}>
               <IconButton
                 size="small"
                 onClick={() => {
@@ -143,7 +145,9 @@ export function ActiveChatPanel({
                 <EditIcon sx={{ fontSize: 14 }} />
               </IconButton>
             </Tooltip>
-            <Tooltip title={chat.isFavorite ? 'Remove from favorites' : 'Add to favorites'}>
+            <Tooltip
+              title={chat.isFavorite ? t.removeFromFavoritesTooltip : t.addToFavoritesTooltip}
+            >
               <IconButton
                 size="small"
                 onClick={() => onUpdateChat(chat.id, { isFavorite: !chat.isFavorite })}
@@ -194,7 +198,7 @@ export function ActiveChatPanel({
         ) : (
           <Box sx={{ p: 2 }}>
             <Typography variant="body2" color="text.secondary">
-              AI is not configured. Set STUDIO_SERVER_URL in your .env.local file.
+              {t.aiNotConfiguredMessage}
             </Typography>
           </Box>
         )}

@@ -64,6 +64,15 @@ export interface StudioAIConfig {
    */
   privateMode?: boolean;
   /**
+   * When `false`, tool call cards (showing which tools the AI called and their
+   * results) are hidden from the chat interface. Defaults to `true`.
+   *
+   * Set to `false` in production to keep the conversation clean. In development,
+   * leaving this enabled (the default) helps inspect AI tool usage.
+   * @default true
+   */
+  showToolCalls?: boolean;
+  /**
    * Called after each completed AI chat request with token and iteration usage.
    * Use this to display a token counter, enforce client-side budgets, or log
    * usage to an analytics service.
@@ -114,15 +123,32 @@ export function createBackendChatAdapter(
       : undefined,
   }));
 
+  // Active response body reader — cancelled by stop() for immediate abort cleanup.
+  let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
   return {
     async sendMessage(input: ChatSendMessageInput): Promise<ReadableStream<ChatMessageChunk>> {
       const msgId = `msg-${Date.now()}`;
       const textPartId = `text-0`;
+      const reasoningId = `r-thinking`;
       let textStarted = false;
+      let reasoningEnded = false;
+
+      // Helper: close the synthetic "Thinking…" reasoning part once real content arrives.
+      const endReasoning = (streamController: ReadableStreamDefaultController<ChatMessageChunk>) => {
+        if (!reasoningEnded) {
+          reasoningEnded = true;
+          streamController.enqueue({ type: 'reasoning-end', id: reasoningId });
+        }
+      };
 
       return new ReadableStream<ChatMessageChunk>({
         async start(streamController) {
           streamController.enqueue({ type: 'start', messageId: msgId });
+
+          // Emit a synthetic reasoning part immediately so the user sees "Thinking…"
+          // while the server processes the request. It will be closed when real content arrives.
+          streamController.enqueue({ type: 'reasoning-start', id: reasoningId });
 
           let response: Response;
           try {
@@ -144,6 +170,7 @@ export function createBackendChatAdapter(
               }),
             });
           } catch (err) {
+            endReasoning(streamController);
             if (
               input.signal?.aborted ||
               (err instanceof DOMException && err.name === 'AbortError')
@@ -157,6 +184,7 @@ export function createBackendChatAdapter(
           }
 
           if (!response.ok) {
+            endReasoning(streamController);
             const errText = await response.text().catch(() => response.statusText);
             streamController.error(new Error(`HTTP ${response.status}: ${errText}`));
             return;
@@ -165,9 +193,11 @@ export function createBackendChatAdapter(
           // Parse the `StudioAISSEEvent` stream
           const reader = response.body?.getReader();
           if (!reader) {
+            endReasoning(streamController);
             streamController.error(new Error('No response body.'));
             return;
           }
+          activeReader = reader;
 
           const decoder = new TextDecoder();
           let buffer = '';
@@ -186,6 +216,7 @@ export function createBackendChatAdapter(
             const { type } = event;
 
             if (type === 'text-delta') {
+              endReasoning(streamController);
               if (!textStarted) {
                 streamController.enqueue({ type: 'text-start', id: textPartId });
                 textStarted = true;
@@ -195,7 +226,27 @@ export function createBackendChatAdapter(
                 id: textPartId,
                 delta: String(event.delta ?? ''),
               });
+            } else if (type === 'reasoning-start') {
+              // Forward server-emitted reasoning chunks (e.g. from Claude extended thinking).
+              // Close our synthetic "Thinking…" block first so blocks don't overlap.
+              endReasoning(streamController);
+              streamController.enqueue({
+                type: 'reasoning-start',
+                id: String(event.id ?? 'r-server'),
+              });
+            } else if (type === 'reasoning-delta') {
+              streamController.enqueue({
+                type: 'reasoning-delta',
+                id: String(event.id ?? 'r-server'),
+                delta: String(event.delta ?? ''),
+              });
+            } else if (type === 'reasoning-end') {
+              streamController.enqueue({
+                type: 'reasoning-end',
+                id: String(event.id ?? 'r-server'),
+              });
             } else if (type === 'tool-activity') {
+              endReasoning(streamController);
               const {
                 phase,
                 toolCallId,
@@ -240,6 +291,7 @@ export function createBackendChatAdapter(
                 iterations: (event as { iterations: number }).iterations,
               });
             } else if (type === 'finish') {
+              endReasoning(streamController);
               if (textStarted) {
                 streamController.enqueue({ type: 'text-end', id: textPartId });
               }
@@ -250,6 +302,7 @@ export function createBackendChatAdapter(
               });
               streamController.close();
             } else if (type === 'error') {
+              endReasoning(streamController);
               streamController.error(new Error(String(event.message ?? 'Unknown server error')));
             }
           };
@@ -272,9 +325,19 @@ export function createBackendChatAdapter(
             if (!input.signal?.aborted) {
               streamController.error(err);
             }
+          } finally {
+            activeReader = null;
           }
         },
       });
+    },
+
+    stop() {
+      // Cancel the active response body reader so the browser releases the connection.
+      // ChatBox has already aborted the fetch signal before calling stop(), so this
+      // is a best-effort cleanup to free resources immediately.
+      activeReader?.cancel().catch(() => {});
+      activeReader = null;
     },
   };
 }

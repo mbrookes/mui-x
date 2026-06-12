@@ -1,6 +1,6 @@
 # @mui/x-studio — Requirements Progress Tracker
 
-> Last updated: 2026-06-12
+> Last updated: 2026-06-13
 
 ---
 
@@ -925,6 +925,45 @@
 - Locale: `chatVoiceInputStart`, `chatVoiceInputStop`, `chatVoiceInputNotSupported` (English + pt-BR)
 - `useSpeechRecognition` and `UseSpeechRecognitionReturn` exported from `@mui/x-studio` public API
 - 12 unit tests in `useSpeechRecognition.test.ts`
+
+### AI-15 · x-chat best-practice audit — thinking indicator, stop button, prop merging
+
+Full audit of `docs/public/x/react-chat/` to ensure x-studio is a first-class x-chat showcase.
+See `packages/x-studio/docs/AI_ASSISTANT_RESEARCH.md` for the full gap analysis.
+
+**Bug fixes:**
+
+- **`features` / `localeText` merge fix** — Studio's `features` and `localeText` were placed after
+  `{...slotProps?.chatBox}`, silently discarding consumer-provided values. Now merged correctly:
+  consumer settings first, Studio enforced constraints last (`conversationHeader: false`,
+  `attachments: false`). Same fix applied to `partRenderers` and `slots`.
+- **`onFinish` / `onError` callbacks wired** — `ChatBox.onFinish` and `ChatBox.onError` are now
+  forwarded from `slotProps.chatBox` so consumers can react to stream completion and errors.
+
+**New features:**
+
+- **"Thinking…" indicator** — `studioBackendAdapter` now emits a synthetic `reasoning-start` chunk
+  immediately after `start`, before any real content arrives. The reasoning part closes when the first
+  `text-delta` or `tool-activity` event arrives. A custom `partRenderers.reasoning` renderer shows
+  "Thinking…" while streaming and collapses into an expandable "Reasoning" section when done.
+  Handles server-emitted `reasoning-start/delta/end` events too (e.g. Claude extended thinking).
+- **Stop streaming button** — `ChatBox.slots.composerSendButton` is overridden with `StudioSendButton`:
+  shows the normal paper-plane send icon when idle; switches to a red `StopCircleIcon` button that
+  calls `useChat().stopStreaming()` during active streaming. Message receives `status: 'cancelled'`.
+- **`showToolCalls` config option** — `StudioAIConfig.showToolCalls` (default `true`) controls
+  whether AI tool call cards are shown in the chat. Set to `false` in production to keep the
+  conversation clean.
+- **Improved `localeText`** — Empty state now reads "Ask me anything about your dashboard" /
+  "I can add widgets, analyse your data, and more" instead of the generic x-chat defaults.
+- **SSE protocol expanded** — `StudioAISSEEvent` union now includes `reasoning-start`, `reasoning-delta`,
+  `reasoning-end` events for server-emitted reasoning (models with extended thinking support).
+- **`adapter.stop()` implemented** — Cancels the active response body reader for immediate
+  resource cleanup when the user stops a stream.
+
+**Files changed:**
+- `packages/x-studio/src/components/StudioChatPanel/StudioChatPanel.tsx`
+- `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts`
+- `packages/x-studio-ai-middleware/src/models/protocol.ts`
 
 ## 📋 Planned
 

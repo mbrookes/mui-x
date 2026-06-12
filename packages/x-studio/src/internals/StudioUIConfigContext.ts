@@ -745,6 +745,14 @@ export interface StudioLocaleText {
   /** Tooltip on the thread-switcher button */
   chatSwitchConversationTooltip: string;
 
+  // ── Grid summary row aggregation labels ──────────────────────────────────
+  gridSummaryLabelSum: string;
+  gridSummaryLabelAvg: string;
+  gridSummaryLabelCount: string;
+  gridSummaryLabelCountDistinct: string;
+  gridSummaryLabelMin: string;
+  gridSummaryLabelMax: string;
+
   // ── Auto-generated widget titles (inferWidgetTitles) ─────────────────────
   /** Fallback when no source: e.g. "Chart" */
   widgetAutoTitleChart: string;
@@ -1539,6 +1547,14 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiSuggestionWhatDataAvailable: 'What data is available?',
   chatNewConversationName: 'New conversation',
   chatSwitchConversationTooltip: 'Switch conversation',
+
+  // Grid summary row aggregation labels
+  gridSummaryLabelSum: 'Total:',
+  gridSummaryLabelAvg: 'Avg:',
+  gridSummaryLabelCount: 'Count:',
+  gridSummaryLabelCountDistinct: 'Unique:',
+  gridSummaryLabelMin: 'Min:',
+  gridSummaryLabelMax: 'Max:',
 
   // Auto-generated widget titles
   widgetAutoTitleChart: 'Chart',

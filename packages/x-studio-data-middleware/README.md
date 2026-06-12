@@ -228,13 +228,33 @@ const cache = new RedisCacheProvider(redis, {
 
 Constructor options: `defaultTtlSeconds` (default `60`), `keyPrefix` (optional — use when sharing a Redis instance across deployments).
 
+### `RedisTierCacheProvider`
+
+Distributed tier routing cache backed by any Redis-compatible client. Use this in multi-node deployments so all instances share the same tier routing state — otherwise each node runs its own COUNT(\*) preflight after the data cache expires.
+
+```ts
+import Redis from 'ioredis';
+import { RedisCacheProvider, RedisTierCacheProvider } from '@mui/x-studio-data-middleware';
+
+const redis = new Redis({ host: 'localhost', port: 6379 });
+
+await handleBatchQuery(payload, {
+  db,
+  allowedTables: [...],
+  cacheProvider:     new RedisCacheProvider(redis, { defaultTtlSeconds: 30 }),
+  tierCacheProvider: new RedisTierCacheProvider(redis, { defaultTtlSeconds: 300 }),
+});
+```
+
+Constructor options: `defaultTtlSeconds` (default `300`), `keyPrefix` (optional). The `set(key, value, ttlMs?)` call converts milliseconds to seconds (rounds up), matching the `TierCacheProvider` interface which uses `ttlMs`.
+
 ### `CacheProvider` interface
 
 Implement this interface to use a custom data cache backend (e.g. Redis). Methods: `get(key)`, `set(key, value, ttlSeconds?)`, `invalidatePrefix(prefix)`.
 
 ### `TierCacheProvider` interface
 
-Implement this interface to use a custom tier routing cache backend (e.g. Redis for multi-node). Methods: `get(key)`, `set(key, value, ttlMs?)`, `invalidatePrefix(prefix)`. The default implementation (`MapTierCacheProvider`) is an in-process `Map` with per-entry TTL.
+Implement this interface to use a custom tier routing cache backend (e.g. Redis for multi-node). Methods: `get(key)`, `set(key, value, ttlMs?)`, `invalidatePrefix(prefix)`. Built-in implementations: `MapTierCacheProvider` (in-process `Map` with per-entry TTL) and `RedisTierCacheProvider` (distributed).
 
 ## Routing thresholds (benchmark baseline)
 

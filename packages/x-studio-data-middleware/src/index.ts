@@ -37,6 +37,8 @@ export { LRUCacheProvider } from './cache/LRUCacheProvider';
 export { MapTierCacheProvider } from './cache/MapTierCacheProvider';
 export { RedisCacheProvider } from './cache/RedisCacheProvider';
 export type { RedisClient, RedisCacheProviderOptions } from './cache/RedisCacheProvider';
+export { RedisTierCacheProvider } from './cache/RedisTierCacheProvider';
+export type { RedisTierCacheProviderOptions } from './cache/RedisTierCacheProvider';
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
 export { handleBatchQuery } from './handler';

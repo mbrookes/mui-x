@@ -25,9 +25,9 @@ import SearchIcon from '@mui/icons-material/Search';
 import StorageIcon from '@mui/icons-material/Storage';
 import TitleIcon from '@mui/icons-material/Title';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import { ChatBox } from '@mui/x-chat';
-import type { ChatAdapter, ChatMessage, ChatPartRendererMap } from '@mui/x-chat/headless';
-import { useChat, createToolPartRenderer } from '@mui/x-chat/headless';
+import { ChatBox, ChatMessage } from '@mui/x-chat';
+import type { ChatAdapter, ChatMessage as ChatMessageType, ChatPartRendererMap } from '@mui/x-chat/headless';
+import { useChat, useMessage, createToolPartRenderer } from '@mui/x-chat/headless';
 
 import {
   useStudioController,
@@ -156,6 +156,73 @@ const StudioSendButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAtt
           <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
         </svg>
       </Box>
+    );
+  },
+);
+
+// ── StudioMessageRoot — message row wrapper that appends model/token metadata ──
+// Defined at module level (stable ref) so ChatBox doesn't re-mount on every render.
+// Renders the default ChatMessage, then appends a small caption below completed
+// assistant messages that have model/token metadata attached.
+
+interface StudioMessageMetadata {
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  iterations?: number;
+}
+
+interface StudioMessageRootProps extends React.ComponentProps<typeof ChatMessage> {
+  messageId: string;
+}
+
+const StudioMessageRoot = React.forwardRef<HTMLDivElement, StudioMessageRootProps>(
+  function StudioMessageRoot({ messageId, ...rest }, ref) {
+    const message = useMessage(messageId);
+    const metadata = message?.metadata as StudioMessageMetadata | undefined;
+    const isAssistant = message?.role === 'assistant';
+    const hasMetadata = Boolean(metadata?.model || metadata?.inputTokens != null);
+    const showMeta = isAssistant && message?.status !== 'streaming' && hasMetadata;
+
+    const totalTokens =
+      (metadata?.inputTokens ?? 0) + (metadata?.outputTokens ?? 0);
+
+    return (
+      <React.Fragment>
+        <ChatMessage ref={ref} messageId={messageId} {...rest} />
+        {showMeta && (
+          <Box
+            component="div"
+            sx={{
+              px: 2,
+              pb: 0.5,
+              display: 'flex',
+              gap: 1,
+              alignItems: 'center',
+              fontSize: '0.7rem',
+              color: 'text.disabled',
+              // Align under the assistant bubble (account for phantom avatar column)
+              pl: (theme) => `calc(${theme.spacing(2)} + var(--MuiChatMessage-avatarSize, 0px) + ${theme.spacing(0.5)})`,
+            }}
+          >
+            {metadata?.model && (
+              <Typography variant="inherit" component="span">
+                {metadata.model}
+              </Typography>
+            )}
+            {totalTokens > 0 && (
+              <Typography variant="inherit" component="span">
+                {totalTokens.toLocaleString()} tokens
+              </Typography>
+            )}
+            {metadata?.iterations != null && metadata.iterations > 1 && (
+              <Typography variant="inherit" component="span">
+                {metadata.iterations} turns
+              </Typography>
+            )}
+          </Box>
+        )}
+      </React.Fragment>
     );
   },
 );
@@ -481,7 +548,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   const threadMessages = activeThread?.messages ?? [];
 
   const handleMessagesChange = React.useCallback(
-    (messages: ChatMessage[]) => {
+    (messages: ChatMessageType[]) => {
       const state = controller.getState();
       const existingThreads = state.ai?.threads ?? [];
       const now = new Date().toISOString();
@@ -764,8 +831,9 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             ...slotProps?.chatBox?.partRenderers,
           }}
           slots={{
-            // Studio overrides the send button to add a stop-streaming capability
+            // Studio overrides: stop-streaming button + message root with metadata display
             composerSendButton: StudioSendButton,
+            messageRoot: StudioMessageRoot,
             // Consumer slot overrides come last
             ...slotProps?.chatBox?.slots,
           }}

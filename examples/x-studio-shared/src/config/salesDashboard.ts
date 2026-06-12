@@ -1006,7 +1006,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         kpiValueField: 'id',
         kpiAggregation: 'count',
-        kpiTrend: true,
       },
     },
     'widget-kpi7-open-activities': {
@@ -1255,6 +1254,22 @@ export const INITIAL_STATE: Partial<StudioState> = {
       scope: 'widget' as const,
       widgetId: 'widget-grid4-top-customers',
       filterSourceId: ORDERS_SOURCE_ID,
+    },
+    // Page 7 KPI date filter — "Last 12 months" window for Activities Logged trend
+    {
+      id: 'filter-kpi7-activities-date',
+      field: 'date',
+      operator: 'greater_than_or_equal',
+      value: {
+        relative: true,
+        amount: 12,
+        unit: 'month',
+        direction: 'past',
+      } satisfies RelativeDateValue,
+      scope: 'widget' as const,
+      widgetId: 'widget-kpi7-open-activities',
+      fieldType: 'date' as const,
+      filterSourceId: CRM_ACTIVITIES_SOURCE_ID,
     },
   ],
   expressionFields: [

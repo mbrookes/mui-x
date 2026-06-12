@@ -267,6 +267,10 @@ export function StudioMapWidget({
       controller,
     ],
   );
+  const tooltipContextValue = React.useMemo(
+    () => ({ valueFieldLabel, featureIdToLabel }),
+    [valueFieldLabel, featureIdToLabel],
+  );
 
   if (isError) {
     return (
@@ -279,8 +283,7 @@ export function StudioMapWidget({
   }
 
   if (!isConfigured) {
-    const fieldLabel = geographyDef?.fieldLabel ?? 'Region field';
-    const fieldLabelLower = fieldLabel.charAt(0).toLowerCase() + fieldLabel.slice(1);
+    const fieldLabel = geographyDef?.fieldLabel ?? localeText.mapSetupRegionFieldLabel;
     return (
       <Box
         sx={{
@@ -292,7 +295,7 @@ export function StudioMapWidget({
         }}
       >
         <Typography variant="body2" color="text.secondary">
-          {`Use the Setup tab to choose a ${fieldLabelLower} and a value field.`}
+          {localeText.widgetConfigureMapFieldHint(fieldLabel)}
         </Typography>
       </Box>
     );
@@ -336,7 +339,7 @@ export function StudioMapWidget({
   const projection = { type: projectionType };
 
   return (
-    <StudioMapTooltipContext.Provider value={{ valueFieldLabel, featureIdToLabel }}>
+    <StudioMapTooltipContext.Provider value={tooltipContextValue}>
       <Box sx={{ width: '100%', height: '100%', minHeight: 200 }}>
         <ChoroplethChart
           geography={geography ?? { type: 'FeatureCollection', features: [] }}

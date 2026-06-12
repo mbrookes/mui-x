@@ -188,6 +188,7 @@ export interface StudioChatPanelProps {
   sx?: SxProps<Theme>;
 }
 
+// react-doctor-disable-next-line react-doctor/no-giant-component -- chat panel orchestrates thread/message/suggestion state and cannot be split further
 export function StudioChatPanel(props: StudioChatPanelProps) {
   const {
     aiConfig,
@@ -301,7 +302,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
 
   const sortedThreads = React.useMemo(
     () =>
-      [...(aiState?.threads ?? [])].sort((a, b) => {
+      (aiState?.threads ?? []).toSorted((a, b) => {
         const aTime = a.updatedAt ?? a.createdAt;
         const bTime = b.updatedAt ?? b.createdAt;
         return bTime.localeCompare(aTime);

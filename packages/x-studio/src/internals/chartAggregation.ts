@@ -535,9 +535,9 @@ export function resolveChartRowsForAggregation(
 
   // Determine which requested fields are expression fields on the widget source.
   const exprFieldIdsOnSource = new Set(
-    expressionFields
-      .filter((ef) => ef.sourceId === anchorSourceId && !ef.isMeasure)
-      .map((ef) => ef.id),
+    expressionFields.flatMap((ef) =>
+      ef.sourceId === anchorSourceId && !ef.isMeasure ? [ef.id] : [],
+    ),
   );
   const needsExpressionEnrichment = requestedFields.some((f) => exprFieldIdsOnSource.has(f));
 
@@ -852,10 +852,10 @@ export function aggregateByTwoFields(
   // Apply sort — for multi-series, 'value' sorts by the total across all series
   if (sortBy === 'value') {
     const dir = sortDirection === 'asc' ? 1 : -1;
-    const totals = labels.map((label) => {
+    const totals = labels.map((label, labelIdx) => {
       let sum = 0;
       for (const seriesName of seriesNames) {
-        sum += seriesData[seriesName][labels.indexOf(label)] ?? 0;
+        sum += seriesData[seriesName][labelIdx] ?? 0;
       }
       return { label, sum };
     });

@@ -883,6 +883,7 @@ function getRegionDisplayNames(): Intl.DisplayNames | null {
     return regionDisplayNames;
   }
   try {
+    // react-doctor-disable-next-line react-doctor/js-hoist-intl -- already lazy-cached at module scope
     regionDisplayNames = new Intl.DisplayNames(['en'], { type: 'region' });
     return regionDisplayNames;
   } catch {

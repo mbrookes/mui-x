@@ -41,7 +41,6 @@ import { FilterSection, WidgetFilterSection } from './FilterSection';
 import { InteractiveFilterSection } from './InteractiveFilterSection';
 import { CrossFilterSection } from './CrossFilterSection';
 
-// react-doctor-disable-next-line react-doctor/no-giant-component -- filter drawer orchestrates many filter types and cannot be easily split
 export interface StudioFiltersDrawerProps {
   /**
    * System prop that allows defining system overrides and additional CSS styles applied to the
@@ -50,6 +49,8 @@ export interface StudioFiltersDrawerProps {
   sx?: SxProps<Theme>;
 }
 
+// react-doctor-disable-next-line react-doctor/no-giant-component -- filter drawer orchestrates many filter types and cannot be easily split
+// react-doctor-disable-next-line react-doctor/prefer-useReducer -- state slices are independent workflows (search, saving, renaming)
 export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
   const controller = useStudioController();
   const shell = useStudioSelector(selectShell);

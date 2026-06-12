@@ -666,7 +666,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                 {isRecomputing && <LoadingOverlay />}
               </Box>
             ) : (
-              <Skeleton variant="rectangular" height={200} sx={{ borderRadius: 1 }} />
+              <Skeleton
+                variant="rectangular"
+                height={widget.config.gridHeight ?? 400}
+                sx={{ borderRadius: 1 }}
+              />
             ))}
           {widget.kind === 'chart' &&
             (showContent ? (

@@ -248,9 +248,13 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           // If the time field is also from that parent source (timeFieldSourceId set to a
           // related source, or auto-detected date filter), it is already present on the
           // anchor rows — use grainAnchoredRows directly, no join needed.
-          // If the time field is from the widget's own source (unusual mixed config),
-          // fall back to unanchored rows; sparkline values will remain inflated in that
-          // edge case (TODO: handle mixed grain+time-source sparkline).
+          // If the time field is from the widget's own (child) source, this is a
+          // contradictory configuration: the value is at the parent grain, but the time
+          // axis is from the child grain. Using grainAnchoredRows would produce an empty
+          // sparkline (the child time field is absent on parent rows), so we fall back to
+          // unanchored rows. Values will be inflated (double-counted at the child grain),
+          // but at least the sparkline renders. The recommended fix for users is to
+          // choose a time field from the same source as the value field.
           const timeOnAnchorSource = !timeFieldSourceId || timeFieldSourceId !== widget.sourceId;
           sparklineRows = timeOnAnchorSource ? grainAnchoredRows : rows;
         } else if (timeFieldSourceId && timeFieldSourceId !== widget.sourceId) {

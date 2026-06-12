@@ -43,9 +43,12 @@ export type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 // locally (mirrored in @mui/x-studio for UI consumers).
 export type {
   StudioAISkill,
+  SkillExecuteResult,
   SerializableSkill,
   StateMutation,
   StudioAIToolName,
+  StudioDataResolver,
+  StudioDataResolverResult,
 } from './models/aiTypes';
 
 // Prompt builder and tool definitions — consumed by the server

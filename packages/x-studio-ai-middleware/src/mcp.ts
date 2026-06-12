@@ -46,10 +46,13 @@ import {
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
+  SubscribeRequestSchema,
+  UnsubscribeRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import { executeToolOnState } from './executeToolOnState';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
+import { serializeFieldForAI } from './buildAISystemPrompt';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 
 export type { StudioState, StudioCustomWidgetDef };
@@ -361,8 +364,20 @@ export function buildStudioMcpServer(
 
   const server = new Server(
     { name: serverName, version: serverVersion },
-    { capabilities: { tools: {}, resources: {} } },
+    {
+      capabilities: {
+        tools: {},
+        resources: {
+          subscribe: true,      // clients can subscribe to specific resource URIs
+          listChanged: true,    // server can notify when resource list changes
+        },
+        completions: {},        // enables URI-template variable autocomplete
+      },
+    },
   );
+
+  // Track subscribed resource URIs for state-change notifications.
+  const subscribedUris = new Set<string>();
 
   // Determine which dashboard-mutation tools to expose.
   // - By default, exclude tools that require live client-side row data.
@@ -485,6 +500,21 @@ export function buildStudioMcpServer(
       // Persist the updated state — next tool call in this session sees it.
       stateBox.current = result.nextState;
 
+      // Notify any subscribed clients that the dashboard state has changed.
+      if (result.mutation) {
+        const urisToNotify = [
+          'studio://dashboard/state',
+          'studio://dashboard/system-prompt',
+        ];
+        for (const uri of urisToNotify) {
+          if (subscribedUris.has(uri)) {
+            server.sendResourceUpdated({ uri }).catch(() => {
+              // Swallow errors — client may have disconnected
+            });
+          }
+        }
+      }
+
       const responsePayload: Record<string, unknown> = { output: result.output };
       if (result.mutation) {
         responsePayload.mutation = result.mutation;
@@ -503,8 +533,17 @@ export function buildStudioMcpServer(
 
   // ── resources/list ───────────────────────────────────────────────────────
 
-  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-    resources: [
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    const schemaResources = Object.values(stateBox.current.dataSources)
+      .filter((s) => !s.hidden)
+      .map((s) => ({
+        uri: `studio://schema/${s.id}`,
+        name: `${s.label} Schema`,
+        description: `Field definitions for the ${s.label} data source (sourceId: "${s.id}").`,
+        mimeType: 'application/json',
+      }));
+
+    const staticResources = [
       {
         uri: 'studio://dashboard/state',
         name: 'Dashboard State',
@@ -520,8 +559,22 @@ export function buildStudioMcpServer(
           'Useful for understanding the current context when building prompts.',
         mimeType: 'text/plain',
       },
-    ],
-  }));
+      ...(data
+        ? [
+            {
+              uri: 'studio://dashboard/data-health',
+              name: 'Data Health',
+              description:
+                'Row counts for all configured data sources. ' +
+                'Read this before querying to understand data scale.',
+              mimeType: 'application/json',
+            },
+          ]
+        : []),
+    ];
+
+    return { resources: [...staticResources, ...schemaResources] };
+  });
 
   // ── resources/read ───────────────────────────────────────────────────────
 
@@ -552,7 +605,99 @@ export function buildStudioMcpServer(
       };
     }
 
-    throw new Error(`Unknown resource URI: ${uri}`);
+    if (uri === 'studio://dashboard/data-health') {
+      if (!data) {
+        throw new Error('Data access is not configured for this MCP server instance.');
+      }
+      const counts: Record<string, number> = {};
+      const errors: Record<string, string> = {};
+      await Promise.all(
+        Object.values(stateBox.current.dataSources)
+          .filter((s) => !s.hidden && s.tableName)
+          .map(async (s) => {
+            try {
+              const result = await data.queryDataSource({
+                sourceId: s.id,
+                tableName: s.tableName as string,
+                aggregations: [{ column: '*', func: 'count', alias: 'count' }],
+                limit: 1,
+              });
+              const row = result.rows[0];
+              counts[s.id] = Number(row?.count ?? result.rowCount ?? 0);
+            } catch (err) {
+              errors[s.id] = String(err);
+            }
+          }),
+      );
+      return {
+        contents: [
+          {
+            uri,
+            text: JSON.stringify(
+              { counts, ...(Object.keys(errors).length > 0 && { errors }) },
+              null,
+              2,
+            ),
+            mimeType: 'application/json',
+          },
+        ],
+      };
+    }
+
+    // studio://schema/{sourceId} — field metadata for a specific source
+    if (uri.startsWith('studio://schema/')) {
+      const sourceId = uri.slice('studio://schema/'.length);
+      const source = stateBox.current.dataSources[sourceId];
+      if (!source) {
+        throw new Error(`Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`);
+      }
+      const visibleFields = source.fields.filter((f) => !f.hidden);
+      return {
+        contents: [
+          {
+            uri,
+            text: JSON.stringify(
+              {
+                id: source.id,
+                label: source.label,
+                tableName: source.tableName,
+                description: source.aiDescription,
+                fields: visibleFields.map((f) => ({
+                  id: f.id,
+                  label: f.label,
+                  type: f.type,
+                  ...(f.format && { format: f.format }),
+                  ...(f.capabilities?.length && { capabilities: f.capabilities }),
+                  ...(f.defaultAggregationFn && { defaultAggregationFn: f.defaultAggregationFn }),
+                  ...(f.aiDescription && { description: f.aiDescription }),
+                  ...(source.fieldDistinctValues?.[f.id] && {
+                    sampleValues: source.fieldDistinctValues[f.id].slice(0, 8),
+                  }),
+                  serialized: serializeFieldForAI(f, source.fieldDistinctValues?.[f.id]),
+                })),
+              },
+              null,
+              2,
+            ),
+            mimeType: 'application/json',
+          },
+        ],
+      };
+    }
+
+    throw new Error(`Unknown resource URI: "${uri}". Use resources/list to discover available URIs.`);
+  });
+
+  // ── resources/subscribe + unsubscribe ────────────────────────────────────
+
+  server.setRequestHandler(SubscribeRequestSchema, async (request) => {
+    subscribedUris.add(request.params.uri);
+    return {};
+  });
+
+  server.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
+    subscribedUris.delete(request.params.uri);
+    return {};
   });
 
   return server;

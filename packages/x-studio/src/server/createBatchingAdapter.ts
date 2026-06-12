@@ -423,6 +423,21 @@ function resolveField(
           if (isJoinExpression(relatedExprField.expression)) {
             // Hop 2: exprField's source → the expression's join target
             const { joinSourceId, fieldId: joinFieldId } = relatedExprField.expression;
+
+            // Special case: hop 2 lands back on the primary source (e.g. expr-order-country
+            // defined on ORDERS with joinSourceId=CUSTOMERS, applied to a CUSTOMERS widget).
+            // The final column (e.g. customers.country) is already in the primary table —
+            // only emit hop 1 (primary → exprSource) if we actually need the intermediate
+            // table for a column. Here the physical column is on the primary table itself,
+            // so NO joins are needed at all.
+            if (joinSourceId === primarySourceId) {
+              return {
+                column: fieldId,
+                physicalColumn: `${primaryTableName}.${joinFieldId}`,
+                joins: [],
+              };
+            }
+
             const joinSource = dataSources[joinSourceId];
             if (joinSource) {
               const joinTable = joinSource.tableName ?? joinSourceId;

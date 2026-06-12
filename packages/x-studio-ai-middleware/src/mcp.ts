@@ -155,9 +155,10 @@ export interface StudioMcpOptions {
   serverVersion?: string;
   /**
    * Subset of STUDIO_AI_TOOL names to expose via MCP.
-   * When omitted, all tools except `summarise_page` are registered.
-   * `summarise_page` requires live row data not available server-side; pass it
-   * explicitly in `allowedTools` only if you have a custom handler for it.
+   * When omitted, all tools except `summarise_page` and `execute_query` are registered.
+   * - `summarise_page` requires live row data only available client-side.
+   * - `execute_query` runs raw SQL against a live DB connection — opt in explicitly
+   *   only if your server validates and sandboxes the queries.
    */
   allowedTools?: string[];
   /**
@@ -829,24 +830,29 @@ export function buildStudioMcpServer(
   // Returns sourceId completions when clients type studio://schema/ or studio://data/.
 
   server.setRequestHandler(CompleteRequestSchema, async (request) => {
-    const ref = request.params.ref;
-    // Only handle ResourceReference completions
+    const { ref, argument } = request.params;
+    // Only handle resource template completions
     if (ref.type !== 'ref/resource') {
-      return { completion: { values: [] } };
+      return { completion: { values: [], total: 0, hasMore: false } };
     }
-    const partial = ref.uri ?? '';
+    // argument.value is the partial string the user has typed so far
+    const partial = argument.value ?? '';
     const sourceIds = Object.keys(stateBox.current.dataSources).filter(
       (id) => !stateBox.current.dataSources[id].hidden,
     );
 
     let matches: string[] = [];
-    if (partial.startsWith('studio://schema/')) {
-      const fragment = partial.slice('studio://schema/'.length);
+    if (ref.uri.startsWith('studio://schema/') || partial.startsWith('studio://schema/')) {
+      const fragment = partial.startsWith('studio://schema/')
+        ? partial.slice('studio://schema/'.length)
+        : partial;
       matches = sourceIds
         .filter((id) => id.startsWith(fragment))
         .map((id) => `studio://schema/${id}`);
-    } else if (partial.startsWith('studio://data/')) {
-      const fragment = partial.slice('studio://data/'.length);
+    } else if (ref.uri.startsWith('studio://data/') || partial.startsWith('studio://data/')) {
+      const fragment = partial.startsWith('studio://data/')
+        ? partial.slice('studio://data/'.length)
+        : partial;
       matches = sourceIds
         .filter((id) => id.startsWith(fragment) && stateBox.current.dataSources[id].tableName)
         .map((id) => `studio://data/${id}`);

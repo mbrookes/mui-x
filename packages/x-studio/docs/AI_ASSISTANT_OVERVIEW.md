@@ -278,19 +278,21 @@ export async function generateWidgetInsight(
   widgetId: string,
   controller: StudioController,
   aiConfig: StudioAIConfig,
-  options: StudioInsightOptions, // type: 'summary' | 'analysis' | 'forecast'
+  options: StudioInsightOptions, // type: 'summary' | 'analysis' | 'forecast' | 'anomaly' | 'correlation'
 ): Promise<StudioInsightResult>;
 ```
 
 1. Reads widget config + data source fields from `controller.getState()`
-2. Calls `buildWidgetDataSummary(widgetId, controller, aiConfig, { sampling: 'aggregate' })`
+2. For `type === 'correlation'`, delegates to `generateCorrelationInsight` (see 5.4)
+3. Otherwise calls `buildWidgetDataSummary(widgetId, controller, aiConfig, { sampling: 'aggregate' })`
    — produces a CSV-format data preamble (max 100 rows after aggregation)
-3. Builds `userPrompt` combining: widget descriptor string + CSV preamble + per-type instruction
+4. Builds `userPrompt` combining: widget descriptor string + CSV preamble + per-type instruction
    - `summary`: "Provide a concise plain-language summary..."
    - `analysis`: "Identify trends, patterns, and notable observations..."
    - `forecast`: "Provide a short-range forecast for the next N periods..."
-4. `fetch(aiConfig.endpoint, { stream: false, messages: [system, user] })`
-5. Returns `{ text: response.choices[0].message.content }`
+   - `correlation`: delegates to `generateCorrelationInsight` which sends Pearson r matrix
+5. `fetch(aiConfig.endpoint, { stream: false, messages: [system, user] })`
+6. Returns `{ text: response.choices[0].message.content }`
 
 ### 5.2 `generateDashboardSummary`
 
@@ -796,7 +798,9 @@ export function handleAIChat(
 | `headers` | `Record<string,string>?` | Extra headers forwarded to LLM |
 | `onToolError` | `(name, err) => void?` | Called on tool execution error |
 | `signal` | `AbortSignal?` | Cancellation signal |
-| `skillHandlers` | `StudioAISkill[]?` | Server-side skill handlers with `execute` functions. The `skills` in the POST body carry only serialisable metadata; pass the full `StudioAISkill` instances here so the loop can call `execute` for `server-tool` skills. |
+| `skillHandlers` | `StudioAISkill[]?` | Server-side skill handlers with `execute` functions. The `skills` in the POST body carry only serialisable metadata; pass the full `StudioAISkill` instances here so the loop can call `execute` for `server-tool` skills. Skill `execute` may be sync or async. |
+| `dataResolver` | `StudioDataResolver?` | App-provided resolver for the `execute_query` tool. When set, the AI can run ad-hoc SQL queries and incorporate live data into responses. |
+| `privateMode` | `boolean?` | When `true`, the `<dashboard_state>` block is omitted from the system prompt. The model receives static instructions and skill metadata only. Use for dashboards with sensitive data. |
 
 The host wraps it in whatever route handler it uses. See section 12 of the README for examples.
 
@@ -818,7 +822,7 @@ interface ToolExecutionResult {
 }
 ```
 
-Covers all 17 built-in tools. State mutations are pure — no controller, no side effects.
+Covers all 20 built-in tools. State mutations are pure — no controller, no side effects.
 
 **Key differences from client-side `executeTool`:**
 

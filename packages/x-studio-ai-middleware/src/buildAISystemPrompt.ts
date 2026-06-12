@@ -112,7 +112,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     }
     if (cfg.ySeries?.length) {
       parts.push(
-        `ySeries: [${cfg.ySeries.map((s) => `${s.fieldId}(${s.yAggregation ?? 'sum'})`).join(', ')}]`,
+        `ySeries: [${cfg.ySeries.map((s) => `${s.fieldId}(${(s as any).yAggregation ?? 'sum'})`).join(', ')}]`,
       );
     }
     if (cfg.seriesField) {

@@ -413,7 +413,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         event.dataTransfer.effectAllowed = 'all';
       }
 
-// Create a wrapper container for the drag image that we can style
+      // Create a wrapper container for the drag image that we can style
       const ghostWrapper = document.createElement('div');
       ghostWrapper.style.position = 'fixed';
       ghostWrapper.style.left = '-9999px';
@@ -423,21 +423,21 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       if (node) {
         const { x, y } = dragOffsetRef.current;
         const ghost = node.cloneNode(true) as HTMLElement;
-        
+
         const overlayEl = ghost.querySelector<HTMLElement>('[data-widget-overlay]');
         if (overlayEl) {
           overlayEl.style.visibility = 'hidden';
         }
-        
+
         // --- CRITICAL FIX 1: Strip positioning ---
         // Force the clone to sit exactly at the 0,0 origin of the wrapper
         // by clearing any transforms or positional properties it inherited.
-        ghost.style.position = 'relative'; 
+        ghost.style.position = 'relative';
         ghost.style.top = '0px';
         ghost.style.left = '0px';
         ghost.style.right = 'auto';
         ghost.style.bottom = 'auto';
-        ghost.style.transform = 'none'; 
+        ghost.style.transform = 'none';
         ghost.style.margin = '0px';
 
         // Apply dimensions and styles
@@ -453,8 +453,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         document.body.appendChild(ghostWrapper);
 
         event.dataTransfer?.setDragImage(ghostWrapper, x, y);
-        
-        // setTimeout guarantees the browser has enough time to snapshot the element 
+
+        // setTimeout guarantees the browser has enough time to snapshot the element
         // before it is removed from the DOM.
         setTimeout(() => {
           if (document.body.contains(ghostWrapper)) {
@@ -463,7 +463,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           // Dim original widget
           node.style.opacity = '0.1';
         }, 10);
-        
+
         requestAnimationFrame(() => {
           document.body.removeChild(ghostWrapper);
         });
@@ -633,7 +633,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           borderRadius:
             pageTheme?.cardRadius !== undefined ? `${pageTheme.cardRadius}px` : undefined,
           backgroundColor: pageTheme?.cardBackground ?? undefined,
-          cursor: isDragging ? 'grabbing' : 'pointer',
+          cursor: isDragging ? 'move' : 'default',
           p: pageTheme?.cardPadding ?? 2,
           boxSizing: 'border-box',
           height: '100%',
@@ -662,7 +662,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           overlayTopSx={overlayTopSx}
           moveToPageOptions={moveToPageOptions}
           onAiRequest={onAiRequest ? () => onAiRequest(widgetId) : undefined}
-          onInsightRequest={aiConfig?.endpoint && supportsInsight ? handleInsightRequest : undefined}
+          onInsightRequest={
+            aiConfig?.endpoint && supportsInsight ? handleInsightRequest : undefined
+          }
           anomalyEnabled={anomalyEnabled}
           anomalyCount={anomalyAnnotations.length}
           onAnomalyToggle={isChart ? handleAnomalyToggle : undefined}
@@ -900,7 +902,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
               <IconButton
                 size="small"
                 onClick={() => setExpanded(false)}
-                aria-label="Close expanded chart"
+                aria-label={localeText.widgetCardCloseExpandedAriaLabel}
                 sx={{ flexShrink: 0 }}
               >
                 <CloseIcon />
@@ -916,7 +918,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                 <IconButton
                   size="small"
                   onClick={() => exportChartToPng(widget, chartExpandContainerRef.current)}
-                  aria-label="Export expanded chart as PNG"
+                  aria-label={localeText.widgetCardExportPngAriaLabel}
                 >
                   <DownloadIcon fontSize="small" />
                 </IconButton>

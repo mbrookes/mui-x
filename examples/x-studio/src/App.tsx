@@ -567,7 +567,12 @@ export default function App() {
       relationships: state.relationships,
       expressionFields: state.expressionFields,
     });
-    const crmAdapter = createBatchingAdapter(crmEndpoint, { fetchFn });
+    const crmAdapter = createBatchingAdapter(crmEndpoint, {
+      fetchFn,
+      dataSources: state.dataSources,
+      relationships: state.relationships,
+      expressionFields: state.expressionFields,
+    });
 
     for (const source of Object.values(state.dataSources)) {
       const adapter = source.id.startsWith('source-crm-') ? crmAdapter : salesAdapter;

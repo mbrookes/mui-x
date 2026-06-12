@@ -42,6 +42,9 @@ import { StudioFiltersDrawer } from '../StudioFiltersDrawer';
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioBackendAdapter';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
+import { DndProvider } from 'react-dnd';
+import { HTML5Backend } from 'react-dnd-html5-backend';
+import { StudioDragLayer } from '../StudioCanvas/StudioDragLayer';
 
 // Lazy-load the chat panel so @base-ui/react/menu (and the full @mui/x-chat
 // bundle) are not downloaded until the user opens the AI panel for the first time.
@@ -577,17 +580,20 @@ export const Studio = React.memo(
     );
 
     return (
-      <StudioProvider
-        controller={controller}
-        tableSourceMode={tableSourceMode}
-        featureFlags={featureFlags}
-        localeText={localeText}
-        aiConfig={aiConfig}
-        customWidgets={customWidgets}
-        geographies={geographies}
-      >
-        <StudioContent {...slots} />
-      </StudioProvider>
+      <DndProvider backend={HTML5Backend}>
+        <StudioDragLayer />
+        <StudioProvider
+          controller={controller}
+          tableSourceMode={tableSourceMode}
+          featureFlags={featureFlags}
+          localeText={localeText}
+          aiConfig={aiConfig}
+          customWidgets={customWidgets}
+          geographies={geographies}
+        >
+          <StudioContent {...slots} />
+        </StudioProvider>
+      </DndProvider>
     );
     // Note: sidebarSide is included in {...slots} via the StudioProps spread
   }),

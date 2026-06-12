@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import type { SxProps, Theme } from '@mui/material';
-import { Box, GlobalStyles, Paper, Typography } from '@mui/material';
+import { Box, Paper, Typography } from '@mui/material';
 
 import {
   useStudioController,
@@ -18,6 +18,13 @@ import type { StudioWidget } from '../../models/widgetTypes';
 import type { StudioPage } from '../../models/widgetTypes';
 import { StudioQuickFilterBar } from './StudioQuickFilterBar';
 import { StudioDateRangeBar } from './StudioDateRangeBar';
+import { useDrop } from 'react-dnd';
+import {
+  ACCEPTED_DRAG_TYPES,
+  DRAG_TYPE_CANVAS_WIDGET,
+  DRAG_TYPE_COMPOSE_WIDGET,
+  type StudioDragItem,
+} from './studioWidgetDndTypes';
 
 /** Total column count for the widget resize grid. */
 const GRID_COLS = 24;
@@ -97,7 +104,7 @@ function InsertionPoint({
   rowIndex: number;
   colIndex: number;
   onDrop: (
-    data: any,
+    data: StudioDragItem,
     rowIndex: number,
     colIndex: number,
     orientation: 'horizontal' | 'vertical',
@@ -106,76 +113,29 @@ function InsertionPoint({
   mode: string;
   widgetRowsRef: React.RefObject<string[][] | undefined>;
 }) {
-  const ref = React.useRef<HTMLDivElement>(null);
-  const [isOver, setIsOver] = React.useState(false);
-  // Keep a ref to the latest position values so the effect can capture them
-  // without listing them as deps (position never causes listener re-registration).
   const posRef = React.useRef({ rowIndex, colIndex, orientation });
   posRef.current = { rowIndex, colIndex, orientation };
 
-  // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- setIsOver calls are in separate DOM event handlers, not cascading setState
-  React.useEffect(() => {
-    // No-op in view mode
-    if (mode !== 'edit') {
-      return undefined;
-    }
-    const node = ref.current;
-    if (!node) {
-      return undefined;
-    }
-    function handleDragOver(event: DragEvent) {
-      // Only respond to widget drags — ignore tab reorder and other drag types
-      if (!Array.from(event.dataTransfer?.types ?? []).includes('application/json')) {
-        return;
-      }
-      // Only vertical insertion points can be adjacent to the dragged widget;
-      // horizontal row-level points are never flanking a widget (BL-112)
+  const [{ isOver }, dropRef] = useDrop<StudioDragItem, void, { isOver: boolean }>({
+    accept: ACCEPTED_DRAG_TYPES,
+    canDrop: () => {
+      if (mode !== 'edit') return false;
       const { rowIndex: myRow, colIndex: myCol, orientation: myOrientation } = posRef.current;
       if (myOrientation === 'vertical' && isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef)) {
-        return;
+        return false;
       }
-      event.preventDefault();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'move';
-      }
-      setIsOver(true);
-    }
-    function handleDragLeave(event: DragEvent) {
-      // Ignore if the pointer moved to a child element (e.g. the indicator line)
-      if (node?.contains(event.relatedTarget as Node)) {
-        return;
-      }
-      setIsOver(false);
-    }
-    function handleDropEvent(event: DragEvent) {
-      if (!Array.from(event.dataTransfer?.types ?? []).includes('application/json')) {
-        return;
-      }
-      setIsOver(false);
-      try {
-        const data = JSON.parse(event.dataTransfer?.getData('application/json') || '{}');
-        const { rowIndex: r, colIndex: c, orientation: o } = posRef.current;
-        onDrop(data, r, c, o);
-      } catch {
-        /* ignore invalid JSON */
-      }
-    }
-    node.addEventListener('dragover', handleDragOver);
-    node.addEventListener('dragleave', handleDragLeave);
-    node.addEventListener('drop', handleDropEvent);
-    return () => {
-      node.removeEventListener('dragover', handleDragOver);
-      node.removeEventListener('dragleave', handleDragLeave);
-      node.removeEventListener('drop', handleDropEvent);
-    };
-    // onDrop is now a stable useCallback; mode changes require listener re-registration.
-    // rowIndex/colIndex/orientation are read from posRef so excluded from deps.
-    // react-doctor-disable-next-line react-doctor/prefer-use-effect-event
-  }, [onDrop, mode, widgetRowsRef]);
+      return true;
+    },
+    drop: (item) => {
+      const { rowIndex: r, colIndex: c, orientation: o } = posRef.current;
+      onDrop(item, r, c, o);
+    },
+    collect: (monitor) => ({ isOver: monitor.isOver() && monitor.canDrop() }),
+  });
   // Only show the line when hovered, otherwise invisible and non-interfering
   return (
     <Box
-      ref={ref}
+      ref={(el) => { dropRef(el as HTMLElement | null); }}
       data-studio-drop-active={isOver ? '' : undefined}
       sx={{
         position: 'relative',
@@ -393,7 +353,7 @@ function WidgetGap({
 }: {
   rowIndex: number;
   colIndex: number;
-  onDrop: (data: any, rowIndex: number, colIndex: number, orientation: 'vertical') => void;
+  onDrop: (data: StudioDragItem, rowIndex: number, colIndex: number, orientation: 'vertical') => void;
   showResizeHandle: boolean;
   leftId: string;
   rightId?: string;
@@ -405,61 +365,26 @@ function WidgetGap({
   onDragMove: (leftId: string, rightId: string, leftSpanLive: number) => void;
   onDragEnd: (leftId: string, rightId: string, leftSpan: number, rightSpan: number) => void;
 }) {
-  const [isOver, setIsOver] = React.useState(false);
   const posRef = React.useRef({ rowIndex, colIndex });
   posRef.current = { rowIndex, colIndex };
 
-  const handleDragOver = React.useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      // Only respond to widget drags — ignore tab reorder and other drag types
-      if (!Array.from(event.dataTransfer.types).includes('application/json')) {
-        return;
-      }
-      // Don't activate the two gaps flanking the dragged widget (BL-112)
+  const [{ isOver }, dropRef] = useDrop<StudioDragItem, void, { isOver: boolean }>({
+    accept: ACCEPTED_DRAG_TYPES,
+    canDrop: () => {
       const { rowIndex: myRow, colIndex: myCol } = posRef.current;
-      if (isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef)) {
-        return;
-      }
-      event.preventDefault();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'move';
-      }
-      setIsOver(true);
+      return !isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef);
     },
-    [widgetRowsRef],
-  );
-
-  const handleDragLeave = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    // Ignore moves into descendant elements to prevent indicator flicker
-    if ((event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) {
-      return;
-    }
-    setIsOver(false);
-  }, []);
-
-  const handleDrop = React.useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      if (!Array.from(event.dataTransfer.types).includes('application/json')) {
-        return;
-      }
-      setIsOver(false);
-      try {
-        const data = JSON.parse(event.dataTransfer?.getData('application/json') || '{}');
-        const { rowIndex: r, colIndex: c } = posRef.current;
-        onDrop(data, r, c, 'vertical');
-      } catch {
-        /* ignore invalid JSON */
-      }
+    drop: (item) => {
+      const { rowIndex: r, colIndex: c } = posRef.current;
+      onDrop(item, r, c, 'vertical');
     },
-    [onDrop],
-  );
+    collect: (monitor) => ({ isOver: monitor.isOver() && monitor.canDrop() }),
+  });
 
   return (
     <Box
+      ref={(el) => { dropRef(el as HTMLElement | null); }}
       data-gap
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
       sx={{
         position: 'relative',
         flexShrink: 0,
@@ -670,11 +595,11 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
 
   // Stable drop handler — useCallback with only [controller] as dep.
   const handleDrop = React.useCallback(
-    (data: any, rowIndex: number, colIndex: number, orientation: 'horizontal' | 'vertical') => {
+    (data: StudioDragItem, rowIndex: number, colIndex: number, orientation: 'horizontal' | 'vertical') => {
       const currentRows = widgetRowsRef.current;
       const activePageId = controller.getState().dashboard.activePageId;
 
-      if (data?.type === 'compose-widget' && data.kind) {
+      if (data.type === DRAG_TYPE_COMPOSE_WIDGET && data.kind) {
         const sources = Object.values(controller.getState().dataSources);
         if (widgetKindRequiresDataSource(data.kind) && sources.length === 0) {
           return;
@@ -698,7 +623,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           },
           shell: { ...state.shell, selectedWidgetId: newWidget.id },
         });
-      } else if (data?.type === 'canvas-widget' && data.widgetId) {
+      } else if (data.type === DRAG_TYPE_CANVAS_WIDGET && data.widgetId) {
         const widgetId: string = data.widgetId;
         const sourcePageId: string | undefined = data.sourcePageId;
         const isCrossPage = sourcePageId != null && sourcePageId !== activePageId;
@@ -806,23 +731,6 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
 
   return (
     <React.Fragment>
-      {/* Force move cursor across all elements during a widget drag.
-          CSS alone cannot override the native HTML5 DnD cursor on macOS/Chrome.
-          The documentElement inline style (set on mousedown, before Chrome locks
-          the DnD cursor) is what actually overrides the OS cursor. The GlobalStyles
-          here acts as a fallback for other browsers and keeps the CSS layer aligned.
-          Drop zones override with copy ("+") when hovered. */}
-      <GlobalStyles
-        styles={{
-          'body.x-studio-dragging-widget, body.x-studio-dragging-widget *': {
-            cursor: 'move !important',
-          },
-          'body.x-studio-dragging-widget [data-studio-drop-active], body.x-studio-dragging-widget [data-studio-drop-active] *':
-            {
-              cursor: 'copy !important',
-            },
-        }}
-      />
       <Box
         ref={canvasRef}
         sx={[

@@ -187,7 +187,7 @@ function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }: EdgeLa
         fill="none"
         stroke="transparent"
         strokeWidth={12}
-        style={{ cursor: 'pointer' }}
+        style={{ cursor: 'default' }}
         onClick={(event) => setAnchorEl(event.currentTarget as SVGElement)}
       />
       {/* Visible edge */}
@@ -201,7 +201,7 @@ function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }: EdgeLa
       />
       {/* Label badge */}
       <g
-        style={{ cursor: 'pointer' }}
+        style={{ cursor: 'default' }}
         onClick={(event) => setAnchorEl(event.currentTarget as SVGElement)}
       >
         <rect
@@ -350,7 +350,7 @@ export function DataLineageGraph({ sources, relationships, onNodeClick }: DataLi
             role={onNodeClick ? 'button' : undefined}
             tabIndex={onNodeClick ? 0 : undefined}
             aria-label={onNodeClick ? `Preview ${node.label}` : undefined}
-            style={onNodeClick ? { cursor: 'pointer' } : undefined}
+            style={onNodeClick ? { cursor: 'default' } : undefined}
           >
             <rect
               x={node.x}

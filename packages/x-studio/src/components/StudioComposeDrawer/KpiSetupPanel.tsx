@@ -103,7 +103,7 @@ function CollapsibleFeatureSection({
           gap: 0.5,
           px: 1,
           py: 0.5,
-          cursor: 'pointer',
+          cursor: 'default',
           userSelect: 'none',
         }}
       >

@@ -38,7 +38,12 @@ const ordersSourceRaw: StudioDataSource = {
     { id: 'id', label: 'Order ID', type: 'string', hidden: true },
     { id: 'date', label: 'Order Date', type: 'date' },
     { id: 'customerId', label: 'Customer ID', type: 'string' },
-    { id: 'status', label: 'Status', type: 'string' },
+    {
+      id: 'status',
+      label: 'Status',
+      type: 'string',
+      orderedValues: ['Pending', 'Processing', 'Shipped', 'Partially Delivered', 'Delivered', 'Cancelled'],
+    },
     { id: 'currency', label: 'Currency', type: 'string' },
     { id: 'total', label: 'Order Total', type: 'number', format: 'currency' },
   ],

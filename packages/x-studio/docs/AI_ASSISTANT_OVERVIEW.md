@@ -19,7 +19,9 @@ applications: `examples/x-studio`, `examples/x-studio-composed`, and `examples/x
    - 5.1 `generateWidgetInsight`
    - 5.2 `generateDashboardSummary`
    - 5.3 `generateAnomalyExplanation`
-   - 5.4 `buildWidgetDataSummary` — sampling strategies
+   - 5.4 `generateCorrelationInsight` — Pearson r analysis
+   - 5.5 `generateFieldDescriptions` (server-side)
+   - 5.6 `buildWidgetDataSummary` — sampling strategies
 6. [Widget Creation from Description](#6-widget-creation-from-description)
 7. [StudioController — State Mutations](#7-studiocontroller--state-mutations)
 8. [Data Query Pipeline — `useWidgetRows`](#8-data-query-pipeline--usewidgetrows)

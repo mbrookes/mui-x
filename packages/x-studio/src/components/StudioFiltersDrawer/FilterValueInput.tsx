@@ -525,14 +525,14 @@ export function FilterValueInput(props: {
   if (fieldType === 'boolean') {
     return (
       <FormControl size="small" sx={{ minWidth: 90, flexGrow: 1 }}>
-        <InputLabel>Value</InputLabel>
+        <InputLabel>{localeText.filterValueLabel}</InputLabel>
         <Select
           label={localeText.filterValueLabel}
           value={strVal}
           onChange={(event) => onChange(event.target.value)}
         >
-          <MenuItem value="true">True</MenuItem>
-          <MenuItem value="false">False</MenuItem>
+          <MenuItem value="true">{localeText.filterBooleanTrue}</MenuItem>
+          <MenuItem value="false">{localeText.filterBooleanFalse}</MenuItem>
         </Select>
       </FormControl>
     );

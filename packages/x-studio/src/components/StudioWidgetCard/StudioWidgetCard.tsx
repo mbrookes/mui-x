@@ -262,8 +262,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     [widgetId, controller, aiConfig],
   );
 
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional: abort on unmount only
   React.useEffect(() => {
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional: abort the current in-flight request at unmount time
     return () => {
       insightAbortRef.current?.abort();
     };
@@ -286,8 +286,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     });
   }, []);
 
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional: abort on unmount only
   React.useEffect(() => {
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional: abort the current in-flight request at unmount time
     return () => {
       anomalyExplainAbortRef.current?.abort();
     };

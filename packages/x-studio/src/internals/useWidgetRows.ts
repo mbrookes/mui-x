@@ -152,7 +152,7 @@ export function useWidgetRows(
       return null;
     }
     return buildQueryDescriptor(widget, filters, activePageId, dataSource?.tableName);
-  }, [hasAdapter, widget, filters, activePageId]);
+  }, [hasAdapter, widget, filters, activePageId, dataSource]);
 
   // Async state: rows fetched from adapter.
   const [adapterRows, setAdapterRows] = React.useState<Row[]>(() => {

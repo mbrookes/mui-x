@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Box, Typography, useTheme } from '@mui/material';
 import { formatNumber } from '../../../internals/numberFormat';
 import { type PivotMatrix, resolveAgg } from './pivotUtils';
+import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 
 const CELL_W = 90;
 const LABEL_W = 140;
@@ -24,6 +25,7 @@ const fmt = (v: number | null) => {
 
 export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProps) {
   const theme = useTheme();
+  const localeText = useStudioLocaleText();
 
   const headerBg =
     theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[100];
@@ -74,13 +76,13 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
       >
         <thead>
           <tr>
-            <th style={cornerStyle} aria-label="Row / column header" />
+            <th style={cornerStyle} aria-label={localeText.pivotCornerHeaderAriaLabel} />
             {matrix.colValues.map((cv) => (
               <th key={cv} style={headerStyle}>
-                {cv || '(blank)'}
+                {cv || localeText.pivotBlankValueLabel}
               </th>
             ))}
-            {showTotals && <th style={{ ...headerStyle, background: totalBg }}>Total</th>}
+            {showTotals && <th style={{ ...headerStyle, background: totalBg }}>{localeText.pivotTotalLabel}</th>}
           </tr>
         </thead>
         <tbody>
@@ -92,7 +94,7 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
             }
             return (
               <tr key={rv}>
-                <td style={{ ...labelStyle, background: rowBg }}>{rv || '(blank)'}</td>
+                <td style={{ ...labelStyle, background: rowBg }}>{rv || localeText.pivotBlankValueLabel}</td>
                 {matrix.colValues.map((cv) => (
                   <td key={cv} style={{ ...cellStyle, background: rowBg }}>
                     {fmt(resolveAgg(rowCells?.get(cv), aggFn))}
@@ -108,7 +110,7 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
           })}
           {showTotals && (
             <tr>
-              <td style={{ ...labelStyle, background: totalBg, fontWeight: 600 }}>Total</td>
+              <td style={{ ...labelStyle, background: totalBg, fontWeight: 600 }}>{localeText.pivotTotalLabel}</td>
               {matrix.colValues.map((cv) => (
                 <td key={cv} style={{ ...cellStyle, background: totalBg, fontWeight: 500 }}>
                   {fmt(resolveAgg(matrix.colTotals.get(cv), aggFn))}

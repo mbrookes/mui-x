@@ -23,6 +23,11 @@ export default function DataSourcePreviewTooltip({
   const [tooltipOpen, setTooltipOpen] = React.useState(false);
   const localeText = useStudioLocaleText();
 
+  const handleOpenPreviewClick = React.useCallback(() => {
+    setTooltipOpen(false);
+    onOpenPreview?.(source.id);
+  }, [onOpenPreview, source.id]);
+
   const rows = source.rows;
   if (!rows || rows.length === 0) {
     return children;
@@ -31,11 +36,6 @@ export default function DataSourcePreviewTooltip({
   const visibleFields = source.fields.filter((f) => !f.hidden).slice(0, DS_PREVIEW_COLS);
   const columnDelta = source.fields.filter((f) => !f.hidden).length - DS_PREVIEW_COLS;
   const previewRows = rows.slice(0, DS_PREVIEW_ROWS);
-
-  const handleOpenPreviewClick = React.useCallback(() => {
-    setTooltipOpen(false);
-    onOpenPreview?.(source.id);
-  }, [onOpenPreview, source.id]);
 
   const title = (
     <Stack spacing={0.5}>

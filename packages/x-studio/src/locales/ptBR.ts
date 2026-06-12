@@ -688,6 +688,27 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
 
   // Color input
   colorInputClearAriaLabel: (label) => `Limpar ${label.toLowerCase()}`,
+
+  // KPI widget
+  kpiTrendNewLabel: 'Novo',
+  kpiTrendTargetTooltip: (value) => `Meta: ${value}`,
+  kpiTrendPreviousPeriodTooltip: (period) => `Período anterior: ${period}`,
+  kpiTrendNoDateFilterHint: 'Adicione um filtro de data para mostrar a tendência.',
+  kpiSparklineNoTimeFieldHint:
+    'Adicione um filtro de data ou selecione um campo de tempo para mostrar o sparkline.',
+
+  // Chart widget
+  chartMixedRequiresFieldsHint: 'O gráfico misto requer 2 ou mais campos de medida.',
+  chartDefaultSeriesLabel: 'Valor',
+
+  // Map widget
+  widgetConfigureMapFieldHint: (fieldLabel) =>
+    `Use a aba Configuração para escolher um ${fieldLabel.toLowerCase()} e um campo de valor.`,
+
+  // Pivot table
+  pivotCornerHeaderAriaLabel: 'Cabeçalho de linha / coluna',
+  pivotBlankValueLabel: '(em branco)',
+  pivotTotalLabel: 'Total',
 };
 
 export const ptBR: Localization = getStudioLocalization(ptBRLocaleText);

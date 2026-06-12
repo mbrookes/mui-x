@@ -689,6 +689,35 @@ export interface StudioLocaleText {
   // ── Color input ───────────────────────────────────────────────────────────
   /** Returns e.g. "Clear background colour" */
   colorInputClearAriaLabel: (label: string) => string;
+
+  // ── KPI widget ─────────────────────────────────────────────────────────────
+  /** Label shown when the trend delta is infinite (no previous data) */
+  kpiTrendNewLabel: string;
+  /** Returns e.g. "Target: 5000" */
+  kpiTrendTargetTooltip: (value: number | string) => string;
+  /** Returns e.g. "Previous period: Q1 2024" */
+  kpiTrendPreviousPeriodTooltip: (period: string) => string;
+  /** Hint shown when a time field is needed to display the trend */
+  kpiTrendNoDateFilterHint: string;
+  /** Hint shown when a time field is needed to display the sparkline */
+  kpiSparklineNoTimeFieldHint: string;
+
+  // ── Chart widget ──────────────────────────────────────────────────────────
+  /** Error shown when a mixed chart has fewer than 2 measure fields */
+  chartMixedRequiresFieldsHint: string;
+  /** Fallback series label when no field label is available */
+  chartDefaultSeriesLabel: string;
+
+  // ── Map widget ────────────────────────────────────────────────────────────
+  /** Returns the unconfigured-map hint, e.g. "Use the Setup tab to choose a country field and a value field." */
+  widgetConfigureMapFieldHint: (fieldLabel: string) => string;
+
+  // ── Pivot table ───────────────────────────────────────────────────────────
+  pivotCornerHeaderAriaLabel: string;
+  /** Label shown for empty/null pivot dimension values */
+  pivotBlankValueLabel: string;
+  /** Label shown for the totals row/column */
+  pivotTotalLabel: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1361,6 +1390,26 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Color input
   colorInputClearAriaLabel: (label) => `Clear ${label.toLowerCase()}`,
+
+  // KPI widget
+  kpiTrendNewLabel: 'New',
+  kpiTrendTargetTooltip: (value) => `Target: ${value}`,
+  kpiTrendPreviousPeriodTooltip: (period) => `Previous period: ${period}`,
+  kpiTrendNoDateFilterHint: 'Add a date filter to show the trend.',
+  kpiSparklineNoTimeFieldHint: 'Add a date filter or select a time field to show a sparkline.',
+
+  // Chart widget
+  chartMixedRequiresFieldsHint: 'Mixed chart requires 2 or more measure fields.',
+  chartDefaultSeriesLabel: 'Value',
+
+  // Map widget
+  widgetConfigureMapFieldHint: (fieldLabel) =>
+    `Use the Setup tab to choose a ${fieldLabel.toLowerCase()} and a value field.`,
+
+  // Pivot table
+  pivotCornerHeaderAriaLabel: 'Row / column header',
+  pivotBlankValueLabel: '(blank)',
+  pivotTotalLabel: 'Total',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────
@@ -1439,8 +1488,8 @@ export function useCustomWidgetMap(): CustomWidgetMap {
   const { customWidgets } = useStudioUIConfig();
   return React.useMemo(
     () => new Map((customWidgets ?? []).map((d) => [d.kind, d])),
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- JSON.stringify proxy for deep equality
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- JSON.stringify proxy for deep equality
     [JSON.stringify(customWidgets?.map((d) => d.kind))],
   );
 }
@@ -1456,8 +1505,8 @@ export function useStudioGeographies(): Record<string, StudioMapGeographyDefinit
   const { geographies } = useStudioUIConfig();
   return React.useMemo(
     () => ({ ...BUILT_IN_GEOGRAPHY_DEFINITIONS, ...geographies }),
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- JSON.stringify proxy for deep equality
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- JSON.stringify proxy for deep equality
     [JSON.stringify(Object.keys(geographies ?? {}))],
   );
 }

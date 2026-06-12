@@ -115,7 +115,7 @@ export function KpiSparkline(props: KpiSparklineProps) {
   if (!timeFieldResolved) {
     return (
       <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
-        Add a date filter or select a time field to show a sparkline.
+        {localeText.kpiSparklineNoTimeFieldHint}
       </Typography>
     );
   }

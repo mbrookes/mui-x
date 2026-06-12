@@ -739,3 +739,14 @@ BL-174: Cursor appearance is inconsistent and non-standard. Keep it as the stand
 **Not changed (intentional):**
 - `GridSetupPanel` `cursor: grab` on column drag handles — these are column reorder handles in the Compose drawer, a different drag interaction
 - `col-resize` on `ResizeHandle` — correct and intentional
+
+✅ BL-175: Overview page Avg Unit Margin KPI widget sparkline causing SQL error: "no such column: date" on products table
+
+**Root cause:** `resolveField()` fallback (case 6) returned `{ column: fieldId }` when a field couldn't be resolved — meaning it wasn't in the primary source, not an expression field, and not in any directly related (one-hop) source. For `orders.date` used as a page-level date filter on the `products` widget (orders is 2 hops away via order_items), the unresolved `date` was emitted verbatim into the `WHERE` clause, producing `WHERE date >= '...'` on the `products` table.
+
+**Fixed:**
+- Added `unresolved?: boolean` to `ResolvedField` interface
+- Changed fallback from `{ column: fieldId }` to `{ column: fieldId, unresolved: true }`
+- Filter construction now checks `r.skip || r.unresolved` to drop unresolvable filter predicates silently
+- SELECT columns continue to pass through (backward-compatible; they don't typically cause SQL errors)
+- `resolveField` JSDoc updated with case 6 description

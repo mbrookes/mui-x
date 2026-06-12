@@ -50,6 +50,7 @@ import {
   UnsubscribeRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
+  CompleteRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import { executeToolOnState } from './executeToolOnState';
@@ -227,7 +228,12 @@ export interface StudioStateBox {
  * Tools that are registered in STUDIO_AI_TOOLS but are not suitable for MCP
  * because they require live widget row data only available client-side.
  */
-const DEFAULT_EXCLUDED_TOOLS = new Set(['summarise_page']);
+const DEFAULT_EXCLUDED_TOOLS = new Set([
+  'summarise_page',
+  // execute_query runs raw SQL against a live DB connection — not safe to expose
+  // via MCP without explicit opt-in. Add it to allowedTools if you need it.
+  'execute_query',
+]);
 
 /** JSON Schema for the `query_data_source` tool input. */
 const QUERY_DATA_SOURCE_SCHEMA = {
@@ -817,6 +823,36 @@ export function buildStudioMcpServer(
     }
 
     throw new Error(`Unknown prompt: "${name}".`);
+  });
+
+  // ── completion/complete — URI autocomplete ────────────────────────────────
+  // Returns sourceId completions when clients type studio://schema/ or studio://data/.
+
+  server.setRequestHandler(CompleteRequestSchema, async (request) => {
+    const ref = request.params.ref;
+    // Only handle ResourceReference completions
+    if (ref.type !== 'ref/resource') {
+      return { completion: { values: [] } };
+    }
+    const partial = ref.uri ?? '';
+    const sourceIds = Object.keys(stateBox.current.dataSources).filter(
+      (id) => !stateBox.current.dataSources[id].hidden,
+    );
+
+    let matches: string[] = [];
+    if (partial.startsWith('studio://schema/')) {
+      const fragment = partial.slice('studio://schema/'.length);
+      matches = sourceIds
+        .filter((id) => id.startsWith(fragment))
+        .map((id) => `studio://schema/${id}`);
+    } else if (partial.startsWith('studio://data/')) {
+      const fragment = partial.slice('studio://data/'.length);
+      matches = sourceIds
+        .filter((id) => id.startsWith(fragment) && stateBox.current.dataSources[id].tableName)
+        .map((id) => `studio://data/${id}`);
+    }
+
+    return { completion: { values: matches, total: matches.length, hasMore: false } };
   });
 
   return server;

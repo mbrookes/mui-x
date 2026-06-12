@@ -127,6 +127,17 @@ export interface StudioLocaleText {
   widgetKindPivot: string;
   widgetKindMap: string;
 
+  // ── Widget type descriptions (shown in compose drawer widget picker) ───────
+  widgetKindTextDescription: string;
+  widgetKindKpiDescription: string;
+  widgetKindChartDescription: string;
+  widgetKindGridDescription: string;
+  widgetKindFilterDescription: string;
+  widgetKindPivotDescription: string;
+  widgetKindMapDescription: string;
+  /** Fallback description for consumer-defined custom widget types. */
+  composeCustomWidgetDescription: string;
+
   // ── Data type labels ───────────────────────────────────────────────────────
   dataTypeString: string;
   dataTypeNumber: string;
@@ -396,6 +407,24 @@ export interface StudioLocaleText {
   inlineFormulaBarAddTooltip: string;
   inlineFormulaBarCloseAriaLabel: string;
   inlineFormulaBarLabelLabel: string;
+  inlineFormulaBarAutoHelperText: string;
+  inlineFormulaBarCancelButton: string;
+  inlineFormulaBarAddButton: string;
+
+  // ── Field detail view ─────────────────────────────────────────────────────
+  fieldDetailRowSourceId: string;
+  fieldDetailRowName: string;
+  fieldDetailRowDescription: string;
+  fieldDetailRowDataType: string;
+  fieldDetailRowCalculationType: string;
+  fieldDetailRowNoCalculation: string;
+  fieldDetailRowFormat: string;
+  fieldDetailNumberFormatLabel: string;
+  fieldDetailNumberFormatDefault: string;
+  fieldDetailFormatInteger: string;
+  fieldDetailFormatDecimal: string;
+  fieldDetailFormatPercent: string;
+  fieldDetailFormatCurrency: string;
 
   // ── Filters drawer ─────────────────────────────────────────────────────────────
   filtersDrawerRenameViewTooltip: string;
@@ -569,6 +598,16 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetKindFilter: 'Filter',
   widgetKindPivot: 'Pivot Table',
   widgetKindMap: 'Map',
+
+  // Widget type descriptions
+  widgetKindTextDescription: 'Title, subtitle, and body copy',
+  widgetKindKpiDescription: 'Single metric with aggregation',
+  widgetKindChartDescription: 'Visualise data with a configurable chart',
+  widgetKindGridDescription: 'Data grid with sorting & filtering',
+  widgetKindFilterDescription: 'Interactive filter control for view mode',
+  widgetKindPivotDescription: 'Cross-tabulation with row/column dimensions',
+  widgetKindMapDescription: 'Choropleth world map by country',
+  composeCustomWidgetDescription: 'Custom widget',
 
   // Data type labels
   dataTypeString: 'Text',
@@ -843,6 +882,24 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   inlineFormulaBarAddTooltip: 'Add a calculated formula field',
   inlineFormulaBarCloseAriaLabel: 'Close formula bar',
   inlineFormulaBarLabelLabel: 'Label',
+  inlineFormulaBarAutoHelperText: 'Auto-generated from the formula \u2014 edit to customise',
+  inlineFormulaBarCancelButton: 'Cancel',
+  inlineFormulaBarAddButton: 'Add',
+
+  // Field detail view
+  fieldDetailRowSourceId: 'Source ID',
+  fieldDetailRowName: 'Name',
+  fieldDetailRowDescription: 'Description',
+  fieldDetailRowDataType: 'Data Type',
+  fieldDetailRowCalculationType: 'Calculation Type',
+  fieldDetailRowNoCalculation: 'No Calculation',
+  fieldDetailRowFormat: 'Format',
+  fieldDetailNumberFormatLabel: 'Number Format',
+  fieldDetailNumberFormatDefault: 'Default',
+  fieldDetailFormatInteger: 'Integer',
+  fieldDetailFormatDecimal: 'Decimal',
+  fieldDetailFormatPercent: 'Percent',
+  fieldDetailFormatCurrency: 'Currency',
 
   // Filters drawer
   filtersDrawerRenameViewTooltip: 'Rename view',

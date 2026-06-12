@@ -22,7 +22,7 @@ export interface GenerateInsightOptions {
 
 export interface GenerateInsightRequest {
   /** The insight type requested by the client */
-  insightType: 'summary' | 'analysis' | 'forecast' | 'anomaly';
+  insightType: 'summary' | 'analysis' | 'forecast' | 'anomaly' | 'correlation';
   /** Widget kind (e.g. `'bar-chart'`, `'kpi'`) for context */
   widgetKind: string;
   /** Human-readable widget title */
@@ -47,6 +47,12 @@ const INSIGHT_SYSTEM_PROMPTS: Record<GenerateInsightRequest['insightType'], stri
     'You are a forecasting analyst. Based on the historical data provided, write a short 2–4 sentence forecast. Mention expected direction and any caveats. No preamble.',
   anomaly:
     'You are a data quality analyst. The following data contains one or more anomalies. Write a 2–3 sentence plain-English explanation of the anomaly and a likely cause. No preamble.',
+  correlation:
+    'You are a data analyst specialising in correlation analysis. ' +
+    'You will be given pairwise Pearson r values and a data sample. ' +
+    'Write a 3–5 sentence plain-English interpretation: explain what the correlations mean, ' +
+    'which relationships are strongest, whether they are positive or negative, ' +
+    'and any business implications. Be specific. No preamble.',
 };
 
 /**

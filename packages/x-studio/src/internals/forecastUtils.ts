@@ -263,3 +263,71 @@ export function computeWidgetForecast(
     lowerBand,
   };
 }
+
+// ── Correlation ───────────────────────────────────────────────────────────────
+
+/**
+ * Computes the Pearson correlation coefficient between two numeric arrays.
+ * Null values are excluded pairwise (only positions where both are non-null are used).
+ * Returns `null` when fewer than 2 valid pairs exist.
+ */
+export function pearsonCorrelation(
+  xs: (number | null)[],
+  ys: (number | null)[],
+): number | null {
+  const pairs: [number, number][] = [];
+  const n = Math.min(xs.length, ys.length);
+  for (let i = 0; i < n; i++) {
+    if (xs[i] != null && ys[i] != null) {
+      pairs.push([xs[i] as number, ys[i] as number]);
+    }
+  }
+
+  const count = pairs.length;
+  if (count < 2) {
+    return null;
+  }
+
+  const meanX = pairs.reduce((s, [x]) => s + x, 0) / count;
+  const meanY = pairs.reduce((s, [, y]) => s + y, 0) / count;
+
+  let num = 0;
+  let denX = 0;
+  let denY = 0;
+  for (const [x, y] of pairs) {
+    const dx = x - meanX;
+    const dy = y - meanY;
+    num += dx * dy;
+    denX += dx * dx;
+    denY += dy * dy;
+  }
+
+  const denom = Math.sqrt(denX * denY);
+  if (denom === 0) {
+    return null;
+  }
+
+  return num / denom;
+}
+
+/**
+ * Returns a human-readable interpretation of a Pearson r value.
+ * - |r| ≥ 0.8 → strong
+ * - 0.5 ≤ |r| < 0.8 → moderate
+ * - 0.2 ≤ |r| < 0.5 → weak
+ * - |r| < 0.2 → negligible
+ */
+export function interpretCorrelation(r: number): string {
+  const abs = Math.abs(r);
+  const direction = r >= 0 ? 'positive' : 'negative';
+  if (abs >= 0.8) {
+    return `strong ${direction}`;
+  }
+  if (abs >= 0.5) {
+    return `moderate ${direction}`;
+  }
+  if (abs >= 0.2) {
+    return `weak ${direction}`;
+  }
+  return 'negligible';
+}

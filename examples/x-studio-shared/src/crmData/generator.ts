@@ -300,7 +300,7 @@ function generateDeals(
         { id: 'title', label: 'Deal Title', type: 'string' },
         { id: 'stage', label: 'Stage', type: 'string' },
         { id: 'value', label: 'Deal Value', type: 'number', format: 'currency' },
-        { id: 'probability', label: 'Probability %', type: 'number', format: 'integer' },
+        { id: 'probability', label: 'Probability', type: 'number', format: 'percent' },
         { id: 'openedDate', label: 'Opened', type: 'date' },
         { id: 'closeDate', label: 'Close Date', type: 'date' },
       ],

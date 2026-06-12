@@ -631,10 +631,14 @@ interface SerializedStudioState {
   filters: StudioFilterState[];        // page-scope filters only
   relationships?: StudioRelationship[];
   expressionFields?: StudioExpressionField[];
+  ai?: StudioAIState;                  // conversation threads (added in schema v2)
 }
 ```text
 
 **Excluded from serialisation:** `dataSources` (runtime, host-provided), `shell` (UI state).
+
+**Current schema version: 2** — bumped when `ai?` was added as an additive field.
+The v1→v2 migration is a no-op (old states restore with `ai: undefined`).
 
 ### 11.2 Loading state
 
@@ -905,6 +909,7 @@ interface StudioAIConfig {
   apiKey?: string;               // Omit for server-side proxy
   model?: string;                // Default: 'gpt-4o'
   headers?: Record<string, string>; // Extra auth headers for proxy
+  privateMode?: boolean;         // When true, dashboard state omitted from system prompt
 }
 ```
 
@@ -912,38 +917,49 @@ Set on `<Studio aiConfig={...}>` or `<StudioProvider aiConfig={...}>`. Pass `nul
 
 ### 14.2 Multi-Turn Chat — `StudioChatPanel`
 
-`StudioChatPanel` uses `@mui/x-chat`'s `ChatBox` component and a custom `ChatAdapter` (`createStudioChatAdapter`) that implements an agentic SSE streaming loop:
+`StudioChatPanel` uses `@mui/x-chat`'s `ChatBox` component and a custom `ChatAdapter` (`createBackendChatAdapter`) that implements an agentic SSE streaming loop:
 
-1. **System prompt** — `buildAISystemPrompt(controller.getState())` is called fresh on every request. Contains schema-only context (dashboard meta, pages, active-page widgets with config, data source fields + `aiDescription`, filter presets, expression fields). **No row data is included.**
-2. **Streaming** — `fetch` with `stream: true`; `processStream()` parses SSE and yields text deltas live to the chat thread.
-3. **Tool execution** — After the stream, any tool calls are dispatched through `executeTool()` which calls `StudioController` mutations directly. Destructive tools (`remove_widget`, `remove_page`) await a `Promise<boolean>` confirmation before proceeding.
-4. **Agentic follow-up** — After all tool results are appended to message history, `doRequest()` recurses until the model returns a response with no tool calls.
+1. **System prompt** — `buildAISystemPrompt(controller.getState())` is called fresh on every request. Contains schema-only context (dashboard meta, pages, active-page widgets with config, data source fields + `aiDescription`, filter presets, expression fields). **No row data is included.** Skipped when `privateMode: true`.
+2. **Streaming** — `fetch` with `stream: true`; SSE events are dispatched as text deltas, state mutations, or finish events.
+3. **Tool execution** — Handled server-side by `executeToolOnState`. Mutations are streamed back as SSE `state-mutation` events and applied client-side via `applyStateMutation`.
+4. **Agentic follow-up** — After all tool results are appended to message history, the loop recurses until the model returns a response with no tool calls.
 
-**12 built-in tools:**
+**Conversation state:** Thread messages are stored in `controller.state.ai.threads[activeThreadId].messages` and serialized in `StudioState` (schema v2). A thread selector UI in the `StudioChatPanel` header allows switching threads; the `rename_thread` tool auto-names threads after the first message.
 
-| Tool | Effect |
-|---|---|
-| `get_dashboard_state` | Re-reads current system prompt snapshot |
-| `add_page` / `remove_page` / `rename_page` / `set_active_page` | Page management |
-| `add_widget` / `remove_widget` / `update_widget` | Widget CRUD |
-| `add_filter` / `remove_filter` | Filter management (scope: `'page'` \| `'widget'`) |
-| `add_relationship` / `remove_relationship` | Cross-source joins |
+**20 built-in tools** (see `studioAITools.ts`): page management, widget CRUD, filter management, layout, `summarise_page`, `apply_bulk_update`, `rename_thread`, `execute_query`, `set_widget_forecast`.
 
 ### 14.3 Widget-Level AI Insights
 
-Three functions in `generateInsight.ts` make **single non-streaming** LLM calls and return `Promise<{ text: string }>`. They are the **only** paths that send row data to the LLM.
+Five functions in `generateInsight.ts` make **single non-streaming** LLM calls and return `Promise<{ text: string }>`. They are the **only** paths that send row data to the LLM.
 
 | Function | Trigger | Data sent | Display |
 |---|---|---|---|
-| `generateWidgetInsight` | Widget card AutoAwesome dropdown (Summary / Analysis / Forecast) | Up to 100 aggregated rows + field schema | `StudioInsightPanel` inside widget card |
+| `generateWidgetInsight` | Widget card AutoAwesome dropdown (Summary / Analysis / Forecast / Correlation) | Up to 100 aggregated rows + field schema | `StudioInsightPanel` inside widget card |
 | `generateDashboardSummary` | AutoAwesome FAB at `bottom: 76, right: 20` in `<Studio>` | Schema only (`buildAISystemPrompt`) | Bottom `<Drawer>` (`maxHeight: 40vh`) |
 | `generateAnomalyExplanation` | "Explain Anomaly" button (code-split, chart widgets) | Oversampled anomaly rows + schema | `StudioInsightPanel` inside widget card |
+| `generateCorrelationInsight` | `generateWidgetInsight` delegate when `type === 'correlation'` | Pearson r matrix + data sample | `StudioInsightPanel` inside widget card |
+| `generateFieldDescriptions` *(server-side)* | Developer-triggered at source registration | Field metadata + sample values | Returns `{ id, aiDescription }[]` for developer use |
 
 `StudioInsightPanel` (`src/StudioInsightPanel/`) renders absolutely inside the widget card with type-switcher chips, Refresh, Copy, and Close buttons.
 
-All three functions are re-exported from `src/index.ts` for consumer use.
+All client-side functions are re-exported from `src/index.ts`. `generateFieldDescriptions` is exported from `@mui/x-studio-ai-middleware`.
 
-### 14.4 `onAiRequest` Prop
+### 14.4 Forecast / Trend Overlay
+
+Chart widgets with `chartType: 'line' | 'area'` support a `forecast?: StudioWidgetForecast` config:
+
+```ts
+interface StudioWidgetForecast {
+  enabled: boolean;
+  periods?: number;            // default 3
+  method?: 'linear';           // OLS linear regression
+  showConfidenceBands?: boolean; // ±1 std error shaded band
+}
+```
+
+The AI sets this via the `set_widget_forecast` tool. Client-side computation lives in `forecastUtils.ts` (no external dependencies). The forecast series appears as a dashed line extending beyond the last data point, with optional confidence bands.
+
+### 14.5 `onAiRequest` Prop
 
 `StudioWidgetCard` accepts an optional `onAiRequest?: (widgetId: string) => void` prop (propagated via `StudioCanvas slotProps.widgetCard`). When provided:
 - An `AutoAwesome` icon button appears in the card overlay (edit mode only, separate from the built-in insight menu)
@@ -951,11 +967,13 @@ All three functions are re-exported from `src/index.ts` for consumer use.
 
 This is the integration point for `examples/x-studio-ai` — the host app can open the `ActiveChatPanel` scrolled to a widget-specific prompt.
 
-### 14.5 NL Widget Creation (`createWidgetFromDescription`)
+### 14.6 NL Widget Creation (`createWidgetFromDescription`)
 
 A single-turn, non-streaming path used only by the Compose Drawer's "Describe a widget" text field. Forces an `add_widget` tool call, merges with `createDefaultWidget(kind)` defaults, and calls `controller.addWidget()` directly. Independent of `StudioChatPanel` and `studioAdapter.ts`.
 
-### 14.6 Data Isolation
+### 14.7 Data Isolation
 
-The main chat pipeline (`studioAdapter.ts`) **never** sends row data to the LLM — only schema metadata. Row data reaches the LLM exclusively through the insight functions in `generateInsight.ts` (up to 100 rows, aggregated or sampled). This is an important security boundary for sensitive datasets.
+The main chat pipeline **never** sends row data to the LLM — only schema metadata. Row data reaches the LLM exclusively through the insight functions in `generateInsight.ts` (up to 100 rows, aggregated or sampled). This is an important security boundary for sensitive datasets.
+
+With `privateMode: true`, even the schema is omitted — the LLM operates on static instructions only.
 ````

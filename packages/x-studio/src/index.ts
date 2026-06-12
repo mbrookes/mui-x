@@ -112,6 +112,9 @@ export { DEFAULT_STUDIO_LOCALE_TEXT } from './internals/StudioUIConfigContext';
 // ─── Locales ─────────────────────────────────────────────────────────────────
 export { ptBRLocaleText, ptBR } from './locales/ptBR';
 export { enUS } from './locales/enUS';
+export { frLocaleText, fr } from './locales/fr';
+export { deLocaleText, de } from './locales/de';
+export { esLocaleText, es } from './locales/es';
 export type { Localization } from './locales/utils/getStudioLocalization';
 export { getStudioLocalization } from './locales/utils/getStudioLocalization';
 

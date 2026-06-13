@@ -35,6 +35,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Sales Overview',
       widgetRows: [
         ['widget-text-hero'],
+        ['widget-alert-banner'],
         ['widget-filter-country', 'widget-filter-date'],
         [
           'widget-kpi-orders',
@@ -386,6 +387,30 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiSparklineField: 'since',
         kpiSparklinePlotType: 'bar',
         kpiSparklineGranularity: 'month',
+      },
+    },
+    // Example custom widget (registered via `<Studio customWidgets={[...]} />`).
+    // Renders as a full-bleed banner whose severity is driven by the summed order
+    // total over the most recent 7 days of data. Thresholds are tuned so the demo
+    // data lands on `error`, showing the value-driven severity in action.
+    'widget-alert-banner': {
+      id: 'widget-alert-banner',
+      kind: 'alert-banner',
+      title: 'Sales Alert',
+      titleMode: 'manual' as const,
+      sourceId: ORDERS_SOURCE_ID,
+      config: {
+        customConfig: {
+          message: 'Recent order volume reached {value} over the last week.',
+          valueField: 'total',
+          aggregation: 'sum',
+          dateField: 'date',
+          lookbackDays: 7,
+          thresholdSuccess: 10000,
+          thresholdWarning: 25000,
+          thresholdError: 50000,
+          hideBelow: 'never',
+        },
       },
     },
     'widget-chart-revenue-by-category': {
@@ -921,7 +946,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         chartType: 'bar',
         xField: 'status',
-        yField: 'id',
+        yField: 'total',
         yAggregation: 'count',
         chartSortBy: 'category' as const,
         barLayout: 'horizontal' as const,
@@ -1006,10 +1031,13 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'widget-kpi6-open-deals': {
       id: 'widget-kpi6-open-deals',
       kind: 'kpi',
+      // Counts rows, so the value field is just a (reproducible) source anchor — point
+      // it at a visible string field rather than the hidden `id`. The count ignores the
+      // field, but trend/sparkline require a non-empty value field, so it can't be empty.
       title: 'Open Deals',
       sourceId: CRM_DEALS_SOURCE_ID,
       config: {
-        kpiValueField: 'id',
+        kpiValueField: 'title',
         kpiAggregation: 'count',
         kpiTrend: true,
         kpiSparkline: true,
@@ -1108,17 +1136,23 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Total Contacts',
       sourceId: CRM_CONTACTS_SOURCE_ID,
       config: {
-        kpiValueField: 'id',
+        // A row count needs no value field — the count aggregation tallies rows.
+        // This matches what the setup panel produces for a count KPI, so a user can
+        // recreate this widget from scratch (pick the source, leave the value field
+        // empty, aggregation defaults to Count).
         kpiAggregation: 'count',
       },
     },
     'widget-kpi7-open-activities': {
       id: 'widget-kpi7-open-activities',
       kind: 'kpi',
+      // Same as Open Deals: a row count anchored on a visible string field (`type`)
+      // instead of the hidden `id`, so the trend/sparkline keep a value field while the
+      // setup panel shows a real, reproducible selection.
       title: 'Activities Logged',
       sourceId: CRM_ACTIVITIES_SOURCE_ID,
       config: {
-        kpiValueField: 'id',
+        kpiValueField: 'type',
         kpiAggregation: 'count',
         kpiTrend: true,
         kpiSparkline: true,
@@ -1318,7 +1352,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         chartType: 'bar' as const,
         xField: 'type',
-        yField: 'id',
+        yField: 'durationMin',
         yAggregation: 'count' as const,
         chartSortBy: 'value' as const,
         chartSortDirection: 'desc' as const,
@@ -1333,7 +1367,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         chartType: 'donut' as const,
         xField: 'outcome',
-        yField: 'id',
+        yField: 'durationMin',
         yAggregation: 'count' as const,
       },
     },
@@ -1346,7 +1380,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         chartType: 'bar' as const,
         xField: 'expr-activity-department',
-        yField: 'id',
+        yField: 'durationMin',
         yAggregation: 'count' as const,
         chartSortBy: 'value' as const,
         chartSortDirection: 'desc' as const,

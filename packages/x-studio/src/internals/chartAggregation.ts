@@ -1058,7 +1058,7 @@ export interface ScatterDataPoint {
   x: number;
   y: number;
   id: number;
-  size?: number;
+  sizeValue?: number;
 }
 
 /**
@@ -1074,7 +1074,7 @@ export function prepareScatterData(
     x: Number(row[xField] ?? 0),
     y: Number(row[yField] ?? 0),
     id: index,
-    size: sizeField != null ? Number(row[sizeField] ?? 0) : undefined,
+    sizeValue: sizeField != null ? Number(row[sizeField] ?? 0) : undefined,
   }));
 }
 
@@ -1110,7 +1110,7 @@ export function prepareScatterDataGrouped(
       x: Number(row[xField] ?? 0),
       y: Number(row[yField] ?? 0),
       id: index,
-      size: sizeField != null ? Number(row[sizeField] ?? 0) : undefined,
+      sizeValue: sizeField != null ? Number(row[sizeField] ?? 0) : undefined,
     });
   });
   // Only include categories that have data (skip empty series)

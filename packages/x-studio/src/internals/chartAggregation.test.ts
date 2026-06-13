@@ -4,6 +4,7 @@ import {
   aggregateByField,
   aggregateByTwoFields,
   aggregateMultipleSeries,
+  aggregateSankey,
   analyzeChartSupport,
   applyRankToAggregated,
   applyRankToMultiSeries,
@@ -1276,5 +1277,93 @@ describe('prepareScatterData', () => {
 
   it('returns empty array for empty rows', () => {
     expect(prepareScatterData([], 'x', 'y')).toEqual([]);
+  });
+});
+
+describe('aggregateSankey', () => {
+  it('returns empty nodes and links for empty rows', () => {
+    expect(aggregateSankey([], 'from', 'to', 'value')).toEqual({ nodes: [], links: [] });
+  });
+
+  it('builds a single link and its two nodes', () => {
+    const rows = [{ from: 'A', to: 'B', value: 5 }];
+    expect(aggregateSankey(rows, 'from', 'to', 'value')).toEqual({
+      nodes: [{ id: 'A' }, { id: 'B' }],
+      links: [{ source: 'A', target: 'B', value: 5 }],
+    });
+  });
+
+  it('sums values for duplicate source→target pairs', () => {
+    const rows = [
+      { from: 'A', to: 'B', value: 5 },
+      { from: 'A', to: 'B', value: 3 },
+      { from: 'A', to: 'C', value: 2 },
+    ];
+    const result = aggregateSankey(rows, 'from', 'to', 'value');
+    expect(result.nodes).toEqual([{ id: 'A' }, { id: 'B' }, { id: 'C' }]);
+    expect(result.links).toEqual([
+      { source: 'A', target: 'B', value: 8 },
+      { source: 'A', target: 'C', value: 2 },
+    ]);
+  });
+
+  it('preserves first-seen node order across multiple links', () => {
+    const rows = [
+      { from: 'B', to: 'C', value: 1 },
+      { from: 'A', to: 'B', value: 1 },
+    ];
+    expect(aggregateSankey(rows, 'from', 'to', 'value').nodes).toEqual([
+      { id: 'B' },
+      { id: 'C' },
+      { id: 'A' },
+    ]);
+  });
+
+  it('skips self-loops, empty endpoints, and non-positive values', () => {
+    const rows = [
+      { from: 'A', to: 'A', value: 5 }, // self-loop
+      { from: '', to: 'B', value: 5 }, // empty source
+      { from: 'A', to: '', value: 5 }, // empty target
+      { from: 'A', to: 'B', value: 0 }, // zero value
+      { from: 'A', to: 'B', value: -4 }, // negative value
+      { from: 'A', to: 'B', value: 7 }, // the only valid link
+    ];
+    expect(aggregateSankey(rows, 'from', 'to', 'value')).toEqual({
+      nodes: [{ id: 'A' }, { id: 'B' }],
+      links: [{ source: 'A', target: 'B', value: 7 }],
+    });
+  });
+
+  it('coerces non-string node ids to strings', () => {
+    const rows = [{ from: 2020, to: 2021, value: 10 }];
+    const result = aggregateSankey(rows, 'from', 'to', 'value');
+    expect(result.nodes).toEqual([{ id: '2020' }, { id: '2021' }]);
+    expect(result.links).toEqual([{ source: '2020', target: '2021', value: 10 }]);
+  });
+
+  it('drops the back-edge of a direct cycle (A→B, B→A) to keep an acyclic graph', () => {
+    const rows = [
+      { from: 'A', to: 'B', value: 5 },
+      { from: 'B', to: 'A', value: 3 },
+    ];
+    expect(aggregateSankey(rows, 'from', 'to', 'value')).toEqual({
+      nodes: [{ id: 'A' }, { id: 'B' }],
+      links: [{ source: 'A', target: 'B', value: 5 }],
+    });
+  });
+
+  it('drops the closing edge of a longer cycle (A→B→C→A)', () => {
+    const rows = [
+      { from: 'A', to: 'B', value: 1 },
+      { from: 'B', to: 'C', value: 1 },
+      { from: 'C', to: 'A', value: 1 },
+    ];
+    const result = aggregateSankey(rows, 'from', 'to', 'value');
+    expect(result.links).toEqual([
+      { source: 'A', target: 'B', value: 1 },
+      { source: 'B', target: 'C', value: 1 },
+    ]);
+    // Node 'A' still appears (as the source of A→B); no orphan nodes are emitted.
+    expect(result.nodes).toEqual([{ id: 'A' }, { id: 'B' }, { id: 'C' }]);
   });
 });

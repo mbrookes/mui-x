@@ -352,6 +352,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chartTypeHeatmap: 'Mapa de calor',
   chartTypeFunnel: 'Funil',
   chartTypeGantt: 'Gantt / Linha do tempo',
+  chartTypeSankey: 'Sankey',
   chartTypePie: 'Pizza',
   chartTypeDonut: 'Rosca',
   chartTypeGauge: 'Medidor',

@@ -352,6 +352,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chartTypeHeatmap: 'Carte thermique',
   chartTypeFunnel: 'Entonnoir',
   chartTypeGantt: 'Gantt / Chronologie',
+  chartTypeSankey: 'Sankey',
   chartTypePie: 'Camembert',
   chartTypeDonut: 'Anneau',
   chartTypeGauge: 'Jauge',

@@ -27,14 +27,6 @@ export type ScatterValueType = {
    * A unique identifier for the scatter point
    */
   id?: string | number;
-  /**
-   * Per-point size value in data units.
-   * When provided on any point in the series, enables bubble chart mode.
-   * The radius is scaled with `minBubbleRadius`/`maxBubbleRadius` using a square root scale
-   * (so bubble area is proportional to the value).
-   * Requires `minBubbleRadius` and `maxBubbleRadius` to be set on the series.
-   */
-  size?: number;
 };
 
 export interface ScatterSeriesType extends CommonSeriesType<'scatter'>, CartesianSeriesType {
@@ -104,11 +96,6 @@ export interface ScatterSeriesType extends CommonSeriesType<'scatter'>, Cartesia
      * The key used to retrieve data from the dataset for the id.
      */
     id?: string;
-    /**
-     * The key used to retrieve data from the dataset for the per-point bubble size.
-     * When set, enables bubble chart mode.
-     */
-    size?: string;
   };
   preview?: {
     /**
@@ -117,16 +104,6 @@ export interface ScatterSeriesType extends CommonSeriesType<'scatter'>, Cartesia
      */
     markerSize?: number;
   };
-  /**
-   * Minimum marker radius in pixels when per-point `size` values are provided (bubble chart mode).
-   * @default 4
-   */
-  minBubbleRadius?: number;
-  /**
-   * Maximum marker radius in pixels when per-point `size` values are provided (bubble chart mode).
-   * @default 40
-   */
-  maxBubbleRadius?: number;
 }
 
 /**
@@ -145,11 +122,4 @@ export interface DefaultizedScatterSeriesType extends DefaultizedProps<
 > {
   preview: MakeRequired<NonNullable<ScatterSeriesType['preview']>, 'markerSize'>;
   hidden: boolean;
-  /**
-   * A sqrt-scaled function mapping a `size` data value to a pixel radius.
-   * Present when any data point has a `size` field.
-   * Computed by the series processor from `minBubbleRadius`/`maxBubbleRadius`.
-   * @param value
-   */
-  sizeScale?: (value: number) => number;
 }

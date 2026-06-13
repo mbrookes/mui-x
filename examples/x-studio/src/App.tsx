@@ -488,11 +488,19 @@ export default function App() {
       {
         kind: 'alert-banner',
         label: 'Alert Banner',
-        description: 'Coloured alert box with configurable message and severity',
+        description:
+          'Example custom widget: a full-bleed banner whose severity is driven by a data field over a time range.',
         icon: <NotificationsIcon sx={{ fontSize: 28 }} />,
         component: AlertBannerWidget,
         setupPanel: AlertBannerSetupPanel,
-        defaultConfig: { title: '', message: 'Enter your message here.', severity: 'info' },
+        requiresDataSource: true,
+        fullBleed: true,
+        defaultConfig: {
+          message: 'Value over the selected window: {value}.',
+          aggregation: 'sum',
+          lookbackDays: 7,
+          hideBelow: 'never',
+        },
       },
     ],
     [],

@@ -35,13 +35,16 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   filtersSaveViewPlaceholder: 'Nom de la vue',
   filtersDeleteViewTooltip: 'Supprimer la vue',
   filtersNoSavedViews: 'Aucune vue enregistrée. Appliquez des filtres et enregistrez ici.',
-  filtersAddDataSourceHint: 'Ajoutez d\'abord une source de données et des widgets.',
+  filtersAddDataSourceHint: "Ajoutez d'abord une source de données et des widgets.",
 
   // Widget states
-  widgetConfigureChartHint: 'Utilisez l\'onglet Configurer pour configurer ce graphique.',
-  widgetConfigureGaugeHint: 'Utilisez l\'onglet Configurer pour choisir le champ de valeur de la jauge.',
-  widgetConfigurePivotHint: 'Utilisez l\'onglet Configurer pour configurer le tableau croisé dynamique.',
-  widgetConfigureMapHint: 'Utilisez l\'onglet Configurer pour choisir le champ de pays et le champ de valeur.',
+  widgetConfigureChartHint: "Utilisez l'onglet Configurer pour configurer ce graphique.",
+  widgetConfigureGaugeHint:
+    "Utilisez l'onglet Configurer pour choisir le champ de valeur de la jauge.",
+  widgetConfigurePivotHint:
+    "Utilisez l'onglet Configurer pour configurer le tableau croisé dynamique.",
+  widgetConfigureMapHint:
+    "Utilisez l'onglet Configurer pour choisir le champ de pays et le champ de valeur.",
   widgetNoData: 'Aucune donnée',
   widgetLoadError: 'Échec du chargement des données',
 
@@ -60,7 +63,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   widgetDuplicateTooltip: 'Dupliquer le widget',
   widgetDeleteTooltip: 'Supprimer le widget',
   widgetAiAssistantTooltip: 'Assistant IA',
-  widgetAiInsightTooltip: 'Aperçu de l\'IA',
+  widgetAiInsightTooltip: "Aperçu de l'IA",
   widgetDetectAnomalyTooltip: 'Détecter les anomalies',
   widgetHideAnomalyTooltip: 'Masquer les anomalies',
   widgetExplainAnomalyTooltip: 'Expliquer les anomalies',
@@ -69,12 +72,12 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   widgetEditDialogTabSetup: 'Configurer',
   widgetEditDialogTabFilters: 'Filtres',
   widgetEditDialogTabFormat: 'Format',
-  widgetEditDialogCloseAriaLabel: 'Fermer la boîte de dialogue d\'édition',
+  widgetEditDialogCloseAriaLabel: "Fermer la boîte de dialogue d'édition",
   widgetUntitledLabel: (kindLabel) => `${kindLabel} sans titre`,
 
   // AI assistant
-  aiAssistantOpenTooltip: 'Ouvrir l\'assistant IA',
-  aiAssistantCloseTooltip: 'Fermer l\'assistant IA',
+  aiAssistantOpenTooltip: "Ouvrir l'assistant IA",
+  aiAssistantCloseTooltip: "Fermer l'assistant IA",
 
   // Drawer panel / sidebar
   drawerPanelCloseAriaLabel: 'Fermer la configuration du widget',
@@ -91,7 +94,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   // Natural language widget creation
   aiCreateWidgetLabel: 'Décrire un widget',
   aiCreateWidgetPlaceholder:
-    'Ex. : Graphique à barres montrant le chiffre d\'affaires par pays, le KPI des commandes totales…',
+    "Ex. : Graphique à barres montrant le chiffre d'affaires par pays, le KPI des commandes totales…",
   aiCreateWidgetButton: 'Créer',
   aiCreateWidgetLoading: 'Création…',
   aiCreateWidgetError: 'Échec de la création du widget',
@@ -148,7 +151,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   formatResetSubtitle: 'Réinitialiser les sous-titres générés automatiquement',
   formatPanelCompactNumbers: 'Nombres compacts',
   formatPanelWidgetTitleLabel: 'Titre du widget',
-  formatPanelWidgetTitleHelperText: 'Affiché dans l\'en-tête du widget',
+  formatPanelWidgetTitleHelperText: "Affiché dans l'en-tête du widget",
   formatPanelSubtitleLabel: 'Légende',
   formatPanelSubtitleHelperText: 'Ligne facultative affichée sous le titre',
 
@@ -204,7 +207,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   relationshipJoinFieldLabel: 'Champ de jonction',
   relationshipJunctionTableLabel: 'Table de jonction (pont)',
   relationshipJunctionSourceLabel: 'Source de jonction',
-  relationshipJunctionSourceFkLabel: '→ FK d\'origine',
+  relationshipJunctionSourceFkLabel: "→ FK d'origine",
   relationshipJunctionTargetFkLabel: '→ Destination FK',
   relationshipAddTitle: 'Ajouter une relation',
   relationshipEditTitle: 'Modifier la relation',
@@ -253,7 +256,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   filterSelectionAll: 'Tous',
   filterSelectionSelectedCount: (count) => `${count} sélectionné${count === 1 ? '' : 's'}`,
   filterSectionNoInteractiveFilters:
-    'Aucun filtre interactif actif. Utilisez les widgets de filtre à l\'écran pour définir des filtres.',
+    "Aucun filtre interactif actif. Utilisez les widgets de filtre à l'écran pour définir des filtres.",
   filterSectionNoCrossFilters:
     'Aucun filtre croisé actif. Cliquez sur les éléments du graphique ou sélectionnez les lignes du tableau pour créer des filtres croisés.',
   filterSectionSelectedCount: (count) => `${count} sélectionné${count === 1 ? '' : 's'}`,
@@ -297,16 +300,17 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   exprBooleanFalse: 'Faux',
   exprExpandTooltip: 'Développer',
   exprCollapseTooltip: 'Réduire',
-  exprRemoveInputTooltip: 'Supprimer l\'entrée',
+  exprRemoveInputTooltip: "Supprimer l'entrée",
   exprCancel: 'Annuler',
   exprSave: 'Sauvegarder',
   exprAddField: 'Ajouter un champ',
   expressionNameLabel: 'Nom',
-  expressionNameHelperText: 'Utilisé comme étiquette de champ dans les sélecteurs et les colonnes de table',
+  expressionNameHelperText:
+    'Utilisé comme étiquette de champ dans les sélecteurs et les colonnes de table',
   expressionNamePlaceholder: 'par exemple : bénéfice, revenu par unité',
   expressionDescriptionLabel: 'Description',
   expressionDescriptionHelperText:
-    'Facultatif. Affiché sous forme d\'info-bulle dans les sélecteurs de champs',
+    "Facultatif. Affiché sous forme d'info-bulle dans les sélecteurs de champs",
   expressionDescriptionPlaceholder: 'Facultatif : décrivez ce que ce champ calcule',
   expressionPrecisionLabel: 'Précision',
   expressionPrecisionHelperText:
@@ -370,18 +374,18 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chartSetupSortDirectionAriaLabel: 'Sens de commande',
   chartSetupAnnotationsTitle: 'Remarques',
   chartSetupInteractionsTitle: 'Interactions',
-  chartSetupInteractionsDescription: 'Lorsque vous cliquez sur d\'autres widgets, ce graphique…',
+  chartSetupInteractionsDescription: "Lorsque vous cliquez sur d'autres widgets, ce graphique…",
   chartSetupAddSeries: 'Ajouter une série',
   chartSetupNoMoreFields: 'Plus aucun champ à ajouter',
   chartSetupRemoveSeries: 'Supprimer la série',
   chartSetupAddReferenceLine: 'Ajouter une ligne de référence',
-  chartSetupRemoveAnnotation: 'Supprimer l\'annotation',
+  chartSetupRemoveAnnotation: "Supprimer l'annotation",
   chartSetupNoReferenceLines: 'Aucune ligne de référence. Cliquez sur + pour en ajouter un.',
-  chartSetupDualYAxis: 'Double axe Y (série de lignes sur l\'axe droit)',
+  chartSetupDualYAxis: "Double axe Y (série de lignes sur l'axe droit)",
   chartSetupReferenceLineValueLabel: 'Valeur',
   chartSetupReferenceLineLabelLabel: 'Étiquette',
   chartSetupYFieldLabel: 'Champ Y (numérique)',
-  chartSetupYFieldHelperText: 'Champ numérique tracé sur l\'axe vertical',
+  chartSetupYFieldHelperText: "Champ numérique tracé sur l'axe vertical",
   chartSetupColorByLabel: 'Colorier par (facultatif)',
   chartSetupColorByHelperText: 'Divise les points en séries par catégorie de code couleur',
   chartSetupSizeByLabel: 'Taille par (facultatif)',
@@ -391,19 +395,20 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chartSetupMaxRadiusLabel: 'Rayon maximum',
   chartSetupFunnelValueHelperText:
     'Champ numérique additionné par étape — les étapes sont classées par valeur (la plus grande en premier)',
-  chartSetupHeatmapRowAxisLabel: 'Champ d\'axe de ligne',
+  chartSetupHeatmapRowAxisLabel: "Champ d'axe de ligne",
   chartSetupHeatmapRowAxisHelperText:
-    'Champ catégoriel pour l\'axe vertical (ligne), par ex. heure de la journée',
+    "Champ catégoriel pour l'axe vertical (ligne), par ex. heure de la journée",
   chartSetupHeatmapValueLabel: 'Champ valeur/couleur',
   chartSetupHeatmapValueHelperText:
-    'Champ numérique additionné par cellule pour déterminer l\'intensité de la couleur',
+    "Champ numérique additionné par cellule pour déterminer l'intensité de la couleur",
   chartSetupHeatmapColourSchemeLabel: 'Jeu de couleurs',
-  chartSetupArcLabelLabel: 'Étiquette d\'arc',
+  chartSetupArcLabelLabel: "Étiquette d'arc",
   chartSetupMinAngleLabel: 'Angle minimal (°)',
-  chartSetupMinAngleHelperText: 'Les tranches plus petites que cet angle (degrés) n\'afficheront pas d\'étiquette',
-  chartSetupGanttLabelFieldLabel: 'Champ d\'étiquette',
+  chartSetupMinAngleHelperText:
+    "Les tranches plus petites que cet angle (degrés) n'afficheront pas d'étiquette",
+  chartSetupGanttLabelFieldLabel: "Champ d'étiquette",
   chartSetupGanttLabelFieldHelperText:
-    'Champ affiché sous forme d\'étiquette de ligne sur l\'axe Y (par exemple, nom de la tâche ou de la commande)',
+    "Champ affiché sous forme d'étiquette de ligne sur l'axe Y (par exemple, nom de la tâche ou de la commande)",
   chartSetupGanttStartDateLabel: 'Champ de date de début',
   chartSetupGanttStartDateHelperText: 'Champ date/heure pour le début de chaque barre',
   chartSetupGanttEndDateLabel: 'Champ de date de fin',
@@ -414,25 +419,26 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chartSetupXFieldNumericLabel: 'Champ X (numérique)',
   chartSetupXFieldCategoryVertLabel: 'Champ Y/catégorie',
   chartSetupXFieldCategoryHorizLabel: 'Champ X/catégorie',
-  chartSetupXFieldHorizontalHelperText: 'Tracé sur l\'axe horizontal',
-  chartSetupXFieldGroupVertHelperText: 'Regroupe les données le long de l\'axe vertical',
-  chartSetupXFieldGroupHorizHelperText: 'Regroupe les données le long de l\'axe horizontal',
+  chartSetupXFieldHorizontalHelperText: "Tracé sur l'axe horizontal",
+  chartSetupXFieldGroupVertHelperText: "Regroupe les données le long de l'axe vertical",
+  chartSetupXFieldGroupHorizHelperText: "Regroupe les données le long de l'axe horizontal",
   chartSetupYMeasureFieldsLabel: 'Champs Y/mesure',
   chartSetupXMeasureFieldsLabel: 'Champs X/mesure',
   chartSetupYMeasureFieldLabel: 'Champ/mesure Y',
   chartSetupXMeasureFieldLabel: 'Champ X/mesure',
   chartSetupNoDataAlert: 'Aucun champ de données disponible pour la configuration du graphique.',
   chartSetupSeriesLabel: (index) => `Série ${index + 1}`,
-  chartSetupSeriesNumericHorizHelperText: 'Champ numérique tracé le long de l\'axe horizontal',
+  chartSetupSeriesNumericHorizHelperText: "Champ numérique tracé le long de l'axe horizontal",
   chartSetupSeriesNumericSumHelperText: 'Champ numérique additionné ou moyenné par catégorie',
   chartSetupMixedSeriesBar: 'Bar',
   chartSetupMixedSeriesLine: 'Doubler',
   chartSetupCalculatedField: 'Champ calculé…',
   chartSetupCategoryFieldLabel: 'Champ Catégorie',
-  chartSetupRemoveSplitByTooltip: 'Supprimez les champs de mesure supplémentaires pour activer la division par',
+  chartSetupRemoveSplitByTooltip:
+    'Supprimez les champs de mesure supplémentaires pour activer la division par',
   chartSetupInnerRingLabel: 'Catégorie de bague intérieure',
   chartSetupSplitByLabel: 'Diviser par (champ de série)',
-  chartSetupArcLabelsTitle: 'Étiquettes d\'arc',
+  chartSetupArcLabelsTitle: "Étiquettes d'arc",
   chartSetupSplitByHelperText: 'Divise les données en une série séparée par valeur',
   chartSetupSplitByDisabledHelperText:
     'Non disponible lorsque plusieurs champs de mesure sont configurés',
@@ -444,7 +450,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   kpiSetupChartGauge: 'Jauge',
   kpiSetupCompPrevPeriod: 'Période précédente (durée équivalente)',
   kpiSetupCompPrevCalendarPeriod: 'Période calendaire précédente',
-  kpiSetupCompSameLastYear: 'Même période l\'année dernière',
+  kpiSetupCompSameLastYear: "Même période l'année dernière",
   kpiSetupInteractionsTitle: 'Interactions',
   kpiSetupInteractionsDescription: 'Lorsque d’autres widgets sont cliqués, ce KPI…',
   kpiSetupTimeFieldLabel: 'Champ de temps',
@@ -456,7 +462,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   kpiSetupValueFieldHelperText: 'Champ à ajouter',
   kpiSetupSparklineLabel: 'Ligne scintillante',
   kpiSetupTargetLabel: 'But',
-  kpiSetupTrendLabel: 'S\'orienter',
+  kpiSetupTrendLabel: "S'orienter",
   kpiSetupCompPeriodLabel: 'Période de comparaison',
   kpiSetupDateAggEarliest: 'Plus tôt',
   kpiSetupDateAggLatest: 'Plus tard',
@@ -465,7 +471,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   kpiSetupAutoDateFilterPrefix: 'Utilisation du filtre de date :',
   kpiSetupCalculatedField: 'Champ calculé…',
   kpiSetupTargetHelperText:
-    'Valeur de référence pour la ligne cible dans le sparkline. Lorsque la tendance est également activée, l\'indicateur delta compare la valeur actuelle à cet objectif.',
+    "Valeur de référence pour la ligne cible dans le sparkline. Lorsque la tendance est également activée, l'indicateur delta compare la valeur actuelle à cet objectif.",
   kpiSetupInvertColours: 'Inverser les couleurs (plus petit est mieux)',
 
   // KPI widget
@@ -480,16 +486,17 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   gridSetupAllColumnsAdded: 'Toutes les colonnes disponibles ont été ajoutées',
   gridSetupCrossFilterFieldLabel: 'Champ de filtre croisé',
   gridSetupCrossFilterFieldHelper:
-    'Champ appliqué aux autres widgets lorsqu\'une ligne est sélectionnée ; par défaut est la première colonne visible',
+    "Champ appliqué aux autres widgets lorsqu'une ligne est sélectionnée ; par défaut est la première colonne visible",
   gridSetupGroupByLabel: 'Regrouper par',
-  gridSetupGroupByHelper: 'Réduire les lignes en groupes : définir l\'agrégation par colonne ci-dessous',
+  gridSetupGroupByHelper:
+    "Réduire les lignes en groupes : définir l'agrégation par colonne ci-dessous",
   gridSetupDefaultSortLabel: 'Ordre par défaut',
   gridSetupHeightLabel: 'Hauteur (px)',
   gridSetupConditionalFormattingTitle: 'Mise en forme conditionnelle',
   gridSetupConditionalCustom: 'Coutume',
   gridSetupRemoveRuleAriaLabel: 'Supprimer la règle',
   gridSetupInteractionsTitle: 'Interactions',
-  gridSetupInteractionsDescription: 'Lorsque vous cliquez sur d\'autres widgets, ce tableau…',
+  gridSetupInteractionsDescription: "Lorsque vous cliquez sur d'autres widgets, ce tableau…",
   gridSetupChooseSourceHelper: 'Choisissez une source de données pour configurer les colonnes',
   gridSetupNoSourceAlert:
     'Sélectionnez une source de données ci-dessus pour configurer les colonnes et les paramètres de cette table.',
@@ -502,13 +509,13 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   gridSetupColumnAggSummaryTooltip: 'Définir le résumé/supprimer',
   gridSetupColumnAggLabel: (isGroupBy, aggLabel) =>
     `${isGroupBy ? 'Agrégation' : 'Résumé'} : ${aggLabel}`,
-  gridSetupColumnSetAggTooltip: 'Définir l\'agrégation',
+  gridSetupColumnSetAggTooltip: "Définir l'agrégation",
   gridSetupAddColumn: 'Ajouter une colonne',
   gridSetupCalculatedColumn: 'Colonne calculée…',
   gridSetupAddRule: 'Ajouter une règle',
   gridSetupCFContains: 'contient',
   gridSetupCFIsEmpty: 'est vide',
-  gridSetupCFNotEmpty: 'n\'est pas vide',
+  gridSetupCFNotEmpty: "n'est pas vide",
   gridSetupCFStyleRed: 'Rouge',
   gridSetupCFStyleGreen: 'Vert',
   gridSetupCFStyleYellow: 'Jaune',
@@ -589,7 +596,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   // Filter setup panel
   filterSetupControlTypeLabel: 'Type de contrôle',
   filterSetupMultiSelect: 'Sélection multiple',
-  filterSetupMultiSelectDescription: 'Menu déroulant avec cases à cocher pour les valeurs catégorielles',
+  filterSetupMultiSelectDescription:
+    'Menu déroulant avec cases à cocher pour les valeurs catégorielles',
   filterSetupToggleChips: 'Basculer les puces',
   filterSetupToggleChipsDescription: 'Boutons de puce en ligne pour les valeurs catégorielles',
   filterSetupDateRange: 'Plage de dates',
@@ -607,7 +615,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   textSetupTitleLabel: 'Titre',
   textSetupTitleHelper: 'En-tête affiché en haut du widget',
   textSetupSubtitleLabel: 'Légende',
-  textSetupSubtitleHelper: 'Texte plus petit sous l\'en-tête',
+  textSetupSubtitleHelper: "Texte plus petit sous l'en-tête",
   textSetupBodyLabel: 'Corps',
   textSetupBodyHelper: 'Contenu principal du widget ; prend en charge le texte brut',
 
@@ -633,7 +641,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   insightTypeSummary: 'Résumé',
   insightTypeAnalysis: 'Analyse',
   insightTypeForecast: 'Prévision',
-  insightTypeAnomaly: 'Explication de l\'anomalie',
+  insightTypeAnomaly: "Explication de l'anomalie",
   insightTypeCorrelation: 'Analyse de corrélation',
 
   // Filter widget controls
@@ -646,7 +654,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   filterWidgetExcludeLabel: 'Supprimer la sélection',
   filterWidgetExcludingLabel: '⊘ Suppression de la sélection',
   filterWidgetDateFromLabel: 'De',
-  filterWidgetDateToLabel: 'Jusqu\'à',
+  filterWidgetDateToLabel: "Jusqu'à",
   filterWidgetNoFieldConfigured:
     'Aucun champ configuré. Sélectionnez un champ dans le panneau Composer.',
 
@@ -655,9 +663,10 @@ export const frLocaleText: Partial<StudioLocaleText> = {
 
   // Data source field select
   dataSourceClearFieldAriaLabel: 'Effacer le champ',
+  dataSourceAddCalculatedField: 'Ajouter un champ calculé…',
 
   // Widget filter row
-  widgetFilterFieldHelperText: 'Champ auquel ce filtre s\'applique',
+  widgetFilterFieldHelperText: "Champ auquel ce filtre s'applique",
   drawerPanelOpenAriaLabel: (title) => `Ouvrir le panneau ${title}`,
   drawerPanelCloseNamedAriaLabel: (title) => `Fermer le panneau ${title}`,
   sidebarPanelToggleAriaLabel: (isActive, label) =>
@@ -667,7 +676,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   formatPanelNoSubtitlePlaceholder: 'Pas de sous-titre',
 
   // Widget filters panel
-  widgetFiltersPanelNoSource: 'Ce widget n\'a pas de source de données.',
+  widgetFiltersPanelNoSource: "Ce widget n'a pas de source de données.",
   widgetFiltersPanelDescription:
     'Conditions permanentes appliquées aux données de ce widget avant tout filtre interactif.',
   widgetFiltersPanelNoFilters: 'Sans filtres, toutes les données sont affichées.',
@@ -680,8 +689,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
     `Aperçu (premières ${count.toLocaleString('fr')} lignes)`,
 
   // Pivot widget
-  pivotRowsColumnsLabel: (rowCount, colCount) =>
-    `${rowCount} lignes × ${colCount} colonnes`,
+  pivotRowsColumnsLabel: (rowCount, colCount) => `${rowCount} lignes × ${colCount} colonnes`,
 
   // Gantt chart
   ganttHiddenRowsLabel: (count) =>
@@ -696,7 +704,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   kpiTrendPreviousPeriodTooltip: (period) => `Période précédente : ${period}`,
   kpiTrendNoDateFilterHint: 'Ajoutez un filtre de date pour afficher la tendance.',
   kpiSparklineNoTimeFieldHint:
-    'Ajoutez un filtre de date ou sélectionnez un champ d\'heure pour afficher le sparkline.',
+    "Ajoutez un filtre de date ou sélectionnez un champ d'heure pour afficher le sparkline.",
 
   // Chart widget
   chartMixedRequiresFieldsHint: 'Le graphique mixte nécessite 2 champs de mesure ou plus.',
@@ -718,7 +726,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   // Expression field — measure checkbox
   exprMeasureLabel: 'Mesure (agrégation)',
   exprMeasureHelperText:
-    'Calcule une valeur unique sur l\'ensemble des données (par exemple, le chiffre d\'affaires total).',
+    "Calcule une valeur unique sur l'ensemble des données (par exemple, le chiffre d'affaires total).",
   exprDimensionHelperText: 'Calculez une valeur par ligne (ex. : prix × quantité).',
 
   // Chart color scheme options
@@ -734,8 +742,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   aiSuggestionTable: (sourceLabel) => `Tableau de ${sourceLabel}`,
   aiSuggestionChangeToLine: (widgetTitle) =>
     `Transformer « ${widgetTitle} » en graphique en courbes`,
-  aiSuggestionAddSparkline: (widgetTitle) =>
-    `Ajouter une sparkline à « ${widgetTitle} »`,
+  aiSuggestionAddSparkline: (widgetTitle) => `Ajouter une sparkline à « ${widgetTitle} »`,
   aiSuggestionAddDateFilter: 'Ajouter un filtre de date',
   aiSuggestionAddPage: 'Ajouter une nouvelle page',
   aiSuggestionSummarisePage: 'Résumer la page',
@@ -744,7 +751,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chatSwitchConversationTooltip: 'Changer de conversation',
   chatVoiceInputStart: 'Démarrer la saisie vocale',
   chatVoiceInputStop: 'Arrêter la saisie vocale',
-  chatVoiceInputNotSupported: 'La saisie vocale n\'est pas prise en charge dans ce navigateur',
+  chatVoiceInputNotSupported: "La saisie vocale n'est pas prise en charge dans ce navigateur",
   chatMessageCopyTooltip: 'Copier',
   chatMessageCopiedTooltip: 'Copié\u00a0!',
   chatMessageCopyAriaLabel: 'Copier le message',
@@ -754,10 +761,10 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chartUnsupportedFieldNotFound:
     'Cette configuration de graphique utilise des champs qui ne sont pas disponibles dans la source du widget ou dans une source directement associée.',
   chartUnsupportedMixedCrossSource:
-    'Cette configuration de graphique mélange des champs provenant de différentes sources d\'une manière qui ne dispose pas encore d\'un seul grain d\'agrégation sécurisé.',
+    "Cette configuration de graphique mélange des champs provenant de différentes sources d'une manière qui ne dispose pas encore d'un seul grain d'agrégation sécurisé.",
   chartUnsupportedScatterCrossSource:
     'Les nuages ​​de points ne prennent pas encore en charge les combinaisons de champs entre sources.',
-  chartUnsupportedDefault: 'Cette configuration de graphique n\'est pas encore prise en charge.',
+  chartUnsupportedDefault: "Cette configuration de graphique n'est pas encore prise en charge.",
   chartForecastSeriesLabel: 'Prévision',
 
   // Grid summary labels

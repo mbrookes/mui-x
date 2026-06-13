@@ -1,12 +1,23 @@
 'use client';
 import * as React from 'react';
-import { Autocomplete, IconButton, InputAdornment, TextField } from '@mui/material';
+import {
+  Autocomplete,
+  Button,
+  Divider,
+  IconButton,
+  InputAdornment,
+  Paper,
+  type PaperProps,
+  TextField,
+} from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import FunctionsIcon from '@mui/icons-material/Functions';
 import { FieldOption } from './FieldOption';
 import { FieldTypeIcon, type FieldType } from '../../internals/FieldTypeIcon';
-import type { StudioDataSource, StudioDataField } from '../../models';
+import type { StudioDataSource, StudioDataField, StudioExpressionField } from '../../models';
 import { fieldHasCapability, type FieldCapability } from '../../utils/fieldCapabilities';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
+import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
 export interface DataSourceFieldEntry {
   id: string;
@@ -15,6 +26,26 @@ export interface DataSourceFieldEntry {
   generated?: boolean;
   sourceId: string;
   sourceLabel: string;
+}
+
+/**
+ * BL-179/180: context for the in-dropdown "Add calculated field…" affordance.
+ * When supplied, the picker renders a persistent footer entry in its options
+ * list that opens the shared expression-field dialog; on save the new field is
+ * selected via the picker's own `onChange`. Parents pass this object only when
+ * calculated fields are enabled for the widget (global `calculatedFields` +
+ * per-widget flag), so the shared component stays feature-flag-agnostic.
+ */
+export interface DataSourceFieldSelectCalculatedFieldContext {
+  /** The data source the new expression field computes over (the widget's primary source). */
+  dataSource: StudioDataSource;
+  /** All existing expression fields, for validation and operand references. */
+  expressionFields: StudioExpressionField[];
+  /**
+   * Source IDs reachable from the configuring widget. Scopes the expression-field
+   * operands offered in the dialog (BL-180). Omit to keep all operands selectable.
+   */
+  reachableSourceIds?: ReadonlySet<string>;
 }
 
 export interface DataSourceFieldSelectProps {
@@ -47,6 +78,12 @@ export interface DataSourceFieldSelectProps {
   helperText?: string;
   size?: 'small' | 'medium';
   fullWidth?: boolean;
+  /**
+   * BL-179: when provided, renders a persistent "Add calculated field…" entry at
+   * the bottom of the options list that opens the shared expression-field dialog.
+   * On save, the new field is selected via `onChange`. Omit to hide the affordance.
+   */
+  calculatedField?: DataSourceFieldSelectCalculatedFieldContext;
 }
 
 /**
@@ -67,8 +104,10 @@ export function DataSourceFieldSelect({
   helperText,
   size = 'small',
   fullWidth = true,
+  calculatedField,
 }: DataSourceFieldSelectProps) {
   const localeText = useStudioLocaleText();
+  const [calcDialogOpen, setCalcDialogOpen] = React.useState(false);
   const computedFields = React.useMemo<DataSourceFieldEntry[]>(() => {
     if (fieldsProp) {
       return fieldsProp;
@@ -125,67 +164,126 @@ export function DataSourceFieldSelect({
     [hasMultipleSources],
   );
 
-  return selectedOption ? (
-    // BL-148: selected field shown as read-only with a clear icon
-    <TextField
-      size={size}
-      fullWidth={fullWidth}
-      label={label}
-      value={selectedOption.label}
-      slotProps={{
-        input: {
-          readOnly: true,
-          startAdornment: (
-            <InputAdornment position="start" sx={{ mr: 0.5 }}>
-              <FieldTypeIcon
-                type={(selectedOption.type as FieldType) ?? 'string'}
-                generated={selectedOption.generated}
-                size={14}
-              />
-            </InputAdornment>
-          ),
-          endAdornment: (
-            <InputAdornment position="end">
-              <IconButton
-                size="small"
-                edge="end"
-                aria-label={localeText.dataSourceClearFieldAriaLabel}
-                onClick={() => onChange('', '')}
-                disabled={disabled}
-              >
-                <CloseIcon sx={{ fontSize: 14 }} />
-              </IconButton>
-            </InputAdornment>
-          ),
-        },
-      }}
-      helperText={helperText}
+  // BL-179: persistent "Add calculated field…" footer inside the Autocomplete popper.
+  // Rendered via a custom Paper (not as an option) so it stays out of groupBy /
+  // getOptionLabel / option-equality, and existing option-based tests are unaffected.
+  // onMouseDown preventDefault keeps the click from blurring + closing the popper first.
+  const CalcFieldPaper = React.useMemo(() => {
+    if (!calculatedField) {
+      return undefined;
+    }
+    // Memoised so the component identity is stable across renders (changes only when
+    // calculatedField/localeText change) — the remount concern react/no-unstable-nested-components
+    // guards against does not apply here, and PaperComponent must close over render-scope handlers.
+    // eslint-disable-next-line react/no-unstable-nested-components
+    return function PaperWithCalcField(paperProps: PaperProps) {
+      const { children, ...rest } = paperProps;
+      return (
+        <Paper {...rest}>
+          {children}
+          <Divider />
+          <Button
+            fullWidth
+            size="small"
+            startIcon={<FunctionsIcon fontSize="small" />}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              setCalcDialogOpen(true);
+            }}
+            sx={{
+              justifyContent: 'flex-start',
+              textTransform: 'none',
+              color: 'text.secondary',
+              px: 2,
+              py: 1,
+            }}
+          >
+            {localeText.dataSourceAddCalculatedField}
+          </Button>
+        </Paper>
+      );
+    };
+  }, [calculatedField, localeText.dataSourceAddCalculatedField]);
+
+  const calcDialog = calculatedField ? (
+    <StudioExpressionFieldDialog
+      key={calcDialogOpen ? 'open' : 'closed'}
+      open={calcDialogOpen}
+      onClose={() => setCalcDialogOpen(false)}
+      dataSource={calculatedField.dataSource}
+      expressionFields={calculatedField.expressionFields}
+      reachableSourceIds={calculatedField.reachableSourceIds}
+      onSaved={(fieldId) => onChange(fieldId, calculatedField.dataSource.id)}
     />
-  ) : (
-    <Autocomplete
-      size={size}
-      fullWidth={fullWidth}
-      options={computedFields}
-      groupBy={(option) => option.sourceLabel}
-      getOptionLabel={getOptionLabel}
-      renderOption={(liProps, option) => {
-        const { key, ...rest } = liProps;
-        return (
-          <li key={key} {...rest}>
-            <FieldOption label={option.label} type={option.type} generated={option.generated} />
-          </li>
-        );
-      }}
-      getOptionDisabled={getOptionDisabled}
-      disabled={disabled}
-      value={selectedOption}
-      onChange={(_e, newValue) => {
-        onChange(newValue?.id ?? '', newValue?.sourceId ?? '');
-      }}
-      renderInput={(params) => <TextField {...params} label={label} helperText={helperText} />}
-      isOptionEqualToValue={(option, val) =>
-        option.id === val.id && option.sourceId === val.sourceId
-      }
-    />
+  ) : null;
+
+  return (
+    <React.Fragment>
+      {selectedOption ? (
+        // BL-148: selected field shown as read-only with a clear icon
+        <TextField
+          size={size}
+          fullWidth={fullWidth}
+          label={label}
+          value={selectedOption.label}
+          slotProps={{
+            input: {
+              readOnly: true,
+              startAdornment: (
+                <InputAdornment position="start" sx={{ mr: 0.5 }}>
+                  <FieldTypeIcon
+                    type={(selectedOption.type as FieldType) ?? 'string'}
+                    generated={selectedOption.generated}
+                    size={14}
+                  />
+                </InputAdornment>
+              ),
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    size="small"
+                    edge="end"
+                    aria-label={localeText.dataSourceClearFieldAriaLabel}
+                    onClick={() => onChange('', '')}
+                    disabled={disabled}
+                  >
+                    <CloseIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            },
+          }}
+          helperText={helperText}
+        />
+      ) : (
+        <Autocomplete
+          size={size}
+          fullWidth={fullWidth}
+          options={computedFields}
+          groupBy={(option) => option.sourceLabel}
+          getOptionLabel={getOptionLabel}
+          renderOption={(liProps, option) => {
+            const { key, ...rest } = liProps;
+            return (
+              <li key={key} {...rest}>
+                <FieldOption label={option.label} type={option.type} generated={option.generated} />
+              </li>
+            );
+          }}
+          slots={CalcFieldPaper ? { paper: CalcFieldPaper } : undefined}
+          getOptionDisabled={getOptionDisabled}
+          disabled={disabled}
+          value={selectedOption}
+          onChange={(_e, newValue) => {
+            onChange(newValue?.id ?? '', newValue?.sourceId ?? '');
+          }}
+          renderInput={(params) => <TextField {...params} label={label} helperText={helperText} />}
+          isOptionEqualToValue={(option, val) =>
+            option.id === val.id && option.sourceId === val.sourceId
+          }
+        />
+      )}
+      {calcDialog}
+    </React.Fragment>
   );
 }

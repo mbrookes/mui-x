@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Tooltip, Typography } from '@mui/material';
+import { Box, Tooltip } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import type { StudioDataSource, StudioWidget, StudioFilterState } from '../../../models';
@@ -179,7 +179,16 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     trendNeedsDateFilter,
     kpiNumericValue,
   } = React.useMemo(() => {
-    if (!dataSource?.rows || !config.kpiValueField) {
+    // With no value field the only meaningful aggregation is a row "count" (the setup
+    // panel locks the selector to Count in that state). Default accordingly so a KPI
+    // reproduced from scratch — source picked, value field left empty, aggregation not
+    // explicitly persisted — still renders a count rather than the no-data placeholder.
+    const aggregation = config.kpiAggregation ?? (config.kpiValueField ? 'sum' : 'count');
+    // A "count" aggregation tallies rows and is field-independent, so it is a
+    // complete, reproducible configuration on its own — no value field required.
+    // Any other aggregation needs a value field to operate on.
+    const isFieldlessCount = aggregation === 'count' && !config.kpiValueField;
+    if (!dataSource?.rows || (!config.kpiValueField && !isFieldlessCount)) {
       return {
         displayValue: '—',
         hasData: false,
@@ -192,7 +201,6 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     }
 
     const rows = currentRows;
-    const aggregation = config.kpiAggregation ?? 'sum';
 
     const measureExprField = expressionFields.find(
       (ef) => ef.id === config.kpiValueField && ef.isMeasure,
@@ -201,10 +209,13 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     // Use grain-anchored rows for the value so cross-source fields (e.g. orders.revenue on an
     // order_items widget) are aggregated once per parent row, not once per child row.
     const valueRows = measureExprField ? rows : grainAnchoredRows;
-    const value = cachedCompute(valueRows, `kpi-value:${config.kpiValueField}:${measureKey}`, () =>
+    // For a fieldless count the field argument is unused (computeAggregate tallies rows),
+    // so pass an empty string.
+    const valueField = config.kpiValueField ?? '';
+    const value = cachedCompute(valueRows, `kpi-value:${valueField}:${measureKey}`, () =>
       measureExprField
         ? evaluateMeasure(measureExprField, valueRows, expressionFields)
-        : computeAggregate(valueRows, config.kpiValueField!, aggregation),
+        : computeAggregate(valueRows, valueField, aggregation),
     );
 
     const fieldDef =
@@ -508,7 +519,9 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
         overflow: 'hidden',
       }}
     >
-      {isError && <StudioWidgetErrorOverlay message={errorMessage} sx={{ px: 1, pt: 0.5, py: 1 }} />}
+      {isError && (
+        <StudioWidgetErrorOverlay message={errorMessage} sx={{ px: 1, pt: 0.5, py: 1 }} />
+      )}
       <Box
         sx={{
           display: 'flex',
@@ -548,10 +561,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           />
         )}
         {hasIgnoredInteractiveFilters && (
-          <Tooltip
-          title={localeText.kpiGrandTotalTooltip}
-            placement="top"
-          >
+          <Tooltip title={localeText.kpiGrandTotalTooltip} placement="top">
             <InfoOutlinedIcon
               sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0, ml: 'auto' }}
             />
@@ -567,9 +577,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           { mt: 'auto' },
           ...(Array.isArray(slotProps?.trend?.sx)
             ? slotProps.trend.sx
-            : slotProps?.trend?.sx
-              ? [slotProps.trend.sx]
-              : []),
+            : [slotProps?.trend?.sx].filter(Boolean)),
         ]}
       />
     </Box>

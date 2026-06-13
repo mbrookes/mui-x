@@ -4,7 +4,6 @@ import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import {
   Alert,
-  Button,
   Checkbox,
   Divider,
   FormControl,
@@ -20,7 +19,6 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import FunctionsIcon from '@mui/icons-material/Functions';
 import {
   useStudioController,
   useStudioSelector,
@@ -45,7 +43,6 @@ import type {
 } from '../../models';
 import { ChartTypePicker } from './ChartTypePicker';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
-import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
 function generateAnnotationId() {
   return `ann-${Math.random().toString(36).slice(2, 9)}`;
@@ -276,10 +273,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const isGantt = chartType === 'gantt';
   const isSankey = chartType === 'sankey';
 
-  const [calcDialogOpen, setCalcDialogOpen] = React.useState(false);
-
   const widgetSource = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
-  const showCalcFieldButton =
+  // BL-179/180: calculated-field context for the in-dropdown "Add calculated field…"
+  // entry on the Y-measure pickers. Gated to chart types that take measure fields and
+  // to the calculatedFields feature flags. reachableSourceIds scopes operands (BL-180).
+  const calcFieldsEnabled =
     !isScatter &&
     !isPieOrDonut &&
     !isGauge &&
@@ -290,6 +288,16 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     widgetSource !== undefined &&
     features.calculatedFields !== false &&
     features.chartCalculatedFields !== false;
+  const calculatedFieldContext = React.useMemo(() => {
+    if (!calcFieldsEnabled || !widgetSource) {
+      return undefined;
+    }
+    return {
+      dataSource: widgetSource,
+      expressionFields,
+      reachableSourceIds: getReachableSourceIds(widgetSource.id, relationships),
+    };
+  }, [calcFieldsEnabled, widgetSource, expressionFields, relationships]);
 
   if (allFields.length === 0) {
     return (
@@ -338,8 +346,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     : localeText.chartSetupYMeasureFieldLabel;
 
   return (
-    <React.Fragment>
-      <Stack spacing={2}>
+    <Stack spacing={2}>
         {!chartSupport.supported && chartSupport.reason ? (
           <Alert severity="warning">{getChartSupportMessage(chartSupport.reason)}</Alert>
         ) : null}
@@ -757,6 +764,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                               ? localeText.chartSetupSeriesNumericHorizHelperText
                               : localeText.chartSetupSeriesNumericSumHelperText
                           }
+                          calculatedField={calculatedFieldContext}
                         />
                         {ySeries.length > 1 && (
                           <Tooltip title={localeText.chartSetupRemoveSeries}>
@@ -811,27 +819,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                           ? localeText.chartSetupSeriesNumericHorizHelperText
                           : localeText.chartSetupSeriesNumericSumHelperText
                       }
+                      calculatedField={calculatedFieldContext}
                     />
                   )}
                 </Stack>
               </div>
-            )}
-            {/* Calculated field button — opens full expression dialog for new measure fields */}
-            {showCalcFieldButton && (
-              <Button
-                size="small"
-                variant="text"
-                startIcon={<FunctionsIcon fontSize="small" />}
-                onClick={() => setCalcDialogOpen(true)}
-                sx={{
-                  fontSize: '0.75rem',
-                  textTransform: 'none',
-                  alignSelf: 'flex-start',
-                  color: 'text.secondary',
-                }}
-              >
-                {localeText.chartSetupCalculatedField}
-              </Button>
             )}
             {/* Dual Y axis toggle — only for mixed chart with 2+ series */}
             {isMixed && ySeries.filter((s) => s.fieldId).length >= 2 && (
@@ -1123,23 +1115,5 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           </ToggleButtonGroup>
         </div>
       </Stack>
-
-      {/* Calculated field dialog */}
-      {widgetSource && (
-        <StudioExpressionFieldDialog
-          key={calcDialogOpen ? 'open' : 'closed'}
-          open={calcDialogOpen}
-          onClose={() => setCalcDialogOpen(false)}
-          dataSource={widgetSource}
-          expressionFields={expressionFields}
-          onSaved={(fieldId) => {
-            controller.updateWidgetConfig(widgetId, {
-              ySeries: [...ySeries, { fieldId }],
-              yField: ySeries.length === 0 ? fieldId : (ySeries[0]?.fieldId ?? fieldId),
-            });
-          }}
-        />
-      )}
-    </React.Fragment>
   );
 }

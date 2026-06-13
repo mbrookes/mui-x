@@ -39,9 +39,11 @@ export const esLocaleText: Partial<StudioLocaleText> = {
 
   // Widget states
   widgetConfigureChartHint: 'Utilice la pestaña Configurar para configurar este gráfico.',
-  widgetConfigureGaugeHint: 'Utilice la pestaña Configurar para elegir el campo de valor del medidor.',
+  widgetConfigureGaugeHint:
+    'Utilice la pestaña Configurar para elegir el campo de valor del medidor.',
   widgetConfigurePivotHint: 'Utilice la pestaña Configurar para configurar la tabla dinámica.',
-  widgetConfigureMapHint: 'Utilice la pestaña Configurar para elegir el campo de país y el campo de valor.',
+  widgetConfigureMapHint:
+    'Utilice la pestaña Configurar para elegir el campo de país y el campo de valor.',
   widgetNoData: 'Sin datos',
   widgetLoadError: 'No se pudieron cargar los datos',
 
@@ -400,7 +402,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chartSetupHeatmapColourSchemeLabel: 'esquema de color',
   chartSetupArcLabelLabel: 'Etiqueta de arco',
   chartSetupMinAngleLabel: 'Ángulo mínimo (°)',
-  chartSetupMinAngleHelperText: 'Los cortes más pequeños que este ángulo (grados) no mostrarán una etiqueta',
+  chartSetupMinAngleHelperText:
+    'Los cortes más pequeños que este ángulo (grados) no mostrarán una etiqueta',
   chartSetupGanttLabelFieldLabel: 'Campo de etiqueta',
   chartSetupGanttLabelFieldHelperText:
     'Campo mostrado como una etiqueta de línea en el eje Y (por ejemplo, nombre de tarea o pedido)',
@@ -421,7 +424,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chartSetupXMeasureFieldsLabel: 'X/campos de medida',
   chartSetupYMeasureFieldLabel: 'Campo/medida Y',
   chartSetupXMeasureFieldLabel: 'Campo X/medida',
-  chartSetupNoDataAlert: 'No hay ningún campo de datos disponible para la configuración del gráfico.',
+  chartSetupNoDataAlert:
+    'No hay ningún campo de datos disponible para la configuración del gráfico.',
   chartSetupSeriesLabel: (index) => `Serie ${index + 1}`,
   chartSetupSeriesNumericHorizHelperText: 'Campo numérico trazado a lo largo del eje horizontal',
   chartSetupSeriesNumericSumHelperText: 'Campo numérico sumado o promediado por categoría',
@@ -429,13 +433,13 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chartSetupMixedSeriesLine: 'Línea',
   chartSetupCalculatedField: 'Campo calculado…',
   chartSetupCategoryFieldLabel: 'Campo de categoría',
-  chartSetupRemoveSplitByTooltip: 'Elimine campos de medidas adicionales para habilitar la división por',
+  chartSetupRemoveSplitByTooltip:
+    'Elimine campos de medidas adicionales para habilitar la división por',
   chartSetupInnerRingLabel: 'Categoría de anillo interior',
   chartSetupSplitByLabel: 'Dividir por (campo de serie)',
   chartSetupArcLabelsTitle: 'Etiquetas de arco',
   chartSetupSplitByHelperText: 'Divide los datos en una serie separada por valor',
-  chartSetupSplitByDisabledHelperText:
-    'No disponible cuando se configuran varios campos de medida',
+  chartSetupSplitByDisabledHelperText: 'No disponible cuando se configuran varios campos de medida',
   chartSetupInnerRingHelperText: 'Agrega un anillo interior concéntrico agrupado por este campo.',
 
   // KPI setup panel
@@ -482,7 +486,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   gridSetupCrossFilterFieldHelper:
     'Campo aplicado a otros widgets cuando se selecciona una fila; El valor predeterminado es la primera columna visible.',
   gridSetupGroupByLabel: 'Agrupar por',
-  gridSetupGroupByHelper: 'Contraer filas en grupos: establezca la agregación por columna a continuación',
+  gridSetupGroupByHelper:
+    'Contraer filas en grupos: establezca la agregación por columna a continuación',
   gridSetupDefaultSortLabel: 'Orden predeterminado',
   gridSetupHeightLabel: 'Altura (píxeles)',
   gridSetupConditionalFormattingTitle: 'Formato condicional',
@@ -589,7 +594,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   // Filter setup panel
   filterSetupControlTypeLabel: 'Tipo de control',
   filterSetupMultiSelect: 'Selección múltiple',
-  filterSetupMultiSelectDescription: 'Menú desplegable con casillas de verificación para valores categóricos',
+  filterSetupMultiSelectDescription:
+    'Menú desplegable con casillas de verificación para valores categóricos',
   filterSetupToggleChips: 'Alternar fichas',
   filterSetupToggleChipsDescription: 'Botones de chip en línea para valores categóricos',
   filterSetupDateRange: 'Rango de fechas',
@@ -655,6 +661,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
 
   // Data source field select
   dataSourceClearFieldAriaLabel: 'Borrar campo',
+  dataSourceAddCalculatedField: 'Agregar campo calculado…',
 
   // Widget filter row
   widgetFilterFieldHelperText: 'Campo al que se aplica este filtro',
@@ -680,8 +687,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
     `Vista previa (primeras ${count.toLocaleString('es')} filas)`,
 
   // Pivot widget
-  pivotRowsColumnsLabel: (rowCount, colCount) =>
-    `${rowCount} filas × ${colCount} columnas`,
+  pivotRowsColumnsLabel: (rowCount, colCount) => `${rowCount} filas × ${colCount} columnas`,
 
   // Gantt chart
   ganttHiddenRowsLabel: (count) =>
@@ -732,10 +738,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
     `Gráfico de barras: ${numericLabel} por ${catLabel}`,
   aiSuggestionKpi: (fieldLabel) => `KPI: total de ${fieldLabel}`,
   aiSuggestionTable: (sourceLabel) => `Tabla de ${sourceLabel}`,
-  aiSuggestionChangeToLine: (widgetTitle) =>
-    `Cambiar «${widgetTitle}» a gráfico de líneas`,
-  aiSuggestionAddSparkline: (widgetTitle) =>
-    `Agregar sparkline a «${widgetTitle}»`,
+  aiSuggestionChangeToLine: (widgetTitle) => `Cambiar «${widgetTitle}» a gráfico de líneas`,
+  aiSuggestionAddSparkline: (widgetTitle) => `Agregar sparkline a «${widgetTitle}»`,
   aiSuggestionAddDateFilter: 'Agregar filtro de fecha',
   aiSuggestionAddPage: 'Agregar nueva página',
   aiSuggestionSummarisePage: 'Resumir la página',

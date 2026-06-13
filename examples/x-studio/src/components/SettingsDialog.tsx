@@ -10,8 +10,11 @@ import {
   FormControlLabel,
   FormLabel,
   InputAdornment,
+  InputLabel,
+  MenuItem,
   Radio,
   RadioGroup,
+  Select,
   Tab,
   Tabs,
   TextField,
@@ -165,23 +168,22 @@ export function SettingsDialog(props: SettingsDialogProps) {
             <Divider />
 
             {/* Language — immediate */}
-            <FormControl>
-              <FormLabel>{t.languageLabel}</FormLabel>
-              <RadioGroup
+            <FormControl size="small" fullWidth>
+              <InputLabel id="settings-language-label">{t.languageLabel}</InputLabel>
+              <Select
+                labelId="settings-language-label"
+                label={t.languageLabel}
                 value={locale}
-                onChange={(_evt, val) => onLocaleChange(val as SupportedLocale)}
+                onChange={(evt) => onLocaleChange(evt.target.value as SupportedLocale)}
               >
                 {(Object.entries(LOCALE_LABELS) as [SupportedLocale, string][]).map(
                   ([key, label]) => (
-                    <FormControlLabel
-                      key={key}
-                      value={key}
-                      control={<Radio size="small" />}
-                      label={label}
-                    />
+                    <MenuItem key={key} value={key}>
+                      {label}
+                    </MenuItem>
                   ),
                 )}
-              </RadioGroup>
+              </Select>
             </FormControl>
 
             <Divider />

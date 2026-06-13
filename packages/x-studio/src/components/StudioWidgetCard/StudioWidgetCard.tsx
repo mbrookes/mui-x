@@ -217,6 +217,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       ? (customWidgetMap.get(widget.kind) ?? null)
       : null;
 
+  // Full-bleed custom widgets render edge-to-edge: no title/subtitle header and no card padding.
+  const isFullBleedCustom = customDef?.fullBleed === true;
+
   // AI insights are disabled for filter/text/kpi widgets; custom widgets opt in via `aiInsight: true`
   const supportsInsight =
     widget != null &&
@@ -509,7 +512,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             pageTheme?.cardRadius !== undefined ? `${pageTheme.cardRadius}px` : undefined,
           backgroundColor: pageTheme?.cardBackground ?? undefined,
           cursor: isDragging ? 'grabbing' : 'default',
-          p: pageTheme?.cardPadding ?? 2,
+          p: isFullBleedCustom ? 0 : (pageTheme?.cardPadding ?? 2),
           boxSizing: 'border-box',
           height: '100%',
           display: 'flex',
@@ -571,7 +574,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           />
         )}
         <Stack spacing={widget.kind === 'grid' ? 2 : 0.5} sx={{ flexGrow: 1, minHeight: 0 }}>
-          {/* Widget header */}
+          {/* Widget header — omitted for full-bleed custom widgets that render edge-to-edge */}
+          {!isFullBleedCustom && (
           <Box sx={{ minWidth: 0 }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
               <Typography
@@ -655,6 +659,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
               </Typography>
             )}
           </Box>
+          )}
           {/* Widget content — deferred to after first paint to avoid blocking initial render.
             A Skeleton placeholder preserves the card's height so the layout does not
             shift when real content arrives (avoids CLS). */}

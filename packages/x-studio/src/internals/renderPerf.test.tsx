@@ -16,6 +16,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { StudioDataSource, StudioState } from '../models';
 import { StudioController } from '../store/StudioController';
 import { selectPartitionedFilters, selectPartitionedBaseFilters } from '../context/selectors';
+import { studioRequestCache } from './StudioRequestCache';
+import { createDefaultWidget } from './widgetFactory';
 import { StudioKpiWidget } from '../components/widgets/StudioKpiWidget';
 
 // ─── Module-level mutable state (replaced by vi.mock) ─────────────────────────
@@ -90,6 +92,9 @@ const { render } = createRenderer();
 
 describe('UI render performance', () => {
   beforeEach(() => {
+    // Clear the shared row-resolution cache so a polluted entry from another test
+    // file's async/adapter-backed widget can't leak empty rows into these renders.
+    studioRequestCache.clear();
     controller = new StudioController(buildInitialState());
     syncState();
   });
@@ -214,6 +219,36 @@ describe('UI render performance', () => {
 
     // No error state rendered (no "Failed to load" text)
     expect(container.textContent).not.toContain('Failed to load');
+  });
+
+  it('renders a count KPI reproduced from scratch (source picked, no value field)', () => {
+    // EBL-06: recreating Total Contacts from scratch = add a KPI, pick a source, leave
+    // the value field empty. createDefaultWidget('kpi') seeds { kpiAggregation: 'sum' };
+    // the setup panel's source picker then clears any field and sets aggregation to
+    // 'count'. Mirror that exact transformation here so we render the real artifact a
+    // user produces — it must show a numeric row count, not the "—" no-data placeholder
+    // (the original Total Contacts bug, where the rendered value couldn't be reproduced).
+    const source = buildDataSource();
+    const created = createDefaultWidget('kpi');
+    expect(created.config).toEqual({ kpiAggregation: 'sum' });
+    // Source-picker side effect (KpiSetupPanel onChange):
+    const widget = {
+      ...created,
+      sourceId: source.id,
+      config: { kpiValueField: '', kpiAggregation: 'count' as const },
+    };
+
+    const { container } = render(
+      <ThemeProvider theme={theme}>
+        <StudioKpiWidget widget={widget} dataSource={source} />
+      </ThemeProvider>,
+    );
+
+    const text = container.textContent ?? '';
+    // A numeric count is rendered (not the "—" no-data placeholder).
+    expect(text).toMatch(/\d/);
+    expect(text).not.toContain('—');
+    expect(text).not.toContain('Failed to load');
   });
 
   it('applying a page filter does not cause errors in widget rendering', async () => {

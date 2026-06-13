@@ -85,4 +85,11 @@ export interface StudioCustomWidgetDef {
    * Must contain only JSON-serializable values.
    */
   defaultConfig?: Record<string, unknown>;
+  /**
+   * When `true`, the widget card renders the component edge-to-edge: the title/subtitle
+   * header is omitted and the card padding is removed, so the component fills the entire
+   * card. Use this for widgets that are themselves the visual (e.g. a full-bleed banner).
+   * @default false
+   */
+  fullBleed?: boolean;
 }

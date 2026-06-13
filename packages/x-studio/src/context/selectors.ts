@@ -1,4 +1,4 @@
-import { createSelector } from 'reselect';
+import { createSelectorMemoized } from '@mui/x-internals/store';
 import type {
   StudioExpressionField,
   StudioFilterState,
@@ -152,12 +152,12 @@ export interface PartitionedFilters {
  *
  * Use this instead of N independent `.filter()` calls in each widget hook.
  *
- * Implemented with reselect's createSelector so the memoization strategy is
- * standard and explicit: re-computes only when `filters` or `activePageId`
- * change by reference.
+ * Memoized with createSelectorMemoized (x-internals): re-computes only when
+ * `filters` or `activePageId` change by reference.
  */
-export const selectPartitionedFilters = createSelector(
-  [selectFilters, selectActivePageId],
+export const selectPartitionedFilters = createSelectorMemoized(
+  selectFilters,
+  selectActivePageId,
   (filters, activePageId): PartitionedFilters => {
     const page: StudioFilterState[] = [];
     const byWidgetId = new Map<string, StudioFilterState[]>();

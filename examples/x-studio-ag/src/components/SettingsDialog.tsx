@@ -14,7 +14,6 @@ import {
   Radio,
   RadioGroup,
   Select,
-  Switch,
   TextField,
   Typography,
 } from '@mui/material';
@@ -24,12 +23,13 @@ import { LOCALE_LABELS, type SupportedLocale } from '../locales/index';
 
 export type DatasetOption = 'sales' | 'ag-studio';
 export type SidebarSide = 'left' | 'right';
+export type DataMode = 'memory' | 'adapter';
 
 export interface SettingsValues {
   dataSource: DatasetOption;
   sidebarSide: SidebarSide;
   rowCount: number | undefined;
-  adapterEnabled: boolean;
+  dataMode: DataMode;
 }
 
 export interface SettingsDialogProps {
@@ -59,7 +59,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
   // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
   const [pendingRowCount, setPendingRowCount] = React.useState<number | undefined>(values.rowCount);
   // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
-  const [pendingAdapter, setPendingAdapter] = React.useState(values.adapterEnabled);
+  const [pendingDataMode, setPendingDataMode] = React.useState<DataMode>(values.dataMode);
 
   // Sync local state when dialog re-opens
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change, react-doctor/no-cascading-set-state -- intentional batch reset of buffered form state when dialog opens
@@ -72,14 +72,14 @@ export function SettingsDialog(props: SettingsDialogProps) {
       // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
       setPendingRowCount(values.rowCount);
       // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
-      setPendingAdapter(values.adapterEnabled);
+      setPendingDataMode(values.dataMode);
     }
-  }, [open, values.dataSource, values.rowCount, values.adapterEnabled]);
+  }, [open, values.dataSource, values.rowCount, values.dataMode]);
 
   const needsReload =
     pendingDataSource !== values.dataSource ||
     pendingRowCount !== values.rowCount ||
-    pendingAdapter !== values.adapterEnabled;
+    pendingDataMode !== values.dataMode;
 
   function handleRowInputChange(evt: React.ChangeEvent<HTMLInputElement>) {
     const raw = evt.target.value;
@@ -106,10 +106,13 @@ export function SettingsDialog(props: SettingsDialogProps) {
     } else {
       url.searchParams.delete('rows');
     }
-    if (pendingAdapter) {
-      url.searchParams.set('adapter', '');
+    // Omit ?mode when memory (the only natural default for this app).
+    // The legacy ?adapter param is removed in favour of ?mode.
+    url.searchParams.delete('adapter');
+    if (pendingDataMode === 'adapter') {
+      url.searchParams.set('mode', 'adapter');
     } else {
-      url.searchParams.delete('adapter');
+      url.searchParams.delete('mode');
     }
     window.location.href = url.toString();
   }
@@ -191,17 +194,25 @@ export function SettingsDialog(props: SettingsDialogProps) {
           }}
         />
 
-        {/* Adapter mode — requires reload */}
-        <FormControlLabel
-          control={
-            <Switch
-              checked={pendingAdapter}
-              onChange={(_evt, checked) => setPendingAdapter(checked)}
-              size="small"
+        {/* Data source mode — requires reload */}
+        <FormControl>
+          <FormLabel>{t.dataSourceModeLabel}</FormLabel>
+          <RadioGroup
+            value={pendingDataMode}
+            onChange={(_evt, val) => setPendingDataMode(val as DataMode)}
+          >
+            <FormControlLabel
+              value="memory"
+              control={<Radio size="small" />}
+              label={t.dataModeMemory}
             />
-          }
-          label={t.serverAdapterLabel}
-        />
+            <FormControlLabel
+              value="adapter"
+              control={<Radio size="small" />}
+              label={t.serverAdapterLabel}
+            />
+          </RadioGroup>
+        </FormControl>
 
         {needsReload && (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', gap: 0.5 }}>

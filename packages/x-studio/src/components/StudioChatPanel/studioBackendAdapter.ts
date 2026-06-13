@@ -125,6 +125,20 @@ export function createBackendChatAdapter(
       : undefined,
   }));
 
+  // Strip non-serializable fields from custom widgets before sending to the server.
+  // `icon` (a React element), `component`, and `setupPanel` (React components) are never
+  // consumed server-side and, in development, JSX elements carry an `_owner` Fiber reference
+  // that makes `JSON.stringify` throw on the circular React internals. Only the metadata the
+  // server uses for the system prompt and tool execution is forwarded.
+  const serializableCustomWidgets = customWidgets?.map((w) => ({
+    kind: w.kind,
+    label: w.label,
+    description: w.description,
+    requiresDataSource: w.requiresDataSource,
+    aiInsight: w.aiInsight,
+    defaultConfig: w.defaultConfig,
+  }));
+
   // Active response body reader — cancelled by stop() for immediate abort cleanup.
   let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
@@ -164,7 +178,7 @@ export function createBackendChatAdapter(
               body: JSON.stringify({
                 messages: input.messages,
                 dashboardState: controller.getState(),
-                customWidgets,
+                customWidgets: serializableCustomWidgets,
                 focusedWidgetId,
                 allowedTools,
                 skills: serializableSkills,

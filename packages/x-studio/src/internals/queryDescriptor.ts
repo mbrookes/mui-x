@@ -106,7 +106,19 @@ export function collectSelectFields(widget: StudioWidget): string[] {
     fields.add(config.scatterSizeField);
   }
   if (config.ySeries) {
-    config.ySeries.forEach((s) => fields.add(s.fieldId));
+    config.ySeries.forEach((s) => {
+      if (!s.fieldId) {
+        return;
+      }
+      // Foreign-source blended series are fetched independently from their own
+      // source (see useChartWidgetData's blend path). Pulling them into the
+      // widget's primary query would force a cross-source JOIN and can clash on a
+      // shared column such as the category axis present in both sources.
+      if (s.sourceId && s.sourceId !== widget.sourceId) {
+        return;
+      }
+      fields.add(s.fieldId);
+    });
   }
 
   // KPI fields
@@ -178,9 +190,13 @@ function buildAggregations(
     aggs.push({ field: config.yField, fn, alias: config.yField });
   }
 
-  // Multiple Y series — use per-series aggregation function
+  // Multiple Y series — use per-series aggregation function. Foreign-source blended
+  // series are queried separately against their own source, so they are excluded here.
   if (config.ySeries) {
     config.ySeries.forEach((s) => {
+      if (!s.fieldId || (s.sourceId && s.sourceId !== widget.sourceId)) {
+        return;
+      }
       const fn = (s.yAggregation as AggFn | undefined) ?? 'sum';
       aggs.push({ field: s.fieldId, fn, alias: s.fieldId });
     });

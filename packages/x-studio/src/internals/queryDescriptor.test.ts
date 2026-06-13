@@ -95,6 +95,38 @@ describe('buildQueryDescriptor', () => {
     );
   });
 
+  it('includes same-source ySeries fields in select and aggregations', () => {
+    const widget = makeWidget({
+      chartType: 'mixed',
+      xField: 'category',
+      ySeries: [{ fieldId: 'total', yAggregation: 'sum' }],
+    });
+    const desc = buildQueryDescriptor(widget, [], PAGE_ID);
+    expect(desc.select).toEqual(expect.arrayContaining(['category', 'total']));
+    expect(desc.aggregations).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'total', fn: 'sum' })]),
+    );
+  });
+
+  it('excludes foreign-source blended ySeries from select and aggregations', () => {
+    // A foreign-source series (sourceId !== widget.sourceId) must not enter the widget's
+    // primary query — otherwise the adapter builds a cross-source JOIN that can clash on a
+    // column shared by both sources (e.g. the category axis → "ambiguous column name").
+    const widget = makeWidget({
+      chartType: 'mixed',
+      xField: 'category',
+      ySeries: [
+        { fieldId: 'total', sourceId: 'source-orders', yAggregation: 'sum' },
+        { fieldId: 'stock', sourceId: 'source-products', yAggregation: 'sum' },
+      ],
+    });
+    const desc = buildQueryDescriptor(widget, [], PAGE_ID);
+    expect(desc.select).toContain('total');
+    expect(desc.select).not.toContain('stock');
+    expect(desc.aggregations?.some((a) => a.field === 'stock')).toBe(false);
+    expect(desc.aggregations?.some((a) => a.field === 'total')).toBe(true);
+  });
+
   it('builds aggregations for KPI', () => {
     const widget = makeWidget({ kpiValueField: 'revenue', kpiAggregation: 'avg' });
     const desc = buildQueryDescriptor(widget, [], PAGE_ID);

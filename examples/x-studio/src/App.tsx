@@ -492,7 +492,7 @@ export default function App() {
     }
     const token = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
     return {
-      endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai/chat`,
+      endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai`,
       headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,
     };
   }, []);

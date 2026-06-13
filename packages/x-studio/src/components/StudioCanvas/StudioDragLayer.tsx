@@ -1,59 +1,41 @@
 import * as React from 'react';
-import { useDragLayer } from 'react-dnd';
+import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { GlobalStyles } from '@mui/material';
+import { isStudioDragItem } from './studioWidgetDndTypes';
 
 /**
- * Renders a custom drag preview that follows the mouse during a widget drag,
- * and enforces `cursor: grabbing` on the document during the drag.
+ * Enforces `cursor: grabbing` on the document during a widget drag (and `copy`
+ * over a valid drop zone) by toggling the `x-studio-dnd-active` class on the
+ * `html` element. Uses a single pragmatic-drag-and-drop monitor instead of a
+ * per-card effect.
  *
- * Must be rendered inside `DndProvider`.
+ * The native drag preview is suppressed by each draggable (see
+ * `useStudioDraggable`), so no custom preview element is rendered here.
  */
 export function StudioDragLayer() {
-  const { isDragging, currentOffset } = useDragLayer((monitor) => ({
-    isDragging: monitor.isDragging(),
-    currentOffset: monitor.getClientOffset(),
-  }));
-
-  if (!isDragging || !currentOffset) {
-    return (
-      <GlobalStyles
-        styles={{
-          'html.x-studio-dnd-active, html.x-studio-dnd-active *': {
-            cursor: 'grabbing !important',
-          },
-          'html.x-studio-dnd-active [data-studio-drop-active], html.x-studio-dnd-active [data-studio-drop-active] *':
-            {
-              cursor: 'copy !important',
-            },
-        }}
-      />
-    );
-  }
+  React.useEffect(() => {
+    return monitorForElements({
+      canMonitor: ({ source }) => isStudioDragItem(source.data),
+      onDragStart: () => {
+        document.documentElement.classList.add('x-studio-dnd-active');
+      },
+      onDrop: () => {
+        document.documentElement.classList.remove('x-studio-dnd-active');
+      },
+    });
+  }, []);
 
   return (
-    <React.Fragment>
-      {/* Cursor overrides applied to html element during drag */}
-      <GlobalStyles
-        styles={{
-          'html.x-studio-dnd-active, html.x-studio-dnd-active *': {
-            cursor: 'grabbing !important',
+    <GlobalStyles
+      styles={{
+        'html.x-studio-dnd-active, html.x-studio-dnd-active *': {
+          cursor: 'grabbing !important',
+        },
+        'html.x-studio-dnd-active [data-studio-drop-active], html.x-studio-dnd-active [data-studio-drop-active] *':
+          {
+            cursor: 'copy !important',
           },
-          'html.x-studio-dnd-active [data-studio-drop-active], html.x-studio-dnd-active [data-studio-drop-active] *':
-            {
-              cursor: 'copy !important',
-            },
-        }}
-      />
-      {/* Invisible full-viewport overlay to ensure cursor style is applied everywhere */}
-      <div
-        style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 9999,
-          pointerEvents: 'none',
-          cursor: 'grabbing',
-        }}
-      />
-    </React.Fragment>
+      }}
+    />
   );
 }

@@ -2,9 +2,9 @@
 
 import * as React from 'react';
 import { Box } from '@mui/material';
-import { useDrop } from 'react-dnd';
 
-import { ACCEPTED_DRAG_TYPES, type StudioDragItem } from './studioWidgetDndTypes';
+import type { StudioDragItem } from './studioWidgetDndTypes';
+import { useStudioDropTarget } from './useStudioDropTarget';
 import { isAdjacentToDraggingWidget } from './canvasGridConstants';
 
 export interface InsertionPointProps {
@@ -30,32 +30,35 @@ export function InsertionPoint({
   mode,
   widgetRowsRef,
 }: InsertionPointProps) {
+  const ref = React.useRef<HTMLDivElement>(null);
   const posRef = React.useRef({ rowIndex, colIndex, orientation });
   posRef.current = { rowIndex, colIndex, orientation };
 
-  const [{ isOver }, dropRef] = useDrop<StudioDragItem, void, { isOver: boolean }>({
-    accept: ACCEPTED_DRAG_TYPES,
-    canDrop: () => {
-      if (mode !== 'edit') return false;
-      const { rowIndex: myRow, colIndex: myCol, orientation: myOrientation } = posRef.current;
-      if (myOrientation === 'vertical' && isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef)) {
-        return false;
-      }
-      return true;
-    },
-    drop: (item) => {
+  const canDrop = React.useCallback(() => {
+    if (mode !== 'edit') {
+      return false;
+    }
+    const { rowIndex: myRow, colIndex: myCol, orientation: myOrientation } = posRef.current;
+    if (myOrientation === 'vertical' && isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef)) {
+      return false;
+    }
+    return true;
+  }, [mode, widgetRowsRef]);
+
+  const handleDrop = React.useCallback(
+    (item: StudioDragItem) => {
       const { rowIndex: r, colIndex: c, orientation: o } = posRef.current;
       onDrop(item, r, c, o);
     },
-    collect: (monitor) => ({ isOver: monitor.isOver() && monitor.canDrop() }),
-  });
+    [onDrop],
+  );
+
+  const isOver = useStudioDropTarget({ ref, canDrop, onDrop: handleDrop });
 
   // Only show the line when hovered, otherwise invisible and non-interfering
   return (
     <Box
-      ref={(el) => {
-        dropRef(el as HTMLElement | null);
-      }}
+      ref={ref}
       data-studio-drop-active={isOver ? '' : undefined}
       sx={{
         position: 'relative',

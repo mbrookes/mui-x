@@ -135,15 +135,8 @@ function ScatterPlot(props: ScatterPlotProps) {
         const sizeGetter = getMarkerSize(series[seriesId], zAxis[sizeAxisId ?? defaultZAxisId]);
         const xScale = xAxis[xAxisId ?? defaultXAxisId].scale;
         const yScale = yAxis[yAxisId ?? defaultYAxisId].scale;
-
-        // Bubble chart mode (per-point sizes) is incompatible with the batch renderer
-        // which uses a single SVG path per colour group. Fall back to per-point rendering.
-        const hasBubbleSizes = series[seriesId].sizeScale != null;
-        const ItemsComponent =
-          hasBubbleSizes && ScatterItems === BatchScatter ? Scatter : ScatterItems;
-
         return (
-          <ItemsComponent
+          <ScatterItems
             key={id}
             xScale={xScale}
             yScale={yScale}

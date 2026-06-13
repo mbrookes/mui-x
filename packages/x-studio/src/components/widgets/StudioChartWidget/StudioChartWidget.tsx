@@ -1158,18 +1158,31 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           id: s.id,
           label: s.label,
           data: s.data,
-          minBubbleRadius: config.scatterMinRadius,
-          maxBubbleRadius: config.scatterMaxRadius,
         }))
       : [
           {
             data: scatterData!,
-            minBubbleRadius: config.scatterMinRadius,
-            maxBubbleRadius: config.scatterMaxRadius,
           },
         ];
 
     const resolvedSeries = ghostSeries ? [...ghostSeries, ...highlightedSeries] : highlightedSeries;
+
+    // Bubble mode: when a size field is configured, each point carries a `sizeValue`
+    // that the chart maps to a marker radius via a continuous size scale on the z-axis
+    // (mui-x native bubble support — series default to the first z-axis as the size axis).
+    const bubbleZAxis = config.scatterSizeField
+      ? [
+          {
+            sizeMap: {
+              type: 'continuous' as const,
+              size: [config.scatterMinRadius ?? 4, config.scatterMaxRadius ?? 40] as [
+                number,
+                number,
+              ],
+            },
+          },
+        ]
+      : undefined;
 
     // Ghost series are identified by suffix; we render them at reduced opacity via sx
     const ghostIds = new Set(ghostSeries?.map((s) => s.id) ?? []);
@@ -1180,6 +1193,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           {...slotProps?.scatterChart}
           skipAnimation={skipAnimation}
           series={resolvedSeries}
+          zAxis={bubbleZAxis}
           colors={chartColors}
           hideLegend={!hasColorBy}
           margin={{ top: 16, right: hasColorBy ? 8 : 16, bottom: 30, left: 40 }}

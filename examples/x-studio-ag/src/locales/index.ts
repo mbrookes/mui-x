@@ -26,6 +26,8 @@ export interface AppLocaleText {
   sidebarRight: string;
   rowCountLabel: string;
   rowCountHelper: string;
+  dataSourceModeLabel: string;
+  dataModeMemory: string;
   serverAdapterLabel: string;
   reloadNotice: string;
   closeButton: string;
@@ -49,6 +51,8 @@ const enLocaleText: AppLocaleText = {
   sidebarRight: 'Right',
   rowCountLabel: 'Generated row count',
   rowCountHelper: 'Leave blank to use the default bundled data',
+  dataSourceModeLabel: 'Data source mode',
+  dataModeMemory: 'In-memory (default)',
   serverAdapterLabel: 'Simulated server adapter',
   reloadNotice: 'Changes take effect after reload.',
   closeButton: 'Close',
@@ -72,6 +76,8 @@ const ptBRLocaleText: AppLocaleText = {
   sidebarRight: 'Direita',
   rowCountLabel: 'Número de linhas geradas',
   rowCountHelper: 'Deixe em branco para usar os dados padrão',
+  dataSourceModeLabel: 'Modo da fonte de dados',
+  dataModeMemory: 'Em memória (padrão)',
   serverAdapterLabel: 'Adaptador de servidor simulado',
   reloadNotice: 'As alterações entram em vigor após recarregar.',
   closeButton: 'Fechar',

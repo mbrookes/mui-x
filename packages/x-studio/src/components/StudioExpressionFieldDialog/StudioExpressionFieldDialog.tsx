@@ -23,10 +23,7 @@ import type {
   StudioFunctionExpression,
 } from '../../models';
 import { useStudioController, useStudioLocaleText } from '../../context';
-import {
-  validateExpressionField,
-  inferExpressionType,
-} from '../../utils/expressionEvaluator';
+import { validateExpressionField, inferExpressionType } from '../../utils/expressionEvaluator';
 import { ExpressionBuilder } from './ExpressionNodeEditor';
 import { ExpressionPreview } from './ExpressionPreview';
 
@@ -47,6 +44,15 @@ export interface StudioExpressionFieldDialogProps {
    * @param {string} fieldId The ID of the saved expression field.
    */
   onSaved?: (fieldId: string) => void;
+  /**
+   * BL-180: When opened from a specific widget, the set of source IDs reachable from
+   * that widget (its primary source + related sources via declared relationships).
+   * Expression fields owned by sources outside this set are hidden from the operand
+   * picker, since referencing them would produce invalid joins. Validation is not
+   * affected — only the selectable operands are scoped. When omitted (e.g. the data
+   * drawer "add calculated field" on a source), all expression fields stay selectable.
+   */
+  reachableSourceIds?: ReadonlySet<string>;
 }
 
 function makeDefaultExpression(): StudioExpression {
@@ -60,7 +66,15 @@ function makeDefaultExpression(): StudioExpression {
 }
 
 export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogProps) {
-  const { open, onClose, dataSource, expressionFields, existingField, onSaved } = props;
+  const {
+    open,
+    onClose,
+    dataSource,
+    expressionFields,
+    existingField,
+    onSaved,
+    reachableSourceIds,
+  } = props;
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
 
@@ -76,6 +90,17 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
   const { label, description, isMeasure, expression, precision } = form;
 
   const fieldId = existingField?.id ?? `expr-${Date.now()}`;
+
+  // BL-180: expression fields offered as operands in the builder, scoped to those
+  // reachable from the configuring widget. The unfiltered `expressionFields` is still
+  // used for validation (below) so ID-uniqueness and reference checks stay correct.
+  const selectableExpressionFields = React.useMemo(() => {
+    const withoutSelf = expressionFields.filter((ef) => ef.id !== fieldId);
+    if (!reachableSourceIds) {
+      return withoutSelf;
+    }
+    return withoutSelf.filter((ef) => reachableSourceIds.has(ef.sourceId));
+  }, [expressionFields, reachableSourceIds, fieldId]);
 
   const inferredType = React.useMemo(
     () => inferExpressionType(expression, dataSource.fields, expressionFields),
@@ -245,7 +270,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
             <ExpressionBuilder
               expression={expression}
               sourceFields={dataSource.fields}
-              expressionFields={expressionFields.filter((ef) => ef.id !== fieldId)}
+              expressionFields={selectableExpressionFields}
               isMeasure={isMeasure}
               onChange={(expr) => setForm((prev) => ({ ...prev, expression: expr }))}
             />
@@ -286,4 +311,3 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
     </Dialog>
   );
 }
-

@@ -42,7 +42,12 @@ import type { OfficeSuppliesData } from 'x-studio-shared';
 import dayjs from 'dayjs';
 import { AppToolbar } from './components/AppToolbar';
 import { SettingsDialog } from './components/SettingsDialog';
-import type { SidebarLayout, SidebarSide, TableSourceMode } from './components/SettingsDialog';
+import type {
+  DataMode,
+  SidebarLayout,
+  SidebarSide,
+  TableSourceMode,
+} from './components/SettingsDialog';
 import { AlertBannerWidget } from './components/AlertBannerWidget';
 import { AlertBannerSetupPanel } from './components/AlertBannerSetupPanel';
 import { theme } from './theme';
@@ -99,12 +104,21 @@ function getUrlRowsParam(): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-/** Read ?adapter=true to enable simulated-server adapter mode. */
+/** Read ?adapter=true to enable simulated-server adapter mode (legacy; superseded by ?mode). */
 function getUrlAdapterParam(): boolean {
   if (typeof window === 'undefined') {
     return false;
   }
   return new URL(window.location.href).searchParams.has('adapter');
+}
+
+/** Read ?mode=memory|adapter|server — an explicit override that wins over .env config. */
+function getUrlModeParam(): DataMode | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  const v = new URL(window.location.href).searchParams.get('mode');
+  return v === 'memory' || v === 'adapter' || v === 'server' ? v : undefined;
 }
 
 /** Read ?dataset=ag-studio to select the AG Studio Data dataset. */
@@ -119,7 +133,7 @@ function getUrlDatasetParam(): 'sales' | 'ag-studio' {
 
 /**
  * Read ?server=<url> to route queries through a real server instead of
- * simulatedServer.ts. Example: ?server=http://localhost:3001/api/studio-data
+ * simulatedServer.ts. Example: ?server=http://localhost:3001/api/sales-data
  * Uses createBatchingAdapter() which collapses N widget requests into one POST.
  */
 function getUrlServerParam(): string | undefined {
@@ -497,11 +511,38 @@ export default function App() {
     };
   }, []);
 
-  // Adapter mode: wire a simulated-server adapter for every data source
-  const adapterMode = React.useMemo(() => getUrlAdapterParam(), []);
+  // Server endpoint (env STUDIO_SERVER_URL → ?server=URL). Used by server mode and to
+  // decide whether the "server" data-source mode is available in Settings.
+  const serverEndpoint = React.useMemo(() => {
+    const envServerUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
+    if (envServerUrl) {
+      return `${envServerUrl.replace(/\/$/, '')}/api/sales-data`;
+    }
+    return getUrlServerParam();
+  }, []);
+  const serverConfigured = Boolean(serverEndpoint);
 
+  // Resolve the active data-source mode. An explicit ?mode param (set from Settings)
+  // takes precedence over .env so the user can force any mode regardless of
+  // STUDIO_SERVER_URL. Falls back to the legacy ?adapter param, then env, then memory.
+  const dataMode = React.useMemo<DataMode>(() => {
+    const explicit = getUrlModeParam();
+    if (explicit === 'server') {
+      return serverConfigured ? 'server' : 'memory';
+    }
+    if (explicit) {
+      return explicit;
+    }
+    if (getUrlAdapterParam()) {
+      return 'adapter';
+    }
+    return serverConfigured ? 'server' : 'memory';
+  }, [serverConfigured]);
+  const adapterMode = dataMode === 'adapter';
+
+  // Adapter mode: wire a simulated-server adapter for every data source
   React.useEffect(() => {
-    if (!adapterMode) {
+    if (dataMode !== 'adapter') {
       return;
     }
 
@@ -520,26 +561,14 @@ export default function App() {
     // eslint-disable-next-line no-console
     console.info('[x-studio] Adapter mode enabled — all sources routed through simulatedServer');
     // Re-run after Studio remounts (studioKey changes when generated data arrives).
-  }, [adapterMode, studioKey]);
+  }, [dataMode, studioKey]);
 
   // Server mode: route widget queries through a real server endpoint.
-  // Priority: STUDIO_SERVER_URL env var → ?server=URL query param
-  // Activate via env: STUDIO_SERVER_URL=http://localhost:3020
-  // Activate via URL: ?server=http://localhost:3001/api/studio-data
-  //
   // CRM sources (id prefix "source-crm-") are routed to /api/crm-data on the same server.
-  // All other sources are routed to /api/studio-data.
-  const serverEndpoint = React.useMemo(() => {
-    const envServerUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
-    if (envServerUrl) {
-      return `${envServerUrl.replace(/\/$/, '')}/api/studio-data`;
-    }
-    return getUrlServerParam();
-  }, []);
-
+  // All other sources are routed to /api/sales-data.
   // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- example app: fetch without a data-fetching library is acceptable here
   React.useEffect(() => {
-    if (!serverEndpoint || adapterMode) {
+    if (dataMode !== 'server' || !serverEndpoint) {
       return;
     }
 
@@ -557,9 +586,9 @@ export default function App() {
           })
       : globalThis.fetch;
 
-    // Sales sources → /api/studio-data; CRM sources (prefix "source-crm-") → /api/crm-data
+    // Sales sources → /api/sales-data; CRM sources (prefix "source-crm-") → /api/crm-data
     const salesEndpoint = serverEndpoint;
-    const crmEndpoint = serverEndpoint.replace(/\/api\/studio-data$/, '/api/crm-data');
+    const crmEndpoint = serverEndpoint.replace(/\/api\/sales-data$/, '/api/crm-data');
 
     const salesAdapter = createBatchingAdapter(salesEndpoint, {
       fetchFn,
@@ -581,7 +610,7 @@ export default function App() {
     // eslint-disable-next-line no-console
     console.info(`[x-studio] Server mode enabled — sales → ${salesEndpoint}, CRM → ${crmEndpoint}`);
     // Re-run after Studio remounts (studioKey changes when generated data arrives).
-  }, [serverEndpoint, adapterMode, studioKey]);
+  }, [dataMode, serverEndpoint, studioKey]);
 
   const localSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -801,7 +830,7 @@ export default function App() {
                   }}
                 />
               )}
-              {serverEndpoint && !adapterMode && (
+              {dataMode === 'server' && (
                 <Chip
                   label={t.serverModeLabel}
                   size="small"
@@ -817,7 +846,7 @@ export default function App() {
                   }}
                 />
               )}
-              {!serverEndpoint && !adapterMode && rowCount !== undefined && (
+              {dataMode === 'memory' && rowCount !== undefined && (
                 <Chip
                   label={t.generatedRowsLabel(rowCount)}
                   size="small"
@@ -832,7 +861,7 @@ export default function App() {
                   }}
                 />
               )}
-              {!serverEndpoint && !adapterMode && rowCount === undefined && (
+              {dataMode === 'memory' && rowCount === undefined && (
                 <Chip
                   label={t.demoDataLabel}
                   size="small"
@@ -899,7 +928,8 @@ export default function App() {
               tableSourceMode,
               stackBreakpoint,
               rowCount: getUrlRowsParam(),
-              adapterEnabled: adapterMode,
+              dataMode,
+              serverConfigured,
               dataset: getUrlDatasetParam(),
             }}
             onSidebarLayoutChange={setSidebarLayout}

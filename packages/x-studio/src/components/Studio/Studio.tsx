@@ -19,8 +19,6 @@ import type { SerializedStudioState, MigrationResult } from '../../store/statePe
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioBackendAdapter';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
-import { DndProvider } from 'react-dnd';
-import { HTML5Backend } from 'react-dnd-html5-backend';
 import { StudioDragLayer } from '../StudioCanvas/StudioDragLayer';
 import { StudioContent } from './StudioContent';
 
@@ -289,7 +287,7 @@ export const Studio = React.memo(
     );
 
     return (
-      <DndProvider backend={HTML5Backend}>
+      <React.Fragment>
         <StudioDragLayer />
         <StudioProvider
           controller={controller}
@@ -302,7 +300,7 @@ export const Studio = React.memo(
         >
           <StudioContent {...slots} />
         </StudioProvider>
-      </DndProvider>
+      </React.Fragment>
     );
     // Note: sidebarSide is included in {...slots} via the StudioProps spread
   }),

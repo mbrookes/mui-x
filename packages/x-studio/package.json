@@ -31,6 +31,8 @@
     "directory": "packages/ag-studio"
   },
   "dependencies": {
+    "@atlaskit/pragmatic-drag-and-drop": "catalog:",
+    "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^2.1.5",
     "@babel/runtime": "catalog:",
     "@base-ui/react": "catalog:",
     "@mui/x-charts": "workspace:*",
@@ -43,8 +45,6 @@
     "@mui/x-internals": "workspace:*",
     "dayjs": "catalog:",
     "@mui/x-chat": "workspace:*",
-    "react-dnd": "^16.0.1",
-    "react-dnd-html5-backend": "^16.0.1",
     "reselect": "catalog:",
     "topojson-client": "^3.1.0",
     "us-atlas": "^3.0.1",

@@ -1,8 +1,6 @@
 'use client';
 import * as React from 'react';
 import { Box, Paper, Typography } from '@mui/material';
-import { useDrag } from 'react-dnd';
-import { getEmptyImage } from 'react-dnd-html5-backend';
 
 import { useStudioLocaleText } from '../../context';
 import type { StudioWidgetKind } from '../../models';
@@ -10,6 +8,7 @@ import {
   DRAG_TYPE_COMPOSE_WIDGET,
   type ComposeWidgetDragItem,
 } from '../StudioCanvas/studioWidgetDndTypes';
+import { useStudioDraggable } from '../StudioCanvas/useStudioDraggable';
 
 // ── Widget type cards ────────────────────────────────────────────────────────
 
@@ -28,34 +27,25 @@ export interface WidgetTypeCardProps {
 
 export function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
   const localeText = useStudioLocaleText();
-  const [{ isDragging }, dragRef, preview] = useDrag<
-    ComposeWidgetDragItem,
-    void,
-    { isDragging: boolean }
-  >({
-    type: DRAG_TYPE_COMPOSE_WIDGET,
-    item: { type: DRAG_TYPE_COMPOSE_WIDGET, kind: wt.kind },
-    canDrag: () => canAdd,
-    collect: (monitor) => ({ isDragging: monitor.isDragging() }),
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  const getData = React.useCallback(
+    (): ComposeWidgetDragItem => ({ type: DRAG_TYPE_COMPOSE_WIDGET, kind: wt.kind }),
+    [wt.kind],
+  );
+
+  useStudioDraggable({
+    ref,
+    canDrag: canAdd,
+    getData,
+    onDragStart: () => setIsDragging(true),
+    onDrop: () => setIsDragging(false),
   });
-
-  React.useEffect(() => {
-    preview(getEmptyImage(), { captureDraggingState: true });
-  }, [preview]);
-
-  React.useEffect(() => {
-    if (isDragging) {
-      document.documentElement.classList.add('x-studio-dnd-active');
-    } else {
-      document.documentElement.classList.remove('x-studio-dnd-active');
-    }
-  }, [isDragging]);
 
   return (
     <Paper
-      ref={(el) => {
-        dragRef(el as HTMLElement | null);
-      }}
+      ref={ref}
       variant="outlined"
       onClick={() => {
         if (canAdd) {

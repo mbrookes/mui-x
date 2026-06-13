@@ -2,9 +2,9 @@
 
 import * as React from 'react';
 import { Box } from '@mui/material';
-import { useDrop } from 'react-dnd';
 
-import { ACCEPTED_DRAG_TYPES, type StudioDragItem } from './studioWidgetDndTypes';
+import type { StudioDragItem } from './studioWidgetDndTypes';
+import { useStudioDropTarget } from './useStudioDropTarget';
 import { MIN_SPAN, isAdjacentToDraggingWidget } from './canvasGridConstants';
 import { RowResizeHandle } from './RowResizeHandle';
 
@@ -54,27 +54,28 @@ export function WidgetGap({
   onDragMove,
   onDragEnd,
 }: WidgetGapProps) {
+  const ref = React.useRef<HTMLDivElement>(null);
   const posRef = React.useRef({ rowIndex, colIndex });
   posRef.current = { rowIndex, colIndex };
 
-  const [{ isOver }, dropRef] = useDrop<StudioDragItem, void, { isOver: boolean }>({
-    accept: ACCEPTED_DRAG_TYPES,
-    canDrop: () => {
-      const { rowIndex: myRow, colIndex: myCol } = posRef.current;
-      return !isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef);
-    },
-    drop: (item) => {
+  const canDrop = React.useCallback(() => {
+    const { rowIndex: myRow, colIndex: myCol } = posRef.current;
+    return !isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef);
+  }, [widgetRowsRef]);
+
+  const handleDrop = React.useCallback(
+    (item: StudioDragItem) => {
       const { rowIndex: r, colIndex: c } = posRef.current;
       onDrop(item, r, c, 'vertical');
     },
-    collect: (monitor) => ({ isOver: monitor.isOver() && monitor.canDrop() }),
-  });
+    [onDrop],
+  );
+
+  const isOver = useStudioDropTarget({ ref, canDrop, onDrop: handleDrop });
 
   return (
     <Box
-      ref={(el) => {
-        dropRef(el as HTMLElement | null);
-      }}
+      ref={ref}
       data-gap
       sx={{
         position: 'relative',

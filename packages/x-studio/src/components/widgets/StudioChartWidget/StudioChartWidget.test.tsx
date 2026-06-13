@@ -10,6 +10,7 @@ const barChartSpy = vi.fn();
 const lineChartSpy = vi.fn();
 const pieChartSpy = vi.fn();
 const scatterChartSpy = vi.fn();
+const sankeyChartSpy = vi.fn();
 
 vi.mock('@mui/x-charts/BarChart', () => ({
   BarChart: (props: unknown) => {
@@ -36,6 +37,13 @@ vi.mock('@mui/x-charts/ScatterChart', () => ({
   ScatterChart: (props: unknown) => {
     scatterChartSpy(props);
     return <div data-testid="scatter-chart" />;
+  },
+}));
+
+vi.mock('@mui/x-charts-pro/SankeyChart', () => ({
+  SankeyChart: (props: unknown) => {
+    sankeyChartSpy(props);
+    return <div data-testid="sankey-chart" />;
   },
 }));
 
@@ -104,6 +112,7 @@ describe('<StudioChartWidget />', () => {
     lineChartSpy.mockClear();
     pieChartSpy.mockClear();
     scatterChartSpy.mockClear();
+    sankeyChartSpy.mockClear();
     controller.clearCrossFilter.mockClear();
     controller.applyCrossFilter.mockClear();
   });
@@ -1784,6 +1793,102 @@ describe('<StudioChartWidget />', () => {
       expect(xLabels).toContain('Germany');
       // No ghost slot: interactive filters don't trigger ghost rendering
       expect(props.slots?.bar).toBeUndefined();
+    });
+  });
+
+  describe('sankey chart', () => {
+    const flowSource: StudioDataSource = {
+      id: 'flows',
+      label: 'Flows',
+      fields: [
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'region', label: 'Region', type: 'string' },
+        { id: 'amount', label: 'Amount', type: 'number' },
+      ],
+      rows: [
+        { id: '1', category: 'Hardware', region: 'EU', amount: 10 },
+        { id: '2', category: 'Hardware', region: 'EU', amount: 5 },
+        { id: '3', category: 'Hardware', region: 'US', amount: 8 },
+        { id: '4', category: 'Software', region: 'US', amount: 3 },
+      ],
+    };
+
+    function makeSankeyWidget(config: Partial<StudioWidget['config']> = {}): StudioWidget {
+      return {
+        id: 'sankey-1',
+        kind: 'chart',
+        title: 'Revenue flow',
+        sourceId: 'flows',
+        config: {
+          chartType: 'sankey',
+          xField: 'category',
+          sankeyTargetField: 'region',
+          yField: 'amount',
+          ...config,
+        },
+      };
+    }
+
+    it('aggregates rows into summed node/link data', () => {
+      const widget = makeSankeyWidget();
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { flows: flowSource },
+      });
+
+      renderChart(widget, flowSource);
+
+      expect(screen.getByTestId('sankey-chart')).toBeVisible();
+      const props = sankeyChartSpy.mock.calls.at(-1)?.[0] as {
+        series: {
+          data: {
+            nodes: { id: string }[];
+            links: { source: string; target: string; value: number }[];
+          };
+          linkOptions?: { color?: string; showValues?: boolean };
+        };
+      };
+      expect(props.series.data.nodes).toEqual([
+        { id: 'Hardware' },
+        { id: 'EU' },
+        { id: 'US' },
+        { id: 'Software' },
+      ]);
+      expect(props.series.data.links).toEqual([
+        { source: 'Hardware', target: 'EU', value: 15 },
+        { source: 'Hardware', target: 'US', value: 8 },
+        { source: 'Software', target: 'US', value: 3 },
+      ]);
+    });
+
+    it('forwards link colour and show-values options', () => {
+      const widget = makeSankeyWidget({ sankeyLinkColor: 'target', sankeyShowValues: true });
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { flows: flowSource },
+      });
+
+      renderChart(widget, flowSource);
+
+      const props = sankeyChartSpy.mock.calls.at(-1)?.[0] as {
+        series: { linkOptions?: { color?: string; showValues?: boolean } };
+      };
+      expect(props.series.linkOptions).toMatchObject({ color: 'target', showValues: true });
+    });
+
+    it('shows a hint when the target field is not configured', () => {
+      const widget = makeSankeyWidget({ sankeyTargetField: undefined });
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { flows: flowSource },
+      });
+
+      renderChart(widget, flowSource);
+
+      expect(sankeyChartSpy).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(/Sankey chart requires source, target, and value fields/i),
+      ).toBeVisible();
     });
   });
 });

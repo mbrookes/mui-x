@@ -274,6 +274,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const isHeatmap = chartType === 'heatmap';
   const isFunnel = chartType === 'funnel';
   const isGantt = chartType === 'gantt';
+  const isSankey = chartType === 'sankey';
 
   const [calcDialogOpen, setCalcDialogOpen] = React.useState(false);
 
@@ -285,6 +286,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     !isHeatmap &&
     !isFunnel &&
     !isGantt &&
+    !isSankey &&
     widgetSource !== undefined &&
     features.calculatedFields !== false &&
     features.chartCalculatedFields !== false;
@@ -299,7 +301,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
   // Computed labels to avoid nested ternaries in JSX
   let xFieldLabel: string;
-  if (isScatter) {
+  if (isSankey) {
+    xFieldLabel = localeText.chartSetupSankeySourceLabel;
+  } else if (isScatter) {
     xFieldLabel = localeText.chartSetupXFieldNumericLabel;
   } else if (isHorizontalBarChart) {
     xFieldLabel = localeText.chartSetupXFieldCategoryVertLabel;
@@ -308,7 +312,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   }
 
   let xFieldHelperText: string;
-  if (isScatter) {
+  if (isSankey) {
+    xFieldHelperText = localeText.chartSetupSankeySourceHelperText;
+  } else if (isScatter) {
     xFieldHelperText = localeText.chartSetupXFieldHorizontalHelperText;
   } else if (isHorizontalBarChart) {
     xFieldHelperText = localeText.chartSetupXFieldGroupVertHelperText;
@@ -431,33 +437,34 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             />
 
             {/* Group by — shown only when x field is a date/datetime type */}
-            {(selectedXField?.type === 'date' || selectedXField?.type === 'datetime') && (
-              <FormControl size="small" fullWidth>
-                <InputLabel>{localeText.chartSetupGroupByLabel}</InputLabel>
-                <Select
-                  label={localeText.chartSetupGroupByLabel}
-                  value={config.xGroupBy ?? ''}
-                  onChange={(evt) => {
-                    const val = evt.target.value as string;
-                    controller.updateWidgetConfig(widgetId, {
-                      xGroupBy: val
-                        ? (val as 'day' | 'week' | 'month' | 'quarter' | 'year')
-                        : undefined,
-                    });
-                  }}
-                >
-                  <MenuItem value="">{localeText.timeGranNone}</MenuItem>
-                  <MenuItem value="day">{localeText.timeGranDay}</MenuItem>
-                  <MenuItem value="week">{localeText.timeGranWeek}</MenuItem>
-                  <MenuItem value="month">{localeText.timeGranMonth}</MenuItem>
-                  <MenuItem value="quarter">{localeText.timeGranQuarter}</MenuItem>
-                  <MenuItem value="year">{localeText.timeGranYear}</MenuItem>
-                </Select>
-              </FormControl>
-            )}
+            {!isSankey &&
+              (selectedXField?.type === 'date' || selectedXField?.type === 'datetime') && (
+                <FormControl size="small" fullWidth>
+                  <InputLabel>{localeText.chartSetupGroupByLabel}</InputLabel>
+                  <Select
+                    label={localeText.chartSetupGroupByLabel}
+                    value={config.xGroupBy ?? ''}
+                    onChange={(evt) => {
+                      const val = evt.target.value as string;
+                      controller.updateWidgetConfig(widgetId, {
+                        xGroupBy: val
+                          ? (val as 'day' | 'week' | 'month' | 'quarter' | 'year')
+                          : undefined,
+                      });
+                    }}
+                  >
+                    <MenuItem value="">{localeText.timeGranNone}</MenuItem>
+                    <MenuItem value="day">{localeText.timeGranDay}</MenuItem>
+                    <MenuItem value="week">{localeText.timeGranWeek}</MenuItem>
+                    <MenuItem value="month">{localeText.timeGranMonth}</MenuItem>
+                    <MenuItem value="quarter">{localeText.timeGranQuarter}</MenuItem>
+                    <MenuItem value="year">{localeText.timeGranYear}</MenuItem>
+                  </Select>
+                </FormControl>
+              )}
 
-            {/* Sort controls — shown when x-field is set on categorical charts (not scatter, not gauge, not gantt) */}
-            {config.xField && !isScatter && (
+            {/* Sort controls — shown when x-field is set on categorical charts (not scatter, not gauge, not gantt, not sankey) */}
+            {config.xField && !isScatter && !isSankey && (
               <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                 <FormControl size="small" sx={{ flex: 1 }}>
                   <InputLabel>{localeText.chartSetupSortByLabel}</InputLabel>
@@ -631,8 +638,71 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               </React.Fragment>
             )}
 
-            {/* Y series — for non-scatter, non-gauge, non-heatmap, non-funnel charts */}
-            {!isScatter && !isHeatmap && !isFunnel && (
+            {/* Sankey: target node field + value measure + link options */}
+            {isSankey && (
+              <React.Fragment>
+                <DataSourceFieldSelect
+                  value={config.sankeyTargetField ?? ''}
+                  onChange={(fieldId) =>
+                    controller.updateWidgetConfig(widgetId, {
+                      sankeyTargetField: fieldId || undefined,
+                    })
+                  }
+                  fields={categoryFields}
+                  label={localeText.chartSetupSankeyTargetLabel}
+                  helperText={localeText.chartSetupSankeyTargetHelperText}
+                />
+                <DataSourceFieldSelect
+                  value={config.yField ?? ySeries[0]?.fieldId ?? ''}
+                  onChange={(fieldId) => {
+                    controller.updateWidgetConfig(widgetId, {
+                      yField: fieldId,
+                      ySeries: [{ fieldId }],
+                    });
+                  }}
+                  fields={numericFields}
+                  label={localeText.chartSetupValueFieldLabel}
+                  helperText={localeText.chartSetupSankeyValueHelperText}
+                />
+                <FormControl size="small" fullWidth>
+                  <InputLabel>{localeText.chartSetupSankeyLinkColorLabel}</InputLabel>
+                  <Select
+                    label={localeText.chartSetupSankeyLinkColorLabel}
+                    value={config.sankeyLinkColor ?? 'source'}
+                    onChange={(evt) =>
+                      controller.updateWidgetConfig(widgetId, {
+                        sankeyLinkColor: evt.target.value as 'source' | 'target',
+                      })
+                    }
+                  >
+                    <MenuItem value="source">{localeText.chartSetupSankeyLinkColorSource}</MenuItem>
+                    <MenuItem value="target">{localeText.chartSetupSankeyLinkColorTarget}</MenuItem>
+                  </Select>
+                </FormControl>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={config.sankeyShowValues ?? false}
+                      onChange={(event) =>
+                        controller.updateWidgetConfig(widgetId, {
+                          sankeyShowValues: event.target.checked,
+                        })
+                      }
+                    />
+                  }
+                  label={
+                    <Typography variant="caption">
+                      {localeText.chartSetupSankeyShowValuesLabel}
+                    </Typography>
+                  }
+                  sx={{ ml: 0 }}
+                />
+              </React.Fragment>
+            )}
+
+            {/* Y series — for non-scatter, non-gauge, non-heatmap, non-funnel, non-sankey charts */}
+            {!isScatter && !isHeatmap && !isFunnel && !isSankey && (
               <div>
                 <Stack direction="row" sx={{ alignItems: 'center', mb: 0.5 }}>
                   <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
@@ -912,12 +982,13 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           </Stack>
         )}
 
-        {/* Annotations — reference lines (not for pie/donut/gauge/gantt) */}
+        {/* Annotations — reference lines (not for pie/donut/gauge/gantt/sankey) */}
         {features.chartAnnotations !== false &&
           chartType !== 'pie' &&
           chartType !== 'donut' &&
           chartType !== 'gauge' &&
-          chartType !== 'gantt' && (
+          chartType !== 'gantt' &&
+          chartType !== 'sankey' && (
             <div>
               <Divider sx={{ mb: 1.5 }} />
               <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>

@@ -370,6 +370,7 @@ export interface StudioLocaleText {
   chartTypeHeatmap: string;
   chartTypeFunnel: string;
   chartTypeGantt: string;
+  chartTypeSankey: string;
   chartTypePie: string;
   chartTypeDonut: string;
   chartTypeGauge: string;
@@ -411,6 +412,15 @@ export interface StudioLocaleText {
   chartSetupHeatmapValueLabel: string;
   chartSetupHeatmapValueHelperText: string;
   chartSetupHeatmapColourSchemeLabel: string;
+  chartSetupSankeySourceLabel: string;
+  chartSetupSankeySourceHelperText: string;
+  chartSetupSankeyTargetLabel: string;
+  chartSetupSankeyTargetHelperText: string;
+  chartSetupSankeyValueHelperText: string;
+  chartSetupSankeyLinkColorLabel: string;
+  chartSetupSankeyLinkColorSource: string;
+  chartSetupSankeyLinkColorTarget: string;
+  chartSetupSankeyShowValuesLabel: string;
   chartSetupArcLabelLabel: string;
   chartSetupMinAngleLabel: string;
   chartSetupMinAngleHelperText: string;
@@ -1212,6 +1222,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartTypeHeatmap: 'Heatmap',
   chartTypeFunnel: 'Funnel',
   chartTypeGantt: 'Gantt / Timeline',
+  chartTypeSankey: 'Sankey',
   chartTypePie: 'Pie',
   chartTypeDonut: 'Donut',
   chartTypeGauge: 'Gauge',
@@ -1255,6 +1266,15 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupHeatmapValueLabel: 'Value / colour field',
   chartSetupHeatmapValueHelperText: 'Numeric field summed per cell to determine colour intensity',
   chartSetupHeatmapColourSchemeLabel: 'Colour scheme',
+  chartSetupSankeySourceLabel: 'Source (from) field',
+  chartSetupSankeySourceHelperText: 'Categorical field for the start node of each flow',
+  chartSetupSankeyTargetLabel: 'Target (to) field',
+  chartSetupSankeyTargetHelperText: 'Categorical field for the end node of each flow',
+  chartSetupSankeyValueHelperText: 'Numeric field summed per source → target link',
+  chartSetupSankeyLinkColorLabel: 'Link colour',
+  chartSetupSankeyLinkColorSource: 'From source node',
+  chartSetupSankeyLinkColorTarget: 'From target node',
+  chartSetupSankeyShowValuesLabel: 'Show values on links',
   chartSetupArcLabelLabel: 'Arc label',
   chartSetupMinAngleLabel: 'Minimum angle (\u00b0)',
   chartSetupMinAngleHelperText: 'Slices smaller than this angle (degrees) won\u2019t show a label',
@@ -1291,8 +1311,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupSplitByLabel: 'Split by (series field)',
   chartSetupArcLabelsTitle: 'Arc labels',
   chartSetupSplitByHelperText: 'Divides data into a separate series per value',
-  chartSetupSplitByDisabledHelperText:
-    'Not available when multiple measure fields are configured',
+  chartSetupSplitByDisabledHelperText: 'Not available when multiple measure fields are configured',
   chartSetupInnerRingHelperText: 'Adds a concentric inner ring grouped by this field',
 
   // KPI setup panel
@@ -1523,13 +1542,12 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // Widget filters panel
   widgetFiltersPanelNoSource: 'This widget has no data source.',
   widgetFiltersPanelDescription:
-    "Always-on conditions applied to this widget\u2019s data before any interactive filters.",
+    'Always-on conditions applied to this widget\u2019s data before any interactive filters.',
   widgetFiltersPanelNoFilters: 'No filters, all data is shown.',
   widgetFiltersPanelAddButton: 'Add filter',
 
   // Expression field preview
-  expressionPreviewMeasureLabel: (count) =>
-    `Preview (measure over ${count.toLocaleString()} rows)`,
+  expressionPreviewMeasureLabel: (count) => `Preview (measure over ${count.toLocaleString()} rows)`,
   expressionPreviewFirstRowsLabel: (count) => `Preview (first ${count.toLocaleString()} rows)`,
 
   // Pivot widget
@@ -1567,8 +1585,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   exprDialogNewTitle: 'New Calculated Field',
 
   // AI chat suggestions
-  aiSuggestionBarChart: (numericLabel, catLabel) =>
-    `Bar chart: ${numericLabel} by ${catLabel}`,
+  aiSuggestionBarChart: (numericLabel, catLabel) => `Bar chart: ${numericLabel} by ${catLabel}`,
   aiSuggestionKpi: (fieldLabel) => `KPI: total ${fieldLabel}`,
   aiSuggestionTable: (sourceLabel) => `Table from ${sourceLabel}`,
   aiSuggestionChangeToLine: (widgetTitle) => `Change \u201c${widgetTitle}\u201d to line chart`,
@@ -1659,8 +1676,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Expression field dialog — measure checkbox
   exprMeasureLabel: 'Measure (aggregate)',
-  exprMeasureHelperText:
-    'Computes a single value over the full dataset (e.g. total revenue).',
+  exprMeasureHelperText: 'Computes a single value over the full dataset (e.g. total revenue).',
   exprDimensionHelperText: 'Computes a value per row (e.g. price \u00d7 quantity).',
 
   // Chart color scheme options

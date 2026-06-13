@@ -352,6 +352,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   chartTypeHeatmap: 'Heatmap',
   chartTypeFunnel: 'Trichter',
   chartTypeGantt: 'Gantt / Zeitleiste',
+  chartTypeSankey: 'Sankey',
   chartTypePie: 'Kreis',
   chartTypeDonut: 'Ring',
   chartTypeGauge: 'Messgerät',

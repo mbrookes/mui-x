@@ -775,12 +775,20 @@ This caused `customers` to appear twice in the query, making `customers.country`
 - `Studio.tsx` — wrapped in `<DndProvider backend={HTML5Backend}>` with `<StudioDragLayer />` inside
 - Removed all 35 `cursor: pointer` occurrences from 19 files (arrow cursor is default everywhere; pointer-style cursors are reserved for actual hyperlinks)
 
-BL-178: After BL-177 the ghost widget doesn't appear when dragging.
+✅ BL-178: After BL-177 the ghost widget doesn't appear when dragging.
 
-BL-179: When selecting fields, the option to add a calculated field should appear in the select dropdown, not separately. Standardise this control as a separate component shared across all widget config if not already.
+**Fixed** — the drag layer was described in BL-177 but never actually built (it only rendered `cursor: grabbing` GlobalStyles + an invisible overlay; its `useDragLayer` collector never gathered `item`/`itemType`). `StudioDragLayer` now collects `item`/`itemType`/`getSourceClientOffset` and renders a semi-transparent (opacity 0.2) `Paper` ghost card with the widget's icon + label, positioned via `transform: translate()` so it follows the cursor — for both canvas-widget drags and compose-panel-to-canvas drags. `CanvasWidgetDragItem` extended with `kind`/`title` so the layer can describe the ghost without store access (it stays purely presentational, reading from the drag item + the static `WIDGET_TYPES` registry, since it renders outside `StudioProvider`). Visual tracking can only be confirmed in a browser.
 
-BL-180: When configuring calculated fields, consider whether the available fields should be scoped to those reachable by the widget being configured to avoid invalid configurations. This shouldn't limit or prevent valid configurations.
+✅ BL-179: When selecting fields, the option to add a calculated field should appear in the select dropdown, not separately. Standardise this control as a separate component shared across all widget config if not already.
 
-BL-181: Remove our custom bubble-chart implementation completely, and use those provided by the mui-x scatter charts. (Will need to update master and rebase).
+**Fixed** — the "Add calculated field…" affordance now renders as a persistent footer inside the shared `DataSourceFieldSelect`'s Autocomplete popper (via a memoised `slots.paper` override, kept out of `groupBy`/option-equality so existing option tests are unaffected), gated on the `calculatedFields` + per-widget flags. The separate "Calculated field…" buttons were removed from `ChartSetupPanel` and `KpiSetupPanel`; on save the new field is auto-selected through each panel's existing `onChange`. `GridSetupPanel` keeps its in-menu `MenuItem` (its add-column UI isn't a single-field select — documented). Map/Pivot (no settled source at config time) and Filter/Text (no new-measure picker) intentionally have no affordance.
 
-BL-182: Remove our custom map-chart implementation completely, and use that provided by mui-x. (Will need to update master and rebase).
+✅ BL-180: When configuring calculated fields, consider whether the available fields should be scoped to those reachable by the widget being configured to avoid invalid configurations. This shouldn't limit or prevent valid configurations.
+
+**Fixed** — `StudioExpressionFieldDialog` gained `reachableSourceIds?: ReadonlySet<string>`; the operand expression-field picker is scoped to fields reachable from the configured widget (primary source + related sources via `getReachableSourceIds`). Crucially the **unfiltered** field set is still used for validation, so scoping only affects what's *selectable*, never what's *valid* — no valid config is blocked. When opened with no widget context (e.g. the data drawer "add calculated field" on a source) all operands remain available (backward compatible). Physical operands stay primary-source only because `validateExpression` already rejects out-of-source field refs.
+
+🛑 BL-181: Remove our custom bubble-chart implementation completely, and use those provided by the mui-x scatter charts. (Will need to update master and rebase).
+
+🛑 BL-182: Remove our custom map-chart implementation completely, and use that provided by mui-x. (Will need to update master and rebase).
+
+**Deferred to post-rebase (BL-181 + BL-182).** These require master's official `ScatterChart` (`z`/bubble dimension) and `ChoroplethChart` to replace the **custom** versions this branch carries in `x-charts`/`x-charts-pro`. The work was attempted in a pre-rebase worktree (`x-studio-backlog`, branched from HEAD), which contains the custom code but **not** master's official components (the branch is ~856 commits behind master), so the removal cannot compile until the in-progress `x-studio → master` rebase lands. Per direction, these are to be executed on the rebased branch afterwards. The pre-existing typecheck errors in `x-charts/src/ScatterChart/Scatter.tsx`, `x-charts-pro/src/models/seriesType/choropleth.ts`, `createCommonKeyboardFocusHandler.ts`, `ChartsOverlay.tsx`, and `useItemTooltip.tsx` are all in this custom chart code and are exactly what the rebase + this cleanup will resolve.

@@ -38,10 +38,14 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   filtersAddDataSourceHint: 'Fügen Sie zunächst eine Datenquelle und Widgets hinzu.',
 
   // Widget states
-  widgetConfigureChartHint: 'Verwenden Sie die Registerkarte „Konfigurieren“, um dieses Diagramm zu konfigurieren.',
-  widgetConfigureGaugeHint: 'Verwenden Sie die Registerkarte „Konfigurieren“, um das Zählerwertfeld auszuwählen.',
-  widgetConfigurePivotHint: 'Verwenden Sie die Registerkarte „Konfigurieren“, um die Pivot-Tabelle zu konfigurieren.',
-  widgetConfigureMapHint: 'Verwenden Sie die Registerkarte „Konfigurieren“, um das Länderfeld und das Wertefeld auszuwählen.',
+  widgetConfigureChartHint:
+    'Verwenden Sie die Registerkarte „Konfigurieren“, um dieses Diagramm zu konfigurieren.',
+  widgetConfigureGaugeHint:
+    'Verwenden Sie die Registerkarte „Konfigurieren“, um das Zählerwertfeld auszuwählen.',
+  widgetConfigurePivotHint:
+    'Verwenden Sie die Registerkarte „Konfigurieren“, um die Pivot-Tabelle zu konfigurieren.',
+  widgetConfigureMapHint:
+    'Verwenden Sie die Registerkarte „Konfigurieren“, um das Länderfeld und das Wertefeld auszuwählen.',
   widgetNoData: 'Keine Daten',
   widgetLoadError: 'Daten konnten nicht geladen werden',
 
@@ -90,8 +94,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
 
   // Natural language widget creation
   aiCreateWidgetLabel: 'Beschreiben Sie ein Widget',
-  aiCreateWidgetPlaceholder:
-    'z. B.: Balkendiagramm mit Umsatz nach Land, Gesamtauftrags-KPI …',
+  aiCreateWidgetPlaceholder: 'z. B.: Balkendiagramm mit Umsatz nach Land, Gesamtauftrags-KPI …',
   aiCreateWidgetButton: 'Erstellen',
   aiCreateWidgetLoading: 'Erstellen…',
   aiCreateWidgetError: 'Widget konnte nicht erstellt werden',
@@ -305,8 +308,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   expressionNameHelperText: 'Wird als Feldbezeichnung in Selektoren und Tabellenspalten verwendet',
   expressionNamePlaceholder: 'z.B.: Gewinn, Umsatz pro Einheit',
   expressionDescriptionLabel: 'Beschreibung',
-  expressionDescriptionHelperText:
-    'Optional. Wird als Tooltip in Feldauswahlen angezeigt',
+  expressionDescriptionHelperText: 'Optional. Wird als Tooltip in Feldauswahlen angezeigt',
   expressionDescriptionPlaceholder: 'Optional: Beschreiben Sie, was dieses Feld berechnet',
   expressionPrecisionLabel: 'Präzision',
   expressionPrecisionHelperText:
@@ -400,7 +402,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   chartSetupHeatmapColourSchemeLabel: 'Farbschema',
   chartSetupArcLabelLabel: 'Bogenetikett',
   chartSetupMinAngleLabel: 'Mindestwinkel (°)',
-  chartSetupMinAngleHelperText: 'Für Schnitte, die kleiner als dieser Winkel (Grad) sind, wird keine Beschriftung angezeigt',
+  chartSetupMinAngleHelperText:
+    'Für Schnitte, die kleiner als dieser Winkel (Grad) sind, wird keine Beschriftung angezeigt',
   chartSetupGanttLabelFieldLabel: 'Beschriftungsfeld',
   chartSetupGanttLabelFieldHelperText:
     'Feld, das als Zeilenbeschriftung auf der Y-Achse angezeigt wird (z. B. Aufgaben- oder Auftragsname)',
@@ -423,20 +426,23 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   chartSetupXMeasureFieldLabel: 'Feld X/Maß',
   chartSetupNoDataAlert: 'Für die Diagrammkonfiguration ist kein Datenfeld verfügbar.',
   chartSetupSeriesLabel: (index) => `Serie ${index + 1}`,
-  chartSetupSeriesNumericHorizHelperText: 'Numerisches Feld, aufgetragen entlang der horizontalen Achse',
+  chartSetupSeriesNumericHorizHelperText:
+    'Numerisches Feld, aufgetragen entlang der horizontalen Achse',
   chartSetupSeriesNumericSumHelperText: 'Numerisches Feld, summiert oder gemittelt nach Kategorie',
   chartSetupMixedSeriesBar: 'Bar',
   chartSetupMixedSeriesLine: 'Linie',
   chartSetupCalculatedField: 'Berechnetes Feld…',
   chartSetupCategoryFieldLabel: 'Kategoriefeld',
-  chartSetupRemoveSplitByTooltip: 'Entfernen Sie zusätzliche Maßfelder, um die Division durch zu ermöglichen',
+  chartSetupRemoveSplitByTooltip:
+    'Entfernen Sie zusätzliche Maßfelder, um die Division durch zu ermöglichen',
   chartSetupInnerRingLabel: 'Kategorie „Innenring“.',
   chartSetupSplitByLabel: 'Teilen durch (Reihenfeld)',
   chartSetupArcLabelsTitle: 'Bogenbeschriftungen',
   chartSetupSplitByHelperText: 'Teilt Daten in eine nach Wert getrennte Reihe auf',
   chartSetupSplitByDisabledHelperText:
     'Nicht verfügbar, wenn mehrere Kennzahlenfelder konfiguriert sind',
-  chartSetupInnerRingHelperText: 'Fügt einen konzentrischen Innenring hinzu, der nach diesem Feld gruppiert ist',
+  chartSetupInnerRingHelperText:
+    'Fügt einen konzentrischen Innenring hinzu, der nach diesem Feld gruppiert ist',
 
   // KPI setup panel
   kpiSetupChartLine: 'Linie',
@@ -482,7 +488,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   gridSetupCrossFilterFieldHelper:
     'Feld, das auf andere Widgets angewendet wird, wenn eine Zeile ausgewählt wird; Standard ist die erste sichtbare Spalte',
   gridSetupGroupByLabel: 'Gruppieren nach',
-  gridSetupGroupByHelper: 'Reduzieren Sie Zeilen in Gruppen – legen Sie unten die Aggregation nach Spalte fest',
+  gridSetupGroupByHelper:
+    'Reduzieren Sie Zeilen in Gruppen – legen Sie unten die Aggregation nach Spalte fest',
   gridSetupDefaultSortLabel: 'Standardbestellung',
   gridSetupHeightLabel: 'Höhe (px)',
   gridSetupConditionalFormattingTitle: 'Bedingte Formatierung',
@@ -553,8 +560,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   inlineFormulaBarAddTooltip: 'Berechnetes Formelfeld hinzufügen',
   inlineFormulaBarCloseAriaLabel: 'Formelleiste schließen',
   inlineFormulaBarLabelLabel: 'Etikett',
-  inlineFormulaBarAutoHelperText:
-    'Automatisch aus der Formel generiert – zum Anpassen bearbeiten',
+  inlineFormulaBarAutoHelperText: 'Automatisch aus der Formel generiert – zum Anpassen bearbeiten',
   inlineFormulaBarCancelButton: 'Stornieren',
   inlineFormulaBarAddButton: 'Zum Hinzufügen',
   inlineFormulaBarFieldOperandLabel: 'Feld',
@@ -655,6 +661,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
 
   // Data source field select
   dataSourceClearFieldAriaLabel: 'Leeres Feld',
+  dataSourceAddCalculatedField: 'Berechnetes Feld hinzufügen…',
 
   // Widget filter row
   widgetFilterFieldHelperText: 'Feld, auf das dieser Filter angewendet wird',
@@ -680,8 +687,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
     `Vorschau (erste ${count.toLocaleString('de')} Zeilen)`,
 
   // Pivot widget
-  pivotRowsColumnsLabel: (rowCount, colCount) =>
-    `${rowCount} Zeilen × ${colCount} Spalten`,
+  pivotRowsColumnsLabel: (rowCount, colCount) => `${rowCount} Zeilen × ${colCount} Spalten`,
 
   // Gantt chart
   ganttHiddenRowsLabel: (count) =>
@@ -699,7 +705,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
     'Fügen Sie einen Datumsfilter hinzu oder wählen Sie ein Zeitfeld aus, um die Sparkline anzuzeigen.',
 
   // Chart widget
-  chartMixedRequiresFieldsHint: 'Für ein gemischtes Diagramm sind zwei oder mehr Kennzahlfelder erforderlich.',
+  chartMixedRequiresFieldsHint:
+    'Für ein gemischtes Diagramm sind zwei oder mehr Kennzahlfelder erforderlich.',
   chartDefaultSeriesLabel: 'Wert',
 
   // Map widget
@@ -732,10 +739,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
     `Balkendiagramm: ${numericLabel} nach ${catLabel}`,
   aiSuggestionKpi: (fieldLabel) => `KPI: Gesamtwert von ${fieldLabel}`,
   aiSuggestionTable: (sourceLabel) => `Tabelle für ${sourceLabel}`,
-  aiSuggestionChangeToLine: (widgetTitle) =>
-    `„${widgetTitle}“ in ein Liniendiagramm ändern`,
-  aiSuggestionAddSparkline: (widgetTitle) =>
-    `Sparkline zu „${widgetTitle}“ hinzufügen`,
+  aiSuggestionChangeToLine: (widgetTitle) => `„${widgetTitle}“ in ein Liniendiagramm ändern`,
+  aiSuggestionAddSparkline: (widgetTitle) => `Sparkline zu „${widgetTitle}“ hinzufügen`,
   aiSuggestionAddDateFilter: 'Datumsfilter hinzufügen',
   aiSuggestionAddPage: 'Neue Seite hinzufügen',
   aiSuggestionSummarisePage: 'Seite zusammenfassen',

@@ -102,10 +102,22 @@ export function GridSetupPanel(props: { widgetId: string }) {
     { value: 'is_not_empty', label: localeText.gridSetupCFNotEmpty },
   ];
   const cfStylePresets: { label: string; style: StudioConditionalFormat['style'] }[] = [
-    { label: localeText.gridSetupCFStyleRed, style: { backgroundColor: '#ffcdd2', color: '#b71c1c' } },
-    { label: localeText.gridSetupCFStyleGreen, style: { backgroundColor: '#c8e6c9', color: '#1b5e20' } },
-    { label: localeText.gridSetupCFStyleYellow, style: { backgroundColor: '#fff9c4', color: '#f57f17' } },
-    { label: localeText.gridSetupCFStyleBlue, style: { backgroundColor: '#bbdefb', color: '#0d47a1' } },
+    {
+      label: localeText.gridSetupCFStyleRed,
+      style: { backgroundColor: '#ffcdd2', color: '#b71c1c' },
+    },
+    {
+      label: localeText.gridSetupCFStyleGreen,
+      style: { backgroundColor: '#c8e6c9', color: '#1b5e20' },
+    },
+    {
+      label: localeText.gridSetupCFStyleYellow,
+      style: { backgroundColor: '#fff9c4', color: '#f57f17' },
+    },
+    {
+      label: localeText.gridSetupCFStyleBlue,
+      style: { backgroundColor: '#bbdefb', color: '#0d47a1' },
+    },
     { label: localeText.gridSetupCFStyleBold, style: { fontWeight: 'bold' } },
   ];
 
@@ -431,9 +443,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
               />
             )}
           />
-          {!source && (
-          <Alert severity="info">{localeText.gridSetupNoSourceAlert}</Alert>
-          )}
+          {!source && <Alert severity="info">{localeText.gridSetupNoSourceAlert}</Alert>}
         </React.Fragment>
       )}
 
@@ -800,9 +810,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                       size="small"
                       value={preset?.label ?? '__custom__'}
                       onChange={(event) => {
-                        const selected = cfStylePresets.find(
-                          (p) => p.label === event.target.value,
-                        );
+                        const selected = cfStylePresets.find((p) => p.label === event.target.value);
                         if (selected) {
                           const next = [...conditionalFormats];
                           next[i] = { ...rule, style: selected.style };
@@ -899,13 +907,15 @@ export function GridSetupPanel(props: { widgetId: string }) {
       )}
 
       {/* Calculated column dialog */}
-      {source && (
+      {source && widget?.sourceId && (
         <StudioExpressionFieldDialog
           key={calcDialogOpen ? 'open' : 'closed'}
           open={calcDialogOpen}
           onClose={() => setCalcDialogOpen(false)}
           dataSource={source}
           expressionFields={expressionFields}
+          // BL-180: scope operand fields to sources reachable from this grid's source.
+          reachableSourceIds={getReachableSourceIds(widget.sourceId, relationships)}
         />
       )}
     </Stack>

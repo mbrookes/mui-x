@@ -774,3 +774,13 @@ This caused `customers` to appear twice in the query, making `customers.country`
 - `StudioCanvas.tsx` `InsertionPoint` + `WidgetGap` — migrated from manual `dragover/dragleave/drop` listeners to `useDrop`; removed `GlobalStyles` cursor block
 - `Studio.tsx` — wrapped in `<DndProvider backend={HTML5Backend}>` with `<StudioDragLayer />` inside
 - Removed all 35 `cursor: pointer` occurrences from 19 files (arrow cursor is default everywhere; pointer-style cursors are reserved for actual hyperlinks)
+
+BL-178: After BL-177 the ghost widget doesn't appear when dragging.
+
+BL-179: When selecting fields, the option to add a calculated field should appear in the select dropdown, not separately. Standardise this control as a separate component shared across all widget config if not already.
+
+BL-180: When configuring calculated fields, consider whether the available fields should be scoped to those reachable by the widget being configured to avoid invalid configurations. This shouldn't limit or prevent valid configurations.
+
+BL-181: Remove our custom bubble-chart implementation completely, and use those provided by the mui-x scatter charts. (Will need to update master and rebase).
+
+BL-182: Remove our custom map-chart implementation completely, and use that provided by mui-x. (Will need to update master and rebase).

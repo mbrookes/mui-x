@@ -59,6 +59,7 @@ import { ChatSidePanel } from './components/ChatSidePanel';
 import { WidgetAiDialog } from './components/WidgetAiDialog';
 import { EmptyPagePrompt } from './components/EmptyPagePrompt';
 import { SettingsDialog } from './components/SettingsDialog';
+import type { DataMode } from './components/SettingsDialog';
 import { theme } from './theme';
 import { createAdapter } from './simulatedServer';
 import { ukRegionsGeography } from './config/geographies/ukRegions';
@@ -127,6 +128,15 @@ function getUrlAdapterParam(): boolean {
     return false;
   }
   return new URL(window.location.href).searchParams.has('adapter');
+}
+
+/** Read ?mode=memory|adapter|server — an explicit override that wins over .env config. */
+function getUrlModeParam(): DataMode | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  const v = new URL(window.location.href).searchParams.get('mode');
+  return v === 'memory' || v === 'adapter' || v === 'server' ? v : undefined;
 }
 
 /** Read ?dataset=ag-studio to select the AG Studio Data dataset. */
@@ -324,7 +334,9 @@ function buildInitialState(osData?: OfficeSuppliesData): Partial<StudioState> {
 // ── Dashboard layout (composed — no <Studio> wrapper) ───────────────────────
 
 interface DashboardLayoutProps {
-  adapterMode: boolean;
+  dataMode: DataMode;
+  rowCount: number | undefined;
+  serverConfigured: boolean;
   aiConfig: StudioAIConfig | undefined;
   dataset: 'sales' | 'ag-studio';
   onSnackbar: (message: string, severity: 'success' | 'error' | 'info') => void;
@@ -352,7 +364,9 @@ interface DashboardLayoutProps {
  */
 // react-doctor-disable-next-line react-doctor/no-giant-component, react-doctor/prefer-useReducer -- dashboard orchestration state is intentionally broad and not naturally reducible
 function DashboardLayout({
-  adapterMode,
+  dataMode,
+  rowCount,
+  serverConfigured,
   aiConfig,
   dataset,
   onSnackbar,
@@ -473,7 +487,7 @@ function DashboardLayout({
 
   // Activate adapter mode once on mount
   React.useEffect(() => {
-    if (!adapterMode) {
+    if (dataMode !== 'adapter') {
       return;
     }
     for (const source of Object.values(dataSources)) {
@@ -483,16 +497,20 @@ function DashboardLayout({
     }
     // eslint-disable-next-line no-console
     console.info('[x-studio] Adapter mode enabled — all sources routed through simulatedServer');
-    // Intentionally runs only on mount; adapterMode is read from URL and stable
+    // Intentionally runs only on mount; dataMode is read from URL and stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional mount-only effect
   }, []);
 
-  // Server mode: when STUDIO_SERVER_URL is set, route all data through the dev server
+  // Server mode: when STUDIO_SERVER_URL is set, route all data through the dev server.
+  // Skipped when dataMode is not 'server' (e.g. rows are set, forcing in-memory mode).
   // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- example app: fetch without a data-fetching library is acceptable here
   React.useEffect(() => {
+    if (dataMode !== 'server') {
+      return;
+    }
     const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
-    if (!serverUrl || adapterMode) {
+    if (!serverUrl) {
       return;
     }
     const dataEndpoint = `${serverUrl.replace(/\/$/, '')}/api/sales-data`;
@@ -510,7 +528,7 @@ function DashboardLayout({
     }
     // eslint-disable-next-line no-console
     console.info(`[x-studio] Server mode enabled — queries routed to ${dataEndpoint}`);
-    // Intentionally runs only on mount; env vars and adapterMode are stable
+    // Intentionally runs only on mount; env vars and dataMode are stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional mount-only effect
   }, []);
@@ -664,6 +682,9 @@ function DashboardLayout({
         open={settingsOpen}
         onClose={handleSettingsClose}
         dataset={dataset}
+        rowCount={rowCount}
+        dataMode={dataMode}
+        serverConfigured={serverConfigured}
         featureFlags={featureFlags}
         onFeatureFlagsChange={onFeatureFlagsChange}
         locale={locale}
@@ -688,7 +709,7 @@ function DashboardLayout({
       <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         {/* Canvas takes full width — side panel slides in alongside it */}
         <Box sx={{ flexGrow: 1, minWidth: 0, position: 'relative' }}>
-          {adapterMode && (
+          {dataMode === 'adapter' && (
             <Chip
               label={t.adapterModeLabel}
               size="small"
@@ -700,6 +721,53 @@ function DashboardLayout({
                 zIndex: 10,
                 fontWeight: 600,
                 letterSpacing: 0.3,
+                opacity: 0.5,
+              }}
+            />
+          )}
+          {dataMode === 'server' && (
+            <Chip
+              label={t.serverModeLabel}
+              size="small"
+              color="success"
+              sx={{
+                position: 'absolute',
+                bottom: aiConfig ? 16 : 80,
+                right: 24,
+                zIndex: 10,
+                fontWeight: 600,
+                letterSpacing: 0.3,
+                opacity: 0.5,
+              }}
+            />
+          )}
+          {dataMode === 'memory' && rowCount !== undefined && (
+            <Chip
+              label={t.generatedRowsLabel(rowCount)}
+              size="small"
+              sx={{
+                position: 'absolute',
+                bottom: aiConfig ? 16 : 80,
+                right: 24,
+                zIndex: 10,
+                fontWeight: 600,
+                letterSpacing: 0.3,
+                opacity: 0.5,
+              }}
+            />
+          )}
+          {dataMode === 'memory' && rowCount === undefined && (
+            <Chip
+              label={t.demoDataLabel}
+              size="small"
+              sx={{
+                position: 'absolute',
+                bottom: aiConfig ? 16 : 80,
+                right: 24,
+                zIndex: 10,
+                fontWeight: 600,
+                letterSpacing: 0.3,
+                opacity: 0.5,
               }}
             />
           )}
@@ -750,8 +818,28 @@ function DashboardLayout({
 
 // react-doctor-disable-next-line react-doctor/no-giant-component, react-doctor/prefer-useReducer -- top-level orchestration state is intentionally broad and not naturally reducible
 export default function App() {
-  const adapterMode = React.useMemo(() => getUrlAdapterParam(), []);
+  const rowCount = React.useMemo(() => getUrlRowsParam(), []);
   const dataset = React.useMemo(() => getUrlDatasetParam(), []);
+  const serverConfigured = Boolean(import.meta.env.STUDIO_SERVER_URL as string | undefined);
+  const dataMode = React.useMemo<DataMode>(() => {
+    const explicit = getUrlModeParam();
+    if (explicit === 'server') {
+      if (rowCount !== undefined) {
+        return 'memory';
+      }
+      return serverConfigured ? 'server' : 'memory';
+    }
+    if (explicit) {
+      return explicit;
+    }
+    if (getUrlAdapterParam()) {
+      return 'adapter';
+    }
+    if (rowCount !== undefined && serverConfigured) {
+      return 'memory';
+    }
+    return serverConfigured ? 'server' : 'memory';
+  }, [serverConfigured, rowCount]);
 
   const aiConfig = React.useMemo<StudioAIConfig | undefined>(() => {
     const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
@@ -847,7 +935,9 @@ export default function App() {
               localeText={localeBundle.studioLocaleText}
             >
               <DashboardLayout
-                adapterMode={adapterMode}
+                dataMode={dataMode}
+                rowCount={rowCount}
+                serverConfigured={serverConfigured}
                 aiConfig={aiConfig}
                 dataset={dataset}
                 onSnackbar={handleSnackbar}

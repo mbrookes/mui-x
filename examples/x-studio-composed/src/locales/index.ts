@@ -86,6 +86,17 @@ export interface AppLocaleText {
   doneButtonLabel: string;
   configureWidgetTitle: string;
   widgetFallbackTitle: string;
+  rowCountLabel: string;
+  rowCountHelper: string;
+  rowCountUnit: string;
+  dataSourceModeLabel: string;
+  dataModeMemory: string;
+  serverAdapterLabel: string;
+  serverModeLabel: string;
+  dataModeServerUnavailableHint: string;
+  rowCountOverridesServerHint: string;
+  generatedRowsLabel: (rowCount: number) => string;
+  demoDataLabel: string;
   adapterModeLabel: string;
   dashboardSavedMessage: string;
   dashboardLoadedMigratedMessage: (
@@ -145,7 +156,7 @@ const enAppLocaleText: AppLocaleText = {
   languageLabel: 'Language',
   datasetSales: 'MUI X Sales (generated)',
   datasetAg: 'AG Studio Office Supplies',
-  settingsReloadHint: 'Dataset changes take effect after reload.',
+  settingsReloadHint: 'Dataset, row count and data source mode changes take effect after reload.',
   devServerConnectionLabel: 'Dev Server Connection',
   devServerConnectedLabel: 'Connected to:',
   devServerConnectedDescription: 'AI and data queries are routed through the dev server.',
@@ -162,6 +173,19 @@ const enAppLocaleText: AppLocaleText = {
   doneButtonLabel: 'Done',
   configureWidgetTitle: 'Configure widget',
   widgetFallbackTitle: 'Widget',
+  rowCountLabel: 'Generated row count',
+  rowCountHelper: 'Leave blank to use the default bundled data',
+  rowCountUnit: 'rows',
+  dataSourceModeLabel: 'Data source mode',
+  dataModeMemory: 'In-memory (default)',
+  serverAdapterLabel: 'Simulated server adapter',
+  serverModeLabel: 'Server Mode',
+  dataModeServerUnavailableHint:
+    'Set STUDIO_SERVER_URL in .env.local to enable server mode.',
+  rowCountOverridesServerHint:
+    'When rows are set, server mode is bypassed — generated data is used in-memory.',
+  generatedRowsLabel: (rowCount) => `Generated · ${rowCount.toLocaleString()} rows`,
+  demoDataLabel: 'Demo Data',
   adapterModeLabel: 'Adapter Mode',
   dashboardSavedMessage: 'Dashboard saved successfully',
   dashboardLoadedMigratedMessage: (fromVersion, toVersion) =>
@@ -219,7 +243,8 @@ const ptBrAppLocaleText: AppLocaleText = {
   languageLabel: 'Idioma',
   datasetSales: 'Vendas do MUI X (geradas)',
   datasetAg: 'Suprimentos de escritório do AG Studio',
-  settingsReloadHint: 'As alterações no conjunto de dados entram em vigor após recarregar.',
+  settingsReloadHint:
+    'As alterações no conjunto de dados, no número de linhas e no modo de fonte de dados entram em vigor após recarregar.',
   devServerConnectionLabel: 'Conexão com o servidor de desenvolvimento',
   devServerConnectedLabel: 'Conectado a:',
   devServerConnectedDescription:
@@ -237,6 +262,19 @@ const ptBrAppLocaleText: AppLocaleText = {
   doneButtonLabel: 'Concluir',
   configureWidgetTitle: 'Configurar widget',
   widgetFallbackTitle: 'Widget',
+  rowCountLabel: 'Número de linhas geradas',
+  rowCountHelper: 'Deixe em branco para usar os dados padrão incluídos',
+  rowCountUnit: 'linhas',
+  dataSourceModeLabel: 'Modo da fonte de dados',
+  dataModeMemory: 'Em memória (padrão)',
+  serverAdapterLabel: 'Adaptador de servidor simulado',
+  serverModeLabel: 'Modo do servidor',
+  dataModeServerUnavailableHint:
+    'Defina STUDIO_SERVER_URL em .env.local para ativar o modo servidor.',
+  rowCountOverridesServerHint:
+    'Quando as linhas estão definidas, o modo servidor é ignorado — os dados gerados são usados em memória.',
+  generatedRowsLabel: (rowCount) => `Gerado · ${rowCount.toLocaleString()} linhas`,
+  demoDataLabel: 'Dados de demonstração',
   adapterModeLabel: 'Modo do adaptador',
   dashboardSavedMessage: 'Painel salvo com sucesso',
   dashboardLoadedMigratedMessage: (fromVersion, toVersion) =>

@@ -21,6 +21,7 @@ import { ScatterIcon } from '../../icons/charts/ScatterIcon';
 import { HeatmapIcon } from '../../icons/charts/HeatmapIcon';
 import { FunnelIcon } from '../../icons/charts/FunnelIcon';
 import { GanttIcon } from '../../icons/charts/GanttIcon';
+import { SankeyIcon } from '../../icons/charts/SankeyIcon';
 
 interface ChartTypeOption {
   chartType: StudioChartType;
@@ -29,7 +30,9 @@ interface ChartTypeOption {
   Icon: React.FC<{ size?: number; color?: string; secondaryColor?: string }>;
 }
 
-function getChartTypeOptions(localeText: ReturnType<typeof useStudioLocaleText>): ChartTypeOption[] {
+function getChartTypeOptions(
+  localeText: ReturnType<typeof useStudioLocaleText>,
+): ChartTypeOption[] {
   return [
     { chartType: 'bar', label: localeText.chartTypeBarGrouped, Icon: BarGroupedIcon },
     { chartType: 'bar-stacked', label: localeText.chartTypeBarStacked, Icon: BarStackedIcon },
@@ -61,6 +64,7 @@ function getChartTypeOptions(localeText: ReturnType<typeof useStudioLocaleText>)
     { chartType: 'heatmap', label: localeText.chartTypeHeatmap, Icon: HeatmapIcon },
     { chartType: 'funnel', label: localeText.chartTypeFunnel, Icon: FunnelIcon },
     { chartType: 'gantt', label: localeText.chartTypeGantt, Icon: GanttIcon },
+    { chartType: 'sankey', label: localeText.chartTypeSankey, Icon: SankeyIcon },
     { chartType: 'pie', label: localeText.chartTypePie, Icon: PieIcon },
     { chartType: 'donut', label: localeText.chartTypeDonut, Icon: DonutIcon },
     { chartType: 'gauge', label: localeText.chartTypeGauge, Icon: GaugeIcon },

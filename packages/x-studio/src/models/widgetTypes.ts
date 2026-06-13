@@ -138,6 +138,23 @@ export interface StudioWidgetConfig {
    */
   funnelCategoryOrder?: string[];
   /**
+   * Sankey chart: target ("to") node field. The source ("from") node uses `xField`
+   * and the link weight uses `yField`. Links are summed per unique source→target pair.
+   */
+  sankeyTargetField?: string;
+  /**
+   * Sankey chart: where each link draws its colour from.
+   * - 'source': colour links by their source node (default)
+   * - 'target': colour links by their target node
+   * @default 'source'
+   */
+  sankeyLinkColor?: 'source' | 'target';
+  /**
+   * Sankey chart: render the aggregated value as a label on each link.
+   * @default false
+   */
+  sankeyShowValues?: boolean;
+  /**
    * Pie/donut chart: label shown on each arc.
    * - 'value': the formatted numeric value
    * - 'percent': percentage of the total (per ring for multi-ring charts)

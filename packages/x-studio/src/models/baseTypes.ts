@@ -252,6 +252,7 @@ export type StudioChartType =
   | 'heatmap'
   | 'funnel'
   | 'gantt'
+  | 'sankey'
   | 'pie'
   | 'donut'
   | 'scatter'

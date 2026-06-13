@@ -352,6 +352,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chartTypeHeatmap: 'Mapa de calor',
   chartTypeFunnel: 'Embudo',
   chartTypeGantt: 'Gantt / Cronología',
+  chartTypeSankey: 'Sankey',
   chartTypePie: 'Circular',
   chartTypeDonut: 'Anillo',
   chartTypeGauge: 'Medidor',

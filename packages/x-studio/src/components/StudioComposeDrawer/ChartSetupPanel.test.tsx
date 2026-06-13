@@ -255,4 +255,87 @@ describe('ChartSetupPanel', () => {
       fields: [{ id: 'total', label: 'Total', type: 'number' }],
     };
   });
+
+  it('shows source, target, value and link controls for a sankey chart', () => {
+    const previousWidget = mockState.widgets['widget-1'];
+    const previousOrdersFields = mockState.dataSources.orders.fields;
+
+    try {
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: [
+          { id: 'category', label: 'Category', type: 'string' },
+          { id: 'region', label: 'Region', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+      };
+      mockState.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: {
+          chartType: 'sankey',
+          xField: 'category',
+          sankeyTargetField: 'region',
+          yField: 'total',
+        },
+      };
+
+      render(<ChartSetupPanel widgetId="widget-1" />);
+
+      // Sankey-specific field controls (labels render twice via the notched outline)
+      expect(screen.getAllByText('Source (from) field').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Target (to) field').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Link colour').length).toBeGreaterThan(0);
+      expect(screen.getByText('Show values on links')).toBeVisible();
+      // Irrelevant controls are hidden for sankey (split-by section title)
+      expect(screen.queryByText('Category field')).toBeNull();
+    } finally {
+      mockState.widgets['widget-1'] = previousWidget;
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+    }
+  });
+
+  it('toggles sankeyShowValues from the show-values checkbox', async () => {
+    const previousWidget = mockState.widgets['widget-1'];
+    const previousOrdersFields = mockState.dataSources.orders.fields;
+    controller.updateWidgetConfig.mockClear();
+
+    try {
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: [
+          { id: 'category', label: 'Category', type: 'string' },
+          { id: 'region', label: 'Region', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+      };
+      mockState.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: {
+          chartType: 'sankey',
+          xField: 'category',
+          sankeyTargetField: 'region',
+          yField: 'total',
+        },
+      };
+
+      const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+      await user.click(screen.getByRole('checkbox'));
+
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+        sankeyShowValues: true,
+      });
+    } finally {
+      mockState.widgets['widget-1'] = previousWidget;
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+    }
+  });
 });

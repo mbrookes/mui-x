@@ -145,6 +145,11 @@ export function collectSelectFields(widget: StudioWidget): string[] {
     fields.add(config.heatYField);
   }
 
+  // Sankey target ("to") node field (source uses xField, value uses yField)
+  if (config.sankeyTargetField) {
+    fields.add(config.sankeyTargetField);
+  }
+
   // Gantt chart fields
   if (config.ganttLabelField) {
     fields.add(config.ganttLabelField);

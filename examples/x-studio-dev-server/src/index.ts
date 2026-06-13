@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './env.js';
 import { buildConfig } from './config.js';
 import { createKnex } from './db/knex.js';
 import { createTables } from './db/schema.js';

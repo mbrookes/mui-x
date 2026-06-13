@@ -21,7 +21,7 @@ export const WIDGET_CONFIG_DESCRIPTION =
   'funnel: xField (stages), yField (value), yAggregation (use "count" when yField is string);\n' +
   'gantt: ganttLabelField, ganttStartField (date), ganttEndField (date), ganttColorField (optional);\n' +
   'gauge: yField, yAggregation, gaugeMin (default 0), gaugeMax;\n' +
-  'mixed: ySeries (array of {fieldId, label, type: bar|line, yAggregation}), dualYAxis (boolean);\n' +
+  'mixed: ySeries (array of {fieldId, label, type: bar|line, yAggregation, sourceId}), dualYAxis (boolean) — set a per-series sourceId to overlay a metric from a different source onto the shared categorical xField (the join key must exist with the same id in every source used);\n' +
   // KPI
   'kpi: kpiValueField, kpiAggregation (sum|avg|count|min|max), kpiSparkline (boolean), kpiSparklinePlotType (line|bar|gauge), kpiSparklineGaugeMin, kpiSparklineGaugeMax, kpiSparklineCumulative (boolean), kpiSparklineGranularity ("day"|"week"|"month"|"quarter"|"year"),\n' +
   '  kpiTrend (boolean), kpiTrendComparison ("previous-period"|"previous-calendar-period"|"year-over-year"), kpiTrendInvert (boolean — true if lower is better),\n' +

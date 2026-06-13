@@ -312,7 +312,11 @@ export default function App() {
           dataSource: dataset,
           sidebarSide,
           rowCount: getUrlRowsParam(),
-          adapterEnabled: new URL(window.location.href).searchParams.has('adapter'),
+          dataMode:
+            new URL(window.location.href).searchParams.get('mode') === 'adapter' ||
+            new URL(window.location.href).searchParams.has('adapter')
+              ? 'adapter'
+              : 'memory',
         }}
         onSidebarSideChange={setSidebarSide}
         locale={locale}

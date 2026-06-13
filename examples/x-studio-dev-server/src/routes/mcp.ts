@@ -9,7 +9,7 @@
  * When `db` and `crmDb` are supplied (as they are in the default dev-server setup), each
  * session's `buildStudioMcpServer` call receives a `data.queryDataSource` callback that
  * routes queries through `handleBatchQuery` — the same security pipeline used by
- * POST /api/studio-data and POST /api/crm-data.
+ * POST /api/sales-data and POST /api/crm-data.
  *
  * ## Claude Desktop configuration
  * ```json
@@ -67,7 +67,7 @@ const stateBoxes: Record<string, StudioStateBox> = {};
 
 // ── Route factory ─────────────────────────────────────────────────────────────
 
-export function makeMcpRouter(db: Knex, crmDb: Knex, config: Config): Router {
+export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Router {
   const router = Router();
 
   /**
@@ -78,7 +78,7 @@ export function makeMcpRouter(db: Knex, crmDb: Knex, config: Config): Router {
     return async (params: StudioDataQueryParams) => {
       // Determine which database owns this table.
       const isCrm = CRM_SCHEMA_ALLOWLIST.includes(params.tableName);
-      const targetDb = isCrm ? crmDb : db;
+      const targetDb = isCrm ? crmDb : salesDb;
       const schemaAllowlist = isCrm ? CRM_SCHEMA_ALLOWLIST : SALES_SCHEMA_ALLOWLIST;
 
       const descriptor: BatchWidgetDescriptor = {
@@ -101,11 +101,10 @@ export function makeMcpRouter(db: Knex, crmDb: Knex, config: Config): Router {
         ...(params.limit !== undefined && { limit: params.limit }),
       };
 
-      const response = await handleBatchQuery(
-        { pageId: 'mcp', widgets: [descriptor] },
-        claims,
-        { db: targetDb, schemaAllowlist },
-      );
+      const response = await handleBatchQuery({ pageId: 'mcp', widgets: [descriptor] }, claims, {
+        db: targetDb,
+        schemaAllowlist,
+      });
 
       const result = response.results[0];
       if (result.error) {
@@ -179,7 +178,8 @@ export function makeMcpRouter(db: Knex, crmDb: Knex, config: Config): Router {
       jsonrpc: '2.0',
       error: {
         code: -32000,
-        message: 'Bad Request: include Mcp-Session-Id for existing sessions, or send an initialize request for new ones.',
+        message:
+          'Bad Request: include Mcp-Session-Id for existing sessions, or send an initialize request for new ones.',
       },
       id: null,
     });

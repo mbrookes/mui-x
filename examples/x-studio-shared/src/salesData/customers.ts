@@ -4,7 +4,7 @@ export const CUSTOMERS_SOURCE_ID = 'source-customers';
 
 export const customersSource: StudioDataSource = {
   id: CUSTOMERS_SOURCE_ID,
-  label: 'Customers',
+  label: 'Sales Customers',
   tableName: 'customers',
   fields: [
     { id: 'id', label: 'Customer ID', type: 'string', hidden: true },

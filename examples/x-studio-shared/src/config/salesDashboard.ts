@@ -32,7 +32,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
   pages: {
     'page-1': {
       id: 'page-1',
-      title: 'Overview',
+      title: 'Sales Overview',
       widgetRows: [
         ['widget-text-hero'],
         ['widget-filter-country', 'widget-filter-date'],
@@ -50,7 +50,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
     'page-2': {
       id: 'page-2',
-      title: 'Products',
+      title: 'Sales Products',
       widgetRows: [
         ['widget-text-products'],
         ['widget-filter2-category'],
@@ -63,7 +63,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
     'page-3': {
       id: 'page-3',
-      title: 'Logistics',
+      title: 'Sales Logistics',
       widgetRows: [
         ['widget-text-logistics'],
         ['widget-kpi3-items-shipped', 'widget-kpi3-ontime'],
@@ -75,7 +75,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
     'page-4': {
       id: 'page-4',
-      title: 'Customers',
+      title: 'Sales Customers',
       widgetRows: [
         ['widget-text-customers'],
         ['widget-filter4-segment', 'widget-filter4-signup-date'],
@@ -92,7 +92,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
     'page-5': {
       id: 'page-5',
-      title: 'Analytics',
+      title: 'Sales Analytics',
       widgetRows: [
         ['widget-text-analytics'],
         ['widget-pivot-revenue-by-segment'],
@@ -1326,7 +1326,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       id: 'widget-chart8-activity-by-department',
       kind: 'chart',
       title: 'Activity Count by Contact Department',
-      subtitle: 'Activities joined to the contact\'s department (same-database join)',
+      subtitle: "Activities joined to the contact's department (same-database join)",
       sourceId: CRM_ACTIVITIES_SOURCE_ID,
       config: {
         chartType: 'bar' as const,

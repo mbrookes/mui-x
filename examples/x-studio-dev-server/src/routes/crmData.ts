@@ -10,7 +10,7 @@ const CRM_SCHEMA_ALLOWLIST = ['contacts', 'deals', 'activities'];
  * POST /api/crm-data
  *
  * Handles batch queries against the CRM database (contacts, deals, activities).
- * Mirrors the shape of makeDataRouter but targets a separate Knex instance and
+ * Mirrors the shape of makeSalesDataRouter but targets a separate Knex instance and
  * a different schema allowlist, demonstrating the multiple-endpoints pattern.
  */
 export function makeCrmDataRouter(crmDb: Knex, config: Config): Router {

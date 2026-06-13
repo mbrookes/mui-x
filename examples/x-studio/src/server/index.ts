@@ -8,7 +8,7 @@
  *
  * Running: pnpm server
  *
- * Then open the Vite dev server with ?server=http://localhost:3001/api/studio-data
+ * Then open the Vite dev server with ?server=http://localhost:3001/api/sales-data
  * to route widget queries through this server instead of simulatedServer.ts.
  *
  * In a real app:
@@ -34,7 +34,11 @@ const SCHEMA_ALLOWLIST = ['orders', 'order_items', 'customers', 'products'];
 
 // ── Database setup ─────────────────────────────────────────────────────────────
 
-const db = knexLib({ client: 'better-sqlite3', connection: { filename: ':memory:' }, useNullAsDefault: true });
+const db = knexLib({
+  client: 'better-sqlite3',
+  connection: { filename: ':memory:' },
+  useNullAsDefault: true,
+});
 
 console.log('Seeding in-memory SQLite database…');
 await seedDatabase(db);
@@ -72,7 +76,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     return;
   }
 
-  if (req.method !== 'POST' || req.url !== '/api/studio-data') {
+  if (req.method !== 'POST' || req.url !== '/api/sales-data') {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
     return;
@@ -112,10 +116,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 server.listen(PORT, () => {
   console.log(`x-studio example server listening on http://localhost:${PORT}`);
   console.log(`\nOpen the dev server with:`);
-  console.log(`  ?server=http://localhost:${PORT}/api/studio-data\n`);
+  console.log(`  ?server=http://localhost:${PORT}/api/sales-data\n`);
   console.log('This routes widget queries through this server (instead of simulatedServer.ts).');
   console.log(
     'All N widget requests are batched into a single POST via createBatchingAdapter().\n',
   );
 });
-

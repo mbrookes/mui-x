@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import type { Knex } from 'knex';
 import type { TABLE_NAMES } from '../db/schema.js';
 
-export function makeHealthRouter(db: Knex): Router {
+export function makeHealthRouter(salesDb: Knex): Router {
   const router = Router();
 
   router.get('/', async (_req: Request, res: Response) => {
@@ -18,7 +18,7 @@ export function makeHealthRouter(db: Knex): Router {
         'shipment_items',
       ] as unknown as Array<(typeof TABLE_NAMES)[number]>) {
         try {
-          const result = await db(table).count('* as count').first();
+          const result = await salesDb(table).count('* as count').first();
           rowCounts[table] = Number(result?.count ?? 0);
         } catch {
           rowCounts[table] = -1;

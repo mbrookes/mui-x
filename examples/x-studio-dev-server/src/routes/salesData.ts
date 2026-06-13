@@ -4,7 +4,7 @@ import { handleBatchQuery } from '@mui/x-studio-data-middleware';
 import type { Config } from '../config.js';
 import { resolveClaims } from '../middleware/claims.js';
 
-const SCHEMA_ALLOWLIST = [
+const SALES_SCHEMA_ALLOWLIST = [
   'customers',
   'products',
   'orders',
@@ -14,7 +14,7 @@ const SCHEMA_ALLOWLIST = [
 ];
 
 /**
- * POST /api/studio-data
+ * POST /api/sales-data
  *
  * Accepts a batch query request from a Studio client and returns the results.
  *
@@ -22,15 +22,15 @@ const SCHEMA_ALLOWLIST = [
  * when no Authorization header is present. In production, the client must
  * supply a signed JWT.
  */
-export function makeDataRouter(db: Knex, config: Config): Router {
+export function makeSalesDataRouter(salesDb: Knex, config: Config): Router {
   const router = Router();
 
   router.post('/', async (req: Request, res: Response): Promise<void> => {
     try {
       const claims = resolveClaims(req, config);
       const result = await handleBatchQuery(req.body, claims, {
-        db,
-        schemaAllowlist: SCHEMA_ALLOWLIST,
+        db: salesDb,
+        schemaAllowlist: SALES_SCHEMA_ALLOWLIST,
       });
       res.json(result);
     } catch (err: unknown) {
@@ -43,7 +43,7 @@ export function makeDataRouter(db: Knex, config: Config): Router {
         res.status(403).json({ error: message });
         return;
       }
-      console.error('[data] Query error:', err);
+      console.error('[sales-data] Query error:', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });

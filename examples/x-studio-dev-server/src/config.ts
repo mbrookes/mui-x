@@ -2,7 +2,7 @@ import './env.js';
 
 export interface Config {
   port: number;
-  db: DbConfig;
+  salesDb: DbConfig;
   crmDb: DbConfig;
   seedOrderCount: number;
   llm: LlmConfig;
@@ -53,13 +53,13 @@ function optionalInt(name: string, fallback: number): number {
   return parsed;
 }
 
-function buildDbConfig(): DbConfig {
+function buildSalesDbConfig(): DbConfig {
   const client = process.env.DB_CLIENT ?? 'better-sqlite3';
 
   if (client === 'better-sqlite3') {
     return {
       client,
-      filename: process.env.DB_FILENAME ?? './sales.db',
+      filename: process.env.SALES_DB_FILENAME ?? './sales.db',
     };
   }
 
@@ -68,7 +68,7 @@ function buildDbConfig(): DbConfig {
     client,
     host: process.env.DB_HOST ?? 'localhost',
     port: optionalInt('DB_PORT', client === 'pg' ? 5432 : 3306),
-    database: required('DB_NAME'),
+    database: required('SALES_DB_NAME'),
     user: required('DB_USER'),
     password: required('DB_PASSWORD'),
   };
@@ -89,7 +89,7 @@ function buildCrmDbConfig(): DbConfig {
     client,
     host: process.env.DB_HOST ?? 'localhost',
     port: optionalInt('DB_PORT', client === 'pg' ? 5432 : 3306),
-    database: process.env.CRM_DB_NAME ?? required('DB_NAME') + '_crm',
+    database: process.env.CRM_DB_NAME ?? required('SALES_DB_NAME') + '_crm',
     user: required('DB_USER'),
     password: required('DB_PASSWORD'),
   };
@@ -98,7 +98,7 @@ function buildCrmDbConfig(): DbConfig {
 export function buildConfig(): Config {
   return {
     port: optionalInt('PORT', 3020),
-    db: buildDbConfig(),
+    salesDb: buildSalesDbConfig(),
     crmDb: buildCrmDbConfig(),
     seedOrderCount: optionalInt('SEED_ORDER_COUNT', 500),
     llm: {

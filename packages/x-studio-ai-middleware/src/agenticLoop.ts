@@ -9,7 +9,14 @@
  */
 import type { ChatMessage } from '@mui/x-chat-headless';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
-import type { StateMutation, SerializableSkill, StudioAISkill, StudioDataResolver, StudioAIRateLimit, StudioAIUsage } from './models/aiTypes';
+import type {
+  StateMutation,
+  SerializableSkill,
+  StudioAISkill,
+  StudioDataResolver,
+  StudioAIRateLimit,
+  StudioAIUsage,
+} from './models/aiTypes';
 import { buildAISystemPrompt } from './buildAISystemPrompt';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import { parseSSE } from './parseSSE';
@@ -188,18 +195,33 @@ export async function* runAgenticLoop(
   // Tools that pause for user approval before execution.
   const TOOLS_REQUIRING_APPROVAL = new Set(['remove_page', 'remove_widget', 'apply_bulk_update']);
 
-  const systemPrompt = buildAISystemPrompt(
-    initialState,
-    customWidgets,
-    focusedWidgetId,
-    skills,
-    { privateMode },
-  );
+  const systemPrompt = buildAISystemPrompt(initialState, customWidgets, focusedWidgetId, skills, {
+    privateMode,
+  });
 
-  // Build effective tool list
-  const builtInTools = allowedTools
-    ? STUDIO_AI_TOOLS.filter((t) => (allowedTools as string[]).includes(t.function.name))
-    : STUDIO_AI_TOOLS;
+  // Build effective tool list.
+  //
+  // Two built-in tools can't function in this server-side loop unless the host
+  // opts in, so we never advertise them to the model by default — otherwise it
+  // calls them and dead-ends on a runtime error:
+  // - `summarise_page` needs live per-widget row data that only exists on the
+  //   client (see useChartWidgetData); the server only receives structural state.
+  //   Offered only when the host explicitly lists it in `allowedTools`.
+  // - `execute_query` needs an app-provided `dataResolver`; without one it can
+  //   only return an error. Offered only when a resolver is configured.
+  const builtInTools = (
+    allowedTools
+      ? STUDIO_AI_TOOLS.filter((t) => (allowedTools as string[]).includes(t.function.name))
+      : STUDIO_AI_TOOLS
+  ).filter((t) => {
+    if (t.function.name === 'execute_query') {
+      return Boolean(dataResolver);
+    }
+    if (t.function.name === 'summarise_page') {
+      return Boolean(allowedTools?.includes('summarise_page'));
+    }
+    return true;
+  });
 
   const skillToolDefs = (skills ?? [])
     .filter((s) => s.mode === 'server-tool' && s.tool)
@@ -359,7 +381,12 @@ export async function* runAgenticLoop(
           iterations: usage.iterations,
         },
       };
-      yield { type: 'usage', inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, iterations: usage.iterations };
+      yield {
+        type: 'usage',
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        iterations: usage.iterations,
+      };
       yield { type: 'finish', finishReason: finishReason ?? 'stop' };
       return;
     }
@@ -370,7 +397,12 @@ export async function* runAgenticLoop(
       usage.inputTokens + usage.outputTokens >= rateLimit.maxTokensPerRequest
     ) {
       rateLimit.onLimitReached?.('tokens', { ...usage });
-      yield { type: 'usage', inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, iterations: usage.iterations };
+      yield {
+        type: 'usage',
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        iterations: usage.iterations,
+      };
       yield {
         type: 'error',
         message:
@@ -589,6 +621,14 @@ export async function* runAgenticLoop(
 
   // Exceeded max turns
   rateLimit?.onLimitReached?.('turns', { ...usage });
-  yield { type: 'usage', inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, iterations: usage.iterations };
-  yield { type: 'error', message: `MUI X Studio: Agentic loop exceeded maximum turn limit (${maxTurns}).` };
+  yield {
+    type: 'usage',
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    iterations: usage.iterations,
+  };
+  yield {
+    type: 'error',
+    message: `MUI X Studio: Agentic loop exceeded maximum turn limit (${maxTurns}).`,
+  };
 }

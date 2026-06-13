@@ -40,9 +40,7 @@ function toolCallResponse(toolName: string, args: object): Response {
       choices: [
         {
           delta: {
-            tool_calls: [
-              { index: 0, id: 'tc_1', function: { name: toolName, arguments: '' } },
-            ],
+            tool_calls: [{ index: 0, id: 'tc_1', function: { name: toolName, arguments: '' } }],
           },
           finish_reason: null,
         },
@@ -52,9 +50,7 @@ function toolCallResponse(toolName: string, args: object): Response {
       choices: [
         {
           delta: {
-            tool_calls: [
-              { index: 0, function: { arguments: JSON.stringify(args) } },
-            ],
+            tool_calls: [{ index: 0, function: { arguments: JSON.stringify(args) } }],
           },
           finish_reason: null,
         },
@@ -116,12 +112,14 @@ describe('runAgenticLoop — rate limiting', () => {
       ),
     );
 
-    const usageEvent = events.find((e) => (e as { type: string }).type === 'usage') as {
-      type: string;
-      inputTokens: number;
-      outputTokens: number;
-      iterations: number;
-    } | undefined;
+    const usageEvent = events.find((e) => (e as { type: string }).type === 'usage') as
+      | {
+          type: string;
+          inputTokens: number;
+          outputTokens: number;
+          iterations: number;
+        }
+      | undefined;
 
     expect(usageEvent).toBeDefined();
     expect(usageEvent?.inputTokens).toBe(150);
@@ -140,23 +138,13 @@ describe('runAgenticLoop — rate limiting', () => {
 
     // First turn: tool call response that costs 300 tokens (over the 200 limit).
     // The loop detects the overage after the turn before trying to continue.
-    vi.mocked(fetch).mockResolvedValueOnce(
-      toolCallResponse('get_dashboard_state', {}),
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(toolCallResponse('get_dashboard_state', {}));
 
     const events = await collectEvents(
-      runAgenticLoop(
-        [userMsg('Hi')],
-        INITIAL_STATE,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        {
-          ...BASE_OPTIONS,
-          rateLimit: { maxTokensPerRequest: 200, onLimitReached },
-        },
-      ),
+      runAgenticLoop([userMsg('Hi')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        rateLimit: { maxTokensPerRequest: 200, onLimitReached },
+      }),
     );
 
     const types = events.map((e) => (e as { type: string }).type);
@@ -181,18 +169,10 @@ describe('runAgenticLoop — rate limiting', () => {
 
     const onLimitReached = vi.fn();
     const events = await collectEvents(
-      runAgenticLoop(
-        [userMsg('Hi')],
-        INITIAL_STATE,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        {
-          ...BASE_OPTIONS,
-          rateLimit: { maxTokensPerRequest: 500, onLimitReached },
-        },
-      ),
+      runAgenticLoop([userMsg('Hi')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        rateLimit: { maxTokensPerRequest: 500, onLimitReached },
+      }),
     );
 
     const types = events.map((e) => (e as { type: string }).type);
@@ -205,9 +185,7 @@ describe('runAgenticLoop — rate limiting', () => {
     const onLimitReached = vi.fn();
 
     // Respond with a tool call (forces next iteration), but maxTurns=1 so loop exits
-    vi.mocked(fetch).mockResolvedValueOnce(
-      toolCallResponse('get_dashboard_state', {}),
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(toolCallResponse('get_dashboard_state', {}));
 
     const events = await collectEvents(
       runAgenticLoop(
@@ -256,15 +234,72 @@ describe('runAgenticLoop — rate limiting', () => {
       ),
     );
 
-    const usageEvent = events.find((e) => (e as { type: string }).type === 'usage') as {
-      inputTokens: number;
-      outputTokens: number;
-      iterations: number;
-    } | undefined;
+    const usageEvent = events.find((e) => (e as { type: string }).type === 'usage') as
+      | {
+          inputTokens: number;
+          outputTokens: number;
+          iterations: number;
+        }
+      | undefined;
 
     expect(usageEvent).toBeDefined();
     expect(usageEvent?.inputTokens).toBe(200 + 180);
     expect(usageEvent?.outputTokens).toBe(50 + 40);
     expect(usageEvent?.iterations).toBe(2);
+  });
+});
+
+describe('runAgenticLoop — built-in tool gating', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Run one text-only turn and return the tool names advertised to the model. */
+  async function offeredToolNames(
+    allowedTools: string[] | undefined,
+    options: Record<string, unknown> = {},
+  ): Promise<string[]> {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok', 10, 5));
+    await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        allowedTools,
+        undefined,
+        { ...BASE_OPTIONS, ...options },
+      ),
+    );
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string) as {
+      tools: { function: { name: string } }[];
+    };
+    return body.tools.map((t) => t.function.name);
+  }
+
+  it('does not advertise summarise_page by default (needs client-side row data)', async () => {
+    const names = await offeredToolNames(undefined);
+    expect(names).not.toContain('summarise_page');
+  });
+
+  it('does not advertise execute_query when no dataResolver is configured', async () => {
+    const names = await offeredToolNames(undefined);
+    expect(names).not.toContain('execute_query');
+  });
+
+  it('advertises execute_query when a dataResolver is configured', async () => {
+    const names = await offeredToolNames(undefined, {
+      dataResolver: { resolve: async () => ({ rows: [] }) },
+    });
+    expect(names).toContain('execute_query');
+  });
+
+  it('advertises summarise_page only when explicitly opted in via allowedTools', async () => {
+    const names = await offeredToolNames(['summarise_page', 'get_dashboard_state']);
+    expect(names).toContain('summarise_page');
   });
 });

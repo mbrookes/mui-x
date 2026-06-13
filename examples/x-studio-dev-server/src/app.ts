@@ -30,7 +30,7 @@ export function buildApp(salesDb: Knex, crmDb: Knex, config: Config): express.Ap
   app.use('/health', makeHealthRouter(salesDb));
   app.use('/api/sales-data', makeSalesDataRouter(salesDb, config));
   app.use('/api/crm-data', makeCrmDataRouter(crmDb, config));
-  app.use('/api/ai', makeAIRouter(config));
+  app.use('/api/ai', makeAIRouter(salesDb, crmDb, config));
   app.use('/api/dev-token', makeDevTokenRouter(config));
   app.use('/api/mcp', makeMcpRouter(salesDb, crmDb, config));
 

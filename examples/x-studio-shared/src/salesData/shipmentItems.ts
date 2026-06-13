@@ -4,7 +4,7 @@ export const SHIPMENT_ITEMS_SOURCE_ID = 'source-shipment-items';
 
 export const shipmentItemsSource: StudioDataSource = {
   id: SHIPMENT_ITEMS_SOURCE_ID,
-  label: 'Shipment Items',
+  label: 'Sales Shipment Items',
   tableName: 'shipment_items',
   hidden: true,
   fields: [

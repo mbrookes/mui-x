@@ -4,7 +4,7 @@ A local development server for MUI X Studio that combines the data and AI middle
 
 ## What it does
 
-- **Sales data API** (`POST /api/studio-data`) — serves the Studio sales demo dataset via `@mui/x-studio-data-middleware`. Supports filtering, aggregation, joins, and caching.
+- **Sales data API** (`POST /api/sales-data`) — serves the Studio sales demo dataset via `@mui/x-studio-data-middleware`. Supports filtering, aggregation, joins, and caching.
 - **CRM data API** (`POST /api/crm-data`) — serves the CRM demo dataset (contacts, deals, activities) from a separate database. Demonstrates the multiple-endpoints pattern for cross-source relationships.
 - **AI API** (`POST /api/ai/chat`, `/insight`, `/title`, `/widget`) — handles all Studio AI operations through `@mui/x-studio-ai-middleware`. Builds the system prompt, runs the agentic loop, and streams SSE responses back to the client.
 - **MCP server** (`POST|GET|DELETE /api/mcp`) — exposes all x-studio AI tools via the [Model Context Protocol](https://modelcontextprotocol.io/), allowing Claude Desktop, Cursor, and other MCP clients to manipulate dashboards programmatically without a browser.
@@ -35,9 +35,10 @@ All configuration is done via environment variables. See `.env.example` for the 
 | ------------------ | -------------------------------------------- | --------------------------------------------------------------------- |
 | `PORT`             | `3020`                                       | Server port                                                           |
 | `DB_CLIENT`        | `better-sqlite3`                             | Database driver (`better-sqlite3`, `pg`, `mysql2`)                    |
-| `DB_FILENAME`      | `./sales.db`                                 | SQLite file path (sales DB)                                           |
+| `SALES_DB_FILENAME`| `./sales.db`                                 | SQLite file path (sales DB)                                           |
 | `CRM_DB_FILENAME`  | `./crm.db`                                   | SQLite file path (CRM DB)                                             |
-| `CRM_DB_NAME`      | `<DB_NAME>_crm`                              | Database name for CRM (PostgreSQL/MySQL)                              |
+| `SALES_DB_NAME`    | —                                            | Database name for sales (PostgreSQL/MySQL)                            |
+| `CRM_DB_NAME`      | `<SALES_DB_NAME>_crm`                        | Database name for CRM (PostgreSQL/MySQL)                              |
 | `SEED_ORDER_COUNT` | `500`                                        | Number of orders to generate on seed                                  |
 | `LLM_API_KEY`      | —                                            | OpenAI-compatible API key (required for AI features)                  |
 | `LLM_ENDPOINT`     | `https://api.openai.com/v1/chat/completions` | LLM endpoint URL                                                      |
@@ -96,7 +97,7 @@ Accepts a natural-language description and returns an AI-generated widget config
 
 ````
 
-### `POST /api/studio-data`
+### `POST /api/sales-data`
 
 Accepts a Studio batch query request body targeting the sales database and returns query results.
 
@@ -267,7 +268,7 @@ See `src/routes/mcp.ts` for the complete implementation.
 
 ### SQLite (default)
 
-No setup needed. The database file is created automatically at `DB_FILENAME` (default: `./sales.db`).
+No setup needed. The database file is created automatically at `SALES_DB_FILENAME` (default: `./sales.db`).
 
 > **macOS note:** `better-sqlite3` requires Xcode Command Line Tools to build its native module. If you see a build error during `pnpm install`, run:
 > ```bash
@@ -282,7 +283,7 @@ No setup needed. The database file is created automatically at `DB_FILENAME` (de
 DB_CLIENT=pg
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=studio
+SALES_DB_NAME=studio
 DB_USER=studio
 DB_PASSWORD=studio
 ````
@@ -293,7 +294,7 @@ DB_PASSWORD=studio
 DB_CLIENT=mysql2
 DB_HOST=localhost
 DB_PORT=3306
-DB_NAME=studio
+SALES_DB_NAME=studio
 DB_USER=studio
 DB_PASSWORD=studio
 ```
@@ -304,7 +305,7 @@ DB_PASSWORD=studio
 x-studio-dev-server
   ├── @mui/x-studio-ai-middleware   (system prompt, agentic loop, tool execution, MCP factory)
   ├── @mui/x-studio-data-middleware (batch query handler, security, caching)
-  │     ├── sales DB (SQLite / pg / mysql2)   → POST /api/studio-data
+  │     ├── sales DB (SQLite / pg / mysql2)   → POST /api/sales-data
   │     └── CRM DB   (separate connection)    → POST /api/crm-data
   └── x-studio-shared               (sales + CRM data generators)
 ```

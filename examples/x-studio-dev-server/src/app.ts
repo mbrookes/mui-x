@@ -4,13 +4,13 @@ import type { Knex } from 'knex';
 import type { Config } from './config.js';
 import { makeAuthMiddleware } from './middleware/auth.js';
 import { makeHealthRouter } from './routes/health.js';
-import { makeDataRouter } from './routes/data.js';
+import { makeSalesDataRouter } from './routes/salesData.js';
 import { makeCrmDataRouter } from './routes/crmData.js';
 import { makeAIRouter } from './routes/ai.js';
 import { makeDevTokenRouter } from './routes/devToken.js';
 import { makeMcpRouter } from './routes/mcp.js';
 
-export function buildApp(db: Knex, crmDb: Knex, config: Config): express.Application {
+export function buildApp(salesDb: Knex, crmDb: Knex, config: Config): express.Application {
   const app = express();
 
   app.use(
@@ -27,12 +27,12 @@ export function buildApp(db: Knex, crmDb: Knex, config: Config): express.Applica
   app.use('/api', makeAuthMiddleware(config));
 
   // Routes
-  app.use('/health', makeHealthRouter(db));
-  app.use('/api/studio-data', makeDataRouter(db, config));
+  app.use('/health', makeHealthRouter(salesDb));
+  app.use('/api/sales-data', makeSalesDataRouter(salesDb, config));
   app.use('/api/crm-data', makeCrmDataRouter(crmDb, config));
   app.use('/api/ai', makeAIRouter(config));
   app.use('/api/dev-token', makeDevTokenRouter(config));
-  app.use('/api/mcp', makeMcpRouter(db, crmDb, config));
+  app.use('/api/mcp', makeMcpRouter(salesDb, crmDb, config));
 
   // Global error handler
   app.use(

@@ -148,9 +148,5 @@
   "engines": {
     "pnpm": "11.5.0",
     "node": ">=22.22.3"
-  },
-  "dependencies": {
-    "@atlaskit/pragmatic-drag-and-drop": "^1.7.7",
-    "@mui/icons-material": "catalog:"
   }
 }

@@ -31,7 +31,15 @@ const WIDGET_KIND_DESCRIPTIONS: Record<StudioWidgetKind, string> = {
  * @param distinctValues - Optional pre-computed distinct values for cardinality hints
  */
 export function serializeFieldForAI(
-  f: { id: string; type: string; label?: string; format?: string; capabilities?: string[]; defaultAggregationFn?: string; aiDescription?: string },
+  f: {
+    id: string;
+    type: string;
+    label?: string;
+    format?: string;
+    capabilities?: string[];
+    defaultAggregationFn?: string;
+    aiDescription?: string;
+  },
   distinctValues?: string[],
 ): string {
   const tags: string[] = [f.type];
@@ -166,7 +174,9 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
       parts.push(`columns: [${cfg.columns.map((c) => c.fieldId).join(', ')}]`);
     }
     if ((cfg as any).gridSortField) {
-      parts.push(`sortField: ${(cfg as any).gridSortField}(${(cfg as any).gridSortDirection ?? 'asc'})`);
+      parts.push(
+        `sortField: ${(cfg as any).gridSortField}(${(cfg as any).gridSortDirection ?? 'asc'})`,
+      );
     }
     if ((cfg as any).gridGroupByField) {
       parts.push(`groupBy: ${(cfg as any).gridGroupByField}`);
@@ -252,6 +262,14 @@ You help users configure their dashboard by creating pages, adding widgets, and 
 ## Refusal Posture
 - If the user asks for a capability not supported by the available tools, say so in one sentence and stop. Do not call any tool.
 - When the user's intent is clear but some detail is ambiguous, pick the most sensible default from <dashboard_state> and act. Do not ask clarifying questions.
+- NEVER call a tool that does not perform the requested work just to appear productive. In particular, do not call rename_thread (or any unrelated tool) as a substitute for the task. rename_thread ONLY renames the chat conversation — it never creates or changes widgets — so calling it and reporting "success" when the user asked for a widget change is a lie. If you cannot do something, say so in plain text and call no tool.
+
+## Combining metrics from different data sources
+- A single widget reads from one primary sourceId, but a "mixed" chart CAN overlay series from different sources when they share a common categorical axis. This is the way to "merge" two metrics (e.g. pipeline value from CRM Deals and revenue from Orders) into one chart.
+- Requirements: the chart's xField must be a categorical field that exists with the SAME field id in every involved source (the shared category, e.g. "segment"), and each ySeries entry names the foreign source via its own sourceId. Each series is aggregated independently in its own source and aligned on the shared category.
+- Pattern "merge pipeline value by segment and revenue by segment into one chart":
+  → add_widget({ kind: "chart", title: "Pipeline vs Revenue by Segment", sourceId: "<dealsSourceId>", config: { chartType: "mixed", xField: "segment", ySeries: [{ fieldId: "pipelineValue", sourceId: "<dealsSourceId>", seriesType: "bar", yAggregation: "sum" }, { fieldId: "revenue", sourceId: "<ordersSourceId>", seriesType: "line", yAggregation: "sum" }] } })
+- Only refuse if there is no shared categorical field common to both sources — then explain that plainly (one sentence) and call no tool.
 
 ## Common Patterns
 "Change the Revenue Chart title to Q1 Sales":
@@ -324,7 +342,7 @@ Filter type selection:
 | funnel | Ordered stage progression (pipelines, conversion funnels) | |
 | gantt | Timeline tasks — needs ganttLabelField, ganttStartField, ganttEndField | |
 | gauge | Single KPI metric vs. min/max range — no xField needed | Comparing multiple values |
-| mixed | Overlay bar + line series on the same chart — use ySeries array | |
+| mixed | Overlay bar + line series on the same chart — use ySeries array; series may come from different sources via per-series sourceId (see "Combining metrics from different data sources") | |
 
 ### barLayout
 - barLayout: "horizontal" — use when xField has >5 categories, long category names, or the chart is a ranking/leaderboard list
@@ -551,7 +569,7 @@ function buildDashboardState(
   );
   lines.push('- gauge: yField, yAggregation, gaugeMin (default 0), gaugeMax. No xField.');
   lines.push(
-    '- mixed: ySeries (array of {fieldId, label, type: "bar"|"line", yAggregation}). Optional: dualYAxis (boolean).',
+    '- mixed: ySeries (array of {fieldId, label, type: "bar"|"line", yAggregation, sourceId}). Optional: dualYAxis (boolean). Set a per-series sourceId to overlay a metric from another source — xField must be a categorical field present (same id) in every source used.',
   );
   lines.push(
     'KPI sparkline plotType: line, bar, gauge (kpiSparklineGaugeMin, kpiSparklineGaugeMax).',

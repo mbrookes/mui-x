@@ -525,9 +525,14 @@ export default function App() {
   // Resolve the active data-source mode. An explicit ?mode param (set from Settings)
   // takes precedence over .env so the user can force any mode regardless of
   // STUDIO_SERVER_URL. Falls back to the legacy ?adapter param, then env, then memory.
+  // ?rows=N suppresses the server default (server ignores generated rows), but an
+  // explicit ?mode=adapter is preserved because adapter mode processes rows locally.
   const dataMode = React.useMemo<DataMode>(() => {
     const explicit = getUrlModeParam();
     if (explicit === 'server') {
+      if (rowCount !== undefined) {
+        return 'memory';
+      }
       return serverConfigured ? 'server' : 'memory';
     }
     if (explicit) {
@@ -536,8 +541,11 @@ export default function App() {
     if (getUrlAdapterParam()) {
       return 'adapter';
     }
+    if (rowCount !== undefined && serverConfigured) {
+      return 'memory';
+    }
     return serverConfigured ? 'server' : 'memory';
-  }, [serverConfigured]);
+  }, [serverConfigured, rowCount]);
   const adapterMode = dataMode === 'adapter';
 
   // Adapter mode: wire a simulated-server adapter for every data source

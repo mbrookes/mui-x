@@ -63,6 +63,7 @@ export interface AppLocaleText {
   rowCountLabel: string;
   rowCountHelper: string;
   rowCountUnit: string;
+  rowCountOverridesServerHint: string;
   serverAdapterLabel: string;
   dataSourceModeLabel: string;
   dataModeMemory: string;
@@ -139,6 +140,8 @@ const enAppLocaleText: AppLocaleText = {
   rowCountLabel: 'Generated row count',
   rowCountHelper: 'Leave blank to use the default bundled data',
   rowCountUnit: 'rows',
+  rowCountOverridesServerHint:
+    'When rows are set, server mode is bypassed — generated data is used in-memory.',
   serverAdapterLabel: 'Simulated server adapter',
   dataSourceModeLabel: 'Data source mode',
   dataModeMemory: 'In-memory (default)',
@@ -216,6 +219,8 @@ const ptBrAppLocaleText: AppLocaleText = {
   rowCountLabel: 'Número de linhas geradas',
   rowCountHelper: 'Deixe em branco para usar os dados padrão incluídos',
   rowCountUnit: 'linhas',
+  rowCountOverridesServerHint:
+    'Quando as linhas estão definidas, o modo servidor é ignorado — os dados gerados são usados em memória.',
   serverAdapterLabel: 'Adaptador de servidor simulado',
   dataSourceModeLabel: 'Modo da fonte de dados',
   dataModeMemory: 'Em memória (padrão)',

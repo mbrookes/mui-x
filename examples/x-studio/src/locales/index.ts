@@ -64,6 +64,9 @@ export interface AppLocaleText {
   rowCountHelper: string;
   rowCountUnit: string;
   serverAdapterLabel: string;
+  dataSourceModeLabel: string;
+  dataModeMemory: string;
+  dataModeServerUnavailableHint: string;
   settingsReloadHint: string;
   devServerConnectionLabel: string;
   devServerConnectedLabel: string;
@@ -137,7 +140,11 @@ const enAppLocaleText: AppLocaleText = {
   rowCountHelper: 'Leave blank to use the default bundled data',
   rowCountUnit: 'rows',
   serverAdapterLabel: 'Simulated server adapter',
-  settingsReloadHint: 'Dataset, row count and adapter changes take effect after reload.',
+  dataSourceModeLabel: 'Data source mode',
+  dataModeMemory: 'In-memory (default)',
+  dataModeServerUnavailableHint:
+    'Set STUDIO_SERVER_URL in .env.local (or add ?server=URL) to enable server mode.',
+  settingsReloadHint: 'Dataset, row count and data source mode changes take effect after reload.',
   devServerConnectionLabel: 'Dev Server Connection',
   devServerConnectedLabel: 'Connected to:',
   devServerConnectedDescription: 'AI and data queries are routed through the dev server.',
@@ -210,8 +217,12 @@ const ptBrAppLocaleText: AppLocaleText = {
   rowCountHelper: 'Deixe em branco para usar os dados padrão incluídos',
   rowCountUnit: 'linhas',
   serverAdapterLabel: 'Adaptador de servidor simulado',
+  dataSourceModeLabel: 'Modo da fonte de dados',
+  dataModeMemory: 'Em memória (padrão)',
+  dataModeServerUnavailableHint:
+    'Defina STUDIO_SERVER_URL em .env.local (ou adicione ?server=URL) para ativar o modo servidor.',
   settingsReloadHint:
-    'As alterações de conjunto de dados, número de linhas e adaptador entram em vigor após recarregar.',
+    'As alterações de conjunto de dados, número de linhas e modo da fonte de dados entram em vigor após recarregar.',
   devServerConnectionLabel: 'Conexão com o servidor de desenvolvimento',
   devServerConnectedLabel: 'Conectado a:',
   devServerConnectedDescription:

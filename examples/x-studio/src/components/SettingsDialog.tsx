@@ -1,6 +1,5 @@
 import * as React from 'react';
 import {
-  Box,
   Button,
   Dialog,
   DialogActions,
@@ -13,7 +12,6 @@ import {
   InputAdornment,
   Radio,
   RadioGroup,
-  Switch,
   Tab,
   Tabs,
   TextField,
@@ -29,6 +27,7 @@ export type SidebarLayout = 'stacked' | 'tabbed';
 export type SidebarSide = 'left' | 'right';
 export type TableSourceMode = 'explicit' | 'implicit';
 export type DatasetMode = 'sales' | 'ag-studio';
+export type DataMode = 'memory' | 'adapter' | 'server';
 
 export interface SettingsValues {
   sidebarLayout: SidebarLayout;
@@ -36,7 +35,9 @@ export interface SettingsValues {
   tableSourceMode: TableSourceMode;
   stackBreakpoint: number;
   rowCount: number | undefined;
-  adapterEnabled: boolean;
+  dataMode: DataMode;
+  /** Whether a dev server URL is configured (env or ?server) — gates the "server" option. */
+  serverConfigured: boolean;
   dataset: DatasetMode;
 }
 
@@ -70,7 +71,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
   // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
   const [pendingRowCount, setPendingRowCount] = React.useState<number | undefined>(values.rowCount);
   // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
-  const [pendingAdapter, setPendingAdapter] = React.useState(values.adapterEnabled);
+  const [pendingMode, setPendingMode] = React.useState<DataMode>(values.dataMode);
   // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
   const [pendingDataset, setPendingDataset] = React.useState<DatasetMode>(values.dataset);
 
@@ -83,15 +84,15 @@ export function SettingsDialog(props: SettingsDialogProps) {
       // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
       setPendingRowCount(values.rowCount);
       // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
-      setPendingAdapter(values.adapterEnabled);
+      setPendingMode(values.dataMode);
       // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
       setPendingDataset(values.dataset);
     }
-  }, [open, values.rowCount, values.adapterEnabled, values.dataset]);
+  }, [open, values.rowCount, values.dataMode, values.dataset]);
 
   const needsReload =
     pendingRowCount !== values.rowCount ||
-    pendingAdapter !== values.adapterEnabled ||
+    pendingMode !== values.dataMode ||
     pendingDataset !== values.dataset;
 
   function handleRowInputChange(evt: React.ChangeEvent<HTMLInputElement>) {
@@ -114,11 +115,10 @@ export function SettingsDialog(props: SettingsDialogProps) {
     } else {
       url.searchParams.delete('rows');
     }
-    if (pendingAdapter) {
-      url.searchParams.set('adapter', '');
-    } else {
-      url.searchParams.delete('adapter');
-    }
+    // The explicit `mode` param takes precedence over .env (STUDIO_SERVER_URL) so the
+    // user can force any mode. The legacy `adapter` param is removed in favour of it.
+    url.searchParams.delete('adapter');
+    url.searchParams.set('mode', pendingMode);
     if (pendingDataset === 'ag-studio') {
       url.searchParams.set('dataset', 'ag-studio');
     } else {
@@ -281,17 +281,36 @@ export function SettingsDialog(props: SettingsDialogProps) {
               }}
             />
 
-            {/* Adapter mode — requires reload */}
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={pendingAdapter}
-                  onChange={(_evt, checked) => setPendingAdapter(checked)}
-                  size="small"
+            {/* Data source mode — requires reload. Overrides .env (STUDIO_SERVER_URL). */}
+            <FormControl>
+              <FormLabel>{t.dataSourceModeLabel}</FormLabel>
+              <RadioGroup
+                value={pendingMode}
+                onChange={(_evt, val) => setPendingMode(val as DataMode)}
+              >
+                <FormControlLabel
+                  value="memory"
+                  control={<Radio size="small" />}
+                  label={t.dataModeMemory}
                 />
-              }
-              label={t.serverAdapterLabel}
-            />
+                <FormControlLabel
+                  value="adapter"
+                  control={<Radio size="small" />}
+                  label={t.serverAdapterLabel}
+                />
+                <FormControlLabel
+                  value="server"
+                  control={<Radio size="small" />}
+                  label={t.serverModeLabel}
+                  disabled={!values.serverConfigured}
+                />
+              </RadioGroup>
+              {!values.serverConfigured && (
+                <Typography variant="caption" color="text.secondary">
+                  {t.dataModeServerUnavailableHint}
+                </Typography>
+              )}
+            </FormControl>
 
             {needsReload && (
               <Typography
@@ -328,12 +347,12 @@ export function SettingsDialog(props: SettingsDialogProps) {
         )}
 
         {tab === 1 && (
-          <Box>
+          <div>
             <FeatureFlagSettings
               featureFlags={featureFlags}
               onFeatureFlagsChange={onFeatureFlagsChange}
             />
-          </Box>
+          </div>
         )}
       </DialogContent>
       <DialogActions>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aggregateBlendedSeries,
   aggregateByField,
   aggregateByTwoFields,
   aggregateMultipleSeries,
@@ -1140,6 +1141,100 @@ describe('aggregateMultipleSeries', () => {
     expect(idSeries.values[engIdx]).toBe(2);
     // salary is numeric → summed
     expect(salSeries.values[engIdx]).toBe(170000);
+  });
+});
+
+// ─── aggregateBlendedSeries (cross-source blending) ────────────────────────────
+
+describe('aggregateBlendedSeries', () => {
+  // Two independent fact tables sharing only the categorical "segment" axis.
+  const deals = [
+    { segment: 'Enterprise', pipeline: 500 },
+    { segment: 'SMB', pipeline: 200 },
+    { segment: 'Enterprise', pipeline: 300 },
+  ];
+  const orders = [
+    { segment: 'Enterprise', revenue: 1000 },
+    { segment: 'Mid-Market', revenue: 400 },
+  ];
+
+  it('aggregates each series within its own rows and aligns on the shared axis', () => {
+    const result = aggregateBlendedSeries(
+      [
+        { fieldId: 'pipeline', rows: deals },
+        { fieldId: 'revenue', rows: orders },
+      ],
+      'segment',
+    );
+    const ent = result.labels.indexOf('Enterprise');
+    const pipeline = result.series[0];
+    const revenue = result.series[1];
+    expect(pipeline.values[ent]).toBe(800); // 500 + 300, from deals
+    expect(revenue.values[ent]).toBe(1000); // from orders
+  });
+
+  it('outer-joins labels across sources, filling 0 for missing combinations', () => {
+    const result = aggregateBlendedSeries(
+      [
+        { fieldId: 'pipeline', rows: deals },
+        { fieldId: 'revenue', rows: orders },
+      ],
+      'segment',
+    );
+    // Union of segments: Enterprise, SMB (deals only), Mid-Market (orders only)
+    expect([...result.labels].sort()).toEqual(['Enterprise', 'Mid-Market', 'SMB']);
+    const smb = result.labels.indexOf('SMB');
+    const mid = result.labels.indexOf('Mid-Market');
+    expect(result.series[1].values[smb]).toBe(0); // no revenue for SMB
+    expect(result.series[0].values[mid]).toBe(0); // no pipeline for Mid-Market
+  });
+
+  it('preserves series order and count 1:1 even with a shared field id', () => {
+    const a = [{ segment: 'X', amount: 10 }];
+    const b = [{ segment: 'X', amount: 25 }];
+    const result = aggregateBlendedSeries(
+      [
+        { fieldId: 'amount', rows: a },
+        { fieldId: 'amount', rows: b },
+      ],
+      'segment',
+    );
+    expect(result.series).toHaveLength(2);
+    const x = result.labels.indexOf('X');
+    expect(result.series[0].values[x]).toBe(10);
+    expect(result.series[1].values[x]).toBe(25);
+  });
+
+  it('honours per-series yAggregation independently', () => {
+    const rows = [
+      { segment: 'A', v: 10 },
+      { segment: 'A', v: 30 },
+    ];
+    const result = aggregateBlendedSeries(
+      [
+        { fieldId: 'v', rows, yAggregation: 'sum' },
+        { fieldId: 'v', rows, yAggregation: 'avg' },
+      ],
+      'segment',
+    );
+    const a = result.labels.indexOf('A');
+    expect(result.series[0].values[a]).toBe(40); // sum
+    expect(result.series[1].values[a]).toBe(20); // avg
+  });
+
+  it('sorts labels by total value across series when sortBy is "value"', () => {
+    const result = aggregateBlendedSeries(
+      [
+        { fieldId: 'pipeline', rows: deals },
+        { fieldId: 'revenue', rows: orders },
+      ],
+      'segment',
+      undefined,
+      'value',
+      'desc',
+    );
+    // Enterprise has the largest combined total (800 + 1000) → first.
+    expect(result.labels[0]).toBe('Enterprise');
   });
 });
 

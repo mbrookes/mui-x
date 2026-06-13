@@ -115,10 +115,15 @@ export function SettingsDialog(props: SettingsDialogProps) {
     } else {
       url.searchParams.delete('rows');
     }
-    // The explicit `mode` param takes precedence over .env (STUDIO_SERVER_URL) so the
-    // user can force any mode. The legacy `adapter` param is removed in favour of it.
+    // Omit ?mode when the selected mode is already the natural default so URLs stay clean.
+    // The legacy `adapter` param is removed in favour of the explicit `mode` param.
     url.searchParams.delete('adapter');
-    url.searchParams.set('mode', pendingMode);
+    const naturalDefault: DataMode = values.serverConfigured ? 'server' : 'memory';
+    if (pendingMode === naturalDefault) {
+      url.searchParams.delete('mode');
+    } else {
+      url.searchParams.set('mode', pendingMode);
+    }
     if (pendingDataset === 'ag-studio') {
       url.searchParams.set('dataset', 'ag-studio');
     } else {
@@ -308,6 +313,16 @@ export function SettingsDialog(props: SettingsDialogProps) {
               {!values.serverConfigured && (
                 <Typography variant="caption" color="text.secondary">
                   {t.dataModeServerUnavailableHint}
+                </Typography>
+              )}
+              {pendingRowCount !== undefined && pendingMode === 'server' && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: 'flex', gap: 0.5 }}
+                >
+                  <InfoOutlinedIcon sx={{ fontSize: 14, mt: '1px' }} />
+                  {t.rowCountOverridesServerHint}
                 </Typography>
               )}
             </FormControl>

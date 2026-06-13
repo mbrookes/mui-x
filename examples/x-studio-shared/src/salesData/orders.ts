@@ -32,7 +32,7 @@ function deriveOrderTotals(
 
 const ordersSourceRaw: StudioDataSource = {
   id: ORDERS_SOURCE_ID,
-  label: 'Orders',
+  label: 'Sales Orders',
   tableName: 'orders',
   fields: [
     { id: 'id', label: 'Order ID', type: 'string', hidden: true },
@@ -42,7 +42,14 @@ const ordersSourceRaw: StudioDataSource = {
       id: 'status',
       label: 'Status',
       type: 'string',
-      orderedValues: ['Pending', 'Processing', 'Shipped', 'Partially Delivered', 'Delivered', 'Cancelled'],
+      orderedValues: [
+        'Pending',
+        'Processing',
+        'Shipped',
+        'Partially Delivered',
+        'Delivered',
+        'Cancelled',
+      ],
     },
     { id: 'currency', label: 'Currency', type: 'string' },
     { id: 'total', label: 'Order Total', type: 'number', format: 'currency' },

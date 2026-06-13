@@ -495,7 +495,7 @@ function DashboardLayout({
     if (!serverUrl || adapterMode) {
       return;
     }
-    const dataEndpoint = `${serverUrl.replace(/\/$/, '')}/api/studio-data`;
+    const dataEndpoint = `${serverUrl.replace(/\/$/, '')}/api/sales-data`;
     const serverToken = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
     const fetchFn: typeof fetch = serverToken
       ? (input, init) =>

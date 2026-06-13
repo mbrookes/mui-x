@@ -2,7 +2,9 @@
 import * as React from 'react';
 import type { SxProps, Theme } from '@mui/material';
 import { Box, Paper, Typography } from '@mui/material';
+import { autoScrollForElements } from '@atlaskit/pragmatic-drag-and-drop-auto-scroll/element';
 
+import { useResizeObserver } from '@mui/x-internals/useResizeObserver';
 import {
   useStudioController,
   useStudioSelector,
@@ -76,25 +78,27 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
 
   // Track canvas width to determine when to stack widgets in view mode.
   const [canvasWidth, setCanvasWidth] = React.useState<number | null>(null);
-  React.useEffect(() => {
-    if (mode === 'edit' || effectiveBreakpoint === 0) {
-      return undefined;
-    }
-    const node = canvasRef.current;
-    if (!node) {
-      return undefined;
-    }
-    const observer = new ResizeObserver((entries) => {
+  const enabled = mode !== 'edit' && effectiveBreakpoint !== 0;
+  useResizeObserver(
+    canvasRef,
+    (entries) => {
       const entry = entries[0];
       if (entry) {
         setCanvasWidth(entry.contentRect.width);
       }
-    });
-    observer.observe(node);
-    // Set initial width
-    setCanvasWidth(node.getBoundingClientRect().width);
-    return () => observer.disconnect();
-  }, [mode, effectiveBreakpoint]);
+    },
+    enabled,
+  );
+  // Set initial width on mount/mode-change (useResizeObserver only fires on subsequent resizes).
+  React.useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    const node = canvasRef.current;
+    if (node) {
+      setCanvasWidth(node.getBoundingClientRect().width);
+    }
+  }, [enabled]);
 
   // isHalfStacked: canvas is between 1× and 2× the stack breakpoint — double each widget's
   // column span (capped at GRID_COLS) so 4-wide becomes 2-up before going to 1-up.
@@ -119,97 +123,26 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     totalSpan: number;
   } | null>(null);
 
-  // ── Auto-scroll while dragging near the top/bottom viewport edge ────────────
+  // ── Auto-scroll the canvas's scroll container while dragging near its edges ──
+  // Registers the scroll parent with pragmatic-drag-and-drop's auto-scroller,
+  // matching the scheduler. Replaces the previous hand-rolled dragover + RAF loop.
   React.useEffect(() => {
-    if (mode !== 'edit') {
+    if (mode !== 'edit' || process.env.NODE_ENV === 'test') {
       return undefined;
     }
 
-    const EDGE_ZONE = 80; // px from viewport top/bottom that triggers scroll
-    const MAX_SPEED = 16; // px per frame at the very edge
-
-    let rafId: number | null = null;
-    let scrollEl: Element | null = null;
-    let scrollDir = 0; // -1 up, 0 none, +1 down
-
-    function findScrollParent(el: Element | null): Element | null {
+    function findScrollParent(el: Element | null): HTMLElement {
       while (el && el !== document.documentElement) {
         const { overflowY } = getComputedStyle(el);
         if (overflowY === 'auto' || overflowY === 'scroll') {
-          return el;
+          return el as HTMLElement;
         }
         el = el.parentElement;
       }
-      return document.scrollingElement ?? document.documentElement;
+      return (document.scrollingElement as HTMLElement) ?? document.documentElement;
     }
 
-    function step() {
-      if (scrollDir !== 0 && scrollEl) {
-        scrollEl.scrollTop += scrollDir * MAX_SPEED;
-        rafId = requestAnimationFrame(step);
-      }
-    }
-
-    function onDragOver(event: DragEvent) {
-      if (!scrollEl) {
-        scrollEl = findScrollParent(canvasRef.current);
-      }
-      const { clientY } = event;
-      const viewH = window.innerHeight;
-      if (clientY < EDGE_ZONE) {
-        const newDir = -1;
-        if (scrollDir !== newDir) {
-          scrollDir = newDir;
-          if (rafId === null) {
-            rafId = requestAnimationFrame(step);
-          }
-        }
-      } else if (clientY > viewH - EDGE_ZONE) {
-        const newDir = 1;
-        if (scrollDir !== newDir) {
-          scrollDir = newDir;
-          if (rafId === null) {
-            rafId = requestAnimationFrame(step);
-          }
-        }
-      } else {
-        scrollDir = 0;
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
-          rafId = null;
-        }
-      }
-    }
-
-    function stopScroll() {
-      scrollDir = 0;
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-        rafId = null;
-      }
-    }
-
-    const node = canvasRef.current;
-    if (!node) {
-      return undefined;
-    }
-    node.addEventListener('dragover', onDragOver);
-    node.addEventListener('drop', stopScroll);
-    // Must store a reference to the dragleave handler so it can be removed in cleanup.
-    function handleDragLeave(evt: DragEvent) {
-      // Only stop if leaving the canvas entirely (not moving between children)
-      if (!node!.contains(evt.relatedTarget as Node)) {
-        stopScroll();
-      }
-    }
-    node.addEventListener('dragleave', handleDragLeave);
-
-    return () => {
-      node.removeEventListener('dragover', onDragOver);
-      node.removeEventListener('drop', stopScroll);
-      node.removeEventListener('dragleave', handleDragLeave);
-      stopScroll();
-    };
+    return autoScrollForElements({ element: findScrollParent(canvasRef.current) });
   }, [mode]);
 
   // Keep the latest widgetRows/colSpans in a ref so the stable handleDrop closure
@@ -221,7 +154,12 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
 
   // Stable drop handler — useCallback with only [controller] as dep.
   const handleDrop = React.useCallback(
-    (data: StudioDragItem, rowIndex: number, colIndex: number, orientation: 'horizontal' | 'vertical') => {
+    (
+      data: StudioDragItem,
+      rowIndex: number,
+      colIndex: number,
+      orientation: 'horizontal' | 'vertical',
+    ) => {
       const currentRows = widgetRowsRef.current;
       const activePageId = controller.getState().dashboard.activePageId;
 

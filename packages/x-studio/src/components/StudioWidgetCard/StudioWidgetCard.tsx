@@ -54,7 +54,11 @@ import { StudioFilterWidget } from '../widgets/StudioFilterWidget';
 import type { StudioFilterWidgetProps } from '../widgets/StudioFilterWidget';
 import { StudioPivotWidget } from '../widgets/StudioPivotWidget/StudioPivotWidget';
 import { StudioMapWidget } from '../widgets/StudioMapWidget';
-import { exportGridToCsv, exportChartToPng, inferKpiDateSubtitle } from '../../internals/widgetUtils';
+import {
+  exportGridToCsv,
+  exportChartToPng,
+  inferKpiDateSubtitle,
+} from '../../internals/widgetUtils';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
 import { StudioInsightPanel } from '../StudioInsightPanel/StudioInsightPanel';
 import {
@@ -62,13 +66,12 @@ import {
   type StudioInsightOptions,
   type StudioInsightResult,
 } from '../StudioChatPanel/generateInsight';
-import { useDrag } from 'react-dnd';
-import { getEmptyImage } from 'react-dnd-html5-backend';
 import { SliderFilterPill } from './SliderFilterPill';
 import {
   DRAG_TYPE_CANVAS_WIDGET,
   type CanvasWidgetDragItem,
 } from '../StudioCanvas/studioWidgetDndTypes';
+import { useStudioDraggable } from '../StudioCanvas/useStudioDraggable';
 
 export interface StudioWidgetCardProps {
   widgetId: string;
@@ -343,36 +346,36 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
 
   const LoadingOverlay = slots?.loadingOverlay ?? DefaultLoadingOverlay;
 
-  const [{ isDragging }, dragRef, preview] = useDrag<
-    CanvasWidgetDragItem,
-    void,
-    { isDragging: boolean }
-  >({
-    type: DRAG_TYPE_CANVAS_WIDGET,
-    item: { type: DRAG_TYPE_CANVAS_WIDGET, widgetId, sourcePageId: activePageId },
-    canDrag: () => mode === 'edit',
-    collect: (monitor) => ({ isDragging: monitor.isDragging() }),
-  });
+  const [isDragging, setIsDragging] = React.useState(false);
 
-  React.useEffect(() => {
-    preview(getEmptyImage(), { captureDraggingState: true });
-  }, [preview]);
+  const getData = React.useCallback(
+    (): CanvasWidgetDragItem => ({
+      type: DRAG_TYPE_CANVAS_WIDGET,
+      widgetId,
+      sourcePageId: activePageId,
+    }),
+    [widgetId, activePageId],
+  );
 
-  React.useEffect(() => {
-    if (isDragging) {
-      document.documentElement.classList.add('x-studio-dnd-active');
+  useStudioDraggable({
+    ref,
+    canDrag: mode === 'edit',
+    getData,
+    onDragStart: () => {
+      setIsDragging(true);
       document.body.dataset.studioDraggingWidgetId = widgetId;
       if (ref.current) {
         ref.current.style.opacity = '0.1';
       }
-    } else {
-      document.documentElement.classList.remove('x-studio-dnd-active');
+    },
+    onDrop: () => {
+      setIsDragging(false);
       delete document.body.dataset.studioDraggingWidgetId;
       if (ref.current) {
         ref.current.style.opacity = '';
       }
-    }
-  }, [isDragging, widgetId]);
+    },
+  });
 
   const [expanded, setExpanded] = React.useState(false);
   // Built-in edit dialog — only used when onEditRequest is not provided
@@ -465,11 +468,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   return (
     <Box sx={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Paper
-        ref={(el) => {
-          (ref as React.MutableRefObject<HTMLDivElement | null>).current =
-            el as HTMLDivElement | null;
-          if (mode === 'edit') dragRef(el);
-        }}
+        ref={ref}
         variant="outlined"
         {...slotProps?.paper}
         onClick={() => {

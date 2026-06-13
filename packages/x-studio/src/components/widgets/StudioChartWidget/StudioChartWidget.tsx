@@ -30,6 +30,7 @@ import {
   truncateToGranularity,
   aggregateByField,
   aggregateHeatmap,
+  aggregateSankey,
 } from '../../../internals/chartUtils';
 import {
   useStudioController,
@@ -49,6 +50,7 @@ import { CrossFilterGhostBar } from './CrossFilterGhostBar';
 import { StudioHeatmapChart } from './StudioHeatmapChart';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
+import { StudioSankeyChart } from './StudioSankeyChart';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 
@@ -445,6 +447,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const isHeatmap = chartType === 'heatmap';
   const isFunnel = chartType === 'funnel';
   const isGantt = chartType === 'gantt';
+  const isSankey = chartType === 'sankey';
   const barLayout = config.barLayout ?? 'grouped';
   const isHorizontalBarLayout = barLayout === 'horizontal';
 
@@ -1008,6 +1011,50 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <StudioFunnelChart
         stages={stages}
         height={chartHeight}
+        valueFormat={valueFieldDef?.format}
+        currencyCode={valueFieldDef?.currencyCode}
+      />
+    );
+  }
+
+  // Sankey / flow diagram
+  if (isSankey) {
+    const sankeySourceField = config.xField ?? '';
+    const sankeyTargetField = config.sankeyTargetField ?? '';
+    const sankeyValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
+    if (!sankeySourceField || !sankeyTargetField || !sankeyValueField) {
+      return (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: chartHeight,
+            color: 'text.disabled',
+          }}
+        >
+          <Typography variant="body2">
+            Sankey chart requires source, target, and value fields.
+          </Typography>
+        </Box>
+      );
+    }
+    const valueFieldDef = dataSource?.fields.find((f) => f.id === sankeyValueField);
+    const sankeyData = aggregateSankey(
+      filteredRows,
+      sankeySourceField,
+      sankeyTargetField,
+      sankeyValueField,
+    );
+    if (sankeyData.links.length === 0) {
+      return <StudioNoDataOverlay height={chartHeight} />;
+    }
+    return (
+      <StudioSankeyChart
+        data={sankeyData}
+        height={chartHeight}
+        linkColor={config.sankeyLinkColor}
+        showValues={config.sankeyShowValues}
         valueFormat={valueFieldDef?.format}
         currencyCode={valueFieldDef?.currencyCode}
       />

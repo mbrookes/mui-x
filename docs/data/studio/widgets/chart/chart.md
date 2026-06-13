@@ -1,11 +1,11 @@
 ---
 title: Studio - Chart widget
-description: The chart widget renders bar, line, area, mixed, heatmap, funnel, gantt, pie, donut, and scatter visualisations from a Studio data source.
+description: The chart widget renders bar, line, area, mixed, heatmap, funnel, gantt, sankey, pie, donut, and scatter visualisations from a Studio data source.
 ---
 
 # Studio - Chart widget
 
-<p class="description">The chart widget renders bar, line, area, mixed, heatmap, funnel, gantt, pie, donut, and scatter visualisations from a Studio data source.</p>
+<p class="description">The chart widget renders bar, line, area, mixed, heatmap, funnel, gantt, sankey, pie, donut, and scatter visualisations from a Studio data source.</p>
 
 {{"component": "@mui/internal-core-docs/ComponentLinkHeader", "design": false}}
 
@@ -17,22 +17,23 @@ It integrates with the MUI X Charts library for rendering and participates in th
 
 ## Chart types
 
-| Type               | `type` value   | Notes                                                                                                                                                                                  |
-| :----------------- | :------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Grouped bar        | `bar`          | Default; grouped when multiple series                                                                                                                                                  |
-| Stacked bar        | `bar-stacked`  | Stacks series as absolute values                                                                                                                                                       |
-| 100 % stacked bar  | `bar-100`      | Stacks series as percentages                                                                                                                                                           |
-| Line               | `line`         | X axis is typically a category or time field                                                                                                                                           |
-| Area               | `area`         | Fills below the line                                                                                                                                                                   |
-| Stacked area       | `area-stacked` |                                                                                                                                                                                        |
-| 100 % stacked area | `area-100`     |                                                                                                                                                                                        |
-| Mixed              | `mixed`        | Bar + line overlay on shared axes; requires 2+ measure fields; each `ySeries` entry can set `seriesType` to `'bar'` or `'line'`; optional `dualYAxis` adds an independent right Y axis |
-| Heatmap            | `heatmap`      | Uses `xField` for columns, `heatYField` for rows, and `yField` for colour intensity; `heatColorScheme` supports `primary`, `success`, `warning`, and `error`                           |
-| Funnel             | `funnel`       | Uses `xField` for stage and `yField` for value; stages are sorted by value descending with drop-off and retention percentages                                                          |
-| Gantt              | `gantt`        | Swimlane timeline using `ganttLabelField`, `ganttStartField`, `ganttEndField`, and optional `ganttColorField`; includes a date axis, grid lines, and tooltips                          |
-| Pie                | `pie`          | No X axis; single numeric value series                                                                                                                                                 |
-| Donut              | `donut`        | Like pie with a centre hole                                                                                                                                                            |
-| Scatter            | `scatter`      | Requires `xField` and `yField`                                                                                                                                                         |
+| Type               | `type` value   | Notes                                                                                                                                                                                                                                          |
+| :----------------- | :------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Grouped bar        | `bar`          | Default; grouped when multiple series                                                                                                                                                                                                          |
+| Stacked bar        | `bar-stacked`  | Stacks series as absolute values                                                                                                                                                                                                               |
+| 100 % stacked bar  | `bar-100`      | Stacks series as percentages                                                                                                                                                                                                                   |
+| Line               | `line`         | X axis is typically a category or time field                                                                                                                                                                                                   |
+| Area               | `area`         | Fills below the line                                                                                                                                                                                                                           |
+| Stacked area       | `area-stacked` |                                                                                                                                                                                                                                                |
+| 100 % stacked area | `area-100`     |                                                                                                                                                                                                                                                |
+| Mixed              | `mixed`        | Bar + line overlay on shared axes; requires 2+ measure fields; each `ySeries` entry can set `seriesType` to `'bar'` or `'line'`; optional `dualYAxis` adds an independent right Y axis                                                         |
+| Heatmap            | `heatmap`      | Uses `xField` for columns, `heatYField` for rows, and `yField` for colour intensity; `heatColorScheme` supports `primary`, `success`, `warning`, and `error`                                                                                   |
+| Funnel             | `funnel`       | Uses `xField` for stage and `yField` for value; stages are sorted by value descending with drop-off and retention percentages                                                                                                                  |
+| Gantt              | `gantt`        | Swimlane timeline using `ganttLabelField`, `ganttStartField`, `ganttEndField`, and optional `ganttColorField`; includes a date axis, grid lines, and tooltips                                                                                  |
+| Sankey             | `sankey`       | Flow diagram using `xField` for source node, `sankeyTargetField` for target node, and `yField` for the link value (summed per source→target pair); `sankeyLinkColor` (`'source'` or `'target'`) and `sankeyShowValues` control link appearance |
+| Pie                | `pie`          | No X axis; single numeric value series                                                                                                                                                                                                         |
+| Donut              | `donut`        | Like pie with a centre hole                                                                                                                                                                                                                    |
+| Scatter            | `scatter`      | Requires `xField` and `yField`                                                                                                                                                                                                                 |
 
 ## Configuration
 
@@ -216,7 +217,7 @@ const chartConfig: StudioWidgetConfig = {
 
 Use `annotations?: StudioChartAnnotation[]` to render `ChartsReferenceLine` markers on bar, line, area, and mixed charts.
 Annotations are available in both edit and view mode.
-They are not supported for pie, donut, gauge, heatmap, funnel, or gantt charts.
+They are not supported for pie, donut, gauge, heatmap, funnel, gantt, or sankey charts.
 
 ```ts
 type StudioChartAnnotation = {

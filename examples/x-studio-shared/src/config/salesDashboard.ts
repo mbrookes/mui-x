@@ -97,6 +97,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
         ['widget-text-analytics'],
         ['widget-pivot-revenue-by-segment'],
         ['widget-chart5-order-funnel', 'widget-chart5-revenue-mixed'],
+        ['widget-chart5-revenue-vs-stock-blend'],
       ],
     },
     'page-6': {
@@ -937,6 +938,38 @@ export const INITIAL_STATE: Partial<StudioState> = {
         ySeries: [
           { fieldId: 'total', label: 'Revenue', type: 'bar', yAggregation: 'sum' },
           { fieldId: 'discount', label: 'Avg Discount %', type: 'line', yAggregation: 'avg' },
+        ],
+        dualYAxis: true,
+      },
+    },
+
+    // Cross-source blend: revenue lives in Order Items, stock lives in Products —
+    // two independent tables aligned on the shared `category` axis. Each series
+    // carries its own sourceId and is aggregated in its own source.
+    'widget-chart5-revenue-vs-stock-blend': {
+      id: 'widget-chart5-revenue-vs-stock-blend',
+      kind: 'chart',
+      title: 'Revenue vs Inventory Stock by Category (blended sources)',
+      titleMode: 'manual',
+      sourceId: ORDER_ITEMS_SOURCE_ID,
+      config: {
+        chartType: 'mixed',
+        xField: 'category',
+        ySeries: [
+          {
+            fieldId: 'total',
+            sourceId: ORDER_ITEMS_SOURCE_ID,
+            label: 'Revenue (orders)',
+            type: 'bar',
+            yAggregation: 'sum',
+          },
+          {
+            fieldId: 'stock',
+            sourceId: PRODUCTS_SOURCE_ID,
+            label: 'Stock (products)',
+            type: 'line',
+            yAggregation: 'sum',
+          },
         ],
         dualYAxis: true,
       },

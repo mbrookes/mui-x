@@ -976,6 +976,84 @@ export function aggregateMultipleSeries(
   return { labels: sortedLabels, series };
 }
 
+/**
+ * One series for {@link aggregateBlendedSeries}. Each carries its own already-resolved
+ * `rows` so the series can originate from a different data source than its siblings.
+ */
+export interface BlendedSeriesInput {
+  /** Field id aggregated for this series (within its own `rows`). */
+  fieldId: string;
+  /** Rows for this series, already filtered/resolved from its own source. */
+  rows: Row[];
+  /** Per-series aggregation. @default 'sum' */
+  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+}
+
+/**
+ * Aggregate several series that may originate from DIFFERENT data sources onto a
+ * single shared categorical x-axis ("data blending"). Each series is aggregated
+ * independently within its own `rows` by `xField`, then all series are aligned on
+ * the union of category labels (outer join). Missing category/series combinations
+ * are filled with 0, matching {@link aggregateMultipleSeries}.
+ *
+ * Unlike {@link aggregateMultipleSeries}, the returned `series` preserve the input
+ * order and count 1:1 (no de-duplication by `fieldId`), so two series sharing a
+ * field id across different sources remain distinct.
+ */
+export function aggregateBlendedSeries(
+  series: BlendedSeriesInput[],
+  xField: string,
+  xGroupBy?: XGroupBy,
+  sortBy?: 'category' | 'value',
+  sortDirection?: 'asc' | 'desc',
+  categoryOrder?: string[],
+): MultiYSeriesData {
+  // Aggregate each series within its own rows (independent grain per source).
+  const perSeries = series.map((s) =>
+    aggregateByField(s.rows, xField, s.fieldId, xGroupBy, s.yAggregation),
+  );
+
+  // Per-series label → value maps, plus the union of labels in first-seen order.
+  const seen = new Set<string | number>();
+  const union: (string | number)[] = [];
+  const valueMaps = perSeries.map((agg) => {
+    const m = new Map<string | number, number>();
+    agg.labels.forEach((label, i) => {
+      m.set(label, agg.values[i]);
+      if (!seen.has(label)) {
+        seen.add(label);
+        union.push(label);
+      }
+    });
+    return m;
+  });
+
+  // Order labels consistently with the other aggregators.
+  let sortedLabels = sortLabels(union);
+  if (sortBy === 'value') {
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    sortedLabels = sortedLabels
+      .map((label) => ({
+        label,
+        total: valueMaps.reduce((sum, m) => sum + (m.get(label) ?? 0), 0),
+      }))
+      .sort((a, b) => (a.total - b.total) * dir)
+      .map((p) => p.label);
+  } else if (categoryOrder && categoryOrder.length > 0) {
+    applyCategoryOrder(sortedLabels, categoryOrder, sortDirection);
+  } else if (sortDirection === 'desc') {
+    sortedLabels = [...sortedLabels].reverse();
+  }
+
+  return {
+    labels: sortedLabels,
+    series: series.map((s, i) => ({
+      fieldId: s.fieldId,
+      values: sortedLabels.map((label) => valueMaps[i].get(label) ?? 0),
+    })),
+  };
+}
+
 export interface ScatterDataPoint {
   x: number;
   y: number;

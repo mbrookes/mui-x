@@ -371,6 +371,15 @@ export interface StudioChartSeries {
   type?: 'bar' | 'line';
   /** Aggregation function applied to this series. @default 'sum' */
   yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  /**
+   * Optional data source for this series, enabling cross-source blending on a
+   * `'mixed'` chart. When set to a source other than the widget's primary
+   * `sourceId`, the series is aggregated independently in that source and aligned
+   * onto the chart's shared categorical `xField` (which must exist with the same
+   * field id in every source used). When omitted, the series reads from the
+   * widget's primary source. Only honoured for `chartType === 'mixed'`.
+   */
+  sourceId?: string;
 }
 
 /**

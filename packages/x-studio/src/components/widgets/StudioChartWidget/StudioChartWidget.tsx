@@ -36,6 +36,7 @@ import {
   useStudioSelector,
   useStudioLocaleText,
   selectActivePageId,
+  selectDataSources,
   makeSelectExpressionFieldsForSource,
   makeSelectActiveCrossFilter,
   makeSelectIncomingCrossFilters,
@@ -136,6 +137,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const xGroupBy = config.xGroupBy;
   const controller = useStudioController();
   const activePageId = useStudioSelector(selectActivePageId);
+  const dataSources = useStudioSelector(selectDataSources);
   const localeText = useStudioLocaleText();
   const selectExpressionFields = React.useMemo(
     () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
@@ -168,6 +170,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     seriesFieldData,
     chartData,
     multiYData,
+    isBlended,
     scatterData,
     scatterSeries,
     allScatterData,
@@ -777,9 +780,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   // Guard: return placeholder if chart isn't configured yet (must be after all hooks)
   // Gauge and Gantt chart handle their own unconfigured state separately below.
   if (isError) {
-    return (
-      <StudioWidgetErrorOverlay message={errorMessage} height={chartHeight} />
-    );
+    return <StudioWidgetErrorOverlay message={errorMessage} height={chartHeight} />;
   }
 
   if (!dataSource || (!config.xField && chartType !== 'gauge' && chartType !== 'gantt')) {
@@ -843,7 +844,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     );
   }
 
-  if (!chartSupport.supported && chartSupport.reason) {
+  // Blended mixed charts intentionally combine fields from independent sources on a
+  // shared categorical axis — the single-grain support analysis does not apply.
+  if (!isBlended && !chartSupport.supported && chartSupport.reason) {
     const NoDataOverlay = slots?.noDataOverlay;
     if (NoDataOverlay) {
       return <NoDataOverlay {...slotProps?.noDataOverlay} />;
@@ -906,8 +909,16 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const valueFieldDef =
       dataSource?.fields.find((f) => f.id === heatValueField) ??
       expressionFields.find((f) => f.id === heatValueField);
-    const heatAggregation = (config.yAggregation as 'sum' | 'avg' | 'count' | 'min' | 'max') ?? 'sum';
-    const heatData = aggregateHeatmap(filteredRows, heatXField, heatYField, heatValueField, xGroupBy, heatAggregation);
+    const heatAggregation =
+      (config.yAggregation as 'sum' | 'avg' | 'count' | 'min' | 'max') ?? 'sum';
+    const heatData = aggregateHeatmap(
+      filteredRows,
+      heatXField,
+      heatYField,
+      heatValueField,
+      xGroupBy,
+      heatAggregation,
+    );
     return (
       <StudioHeatmapChart
         data={heatData}
@@ -1125,18 +1136,24 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           colors={chartColors}
           hideLegend={!hasColorBy}
           margin={{ top: 16, right: hasColorBy ? 8 : 16, bottom: 30, left: 40 }}
-          xAxis={[{
-            label: (
-              dataSource?.fields.find((f) => f.id === config.xField) ??
-              expressionFields.find((ef) => ef.id === config.xField)
-            )?.label ?? config.xField,
-          }]}
-          yAxis={[{
-            label: (
-              dataSource?.fields.find((f) => f.id === config.yField) ??
-              expressionFields.find((ef) => ef.id === config.yField)
-            )?.label ?? config.yField,
-          }]}
+          xAxis={[
+            {
+              label:
+                (
+                  dataSource?.fields.find((f) => f.id === config.xField) ??
+                  expressionFields.find((ef) => ef.id === config.xField)
+                )?.label ?? config.xField,
+            },
+          ]}
+          yAxis={[
+            {
+              label:
+                (
+                  dataSource?.fields.find((f) => f.id === config.yField) ??
+                  expressionFields.find((ef) => ef.id === config.yField)
+                )?.label ?? config.yField,
+            },
+          ]}
           slotProps={{
             legend: {
               sx: {
@@ -1183,12 +1200,23 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
     const ySeries = config.ySeries ?? [];
     const mixedSeries = multiYData.series.map((s, index) => {
-      const seriesConfig = ySeries.find((c) => c.fieldId === s.fieldId);
-      const seriesType = seriesConfig?.seriesType ?? 'bar';
+      // For blended charts a fieldId can repeat across sources, so match the config
+      // by index (aggregateBlendedSeries preserves ySeries order 1:1); otherwise match
+      // by fieldId to stay robust to de-duplicated multi-Y series.
+      const seriesConfig = isBlended
+        ? ySeries[index]
+        : ySeries.find((c) => c.fieldId === s.fieldId);
+      const seriesType = seriesConfig?.seriesType ?? seriesConfig?.type ?? 'bar';
       const seriesId = `${s.fieldId}-${index}`;
       const color = resolvedChartColors[index % resolvedChartColors.length];
-      const fieldDef = dataSource?.fields.find((f) => f.id === s.fieldId);
-      const seriesLabel = fieldDef?.label ?? s.fieldId;
+      // The field may live in a foreign source for blended series — fall back across
+      // all sources, then to the explicit series label, then the field id.
+      const seriesSourceId = seriesConfig?.sourceId ?? widget.sourceId;
+      const fieldDef =
+        (seriesSourceId ? dataSources[seriesSourceId] : dataSource)?.fields.find(
+          (f) => f.id === s.fieldId,
+        ) ?? dataSource?.fields.find((f) => f.id === s.fieldId);
+      const seriesLabel = seriesConfig?.label ?? fieldDef?.label ?? s.fieldId;
       if (seriesType === 'line') {
         return {
           type: 'line' as const,
@@ -2075,9 +2103,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           )
         : null;
 
-    const effectiveLabels = forecastData
-      ? forecastData.labels
-      : effectiveSingleSeriesData!.labels;
+    const effectiveLabels = forecastData ? forecastData.labels : effectiveSingleSeriesData!.labels;
     const xAxis = createLineXAxis(effectiveLabels, CROSS_FILTER_AXIS_ID);
     const lineColor = resolvedChartColors[0];
     return (
@@ -2200,10 +2226,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   if (chartType === 'area' || chartType === 'area-stacked' || chartType === 'area-100') {
     const forecastData =
-      chartType === 'area' &&
-      config.forecast?.enabled &&
-      !ghostLineValues &&
-      singleSeriesChartData
+      chartType === 'area' && config.forecast?.enabled && !ghostLineValues && singleSeriesChartData
         ? computeWidgetForecast(
             singleSeriesChartData.labels,
             singleSeriesChartData.values,

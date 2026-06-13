@@ -10,10 +10,12 @@ import {
   FormControl,
   FormControlLabel,
   FormLabel,
+  InputAdornment,
   Radio,
   RadioGroup,
   Tab,
   Tabs,
+  TextField,
   Typography,
 } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
@@ -23,11 +25,15 @@ import { type SupportedLocale, LOCALE_LABELS } from '../locales';
 import { useAppLocaleText } from '../locales/AppLocaleContext';
 
 export type DatasetMode = 'sales' | 'ag-studio';
+export type DataMode = 'memory' | 'adapter' | 'server';
 
 export interface SettingsDialogProps {
   open: boolean;
   onClose: () => void;
   dataset: DatasetMode;
+  rowCount: number | undefined;
+  dataMode: DataMode;
+  serverConfigured: boolean;
   featureFlags: StudioFeatureFlags;
   onFeatureFlagsChange: (flags: StudioFeatureFlags) => void;
   locale: SupportedLocale;
@@ -35,19 +41,58 @@ export interface SettingsDialogProps {
 }
 
 export function SettingsDialog(props: SettingsDialogProps) {
-  const { open, onClose, dataset, featureFlags, onFeatureFlagsChange, locale, onLocaleChange } =
-    props;
+  const {
+    open,
+    onClose,
+    dataset,
+    rowCount,
+    dataMode,
+    serverConfigured,
+    featureFlags,
+    onFeatureFlagsChange,
+    locale,
+    onLocaleChange,
+  } = props;
   const [tab, setTab] = React.useState(0);
+  // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
   const [pendingDataset, setPendingDataset] = React.useState<DatasetMode>(dataset);
+  // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
+  const [rowInput, setRowInput] = React.useState(rowCount !== undefined ? String(rowCount) : '');
+  // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
+  const [pendingRowCount, setPendingRowCount] = React.useState<number | undefined>(rowCount);
+  // react-doctor-disable-next-line react-doctor/no-derived-state -- editable form copy seeded from props
+  const [pendingMode, setPendingMode] = React.useState<DataMode>(dataMode);
   const t = useAppLocaleText();
 
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change, react-doctor/no-cascading-set-state -- intentional batch reset of buffered form state when dialog opens
   React.useEffect(() => {
     if (open) {
+      // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
       setPendingDataset(dataset);
+      // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
+      setRowInput(rowCount !== undefined ? String(rowCount) : '');
+      // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
+      setPendingRowCount(rowCount);
+      // react-doctor-disable-next-line react-doctor/no-derived-state -- form copy resets on open
+      setPendingMode(dataMode);
     }
-  }, [open, dataset]);
+  }, [open, dataset, rowCount, dataMode]);
 
-  const needsReload = pendingDataset !== dataset;
+  const needsReload =
+    pendingDataset !== dataset || pendingRowCount !== rowCount || pendingMode !== dataMode;
+
+  function handleRowInputChange(evt: React.ChangeEvent<HTMLInputElement>) {
+    const raw = evt.target.value;
+    setRowInput(raw);
+    if (raw === '') {
+      setPendingRowCount(undefined);
+    } else {
+      const n = Number.parseInt(raw, 10);
+      if (Number.isFinite(n) && n > 0) {
+        setPendingRowCount(n);
+      }
+    }
+  }
 
   function applyAndReload() {
     const url = new URL(window.location.href);
@@ -55,6 +100,20 @@ export function SettingsDialog(props: SettingsDialogProps) {
       url.searchParams.set('dataset', 'ag-studio');
     } else {
       url.searchParams.delete('dataset');
+    }
+    if (pendingRowCount !== undefined) {
+      url.searchParams.set('rows', String(pendingRowCount));
+    } else {
+      url.searchParams.delete('rows');
+    }
+    // Omit ?mode when the selected mode is already the natural default so URLs stay clean.
+    // The legacy ?adapter param is removed in favour of the explicit ?mode param.
+    url.searchParams.delete('adapter');
+    const naturalDefault: DataMode = serverConfigured ? 'server' : 'memory';
+    if (pendingMode === naturalDefault) {
+      url.searchParams.delete('mode');
+    } else {
+      url.searchParams.set('mode', pendingMode);
     }
     window.location.href = url.toString();
   }
@@ -88,6 +147,65 @@ export function SettingsDialog(props: SettingsDialogProps) {
                   label={t.datasetAg}
                 />
               </RadioGroup>
+            </FormControl>
+
+            <Divider />
+
+            {/* Data rows — requires reload */}
+            <TextField
+              label={t.rowCountLabel}
+              helperText={t.rowCountHelper}
+              value={rowInput}
+              onChange={handleRowInputChange}
+              size="small"
+              type="number"
+              slotProps={{
+                input: {
+                  endAdornment: <InputAdornment position="end">{t.rowCountUnit}</InputAdornment>,
+                },
+                htmlInput: { min: 1, step: 1 },
+              }}
+            />
+
+            {/* Data source mode — requires reload */}
+            <FormControl>
+              <FormLabel>{t.dataSourceModeLabel}</FormLabel>
+              <RadioGroup
+                value={pendingMode}
+                onChange={(_evt, val) => setPendingMode(val as DataMode)}
+              >
+                <FormControlLabel
+                  value="memory"
+                  control={<Radio size="small" />}
+                  label={t.dataModeMemory}
+                />
+                <FormControlLabel
+                  value="adapter"
+                  control={<Radio size="small" />}
+                  label={t.serverAdapterLabel}
+                />
+                <FormControlLabel
+                  value="server"
+                  control={<Radio size="small" />}
+                  label={t.serverModeLabel}
+                  disabled={!serverConfigured}
+                />
+              </RadioGroup>
+              {!serverConfigured && (
+                <Typography variant="caption" color="text.secondary">
+                  {t.dataModeServerUnavailableHint}
+                </Typography>
+              )}
+              {pendingRowCount !== undefined && pendingMode === 'server' && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: 'flex', gap: 0.5 }}
+                >
+                  <InfoOutlinedIcon sx={{ fontSize: 14, mt: '1px' }} />
+                  {t.rowCountOverridesServerHint}
+                </Typography>
+              )}
             </FormControl>
 
             {needsReload && (

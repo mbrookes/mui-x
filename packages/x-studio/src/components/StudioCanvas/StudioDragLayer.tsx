@@ -5,7 +5,7 @@ import { GlobalStyles } from '@mui/material';
 import { isStudioDragItem } from './studioWidgetDndTypes';
 
 /**
- * Enforces `cursor: grabbing` on the document during a widget drag (and `copy`
+ * Enforces `cursor: move` on the document during a widget drag (and `copy`
  * over a valid drop zone) by toggling the `x-studio-dnd-active` class on the
  * `html` element. Uses a single pragmatic-drag-and-drop monitor instead of a
  * per-card effect.
@@ -30,7 +30,7 @@ export function StudioDragLayer() {
     <GlobalStyles
       styles={{
         'html.x-studio-dnd-active, html.x-studio-dnd-active *': {
-          cursor: 'grabbing !important',
+          cursor: 'move !important',
         },
         'html.x-studio-dnd-active [data-studio-drop-active], html.x-studio-dnd-active [data-studio-drop-active] *':
           {

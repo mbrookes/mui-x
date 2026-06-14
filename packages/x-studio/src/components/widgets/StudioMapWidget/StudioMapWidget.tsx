@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
 import { Unstable_ChartsGeoDataProviderPremium as ChartsGeoDataProviderPremium } from '@mui/x-charts-premium/ChartsGeoDataProviderPremium';
-import { GeoDataPlot, MapShapePlot } from '@mui/x-charts-premium/Map';
+import { GeoDataPlot } from '@mui/x-charts-premium/Map';
 import { ChartsSurface } from '@mui/x-charts/ChartsSurface';
 import { ContinuousColorLegend } from '@mui/x-charts/ChartsLegend';
 import type { ExtendedFeatureCollection } from '@mui/x-charts-vendor/d3-geo';
@@ -21,6 +21,7 @@ import type { StudioMapGeographyDefinition } from './geographyLoaders';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import { StudioMapTooltip, StudioMapTooltipContext } from './StudioMapTooltip';
+import { StudioMapShapePlot } from './StudioMapShapePlot';
 import { formatFieldValue } from '../../../internals/numberFormat';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -272,11 +273,11 @@ export function StudioMapWidget({
   const isConfigured = !!countryField;
 
   const handleFeatureClick = React.useCallback(
-    (_event: React.MouseEvent, params: { featureId: string }) => {
+    (_event: React.MouseEvent, featureId: string) => {
       if (!crossFilterEmit || !countryField) {
         return;
       }
-      const rawValue = rawKeyByFeatureId.get(params.featureId);
+      const rawValue = rawKeyByFeatureId.get(featureId);
       if (rawValue == null) {
         return;
       }
@@ -351,11 +352,11 @@ export function StudioMapWidget({
     return <Box sx={{ width: '100%', height: '100%', minHeight: 200 }} />;
   }
 
-  // BL-182 limitation: cross-filter-on-map-click is not supported by the official
-  // unstable Map API yet — `MapShapePlot` does not forward a per-shape item click in
-  // this version. The cross-filter config (`crossFilterEmit`, `handleFeatureClick`) is
-  // kept in place but left unwired; revisit once the Map exposes an item-click handler.
-  void handleFeatureClick;
+  // BL-184 (resolves the BL-182 limitation): the official unstable `MapShapePlot` does
+  // not forward a per-shape click, but the exported `MapShape` already accepts `onClick`.
+  // `StudioMapShapePlot` is a thin wrapper that reproduces the official plot's rendering
+  // on the public premium hooks and forwards an `onShapeClick(featureId)`, which drives
+  // `handleFeatureClick` to emit the cross-filter. See `StudioMapShapePlot.tsx`.
 
   return (
     <StudioMapTooltipContext.Provider value={tooltipContextValue}>
@@ -401,7 +402,11 @@ export function StudioMapWidget({
             <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, height: '100%' }}>
               <ChartsSurface>
                 <GeoDataPlot fill="#f5f5f5" stroke="#bdbdbd" />
-                <MapShapePlot stroke="#fff" strokeWidth={0.3} />
+                <StudioMapShapePlot
+                  stroke="#fff"
+                  strokeWidth={0.3}
+                  onShapeClick={crossFilterEmit ? handleFeatureClick : undefined}
+                />
               </ChartsSurface>
             </Box>
             {!hideLegend && (

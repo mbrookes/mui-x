@@ -124,252 +124,252 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
             zIndex: 1,
             alignItems: 'center',
             bgcolor: 'background.paper',
-          border: 1,
-          borderColor: 'divider',
-          borderRadius: 1,
-          boxShadow: '0 2px 4px rgba(0,0,0,0.10)',
-          px: 0.5,
-          py: 0.25,
-          visibility: showEditActions ? 'visible' : 'hidden',
-          pointerEvents: showEditActions ? 'auto' : 'none',
-        }}
-      >
-        {canExport && (
-          <Tooltip title={exportLabel}>
-            <IconButton
-              size="small"
-              sx={actionButtonSx}
-              onClick={onExport}
-              aria-label={exportLabel}
-              tabIndex={showEditActions ? 0 : -1}
-            >
-              <DownloadIcon />
-            </IconButton>
-          </Tooltip>
-        )}
-        {isChart && (
-          <Tooltip title={localeText.widgetExpandTooltip}>
-            <IconButton
-              size="small"
-              sx={actionButtonSx}
-              onClick={(event) => {
-                event.stopPropagation();
-                onExpand();
-              }}
-              aria-label={localeText.widgetExpandTooltip}
-              tabIndex={showEditActions ? 0 : -1}
-            >
-              <OpenInFullIcon />
-            </IconButton>
-          </Tooltip>
-        )}
-        {onAiRequest && (
-          <Tooltip title={localeText.widgetAiAssistantTooltip}>
-            <IconButton
-              size="small"
-              sx={actionButtonSx}
-              onClick={(event) => {
-                event.stopPropagation();
-                onAiRequest();
-              }}
-              aria-label={localeText.widgetAiAssistantTooltip}
-              tabIndex={showEditActions ? 0 : -1}
-            >
-              <AutoAwesomeIcon />
-            </IconButton>
-          </Tooltip>
-        )}
-        {onInsightRequest && (
-          <React.Fragment>
-            <Tooltip title={localeText.widgetAiInsightTooltip}>
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: 1,
+            boxShadow: '0 2px 4px rgba(0,0,0,0.10)',
+            px: 0.5,
+            py: 0.25,
+            visibility: showEditActions ? 'visible' : 'hidden',
+            pointerEvents: showEditActions ? 'auto' : 'none',
+          }}
+        >
+          {canExport && (
+            <Tooltip title={exportLabel}>
+              <IconButton
+                size="small"
+                sx={actionButtonSx}
+                onClick={onExport}
+                aria-label={exportLabel}
+                tabIndex={showEditActions ? 0 : -1}
+              >
+                <DownloadIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+          {isChart && (
+            <Tooltip title={localeText.widgetExpandTooltip}>
               <IconButton
                 size="small"
                 sx={actionButtonSx}
                 onClick={(event) => {
                   event.stopPropagation();
-                  setInsightMenuAnchor(event.currentTarget);
+                  onExpand();
                 }}
-                aria-label={localeText.widgetAiInsightTooltip}
+                aria-label={localeText.widgetExpandTooltip}
+                tabIndex={showEditActions ? 0 : -1}
+              >
+                <OpenInFullIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+          {onAiRequest && (
+            <Tooltip title={localeText.widgetAiAssistantTooltip}>
+              <IconButton
+                size="small"
+                sx={actionButtonSx}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAiRequest();
+                }}
+                aria-label={localeText.widgetAiAssistantTooltip}
+                tabIndex={showEditActions ? 0 : -1}
+              >
+                <AutoAwesomeIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+          {onInsightRequest && (
+            <React.Fragment>
+              <Tooltip title={localeText.widgetAiInsightTooltip}>
+                <IconButton
+                  size="small"
+                  sx={actionButtonSx}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setInsightMenuAnchor(event.currentTarget);
+                  }}
+                  aria-label={localeText.widgetAiInsightTooltip}
+                  tabIndex={showEditActions ? 0 : -1}
+                >
+                  <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
+                </IconButton>
+              </Tooltip>
+              <Menu
+                anchorEl={insightMenuAnchor}
+                open={Boolean(insightMenuAnchor)}
+                onClose={() => setInsightMenuAnchor(null)}
+                onClick={(event) => event.stopPropagation()}
+              >
+                {(['summary', 'analysis', 'forecast'] as const).map((type) => (
+                  <MenuItem
+                    key={type}
+                    dense
+                    sx={{ textTransform: 'capitalize' }}
+                    onClick={() => {
+                      onInsightRequest(type);
+                      setInsightMenuAnchor(null);
+                    }}
+                  >
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </MenuItem>
+                ))}
+              </Menu>
+            </React.Fragment>
+          )}
+          {isChart && onAnomalyToggle && (
+            <Tooltip
+              title={
+                anomalyEnabled
+                  ? localeText.widgetHideAnomalyTooltip
+                  : localeText.widgetDetectAnomalyTooltip
+              }
+            >
+              <IconButton
+                size="small"
+                sx={{
+                  ...actionButtonSx,
+                  color: anomalyEnabled ? 'warning.main' : undefined,
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAnomalyToggle();
+                }}
+                aria-label={
+                  anomalyEnabled
+                    ? localeText.widgetHideAnomalyTooltip
+                    : localeText.widgetDetectAnomalyTooltip
+                }
+                tabIndex={showEditActions ? 0 : -1}
+              >
+                <Badge
+                  badgeContent={anomalyEnabled && anomalyCount ? anomalyCount : 0}
+                  color="warning"
+                  sx={{ '& .MuiBadge-badge': { fontSize: 8, minWidth: 12, height: 12, p: 0 } }}
+                >
+                  <TroubleshootIcon />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+          )}
+          {anomalyEnabled && onAnomalyExplain && (
+            <Tooltip title={localeText.widgetExplainAnomalyTooltip}>
+              <IconButton
+                size="small"
+                sx={{ ...actionButtonSx }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAnomalyExplain();
+                }}
+                aria-label={localeText.widgetExplainAnomalyTooltip}
                 tabIndex={showEditActions ? 0 : -1}
               >
                 <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
               </IconButton>
             </Tooltip>
-            <Menu
-              anchorEl={insightMenuAnchor}
-              open={Boolean(insightMenuAnchor)}
-              onClose={() => setInsightMenuAnchor(null)}
-              onClick={(event) => event.stopPropagation()}
-            >
-              {(['summary', 'analysis', 'forecast'] as const).map((type) => (
-                <MenuItem
-                  key={type}
-                  dense
-                  sx={{ textTransform: 'capitalize' }}
-                  onClick={() => {
-                    onInsightRequest(type);
-                    setInsightMenuAnchor(null);
-                  }}
-                >
-                  {type.charAt(0).toUpperCase() + type.slice(1)}
-                </MenuItem>
-              ))}
-            </Menu>
-          </React.Fragment>
-        )}
-        {isChart && onAnomalyToggle && (
-          <Tooltip
-            title={
-              anomalyEnabled
-                ? localeText.widgetHideAnomalyTooltip
-                : localeText.widgetDetectAnomalyTooltip
-            }
-          >
+          )}
+          <Tooltip title={localeText.widgetEditTooltip}>
             <IconButton
               size="small"
-              sx={{
-                ...actionButtonSx,
-                color: anomalyEnabled ? 'warning.main' : undefined,
-              }}
+              sx={actionButtonSx}
               onClick={(event) => {
                 event.stopPropagation();
-                onAnomalyToggle();
+                onEdit();
               }}
-              aria-label={
-                anomalyEnabled
-                  ? localeText.widgetHideAnomalyTooltip
-                  : localeText.widgetDetectAnomalyTooltip
-              }
+              aria-label={localeText.widgetEditTooltip}
               tabIndex={showEditActions ? 0 : -1}
             >
-              <Badge
-                badgeContent={anomalyEnabled && anomalyCount ? anomalyCount : 0}
-                color="warning"
-                sx={{ '& .MuiBadge-badge': { fontSize: 8, minWidth: 12, height: 12, p: 0 } }}
-              >
-                <TroubleshootIcon />
-              </Badge>
+              <EditIcon />
             </IconButton>
           </Tooltip>
-        )}
-        {anomalyEnabled && onAnomalyExplain && (
-          <Tooltip title={localeText.widgetExplainAnomalyTooltip}>
+          <Tooltip title={localeText.widgetDuplicateTooltip}>
             <IconButton
               size="small"
-              sx={{ ...actionButtonSx }}
+              sx={actionButtonSx}
               onClick={(event) => {
                 event.stopPropagation();
-                onAnomalyExplain();
+                onDuplicate();
               }}
-              aria-label={localeText.widgetExplainAnomalyTooltip}
+              aria-label={localeText.widgetDuplicateTooltip}
               tabIndex={showEditActions ? 0 : -1}
             >
-              <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
+              <ContentCopyIcon />
             </IconButton>
           </Tooltip>
-        )}
-        <Tooltip title={localeText.widgetEditTooltip}>
-          <IconButton
-            size="small"
-            sx={actionButtonSx}
-            onClick={(event) => {
-              event.stopPropagation();
-              onEdit();
-            }}
-            aria-label={localeText.widgetEditTooltip}
-            tabIndex={showEditActions ? 0 : -1}
-          >
-            <EditIcon />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title={localeText.widgetDuplicateTooltip}>
-          <IconButton
-            size="small"
-            sx={actionButtonSx}
-            onClick={(event) => {
-              event.stopPropagation();
-              onDuplicate();
-            }}
-            aria-label={localeText.widgetDuplicateTooltip}
-            tabIndex={showEditActions ? 0 : -1}
-          >
-            <ContentCopyIcon />
-          </IconButton>
-        </Tooltip>
-        {moveToPageOptions.length > 0 && (
-          <React.Fragment>
-            <Tooltip title={localeText.widgetMoveToPageLabel}>
-              <IconButton
-                size="small"
-                sx={actionButtonSx}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setMoveMenuAnchor(event.currentTarget);
-                }}
-                aria-label={localeText.widgetMoveToPageLabel}
-                tabIndex={showEditActions ? 0 : -1}
-              >
-                <DriveFileMoveOutlinedIcon />
-              </IconButton>
-            </Tooltip>
-            <Menu
-              anchorEl={moveMenuAnchor}
-              open={Boolean(moveMenuAnchor)}
-              onClose={() => setMoveMenuAnchor(null)}
-              onClick={(event) => event.stopPropagation()}
-            >
-              {moveToPageOptions.map((page) => (
-                <MenuItem
-                  key={page.id}
-                  dense
-                  onClick={() => {
-                    onMoveToPage(page.id);
-                    setMoveMenuAnchor(null);
+          {moveToPageOptions.length > 0 && (
+            <React.Fragment>
+              <Tooltip title={localeText.widgetMoveToPageLabel}>
+                <IconButton
+                  size="small"
+                  sx={actionButtonSx}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setMoveMenuAnchor(event.currentTarget);
                   }}
+                  aria-label={localeText.widgetMoveToPageLabel}
+                  tabIndex={showEditActions ? 0 : -1}
                 >
-                  {page.title}
-                </MenuItem>
-              ))}
-            </Menu>
-          </React.Fragment>
-        )}
-        <Tooltip title={localeText.widgetDeleteTooltip}>
-          <IconButton
-            ref={deleteButtonRef}
-            size="small"
-            sx={actionButtonSx}
-            onClick={handleDeleteClick}
-            aria-label={localeText.widgetDeleteTooltip}
-            tabIndex={showEditActions ? 0 : -1}
-          >
-            <CloseIcon />
-          </IconButton>
-        </Tooltip>
-      </Stack>
-      <Dialog
-        open={deleteConfirmOpen}
-        onClose={handleDeleteCancel}
-        onClick={(e) => e.stopPropagation()}
-        aria-labelledby="widget-delete-dialog-title"
-        aria-describedby="widget-delete-dialog-desc"
-      >
-        <DialogTitle id="widget-delete-dialog-title">
-          {localeText.widgetDeleteConfirmTitle}
-        </DialogTitle>
-        <DialogContent>
-          <DialogContentText id="widget-delete-dialog-desc">
-            {localeText.widgetDeleteConfirmMessage}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleDeleteCancel} autoFocus>
-            {localeText.widgetDeleteConfirmCancel}
-          </Button>
-          <Button onClick={handleDeleteConfirm} color="error">
-            {localeText.widgetDeleteConfirmOk}
-          </Button>
-        </DialogActions>
-      </Dialog>
+                  <DriveFileMoveOutlinedIcon />
+                </IconButton>
+              </Tooltip>
+              <Menu
+                anchorEl={moveMenuAnchor}
+                open={Boolean(moveMenuAnchor)}
+                onClose={() => setMoveMenuAnchor(null)}
+                onClick={(event) => event.stopPropagation()}
+              >
+                {moveToPageOptions.map((page) => (
+                  <MenuItem
+                    key={page.id}
+                    dense
+                    onClick={() => {
+                      onMoveToPage(page.id);
+                      setMoveMenuAnchor(null);
+                    }}
+                  >
+                    {page.title}
+                  </MenuItem>
+                ))}
+              </Menu>
+            </React.Fragment>
+          )}
+          <Tooltip title={localeText.widgetDeleteTooltip}>
+            <IconButton
+              ref={deleteButtonRef}
+              size="small"
+              sx={actionButtonSx}
+              onClick={handleDeleteClick}
+              aria-label={localeText.widgetDeleteTooltip}
+              tabIndex={showEditActions ? 0 : -1}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+        <Dialog
+          open={deleteConfirmOpen}
+          onClose={handleDeleteCancel}
+          onClick={(event) => event.stopPropagation()}
+          aria-labelledby="widget-delete-dialog-title"
+          aria-describedby="widget-delete-dialog-desc"
+        >
+          <DialogTitle id="widget-delete-dialog-title">
+            {localeText.widgetDeleteConfirmTitle}
+          </DialogTitle>
+          <DialogContent>
+            <DialogContentText id="widget-delete-dialog-desc">
+              {localeText.widgetDeleteConfirmMessage}
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleDeleteCancel} autoFocus>
+              {localeText.widgetDeleteConfirmCancel}
+            </Button>
+            <Button onClick={handleDeleteConfirm} color="error">
+              {localeText.widgetDeleteConfirmOk}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </React.Fragment>
     );
   }

@@ -1,3 +1,4 @@
+'use client';
 import * as React from 'react';
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { GlobalStyles } from '@mui/material';

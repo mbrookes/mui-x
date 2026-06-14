@@ -133,7 +133,7 @@ describe('computeWidgetForecast', () => {
     expect(result!.lowerBand).not.toBeNull();
     expect(result!.upperBand!).toHaveLength(6);
     // Upper band values in forecast range should be >= lower band values
-    for (let i = 4; i < 6; i++) {
+    for (let i = 4; i < 6; i += 1) {
       expect(result!.upperBand![i]! >= result!.lowerBand![i]!).toBe(true);
     }
   });

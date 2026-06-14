@@ -22,9 +22,9 @@ class MockSpeechRecognition {
 
   stopSpy = vi.fn();
 
-  // eslint-disable-next-line no-constructor-return
   constructor() {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    // Capture the instance so tests can drive recognition events on the active mock.
+    // eslint-disable-next-line consistent-this -- intentional: expose `this` to the test scope
     mockInstance = this;
   }
 

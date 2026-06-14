@@ -1,10 +1,6 @@
 'use client';
 import * as React from 'react';
-import {
-  Alert,
-  Stack,
-  Typography,
-} from '@mui/material';
+import { Alert, Stack, Typography } from '@mui/material';
 
 import {
   CanvasScrollContext,
@@ -141,7 +137,6 @@ export function AddWidgetView() {
     }));
     return [...builtins, ...customs];
     // react-doctor-disable-next-line react-doctor/exhaustive-deps -- localeText is stable
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [features, customWidgetMap, localeText]);
 
   if (selectedKind) {

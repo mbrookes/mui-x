@@ -497,6 +497,28 @@ export default defineConfig(
       'jsdoc/require-returns': 'off',
     },
   },
+  {
+    // x-studio is internal and unpublished. Its locale interface exposes ~50
+    // function-typed string tokens (e.g. `(label) => string`); requiring full
+    // JSDoc `@param`/`@returns` on each is low-value documentation busywork, so
+    // we disable those two rules here (mirrors the scheduler packages above,
+    // which are likewise internal). All other code-quality rules stay on.
+    files: [`packages/x-studio/src/**/*${EXTENSION_TS}`],
+    rules: {
+      'jsdoc/require-param': 'off',
+      'jsdoc/require-returns': 'off',
+    },
+  },
+  {
+    // Locale files contain intentional typographic quotes — German „…" guillemets
+    // and French ' apostrophes / … ellipses — which are the CORRECT translations.
+    // `mui/straight-quotes` would flag (and could auto-fix-corrupt) them, so it is
+    // disabled for the locale files only.
+    files: [`packages/x-studio/src/locales/**/*${EXTENSION_TS}`],
+    rules: {
+      'mui/straight-quotes': 'off',
+    },
+  },
   ...[
     'x-charts',
     'x-charts-pro',

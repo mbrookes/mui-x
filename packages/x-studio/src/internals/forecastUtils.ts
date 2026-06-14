@@ -98,9 +98,7 @@ function tryExtendAsDateLabels(
   periods: number,
 ): (string | number)[] | null {
   const datePattern = /^\d{4}(-\d{2}(-\d{2})?)?$/;
-  const allStrings = labels.every(
-    (l) => typeof l === 'string' && datePattern.test(l as string),
-  );
+  const allStrings = labels.every((l) => typeof l === 'string' && datePattern.test(l as string));
   if (!allStrings) {
     return null;
   }
@@ -132,7 +130,7 @@ function tryExtendAsDateLabels(
   // Full date: YYYY-MM-DD — use ms interval from last two labels
   const dates = labels.map((l) => {
     const d = new Date(`${l as string}T00:00:00Z`);
-    return isNaN(d.getTime()) ? null : d;
+    return Number.isNaN(d.getTime()) ? null : d;
   });
   if (dates.some((d) => d === null)) {
     return null;
@@ -157,7 +155,7 @@ function tryExtendAsNumericLabels(
 ): (string | number)[] | null {
   const nums = labels.map((l) => {
     const n = Number(l);
-    return isNaN(n) ? null : n;
+    return Number.isNaN(n) ? null : n;
   });
 
   if (nums.some((n) => n === null)) {
@@ -271,13 +269,10 @@ export function computeWidgetForecast(
  * Null values are excluded pairwise (only positions where both are non-null are used).
  * Returns `null` when fewer than 2 valid pairs exist.
  */
-export function pearsonCorrelation(
-  xs: (number | null)[],
-  ys: (number | null)[],
-): number | null {
+export function pearsonCorrelation(xs: (number | null)[], ys: (number | null)[]): number | null {
   const pairs: [number, number][] = [];
   const n = Math.min(xs.length, ys.length);
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n; i += 1) {
     if (xs[i] != null && ys[i] != null) {
       pairs.push([xs[i] as number, ys[i] as number]);
     }

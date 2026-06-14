@@ -83,7 +83,7 @@ export interface StudioLocaleText {
   widgetEditDialogCloseAriaLabel: string;
   /**
    * Returns the title for an unconfigured widget, e.g. "Untitled Chart".
-   * @param kindLabel
+   * @param {string} kindLabel The localized widget-kind name (e.g. "Chart").
    */
   widgetUntitledLabel: (kindLabel: string) => string;
 
@@ -152,7 +152,7 @@ export interface StudioLocaleText {
   composeOnThisPage: string;
   /**
    * Returns the label for the "add widget" button, e.g. "Add Chart widget".
-   * @param widgetTypeLabel
+   * @param {string} widgetTypeLabel The localized widget-type name (e.g. "Chart").
    */
   composeAddWidgetLabel: (widgetTypeLabel: string) => string;
   composeCloseAriaLabel: string;
@@ -1369,7 +1369,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   gridSetupInteractionsDescription: 'When other widgets are clicked, this table\u2026',
   gridSetupChooseSourceHelper: 'Choose a data source to configure columns',
   gridSetupNoSourceAlert:
-    'Select a data source above to configure this table’s columns and settings.',
+    "Select a data source above to configure this table's columns and settings.",
   gridSetupColumnsTitle: 'Columns',
   gridSetupColumnOptionsAriaLabel: (label) => `Options for ${label}`,
   gridSetupColumnGroupLabel: '(group)',
@@ -1768,11 +1768,14 @@ export function useStudioUIConfig(): StudioUIConfig {
 /** Returns the custom widget definitions indexed by kind for O(1) lookup. */
 export function useCustomWidgetMap(): CustomWidgetMap {
   const { customWidgets } = useStudioUIConfig();
+  // Serialize the identifying keys so the memo only recomputes when the set of
+  // registered widget kinds actually changes (a simple-expression dep keeps both
+  // exhaustive-deps and use-memo happy without disabling them).
+  const widgetKindsKey = JSON.stringify(customWidgets?.map((d) => d.kind));
   return React.useMemo(
     () => new Map((customWidgets ?? []).map((d) => [d.kind, d])),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- JSON.stringify proxy for deep equality
-    [JSON.stringify(customWidgets?.map((d) => d.kind))],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- widgetKindsKey is a deep-equality proxy for customWidgets
+    [widgetKindsKey],
   );
 }
 
@@ -1785,11 +1788,14 @@ export function useCustomWidgetMap(): CustomWidgetMap {
  */
 export function useStudioGeographies(): Record<string, StudioMapGeographyDefinition> {
   const { geographies } = useStudioUIConfig();
+  // Serialize the override keys so the merged map is only rebuilt when the set of
+  // consumer-provided geographies changes (a simple-expression dep keeps both
+  // exhaustive-deps and use-memo happy without disabling them).
+  const geographyKeysKey = JSON.stringify(Object.keys(geographies ?? {}));
   return React.useMemo(
     () => ({ ...BUILT_IN_GEOGRAPHY_DEFINITIONS, ...geographies }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- JSON.stringify proxy for deep equality
-    [JSON.stringify(Object.keys(geographies ?? {}))],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- geographyKeysKey is a deep-equality proxy for geographies
+    [geographyKeysKey],
   );
 }
 

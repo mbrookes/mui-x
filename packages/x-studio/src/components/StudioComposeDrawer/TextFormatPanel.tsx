@@ -1,11 +1,11 @@
 'use client';
+import { Stack } from '@mui/material';
 import {
   useStudioController,
   useStudioSelector,
   selectWidgets,
   useStudioLocaleText,
 } from '../../context';
-import { Stack } from '@mui/material';
 import type { StudioWidgetConfig } from '../../models';
 import { TextSectionFormat } from './TextSectionFormat';
 

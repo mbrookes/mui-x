@@ -18,11 +18,11 @@ import type {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-let _uid = 0;
+let uidCounter = 0;
 /** Returns a unique endpoint string per test invocation. */
 function uid(): string {
-  _uid += 1;
-  return `/api/test-${_uid}`;
+  uidCounter += 1;
+  return `/api/test-${uidCounter}`;
 }
 
 beforeEach(() => {
@@ -41,7 +41,9 @@ function makeDescriptor(overrides: Partial<StudioQueryDescriptor> = {}): StudioQ
   };
 }
 
-function makeOkFetch(results: Array<{ id: string; rows: Record<string, unknown>[]; error?: string }>) {
+function makeOkFetch(
+  results: Array<{ id: string; rows: Record<string, unknown>[]; error?: string }>,
+) {
   return vi.fn().mockResolvedValue({
     ok: true,
     json: () => Promise.resolve({ results }),
@@ -64,7 +66,10 @@ describe('createBatchingAdapter — batching mechanics', () => {
       { id: 'w1', rows: [{ id: 1 }] },
       { id: 'w2', rows: [{ id: 2 }] },
     ]);
-    const adapter = createBatchingAdapter(uid(), { fetchFn: fetchFn as unknown as typeof fetch, batchDelayMs: 0 });
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
 
     await Promise.all([
       adapter.getRows(makeDescriptor({ widgetId: 'w1' })),
@@ -79,7 +84,10 @@ describe('createBatchingAdapter — batching mechanics', () => {
       { id: 'sales', rows: [{ amount: 100 }] },
       { id: 'customers', rows: [{ name: 'Acme' }] },
     ]);
-    const adapter = createBatchingAdapter(uid(), { fetchFn: fetchFn as unknown as typeof fetch, batchDelayMs: 0 });
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
 
     const [sales, customers] = await Promise.all([
       adapter.getRows(makeDescriptor({ widgetId: 'sales' })),
@@ -93,14 +101,21 @@ describe('createBatchingAdapter — batching mechanics', () => {
   it('sends the correct POST body with id/table/columns', async () => {
     const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
     const endpoint = uid();
-    const adapter = createBatchingAdapter(endpoint, { fetchFn: fetchFn as unknown as typeof fetch, batchDelayMs: 0 });
+    const adapter = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
 
-    await adapter.getRows(makeDescriptor({ widgetId: 'w1', tableName: 'orders', select: ['id', 'total'] }));
+    await adapter.getRows(
+      makeDescriptor({ widgetId: 'w1', tableName: 'orders', select: ['id', 'total'] }),
+    );
 
     const [url, init] = fetchFn.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(endpoint);
     expect(init.method).toBe('POST');
-    const body = JSON.parse(init.body as string) as { widgets: Array<{ id: string; table: string; columns: string[] }> };
+    const body = JSON.parse(init.body as string) as {
+      widgets: Array<{ id: string; table: string; columns: string[] }>;
+    };
     expect(body.widgets).toHaveLength(1);
     expect(body.widgets[0].id).toBe('w1');
     expect(body.widgets[0].table).toBe('orders');
@@ -110,7 +125,10 @@ describe('createBatchingAdapter — batching mechanics', () => {
 
   it('rejects with an error when the server result is missing for a widget', async () => {
     const fetchFn = makeOkFetch([]); // no results for w1
-    const adapter = createBatchingAdapter(uid(), { fetchFn: fetchFn as unknown as typeof fetch, batchDelayMs: 0 });
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
 
     await expect(adapter.getRows(makeDescriptor({ widgetId: 'w1' }))).rejects.toThrow(/"w1"/);
   });
@@ -121,7 +139,10 @@ describe('createBatchingAdapter — batching mechanics', () => {
 describe('createBatchingAdapter — fetch failure', () => {
   it('propagates the HTTP status as an Error to all callers', async () => {
     const fetchFn = makeErrorFetch(503, 'Service Unavailable');
-    const adapter = createBatchingAdapter(uid(), { fetchFn: fetchFn as unknown as typeof fetch, batchDelayMs: 0 });
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
 
     await expect(
       Promise.all([
@@ -133,9 +154,14 @@ describe('createBatchingAdapter — fetch failure', () => {
 
   it('propagates a server-returned error field as an Error', async () => {
     const fetchFn = makeOkFetch([{ id: 'w1', rows: [], error: 'table not found' }]);
-    const adapter = createBatchingAdapter(uid(), { fetchFn: fetchFn as unknown as typeof fetch, batchDelayMs: 0 });
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
 
-    await expect(adapter.getRows(makeDescriptor({ widgetId: 'w1' }))).rejects.toThrow(/table not found/);
+    await expect(adapter.getRows(makeDescriptor({ widgetId: 'w1' }))).rejects.toThrow(
+      /table not found/,
+    );
   });
 });
 
@@ -144,7 +170,10 @@ describe('createBatchingAdapter — fetch failure', () => {
 describe('createBatchingAdapter — filter serialisation', () => {
   it('serialises a leaf filter to a single predicate', async () => {
     const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
-    const adapter = createBatchingAdapter(uid(), { fetchFn: fetchFn as unknown as typeof fetch, batchDelayMs: 0 });
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
 
     await adapter.getRows(
       makeDescriptor({
@@ -156,12 +185,17 @@ describe('createBatchingAdapter — filter serialisation', () => {
     const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
       widgets: Array<{ filters: Array<{ column: string; operator: string; value: unknown }> }>;
     };
-    expect(body.widgets[0].filters).toEqual([{ column: 'status', operator: 'eq', value: 'active' }]);
+    expect(body.widgets[0].filters).toEqual([
+      { column: 'status', operator: 'eq', value: 'active' },
+    ]);
   });
 
   it('flattens an AND group into multiple predicates', async () => {
     const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
-    const adapter = createBatchingAdapter(uid(), { fetchFn: fetchFn as unknown as typeof fetch, batchDelayMs: 0 });
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
 
     await adapter.getRows(
       makeDescriptor({
@@ -185,7 +219,10 @@ describe('createBatchingAdapter — filter serialisation', () => {
 
   it('omits the filters key when filter is undefined', async () => {
     const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
-    const adapter = createBatchingAdapter(uid(), { fetchFn: fetchFn as unknown as typeof fetch, batchDelayMs: 0 });
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
 
     await adapter.getRows(makeDescriptor({ widgetId: 'w1', filter: undefined }));
 
@@ -197,7 +234,10 @@ describe('createBatchingAdapter — filter serialisation', () => {
 
   it('maps not_equals filter operator to neq', async () => {
     const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
-    const adapter = createBatchingAdapter(uid(), { fetchFn: fetchFn as unknown as typeof fetch, batchDelayMs: 0 });
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
 
     await adapter.getRows(
       makeDescriptor({
@@ -346,9 +386,7 @@ describe('createBatchingAdapter — cross-endpoint join enrichment', () => {
   });
 
   it('adds the FK column to the server request when it is not already selected', async () => {
-    const ordersFetch = makeOkFetch([
-      { id: 'w1', rows: [{ id: 101, customerId: 1, total: 500 }] },
-    ]);
+    const ordersFetch = makeOkFetch([{ id: 'w1', rows: [{ id: 101, customerId: 1, total: 500 }] }]);
     const customersFetch = makeOkFetch([
       { id: '_xjoin_source-customers', rows: [{ id: 1, segment: 'Corporate', country: 'US' }] },
     ]);
@@ -438,8 +476,14 @@ describe('createBatchingAdapter — cross-endpoint join enrichment', () => {
     expect(customersFetch).toHaveBeenCalledTimes(1);
 
     // Both fields must be enriched
-    expect(result.rows[0]).toMatchObject({ 'customer-segment': 'Corporate', 'customer-country': 'US' });
-    expect(result.rows[1]).toMatchObject({ 'customer-segment': 'Consumer', 'customer-country': 'DE' });
+    expect(result.rows[0]).toMatchObject({
+      'customer-segment': 'Corporate',
+      'customer-country': 'US',
+    });
+    expect(result.rows[1]).toMatchObject({
+      'customer-segment': 'Consumer',
+      'customer-country': 'DE',
+    });
   });
 
   it('returns null for unmatched FK values', async () => {

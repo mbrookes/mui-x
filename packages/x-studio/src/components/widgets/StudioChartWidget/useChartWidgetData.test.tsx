@@ -163,6 +163,45 @@ describe('useChartWidgetData — cross-source blending', () => {
     expect(totalSeries.values[sup]).toBe(0); // no orders revenue for Supplies
   });
 
+  it('renders a fieldless row count: count chart with an X field but no Y field (BL-186)', () => {
+    // Reproduces "contacts by department" on a source with no visible numeric field: the
+    // config is xField + yAggregation:'count' with no yField/ySeries. aggregateByField tallies
+    // rows, so chartData must produce a per-category count even with no measure field.
+    const contactsSource: StudioDataSource = {
+      id: 'contacts',
+      label: 'Contacts',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string', hidden: true },
+        { id: 'department', label: 'Department', type: 'string' },
+      ],
+      rows: [
+        { id: 'c1', department: 'Sales' },
+        { id: 'c2', department: 'Sales' },
+        { id: 'c3', department: 'Sales' },
+        { id: 'c4', department: 'Engineering' },
+      ],
+    };
+    const countWidget: StudioWidget = {
+      id: 'chart-count',
+      kind: 'chart',
+      title: 'Contacts by Department',
+      sourceId: 'contacts',
+      config: { chartType: 'bar', xField: 'department', yAggregation: 'count' },
+    };
+    mockState = createState({
+      widgets: { 'chart-count': countWidget },
+      dataSources: { contacts: contactsSource },
+    });
+
+    const { result } = renderHook(() => useChartWidgetData(countWidget, contactsSource));
+    const data = result.current.chartData!;
+    expect(data).not.toBeNull();
+    const sales = data.labels.indexOf('Sales');
+    const eng = data.labels.indexOf('Engineering');
+    expect(data.values[sales]).toBe(3);
+    expect(data.values[eng]).toBe(1);
+  });
+
   it('fetches a foreign series from its own adapter when the source is adapter-backed', async () => {
     // Products is adapter-backed (server/adapter mode): its rows are fetched via getRows,
     // not read from in-memory `rows`. The blend must still resolve the foreign series.

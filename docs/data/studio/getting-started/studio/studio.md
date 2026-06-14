@@ -261,6 +261,56 @@ Use these when you need a fully custom panel UI but still want Studio to own the
 <Studio dataDrawer={<MyCustomDataPanel />} />
 ```
 
+### `customWidgets`
+
+Register consumer-defined widget kinds that appear in the widget picker alongside the
+built-ins. Pass an array of `StudioCustomWidgetDef`; each entry maps a unique `kind` to
+a render `component` and, optionally, a compose-drawer `setupPanel`.
+
+```tsx
+import type { StudioCustomWidgetDef } from '@mui/x-studio';
+
+const alertWidget: StudioCustomWidgetDef = {
+  kind: 'acme-alert', // namespace to avoid collisions with built-ins
+  label: 'Alert Banner',
+  description: 'Coloured alert box with a configurable message',
+  icon: <NotificationsIcon />,
+  component: AlertBannerWidget,
+  setupPanel: AlertBannerSetupPanel, // optional
+};
+
+<Studio customWidgets={[alertWidget]} />;
+```
+
+| Field                | Type                      | Default | Description                                                                              |
+| :------------------- | :------------------------ | :------ | :--------------------------------------------------------------------------------------- |
+| `kind`               | `string`                  | —       | Unique identifier. Namespace it (for example, `'acme-weather'`) to avoid collisions.     |
+| `label`              | `string`                  | —       | Display name in the widget picker.                                                       |
+| `component`          | `ComponentType`           | —       | Renders the widget on the canvas. Receives `{ widget, dataSource }`.                     |
+| `setupPanel`         | `ComponentType`           | —       | Optional compose-drawer panel that edits the widget's `customConfig`.                    |
+| `requiresDataSource` | `boolean`                 | `false` | When `true`, the picker shows the data-source selector before the widget can be created. |
+| `defaultConfig`      | `Record<string, unknown>` | —       | JSON-serializable defaults written to `config.customConfig` on creation.                 |
+| `fullBleed`          | `boolean`                 | `false` | Render the component edge-to-edge — see below.                                           |
+
+The same `customWidgets` array is accepted on `<StudioProvider>` and `<StudioDashboard>`.
+Use the `useCustomWidgetMap()` hook for an O(1) lookup of registered definitions.
+
+#### Full-bleed custom widgets
+
+Set `fullBleed: true` to render the widget edge-to-edge: the card omits its
+title/subtitle header and removes its inner padding so the component fills the entire
+card. Use this for widgets that are themselves the visual — a banner, a hero image, a
+full-card map — where the standard card chrome would get in the way.
+
+```tsx
+const bannerWidget: StudioCustomWidgetDef = {
+  kind: 'acme-banner',
+  label: 'Hero Banner',
+  component: HeroBannerWidget,
+  fullBleed: true, // no card header, no padding
+};
+```
+
 ## `StudioHandle` — the imperative API
 
 Obtain a reference to the `StudioHandle` via `React.useRef<StudioHandle>(null)`.

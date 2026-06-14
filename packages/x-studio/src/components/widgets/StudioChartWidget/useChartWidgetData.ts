@@ -162,6 +162,15 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
 
   const isMultiSeries = activeYFields.length > 1;
 
+  // A "count" aggregation tallies rows and ignores the measure field, so a single-series
+  // category chart is valid with no Y field at all (e.g. "contacts by department" over a
+  // source with no visible numeric field). aggregateByField counts when yAggregation is
+  // 'count', so we pass an empty field id. Split-by / multi-Y are NOT supported fieldless
+  // (aggregateByTwoFields/MultipleSeries sum the measure), so this only relaxes the single-
+  // series path; the setup panel disables those combinations. See BL-186.
+  const isFieldlessCount = activeYFields.length === 0 && config.yAggregation === 'count';
+  const categoryYField = activeYFields[0] ?? '';
+
   // Page-scoped filters apply across the dashboard, so they also constrain foreign
   // blended series. Widget-specific, cross-filter and rank filters are tied to the
   // primary widget/source and are not applied to a foreign source's aggregation.
@@ -476,7 +485,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
 
   const chartData = React.useMemo(() => {
     const xField = config.xField;
-    if (!xField || activeYFields.length === 0 || enrichedRows.length === 0) {
+    if (!xField || (activeYFields.length === 0 && !isFieldlessCount) || enrichedRows.length === 0) {
       return null;
     }
     if (isMultiSeries) {
@@ -485,12 +494,12 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       enrichedRows,
-      `cd:${xField}:${activeYFields[0]}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
+      `cd:${xField}:${categoryYField}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () => {
         const raw = aggregateByField(
           enrichedRows,
           xField,
-          activeYFields[0],
+          categoryYField,
           xGroupBy,
           config.yAggregation,
           chartSortBy,
@@ -504,6 +513,8 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     enrichedRows,
     config.xField,
     activeYFields,
+    isFieldlessCount,
+    categoryYField,
     isMultiSeries,
     widgetRankFilter,
     xGroupBy,
@@ -558,18 +569,23 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
       return null;
     }
     const xField = config.xField;
-    if (!xField || activeYFields.length === 0 || isMultiSeries || allEnrichedRows.length === 0) {
+    if (
+      !xField ||
+      (activeYFields.length === 0 && !isFieldlessCount) ||
+      isMultiSeries ||
+      allEnrichedRows.length === 0
+    ) {
       return null;
     }
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       allEnrichedRows,
-      `acd:${xField}:${activeYFields[0]}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
+      `acd:${xField}:${categoryYField}:${xGroupBy ?? ''}:${config.yAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}`,
       () => {
         const raw = aggregateByField(
           allEnrichedRows,
           xField,
-          activeYFields[0],
+          categoryYField,
           xGroupBy,
           config.yAggregation,
           chartSortBy,
@@ -584,6 +600,8 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     allEnrichedRows,
     config.xField,
     activeYFields,
+    isFieldlessCount,
+    categoryYField,
     isMultiSeries,
     widgetRankFilter,
     xGroupBy,

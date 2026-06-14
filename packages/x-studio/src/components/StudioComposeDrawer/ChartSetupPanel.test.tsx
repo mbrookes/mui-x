@@ -298,6 +298,84 @@ describe('ChartSetupPanel', () => {
     }
   });
 
+  it('locks the aggregation to a disabled Count when no measure field is selected (BL-186)', () => {
+    const previousWidget = mockState.widgets['widget-1'];
+    const previousOrdersFields = mockState.dataSources.orders.fields;
+
+    try {
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: [{ id: 'department', label: 'Department', type: 'string' }],
+      };
+      // Reproduces "contacts by department": an X field, no numeric Y field, count.
+      mockState.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: {
+          chartType: 'bar',
+          xField: 'department',
+          yAggregation: 'count',
+        },
+      };
+
+      render(<ChartSetupPanel widgetId="widget-1" />);
+
+      // The aggregation control is present, shows Count, and is disabled (count is the only
+      // valid aggregation with no field). Its hidden input carries the value "count".
+      const aggLabels = screen.getAllByText('Aggregation');
+      expect(aggLabels.length).toBeGreaterThan(0);
+      const aggSelect = document.querySelector('input[value="count"]');
+      expect(aggSelect).not.toBeNull();
+      expect(aggSelect!.getAttribute('disabled')).toBe('');
+      // The split-by control is unavailable for a fieldless count.
+      expect(screen.getByLabelText('Split by (series field)').getAttribute('disabled')).toBe('');
+    } finally {
+      mockState.widgets['widget-1'] = previousWidget;
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+    }
+  });
+
+  it('seeds a fieldless count when the X field is picked with no measure field (BL-186)', async () => {
+    const previousWidget = mockState.widgets['widget-1'];
+    const previousOrdersFields = mockState.dataSources.orders.fields;
+    controller.updateWidgetConfig.mockClear();
+
+    try {
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: [{ id: 'department', label: 'Department', type: 'string' }],
+      };
+      // No X field and no Y field yet — the from-scratch state.
+      mockState.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: { chartType: 'bar' },
+      };
+
+      const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+      // Pick the X field — its source-anchoring side effect must also seed the row count.
+      const xInput = screen.getByLabelText('X / Category field');
+      await user.click(xInput);
+      const departmentOption = await screen.findByRole('option', { name: /Department$/ });
+      await user.click(departmentOption);
+
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+        xField: 'department',
+        yAggregation: 'count',
+      });
+    } finally {
+      mockState.widgets['widget-1'] = previousWidget;
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+    }
+  });
+
   it('toggles sankeyShowValues from the show-values checkbox', async () => {
     const previousWidget = mockState.widgets['widget-1'];
     const previousOrdersFields = mockState.dataSources.orders.fields;

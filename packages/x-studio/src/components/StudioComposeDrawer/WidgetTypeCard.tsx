@@ -9,6 +9,7 @@ import {
   type ComposeWidgetDragItem,
 } from '../StudioCanvas/studioWidgetDndTypes';
 import { useStudioDraggable } from '../StudioCanvas/useStudioDraggable';
+import { createClonePreview } from '../StudioCanvas/createClonePreview';
 
 // ── Widget type cards ────────────────────────────────────────────────────────
 
@@ -35,12 +36,15 @@ export function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
     [wt.kind],
   );
 
+  const renderPreview = React.useMemo(() => createClonePreview(ref), []);
+
   useStudioDraggable({
     ref,
     canDrag: canAdd,
     getData,
     onDragStart: () => setIsDragging(true),
     onDrop: () => setIsDragging(false),
+    renderPreview,
   });
 
   return (

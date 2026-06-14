@@ -11,6 +11,7 @@
     "analyze": "ANALYZE=true pnpm build",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "typescript": "tsc --noEmit -p tsconfig.json",
     "server": "pnpm tsx src/server/index.ts"
   },
   "dependencies": {

@@ -142,6 +142,28 @@ const chartConfig: StudioWidgetConfig = {
 };
 ```
 
+## Scatter bubble size
+
+Set `scatterSizeField?: string` to a numeric field to turn a scatter chart into a bubble
+chart: each point's marker radius scales with that field's value. Optionally bound the
+radius range with `scatterMinRadius` and `scatterMaxRadius` (pixels).
+
+```ts
+const chartConfig: StudioWidgetConfig = {
+  chartType: 'scatter',
+  xField: 'price',
+  yField: 'quantity',
+  scatterSizeField: 'revenue', // bubble area encodes revenue
+  scatterMinRadius: 4, // default
+  scatterMaxRadius: 40, // default
+};
+```
+
+This uses the native bubble support in `@mui/x-charts` rather than a Studio-specific
+prop: each point carries a `sizeValue`, and the size field is mapped to a marker radius
+by a continuous `sizeMap` on the chart's `zAxis` (with the usual square-root area
+scaling). When `scatterSizeField` is omitted, the chart renders fixed-radius markers.
+
 ## Pie and donut arc labels
 
 Use `pieArcLabel?: 'value' | 'percent' | 'none'` to control the label shown on each arc.

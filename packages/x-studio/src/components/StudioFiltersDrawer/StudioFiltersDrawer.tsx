@@ -387,11 +387,11 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                       value={renameValue}
                       autoFocus
                       sx={{ flexGrow: 1 }}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                      onChange={(event) => setRenameValue(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
                           handleRenameConfirm();
-                        } else if (e.key === 'Escape') {
+                        } else if (event.key === 'Escape') {
                           handleRenameCancel();
                         }
                       }}

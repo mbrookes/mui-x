@@ -2,7 +2,16 @@
 
 import * as React from 'react';
 import type { SxProps, Theme } from '@mui/material';
-import { Box, Collapse, Grow, IconButton, Menu, MenuItem, Tooltip, Typography } from '@mui/material';
+import {
+  Box,
+  Collapse,
+  Grow,
+  IconButton,
+  Menu,
+  MenuItem,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
@@ -28,7 +37,11 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { ChatBox, ChatMessage } from '@mui/x-chat';
-import type { ChatAdapter, ChatMessage as ChatMessageType, ChatPartRendererMap } from '@mui/x-chat/headless';
+import type {
+  ChatAdapter,
+  ChatMessage as ChatMessageType,
+  ChatPartRendererMap,
+} from '@mui/x-chat/headless';
 import { useChat, useMessage, createToolPartRenderer } from '@mui/x-chat/headless';
 
 import {
@@ -95,7 +108,10 @@ const studioDynamicToolRenderer = createToolPartRenderer({
  * operations regardless of the tool-call visibility setting.
  */
 const studioApprovalOnlyRenderer: ChatPartRendererMap['dynamic-tool'] = (props) => {
-  if ((props.part as { toolInvocation?: { state?: string } }).toolInvocation?.state === 'approval-requested') {
+  if (
+    (props.part as { toolInvocation?: { state?: string } }).toolInvocation?.state ===
+    'approval-requested'
+  ) {
     return studioDynamicToolRenderer(props);
   }
   return null;
@@ -104,6 +120,17 @@ const studioApprovalOnlyRenderer: ChatPartRendererMap['dynamic-tool'] = (props) 
 // ── StudioSendButton — stop/send toggle for the composer ──────────────────────
 // Defined at module level so the reference is stable across renders (required by
 // ChatBox slot system to avoid re-mounting the button on every render).
+
+// Normalize an optional `sx` prop into an array of sx entries so it can be spread into a
+// combined `sx={[...]}` array. The element type excludes the array form of `SxProps` so the
+// result is directly spreadable into MUI's `sx` array prop without nesting.
+type SxEntry = Exclude<SxProps<Theme>, ReadonlyArray<unknown>>;
+function toSxArray(sx: SxProps<Theme> | undefined): SxEntry[] {
+  if (Array.isArray(sx)) {
+    return sx as SxEntry[];
+  }
+  return sx ? [sx as SxEntry] : [];
+}
 
 const SEND_BTN_SX = {
   display: 'inline-flex',
@@ -123,57 +150,66 @@ const SEND_BTN_SX = {
     }),
 } as const;
 
-const StudioSendButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
-  function StudioSendButton({ disabled, ...rest }, ref) {
-    const { isStreaming, stopStreaming } = useChat();
+const StudioSendButton = React.forwardRef<
+  HTMLButtonElement,
+  React.ButtonHTMLAttributes<HTMLButtonElement>
+>(function StudioSendButton({ disabled, ...rest }, ref) {
+  const { isStreaming, stopStreaming } = useChat();
 
-    if (isStreaming) {
-      return (
-        <Box
-          component="button"
-          ref={ref as React.Ref<HTMLButtonElement>}
-          type="button"
-          onClick={(e: React.MouseEvent) => {
-            e.preventDefault();
-            stopStreaming();
-          }}
-          aria-label="Stop generating"
-          sx={{
-            ...SEND_BTN_SX,
-            bgcolor: 'error.main',
-            color: 'error.contrastText',
-            '&:hover': { bgcolor: 'error.dark' },
-          }}
-        >
-          <StopCircleIcon sx={{ width: '1em', height: '1em', fontSize: 'inherit' }} />
-        </Box>
-      );
-    }
-
+  if (isStreaming) {
     return (
       <Box
         component="button"
         ref={ref as React.Ref<HTMLButtonElement>}
-        type="submit"
-        disabled={disabled}
-        aria-label="Send message"
+        type="button"
+        onClick={(event: React.MouseEvent) => {
+          event.preventDefault();
+          stopStreaming();
+        }}
+        aria-label="Stop generating"
         sx={{
           ...SEND_BTN_SX,
-          bgcolor: disabled ? 'action.disabledBackground' : 'primary.main',
-          color: disabled ? 'action.disabled' : 'primary.contrastText',
-          '&:hover:not(:disabled)': { bgcolor: 'primary.dark' },
-          '&:disabled': { cursor: 'not-allowed', opacity: 'var(--mui-palette-action-disabledOpacity, 0.38)' },
+          bgcolor: 'error.main',
+          color: 'error.contrastText',
+          '&:hover': { bgcolor: 'error.dark' },
         }}
-        {...(rest as object)}
       >
-        {/* Same paper-airplane SVG as the default ChatComposerSendButton */}
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style={{ width: '1em', height: '1em' }}>
-          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-        </svg>
+        <StopCircleIcon sx={{ width: '1em', height: '1em', fontSize: 'inherit' }} />
       </Box>
     );
-  },
-);
+  }
+
+  return (
+    <Box
+      component="button"
+      ref={ref as React.Ref<HTMLButtonElement>}
+      type="submit"
+      disabled={disabled}
+      aria-label="Send message"
+      sx={{
+        ...SEND_BTN_SX,
+        bgcolor: disabled ? 'action.disabledBackground' : 'primary.main',
+        color: disabled ? 'action.disabled' : 'primary.contrastText',
+        '&:hover:not(:disabled)': { bgcolor: 'primary.dark' },
+        '&:disabled': {
+          cursor: 'not-allowed',
+          opacity: 'var(--mui-palette-action-disabledOpacity, 0.38)',
+        },
+      }}
+      {...(rest as object)}
+    >
+      {/* Same paper-airplane SVG as the default ChatComposerSendButton */}
+      <svg
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        aria-hidden="true"
+        style={{ width: '1em', height: '1em' }}
+      >
+        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+      </svg>
+    </Box>
+  );
+});
 
 // ── StudioMessageActions — hover-reveal copy + retry buttons ─────────────────
 // Defined at module level (stable ref) so ChatBox doesn't re-mount on every render.
@@ -191,7 +227,9 @@ const StudioMessageActions = React.memo(function StudioMessageActions({
   const localeText = useStudioLocaleText();
   const [copied, setCopied] = React.useState(false);
 
-  if (!message || isStreaming) return null;
+  if (!message || isStreaming) {
+    return null;
+  }
 
   const isAssistant = message.role === 'assistant';
 
@@ -219,14 +257,24 @@ const StudioMessageActions = React.memo(function StudioMessageActions({
 
   return (
     <React.Fragment>
-      <Tooltip title={copied ? localeText.chatMessageCopiedTooltip : localeText.chatMessageCopyTooltip}>
-        <IconButton size="small" onClick={handleCopy} aria-label={localeText.chatMessageCopyAriaLabel}>
+      <Tooltip
+        title={copied ? localeText.chatMessageCopiedTooltip : localeText.chatMessageCopyTooltip}
+      >
+        <IconButton
+          size="small"
+          onClick={handleCopy}
+          aria-label={localeText.chatMessageCopyAriaLabel}
+        >
           <ContentCopyIcon />
         </IconButton>
       </Tooltip>
       {isAssistant && (
         <Tooltip title={localeText.chatMessageRetryTooltip}>
-          <IconButton size="small" onClick={handleRetry} aria-label={localeText.chatMessageRetryTooltip}>
+          <IconButton
+            size="small"
+            onClick={handleRetry}
+            aria-label={localeText.chatMessageRetryTooltip}
+          >
             <RefreshIcon />
           </IconButton>
         </Tooltip>
@@ -263,8 +311,7 @@ const StudioMessageRoot = React.forwardRef<HTMLDivElement, StudioMessageRootProp
       message?.status !== 'streaming' &&
       hasMetadata;
 
-    const totalTokens =
-      (metadata?.inputTokens ?? 0) + (metadata?.outputTokens ?? 0);
+    const totalTokens = (metadata?.inputTokens ?? 0) + (metadata?.outputTokens ?? 0);
 
     return (
       <React.Fragment>
@@ -281,7 +328,8 @@ const StudioMessageRoot = React.forwardRef<HTMLDivElement, StudioMessageRootProp
               fontSize: '0.7rem',
               color: 'text.disabled',
               // Align under the assistant bubble (account for phantom avatar column)
-              pl: (theme) => `calc(${theme.spacing(2)} + var(--MuiChatMessage-avatarSize, 0px) + ${theme.spacing(0.5)})`,
+              pl: (theme) =>
+                `calc(${theme.spacing(2)} + var(--MuiChatMessage-avatarSize, 0px) + ${theme.spacing(0.5)})`,
             }}
           >
             {metadata?.model && (
@@ -452,7 +500,7 @@ function generateSuggestions(
       const first = chartWidgets[0];
       if (first) {
         suggestions.push({
-        label: localeText.aiSuggestionChangeToLine(first.title),
+          label: localeText.aiSuggestionChangeToLine(first.title),
           value: `Change the "${first.title}" widget to a line chart.`,
         });
       }
@@ -462,7 +510,7 @@ function generateSuggestions(
       const first = kpiWidgets[0];
       if (first) {
         suggestions.push({
-        label: localeText.aiSuggestionAddSparkline(first.title),
+          label: localeText.aiSuggestionAddSparkline(first.title),
           value: `Add a sparkline to the "${first.title}" KPI widget.`,
         });
       }
@@ -476,19 +524,19 @@ function generateSuggestions(
       );
       if (hasDateSource) {
         suggestions.push({
-        label: localeText.aiSuggestionAddDateFilter,
+          label: localeText.aiSuggestionAddDateFilter,
           value: 'Add a date range filter widget to the dashboard.',
         });
       }
     }
 
     suggestions.push({
-    label: localeText.aiSuggestionAddPage,
+      label: localeText.aiSuggestionAddPage,
       value: 'Create a new dashboard page.',
     });
 
     suggestions.push({
-    label: localeText.aiSuggestionSummarisePage,
+      label: localeText.aiSuggestionSummarisePage,
       value:
         'Give me an executive summary of the key insights from this page — focus on the data, trends, and any anomalies rather than the page structure.',
     });
@@ -655,7 +703,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
         },
       });
     },
-    [controller, activeThreadId],
+    [controller, activeThreadId, localeText.chatNewConversationName],
   );
 
   // ── Thread management actions ────────────────────────────────────────────────
@@ -678,7 +726,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     });
     // Update the stable ref so the next message goes to the new thread.
     defaultThreadId.current = newId;
-  }, [controller]);
+  }, [controller, localeText.chatNewConversationName]);
 
   const handleSelectThread = React.useCallback(
     (threadId: string) => {
@@ -712,7 +760,14 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   );
 
   // ── Voice input ───────────────────────────────────────────────────────────
-  const { isSupported: voiceSupported, isListening, transcript, start: startVoice, stop: stopVoice, resetTranscript } = useSpeechRecognition();
+  const {
+    isSupported: voiceSupported,
+    isListening,
+    transcript,
+    start: startVoice,
+    stop: stopVoice,
+    resetTranscript,
+  } = useSpeechRecognition();
   // Track the text that was in the composer before voice started.
   const voiceBaseTextRef = React.useRef('');
   // Controlled composer value (undefined = let ChatBox manage it internally).
@@ -750,18 +805,21 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
         : transcript;
       setComposerValue(combined);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isListening]);
 
-  const handleComposerValueChange = React.useCallback((value: string) => {
-    setComposerValue(value);
-    // When the user manually edits the input while voice is active, stop listening
-    // and adopt their edit as the new base.
-    if (isListening) {
-      stopVoice();
-      voiceBaseTextRef.current = '';
-    }
-  }, [isListening, stopVoice]);
+  const handleComposerValueChange = React.useCallback(
+    (value: string) => {
+      setComposerValue(value);
+      // When the user manually edits the input while voice is active, stop listening
+      // and adopt their edit as the new base.
+      if (isListening) {
+        stopVoice();
+        voiceBaseTextRef.current = '';
+      }
+    },
+    [isListening, stopVoice],
+  );
 
   if (!adapter) {
     return null;
@@ -778,16 +836,17 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     reasoning: StudioReasoningPart as ChatPartRendererMap['reasoning'],
     // Dynamic-tool parts: show per-tool icons, or hide entirely when showToolCalls is false.
     // Exception: always render approval-requested parts so users can approve/deny operations.
-    'dynamic-tool': aiConfig?.showToolCalls === false
-      ? studioApprovalOnlyRenderer
-      : studioDynamicToolRenderer as ChatPartRendererMap['dynamic-tool'],
+    'dynamic-tool':
+      aiConfig?.showToolCalls === false
+        ? studioApprovalOnlyRenderer
+        : (studioDynamicToolRenderer as ChatPartRendererMap['dynamic-tool']),
   };
 
   const chatBox = (
     <Box
       sx={[
         { display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' },
-        ...(!overlay ? (Array.isArray(sx) ? sx : sx ? [sx] : []) : []),
+        ...(!overlay ? toSxArray(sx) : []),
       ]}
     >
       {/* Thread selector header */}
@@ -807,7 +866,9 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
         <Tooltip title={localeText.chatSwitchConversationTooltip}>
           <Box
             component="button"
-            onClick={(e: React.MouseEvent<HTMLElement>) => setThreadMenuAnchor(e.currentTarget)}
+            onClick={(event: React.MouseEvent<HTMLElement>) =>
+              setThreadMenuAnchor(event.currentTarget)
+            }
             sx={{
               display: 'flex',
               alignItems: 'center',
@@ -824,7 +885,13 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
           >
             <Typography
               variant="caption"
-              sx={{ flexGrow: 1, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              sx={{
+                flexGrow: 1,
+                fontWeight: 500,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
             >
               {activeThreadName}
             </Typography>
@@ -832,7 +899,11 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
           </Box>
         </Tooltip>
         <Tooltip title={localeText.chatNewConversationName}>
-          <IconButton size="small" onClick={handleNewThread} aria-label={localeText.chatNewConversationName}>
+          <IconButton
+            size="small"
+            onClick={handleNewThread}
+            aria-label={localeText.chatNewConversationName}
+          >
             <AddIcon fontSize="small" />
           </IconButton>
         </Tooltip>
@@ -883,7 +954,11 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
           composerValue={composerValue}
           onComposerValueChange={handleComposerValueChange}
           // initialPrompt: pre-fill and auto-submit when there are no existing messages
-          initialComposerValue={threadMessages.length === 0 ? (initialPrompt ?? slotProps?.chatBox?.initialComposerValue) : slotProps?.chatBox?.initialComposerValue}
+          initialComposerValue={
+            threadMessages.length === 0
+              ? (initialPrompt ?? slotProps?.chatBox?.initialComposerValue)
+              : slotProps?.chatBox?.initialComposerValue
+          }
           autoSubmitInitialValue={threadMessages.length === 0 && Boolean(initialPrompt)}
           suggestions={suggestions}
           suggestionsAutoSubmit
@@ -923,11 +998,15 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
         />
         {/* Mic button — overlaid in the bottom-right corner of the composer area */}
         {voiceSupported && (
-          <Tooltip title={isListening ? localeText.chatVoiceInputStop : localeText.chatVoiceInputStart}>
+          <Tooltip
+            title={isListening ? localeText.chatVoiceInputStop : localeText.chatVoiceInputStart}
+          >
             <IconButton
               size="small"
               onClick={handleToggleVoice}
-              aria-label={isListening ? localeText.chatVoiceInputStop : localeText.chatVoiceInputStart}
+              aria-label={
+                isListening ? localeText.chatVoiceInputStop : localeText.chatVoiceInputStart
+              }
               color={isListening ? 'error' : 'default'}
               sx={{
                 position: 'absolute',
@@ -978,8 +1057,8 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             flexDirection: 'column',
             overflow: 'hidden',
           },
-          ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
-          ...(Array.isArray(panelSx) ? panelSx : panelSx ? [panelSx] : []),
+          ...toSxArray(sx),
+          ...toSxArray(panelSx),
         ]}
       >
         {/* Overlay header with close button */}

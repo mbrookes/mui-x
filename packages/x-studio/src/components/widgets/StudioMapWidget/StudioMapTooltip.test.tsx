@@ -96,9 +96,13 @@ function deriveValueFieldLabel(
   valueField: string | undefined,
   fields: Array<{ id: string; label: string }>,
 ): string | null {
-  if (!valueField) return null;
+  if (!valueField) {
+    return null;
+  }
   const declared = fields.find((f) => f.id === valueField)?.label;
-  if (declared) return declared;
+  if (declared) {
+    return declared;
+  }
   return valueField
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/[_-]+/g, ' ')

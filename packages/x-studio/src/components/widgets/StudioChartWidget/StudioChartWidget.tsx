@@ -102,7 +102,7 @@ export interface StudioChartWidgetProps {
   /**
    * Called after anomaly detection runs with the detected annotations.
    * Use this to surface the anomaly count or detected values in parent UI.
-   * @param annotations
+   * @param {StudioChartAnnotation[]} annotations The annotations produced by anomaly detection.
    */
   onAnomalyDetected?: (
     annotations: import('../../../models/baseTypes').StudioChartAnnotation[],
@@ -868,13 +868,18 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         {...slotProps?.noDataOverlay}
       >
         <Typography variant="body2">
-          {chartSupport.reason === 'field_not_found_or_not_direct'
-            ? localeText.chartUnsupportedFieldNotFound
-            : chartSupport.reason === 'mixed_cross_source_fields'
-              ? localeText.chartUnsupportedMixedCrossSource
-              : chartSupport.reason === 'scatter_cross_source_not_supported'
-                ? localeText.chartUnsupportedScatterCrossSource
-                : localeText.chartUnsupportedDefault}
+          {(() => {
+            switch (chartSupport.reason) {
+              case 'field_not_found_or_not_direct':
+                return localeText.chartUnsupportedFieldNotFound;
+              case 'mixed_cross_source_fields':
+                return localeText.chartUnsupportedMixedCrossSource;
+              case 'scatter_cross_source_not_supported':
+                return localeText.chartUnsupportedScatterCrossSource;
+              default:
+                return localeText.chartUnsupportedDefault;
+            }
+          })()}
         </Typography>
       </Box>
     );

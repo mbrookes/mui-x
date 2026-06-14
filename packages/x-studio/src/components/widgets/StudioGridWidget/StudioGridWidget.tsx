@@ -9,7 +9,6 @@ import {
   type GridValidRowModel,
 } from '@mui/x-data-grid-premium';
 
-import { Box, Typography } from '@mui/material';
 import type { StudioConditionalFormat, StudioDataSource, StudioWidget } from '../../../models';
 import {
   useStudioController,
@@ -288,7 +287,12 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     if (!summaryConfig || Object.keys(summaryConfig).length === 0 || !dataSource) {
       return null;
     }
-    return computeGridSummary(summaryBasisRows, dataSource.fields, { fields: summaryConfig }, localeText);
+    return computeGridSummary(
+      summaryBasisRows,
+      dataSource.fields,
+      { fields: summaryConfig },
+      localeText,
+    );
   }, [summaryBasisRows, dataSource, summaryConfig, localeText]);
 
   // Build a pinned bottom row for DataGridPremium using the summary values.

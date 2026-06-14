@@ -211,7 +211,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       return inferKpiDateSubtitle(widget, allFilters, localeText) ?? widget.subtitle ?? '';
     }
     return widget.subtitle ?? '';
-  }, [widget, allFilters]);
+  }, [widget, allFilters, localeText]);
   // Look up the custom widget definition for non-builtin widget kinds
   const customDef =
     widget && !['grid', 'chart', 'kpi', 'text', 'filter', 'pivot', 'map'].includes(widget.kind)
@@ -580,89 +580,94 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         <Stack spacing={widget.kind === 'grid' ? 2 : 0.5} sx={{ flexGrow: 1, minHeight: 0 }}>
           {/* Widget header — omitted for full-bleed custom widgets that render edge-to-edge */}
           {!isFullBleedCustom && (
-          <Box sx={{ minWidth: 0 }}>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
-              <Typography
-                variant="h6"
-                noWrap
-                sx={{
-                  minWidth: 0,
-                  flexShrink: 1,
-                  ...(widget.kind === 'text' && {
-                    ...(widget.config.textTitleColor && {
-                      color: widget.config.textTitleColor,
+            <Box sx={{ minWidth: 0 }}>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+                <Typography
+                  variant="h6"
+                  noWrap
+                  sx={{
+                    minWidth: 0,
+                    flexShrink: 1,
+                    ...(widget.kind === 'text' && {
+                      ...(widget.config.textTitleColor && {
+                        color: widget.config.textTitleColor,
+                      }),
+                      ...(widget.config.textTitleFontFamily && {
+                        fontFamily:
+                          widget.config.textTitleFontFamily === 'serif'
+                            ? "Georgia, 'Times New Roman', Times, serif"
+                            : "'Courier New', Courier, monospace",
+                      }),
+                      ...(widget.config.textTitleFontSize && {
+                        fontSize: widget.config.textTitleFontSize,
+                      }),
+                      ...(widget.config.textTitleAlign && {
+                        textAlign: widget.config.textTitleAlign,
+                      }),
                     }),
-                    ...(widget.config.textTitleFontFamily && {
-                      fontFamily:
-                        widget.config.textTitleFontFamily === 'serif'
-                          ? "Georgia, 'Times New Roman', Times, serif"
-                          : "'Courier New', Courier, monospace",
-                    }),
-                    ...(widget.config.textTitleFontSize && {
-                      fontSize: widget.config.textTitleFontSize,
-                    }),
-                    ...(widget.config.textTitleAlign && {
-                      textAlign: widget.config.textTitleAlign,
-                    }),
-                  }),
-                }}
-              >
-                {widget.title ||
-                  (widget.kind === 'kpi'
-                    ? 'KPI'
-                    : widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1))}
-              </Typography>
-              {activeRankFilter && (
-                <Chip
-                  size="small"
-                  label={`${activeRankFilter.rankDirection === 'bottom' ? 'Bottom' : 'Top'} ${activeRankFilter.value}`}
-                  color="primary"
-                  variant="outlined"
-                  sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
-                />
+                  }}
+                >
+                  {widget.title ||
+                    (widget.kind === 'kpi'
+                      ? 'KPI'
+                      : widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1))}
+                </Typography>
+                {activeRankFilter && (
+                  <Chip
+                    size="small"
+                    label={`${activeRankFilter.rankDirection === 'bottom' ? 'Bottom' : 'Top'} ${activeRankFilter.value}`}
+                    color="primary"
+                    variant="outlined"
+                    sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
+                  />
+                )}
+                {activeCrossFilter && (
+                  <Chip
+                    size="small"
+                    label={(() => {
+                      const fieldLabel =
+                        source?.fields.find((f) => f.id === activeCrossFilter.field)?.label ??
+                        activeCrossFilter.field;
+                      const val = activeCrossFilter.value;
+                      let valueLabel: string;
+                      if (val !== null && typeof val === 'object' && 'from' in val && 'to' in val) {
+                        // between filter (e.g. date range emitted by a period-grouped bar click)
+                        const r = val as { from?: string; to?: string };
+                        const fmtDate = (s?: string) => (s ? dayjs(s).format('D MMM YYYY') : '');
+                        valueLabel =
+                          r.from && r.to && r.from !== r.to
+                            ? `${fmtDate(r.from)} – ${fmtDate(r.to)}`
+                            : fmtDate(r.from ?? r.to) || '';
+                      } else {
+                        valueLabel = String(val ?? '');
+                      }
+                      return `${fieldLabel}: ${valueLabel}`;
+                    })()}
+                    onDelete={() => controller.clearCrossFilter(widgetId)}
+                    color="primary"
+                    variant="outlined"
+                    sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
+                  />
+                )}
+                {activeSliderFilter && (
+                  <SliderFilterPill
+                    filter={activeSliderFilter}
+                    source={source}
+                    onClear={() => controller.clearInteractiveFilter(widgetId)}
+                  />
+                )}
+              </Stack>
+              {effectiveSubtitle && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  noWrap
+                  sx={{ display: 'block' }}
+                >
+                  {effectiveSubtitle}
+                </Typography>
               )}
-              {activeCrossFilter && (
-                <Chip
-                  size="small"
-                  label={(() => {
-                    const fieldLabel =
-                      source?.fields.find((f) => f.id === activeCrossFilter.field)?.label ??
-                      activeCrossFilter.field;
-                    const val = activeCrossFilter.value;
-                    let valueLabel: string;
-                    if (val !== null && typeof val === 'object' && 'from' in val && 'to' in val) {
-                      // between filter (e.g. date range emitted by a period-grouped bar click)
-                      const r = val as { from?: string; to?: string };
-                      const fmtDate = (s?: string) => (s ? dayjs(s).format('D MMM YYYY') : '');
-                      valueLabel =
-                        r.from && r.to && r.from !== r.to
-                          ? `${fmtDate(r.from)} – ${fmtDate(r.to)}`
-                          : fmtDate(r.from ?? r.to) || '';
-                    } else {
-                      valueLabel = String(val ?? '');
-                    }
-                    return `${fieldLabel}: ${valueLabel}`;
-                  })()}
-                  onDelete={() => controller.clearCrossFilter(widgetId)}
-                  color="primary"
-                  variant="outlined"
-                  sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
-                />
-              )}
-              {activeSliderFilter && (
-                <SliderFilterPill
-                  filter={activeSliderFilter}
-                  source={source}
-                  onClear={() => controller.clearInteractiveFilter(widgetId)}
-                />
-              )}
-            </Stack>
-            {effectiveSubtitle && (
-              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-                {effectiveSubtitle}
-              </Typography>
-            )}
-          </Box>
+            </Box>
           )}
           {/* Widget content — deferred to after first paint to avoid blocking initial render.
             A Skeleton placeholder preserves the card's height so the layout does not

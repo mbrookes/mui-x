@@ -1,15 +1,8 @@
 'use client';
 import * as React from 'react';
 import { Box, Chip, Stack, Typography } from '@mui/material';
-import type {
-  StudioDataSource,
-  StudioExpression,
-  StudioExpressionField,
-} from '../../models';
-import {
-  evaluateExpression,
-  evaluateMeasure,
-} from '../../utils/expressionEvaluator';
+import type { StudioDataSource, StudioExpression, StudioExpressionField } from '../../models';
+import { evaluateExpression, evaluateMeasure } from '../../utils/expressionEvaluator';
 import { formatNumber } from '../../internals/numberFormat';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
@@ -91,13 +84,15 @@ export function ExpressionPreview({
           // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- preview values are positional display only
           <Chip
             key={`preview-${i}`}
-            label={
-              v == null
-                ? 'null'
-                : typeof v === 'number'
-                  ? formatNumber(v, undefined, undefined, undefined, precision)
-                  : String(v)
-            }
+            label={(() => {
+              if (v == null) {
+                return 'null';
+              }
+              if (typeof v === 'number') {
+                return formatNumber(v, undefined, undefined, undefined, precision);
+              }
+              return String(v);
+            })()}
             size="small"
             color="default"
             variant="outlined"
@@ -107,4 +102,3 @@ export function ExpressionPreview({
     </Box>
   );
 }
-

@@ -168,7 +168,7 @@ describe('createBatchingAdapter — filter serialisation', () => {
         widgetId: 'w1',
         filter: {
           type: 'group',
-          conjunction: 'and',
+          logic: 'and',
           children: [
             { type: 'leaf', field: 'country', op: 'equals', value: 'US' },
             { type: 'leaf', field: 'status', op: 'equals', value: 'active' },

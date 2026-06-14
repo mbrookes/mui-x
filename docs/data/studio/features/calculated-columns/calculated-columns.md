@@ -190,15 +190,29 @@ const initialState = createDefaultStudioState({
 
 They appear alongside physical fields in every picker (chart axis, KPI value, grid column) for the matching source.
 
-## Ad-hoc formula bar
+## Adding a calculated column from a field picker
 
-The `InlineFormulaBar` is embedded in the Chart and KPI setup panels in the compose drawer. It lets editors create a one-off expression field inline without opening the full expression dialog.
+Editors don't have to leave the compose drawer to create a calculated column. Every
+field-select dropdown (chart axis, KPI value, grid column, and so on) shows a persistent
+**Add calculated field…** entry at the bottom of its option list. Selecting it opens the
+full `StudioExpressionFieldDialog`; when the field is saved it is added to the widget's
+source and **automatically selected** in the picker that opened it, so the new column is
+in use immediately.
 
-In chart setup, the formula bar appears below the Y-series pickers. In KPI setup, it appears below the value field picker. Editors expand **Add formula**, choose two operands, select an operator (`+`, `-`, `×`, or `÷`), and enter a label for the resulting field.
+The entry is shown only when calculated fields are enabled for that widget — the global
+`calculatedFields` feature flag, together with the per-widget `calculatedFields` sub-flag
+(for example `chart: { calculatedFields: false }` turns it off for charts). Operand
+references in the dialog are scoped to the widget's reachable sources.
 
-When confirmed, Studio calls `addExpressionField` internally. The new field is added to the current source immediately and becomes available in all field pickers right away.
+This replaces the earlier inline formula-bar affordance in the chart and KPI setup panels:
+the picker-level **Add calculated field…** entry is now the consistent way to author a
+column without opening the data drawer.
 
-In a composed layout, you can render the same component directly:
+### Standalone formula bar
+
+For composed layouts, the lightweight `InlineFormulaBar` component is still exported. It
+lets a user build a one-off expression field from two operands, an operator (`+`, `-`,
+`×`, or `÷`), and a label, then calls back with the new field:
 
 ```tsx
 import { InlineFormulaBar } from '@mui/x-studio';

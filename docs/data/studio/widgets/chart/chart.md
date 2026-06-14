@@ -84,6 +84,30 @@ const chartConfig: StudioChartConfig = {
 };
 ```
 
+## Counting rows without a measure field
+
+A `count` aggregation tallies rows and ignores the measure field, so a single-series chart is
+valid with **no Y (measure) field** — it renders one count per category. This is the only valid
+configuration when the data source has no numeric field to plot (for example, counting contacts
+per department on a CRM contacts source).
+
+To build one from the setup panel, pick a chart type and an X field, then leave the measure field
+empty: the aggregation locks to **Count**. The resulting config carries `yAggregation: 'count'`
+with no `yField`/`ySeries`:
+
+```ts
+const chartConfig: StudioWidgetConfig = {
+  chartType: 'bar',
+  xField: 'department',
+  yAggregation: 'count', // counts rows per department — no measure field needed
+};
+```
+
+:::info
+A fieldless count is only available for single-series charts. Split-by and multiple measure
+series aggregate a value field, so they require a measure field and disable the no-field count.
+:::
+
 ## Split-by
 
 The `splitBy` option dynamically creates one series per unique value of the specified field.

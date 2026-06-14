@@ -164,9 +164,18 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     chartType === 'pie' ||
     chartType === 'donut';
 
+  // BL-186: a "count" aggregation tallies rows and needs no measure field, so a chart with
+  // an X field but no Y field is valid — it renders a row count per category (e.g. "contacts
+  // by department" over a source with no visible numeric field). When no Y field is chosen we
+  // lock the aggregation to Count; picking a field re-derives the usual per-field sum.
+  const hasYField = ySeries.some((s) => s.fieldId);
+  const isFieldlessCount = !hasYField && config.yAggregation === 'count';
+
   // Split-by is mutually exclusive with multiple Y-series: keep the control
-  // visible so users can see why it's unavailable, but disable it.
-  const seriesFieldDisabled = ySeries.length > 1;
+  // visible so users can see why it's unavailable, but disable it. It is also
+  // unavailable for a fieldless count — aggregateByTwoFields sums the measure and
+  // can't tally rows, so a split-by + no-field-count would render an empty chart.
+  const seriesFieldDisabled = ySeries.length > 1 || isFieldlessCount;
 
   const isScatter = chartType === 'scatter';
   const chartSupport = React.useMemo(
@@ -246,9 +255,15 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
   const handleSeriesFieldChange = (index: number, fieldId: string) => {
     const next = ySeries.map((s, i) => (i === index ? { ...s, fieldId } : s));
+    // BL-186: clearing the last measure field leaves a fieldless chart, whose only valid
+    // aggregation is a row "count" — force it so the chart keeps rendering a count instead
+    // of going blank. When a field remains, preserve the existing `yAggregation` (a chart may
+    // carry a non-default sum/avg/min/max) rather than wiping it on every field swap.
+    const nextHasField = next.some((s) => s.fieldId);
     controller.updateWidgetConfig(widgetId, {
       ySeries: next,
       yField: next[0]?.fieldId ?? '',
+      ...(nextHasField ? {} : { yAggregation: 'count' }),
     });
   };
 
@@ -347,242 +362,328 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
   return (
     <Stack spacing={2}>
-        {!chartSupport.supported && chartSupport.reason ? (
-          <Alert severity="warning">{getChartSupportMessage(chartSupport.reason)}</Alert>
-        ) : null}
+      {!chartSupport.supported && chartSupport.reason ? (
+        <Alert severity="warning">{getChartSupportMessage(chartSupport.reason)}</Alert>
+      ) : null}
 
-        {/* Chart type icon picker */}
-        <ChartTypePicker
-          chartType={chartType}
-          barLayout={config.barLayout}
-          onChange={handleChartTypeChange}
-        />
+      {/* Chart type icon picker */}
+      <ChartTypePicker
+        chartType={chartType}
+        barLayout={config.barLayout}
+        onChange={handleChartTypeChange}
+      />
 
-        <Divider />
+      <Divider />
 
-        {/* Gauge chart setup */}
-        {isGauge && (
-          <Stack spacing={2}>
-            <DataSourceFieldSelect
-              value={config.yField ?? ''}
-              onChange={(fieldId, sourceId) => {
-                controller.updateWidgetConfig(widgetId, { yField: fieldId });
-                if (sourceId && sourceId !== widget?.sourceId) {
-                  controller.updateWidget(widgetId, { sourceId });
-                }
-              }}
-              fields={fieldsForCapability(allFields, 'numeric')}
-              label={localeText.chartSetupValueFieldLabel}
-              helperText={localeText.chartSetupValueFieldHelperText}
+      {/* Gauge chart setup */}
+      {isGauge && (
+        <Stack spacing={2}>
+          <DataSourceFieldSelect
+            value={config.yField ?? ''}
+            onChange={(fieldId, sourceId) => {
+              controller.updateWidgetConfig(widgetId, { yField: fieldId });
+              if (sourceId && sourceId !== widget?.sourceId) {
+                controller.updateWidget(widgetId, { sourceId });
+              }
+            }}
+            fields={fieldsForCapability(allFields, 'numeric')}
+            label={localeText.chartSetupValueFieldLabel}
+            helperText={localeText.chartSetupValueFieldHelperText}
+          />
+
+          <FormControl size="small" fullWidth>
+            <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>
+            <Select
+              label={localeText.chartSetupAggregationLabel}
+              value={config.yAggregation ?? 'sum'}
+              onChange={(evt) =>
+                controller.updateWidgetConfig(widgetId, {
+                  yAggregation: evt.target.value as 'sum' | 'count' | 'avg' | 'min' | 'max',
+                })
+              }
+            >
+              <MenuItem value="sum">{localeText.aggFnSum}</MenuItem>
+              <MenuItem value="count">{localeText.aggFnCount}</MenuItem>
+              <MenuItem value="avg">{localeText.aggFnAverage}</MenuItem>
+              <MenuItem value="min">{localeText.aggFnMin}</MenuItem>
+              <MenuItem value="max">{localeText.aggFnMax}</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Stack direction="row" spacing={1}>
+            <TextField
+              size="small"
+              label={localeText.chartSetupMinLabel}
+              type="number"
+              value={config.gaugeMin ?? 0}
+              onChange={(evt) =>
+                controller.updateWidgetConfig(widgetId, { gaugeMin: Number(evt.target.value) })
+              }
+              sx={{ flex: 1 }}
             />
-
-            <FormControl size="small" fullWidth>
-              <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>
-              <Select
-                label={localeText.chartSetupAggregationLabel}
-                value={config.yAggregation ?? 'sum'}
-                onChange={(evt) =>
-                  controller.updateWidgetConfig(widgetId, {
-                    yAggregation: evt.target.value as 'sum' | 'count' | 'avg' | 'min' | 'max',
-                  })
-                }
-              >
-                <MenuItem value="sum">{localeText.aggFnSum}</MenuItem>
-                <MenuItem value="count">{localeText.aggFnCount}</MenuItem>
-                <MenuItem value="avg">{localeText.aggFnAverage}</MenuItem>
-                <MenuItem value="min">{localeText.aggFnMin}</MenuItem>
-                <MenuItem value="max">{localeText.aggFnMax}</MenuItem>
-              </Select>
-            </FormControl>
-
-            <Stack direction="row" spacing={1}>
-              <TextField
-                size="small"
-                label={localeText.chartSetupMinLabel}
-                type="number"
-                value={config.gaugeMin ?? 0}
-                onChange={(evt) =>
-                  controller.updateWidgetConfig(widgetId, { gaugeMin: Number(evt.target.value) })
-                }
-                sx={{ flex: 1 }}
-              />
-              <TextField
-                size="small"
-                label={localeText.chartSetupMaxLabel}
-                type="number"
-                value={config.gaugeMax ?? 100}
-                onChange={(evt) =>
-                  controller.updateWidgetConfig(widgetId, { gaugeMax: Number(evt.target.value) })
-                }
-                sx={{ flex: 1 }}
-              />
-            </Stack>
+            <TextField
+              size="small"
+              label={localeText.chartSetupMaxLabel}
+              type="number"
+              value={config.gaugeMax ?? 100}
+              onChange={(evt) =>
+                controller.updateWidgetConfig(widgetId, { gaugeMax: Number(evt.target.value) })
+              }
+              sx={{ flex: 1 }}
+            />
           </Stack>
-        )}
+        </Stack>
+      )}
 
-        {/* Standard (non-gauge, non-gantt) fields */}
-        {!isGauge && !isGantt && (
-          <Stack spacing={2}>
-            {/* X field */}
-            <DataSourceFieldSelect
-              value={config.xField ?? ''}
-              onChange={(fieldId, sourceId) => {
-                controller.updateWidgetConfig(widgetId, { xField: fieldId });
-                if (sourceId && sourceId !== widget?.sourceId) {
-                  controller.updateWidget(widgetId, { sourceId });
-                }
-              }}
-              fields={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}
-              getOptionDisabled={(option) => {
-                if (option.id === config.xField) {
-                  return false;
-                }
-                return !analyzeCombination({ xField: option.id }).supported;
-              }}
-              label={xFieldLabel}
-              helperText={xFieldHelperText}
-            />
+      {/* Standard (non-gauge, non-gantt) fields */}
+      {!isGauge && !isGantt && (
+        <Stack spacing={2}>
+          {/* X field */}
+          <DataSourceFieldSelect
+            value={config.xField ?? ''}
+            onChange={(fieldId, sourceId) => {
+              // BL-186: picking the X field anchors the source. For a standard category
+              // chart with no measure field yet, seed a fieldless row "count" so the chart
+              // renders immediately (mirrors the KPI source-picker side effect) — building a
+              // count chart from scratch needs no numeric Y field. Selecting a Y field later
+              // clears this back to the per-field aggregation. Scatter/funnel/heatmap/sankey
+              // have their own measure pickers, so they're excluded (supportsMultipleSeries).
+              const seedFieldlessCount = fieldId && supportsMultipleSeries && !hasYField;
+              controller.updateWidgetConfig(widgetId, {
+                xField: fieldId,
+                ...(seedFieldlessCount && { yAggregation: 'count' }),
+              });
+              if (sourceId && sourceId !== widget?.sourceId) {
+                controller.updateWidget(widgetId, { sourceId });
+              }
+            }}
+            fields={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}
+            getOptionDisabled={(option) => {
+              if (option.id === config.xField) {
+                return false;
+              }
+              return !analyzeCombination({ xField: option.id }).supported;
+            }}
+            label={xFieldLabel}
+            helperText={xFieldHelperText}
+          />
 
-            {/* Group by — shown only when x field is a date/datetime type */}
-            {!isSankey &&
-              (selectedXField?.type === 'date' || selectedXField?.type === 'datetime') && (
-                <FormControl size="small" fullWidth>
-                  <InputLabel>{localeText.chartSetupGroupByLabel}</InputLabel>
-                  <Select
-                    label={localeText.chartSetupGroupByLabel}
-                    value={config.xGroupBy ?? ''}
-                    onChange={(evt) => {
-                      const val = evt.target.value as string;
-                      controller.updateWidgetConfig(widgetId, {
-                        xGroupBy: val
-                          ? (val as 'day' | 'week' | 'month' | 'quarter' | 'year')
-                          : undefined,
-                      });
-                    }}
-                  >
-                    <MenuItem value="">{localeText.timeGranNone}</MenuItem>
-                    <MenuItem value="day">{localeText.timeGranDay}</MenuItem>
-                    <MenuItem value="week">{localeText.timeGranWeek}</MenuItem>
-                    <MenuItem value="month">{localeText.timeGranMonth}</MenuItem>
-                    <MenuItem value="quarter">{localeText.timeGranQuarter}</MenuItem>
-                    <MenuItem value="year">{localeText.timeGranYear}</MenuItem>
-                  </Select>
-                </FormControl>
-              )}
-
-            {/* Sort controls — shown when x-field is set on categorical charts (not scatter, not gauge, not gantt, not sankey) */}
-            {config.xField && !isScatter && !isSankey && (
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                <FormControl size="small" sx={{ flex: 1 }}>
-                  <InputLabel>{localeText.chartSetupSortByLabel}</InputLabel>
-                  <Select
-                    label={localeText.chartSetupSortByLabel}
-                    value={config.chartSortBy ?? 'category'}
-                    onChange={(evt) => {
-                      controller.updateWidgetConfig(widgetId, {
-                        chartSortBy: evt.target.value as 'category' | 'value',
-                      });
-                    }}
-                  >
-                    <MenuItem value="category">{localeText.chartSetupSortCategory}</MenuItem>
-                    <MenuItem value="value">{localeText.chartSetupSortValue}</MenuItem>
-                  </Select>
-                </FormControl>
-                <ToggleButtonGroup
-                  value={config.chartSortDirection ?? 'asc'}
-                  exclusive
-                  onChange={(_e, val) => {
-                    if (val) {
-                      controller.updateWidgetConfig(widgetId, {
-                        chartSortDirection: val as 'asc' | 'desc',
-                      });
-                    }
-                  }}
-                  size="small"
-                  aria-label={localeText.chartSetupSortDirectionAriaLabel}
-                >
-                  <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
-                    {`↑ ${localeText.sortAscendingAriaLabel}`}
-                  </ToggleButton>
-                  <ToggleButton value="desc" aria-label={localeText.sortDescendingAriaLabel}>
-                    {`↓ ${localeText.sortDescendingAriaLabel}`}
-                  </ToggleButton>
-                </ToggleButtonGroup>
-              </Stack>
-            )}
-
-            {/* Scatter: single Y field + optional color-by */}
-            {isScatter && (
-              <React.Fragment>
-                <DataSourceFieldSelect
-                  value={config.yField ?? ySeries[0]?.fieldId ?? ''}
-                  onChange={(fieldId) => {
+          {/* Group by — shown only when x field is a date/datetime type */}
+          {!isSankey &&
+            (selectedXField?.type === 'date' || selectedXField?.type === 'datetime') && (
+              <FormControl size="small" fullWidth>
+                <InputLabel>{localeText.chartSetupGroupByLabel}</InputLabel>
+                <Select
+                  label={localeText.chartSetupGroupByLabel}
+                  value={config.xGroupBy ?? ''}
+                  onChange={(evt) => {
+                    const val = evt.target.value as string;
                     controller.updateWidgetConfig(widgetId, {
-                      yField: fieldId,
-                      ySeries: [{ fieldId }],
+                      xGroupBy: val
+                        ? (val as 'day' | 'week' | 'month' | 'quarter' | 'year')
+                        : undefined,
                     });
                   }}
-                  fields={numericFields}
-                  label={localeText.chartSetupYFieldLabel}
-                  helperText={localeText.chartSetupYFieldHelperText}
-                />
-                <DataSourceFieldSelect
-                  value={config.scatterColorField ?? ''}
-                  onChange={(fieldId) =>
-                    controller.updateWidgetConfig(widgetId, {
-                      scatterColorField: fieldId || undefined,
-                    })
-                  }
-                  fields={categoryFields}
-                  label={localeText.chartSetupColorByLabel}
-                  helperText={localeText.chartSetupColorByHelperText}
-                />
-                <DataSourceFieldSelect
-                  value={config.scatterSizeField ?? ''}
-                  onChange={(fieldId) =>
-                    controller.updateWidgetConfig(widgetId, {
-                      scatterSizeField: fieldId || undefined,
-                    })
-                  }
-                  fields={numericFields}
-                  label={localeText.chartSetupSizeByLabel}
-                  helperText={localeText.chartSetupSizeByHelperText}
-                />
-                {config.scatterSizeField && (
-                  <Stack direction="row" spacing={1}>
-                    <TextField
-                      size="small"
-                      label={localeText.chartSetupMinRadiusLabel}
-                      type="number"
-                      value={config.scatterMinRadius ?? 4}
-                      onChange={(evt) =>
-                        controller.updateWidgetConfig(widgetId, {
-                          scatterMinRadius: Number(evt.target.value) || 4,
-                        })
-                      }
-                      slotProps={{ htmlInput: { min: 1, max: 50 } }}
-                      sx={{ flex: 1 }}
-                    />
-                    <TextField
-                      size="small"
-                      label={localeText.chartSetupMaxRadiusLabel}
-                      type="number"
-                      value={config.scatterMaxRadius ?? 40}
-                      onChange={(evt) =>
-                        controller.updateWidgetConfig(widgetId, {
-                          scatterMaxRadius: Number(evt.target.value) || 40,
-                        })
-                      }
-                      slotProps={{ htmlInput: { min: 1, max: 100 } }}
-                      sx={{ flex: 1 }}
-                    />
-                  </Stack>
-                )}
-              </React.Fragment>
+                >
+                  <MenuItem value="">{localeText.timeGranNone}</MenuItem>
+                  <MenuItem value="day">{localeText.timeGranDay}</MenuItem>
+                  <MenuItem value="week">{localeText.timeGranWeek}</MenuItem>
+                  <MenuItem value="month">{localeText.timeGranMonth}</MenuItem>
+                  <MenuItem value="quarter">{localeText.timeGranQuarter}</MenuItem>
+                  <MenuItem value="year">{localeText.timeGranYear}</MenuItem>
+                </Select>
+              </FormControl>
             )}
 
-            {/* Funnel: single value/measure field */}
-            {isFunnel && (
+          {/* Sort controls — shown when x-field is set on categorical charts (not scatter, not gauge, not gantt, not sankey) */}
+          {config.xField && !isScatter && !isSankey && (
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <FormControl size="small" sx={{ flex: 1 }}>
+                <InputLabel>{localeText.chartSetupSortByLabel}</InputLabel>
+                <Select
+                  label={localeText.chartSetupSortByLabel}
+                  value={config.chartSortBy ?? 'category'}
+                  onChange={(evt) => {
+                    controller.updateWidgetConfig(widgetId, {
+                      chartSortBy: evt.target.value as 'category' | 'value',
+                    });
+                  }}
+                >
+                  <MenuItem value="category">{localeText.chartSetupSortCategory}</MenuItem>
+                  <MenuItem value="value">{localeText.chartSetupSortValue}</MenuItem>
+                </Select>
+              </FormControl>
+              <ToggleButtonGroup
+                value={config.chartSortDirection ?? 'asc'}
+                exclusive
+                onChange={(_e, val) => {
+                  if (val) {
+                    controller.updateWidgetConfig(widgetId, {
+                      chartSortDirection: val as 'asc' | 'desc',
+                    });
+                  }
+                }}
+                size="small"
+                aria-label={localeText.chartSetupSortDirectionAriaLabel}
+              >
+                <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
+                  {`↑ ${localeText.sortAscendingAriaLabel}`}
+                </ToggleButton>
+                <ToggleButton value="desc" aria-label={localeText.sortDescendingAriaLabel}>
+                  {`↓ ${localeText.sortDescendingAriaLabel}`}
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Stack>
+          )}
+
+          {/* Scatter: single Y field + optional color-by */}
+          {isScatter && (
+            <React.Fragment>
+              <DataSourceFieldSelect
+                value={config.yField ?? ySeries[0]?.fieldId ?? ''}
+                onChange={(fieldId) => {
+                  controller.updateWidgetConfig(widgetId, {
+                    yField: fieldId,
+                    ySeries: [{ fieldId }],
+                  });
+                }}
+                fields={numericFields}
+                label={localeText.chartSetupYFieldLabel}
+                helperText={localeText.chartSetupYFieldHelperText}
+              />
+              <DataSourceFieldSelect
+                value={config.scatterColorField ?? ''}
+                onChange={(fieldId) =>
+                  controller.updateWidgetConfig(widgetId, {
+                    scatterColorField: fieldId || undefined,
+                  })
+                }
+                fields={categoryFields}
+                label={localeText.chartSetupColorByLabel}
+                helperText={localeText.chartSetupColorByHelperText}
+              />
+              <DataSourceFieldSelect
+                value={config.scatterSizeField ?? ''}
+                onChange={(fieldId) =>
+                  controller.updateWidgetConfig(widgetId, {
+                    scatterSizeField: fieldId || undefined,
+                  })
+                }
+                fields={numericFields}
+                label={localeText.chartSetupSizeByLabel}
+                helperText={localeText.chartSetupSizeByHelperText}
+              />
+              {config.scatterSizeField && (
+                <Stack direction="row" spacing={1}>
+                  <TextField
+                    size="small"
+                    label={localeText.chartSetupMinRadiusLabel}
+                    type="number"
+                    value={config.scatterMinRadius ?? 4}
+                    onChange={(evt) =>
+                      controller.updateWidgetConfig(widgetId, {
+                        scatterMinRadius: Number(evt.target.value) || 4,
+                      })
+                    }
+                    slotProps={{ htmlInput: { min: 1, max: 50 } }}
+                    sx={{ flex: 1 }}
+                  />
+                  <TextField
+                    size="small"
+                    label={localeText.chartSetupMaxRadiusLabel}
+                    type="number"
+                    value={config.scatterMaxRadius ?? 40}
+                    onChange={(evt) =>
+                      controller.updateWidgetConfig(widgetId, {
+                        scatterMaxRadius: Number(evt.target.value) || 40,
+                      })
+                    }
+                    slotProps={{ htmlInput: { min: 1, max: 100 } }}
+                    sx={{ flex: 1 }}
+                  />
+                </Stack>
+              )}
+            </React.Fragment>
+          )}
+
+          {/* Funnel: single value/measure field */}
+          {isFunnel && (
+            <DataSourceFieldSelect
+              value={config.yField ?? ySeries[0]?.fieldId ?? ''}
+              onChange={(fieldId) => {
+                controller.updateWidgetConfig(widgetId, {
+                  yField: fieldId,
+                  ySeries: [{ fieldId }],
+                });
+              }}
+              fields={numericFields}
+              label={localeText.chartSetupValueFieldLabel}
+              helperText={localeText.chartSetupFunnelValueHelperText}
+            />
+          )}
+
+          {/* Heatmap: row axis field + colour-value measure */}
+          {isHeatmap && (
+            <React.Fragment>
+              <DataSourceFieldSelect
+                value={config.heatYField ?? ''}
+                onChange={(fieldId) =>
+                  controller.updateWidgetConfig(widgetId, { heatYField: fieldId || undefined })
+                }
+                fields={categoryFields}
+                label={localeText.chartSetupHeatmapRowAxisLabel}
+                helperText={localeText.chartSetupHeatmapRowAxisHelperText}
+              />
+              <DataSourceFieldSelect
+                value={config.yField ?? ySeries[0]?.fieldId ?? ''}
+                onChange={(fieldId) => {
+                  controller.updateWidgetConfig(widgetId, {
+                    yField: fieldId,
+                    ySeries: [{ fieldId }],
+                  });
+                }}
+                fields={numericFields}
+                label={localeText.chartSetupHeatmapValueLabel}
+                helperText={localeText.chartSetupHeatmapValueHelperText}
+              />
+              <FormControl size="small" fullWidth>
+                <InputLabel>{localeText.chartSetupHeatmapColourSchemeLabel}</InputLabel>
+                <Select
+                  label={localeText.chartSetupHeatmapColourSchemeLabel}
+                  value={config.heatColorScheme ?? 'primary'}
+                  onChange={(evt) =>
+                    controller.updateWidgetConfig(widgetId, {
+                      heatColorScheme: evt.target.value as
+                        | 'primary'
+                        | 'success'
+                        | 'warning'
+                        | 'error',
+                    })
+                  }
+                >
+                  <MenuItem value="primary">{localeText.chartColorSchemePrimary}</MenuItem>
+                  <MenuItem value="success">{localeText.chartColorSchemeSuccess}</MenuItem>
+                  <MenuItem value="warning">{localeText.chartColorSchemeWarning}</MenuItem>
+                  <MenuItem value="error">{localeText.chartColorSchemeError}</MenuItem>
+                </Select>
+              </FormControl>
+            </React.Fragment>
+          )}
+
+          {/* Sankey: target node field + value measure + link options */}
+          {isSankey && (
+            <React.Fragment>
+              <DataSourceFieldSelect
+                value={config.sankeyTargetField ?? ''}
+                onChange={(fieldId) =>
+                  controller.updateWidgetConfig(widgetId, {
+                    sankeyTargetField: fieldId || undefined,
+                  })
+                }
+                fields={categoryFields}
+                label={localeText.chartSetupSankeyTargetLabel}
+                helperText={localeText.chartSetupSankeyTargetHelperText}
+              />
               <DataSourceFieldSelect
                 value={config.yField ?? ySeries[0]?.fieldId ?? ''}
                 onChange={(fieldId) => {
@@ -593,527 +694,462 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 }}
                 fields={numericFields}
                 label={localeText.chartSetupValueFieldLabel}
-                helperText={localeText.chartSetupFunnelValueHelperText}
+                helperText={localeText.chartSetupSankeyValueHelperText}
               />
-            )}
-
-            {/* Heatmap: row axis field + colour-value measure */}
-            {isHeatmap && (
-              <React.Fragment>
-                <DataSourceFieldSelect
-                  value={config.heatYField ?? ''}
-                  onChange={(fieldId) =>
-                    controller.updateWidgetConfig(widgetId, { heatYField: fieldId || undefined })
-                  }
-                  fields={categoryFields}
-                  label={localeText.chartSetupHeatmapRowAxisLabel}
-                  helperText={localeText.chartSetupHeatmapRowAxisHelperText}
-                />
-                <DataSourceFieldSelect
-                  value={config.yField ?? ySeries[0]?.fieldId ?? ''}
-                  onChange={(fieldId) => {
+              <FormControl size="small" fullWidth>
+                <InputLabel>{localeText.chartSetupSankeyLinkColorLabel}</InputLabel>
+                <Select
+                  label={localeText.chartSetupSankeyLinkColorLabel}
+                  value={config.sankeyLinkColor ?? 'source'}
+                  onChange={(evt) =>
                     controller.updateWidgetConfig(widgetId, {
-                      yField: fieldId,
-                      ySeries: [{ fieldId }],
-                    });
-                  }}
-                  fields={numericFields}
-                  label={localeText.chartSetupHeatmapValueLabel}
-                  helperText={localeText.chartSetupHeatmapValueHelperText}
-                />
-                <FormControl size="small" fullWidth>
-                  <InputLabel>{localeText.chartSetupHeatmapColourSchemeLabel}</InputLabel>
-                  <Select
-                    label={localeText.chartSetupHeatmapColourSchemeLabel}
-                    value={config.heatColorScheme ?? 'primary'}
-                    onChange={(evt) =>
-                      controller.updateWidgetConfig(widgetId, {
-                        heatColorScheme: evt.target.value as
-                          | 'primary'
-                          | 'success'
-                          | 'warning'
-                          | 'error',
-                      })
-                    }
-                  >
-                    <MenuItem value="primary">{localeText.chartColorSchemePrimary}</MenuItem>
-                    <MenuItem value="success">{localeText.chartColorSchemeSuccess}</MenuItem>
-                    <MenuItem value="warning">{localeText.chartColorSchemeWarning}</MenuItem>
-                    <MenuItem value="error">{localeText.chartColorSchemeError}</MenuItem>
-                  </Select>
-                </FormControl>
-              </React.Fragment>
-            )}
-
-            {/* Sankey: target node field + value measure + link options */}
-            {isSankey && (
-              <React.Fragment>
-                <DataSourceFieldSelect
-                  value={config.sankeyTargetField ?? ''}
-                  onChange={(fieldId) =>
-                    controller.updateWidgetConfig(widgetId, {
-                      sankeyTargetField: fieldId || undefined,
+                      sankeyLinkColor: evt.target.value as 'source' | 'target',
                     })
                   }
-                  fields={categoryFields}
-                  label={localeText.chartSetupSankeyTargetLabel}
-                  helperText={localeText.chartSetupSankeyTargetHelperText}
-                />
-                <DataSourceFieldSelect
-                  value={config.yField ?? ySeries[0]?.fieldId ?? ''}
-                  onChange={(fieldId) => {
-                    controller.updateWidgetConfig(widgetId, {
-                      yField: fieldId,
-                      ySeries: [{ fieldId }],
-                    });
-                  }}
-                  fields={numericFields}
-                  label={localeText.chartSetupValueFieldLabel}
-                  helperText={localeText.chartSetupSankeyValueHelperText}
-                />
-                <FormControl size="small" fullWidth>
-                  <InputLabel>{localeText.chartSetupSankeyLinkColorLabel}</InputLabel>
-                  <Select
-                    label={localeText.chartSetupSankeyLinkColorLabel}
-                    value={config.sankeyLinkColor ?? 'source'}
-                    onChange={(evt) =>
-                      controller.updateWidgetConfig(widgetId, {
-                        sankeyLinkColor: evt.target.value as 'source' | 'target',
-                      })
-                    }
-                  >
-                    <MenuItem value="source">{localeText.chartSetupSankeyLinkColorSource}</MenuItem>
-                    <MenuItem value="target">{localeText.chartSetupSankeyLinkColorTarget}</MenuItem>
-                  </Select>
-                </FormControl>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      size="small"
-                      checked={config.sankeyShowValues ?? false}
-                      onChange={(event) =>
-                        controller.updateWidgetConfig(widgetId, {
-                          sankeyShowValues: event.target.checked,
-                        })
-                      }
-                    />
-                  }
-                  label={
-                    <Typography variant="caption">
-                      {localeText.chartSetupSankeyShowValuesLabel}
-                    </Typography>
-                  }
-                  sx={{ ml: 0 }}
-                />
-              </React.Fragment>
-            )}
-
-            {/* Y series — for non-scatter, non-gauge, non-heatmap, non-funnel, non-sankey charts */}
-            {!isScatter && !isHeatmap && !isFunnel && !isSankey && (
-              <div>
-                <Stack direction="row" sx={{ alignItems: 'center', mb: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
-                    {yMeasureLabel}
-                  </Typography>
-                  {supportsMultipleSeries && (
-                    <Tooltip
-                      title={
-                        usedYFieldIds.length >= numericFields.length
-                          ? localeText.chartSetupNoMoreFields
-                          : localeText.chartSetupAddSeries
-                      }
-                    >
-                      <span>
-                        <IconButton
-                          size="small"
-                          onClick={handleAddSeries}
-                          disabled={usedYFieldIds.length >= numericFields.length}
-                        >
-                          <AddIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  )}
-                </Stack>
-                <Stack spacing={1}>
-                  {ySeries.map((s, index) => (
-                    <React.Fragment key={s.fieldId || `series-${index}`}>
-                      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
-                        <DataSourceFieldSelect
-                          value={s.fieldId ?? ''}
-                          onChange={(fieldId) => handleSeriesFieldChange(index, fieldId)}
-                          fields={numericFields}
-                          getOptionDisabled={(option) =>
-                            (option.id !== s.fieldId && usedYFieldIds.includes(option.id)) ||
-                            (option.id !== s.fieldId &&
-                              !analyzeCombination({
-                                yFields: ySeries.flatMap((series, seriesIndex) => {
-                                  const fieldId =
-                                    seriesIndex === index ? option.id : series.fieldId;
-                                  return fieldId ? [fieldId] : [];
-                                }),
-                              }).supported)
-                          }
-                          label={
-                            ySeries.length > 1
-                              ? localeText.chartSetupSeriesLabel(index)
-                              : ySeriesLabelBase
-                          }
-                          helperText={
-                            isHorizontalBarChart
-                              ? localeText.chartSetupSeriesNumericHorizHelperText
-                              : localeText.chartSetupSeriesNumericSumHelperText
-                          }
-                          calculatedField={calculatedFieldContext}
-                        />
-                        {ySeries.length > 1 && (
-                          <Tooltip title={localeText.chartSetupRemoveSeries}>
-                            <IconButton
-                              size="small"
-                              onClick={() => handleRemoveSeries(index)}
-                              sx={{ mt: 1 }}
-                            >
-                              <CloseIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                      </Stack>
-                      {isMixed && s.fieldId && (
-                        <ToggleButtonGroup
-                          size="small"
-                          exclusive
-                          value={s.seriesType ?? 'bar'}
-                          onChange={(_, val) => {
-                            if (val) {
-                              handleSeriesTypeChange(index, val);
-                            }
-                          }}
-                          sx={{ mt: 0.5, mb: 0.5 }}
-                        >
-                          <ToggleButton value="bar" sx={{ px: 1.5, py: 0.25, fontSize: 11 }}>
-                            {localeText.chartSetupMixedSeriesBar}
-                          </ToggleButton>
-                          <ToggleButton value="line" sx={{ px: 1.5, py: 0.25, fontSize: 11 }}>
-                            {localeText.chartSetupMixedSeriesLine}
-                          </ToggleButton>
-                        </ToggleButtonGroup>
-                      )}
-                    </React.Fragment>
-                  ))}
-                  {ySeries.length === 0 && (
-                    <DataSourceFieldSelect
-                      value=""
-                      onChange={(fieldId) => {
-                        controller.updateWidgetConfig(widgetId, {
-                          ySeries: [{ fieldId }],
-                          yField: fieldId,
-                        });
-                      }}
-                      fields={numericFields}
-                      getOptionDisabled={(option) =>
-                        !analyzeCombination({ yFields: [option.id] }).supported
-                      }
-                      label={ySeriesLabelBase}
-                      helperText={
-                        isHorizontalBarChart
-                          ? localeText.chartSetupSeriesNumericHorizHelperText
-                          : localeText.chartSetupSeriesNumericSumHelperText
-                      }
-                      calculatedField={calculatedFieldContext}
-                    />
-                  )}
-                </Stack>
-              </div>
-            )}
-            {/* Dual Y axis toggle — only for mixed chart with 2+ series */}
-            {isMixed && ySeries.filter((s) => s.fieldId).length >= 2 && (
+                >
+                  <MenuItem value="source">{localeText.chartSetupSankeyLinkColorSource}</MenuItem>
+                  <MenuItem value="target">{localeText.chartSetupSankeyLinkColorTarget}</MenuItem>
+                </Select>
+              </FormControl>
               <FormControlLabel
                 control={
                   <Checkbox
                     size="small"
-                    checked={config.dualYAxis ?? false}
+                    checked={config.sankeyShowValues ?? false}
                     onChange={(event) =>
-                      controller.updateWidgetConfig(widgetId, { dualYAxis: event.target.checked })
+                      controller.updateWidgetConfig(widgetId, {
+                        sankeyShowValues: event.target.checked,
+                      })
                     }
                   />
                 }
-                label={<Typography variant="caption">{localeText.chartSetupDualYAxis}</Typography>}
+                label={
+                  <Typography variant="caption">
+                    {localeText.chartSetupSankeyShowValuesLabel}
+                  </Typography>
+                }
                 sx={{ ml: 0 }}
               />
-            )}
-            {/* Split by / series field */}
-            {supportsSeriesField && (
-              <div>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ display: 'block', mb: 0.5 }}
-                >
-                  {localeText.chartSetupCategoryFieldLabel}
-                </Typography>
-                <Tooltip
-                  title={seriesFieldDisabled ? localeText.chartSetupRemoveSplitByTooltip : ''}
-                  placement="top"
-                >
-                  <span>
-                    <DataSourceFieldSelect
-                      value={config.seriesField ?? ''}
-                      onChange={(fieldId) =>
-                        controller.updateWidgetConfig(widgetId, {
-                          seriesField: fieldId || undefined,
-                        })
-                      }
-                      fields={categoryFields}
-                      getOptionDisabled={(option) => {
-                        if (seriesFieldDisabled) {
-                          return true;
-                        }
-                        if (option.id === config.seriesField) {
-                          return false;
-                        }
-                        return !analyzeCombination({ seriesField: option.id }).supported;
-                      }}
-                      disabled={seriesFieldDisabled}
-                      label={
-                        isPieOrDonut
-                          ? localeText.chartSetupInnerRingLabel
-                          : localeText.chartSetupSplitByLabel
-                      }
-                      helperText={seriesFieldHelperText}
-                    />
-                  </span>
-                </Tooltip>
-              </div>
-            )}
-            {/* Pie / donut: arc label options */}
-            {isPieOrDonut && (
-              <React.Fragment>
-                <Divider />
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ display: 'block', mb: 0.5 }}
-                >
-                  {localeText.chartSetupArcLabelsTitle}
-                </Typography>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>{localeText.chartSetupArcLabelLabel}</InputLabel>
-                  <Select
-                    label={localeText.chartSetupArcLabelLabel}
-                    value={config.pieArcLabel ?? 'none'}
-                    onChange={(evt) =>
-                      controller.updateWidgetConfig(widgetId, {
-                        pieArcLabel: evt.target.value as 'value' | 'percent' | 'none',
-                      })
-                    }
-                  >
-                    <MenuItem value="none">{localeText.chartSetupSortNone}</MenuItem>
-                    <MenuItem value="value">{localeText.chartSetupSortValue}</MenuItem>
-                    <MenuItem value="percent">{localeText.chartSetupSortPercent}</MenuItem>
-                  </Select>
-                </FormControl>
-                {(config.pieArcLabel ?? 'none') !== 'none' && (
-                  <TextField
-                    size="small"
-                    label={localeText.chartSetupMinAngleLabel}
-                    type="number"
-                    value={config.pieArcLabelMinAngle ?? 20}
-                    helperText={localeText.chartSetupMinAngleHelperText}
-                    onChange={(evt) =>
-                      controller.updateWidgetConfig(widgetId, {
-                        pieArcLabelMinAngle: Math.max(0, Number(evt.target.value)),
-                      })
-                    }
-                    slotProps={{ htmlInput: { min: 0, max: 180 } }}
-                  />
-                )}
-              </React.Fragment>
-            )}
-          </Stack>
-        )}
+            </React.Fragment>
+          )}
 
-        {/* Gantt / timeline chart fields */}
-        {isGantt && (
-          <Stack spacing={2}>
-            <DataSourceFieldSelect
-              value={config.ganttLabelField ?? ''}
-              onChange={(fieldId) =>
-                controller.updateWidgetConfig(widgetId, { ganttLabelField: fieldId || undefined })
-              }
-              fields={allFields}
-              label={localeText.chartSetupGanttLabelFieldLabel}
-              helperText={localeText.chartSetupGanttLabelFieldHelperText}
-            />
-            <DataSourceFieldSelect
-              value={config.ganttStartField ?? ''}
-              onChange={(fieldId) =>
-                controller.updateWidgetConfig(widgetId, { ganttStartField: fieldId || undefined })
-              }
-              fields={dateFields}
-              label={localeText.chartSetupGanttStartDateLabel}
-              helperText={localeText.chartSetupGanttStartDateHelperText}
-            />
-            <DataSourceFieldSelect
-              value={config.ganttEndField ?? ''}
-              onChange={(fieldId) =>
-                controller.updateWidgetConfig(widgetId, { ganttEndField: fieldId || undefined })
-              }
-              fields={dateFields}
-              label={localeText.chartSetupGanttEndDateLabel}
-              helperText={localeText.chartSetupGanttEndDateHelperText}
-            />
-            <DataSourceFieldSelect
-              value={config.ganttColorField ?? ''}
-              onChange={(fieldId) =>
-                controller.updateWidgetConfig(widgetId, { ganttColorField: fieldId || undefined })
-              }
-              fields={categoryFields}
-              label={localeText.chartSetupGanttColourByLabel}
-              helperText={localeText.chartSetupGanttColourByHelperText}
-            />
-          </Stack>
-        )}
-
-        {/* Annotations — reference lines (not for pie/donut/gauge/gantt/sankey) */}
-        {features.chartAnnotations !== false &&
-          chartType !== 'pie' &&
-          chartType !== 'donut' &&
-          chartType !== 'gauge' &&
-          chartType !== 'gantt' &&
-          chartType !== 'sankey' && (
+          {/* Y series — for non-scatter, non-gauge, non-heatmap, non-funnel, non-sankey charts */}
+          {!isScatter && !isHeatmap && !isFunnel && !isSankey && (
             <div>
-              <Divider sx={{ mb: 1.5 }} />
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ flexGrow: 1, fontWeight: 600 }}
-                >
-                  {localeText.chartSetupAnnotationsTitle}
+              <Stack direction="row" sx={{ alignItems: 'center', mb: 0.5 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+                  {yMeasureLabel}
                 </Typography>
-                <Tooltip title={localeText.chartSetupAddReferenceLine}>
-                  <IconButton
-                    size="small"
-                    onClick={() => {
-                      const newAnn: StudioChartAnnotation = {
-                        id: generateAnnotationId(),
-                        axis: 'y',
-                        value: 0,
-                        label: '',
-                      };
-                      controller.updateWidgetConfig(widgetId, {
-                        annotations: [...(config.annotations ?? []), newAnn],
-                      });
-                    }}
+                {supportsMultipleSeries && (
+                  <Tooltip
+                    title={
+                      usedYFieldIds.length >= numericFields.length
+                        ? localeText.chartSetupNoMoreFields
+                        : localeText.chartSetupAddSeries
+                    }
                   >
-                    <AddIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </Stack>
-              {(config.annotations ?? []).length === 0 && (
-                <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
-                  {localeText.chartSetupNoReferenceLines}
-                </Typography>
-              )}
-              <Stack spacing={1}>
-                {(config.annotations ?? []).map((ann) => (
-                  <Stack
-                    key={ann.id}
-                    direction="row"
-                    spacing={0.5}
-                    sx={{ alignItems: 'flex-start' }}
-                  >
-                    <FormControl size="small" sx={{ width: 56 }}>
-                      <Select
-                        value={ann.axis}
-                        onChange={(event) => {
-                          controller.updateWidgetConfig(widgetId, {
-                            annotations: (config.annotations ?? []).map((a) =>
-                              a.id === ann.id ? { ...a, axis: event.target.value as 'y' | 'x' } : a,
-                            ),
-                          });
-                        }}
-                      >
-                        <MenuItem value="y">Y</MenuItem>
-                        <MenuItem value="x">X</MenuItem>
-                      </Select>
-                    </FormControl>
-                    <TextField
-                      size="small"
-                      label={localeText.chartSetupReferenceLineValueLabel}
-                      value={ann.value}
-                      onChange={(event) => {
-                        const raw = event.target.value;
-                        const num = Number(raw);
-                        controller.updateWidgetConfig(widgetId, {
-                          annotations: (config.annotations ?? []).map((a) =>
-                            a.id === ann.id ? { ...a, value: Number.isNaN(num) ? raw : num } : a,
-                          ),
-                        });
-                      }}
-                      sx={{ flexGrow: 1 }}
-                    />
-                    <TextField
-                      size="small"
-                      label={localeText.chartSetupReferenceLineLabelLabel}
-                      value={ann.label ?? ''}
-                      onChange={(event) => {
-                        controller.updateWidgetConfig(widgetId, {
-                          annotations: (config.annotations ?? []).map((a) =>
-                            a.id === ann.id ? { ...a, label: event.target.value } : a,
-                          ),
-                        });
-                      }}
-                      sx={{ flexGrow: 1 }}
-                    />
-                    <Tooltip title={localeText.chartSetupRemoveAnnotation}>
+                    <span>
                       <IconButton
                         size="small"
-                        onClick={() => {
-                          controller.updateWidgetConfig(widgetId, {
-                            annotations: (config.annotations ?? []).filter((a) => a.id !== ann.id),
-                          });
-                        }}
+                        onClick={handleAddSeries}
+                        disabled={usedYFieldIds.length >= numericFields.length}
                       >
-                        <CloseIcon fontSize="small" />
+                        <AddIcon fontSize="small" />
                       </IconButton>
-                    </Tooltip>
-                  </Stack>
+                    </span>
+                  </Tooltip>
+                )}
+              </Stack>
+              <Stack spacing={1}>
+                {ySeries.map((s, index) => (
+                  <React.Fragment key={s.fieldId || `series-${index}`}>
+                    <Stack direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+                      <DataSourceFieldSelect
+                        value={s.fieldId ?? ''}
+                        onChange={(fieldId) => handleSeriesFieldChange(index, fieldId)}
+                        fields={numericFields}
+                        getOptionDisabled={(option) =>
+                          (option.id !== s.fieldId && usedYFieldIds.includes(option.id)) ||
+                          (option.id !== s.fieldId &&
+                            !analyzeCombination({
+                              yFields: ySeries.flatMap((series, seriesIndex) => {
+                                const fieldId = seriesIndex === index ? option.id : series.fieldId;
+                                return fieldId ? [fieldId] : [];
+                              }),
+                            }).supported)
+                        }
+                        label={
+                          ySeries.length > 1
+                            ? localeText.chartSetupSeriesLabel(index)
+                            : ySeriesLabelBase
+                        }
+                        helperText={
+                          isHorizontalBarChart
+                            ? localeText.chartSetupSeriesNumericHorizHelperText
+                            : localeText.chartSetupSeriesNumericSumHelperText
+                        }
+                        calculatedField={calculatedFieldContext}
+                      />
+                      {ySeries.length > 1 && (
+                        <Tooltip title={localeText.chartSetupRemoveSeries}>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleRemoveSeries(index)}
+                            sx={{ mt: 1 }}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Stack>
+                    {isMixed && s.fieldId && (
+                      <ToggleButtonGroup
+                        size="small"
+                        exclusive
+                        value={s.seriesType ?? 'bar'}
+                        onChange={(_, val) => {
+                          if (val) {
+                            handleSeriesTypeChange(index, val);
+                          }
+                        }}
+                        sx={{ mt: 0.5, mb: 0.5 }}
+                      >
+                        <ToggleButton value="bar" sx={{ px: 1.5, py: 0.25, fontSize: 11 }}>
+                          {localeText.chartSetupMixedSeriesBar}
+                        </ToggleButton>
+                        <ToggleButton value="line" sx={{ px: 1.5, py: 0.25, fontSize: 11 }}>
+                          {localeText.chartSetupMixedSeriesLine}
+                        </ToggleButton>
+                      </ToggleButtonGroup>
+                    )}
+                  </React.Fragment>
                 ))}
+                {ySeries.length === 0 && (
+                  <DataSourceFieldSelect
+                    value=""
+                    onChange={(fieldId) => {
+                      // Picking a measure field re-derives the usual per-field aggregation
+                      // (sum, or count for non-numeric fields — handled by aggregateByField),
+                      // so drop the fieldless-count lock. See BL-186.
+                      controller.updateWidgetConfig(widgetId, {
+                        ySeries: [{ fieldId }],
+                        yField: fieldId,
+                        yAggregation: undefined,
+                      });
+                    }}
+                    fields={numericFields}
+                    getOptionDisabled={(option) =>
+                      !analyzeCombination({ yFields: [option.id] }).supported
+                    }
+                    label={ySeriesLabelBase}
+                    helperText={
+                      isHorizontalBarChart
+                        ? localeText.chartSetupSeriesNumericHorizHelperText
+                        : localeText.chartSetupSeriesNumericSumHelperText
+                    }
+                    calculatedField={calculatedFieldContext}
+                  />
+                )}
+                {/* BL-186: with no measure field, the only meaningful aggregation is a row
+                    "count" — it needs no field. Offer it as an explicit, reproducible state
+                    (a locked Count select) so a count chart can be built from scratch even on
+                    a source with no visible numeric field. Single-series charts only; split-by
+                    and multi-Y can't tally rows, so they aren't offered fieldless. */}
+                {!hasYField && supportsMultipleSeries && (
+                  <FormControl size="small" fullWidth disabled>
+                    <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>
+                    <Select label={localeText.chartSetupAggregationLabel} value="count">
+                      <MenuItem value="count">{localeText.aggFnCount}</MenuItem>
+                    </Select>
+                  </FormControl>
+                )}
               </Stack>
             </div>
           )}
-        {/* Interactions — cross-filter mode */}
-        <div>
-          <Divider sx={{ mb: 1.5 }} />
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-            {localeText.chartSetupInteractionsTitle}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-            {localeText.chartSetupInteractionsDescription}
-          </Typography>
-          <ToggleButtonGroup
-            value={(config.crossFilterMode ?? 'cross-highlight') as StudioCrossFilterMode}
-            exclusive
-            onChange={(_e, value: StudioCrossFilterMode | null) => {
-              controller.updateWidgetConfig(widgetId, {
-                crossFilterMode: value ?? 'cross-highlight',
-              });
-            }}
-            size="small"
-            fullWidth
-          >
-            <ToggleButton value="cross-highlight" sx={{ fontSize: 11, textTransform: 'none' }}>
-              {localeText.crossFilterModeHighlight}
-            </ToggleButton>
-            <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
-              {localeText.crossFilterModeFilter}
-            </ToggleButton>
-            <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
-              {localeText.crossFilterModeNone}
-            </ToggleButton>
-          </ToggleButtonGroup>
-        </div>
-      </Stack>
+          {/* Dual Y axis toggle — only for mixed chart with 2+ series */}
+          {isMixed && ySeries.filter((s) => s.fieldId).length >= 2 && (
+            <FormControlLabel
+              control={
+                <Checkbox
+                  size="small"
+                  checked={config.dualYAxis ?? false}
+                  onChange={(event) =>
+                    controller.updateWidgetConfig(widgetId, { dualYAxis: event.target.checked })
+                  }
+                />
+              }
+              label={<Typography variant="caption">{localeText.chartSetupDualYAxis}</Typography>}
+              sx={{ ml: 0 }}
+            />
+          )}
+          {/* Split by / series field */}
+          {supportsSeriesField && (
+            <div>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', mb: 0.5 }}
+              >
+                {localeText.chartSetupCategoryFieldLabel}
+              </Typography>
+              <Tooltip
+                title={seriesFieldDisabled ? localeText.chartSetupRemoveSplitByTooltip : ''}
+                placement="top"
+              >
+                <span>
+                  <DataSourceFieldSelect
+                    value={config.seriesField ?? ''}
+                    onChange={(fieldId) =>
+                      controller.updateWidgetConfig(widgetId, {
+                        seriesField: fieldId || undefined,
+                      })
+                    }
+                    fields={categoryFields}
+                    getOptionDisabled={(option) => {
+                      if (seriesFieldDisabled) {
+                        return true;
+                      }
+                      if (option.id === config.seriesField) {
+                        return false;
+                      }
+                      return !analyzeCombination({ seriesField: option.id }).supported;
+                    }}
+                    disabled={seriesFieldDisabled}
+                    label={
+                      isPieOrDonut
+                        ? localeText.chartSetupInnerRingLabel
+                        : localeText.chartSetupSplitByLabel
+                    }
+                    helperText={seriesFieldHelperText}
+                  />
+                </span>
+              </Tooltip>
+            </div>
+          )}
+          {/* Pie / donut: arc label options */}
+          {isPieOrDonut && (
+            <React.Fragment>
+              <Divider />
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', mb: 0.5 }}
+              >
+                {localeText.chartSetupArcLabelsTitle}
+              </Typography>
+              <FormControl size="small" fullWidth>
+                <InputLabel>{localeText.chartSetupArcLabelLabel}</InputLabel>
+                <Select
+                  label={localeText.chartSetupArcLabelLabel}
+                  value={config.pieArcLabel ?? 'none'}
+                  onChange={(evt) =>
+                    controller.updateWidgetConfig(widgetId, {
+                      pieArcLabel: evt.target.value as 'value' | 'percent' | 'none',
+                    })
+                  }
+                >
+                  <MenuItem value="none">{localeText.chartSetupSortNone}</MenuItem>
+                  <MenuItem value="value">{localeText.chartSetupSortValue}</MenuItem>
+                  <MenuItem value="percent">{localeText.chartSetupSortPercent}</MenuItem>
+                </Select>
+              </FormControl>
+              {(config.pieArcLabel ?? 'none') !== 'none' && (
+                <TextField
+                  size="small"
+                  label={localeText.chartSetupMinAngleLabel}
+                  type="number"
+                  value={config.pieArcLabelMinAngle ?? 20}
+                  helperText={localeText.chartSetupMinAngleHelperText}
+                  onChange={(evt) =>
+                    controller.updateWidgetConfig(widgetId, {
+                      pieArcLabelMinAngle: Math.max(0, Number(evt.target.value)),
+                    })
+                  }
+                  slotProps={{ htmlInput: { min: 0, max: 180 } }}
+                />
+              )}
+            </React.Fragment>
+          )}
+        </Stack>
+      )}
+
+      {/* Gantt / timeline chart fields */}
+      {isGantt && (
+        <Stack spacing={2}>
+          <DataSourceFieldSelect
+            value={config.ganttLabelField ?? ''}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, { ganttLabelField: fieldId || undefined })
+            }
+            fields={allFields}
+            label={localeText.chartSetupGanttLabelFieldLabel}
+            helperText={localeText.chartSetupGanttLabelFieldHelperText}
+          />
+          <DataSourceFieldSelect
+            value={config.ganttStartField ?? ''}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, { ganttStartField: fieldId || undefined })
+            }
+            fields={dateFields}
+            label={localeText.chartSetupGanttStartDateLabel}
+            helperText={localeText.chartSetupGanttStartDateHelperText}
+          />
+          <DataSourceFieldSelect
+            value={config.ganttEndField ?? ''}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, { ganttEndField: fieldId || undefined })
+            }
+            fields={dateFields}
+            label={localeText.chartSetupGanttEndDateLabel}
+            helperText={localeText.chartSetupGanttEndDateHelperText}
+          />
+          <DataSourceFieldSelect
+            value={config.ganttColorField ?? ''}
+            onChange={(fieldId) =>
+              controller.updateWidgetConfig(widgetId, { ganttColorField: fieldId || undefined })
+            }
+            fields={categoryFields}
+            label={localeText.chartSetupGanttColourByLabel}
+            helperText={localeText.chartSetupGanttColourByHelperText}
+          />
+        </Stack>
+      )}
+
+      {/* Annotations — reference lines (not for pie/donut/gauge/gantt/sankey) */}
+      {features.chartAnnotations !== false &&
+        chartType !== 'pie' &&
+        chartType !== 'donut' &&
+        chartType !== 'gauge' &&
+        chartType !== 'gantt' &&
+        chartType !== 'sankey' && (
+          <div>
+            <Divider sx={{ mb: 1.5 }} />
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ flexGrow: 1, fontWeight: 600 }}
+              >
+                {localeText.chartSetupAnnotationsTitle}
+              </Typography>
+              <Tooltip title={localeText.chartSetupAddReferenceLine}>
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    const newAnn: StudioChartAnnotation = {
+                      id: generateAnnotationId(),
+                      axis: 'y',
+                      value: 0,
+                      label: '',
+                    };
+                    controller.updateWidgetConfig(widgetId, {
+                      annotations: [...(config.annotations ?? []), newAnn],
+                    });
+                  }}
+                >
+                  <AddIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+            {(config.annotations ?? []).length === 0 && (
+              <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+                {localeText.chartSetupNoReferenceLines}
+              </Typography>
+            )}
+            <Stack spacing={1}>
+              {(config.annotations ?? []).map((ann) => (
+                <Stack key={ann.id} direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+                  <FormControl size="small" sx={{ width: 56 }}>
+                    <Select
+                      value={ann.axis}
+                      onChange={(event) => {
+                        controller.updateWidgetConfig(widgetId, {
+                          annotations: (config.annotations ?? []).map((a) =>
+                            a.id === ann.id ? { ...a, axis: event.target.value as 'y' | 'x' } : a,
+                          ),
+                        });
+                      }}
+                    >
+                      <MenuItem value="y">Y</MenuItem>
+                      <MenuItem value="x">X</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <TextField
+                    size="small"
+                    label={localeText.chartSetupReferenceLineValueLabel}
+                    value={ann.value}
+                    onChange={(event) => {
+                      const raw = event.target.value;
+                      const num = Number(raw);
+                      controller.updateWidgetConfig(widgetId, {
+                        annotations: (config.annotations ?? []).map((a) =>
+                          a.id === ann.id ? { ...a, value: Number.isNaN(num) ? raw : num } : a,
+                        ),
+                      });
+                    }}
+                    sx={{ flexGrow: 1 }}
+                  />
+                  <TextField
+                    size="small"
+                    label={localeText.chartSetupReferenceLineLabelLabel}
+                    value={ann.label ?? ''}
+                    onChange={(event) => {
+                      controller.updateWidgetConfig(widgetId, {
+                        annotations: (config.annotations ?? []).map((a) =>
+                          a.id === ann.id ? { ...a, label: event.target.value } : a,
+                        ),
+                      });
+                    }}
+                    sx={{ flexGrow: 1 }}
+                  />
+                  <Tooltip title={localeText.chartSetupRemoveAnnotation}>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        controller.updateWidgetConfig(widgetId, {
+                          annotations: (config.annotations ?? []).filter((a) => a.id !== ann.id),
+                        });
+                      }}
+                    >
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              ))}
+            </Stack>
+          </div>
+        )}
+      {/* Interactions — cross-filter mode */}
+      <div>
+        <Divider sx={{ mb: 1.5 }} />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+          {localeText.chartSetupInteractionsTitle}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+          {localeText.chartSetupInteractionsDescription}
+        </Typography>
+        <ToggleButtonGroup
+          value={(config.crossFilterMode ?? 'cross-highlight') as StudioCrossFilterMode}
+          exclusive
+          onChange={(_e, value: StudioCrossFilterMode | null) => {
+            controller.updateWidgetConfig(widgetId, {
+              crossFilterMode: value ?? 'cross-highlight',
+            });
+          }}
+          size="small"
+          fullWidth
+        >
+          <ToggleButton value="cross-highlight" sx={{ fontSize: 11, textTransform: 'none' }}>
+            {localeText.crossFilterModeHighlight}
+          </ToggleButton>
+          <ToggleButton value="cross-filter" sx={{ fontSize: 11, textTransform: 'none' }}>
+            {localeText.crossFilterModeFilter}
+          </ToggleButton>
+          <ToggleButton value="none" sx={{ fontSize: 11, textTransform: 'none' }}>
+            {localeText.crossFilterModeNone}
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </div>
+    </Stack>
   );
 }

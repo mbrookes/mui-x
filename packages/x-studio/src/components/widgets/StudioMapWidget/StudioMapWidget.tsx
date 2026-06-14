@@ -4,7 +4,7 @@ import { Box, Typography } from '@mui/material';
 import { Unstable_ChartsGeoDataProviderPremium as ChartsGeoDataProviderPremium } from '@mui/x-charts-premium/ChartsGeoDataProviderPremium';
 import { GeoDataPlot, MapShapePlot } from '@mui/x-charts-premium/Map';
 import { ChartsSurface } from '@mui/x-charts/ChartsSurface';
-import { ContinuousColorLegend } from '@mui/x-charts-premium/ChartsLegend';
+import { ContinuousColorLegend } from '@mui/x-charts/ChartsLegend';
 import type { ExtendedFeatureCollection } from '@mui/x-charts-vendor/d3-geo';
 import type { StudioDataSource, StudioWidget } from '../../../models';
 import {

@@ -94,6 +94,8 @@ cd examples/<name> && pnpm dev
 3. Add the widget component and an optional setup panel
 4. Register the kind in the widget factory / compose drawer
 
+> Custom charts stay app-level: compose the public `@mui/x-charts*` APIs inside an x-studio widget — never patch a new chart type into the shipping `x-charts*` packages. See the "x-studio custom charts" section of `AGENTS.md` for the rationale (BL-182).
+
 ## Schema migrations
 
 When changing `StudioState` in a way that breaks deserialization of persisted dashboards:

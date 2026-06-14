@@ -515,7 +515,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           borderRadius:
             pageTheme?.cardRadius !== undefined ? `${pageTheme.cardRadius}px` : undefined,
           backgroundColor: pageTheme?.cardBackground ?? undefined,
-          cursor: isDragging ? 'grabbing' : 'default',
+          cursor: isDragging ? 'move' : 'default',
           p: isFullBleedCustom ? 0 : (pageTheme?.cardPadding ?? 2),
           boxSizing: 'border-box',
           height: '100%',

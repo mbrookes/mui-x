@@ -647,14 +647,14 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   filterWidgetExcludingLabel: '\u2298 Excluindo selecionados',
   filterWidgetDateFromLabel: 'De',
   filterWidgetDateToLabel: 'Até',
-  filterWidgetNoFieldConfigured:
-    'Nenhum campo configurado. Selecione um campo no painel Compor.',
+  filterWidgetNoFieldConfigured: 'Nenhum campo configurado. Selecione um campo no painel Compor.',
 
   // Date range bar
   dateRangePresetAriaLabel: 'Predefinição de intervalo de datas',
 
   // Data source field select
   dataSourceClearFieldAriaLabel: 'Limpar campo',
+  dataSourceAddCalculatedField: 'Adicionar campo calculado…',
 
   // Widget filter row
   widgetFilterFieldHelperText: 'Campo a que este filtro se aplica',
@@ -680,8 +680,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
     `Pré-visualização (primeiras ${count.toLocaleString('pt-BR')} linhas)`,
 
   // Pivot widget
-  pivotRowsColumnsLabel: (rowCount, colCount) =>
-    `${rowCount} linhas \u00d7 ${colCount} colunas`,
+  pivotRowsColumnsLabel: (rowCount, colCount) => `${rowCount} linhas \u00d7 ${colCount} colunas`,
 
   // Gantt chart
   ganttHiddenRowsLabel: (count) =>
@@ -734,8 +733,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   aiSuggestionTable: (sourceLabel) => `Tabela de ${sourceLabel}`,
   aiSuggestionChangeToLine: (widgetTitle) =>
     `Mudar \u201c${widgetTitle}\u201d para gráfico de linhas`,
-  aiSuggestionAddSparkline: (widgetTitle) =>
-    `Adicionar sparkline ao \u201c${widgetTitle}\u201d`,
+  aiSuggestionAddSparkline: (widgetTitle) => `Adicionar sparkline ao \u201c${widgetTitle}\u201d`,
   aiSuggestionAddDateFilter: 'Adicionar filtro de data',
   aiSuggestionAddPage: 'Adicionar nova página',
   aiSuggestionSummarisePage: 'Resumir página',

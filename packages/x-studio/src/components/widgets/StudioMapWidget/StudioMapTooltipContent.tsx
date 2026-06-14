@@ -7,9 +7,8 @@ import {
   ChartsTooltipCell,
   useItemTooltip,
 } from '@mui/x-charts/ChartsTooltip';
-import { StudioMapTooltipContext } from './StudioMapTooltipContext';
-
 import { styled } from '@mui/material/styles';
+import { StudioMapTooltipContext } from './StudioMapTooltipContext';
 
 // ─── Styled region-name header (matches HeatmapTooltipAxesValue style) ────────
 
@@ -28,8 +27,7 @@ const MapTooltipRegionLabel = styled('caption', {
 // ─── Content ──────────────────────────────────────────────────────────────────
 
 export function StudioMapTooltipContent() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 'choropleth' series type is not in x-charts union
-  const tooltipData = useItemTooltip<any>();
+  const tooltipData = useItemTooltip<'mapShape'>();
   const { valueFieldLabel, featureIdToLabel } = React.useContext(StudioMapTooltipContext);
 
   // No data for this region — suppress the tooltip entirely.
@@ -37,8 +35,9 @@ export function StudioMapTooltipContent() {
     return null;
   }
 
-  const { identifier, formattedValue } = tooltipData;
-  const regionName = featureIdToLabel((identifier as { featureId: string }).featureId);
+  const { value: point, formattedValue } = tooltipData;
+  // The mapShape point exposes `name` (the feature id we joined on) and an optional `label`.
+  const regionName = point.label ?? featureIdToLabel(point.name);
 
   return (
     <ChartsTooltipPaper>

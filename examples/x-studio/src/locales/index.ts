@@ -86,6 +86,26 @@ export interface AppLocaleText {
   alertSeveritySuccess: string;
   alertSeverityWarning: string;
   alertSeverityError: string;
+  alertMessageHelper: string;
+  alertValueFieldLabel: string;
+  alertDateFieldLabel: string;
+  alertLookbackLabel: string;
+  alertAggregationLabel: string;
+  alertAggSum: string;
+  alertAggAvg: string;
+  alertAggMax: string;
+  alertAggMin: string;
+  alertAggCount: string;
+  alertThresholdsTitle: string;
+  alertThresholdSuccess: string;
+  alertThresholdWarning: string;
+  alertThresholdError: string;
+  alertHideBelowLabel: string;
+  alertHideNever: string;
+  alertHideBelowWarning: string;
+  alertHideBelowError: string;
+  alertComputedLabel: (value: string, days: number) => string;
+  alertHiddenInViewNote: string;
   adapterModeLabel: string;
   serverModeLabel: string;
   generatedRowsLabel: (rowCount: number) => string;
@@ -166,6 +186,27 @@ const enAppLocaleText: AppLocaleText = {
   alertSeveritySuccess: 'Success',
   alertSeverityWarning: 'Warning',
   alertSeverityError: 'Error',
+  alertMessageHelper:
+    'Use {value} as a placeholder for the computed value (e.g. "Sales hit {value} this week").',
+  alertValueFieldLabel: 'Value field',
+  alertDateFieldLabel: 'Date field (for time range)',
+  alertLookbackLabel: 'Time range (days)',
+  alertAggregationLabel: 'Aggregation',
+  alertAggSum: 'Sum',
+  alertAggAvg: 'Average',
+  alertAggMax: 'Maximum',
+  alertAggMin: 'Minimum',
+  alertAggCount: 'Count',
+  alertThresholdsTitle: 'Severity thresholds',
+  alertThresholdSuccess: 'Success at or above',
+  alertThresholdWarning: 'Warning at or above',
+  alertThresholdError: 'Error at or above',
+  alertHideBelowLabel: 'Hide widget (view mode)',
+  alertHideNever: 'Always show',
+  alertHideBelowWarning: 'Hide below Warning',
+  alertHideBelowError: 'Hide below Error',
+  alertComputedLabel: (value, days) => `Computed value: ${value} (last ${days} day(s))`,
+  alertHiddenInViewNote: 'Hidden in view mode when the condition is not met.',
   adapterModeLabel: 'Adapter Mode',
   serverModeLabel: 'Server Mode',
   generatedRowsLabel: (rowCount) => `Generated · ${rowCount.toLocaleString()} rows`,
@@ -247,6 +288,27 @@ const ptBrAppLocaleText: AppLocaleText = {
   alertSeveritySuccess: 'Sucesso',
   alertSeverityWarning: 'Aviso',
   alertSeverityError: 'Erro',
+  alertMessageHelper:
+    'Use {value} como espaço reservado para o valor calculado (ex.: "Vendas atingiram {value} esta semana").',
+  alertValueFieldLabel: 'Campo de valor',
+  alertDateFieldLabel: 'Campo de data (para intervalo de tempo)',
+  alertLookbackLabel: 'Intervalo de tempo (dias)',
+  alertAggregationLabel: 'Agregação',
+  alertAggSum: 'Soma',
+  alertAggAvg: 'Média',
+  alertAggMax: 'Máximo',
+  alertAggMin: 'Mínimo',
+  alertAggCount: 'Contagem',
+  alertThresholdsTitle: 'Limites de severidade',
+  alertThresholdSuccess: 'Sucesso igual ou acima de',
+  alertThresholdWarning: 'Aviso igual ou acima de',
+  alertThresholdError: 'Erro igual ou acima de',
+  alertHideBelowLabel: 'Ocultar widget (modo de visualização)',
+  alertHideNever: 'Sempre mostrar',
+  alertHideBelowWarning: 'Ocultar abaixo de Aviso',
+  alertHideBelowError: 'Ocultar abaixo de Erro',
+  alertComputedLabel: (value, days) => `Valor calculado: ${value} (últimos ${days} dia(s))`,
+  alertHiddenInViewNote: 'Oculto no modo de visualização quando a condição não é atendida.',
   adapterModeLabel: 'Modo do adaptador',
   serverModeLabel: 'Modo do servidor',
   generatedRowsLabel: (rowCount) => `Gerado · ${rowCount.toLocaleString()} linhas`,

@@ -11,7 +11,7 @@
  *  - `'europe'` → ISO 3166-1 alpha-2 country codes, European subset only
  */
 
-import type { ExtendedFeature, ExtendedFeatureCollection } from '@mui/x-charts-pro/ChoroplethChart';
+import type { ExtendedFeature, ExtendedFeatureCollection } from '@mui/x-charts-vendor/d3-geo';
 import {
   NUMERIC_TO_ALPHA2,
   FIPS_TO_STATE_ABBR,
@@ -99,7 +99,10 @@ export async function loadWorldGeography(): Promise<ExtendedFeatureCollection> {
       if (!alpha2) {
         return [];
       }
-      return [{ ...f, id: alpha2 }];
+      // The official premium Map joins series data to features by `feature.properties.name`
+      // (see selectorChartGeoFeatureIndexesByName), so expose the alpha-2 code there too.
+      // `id` is kept intact for the europe loader's filter and any other id consumer.
+      return [{ ...f, id: alpha2, properties: { ...f.properties, name: alpha2 } }];
     }) as ExtendedFeatureCollection['features'],
   };
 }
@@ -119,7 +122,9 @@ export async function loadUsaGeography(): Promise<ExtendedFeatureCollection> {
       if (!abbr) {
         return [];
       }
-      return [{ ...f, id: abbr }];
+      // The official premium Map joins series data to features by `feature.properties.name`
+      // (see selectorChartGeoFeatureIndexesByName), so expose the state abbreviation there too.
+      return [{ ...f, id: abbr, properties: { ...f.properties, name: abbr } }];
     }) as ExtendedFeatureCollection['features'],
   };
 }

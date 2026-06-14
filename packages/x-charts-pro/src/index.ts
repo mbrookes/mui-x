@@ -45,7 +45,6 @@ export * from './colorPalettes';
 
 // Pro components
 export * from './Heatmap';
-export * from './ChoroplethChart';
 export { ChartsContainerPro } from './ChartsContainerPro';
 export type {
   ChartsContainerProProps,

@@ -800,3 +800,29 @@ This caused `customers` to appear twice in the query, making `customers.country`
 - **Known limitation** — the official unstable `MapShapePlot` does not forward a per-shape item click, so map cross-filter-on-click (`mapCrossFilterEmit`) is currently unwired (config kept, marked with a `// BL-182 limitation` comment). Revisit when the Map exposes an item-click handler.
 
 **Verification:** `@mui/x-charts`, `@mui/x-charts-pro`, `@mui/x-charts-premium`, and `@mui/x-studio` all typecheck clean (only the 1 pre-existing `createBatchingAdapter.test.ts` error remains); 1078 x-studio unit tests pass; eslint + prettier clean on all changed x-studio map files. (Rendering not visually verified — no browser.)
+
+---
+
+## Follow-ups surfaced during the BL-178…182 batch (2026-06-14)
+
+BL-183: Re-implement the widget drag "ghost" on `@atlaskit/pragmatic-drag-and-drop` (closes the reopened ⚠️ BL-178). The rebase migrated DnD off react-dnd; `useStudioDraggable` now calls `disableNativeDragPreview` and renders no replacement, so nothing follows the cursor during a drag — the source card just fades to `opacity: 0.1`. Add a custom preview via `setCustomNativeDragPreview` (or a portal-rendered preview) so a semi-transparent ghost card tracks the pointer for both canvas-widget and compose-panel drags. High-visibility UX; the ghost has never worked across three DnD rewrites.
+
+BL-184: Wire map cross-filter-on-click on the official Map (follow-up to the BL-182 limitation). The unstable `MapShapePlot` forwards no per-shape item click, so `mapCrossFilterEmit` is currently a no-op setting. Either build a thin custom plot that attaches `onClick` to each `MapShape` via the chart interaction system, or hide the cross-filter toggle in `MapSetupPanel` until upstream exposes an item-click handler — don't ship a setting that silently does nothing.
+
+BL-185: Decide on the licensing/stability implications introduced by BL-182. The map widget now (a) pulls a **premium-tier** dependency (`@mui/x-charts-premium`, was pro-only) and (b) is built on an `Unstable_` API (`Unstable_ChartsGeoDataProviderPremium`). Confirm premium-gating the map is intended, and track the unstable API for breaking changes on each master rebase.
+
+BL-186: First-class fieldless count for **charts** (completes the EBL-06 audit). KPIs got a reproducible "Count with no value field" state; charts did not. CRM Contacts has no visible numeric field, so `widget-chart7-contacts-by-dept`/`-by-role` (count over hidden `id`) still can't be recreated from scratch via the Y-field picker. Mirror the KPI fix in `ChartSetupPanel` so a count chart is valid and reproducible without a numeric Y field.
+
+BL-187: Fix the standing `src/server/createBatchingAdapter.test.ts` typecheck error (`'conjunction' does not exist in StudioFilterNode`). It predates this batch and means `pnpm --filter @mui/x-studio typescript` is already non-green independent of feature work.
+
+BL-188: Fix the flaky `useChartWidgetData.test.tsx`. Its `beforeEach` does `await import('./useChartWidgetData')` and exceeds the 10 s hookTimeout under full-suite parallel load (heavy module graph), failing 2–3 of 4 intermittently (confirmed pre-existing). Raise the hook timeout or hoist/stabilise the dynamic import so the suite is deterministic.
+
+BL-189: Add a CI step that typechecks the example apps. Examples are standalone projects (not in the root `pnpm install`); their `node_modules` don't materialise in a fresh worktree, and example type errors never surface in the package typecheck gate. This is how a half-finished map migration sat type-clean at the package level while broken in the example.
+
+BL-190: Clear the ~68 pre-existing eslint errors in x-studio — mostly legitimate German/French curly quotes (`„…"`) in the locale files tripping `mui/straight-quotes`, plus JSDoc/react-hooks-deps debt in `StudioUIConfigContext.ts`. The package is not lint-clean independent of recent changes; decide per-rule whether to fix or scope-disable (e.g. allow non-ASCII quotes in locale files).
+
+BL-191: Guideline — keep custom x-studio charts **app-level**, not patched into the shipping `x-charts*` packages. Authoring the custom `ChoroplethChart` directly into `x-charts-pro` is what made BL-182 a ~75-file, multi-hour rebase removal and broke the charts build against master. Future bespoke charts for x-studio should live in the package/app or follow a clear upstream-contribution track.
+
+BL-192: Docs (BL-68 follow-up) — document the new public surfaces from this batch: the `fullBleed` flag on `StudioCustomWidgetDef`, the native-bubble scatter (`sizeValue`/`zAxis`) migration, first-class fieldless KPI count, and calc-field-in-the-field-select-dropdown. Update the x-studio map docs to describe the premium `Map` implementation (the prose is still accurate but no longer matches the impl/tier).
+
+> Process note (not an x-studio code item): during BL-182 a long-running sub-agent scoped to the `x-studio-backlog` worktree wrote four files into the **main** checkout (absolute-path edits escaped the worktree), leaving a partial map migration that had to be discarded manually. When delegating large agent runs, pin/sandbox the working directory.

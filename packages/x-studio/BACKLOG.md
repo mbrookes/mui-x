@@ -726,17 +726,20 @@ BL-174: Cursor appearance is inconsistent and non-standard. Keep it as the stand
 ✅ BL-174: Cursor appearance is inconsistent and non-standard. Keep it as the standard pointer everywhere, except when dragging a widget (move), or when over a drop point (+)
 
 **Rules:**
+
 1. Standard arrow cursor (`default`) everywhere by default — no `grab`, `pointer`, or `grabbing` on non-link canvas elements
 2. `move` cursor during active widget drag (both canvas widget drag and compose-panel drag-to-canvas)
 3. `copy` cursor (shows "+" in browsers) when hovering an active drop zone (InsertionPoint) with a drag in progress
 
 **Fixed:**
+
 - `StudioWidgetCard.tsx`: changed `cursor: isDragging ? 'grabbing' : 'pointer'` → `isDragging ? 'move' : 'default'`
 - `StudioCanvas.tsx` GlobalStyles: changed global drag cursor from `grabbing !important` → `move !important`; added a second rule `[data-studio-drop-active]` → `copy !important` for InsertionPoint hover
 - `StudioCanvas.tsx` InsertionPoint: added `data-studio-drop-active=""` attribute when `isOver` (enables the CSS cursor override)
 - `AddWidgetView.tsx`: `getCursor()` changed `grab`/`grabbing` → `default`/`move`; `handleDragStart` inline style changed `'grabbing'` → `'move'`
 
 **Not changed (intentional):**
+
 - `GridSetupPanel` `cursor: grab` on column drag handles — these are column reorder handles in the Compose drawer, a different drag interaction
 - `col-resize` on `ResizeHandle` — correct and intentional
 
@@ -745,6 +748,7 @@ BL-174: Cursor appearance is inconsistent and non-standard. Keep it as the stand
 **Root cause:** `resolveField()` fallback (case 6) returned `{ column: fieldId }` when a field couldn't be resolved — meaning it wasn't in the primary source, not an expression field, and not in any directly related (one-hop) source. For `orders.date` used as a page-level date filter on the `products` widget (orders is 2 hops away via order_items), the unresolved `date` was emitted verbatim into the `WHERE` clause, producing `WHERE date >= '...'` on the `products` table.
 
 **Fixed:**
+
 - Added `unresolved?: boolean` to `ResolvedField` interface
 - Changed fallback from `{ column: fieldId }` to `{ column: fieldId, unresolved: true }`
 - Filter construction now checks `r.skip || r.unresolved` to drop unresolvable filter predicates silently
@@ -754,6 +758,7 @@ BL-174: Cursor appearance is inconsistent and non-standard. Keep it as the stand
 ✅ BL-176: Clicking a country in Revenue by Country map causes "ambiguous column name: customers.country" in Active Customers KPI
 
 **Root cause:** Case 1b in `resolveField()` builds two LEFT JOINs for a cross-filter using an expression field on a related source. When `expr-order-country` (defined on ORDERS, joins to CUSTOMERS.country) is applied to an Active Customers widget (primary source = CUSTOMERS), the two-hop resolution produced:
+
 - Hop 1: `LEFT JOIN orders ON orders.customerId = customers.id`
 - Hop 2: `LEFT JOIN customers ON orders.customerId = customers.id` ← duplicate! `customers` is already the primary table
 
@@ -766,6 +771,7 @@ This caused `customers` to appear twice in the query, making `customers.country`
 **Root cause:** Chrome locks the OS-level cursor as soon as the pointer moves ~3 px (before `dragstart` fires). Any `cursor` CSS set in `dragstart` is too late. All attempts to pre-set the cursor in `mousedown` were unreliable because the browser ignores CSS `cursor` overrides once it has taken control of the pointer for a native DnD gesture. The only reliable fix is to suppress native DnD entirely.
 
 **Fixed:**
+
 - Added `react-dnd@^16` + `react-dnd-html5-backend@^16` as dependencies
 - Created `studioWidgetDndTypes.ts` — typed `CanvasWidgetDragItem` / `ComposeWidgetDragItem` union with `type` discriminants
 - Created `StudioDragLayer.tsx` — `useDragLayer` + MUI `GlobalStyles` applying `cursor: grabbing !important` on `html.x-studio-dnd-active` during drags; `cursor: copy` on `[data-studio-drop-active]` elements (insertion points)
@@ -785,7 +791,7 @@ This caused `customers` to appear twice in the query, making `customers.country`
 
 ✅ BL-180: When configuring calculated fields, consider whether the available fields should be scoped to those reachable by the widget being configured to avoid invalid configurations. This shouldn't limit or prevent valid configurations.
 
-**Fixed** — `StudioExpressionFieldDialog` gained `reachableSourceIds?: ReadonlySet<string>`; the operand expression-field picker is scoped to fields reachable from the configured widget (primary source + related sources via `getReachableSourceIds`). Crucially the **unfiltered** field set is still used for validation, so scoping only affects what's *selectable*, never what's *valid* — no valid config is blocked. When opened with no widget context (e.g. the data drawer "add calculated field" on a source) all operands remain available (backward compatible). Physical operands stay primary-source only because `validateExpression` already rejects out-of-source field refs.
+**Fixed** — `StudioExpressionFieldDialog` gained `reachableSourceIds?: ReadonlySet<string>`; the operand expression-field picker is scoped to fields reachable from the configured widget (primary source + related sources via `getReachableSourceIds`). Crucially the **unfiltered** field set is still used for validation, so scoping only affects what's _selectable_, never what's _valid_ — no valid config is blocked. When opened with no widget context (e.g. the data drawer "add calculated field" on a source) all operands remain available (backward compatible). Physical operands stay primary-source only because `validateExpression` already rejects out-of-source field refs.
 
 ✅ BL-181: Remove our custom bubble-chart implementation completely, and use those provided by the mui-x scatter charts. (Will need to update master and rebase).
 
@@ -813,11 +819,11 @@ BL-185: Decide on the licensing/stability implications introduced by BL-182. The
 
 BL-186: First-class fieldless count for **charts** (completes the EBL-06 audit). KPIs got a reproducible "Count with no value field" state; charts did not. CRM Contacts has no visible numeric field, so `widget-chart7-contacts-by-dept`/`-by-role` (count over hidden `id`) still can't be recreated from scratch via the Y-field picker. Mirror the KPI fix in `ChartSetupPanel` so a count chart is valid and reproducible without a numeric Y field.
 
-✅ BL-187: Fix the standing `src/server/createBatchingAdapter.test.ts` typecheck error (`'conjunction' does not exist in StudioFilterNode`). It predated this batch and meant `pnpm --filter @mui/x-studio typescript` was already non-green independent of feature work. **Done** (`6dc1266922`): the group-filter fixture set `conjunction: 'and'`, but the group variant of `StudioFilterNode` discriminates on `logic` (`conjunction` is an optional field on the *leaf* variant, so the typo went unnoticed). One-line fixture fix — no production code or assertions changed.
+✅ BL-187: Fix the standing `src/server/createBatchingAdapter.test.ts` typecheck error (`'conjunction' does not exist in StudioFilterNode`). It predated this batch and meant `pnpm --filter @mui/x-studio typescript` was already non-green independent of feature work. **Done** (`6dc1266922`): the group-filter fixture set `conjunction: 'and'`, but the group variant of `StudioFilterNode` discriminates on `logic` (`conjunction` is an optional field on the _leaf_ variant, so the typo went unnoticed). One-line fixture fix — no production code or assertions changed.
 
 ✅ BL-188: Fix the flaky `useChartWidgetData.test.tsx`. Its `beforeEach` did `await import('./useChartWidgetData')` and exceeded the 10 s hookTimeout under full-suite parallel load (heavy module graph), failing 2–3 of 4 intermittently (confirmed pre-existing). **Done** (`b1d2fde410`): the lazy import was unnecessary — `vi.mock` is hoisted above imports and its factory reads `mockState` lazily via closure (the sibling `StudioChartWidget.test.tsx` uses the same mock with a static import). Switched to a top-level static import, removing the timeout surface entirely; verified deterministic across 3 full-suite runs. No production code or assertions changed.
 
-BL-189: Add a CI step that typechecks the example apps. Examples are standalone projects (not in the root `pnpm install`); their `node_modules` don't materialise in a fresh worktree, and example type errors never surface in the package typecheck gate. This is how a half-finished map migration sat type-clean at the package level while broken in the example.
+⚠️ BL-189: Add a CI step that typechecks the example apps. Examples are standalone projects (not in the root `pnpm install`); their `node_modules` don't materialise in a fresh worktree, and example type errors never surface in the package typecheck gate. This is how a half-finished map migration sat type-clean at the package level while broken in the example. **Blocked — partial (this commit).** The task's premise is false for the x-studio examples: they cannot be installed standalone. Each depends on the **unpublished** `@mui/x-studio` (and the local `x-studio-shared`) via `workspace:*`, plus `catalog:` versions — protocols that only resolve inside the pnpm workspace. Proven empirically: `cd examples/x-studio && pnpm install` walks up to the root `pnpm-workspace.yaml`, reports "all 36 workspace projects / Already up to date", creates **no** `examples/x-studio/node_modules`, and the example typecheck cannot resolve its deps. So the prescribed CI command (`cd example && pnpm install && tsc`) can never run here, and no working CI step was shipped (shipping an inert/red step was deliberately avoided). The real fix needs a workspace + lockfile change that is out of this worktree's footprint (root install is forbidden here) and warrants maintainer sign-off: (a) add `examples/x-studio*` to `pnpm-workspace.yaml`; (b) regenerate `pnpm-lock.yaml` via a root `pnpm install`; (c) the uniform `typescript` scripts added in this commit. After (a)+(b), the **existing** `test_types` CircleCI job already covers them automatically — `typescript:ci` runs `lerna run … typescript`, which keys on the exact `typescript` script name across all workspace members; **no new CircleCI job is needed.** **Done in this commit:** added a uniform `"typescript": "tsc --noEmit -p tsconfig.json"` script to the x-studio examples that lacked one (`x-studio`, `x-studio-composed`, `x-studio-ag`, `x-studio-ai-proxy`) and renamed `x-studio-dev-server`'s `typecheck` → `typescript` for the same uniform key (`x-studio-ai` already had it; `x-studio-shared` is a tsconfig-less source lib checked transitively, so it gets none). These scripts are inert until workspace membership lands (lerna ignores non-members), but are the prerequisite the wired-up gate keys on. Candidate real type errors surfaced by a degraded (deps-unresolved) run of the x-studio example — to be **confirmed** once it actually installs: `src/App.tsx:273` `TS7006` (`data` implicitly `any`) and `src/App.tsx:308` `TS2322` (`unknown` not assignable to `StudioPage`).
 
 BL-190: Clear the ~68 pre-existing eslint errors in x-studio — mostly legitimate German/French curly quotes (`„…"`) in the locale files tripping `mui/straight-quotes`, plus JSDoc/react-hooks-deps debt in `StudioUIConfigContext.ts`. The package is not lint-clean independent of recent changes; decide per-rule whether to fix or scope-disable (e.g. allow non-ASCII quotes in locale files).
 

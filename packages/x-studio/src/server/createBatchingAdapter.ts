@@ -139,7 +139,6 @@ function warnOnCrossEndpointRelationships(
     const sourceEndpoint = getBatchingEndpoint(dataSources[rel.sourceId]?.adapter);
     const targetEndpoint = getBatchingEndpoint(dataSources[rel.targetId]?.adapter);
     if (sourceEndpoint && targetEndpoint && sourceEndpoint !== targetEndpoint) {
-      // eslint-disable-next-line no-console
       console.warn(
         `[MUI X Studio] Relationship "${rel.id}" connects "${rel.sourceId}" (${sourceEndpoint}) ` +
           `and "${rel.targetId}" (${targetEndpoint}) which use different adapter endpoints. ` +
@@ -243,10 +242,7 @@ export function createBatchingAdapter(
 
       // Build a lookup map of enrichment results: joinSourceId → (pkValue → joinFieldValues).
       // We fetch each unique join source only once and share the lookup across all descriptors.
-      const enrichmentLookups = new Map<
-        string,
-        Promise<Map<unknown, Record<string, unknown>>>
-      >();
+      const enrichmentLookups = new Map<string, Promise<Map<unknown, Record<string, unknown>>>>();
 
       function getEnrichmentLookup(
         joinSourceId: string,
@@ -306,7 +302,9 @@ export function createBatchingAdapter(
           for (const enr of crossEndpointEnrichments) {
             // eslint-disable-next-line no-await-in-loop
             const lookup = await getEnrichmentLookup(enr.joinSourceId, enr.joinPkField);
-            if (lookup.size === 0) continue;
+            if (lookup.size === 0) {
+              continue;
+            }
             rows = rows.map((row) => {
               if (enr.logicalFieldId in row) {
                 return row; // Already set — don't overwrite (consistent with enrichRowsWithExpressions)
@@ -459,7 +457,9 @@ function resolveField(
           if (primaryEndpoint && joinEndpoint && primaryEndpoint !== joinEndpoint) {
             // Find the relationship to surface FK info for client-side enrichment.
             for (const rel of relationships) {
-              if (rel.type === 'many-to-many') continue;
+              if (rel.type === 'many-to-many') {
+                continue;
+              }
               if (rel.sourceId === primarySourceId && rel.targetId === joinSourceId) {
                 return {
                   column: fieldId,
@@ -490,7 +490,9 @@ function resolveField(
           const joinTable = joinSource.tableName ?? joinSourceId;
           // Find the relationship between primarySourceId and joinSourceId
           for (const rel of relationships) {
-            if (rel.type === 'many-to-many') continue;
+            if (rel.type === 'many-to-many') {
+              continue;
+            }
             let leftCol = '';
             let rightCol = '';
             if (rel.sourceId === primarySourceId && rel.targetId === joinSourceId) {
@@ -536,7 +538,9 @@ function resolveField(
         const exprTable = exprSource.tableName ?? exprSourceId;
         // Find hop 1: primarySource → exprField's source
         for (const hop1Rel of relationships) {
-          if (hop1Rel.type === 'many-to-many') continue;
+          if (hop1Rel.type === 'many-to-many') {
+            continue;
+          }
           let hop1Left = '';
           let hop1Right = '';
           if (hop1Rel.sourceId === primarySourceId && hop1Rel.targetId === exprSourceId) {
@@ -546,7 +550,9 @@ function resolveField(
             hop1Left = `${exprTable}.${hop1Rel.sourceField}`;
             hop1Right = `${primaryTableName}.${hop1Rel.targetField}`;
           }
-          if (!hop1Left) continue;
+          if (!hop1Left) {
+            continue;
+          }
 
           if (isJoinExpression(relatedExprField.expression)) {
             // Hop 2: exprField's source → the expression's join target
@@ -575,7 +581,9 @@ function resolveField(
               }
               const joinTable = joinSource.tableName ?? joinSourceId;
               for (const hop2Rel of relationships) {
-                if (hop2Rel.type === 'many-to-many') continue;
+                if (hop2Rel.type === 'many-to-many') {
+                  continue;
+                }
                 let hop2Left = '';
                 let hop2Right = '';
                 if (hop2Rel.sourceId === exprSourceId && hop2Rel.targetId === joinSourceId) {
@@ -585,7 +593,9 @@ function resolveField(
                   hop2Left = `${joinTable}.${hop2Rel.sourceField}`;
                   hop2Right = `${exprTable}.${hop2Rel.targetField}`;
                 }
-                if (!hop2Left) continue;
+                if (!hop2Left) {
+                  continue;
+                }
                 return {
                   column: fieldId, // keep logical ID; server aliases physical → logical
                   physicalColumn: `${joinTable}.${joinFieldId}`,
@@ -624,14 +634,18 @@ function resolveField(
 
     if (rel.sourceId === primarySourceId) {
       const relatedSource = dataSources[rel.targetId];
-      if (!relatedSource) continue;
+      if (!relatedSource) {
+        continue;
+      }
       relatedSourceId = rel.targetId;
       const relatedTable = relatedSource.tableName ?? rel.targetId;
       leftCol = `${primaryTableName}.${rel.sourceField}`;
       rightCol = `${relatedTable}.${rel.targetField}`;
     } else if (rel.targetId === primarySourceId) {
       const relatedSource = dataSources[rel.sourceId];
-      if (!relatedSource) continue;
+      if (!relatedSource) {
+        continue;
+      }
       relatedSourceId = rel.sourceId;
       const relatedTable = relatedSource.tableName ?? rel.sourceId;
       leftCol = `${relatedTable}.${rel.sourceField}`;
@@ -760,7 +774,9 @@ function buildBatchWidgetDescriptor(
     }
     if (resolved.crossEndpointJoin) {
       // Record enrichment only if not already registered (dedup by logicalFieldId).
-      const alreadyRegistered = enrichments.some((e) => e.logicalFieldId === fieldId);
+      const alreadyRegistered = enrichments.some(
+        (enrichment) => enrichment.logicalFieldId === fieldId,
+      );
       if (!alreadyRegistered) {
         enrichments.push({ logicalFieldId: fieldId, ...resolved.crossEndpointJoin });
       }
@@ -799,7 +815,9 @@ function buildBatchWidgetDescriptor(
     }
     const aggs = (d.aggregations ?? []).flatMap((a) => {
       const r = resolve(a.field);
-      if (r.skip) return [];
+      if (r.skip) {
+        return [];
+      }
       return [
         {
           column: r.column,
@@ -818,7 +836,9 @@ function buildBatchWidgetDescriptor(
   const rawFilters = d.filter ? flattenFilterNode(d.filter) : [];
   const filters = rawFilters.flatMap((pred) => {
     const r = resolve(pred.column);
-    if (r.skip || r.unresolved) return [];
+    if (r.skip || r.unresolved) {
+      return [];
+    }
     // columnAliases maps logical ID → physical column (e.g. 'expr-order-country' → 'customers.country').
     // WHERE clauses must reference the physical column; the alias is only used in SELECT.
     const physicalColumn = columnAliases[r.column] ?? r.column;

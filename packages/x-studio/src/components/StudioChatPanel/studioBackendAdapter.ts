@@ -151,7 +151,9 @@ export function createBackendChatAdapter(
       let reasoningEnded = false;
 
       // Helper: close the synthetic "Thinking…" reasoning part once real content arrives.
-      const endReasoning = (streamController: ReadableStreamDefaultController<ChatMessageChunk>) => {
+      const endReasoning = (
+        streamController: ReadableStreamDefaultController<ChatMessageChunk>,
+      ) => {
         if (!reasoningEnded) {
           reasoningEnded = true;
           streamController.enqueue({ type: 'reasoning-end', id: reasoningId });
@@ -219,9 +221,13 @@ export function createBackendChatAdapter(
           let buffer = '';
 
           const processLine = (line: string) => {
-            if (!line.startsWith('data: ')) return;
+            if (!line.startsWith('data: ')) {
+              return;
+            }
             const payload = line.slice(6).trim();
-            if (!payload) return;
+            if (!payload) {
+              return;
+            }
             let event: Record<string, unknown>;
             try {
               event = JSON.parse(payload);
@@ -343,10 +349,13 @@ export function createBackendChatAdapter(
 
           try {
             while (true) {
-              // eslint-disable-next-line no-await-in-loop -- sequential streaming read
-              // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential stream: each chunk depends on the previous
+              // Sequential SSE stream: each chunk depends on the previous read, so awaiting
+              // inside the loop is intentional (the reads cannot be parallelized).
+              // eslint-disable-next-line no-await-in-loop
               const { done, value } = await reader.read();
-              if (done) break;
+              if (done) {
+                break;
+              }
 
               buffer += decoder.decode(value, { stream: true });
               const lines = buffer.split('\n');

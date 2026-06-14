@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { ChatMessage, ChatMessageChunk, ChatStreamEnvelope } from '@mui/x-chat/headless';
 import { createBackendChatAdapter } from './studioBackendAdapter';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { StudioController } from '../../store/StudioController';
 import type { StudioAIConfig } from './studioBackendAdapter';
-import type { ChatMessage, ChatMessageChunk, ChatStreamEnvelope } from '@mui/x-chat/headless';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -39,15 +39,17 @@ function makeController(): StudioController {
 }
 
 function makeSseBody(events: object[]): Uint8Array {
-  const text = events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('');
+  const text = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('');
   return new TextEncoder().encode(text);
 }
 
 let messageIndex = 0;
 
 function makeUserMessage(text: string): ChatMessage {
+  const id = `m-${messageIndex}`;
+  messageIndex += 1;
   return {
-    id: `m-${messageIndex++}`,
+    id,
     role: 'user',
     parts: [{ type: 'text', text }],
   };
@@ -69,6 +71,8 @@ async function collectChunks(
   const chunks: (ChatMessageChunk | ChatStreamEnvelope)[] = [];
   let done = false;
   while (!done) {
+    // Sequential stream drain: each read depends on the previous one.
+    // eslint-disable-next-line no-await-in-loop
     const result = await reader.read();
     done = result.done;
     if (result.value) {
@@ -78,7 +82,9 @@ async function collectChunks(
   return chunks;
 }
 
-function isChatMessageChunk(chunk: ChatMessageChunk | ChatStreamEnvelope): chunk is ChatMessageChunk {
+function isChatMessageChunk(
+  chunk: ChatMessageChunk | ChatStreamEnvelope,
+): chunk is ChatMessageChunk {
   return 'type' in chunk;
 }
 
@@ -401,9 +407,9 @@ describe('createBackendChatAdapter: server-emitted reasoning events', () => {
     expect(types).toContain('reasoning-end');
 
     // Verify delta content
-    const deltaChunk = chatChunks.find(
-      (c) => c.type === 'reasoning-delta',
-    ) as { type: 'reasoning-delta'; delta: string } | undefined;
+    const deltaChunk = chatChunks.find((c) => c.type === 'reasoning-delta') as
+      | { type: 'reasoning-delta'; delta: string }
+      | undefined;
     expect(deltaChunk?.delta).toBe('thinking...');
 
     vi.unstubAllGlobals();
@@ -496,16 +502,23 @@ describe('createBackendChatAdapter: stop()', () => {
 
     // Start a stream but don't await it (it will hang)
     adapter.sendMessage(makeSendInput([makeUserMessage('stop me')])).then((stream) => {
-      stream.getReader().read().catch(() => {});
+      stream
+        .getReader()
+        .read()
+        .catch(() => {});
     });
 
     // Give the async start() function time to reach reader.read()
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
 
     adapter.stop?.();
 
     // Give the stop() microtask time to run
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
 
     expect(cancelSpy).toHaveBeenCalled();
     expect(readerRef).not.toBeNull();

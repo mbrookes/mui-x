@@ -96,7 +96,9 @@ export function applyStateMutation(mutation: StateMutation, controller: StudioCo
       const state = controller.getState();
       const { widgets, widgetRows, widgetColSpans, activePageId } = mutation.args;
       const activePage = state.pages[activePageId];
-      if (!activePage) break;
+      if (!activePage) {
+        break;
+      }
       controller.setState({
         ...state,
         widgets,
@@ -111,7 +113,9 @@ export function applyStateMutation(mutation: StateMutation, controller: StudioCo
     case 'renameAIThread': {
       const state = controller.getState();
       const activeThreadId = state.ai?.activeThreadId;
-      if (!activeThreadId || !state.ai) break;
+      if (!activeThreadId || !state.ai) {
+        break;
+      }
       const updatedThreads = (state.ai.threads ?? []).map((t) =>
         t.id === activeThreadId
           ? { ...t, name: mutation.args.name, updatedAt: new Date().toISOString() }

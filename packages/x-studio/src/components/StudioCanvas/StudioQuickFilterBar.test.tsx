@@ -99,7 +99,7 @@ const DATA_SOURCES_WITH_DATE = {
 
 describe('StudioQuickFilterBar', () => {
   // Reset features to default before each test
-  // eslint-disable-next-line vitest/prefer-each -- intentional reset pattern
+
   beforeEach(() => {
     mockFeatures = { ...BASE_FEATURES, quickFilter: false };
   });

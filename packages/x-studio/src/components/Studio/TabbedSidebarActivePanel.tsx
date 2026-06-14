@@ -4,9 +4,8 @@ import * as React from 'react';
 import { Box, Divider, IconButton, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 
-import { DrawerSubheaderContext } from './DrawerPanelContext';
+import { DrawerSubheaderContext, DRAWER_WIDTH } from './DrawerPanelContext';
 import type { DrawerSubheaderContextValue } from './DrawerPanelContext';
-import { DRAWER_WIDTH } from './DrawerPanelContext';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { TabbedSidebarPanel } from './TabbedSidebar';
 

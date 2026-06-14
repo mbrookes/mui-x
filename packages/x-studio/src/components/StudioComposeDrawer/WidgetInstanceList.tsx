@@ -1,14 +1,6 @@
 'use client';
 import * as React from 'react';
-import {
-  Box,
-  Button,
-  Divider,
-  IconButton,
-  Paper,
-  Stack,
-  Typography,
-} from '@mui/material';
+import { Box, Button, Divider, IconButton, Paper, Stack, Typography } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AddIcon from '@mui/icons-material/Add';
 
@@ -21,8 +13,7 @@ import {
   selectWidgets,
   useStudioLocaleText,
 } from '../../context';
-import { getWidgetSubtypeIcon } from '../../internals/widgetUtils';
-import { WIDGET_TYPES } from '../../internals/widgetUtils';
+import { getWidgetSubtypeIcon, WIDGET_TYPES } from '../../internals/widgetUtils';
 import type { StudioWidget, StudioWidgetKind } from '../../models';
 import { useWidgetKindLabels, getBuiltInWidgetKindInfo } from './StudioComposeDrawerLabels';
 

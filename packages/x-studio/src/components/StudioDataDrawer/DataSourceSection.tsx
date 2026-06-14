@@ -9,17 +9,13 @@ import {
   useStudioSelector,
   selectShell,
   useStudioLocaleText,
-} from '../../context/index.ts';
-import type {
-  StudioDataSource,
-  StudioExpressionField,
-  StudioRelationship,
-} from '../../models/index.ts';
+} from '../../context';
+import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../../models';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
-import { enrichRowsWithExpressions, evaluateMeasure } from '../../utils/expressionEvaluator.ts';
-import DataSourcePreviewTooltip from './DataSourcePreviewTooltip.tsx';
-import PhysicalFieldRow from './PhysicalFieldRow.tsx';
-import ExpressionFieldRow from './ExpressionFieldRow.tsx';
+import { enrichRowsWithExpressions, evaluateMeasure } from '../../utils/expressionEvaluator';
+import DataSourcePreviewTooltip from './DataSourcePreviewTooltip';
+import PhysicalFieldRow from './PhysicalFieldRow';
+import ExpressionFieldRow from './ExpressionFieldRow';
 
 export function DataSourceSection(props: {
   source: StudioDataSource;

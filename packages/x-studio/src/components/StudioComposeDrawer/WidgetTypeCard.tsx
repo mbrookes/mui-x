@@ -47,6 +47,15 @@ export function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
     renderPreview,
   });
 
+  let cursor: 'grabbing' | 'default' | 'not-allowed';
+  if (!canAdd) {
+    cursor = 'not-allowed';
+  } else if (isDragging) {
+    cursor = 'grabbing';
+  } else {
+    cursor = 'default';
+  }
+
   return (
     <Paper
       ref={ref}
@@ -72,7 +81,7 @@ export function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
         display: 'flex',
         alignItems: 'center',
         gap: 1.5,
-        cursor: canAdd ? (isDragging ? 'grabbing' : 'default') : 'not-allowed',
+        cursor,
         opacity: canAdd ? 1 : 0.5,
         transition: 'border-color 0.15s, background-color 0.15s',
         '&:hover': canAdd ? { borderColor: 'primary.main', bgcolor: 'action.hover' } : {},

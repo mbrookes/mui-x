@@ -38,7 +38,7 @@ function buildCumSpans(
 /** Mirrors the j-finder loop in StudioCanvas.tsx */
 function findWidgetIndex(col: number, cumSpans: number[]): number {
   let j = 0;
-  for (let k = 1; k < cumSpans.length; k++) {
+  for (let k = 1; k < cumSpans.length; k += 1) {
     if (cumSpans[k] <= col) {
       j = k;
     }

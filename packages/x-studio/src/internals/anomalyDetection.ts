@@ -28,7 +28,7 @@ export function detectAnomaliesIQR(values: number[]): Set<number> {
   const lower = q1 - 1.5 * iqr;
   const upper = q3 + 1.5 * iqr;
   const result = new Set<number>();
-  for (let i = 0; i < values.length; i++) {
+  for (let i = 0; i < values.length; i += 1) {
     if (values[i] < lower || values[i] > upper) {
       result.add(i);
     }
@@ -52,7 +52,7 @@ export function detectAnomaliesZScore(values: number[], threshold = 2.5): Set<nu
     return new Set();
   }
   const result = new Set<number>();
-  for (let i = 0; i < values.length; i++) {
+  for (let i = 0; i < values.length; i += 1) {
     if (Math.abs((values[i] - mean) / std) > threshold) {
       result.add(i);
     }
@@ -166,11 +166,12 @@ export function detectWidgetAnomalies(
     seenValues.add(dedupeKey);
 
     annotations.push({
-      id: `anomaly-${widget.id}-${counter++}`,
+      id: `anomaly-${widget.id}-${counter}`,
       axis: 'x',
       value,
       label: '⚠',
     });
+    counter += 1;
   }
   return annotations;
 }

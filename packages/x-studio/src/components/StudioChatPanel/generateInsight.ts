@@ -131,7 +131,7 @@ function aggregateRows(
       } else {
         const nums = bucket
           .map((r) => r[id])
-          .filter((v): v is number => typeof v === 'number' && isFinite(v));
+          .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
         if (nums.length === 0) {
           row[id] = null;
         } else if (aggFn === 'sum') {
@@ -171,7 +171,7 @@ function buildNumericStats(
     }
     const values = rows
       .map((r) => r[id])
-      .filter((v): v is number => typeof v === 'number' && isFinite(v));
+      .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
     if (values.length === 0) {
       continue;
     }
@@ -468,8 +468,8 @@ export function buildCorrelationSummary(widget: StudioWidget, state: StudioState
 
   // Compute pairwise Pearson r
   const lines: string[] = ['Pairwise correlations (Pearson r):'];
-  for (let i = 0; i < numericFields.length; i++) {
-    for (let j = i + 1; j < numericFields.length; j++) {
+  for (let i = 0; i < numericFields.length; i += 1) {
+    for (let j = i + 1; j < numericFields.length; j += 1) {
       const fa = numericFields[i];
       const fb = numericFields[j];
       const r = pearsonCorrelation(valueArrays[fa.id], valueArrays[fb.id]);
@@ -551,14 +551,15 @@ export async function generateDashboardSummary(
   // Build a compact summary of all widgets on the active page
   const page = state.pages[state.dashboard.activePageId];
   const widgetIds = (page?.widgetRows ?? []).flat();
-  const widgetSummaries = widgetIds.flatMap((id: string) => {
-    const w = state.widgets[id];
-    if (!w) {
-      return [];
-    }
-    const dataSummary = buildWidgetDataSummary(w, state, { sampling: 'stride' });
-    return [`### ${w.title} (${w.kind})\n${dataSummary || '(no data)'}`];
-  })
+  const widgetSummaries = widgetIds
+    .flatMap((id: string) => {
+      const w = state.widgets[id];
+      if (!w) {
+        return [];
+      }
+      const dataSummary = buildWidgetDataSummary(w, state, { sampling: 'stride' });
+      return [`### ${w.title} (${w.kind})\n${dataSummary || '(no data)'}`];
+    })
     .join('\n\n');
 
   const text = await callInsightEndpoint(

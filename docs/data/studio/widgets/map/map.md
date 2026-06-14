@@ -106,11 +106,15 @@ const widget = {
 
 ## Cross-filtering
 
-:::warning
-Click-to-cross-filter on a map region is **not yet available**. The underlying unstable
-premium Map API does not forward a per-shape click, so a click on a region does not emit a
-cross-filter to other widgets. The `mapCrossFilterEmit` config field exists but is
-currently a no-op. The map can still respond to cross-filters emitted by other widgets.
+Enable `mapCrossFilterEmit` to make clicking a region emit a cross-filter to the other
+widgets on the page (the clicked region's value is applied as the filter). The map also
+responds to cross-filters emitted by other widgets.
+
+:::info
+The shipped premium `MapShapePlot` does not forward a per-shape click, so the map widget
+renders its regions through a thin internal plot (`StudioMapShapePlot`) built on public
+charts hooks to attach the click handler. This relies on the premium Map's `Unstable_`
+surface — see the note above about tracking it across upgrades.
 :::
 
 ## Feature flag
@@ -125,4 +129,4 @@ The flag defaults to `true`.
 ## See also
 
 - [Relationships](/x/react-studio/data/relationships/) — resolve country and value fields from related sources
-- [Cross-filters](/x/react-studio/features/cross-filters/) — link widgets so they filter each other (note the map's current limitation above)
+- [Cross-filters](/x/react-studio/features/cross-filters/) — link widgets so they filter each other

@@ -12,8 +12,9 @@ description: The KPI widget displays a single aggregated metric with an optional
 ## Overview
 
 `StudioKpiWidget` is designed to surface a single headline number — revenue, user count,
-conversion rate, and so on. It reads one numeric field from a data source, aggregates
-it, and optionally plots a sparkline using a secondary time-series field.
+conversion rate, and so on. It typically reads one numeric field from a data source,
+aggregates it, and optionally plots a sparkline using a secondary time-series field.
+A KPI can also tally rows with no value field at all — see [Count without a value field](#count-without-a-value-field).
 
 ## Configuration
 
@@ -54,6 +55,28 @@ const kpiConfig: StudioKpiConfig = {
 ```
 
 Rendered: **$1.4M** with the label "Total Revenue".
+
+## Count without a value field
+
+A KPI does not need a numeric value field. Set `kpiAggregation: 'count'` and leave
+`kpiValueField` empty to render a count of the matching rows — useful for headline tallies
+like total orders or active customers, including data sources that expose no numeric field.
+
+```ts
+const widget = {
+  kind: 'kpi',
+  title: 'Total Orders',
+  config: {
+    kpiAggregation: 'count', // tally rows
+    // no kpiValueField
+  },
+};
+```
+
+In the compose drawer, clearing the value field automatically switches the aggregation to
+**Count** — the only aggregation that operates without a field — so the fieldless count is
+an explicit, reproducible state rather than a misconfiguration. All active filters still
+apply before the rows are counted.
 
 ## Prefix and suffix
 

@@ -1,7 +1,8 @@
 'use client';
 import { ChartsTooltipContainer } from '@mui/x-charts/ChartsTooltip';
-export { StudioMapTooltipContext } from './StudioMapTooltipContext';
 import { StudioMapTooltipContent } from './StudioMapTooltipContent';
+
+export { StudioMapTooltipContext } from './StudioMapTooltipContext';
 
 // ─── Slot component ───────────────────────────────────────────────────────────
 

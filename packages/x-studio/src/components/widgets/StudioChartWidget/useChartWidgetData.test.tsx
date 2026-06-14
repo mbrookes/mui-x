@@ -9,6 +9,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@mui/internal-test-utils';
 import type { StudioDataSource, StudioState, StudioWidget } from '../../../models';
 import { studioRequestCache } from '../../../internals/StudioRequestCache';
+// Static import is safe here: vitest hoists vi.mock() above all imports, and the
+// mock factory reads `mockState` lazily via closure (resolved at selector-call time).
+// Matches the sibling StudioChartWidget.test.tsx; avoids the per-test dynamic import
+// whose heavy module graph could exceed the hook timeout under parallel load.
+import { useChartWidgetData } from './useChartWidgetData';
 
 let mockState: StudioState;
 
@@ -101,11 +106,8 @@ function blendedWidget(): StudioWidget {
   };
 }
 
-let useChartWidgetData: (typeof import('./useChartWidgetData'))['useChartWidgetData'];
-
-beforeEach(async () => {
+beforeEach(() => {
   studioRequestCache.clear();
-  ({ useChartWidgetData } = await import('./useChartWidgetData'));
   mockState = createState({
     widgets: { 'chart-blend': blendedWidget() },
     dataSources: { orders: ordersSource, products: productsSource },

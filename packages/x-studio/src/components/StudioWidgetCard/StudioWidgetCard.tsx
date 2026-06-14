@@ -72,6 +72,7 @@ import {
   type CanvasWidgetDragItem,
 } from '../StudioCanvas/studioWidgetDndTypes';
 import { useStudioDraggable } from '../StudioCanvas/useStudioDraggable';
+import { createClonePreview } from '../StudioCanvas/createClonePreview';
 
 export interface StudioWidgetCardProps {
   widgetId: string;
@@ -360,10 +361,13 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     [widgetId, activePageId],
   );
 
+  const renderPreview = React.useMemo(() => createClonePreview(ref), []);
+
   useStudioDraggable({
     ref,
     canDrag: mode === 'edit',
     getData,
+    renderPreview,
     onDragStart: () => {
       setIsDragging(true);
       document.body.dataset.studioDraggingWidgetId = widgetId;

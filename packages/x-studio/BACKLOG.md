@@ -831,7 +831,9 @@ BL-185: Decide on the licensing/stability implications introduced by BL-182. The
 
 BL-190: Clear the ~68 pre-existing eslint errors in x-studio — mostly legitimate German/French curly quotes (`„…"`) in the locale files tripping `mui/straight-quotes`, plus JSDoc/react-hooks-deps debt in `StudioUIConfigContext.ts`. The package is not lint-clean independent of recent changes; decide per-rule whether to fix or scope-disable (e.g. allow non-ASCII quotes in locale files).
 
-BL-191: Guideline — keep custom x-studio charts **app-level**, not patched into the shipping `x-charts*` packages. Authoring the custom `ChoroplethChart` directly into `x-charts-pro` is what made BL-182 a ~75-file, multi-hour rebase removal and broke the charts build against master. Future bespoke charts for x-studio should live in the package/app or follow a clear upstream-contribution track.
+✅ BL-191: Guideline — keep custom x-studio charts **app-level**, not patched into the shipping `x-charts*` packages. Authoring the custom `ChoroplethChart` directly into `x-charts-pro` is what made BL-182 a ~75-file, multi-hour rebase removal and broke the charts build against master. Future bespoke charts for x-studio should live in the package/app or follow a clear upstream-contribution track.
+
+**Done** (this commit): added an "x-studio custom charts" section to root `AGENTS.md` (the rule, the BL-182 cost, and the two preferred paths — implement as an x-studio widget composing `@mui/x-charts*`, or contribute upstream to `x-charts*`), and a one-line pointer under "Adding a new widget type" in `CLAUDE.md` so a contributor authoring a chart sees it before reaching for an `x-charts*` patch.
 
 BL-192: Docs (BL-68 follow-up) — document the new public surfaces from this batch: the `fullBleed` flag on `StudioCustomWidgetDef`, the native-bubble scatter (`sizeValue`/`zAxis`) migration, first-class fieldless KPI count, and calc-field-in-the-field-select-dropdown. Update the x-studio map docs to describe the premium `Map` implementation (the prose is still accurate but no longer matches the impl/tier).
 

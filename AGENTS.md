@@ -115,6 +115,17 @@ Run `pnpm extract-error-codes` to update `docs/public/static/error-codes.json`.
 
 **Important:** If the update created a new error code, but the new and original message have the same number of arguments and semantics haven't changed, update the original error in `error-codes.json` instead of creating a new code.
 
+## x-studio custom charts
+
+Keep bespoke x-studio charts **app-level** — build them as a custom widget in `packages/x-studio` (or the consuming app), composing the public `@mui/x-charts*` APIs. Do **not** patch a new chart type directly into the shipping `x-charts*` packages.
+
+Why: authoring the custom `ChoroplethChart` inside `@mui/x-charts-pro` is what made BL-182 a ~75-file, multi-hour rebase removal and broke the charts build against master. A studio-only chart hidden inside a published package collides with upstream work on every rebase.
+
+Preferred paths, in order:
+
+1. Implement the chart as an x-studio widget (built-in or `customWidgets`) that composes existing `@mui/x-charts*` primitives.
+2. If the capability belongs in Charts itself, contribute it upstream through the normal `x-charts*` review track — not as a studio-private patch.
+
 ## Dependencies
 
 - Examples (`examples/`) are standalone projects — never use `catalog:` for their dependencies. Always use explicit version ranges.

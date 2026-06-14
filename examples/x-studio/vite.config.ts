@@ -59,6 +59,14 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/x-charts/src'),
       },
       {
+        find: /^@mui\/x-charts-premium\/(.+)$/,
+        replacement: path.resolve(__dirname, '../../packages/x-charts-premium/src/$1'),
+      },
+      {
+        find: '@mui/x-charts-premium',
+        replacement: path.resolve(__dirname, '../../packages/x-charts-premium/src'),
+      },
+      {
         find: /^@mui\/x-charts-pro\/(.+)$/,
         replacement: path.resolve(__dirname, '../../packages/x-charts-pro/src/$1'),
       },

@@ -35,14 +35,27 @@ export function StudioMapTooltipContent() {
     return null;
   }
 
-  const { value: point, formattedValue } = tooltipData;
+  const { value: point, formattedValue, color } = tooltipData;
   // The mapShape point exposes `name` (the feature id we joined on) and an optional `label`.
   const regionName = point.label ?? featureIdToLabel(point.name);
 
   return (
     <ChartsTooltipPaper>
       <ChartsTooltipTable>
-        <MapTooltipRegionLabel>{regionName}</MapTooltipRegionLabel>
+        <MapTooltipRegionLabel>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <div
+              style={{
+                width: 11,
+                height: 11,
+                borderRadius: 2,
+                flexShrink: 0,
+                backgroundColor: color,
+              }}
+            />
+            {regionName}
+          </span>
+        </MapTooltipRegionLabel>
         <tbody>
           <ChartsTooltipRow>
             {valueFieldLabel && (

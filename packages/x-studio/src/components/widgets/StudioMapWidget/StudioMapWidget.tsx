@@ -21,6 +21,7 @@ import type { StudioMapGeographyDefinition } from './geographyLoaders';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import { StudioMapTooltip, StudioMapTooltipContext } from './StudioMapTooltip';
+import { formatFieldValue } from '../../../internals/numberFormat';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -113,13 +114,42 @@ export function StudioMapWidget({
   const legendZeroMin = config.mapLegendZeroMin ?? false;
   const crossFilterEmit = config.mapCrossFilterEmit ?? false;
 
+  const hideLegend = legendPosition === 'hidden';
+  const legendDirection: 'horizontal' | 'vertical' =
+    legendPosition === 'left' || legendPosition === 'right' ? 'vertical' : 'horizontal';
+  // Flex direction for the chart+legend container. Chart is always first in DOM;
+  // *-reverse directions visually flip it to place the legend on the correct side.
+  const legendFlexDirection = React.useMemo(() => {
+    switch (legendPosition) {
+      case 'top':
+        return 'column-reverse' as const;
+      case 'left':
+        return 'row-reverse' as const;
+      case 'right':
+        return 'row' as const;
+      default:
+        return 'column' as const;
+    }
+  }, [legendPosition]);
+
+  // Look up the full field definition for the value field (format, currencyCode, precision).
+  const fieldDef = React.useMemo(
+    () => dataSource.fields.find((f) => f.id === valueField),
+    [dataSource.fields, valueField],
+  );
+
+  const formatMapValue = React.useCallback(
+    (v: number): string => formatFieldValue(v, fieldDef?.type === 'number' ? fieldDef : undefined),
+    [fieldDef],
+  );
+
   // Derive a human-readable label for the value field to display in the tooltip.
   // Prefer the field's declared label; fall back to transforming the field ID.
   const valueFieldLabel = React.useMemo(() => {
     if (!valueField) {
       return null;
     }
-    const declared = dataSource.fields.find((f) => f.id === valueField)?.label;
+    const declared = fieldDef?.label;
     if (declared) {
       return declared;
     }
@@ -127,7 +157,7 @@ export function StudioMapWidget({
       .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase → words
       .replace(/[_-]+/g, ' ') // snake_case / kebab-case → spaces
       .replace(/\b\w/g, (c) => c.toUpperCase()); // Title Case
-  }, [valueField, dataSource.fields]);
+  }, [valueField, fieldDef]);
 
   // Merge built-in definitions (from context) with any prop-level overrides
   const contextGeographies = useStudioGeographies();
@@ -305,13 +335,6 @@ export function StudioMapWidget({
 
   const [colorStart, colorEnd] = COLOR_RAMPS[colorScheme] ?? COLOR_RAMPS.blues;
 
-  const hideLegend = legendPosition === 'hidden';
-  // The official unstable Map legend is positioned in the document flow rather than
-  // anchored to a side. We preserve the orientation intent from `legendPosition`:
-  // left/right render the gradient vertically, top/bottom horizontally.
-  const legendDirection: 'horizontal' | 'vertical' =
-    legendPosition === 'left' || legendPosition === 'right' ? 'vertical' : 'horizontal';
-
   // The official premium Map takes a d3 projection name string.
   let projectionName: 'albersUsa' | 'mercator' | 'naturalEarth1';
   if (mapGeography === 'usa') {
@@ -342,7 +365,7 @@ export function StudioMapWidget({
         <ChartsGeoDataProviderPremium
           geoData={geography}
           projection={projectionName}
-          margin={{ top: 8, bottom: 32, left: 8, right: 8 }}
+          margin={{ top: 16, bottom: 8, left: 8, right: 8 }}
           series={[
             {
               type: 'mapShape',
@@ -353,9 +376,7 @@ export function StudioMapWidget({
                 colorValue: value,
               })),
               valueFormatter: (point) =>
-                point.colorValue == null
-                  ? ''
-                  : point.colorValue.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+                point.colorValue == null ? '' : formatMapValue(point.colorValue),
             },
           ]}
           zAxis={[
@@ -369,11 +390,35 @@ export function StudioMapWidget({
             },
           ]}
         >
-          <ChartsSurface>
-            <GeoDataPlot fill="#f5f5f5" stroke="#bdbdbd" />
-            <MapShapePlot stroke="#fff" strokeWidth={0.3} />
-          </ChartsSurface>
-          {!hideLegend && <ContinuousColorLegend axisDirection="z" direction={legendDirection} />}
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: legendFlexDirection,
+              width: '100%',
+              height: '100%',
+            }}
+          >
+            <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, height: '100%' }}>
+              <ChartsSurface>
+                <GeoDataPlot fill="#f5f5f5" stroke="#bdbdbd" />
+                <MapShapePlot stroke="#fff" strokeWidth={0.3} />
+              </ChartsSurface>
+            </Box>
+            {!hideLegend && (
+              <ContinuousColorLegend
+                axisDirection="z"
+                direction={legendDirection}
+                labelPosition="extremes"
+                minLabel={({ value }) => formatMapValue(value as number)}
+                maxLabel={({ value }) => formatMapValue(value as number)}
+                sx={
+                  legendDirection === 'horizontal'
+                    ? { alignSelf: 'center', width: 'calc(100% - 16px)' }
+                    : { alignSelf: 'center', height: 'calc(100% - 16px)' }
+                }
+              />
+            )}
+          </Box>
           <StudioMapTooltip />
         </ChartsGeoDataProviderPremium>
       </Box>

@@ -1167,9 +1167,10 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Contacts by Department',
       sourceId: CRM_CONTACTS_SOURCE_ID,
       config: {
+        // BL-186: fieldless row count — CRM Contacts has no visible numeric field, so this
+        // counts contacts per department with no Y field (reproducible from the setup panel).
         chartType: 'bar',
         xField: 'department',
-        yField: 'id',
         yAggregation: 'count',
         barLayout: 'horizontal' as const,
         chartSortBy: 'value' as const,
@@ -1182,9 +1183,9 @@ export const INITIAL_STATE: Partial<StudioState> = {
       title: 'Contacts by Role',
       sourceId: CRM_CONTACTS_SOURCE_ID,
       config: {
+        // BL-186: fieldless row count — counts contacts per role with no Y field.
         chartType: 'bar',
         xField: 'role',
-        yField: 'id',
         yAggregation: 'count',
         barLayout: 'horizontal' as const,
         chartSortBy: 'value' as const,

@@ -666,6 +666,7 @@ export interface StudioLocaleText {
 
   // ── Data source field select ──────────────────────────────────────────────
   dataSourceClearFieldAriaLabel: string;
+  dataSourceAddCalculatedField: string;
 
   // ── Widget filter row ─────────────────────────────────────────────────────
   widgetFilterFieldHelperText: string;
@@ -1528,6 +1529,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Data source field select
   dataSourceClearFieldAriaLabel: 'Clear field',
+  dataSourceAddCalculatedField: 'Add calculated field…',
 
   // Widget filter row
   widgetFilterFieldHelperText: 'Field this filter applies to',

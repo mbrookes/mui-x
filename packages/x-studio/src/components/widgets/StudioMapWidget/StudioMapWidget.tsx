@@ -1,8 +1,11 @@
 'use client';
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
-import { ChoroplethChart } from '@mui/x-charts-pro/ChoroplethChart';
-import type { ExtendedFeatureCollection } from '@mui/x-charts-pro/ChoroplethChart';
+import { Unstable_ChartsGeoDataProviderPremium as ChartsGeoDataProviderPremium } from '@mui/x-charts-premium/ChartsGeoDataProviderPremium';
+import { GeoDataPlot, MapShapePlot } from '@mui/x-charts-premium/Map';
+import { ChartsSurface } from '@mui/x-charts/ChartsSurface';
+import { ContinuousColorLegend } from '@mui/x-charts-premium/ChartsLegend';
+import type { ExtendedFeatureCollection } from '@mui/x-charts-vendor/d3-geo';
 import type { StudioDataSource, StudioWidget } from '../../../models';
 import {
   useStudioController,
@@ -303,53 +306,58 @@ export function StudioMapWidget({
   const [colorStart, colorEnd] = COLOR_RAMPS[colorScheme] ?? COLOR_RAMPS.blues;
 
   const hideLegend = legendPosition === 'hidden';
-  const legendSlotProps =
-    legendPosition === 'left' || legendPosition === 'right'
-      ? {
-          legend: {
-            position: {
-              vertical: 'middle' as const,
-              horizontal: (legendPosition === 'left' ? 'start' : 'end') as 'start' | 'end',
-            },
-            direction: 'vertical' as const,
-          },
-        }
-      : {
-          legend: {
-            position: {
-              vertical: legendPosition as 'top' | 'bottom',
-              horizontal: 'center' as const,
-            },
-          },
-        };
+  // The official unstable Map legend is positioned in the document flow rather than
+  // anchored to a side. We preserve the orientation intent from `legendPosition`:
+  // left/right render the gradient vertically, top/bottom horizontally.
+  const legendDirection: 'horizontal' | 'vertical' =
+    legendPosition === 'left' || legendPosition === 'right' ? 'vertical' : 'horizontal';
 
-  let projectionType: 'geoAlbersUsa' | 'geoMercator' | 'geoNaturalEarth1';
+  // The official premium Map takes a d3 projection name string.
+  let projectionName: 'albersUsa' | 'mercator' | 'naturalEarth1';
   if (mapGeography === 'usa') {
-    projectionType = 'geoAlbersUsa';
+    projectionName = 'albersUsa';
   } else if (mapGeography === 'europe') {
-    projectionType = 'geoMercator';
+    projectionName = 'mercator';
   } else {
-    projectionType = 'geoNaturalEarth1';
+    projectionName = 'naturalEarth1';
   }
-  const projection = { type: projectionType };
+
+  // The geography is still loading: render nothing until it resolves.
+  // (The provider needs `geoData` to project; an empty collection would render blank.)
+  if (!geography) {
+    return <Box sx={{ width: '100%', height: '100%', minHeight: 200 }} />;
+  }
+
+  // BL-182 limitation: cross-filter-on-map-click is not supported by the official
+  // unstable Map API yet — `MapShapePlot` does not forward a per-shape item click in
+  // this version. The cross-filter config (`crossFilterEmit`, `handleFeatureClick`) is
+  // kept in place but left unwired; revisit once the Map exposes an item-click handler.
+  void handleFeatureClick;
 
   return (
     <StudioMapTooltipContext.Provider value={tooltipContextValue}>
+      {/* The provider fills the parent box: with no explicit `height` it adopts the
+          parent element's height (see ChartsGeoDataProviderPremium `height` prop docs). */}
       <Box sx={{ width: '100%', height: '100%', minHeight: 200 }}>
-        <ChoroplethChart
-          geography={geography ?? { type: 'FeatureCollection', features: [] }}
+        <ChartsGeoDataProviderPremium
+          geoData={geography}
+          projection={projectionName}
+          margin={{ top: 8, bottom: 32, left: 8, right: 8 }}
           series={[
             {
+              type: 'mapShape',
+              label: valueFieldLabel ?? '',
               data: Array.from(regionData.entries()).map(([featureId, value]) => ({
-                featureId,
-                value,
+                name: featureId,
                 label: featureIdToLabel(featureId),
+                colorValue: value,
               })),
-              valueFormatter: (v: number | null) =>
-                v == null ? '' : v.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+              valueFormatter: (point) =>
+                point.colorValue == null
+                  ? ''
+                  : point.colorValue.toLocaleString(undefined, { maximumFractionDigits: 2 }),
             },
           ]}
-          projection={projection}
           zAxis={[
             {
               colorMap: {
@@ -360,14 +368,14 @@ export function StudioMapWidget({
               },
             },
           ]}
-          hideLegend={hideLegend}
-          slots={{ tooltip: StudioMapTooltip }}
-          slotProps={hideLegend ? undefined : legendSlotProps}
-          onItemClick={crossFilterEmit ? handleFeatureClick : undefined}
-          loading={isLoading || !geography}
-          margin={{ top: 8, bottom: 32, left: 8, right: 8 }}
-          sx={{ width: '100%', height: '100%', ...(crossFilterEmit && { cursor: 'default' }) }}
-        />
+        >
+          <ChartsSurface>
+            <GeoDataPlot fill="#f5f5f5" stroke="#bdbdbd" />
+            <MapShapePlot stroke="#fff" strokeWidth={0.3} />
+          </ChartsSurface>
+          {!hideLegend && <ContinuousColorLegend axisDirection="z" direction={legendDirection} />}
+          <StudioMapTooltip />
+        </ChartsGeoDataProviderPremium>
       </Box>
     </StudioMapTooltipContext.Provider>
   );

@@ -1,5 +1,10 @@
 # Accessibility Review — `@mui/x-studio`
 
+> **Remediation status (updated):** Most findings below have since been fixed on
+> the `x-studio` branch. Each fix is a separate commit and is covered by
+> `tsc` + `eslint` + the unit suite. Outstanding items are listed at the end
+> under **Remediation status**.
+
 **Scope:** the entire `packages/x-studio` package on the `x-studio` branch
 (commit `17ad4609`), 164 rendering components across the app shell, canvas,
 compose/data/filters/expression drawers, chat/insight panels, widget cards, and
@@ -31,7 +36,7 @@ gaps cluster into a small number of **systemic, repeated patterns** rather than
 scattered one-offs. Fixing the patterns fixes most of the package.
 
 | Severity | Count (approx., deduped) |
-| --- | --- |
+| :--- | :--- |
 | Critical | 9 |
 | Serious | 18 |
 | Moderate | 22 |
@@ -487,3 +492,55 @@ mirror in the others.
 7. **Tab/table semantics** (S2, S3, S18), **target sizes** (M21), then run a
    **runtime audit** (axe-core + screen reader) to close all "needs verification"
    items, especially contrast (M22, m5, m11) and `@mui/x-chat` live regions (M4).
+
+---
+
+## Remediation status
+
+### Fixed (committed on `x-studio`)
+
+- **Disclosure widgets (S1):** `CollapsibleSection`, `CollapsibleFeatureSection`,
+  `FilterCard` are now keyboard-operable `<button>` disclosures with
+  `aria-expanded`/`aria-controls` and focus rings.
+- **Unlabeled form controls (C9, S9, S10, S11, M12, M16):** accessible names
+  added across the expression builder, filters drawer, and compose drawer
+  (selects, switches, toggle groups, number/value fields) via localizable
+  tokens.
+- **Custom controls → native buttons (S5, S6, S7, S8, S13, M15):** filter-widget
+  clear/select-all/clear-all/exclude controls, the quick-filter bar trigger, the
+  data-source "view source" link, the widget-card selection state
+  (`aria-current`), and the ChartTypePicker Space key.
+- **Live regions & non-color cues (S15, M2, M4, M5, M6, M7, M8, M9, M10, M13):**
+  KPI trend sentiment (color-independent), `FieldTypeIcon` name, empty-canvas /
+  "Thinking…" status regions, reasoning disclosure state, thread-switcher
+  semantics, clipboard rejection handling, voice-input `aria-pressed`, insight
+  switcher `aria-pressed`, and expression preview/validation live regions.
+- **Data-viz text alternatives (C1, C2, C3-text, C5, S16, S17-summary, S18):**
+  `role="img"` + data summaries on funnel/gantt/heatmap/sankey/map/KPI charts,
+  a named `role="group"` + per-node names on the lineage graph, and
+  `scope`/`<th>` header association in the pivot table.
+- **Keyboard for pointer-only actions (C4, C6, C7, C8):** lineage edges are
+  focusable buttons; the column resize handle is an APG window-splitter;
+  canvas widgets have up/down/left/right reorder controls (tested
+  `moveWidgetInLayout` helper); grid columns have move-up/down buttons.
+
+### Outstanding (recommended follow-ups)
+
+- **C3 — per-region keyboard selection on the choropleth map.** The map already
+  exposes a text-alternative summary, but selecting an individual region for
+  cross-filtering is still pointer-only. Needs either the external premium
+  `MapShape` to forward focus/keyboard, or an adjacent keyboard-accessible
+  region list/table.
+- **M1 — shell-level live region** for drawer open/close, tab switch, resize and
+  drop results (per-component status regions were added where self-contained).
+- **M3 — consistent no-data/error `role="status"`** across the remaining chart
+  placeholders (the shared overlays already announce).
+- **M11 — slider `getAriaValueText`** so date sliders announce formatted values.
+- **M14 — accessible name on the map color legend.**
+- **M21 — target sizes (≥24×24px)** on the remaining small icon buttons.
+- **m1 — landmarks/headings** in the app shell; **m7 — localize** the remaining
+  hardcoded English strings (including the chart `aria-label` summaries added
+  here).
+- **Runtime audit** (axe-core + screen reader) to close all "needs verification"
+  items, especially contrast (M22, m5, m11) and the `@mui/x-chat` streaming
+  live region (M4).

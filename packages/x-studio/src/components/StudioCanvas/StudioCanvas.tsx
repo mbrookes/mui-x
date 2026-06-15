@@ -14,7 +14,8 @@ import {
   selectDataSources,
   useCustomWidgetMap,
 } from '../../context';
-import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
+import { useStudioFeatures, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
+import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { StudioWidgetCard } from '../StudioWidgetCard';
 import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../../internals/widgetUtils';
@@ -61,6 +62,8 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   const { slotProps, stackBreakpoint: stackBreakpointProp = 600, sx } = props;
   const mode = useStudioSelector(selectMode);
   const features = useStudioFeatures();
+  const localeText = useStudioLocaleText();
+  const announce = useStudioAnnounce();
   // Defer page transitions so the browser stays responsive while new page widgets mount.
   // useSyncExternalStore updates are synchronous, so startTransition alone doesn't help;
   // useDeferredValue explicitly schedules the expensive new-page render at low priority.
@@ -190,6 +193,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           },
           shell: { ...state.shell, selectedWidgetId: newWidget.id },
         });
+        announce(localeText.canvasWidgetAddedAnnouncement);
       } else if (data.type === DRAG_TYPE_CANVAS_WIDGET && data.widgetId) {
         const widgetId: string = data.widgetId;
         const sourcePageId: string | undefined = data.sourcePageId;
@@ -260,9 +264,10 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           },
           shell: { ...state.shell, selectedWidgetId: widgetId },
         });
+        announce(localeText.canvasWidgetMovedAnnouncement);
       }
     },
-    [controller],
+    [controller, announce, localeText],
   );
 
   if (!widgetRows || widgetRows.length === 0) {

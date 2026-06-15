@@ -148,16 +148,9 @@ not emit cross-filter events when clicked.
 ## Target line
 
 Enable `kpiTarget` to draw a horizontal reference line on the sparkline at a target
-value. Set `kpiTargetRef` to a `StudioMetricRef`, the same reference type used for
-dynamic filter thresholds.
+value. Set `kpiTargetValue` to a fixed number:
 
 ```ts
-interface StudioMetricRef {
-  sourceId: string;   // ID of the data source containing the metric
-  fieldId: string;    // field to read the value from
-  rowId?: string;     // optional: specific row ID (for example, a business metric row)
-}
-
 {
   kind: 'kpi',
   config: {
@@ -165,14 +158,13 @@ interface StudioMetricRef {
     kpiAggregation: 'sum',
     kpiSparkline: true,
     kpiTarget: true,
-    kpiTargetRef: {
-      sourceId: 'businessMetrics',
-      fieldId: 'value',
-      rowId: 'BM-REVENUE-TARGET',
-    },
+    kpiTargetValue: 500000,
   },
 }
 ```
+
+When the sparkline type is `'gauge'`, the target value also sets the gauge maximum
+(the arc represents 0 → target, with the needle at the current value).
 
 When both `kpiTrend` and `kpiTarget` are enabled, the trend badge compares the
 headline value against the target instead of the previous period. The reference line

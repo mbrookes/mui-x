@@ -50,12 +50,11 @@ x-studio is an embedded analytics dashboard builder. Understanding the layered a
 
 ### Data pipeline
 
-`StudioPipeline` (`src/internals/StudioPipeline.ts`) processes raw rows through four ordered layers:
+`StudioPipeline` (`src/internals/StudioPipeline.ts`) processes raw rows through three ordered layers:
 
-1. **L1** — resolve metric-ref filter values
-2. **L2** — enrich rows with expression-column (computed field) values
-3. **L3** — apply scoped filters (page / widget / cross-filter / interactive)
-4. **L4** — re-anchor to chart aggregation grain (for multi-source chart fields)
+1. **L2** — enrich rows with expression-column (computed field) values
+2. **L3** — apply scoped filters (page / widget / cross-filter / interactive)
+3. **L4** — re-anchor to chart aggregation grain (for multi-source chart fields)
 
 Widget components call `resolveWidgetRows()` then apply widget-specific aggregation themselves.
 

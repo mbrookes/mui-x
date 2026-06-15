@@ -146,7 +146,7 @@ const pipeline = createStudioPipeline(controller.getState());
 ### `pipeline.resolveWidgetRows(widgetId, sourceId, rows, pageId?)`
 
 Equivalent to the sync path of `useWidgetRows` (L1–L3).
-Applies metric-ref resolution, enrichment, and all scoped filters for a given widget.
+Applies enrichment and all scoped filters for a given widget.
 Rank-mode widget filters are excluded — apply them after aggregation if needed.
 
 ```ts

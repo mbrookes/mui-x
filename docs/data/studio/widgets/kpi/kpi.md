@@ -180,23 +180,23 @@ The trend badge is displayed as a pill chip: a semi-transparent background in th
 
 ## Gauge sparkline
 
-Set `sparkline.type` to `'gauge'` to render the KPI sparkline as a radial gauge instead of a line/area chart:
+Set `kpiSparklinePlotType` to `'gauge'` to render the KPI sparkline as a radial gauge instead of a line/area chart:
 
 ```ts
-const kpiConfig: StudioKpiConfig = {
-  dataSourceId: 'revenue',
-  valueField: 'amount',
-  aggregation: 'sum',
-  sparkline: {
-    enabled: true,
-    type: 'gauge',
-    min: 0,
-    max: 1000000,
+{
+  kind: 'kpi',
+  config: {
+    kpiValueField: 'revenue',
+    kpiAggregation: 'sum',
+    kpiSparkline: true,
+    kpiSparklinePlotType: 'gauge',
+    kpiTarget: true,
+    kpiTargetValue: 1000000,
   },
-};
+}
 ```
 
-The gauge renders using `@mui/x-charts` `<Gauge>` with the current aggregated value mapped between `min` and `max`.
+The gauge renders using `@mui/x-charts` `<Gauge>` with the current aggregated value mapped between 0 and `kpiTargetValue`. The target value doubles as the gauge maximum — when no target is set, the gauge max defaults to 1.
 
 ## Rendering with `StudioKpiWidget`
 

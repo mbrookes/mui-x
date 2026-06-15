@@ -4,15 +4,14 @@ packages:
   - test
   - test/*
   - bundle-size
-  # The primary x-studio example depends on the unpublished `@mui/x-studio` via
-  # `workspace:*`, so it can only resolve as a workspace member. Membership wires
-  # its `typescript` script into the `typescript:ci` gate so example type errors
-  # surface in CI (it is `private` and not `@mui/*`-scoped, so release/build jobs
-  # do not sweep it). `x-studio-shared` is its `workspace:*` data dependency.
-  # The other x-studio-* example variants share the same tsconfig issue and are a
-  # follow-up (see BL-193) — kept out so the gate stays green.
-  - examples/x-studio
-  - examples/x-studio-shared
+  # The x-studio examples depend on the unpublished `@mui/x-studio` via
+  # `workspace:*`, so they can only resolve as workspace members. Membership wires
+  # their `typescript` scripts into the `typescript:ci` gate so example type
+  # errors surface in CI (they are `private` and not `@mui/*`-scoped, so
+  # release/build jobs do not sweep them). `x-studio-ag` (ag-grid) is excluded —
+  # it has genuine type errors tracked separately (BL-193).
+  - examples/x-studio*
+  - '!examples/x-studio-ag'
 
 catalog:
   '@atlaskit/pragmatic-drag-and-drop': ^1.8.1

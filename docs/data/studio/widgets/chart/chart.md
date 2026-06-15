@@ -230,7 +230,7 @@ const chartConfig: StudioChartConfig = {
 
 ## Category order
 
-By default, string x-axis labels are sorted alphabetically. For fields whose values have a natural semantic sequence — like pipeline stages or severity levels — set `orderedValues` on the `StudioDataField` definition. All charts that use that field as their x-axis will automatically respect the declared order.
+By default, string x-axis labels are sorted alphabetically. For fields whose values have a natural semantic sequence — like pipeline stages or severity levels — set `orderedValues` on the `StudioDataField` definition. All charts that use that field as their x-axis will automatically respect the declared order. A heatmap orders both of its axes this way: the column axis (`xField`) and the row axis (`heatYField`) each follow their field's `orderedValues` when one is declared.
 
 ```ts
 const dealsSource: StudioDataSource = {

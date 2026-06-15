@@ -403,7 +403,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: ORDERS_SOURCE_ID,
       config: {
         customConfig: {
-          message: 'Recent order volume reached {value} over the last week.',
+          message: 'Recent order volume was {value} over the last week.',
           valueField: 'total',
           aggregation: 'sum',
           dateField: 'date',

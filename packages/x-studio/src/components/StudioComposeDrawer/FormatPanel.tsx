@@ -258,8 +258,8 @@ export function FormatPanel(props: { widgetId: string }) {
                     })
                   }
                 >
-                  <MenuItem value="bottom">{localeText.mapSetupLegendBottom}</MenuItem>
                   <MenuItem value="top">{localeText.mapSetupLegendTop}</MenuItem>
+                  <MenuItem value="bottom">{localeText.mapSetupLegendBottom}</MenuItem>
                   <MenuItem value="left">{localeText.mapSetupLegendLeft}</MenuItem>
                   <MenuItem value="right">{localeText.mapSetupLegendRight}</MenuItem>
                   <MenuItem value="hidden">{localeText.mapSetupLegendHidden}</MenuItem>

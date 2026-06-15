@@ -131,8 +131,12 @@ export function executeToolOnState(
       }
 
       const changes: Partial<Omit<StudioWidget, 'id'>> = {};
-      if (args.title !== undefined) changes.title = String(args.title);
-      if (args.sourceId !== undefined) changes.sourceId = String(args.sourceId);
+      if (args.title !== undefined) {
+        changes.title = String(args.title);
+      }
+      if (args.sourceId !== undefined) {
+        changes.sourceId = String(args.sourceId);
+      }
 
       const newConfig =
         args.config !== undefined
@@ -164,7 +168,6 @@ export function executeToolOnState(
     case 'remove_widget': {
       const widgetId = String(args.widgetId ?? '');
       const nextWidgets = { ...state.widgets };
-      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
       delete nextWidgets[widgetId];
 
       const nextPages = Object.fromEntries(

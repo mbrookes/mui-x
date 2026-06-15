@@ -84,12 +84,20 @@ function color(colors: string[], idx: number): string {
 }
 
 function nice(n: number): number {
-  if (n === 0) return 1;
+  if (n === 0) {
+    return 1;
+  }
   const exp = Math.pow(10, Math.floor(Math.log10(Math.abs(n))));
   const frac = n / exp;
-  if (frac <= 1) return exp;
-  if (frac <= 2) return 2 * exp;
-  if (frac <= 5) return 5 * exp;
+  if (frac <= 1) {
+    return exp;
+  }
+  if (frac <= 2) {
+    return 2 * exp;
+  }
+  if (frac <= 5) {
+    return 5 * exp;
+  }
   return 10 * exp;
 }
 
@@ -150,7 +158,9 @@ function renderBar(input: ChartRendererInput): string {
     const barH = (d.value / maxVal) * chartH;
     const y = PAD.top + chartH - barH;
     const fill = color(colors, i);
-    lines.push(`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${fill}" rx="2"/>`);
+    lines.push(
+      `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${fill}" rx="2"/>`,
+    );
 
     // Value label on top of bar
     if (barH > 16) {
@@ -231,11 +241,15 @@ function renderLine(input: ChartRendererInput): string {
   allSeries.forEach((s, si) => {
     const fill = color(colors, si);
     const pts = s.values.map((v, i) => `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ');
-    lines.push(`<polyline points="${pts}" fill="none" stroke="${fill}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`);
+    lines.push(
+      `<polyline points="${pts}" fill="none" stroke="${fill}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`,
+    );
 
     // Dots
     s.values.forEach((v, i) => {
-      lines.push(`<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="3.5" fill="${fill}"/>`);
+      lines.push(
+        `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="3.5" fill="${fill}"/>`,
+      );
     });
   });
 
@@ -310,10 +324,14 @@ function renderPie(input: ChartRendererInput): string {
   // ── Slices
   let angle = 0;
   data.forEach((d, i) => {
-    if (d.value <= 0) return;
+    if (d.value <= 0) {
+      return;
+    }
     const slice = (d.value / total) * 360;
     const fill = color(colors, i);
-    lines.push(`<path d="${arcPath(cx, cy, r, angle, angle + slice)}" fill="${fill}" stroke="#fff" stroke-width="1.5"/>`);
+    lines.push(
+      `<path d="${arcPath(cx, cy, r, angle, angle + slice)}" fill="${fill}" stroke="#fff" stroke-width="1.5"/>`,
+    );
 
     // Percentage label inside slice (only if slice is large enough)
     if (slice > 20) {
@@ -377,7 +395,9 @@ export function renderChartSvg(input: ChartRendererInput): string {
       return renderPie(input);
     default: {
       const never: never = input.type;
-      throw new Error(`MUI X Studio: Unknown chart type "${never}". Supported types: bar, line, pie.`);
+      throw new Error(
+        `MUI X Studio: Unknown chart type "${never}". Supported types: bar, line, pie.`,
+      );
     }
   }
 }

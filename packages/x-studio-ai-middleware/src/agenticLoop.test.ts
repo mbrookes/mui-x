@@ -14,7 +14,7 @@ function sseChunk(data: unknown): string {
 }
 
 function makeSseResponse(chunks: unknown[]): Response {
-  const body = chunks.map(sseChunk).join('') + 'data: [DONE]\n\n';
+  const body = `${chunks.map(sseChunk).join('')}data: [DONE]\n\n`;
   const stream = new ReadableStream({
     start(controller) {
       controller.enqueue(new TextEncoder().encode(body));
@@ -112,7 +112,7 @@ describe('runAgenticLoop — rate limiting', () => {
       ),
     );
 
-    const usageEvent = events.find((e) => (e as { type: string }).type === 'usage') as
+    const usageEvent = events.find((ev) => (ev as { type: string }).type === 'usage') as
       | {
           type: string;
           inputTokens: number;
@@ -126,7 +126,7 @@ describe('runAgenticLoop — rate limiting', () => {
     expect(usageEvent?.outputTokens).toBe(30);
     expect(usageEvent?.iterations).toBe(1);
 
-    const types = events.map((e) => (e as { type: string }).type);
+    const types = events.map((ev) => (ev as { type: string }).type);
     const usageIdx = types.indexOf('usage');
     const finishIdx = types.indexOf('finish');
     expect(usageIdx).toBeGreaterThanOrEqual(0);
@@ -147,17 +147,16 @@ describe('runAgenticLoop — rate limiting', () => {
       }),
     );
 
-    const types = events.map((e) => (e as { type: string }).type);
+    const types = events.map((ev) => (ev as { type: string }).type);
     expect(types).toContain('error');
     expect(types).not.toContain('finish');
 
-    const errorEvent = events.find((e) => (e as { type: string }).type === 'error') as {
+    const errorEvent = events.find((ev) => (ev as { type: string }).type === 'error') as {
       message: string;
     };
     expect(errorEvent.message).toMatch(/token budget exceeded/i);
 
-    expect(onLimitReached).toHaveBeenCalledOnce();
-    expect(onLimitReached).toHaveBeenCalledWith('tokens', {
+    expect(onLimitReached).toHaveBeenCalledExactlyOnceWith('tokens', {
       inputTokens: 200,
       outputTokens: 50,
       iterations: 1,
@@ -175,7 +174,7 @@ describe('runAgenticLoop — rate limiting', () => {
       }),
     );
 
-    const types = events.map((e) => (e as { type: string }).type);
+    const types = events.map((ev) => (ev as { type: string }).type);
     expect(types).toContain('finish');
     expect(types).not.toContain('error');
     expect(onLimitReached).not.toHaveBeenCalled();
@@ -202,11 +201,11 @@ describe('runAgenticLoop — rate limiting', () => {
       ),
     );
 
-    const types = events.map((e) => (e as { type: string }).type);
+    const types = events.map((ev) => (ev as { type: string }).type);
     expect(types).toContain('error');
     expect(types).not.toContain('finish');
 
-    const errorEvent = events.find((e) => (e as { type: string }).type === 'error') as {
+    const errorEvent = events.find((ev) => (ev as { type: string }).type === 'error') as {
       message: string;
     };
     expect(errorEvent.message).toMatch(/maximum turn limit/i);
@@ -234,7 +233,7 @@ describe('runAgenticLoop — rate limiting', () => {
       ),
     );
 
-    const usageEvent = events.find((e) => (e as { type: string }).type === 'usage') as
+    const usageEvent = events.find((ev) => (ev as { type: string }).type === 'usage') as
       | {
           inputTokens: number;
           outputTokens: number;

@@ -5,7 +5,7 @@ import type {
   StudioRelationship,
   StudioState,
 } from '../models';
-import { resolveMetricRefs, resolveChartRowsForAggregation } from './chartUtils';
+import { resolveDateRangePresets, resolveChartRowsForAggregation } from './chartUtils';
 import { resolveRowsCached } from './resolvedRowsCache';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 
@@ -115,10 +115,12 @@ export function createStudioPipeline(state: StudioPipelineState | StudioState): 
           f.sourceWidgetId !== widgetId &&
           (pageId === undefined || f.pageId === pageId),
       );
-      const allFilters = resolveMetricRefs(
-        [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters],
-        dataSources,
-      );
+      const allFilters = resolveDateRangePresets([
+        ...pageFilters,
+        ...widgetFilters,
+        ...crossFilters,
+        ...interactiveFilters,
+      ]);
       return resolveRowsCached(
         rows,
         sourceId,

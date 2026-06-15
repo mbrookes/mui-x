@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import dayjs from 'dayjs';
-import { applyFilters, resolveMetricRef, resolveMetricRefs } from './filterUtils';
-import type { StudioDataSource, StudioFilterState } from '../models';
+import { applyFilters, resolveDateRangePresets } from './filterUtils';
+import type { StudioFilterState } from '../models';
 
 function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
   return {
@@ -573,221 +573,93 @@ describe('applyFilters — incomplete filters are skipped', () => {
   });
 });
 
-// ─── resolveMetricRef ─────────────────────────────────────────────────────────
+// ─── resolveDateRangePresets ──────────────────────────────────────────────────
 
-describe('resolveMetricRef', () => {
-  const dataSources: Record<string, StudioDataSource> = {
-    metrics: {
-      id: 'metrics',
-      label: 'Business Metrics',
-      fields: [{ id: 'value', label: 'Value', type: 'number' }],
-      rows: [
-        { id: 'BM-001', name: 'Threshold', value: 6 },
-        { id: 'BM-002', name: 'Limit', value: 100 },
-      ],
-    },
+function makePresetFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
+  return {
+    id: 'dr-1',
+    field: 'orderDate',
+    operator: 'between',
+    value: null,
+    scope: 'page',
+    fieldType: 'date',
+    isDashboardDateRange: true,
+    ...overrides,
   };
+}
 
-  it('resolves to the field value of the matching row', () => {
-    expect(
-      resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-001', field: 'value' }, dataSources),
-    ).toBe(6);
+describe('resolveDateRangePresets', () => {
+  it('short-circuits when no preset filters are present', () => {
+    const filters = [makeFilter({ value: 'hello' })];
+    expect(resolveDateRangePresets(filters)).toBe(filters);
   });
 
-  it('returns undefined for unknown source', () => {
-    expect(
-      resolveMetricRef({ sourceId: 'unknown', rowId: 'BM-001', field: 'value' }, dataSources),
-    ).toBeUndefined();
+  it('leaves custom preset unchanged — its stored {from,to} is the user selection', () => {
+    const filter = makePresetFilter({
+      dateRangePreset: 'custom',
+      value: { from: '2020-01-01', to: '2020-12-31' },
+    });
+    const result = resolveDateRangePresets([filter]);
+    expect(result[0].value).toEqual({ from: '2020-01-01', to: '2020-12-31' });
+    expect(result[0]).toBe(filter);
   });
 
-  it('returns undefined for unknown row ID', () => {
-    expect(
-      resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-999', field: 'value' }, dataSources),
-    ).toBeUndefined();
+  it('resolves last_12_months to a {from,to} range anchored on today', () => {
+    const filter = makePresetFilter({ dateRangePreset: 'last_12_months', value: null });
+    const [resolved] = resolveDateRangePresets([filter]);
+    const range = resolved.value as { from: string; to: string };
+    const today = new Date();
+    const expectedFrom = new Date(today);
+    expectedFrom.setFullYear(today.getFullYear() - 1);
+    expect(range.to).toBe(today.toISOString().slice(0, 10));
+    expect(range.from).toBe(expectedFrom.toISOString().slice(0, 10));
   });
 
-  it('returns undefined for unknown field', () => {
-    expect(
-      resolveMetricRef({ sourceId: 'metrics', rowId: 'BM-001', field: 'nonexistent' }, dataSources),
-    ).toBeUndefined();
+  it('ignores stored absolute value — always recomputes from preset (heals stale persisted state)', () => {
+    const staleFrom = '2000-01-01';
+    const staleTo = '2000-12-31';
+    const filter = makePresetFilter({
+      dateRangePreset: 'ytd',
+      value: { from: staleFrom, to: staleTo },
+    });
+    const [resolved] = resolveDateRangePresets([filter]);
+    const range = resolved.value as { from: string; to: string };
+    // Must NOT return the stale stored dates
+    expect(range.from).not.toBe(staleFrom);
+    expect(range.to).not.toBe(staleTo);
+    // Must return current year's Jan 1 → today
+    expect(range.from).toBe(`${new Date().getFullYear()}-01-01`);
+    expect(range.to).toBe(new Date().toISOString().slice(0, 10));
   });
 
-  it('returns undefined when source has no rows', () => {
-    const emptySources = { metrics: { ...dataSources.metrics, rows: undefined } };
-    expect(
-      resolveMetricRef(
-        { sourceId: 'metrics', rowId: 'BM-001', field: 'value' },
-        emptySources as any,
-      ),
-    ).toBeUndefined();
-  });
-});
-
-// ─── resolveMetricRefs ────────────────────────────────────────────────────────
-
-describe('resolveMetricRefs', () => {
-  const dataSources: Record<string, StudioDataSource> = {
-    metrics: {
-      id: 'metrics',
-      label: 'Business Metrics',
-      fields: [{ id: 'value', label: 'Value', type: 'number' }],
-      rows: [{ id: 'BM-012', name: 'Active Months', value: 6 }],
-    },
-  };
-
-  it('returns filters unchanged when no refs present', () => {
-    const filters = [makeFilter({ value: 42 })];
-    const result = resolveMetricRefs(filters, dataSources);
-    expect(result[0]).toBe(filters[0]); // same reference
+  it('appends T23:59:59 to the to date for datetime fields', () => {
+    const filter = makePresetFilter({ dateRangePreset: 'last_3_months', fieldType: 'datetime' });
+    const [resolved] = resolveDateRangePresets([filter]);
+    const range = resolved.value as { from: string; to: string };
+    expect(range.to).toMatch(/T23:59:59$/);
+    expect(range.from).not.toContain('T');
   });
 
-  it('replaces value with resolved metric ref', () => {
-    const filters = [
-      makeFilter({
-        value: '',
-        valueRef: { sourceId: 'metrics', rowId: 'BM-012', field: 'value' },
-      }),
-    ];
-    const result = resolveMetricRefs(filters, dataSources);
-    expect(result[0].value).toBe(6);
-    expect(result[0].valueRef).toEqual({ sourceId: 'metrics', rowId: 'BM-012', field: 'value' });
+  it('leaves non-preset filters untouched', () => {
+    const plain = makeFilter({ field: 'name', value: 'Alice' });
+    const preset = makePresetFilter({ dateRangePreset: 'last_12_months' });
+    const result = resolveDateRangePresets([plain, preset]);
+    expect(result[0]).toBe(plain);
+    const range = result[1].value as { from: string; to: string };
+    expect(typeof range.from).toBe('string');
+    expect(typeof range.to).toBe('string');
   });
 
-  it('replaces value2 with resolved metric ref', () => {
-    const filters = [
-      makeFilter({
-        value: 0,
-        operator2: 'less_than',
-        value2: '',
-        value2Ref: { sourceId: 'metrics', rowId: 'BM-012', field: 'value' },
-      }),
-    ];
-    const result = resolveMetricRefs(filters, dataSources);
-    expect(result[0].value2).toBe(6);
-  });
-
-  it('falls back to original value if ref resolves to undefined', () => {
-    const filters = [
-      makeFilter({
-        value: 99,
-        valueRef: { sourceId: 'metrics', rowId: 'BM-MISSING', field: 'value' },
-      }),
-    ];
-    const result = resolveMetricRefs(filters, dataSources);
-    expect(result[0].value).toBe(99);
-  });
-
-  it('resolved value is used in applyFilters', () => {
+  it('preset filter with null value is applied to rows correctly', () => {
     const rows = [
-      { id: 1, months: 3 },
-      { id: 2, months: 7 },
-      { id: 3, months: 6 },
+      { id: 1, orderDate: '2020-06-01' },
+      { id: 2, orderDate: new Date().toISOString().slice(0, 10) },
     ];
-    const filters = resolveMetricRefs(
-      [
-        makeFilter({
-          field: 'months',
-          operator: 'greater_than',
-          value: '',
-          fieldType: 'number',
-          valueRef: { sourceId: 'metrics', rowId: 'BM-012', field: 'value' },
-        }),
-      ],
-      dataSources,
-    );
-    const result = applyFilters(rows, filters);
-    expect(result.map((r) => r.id)).toEqual([2]); // only months > 6
-  });
-
-  it('resolves relative date metric refs into the amount while preserving the relative value object', () => {
-    const filters = [
-      makeFilter({
-        field: 'lastOrderDate',
-        fieldType: 'date',
-        operator: 'greater_than',
-        value: { relative: true, amount: 1, unit: 'month', direction: 'past' },
-        valueRef: { sourceId: 'metrics', rowId: 'BM-012', field: 'value' },
-      }),
-    ];
-
-    const result = resolveMetricRefs(filters, dataSources);
-
-    expect(result[0].value).toEqual({
-      relative: true,
-      amount: 6,
-      unit: 'month',
-      direction: 'past',
-    });
-    expect(result[0].valueRef).toEqual({ sourceId: 'metrics', rowId: 'BM-012', field: 'value' });
-  });
-});
-
-// ─── Performance: Batch 2 — resolveMetricRefs row index ──────────────────────
-
-describe('resolveMetricRefs — perf: row index', () => {
-  const dataSources: Record<string, StudioDataSource> = {
-    kpis: {
-      id: 'kpis',
-      label: 'KPIs',
-      fields: [],
-      rows: [
-        { id: 'metric-1', value: 42 },
-        { id: 'metric-2', value: 99 },
-      ],
-    },
-  };
-
-  it('returns the input array unchanged when no filter has a ref (short-circuit)', () => {
-    const filters = [makeFilter({ field: 'x', value: '10' })];
-    const result = resolveMetricRefs(filters, dataSources);
-    expect(result).toBe(filters); // exact same reference — no work done
-  });
-
-  it('resolves valueRef via row index to the correct scalar value', () => {
-    const filters = [
-      makeFilter({
-        field: 'threshold',
-        valueRef: { sourceId: 'kpis', rowId: 'metric-1', field: 'value' },
-      }),
-    ];
-    const result = resolveMetricRefs(filters, dataSources);
-    expect(result[0].value).toBe(42);
-  });
-
-  it('resolves value2Ref via row index', () => {
-    const filters = [
-      makeFilter({
-        field: 'threshold',
-        value: '0',
-        value2Ref: { sourceId: 'kpis', rowId: 'metric-2', field: 'value' },
-      }),
-    ];
-    const result = resolveMetricRefs(filters, dataSources);
-    expect(result[0].value2).toBe(99);
-  });
-
-  it('falls back to original value for a ref pointing to a missing row', () => {
-    const filters = [
-      makeFilter({
-        field: 'threshold',
-        value: 'fallback',
-        valueRef: { sourceId: 'kpis', rowId: 'does-not-exist', field: 'value' },
-      }),
-    ];
-    const result = resolveMetricRefs(filters, dataSources);
-    // Row not found → resolveRef returns undefined → original value is preserved
-    expect(result[0].value).toBe('fallback');
-  });
-
-  it('does not mutate filters without refs when mixed with ref filters', () => {
-    const plain = makeFilter({ id: 'plain', field: 'x', value: '5' });
-    const withRef = makeFilter({
-      id: 'with-ref',
-      field: 'threshold',
-      valueRef: { sourceId: 'kpis', rowId: 'metric-1', field: 'value' },
-    });
-    const result = resolveMetricRefs([plain, withRef], dataSources);
-    expect(result[0]).toBe(plain); // plain filter returned by reference
-    expect(result[1].value).toBe(42);
+    const filter = makePresetFilter({ dateRangePreset: 'last_12_months' });
+    const resolved = resolveDateRangePresets([filter]);
+    const result = applyFilters(rows, resolved);
+    // Today's date should be within the last 12 months; 2020 date should not
+    expect(result.map((r) => r.id)).toContain(2);
+    expect(result.map((r) => r.id)).not.toContain(1);
   });
 });

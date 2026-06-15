@@ -1,88 +1,35 @@
 import dayjs from 'dayjs';
 import type { RelativeDateValue } from './filterTypes';
-import type { StudioDataSource, StudioFilterState, StudioMetricRef } from '../models';
+import type { StudioFilterState } from '../models';
 import { normalizeToDate } from './temporalUtils';
+import { computeDateRangePreset } from './dateRangeUtils';
 
 type Row = Record<string, unknown>;
 
-// ─── Metric ref resolution ───────────────────────────────────────────────────
-
 /**
- * Resolves a StudioMetricRef to a concrete value by looking up the row in the
- * specified data source. Returns undefined if the source/row/field is missing.
+ * Returns a new filter array where any date-range preset filters have been resolved
+ * to concrete `{ from, to }` values using the current date.
+ *
+ * Always recomputes from the preset, ignoring any previously stored `value`, so
+ * dashboards that were persisted with stale absolute dates self-heal on load.
+ * Custom presets (`dateRangePreset === 'custom'`) are left unchanged — they carry
+ * the user's explicit date selection in `value`.
  */
-export function resolveMetricRef(
-  ref: StudioMetricRef,
-  dataSources: Record<string, StudioDataSource>,
-): string | number | boolean | null | undefined {
-  const source = dataSources[ref.sourceId];
-  if (!source?.rows) {
-    return undefined;
-  }
-  const row = source.rows.find((r) => String(r.id ?? '') === ref.rowId);
-  const val = row?.[ref.field];
-  if (val === null || val === undefined) {
-    return val as null | undefined;
-  }
-  if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
-    return val;
-  }
-  return undefined;
-}
-
-/**
- * Returns a new filter array where any valueRef / value2Ref fields have been
- * resolved to their concrete values from dataSources.
- * Call this once before passing filters to applyFilters().
- */
-export function resolveMetricRefs(
-  filters: StudioFilterState[],
-  dataSources: Record<string, StudioDataSource>,
-): StudioFilterState[] {
-  // Short-circuit when no filter has a reference (the common case).
-  if (!filters.some((f) => f.valueRef || f.value2Ref)) {
+export function resolveDateRangePresets(filters: StudioFilterState[]): StudioFilterState[] {
+  if (
+    !filters.some(
+      (f) => f.isDashboardDateRange && f.dateRangePreset && f.dateRangePreset !== 'custom',
+    )
+  ) {
     return filters;
   }
-
-  // Pre-build a row-by-id index for each referenced source so resolveMetricRef
-  // uses an O(1) Map lookup rather than an O(N) .find() scan per filter.
-  const rowIndexCache = new Map<string, Map<string, Record<string, unknown>>>();
-  const getRowIndex = (sourceId: string) => {
-    if (!rowIndexCache.has(sourceId)) {
-      const index = new Map<string, Record<string, unknown>>();
-      for (const row of dataSources[sourceId]?.rows ?? []) {
-        const key = String(row.id ?? '');
-        if (!index.has(key)) {
-          index.set(key, row as Record<string, unknown>);
-        }
-      }
-      rowIndexCache.set(sourceId, index);
-    }
-    return rowIndexCache.get(sourceId)!;
-  };
-
-  const resolveRef = (ref: StudioMetricRef) => {
-    const index = getRowIndex(ref.sourceId);
-    const row = index.get(ref.rowId);
-    const val = row?.[ref.field];
-    if (val === null || val === undefined) {
-      return val as null | undefined;
-    }
-    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
-      return val;
-    }
-    return undefined;
-  };
-
   return filters.map((f) => {
-    if (!f.valueRef && !f.value2Ref) {
+    if (!f.isDashboardDateRange || !f.dateRangePreset || f.dateRangePreset === 'custom') {
       return f;
     }
-    return {
-      ...f,
-      value: resolveReferencedFilterValueFast(f.value, f.valueRef, resolveRef),
-      value2: resolveReferencedFilterValueFast(f.value2, f.value2Ref, resolveRef),
-    };
+    const { from, to } = computeDateRangePreset(f.dateRangePreset);
+    const resolvedTo = f.fieldType === 'datetime' ? `${to}T23:59:59` : to;
+    return { ...f, value: { from, to: resolvedTo } };
   });
 }
 
@@ -90,34 +37,6 @@ export function isRelativeDateValue(value: unknown): value is RelativeDateValue 
   return (
     typeof value === 'object' && value !== null && (value as RelativeDateValue).relative === true
   );
-}
-
-/**
- * Fast variant that resolves a filter value using a pre-built row index.
- * @param {unknown} originalValue - The original filter value to potentially resolve.
- * @param {StudioMetricRef | undefined} ref - Optional metric reference to resolve against.
- * @param {(ref: StudioMetricRef) => string | number | boolean | null | undefined} resolveRef - Row-index-based resolver.
- * @returns {unknown} The resolved value, or the original value if ref is absent or unresolvable.
- */
-function resolveReferencedFilterValueFast(
-  originalValue: unknown,
-  ref: StudioMetricRef | undefined,
-  resolveRef: (ref: StudioMetricRef) => string | number | boolean | null | undefined,
-) {
-  if (!ref) {
-    return originalValue;
-  }
-  const resolvedValue = resolveRef(ref);
-  if (resolvedValue === undefined) {
-    return originalValue;
-  }
-  if (isRelativeDateValue(originalValue) && typeof resolvedValue === 'number') {
-    return {
-      ...originalValue,
-      amount: Math.max(1, Math.trunc(resolvedValue) || 1),
-    };
-  }
-  return resolvedValue;
 }
 
 export function resolveRelativeDate(rel: RelativeDateValue): string {

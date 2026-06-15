@@ -4,6 +4,7 @@
  */
 import type { StudioDataSource, StudioFilterState, StudioKpiAggregation } from '../../../models';
 import { normalizeToDate } from '../../../internals/chartUtils';
+import { computeDateRangePreset } from '../../../internals/dateRangeUtils';
 import {
   isRelativeDateValue,
   relativeToAbsolute,
@@ -44,16 +45,32 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
     return Number.isNaN(d.getTime()) ? null : d;
   };
 
-  // Handle `operator: 'between'` with `value: { from, to }` (used by the dashboard date range bar)
-  if (
-    filter.operator === 'between' &&
-    filter.value !== null &&
-    typeof filter.value === 'object' &&
-    'from' in (filter.value as object)
-  ) {
-    const obj = filter.value as { from?: string; to?: string };
-    const start = toDate(obj.from);
-    const end = toDate(obj.to);
+  // Handle `operator: 'between'` with a preset or concrete `{ from, to }` value.
+  if (filter.operator === 'between') {
+    // If a non-custom preset is stored, resolve dates fresh from today.
+    let from: unknown;
+    let to: unknown;
+    if (
+      filter.isDashboardDateRange &&
+      filter.dateRangePreset &&
+      filter.dateRangePreset !== 'custom'
+    ) {
+      const resolved = computeDateRangePreset(filter.dateRangePreset);
+      from = resolved.from;
+      to = filter.fieldType === 'datetime' ? `${resolved.to}T23:59:59` : resolved.to;
+    } else if (
+      filter.value !== null &&
+      typeof filter.value === 'object' &&
+      'from' in (filter.value as object)
+    ) {
+      const obj = filter.value as { from?: string; to?: string };
+      from = obj.from;
+      to = obj.to;
+    } else {
+      return null;
+    }
+    const start = toDate(from);
+    const end = toDate(to);
     if (start && end) {
       return start <= end ? { start, end } : { start: end, end: start };
     }

@@ -19,9 +19,12 @@ function getHandler(
   server: Server,
   method: string,
 ): (req: { params: Record<string, unknown>; method: string }) => Promise<unknown> {
+  // eslint-disable-next-line no-underscore-dangle
   const handlers = (server as any)._requestHandlers as Map<string, (req: any) => Promise<unknown>>;
   const h = handlers?.get(method);
-  if (!h) throw new Error(`No handler registered for "${method}"`);
+  if (!h) {
+    throw new Error(`No handler registered for "${method}"`);
+  }
   return h;
 }
 
@@ -39,7 +42,13 @@ function makeSource(overrides?: Partial<StudioDataSource>): StudioDataSource {
     tableName: 'orders',
     fields: [
       { id: 'id', label: 'Order ID', type: 'string' },
-      { id: 'total', label: 'Total', type: 'number', format: 'currency', defaultAggregationFn: 'sum' },
+      {
+        id: 'total',
+        label: 'Total',
+        type: 'number',
+        format: 'currency',
+        defaultAggregationFn: 'sum',
+      },
       { id: 'status', label: 'Status', type: 'string' },
     ],
     fieldDistinctValues: {
@@ -63,7 +72,10 @@ describe('buildStudioMcpServer', () => {
     it('includes static resources', async () => {
       const stateBox = { current: makeStableState() };
       const server = buildStudioMcpServer(stateBox);
-      const result = await getHandler(server, LIST_RESOURCES)({ params: {}, method: LIST_RESOURCES });
+      const result = await getHandler(
+        server,
+        LIST_RESOURCES,
+      )({ params: {}, method: LIST_RESOURCES });
       const resources = (result as any).resources as Array<{ uri: string }>;
       const uris = resources.map((r) => r.uri);
       expect(uris).toContain('studio://dashboard/state');
@@ -73,7 +85,10 @@ describe('buildStudioMcpServer', () => {
     it('includes schema resource for each data source', async () => {
       const stateBox = { current: makeStableState() };
       const server = buildStudioMcpServer(stateBox);
-      const result = await getHandler(server, LIST_RESOURCES)({ params: {}, method: LIST_RESOURCES });
+      const result = await getHandler(
+        server,
+        LIST_RESOURCES,
+      )({ params: {}, method: LIST_RESOURCES });
       const resources = (result as any).resources as Array<{ uri: string }>;
       expect(resources.map((r) => r.uri)).toContain('studio://schema/source-orders');
     });
@@ -81,10 +96,16 @@ describe('buildStudioMcpServer', () => {
     it('includes data-health when data option is provided', async () => {
       const stateBox = { current: makeStableState() };
       const queryDataSource = vi.fn(
-        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({ rows: [{ count: 42 }], rowCount: 1 }),
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [{ count: 42 }],
+          rowCount: 1,
+        }),
       );
       const server = buildStudioMcpServer(stateBox, { data: { queryDataSource } });
-      const result = await getHandler(server, LIST_RESOURCES)({ params: {}, method: LIST_RESOURCES });
+      const result = await getHandler(
+        server,
+        LIST_RESOURCES,
+      )({ params: {}, method: LIST_RESOURCES });
       const resources = (result as any).resources as Array<{ uri: string }>;
       expect(resources.map((r) => r.uri)).toContain('studio://dashboard/data-health');
     });
@@ -92,7 +113,10 @@ describe('buildStudioMcpServer', () => {
     it('omits data-health when no data option', async () => {
       const stateBox = { current: makeStableState() };
       const server = buildStudioMcpServer(stateBox);
-      const result = await getHandler(server, LIST_RESOURCES)({ params: {}, method: LIST_RESOURCES });
+      const result = await getHandler(
+        server,
+        LIST_RESOURCES,
+      )({ params: {}, method: LIST_RESOURCES });
       const resources = (result as any).resources as Array<{ uri: string }>;
       expect(resources.map((r) => r.uri)).not.toContain('studio://dashboard/data-health');
     });
@@ -102,7 +126,10 @@ describe('buildStudioMcpServer', () => {
     it('reads studio://schema/{sourceId} with field metadata', async () => {
       const stateBox = { current: makeStableState() };
       const server = buildStudioMcpServer(stateBox);
-      const result = await getHandler(server, READ_RESOURCE)({
+      const result = await getHandler(
+        server,
+        READ_RESOURCE,
+      )({
         params: { uri: 'studio://schema/source-orders' },
         method: READ_RESOURCE,
       });
@@ -121,10 +148,16 @@ describe('buildStudioMcpServer', () => {
     it('reads studio://dashboard/data-health with row counts', async () => {
       const stateBox = { current: makeStableState() };
       const queryDataSource = vi.fn(
-        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({ rows: [{ count: 99 }], rowCount: 1 }),
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [{ count: 99 }],
+          rowCount: 1,
+        }),
       );
       const server = buildStudioMcpServer(stateBox, { data: { queryDataSource } });
-      const result = await getHandler(server, READ_RESOURCE)({
+      const result = await getHandler(
+        server,
+        READ_RESOURCE,
+      )({
         params: { uri: 'studio://dashboard/data-health' },
         method: READ_RESOURCE,
       });
@@ -137,7 +170,10 @@ describe('buildStudioMcpServer', () => {
       const stateBox = { current: makeStableState() };
       const server = buildStudioMcpServer(stateBox);
       await expect(
-        getHandler(server, READ_RESOURCE)({
+        getHandler(
+          server,
+          READ_RESOURCE,
+        )({
           params: { uri: 'studio://nonexistent/foo' },
           method: READ_RESOURCE,
         }),
@@ -152,8 +188,16 @@ describe('buildStudioMcpServer', () => {
       const subscribeHandler = getHandler(server, SUBSCRIBE);
       const unsubscribeHandler = getHandler(server, UNSUBSCRIBE);
 
-      await subscribeHandler({ params: { uri: 'studio://dashboard/state' }, method: SUBSCRIBE });
-      await unsubscribeHandler({ params: { uri: 'studio://dashboard/state' }, method: UNSUBSCRIBE });
+      const subscribeResult = await subscribeHandler({
+        params: { uri: 'studio://dashboard/state' },
+        method: SUBSCRIBE,
+      });
+      const unsubscribeResult = await unsubscribeHandler({
+        params: { uri: 'studio://dashboard/state' },
+        method: UNSUBSCRIBE,
+      });
+      expect(subscribeResult).toBeDefined();
+      expect(unsubscribeResult).toBeDefined();
     });
   });
 
@@ -168,7 +212,10 @@ describe('buildStudioMcpServer', () => {
         }),
       );
       const server = buildStudioMcpServer(stateBox, { data: { queryDataSource } });
-      const result = await getHandler(server, READ_RESOURCE)({
+      const result = await getHandler(
+        server,
+        READ_RESOURCE,
+      )({
         params: { uri: 'studio://data/source-orders' },
         method: READ_RESOURCE,
       });
@@ -184,10 +231,16 @@ describe('buildStudioMcpServer', () => {
     it('is listed in resources when data option provided', async () => {
       const stateBox = { current: makeStableState() };
       const queryDataSource = vi.fn(
-        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({ rows: [], rowCount: 0 }),
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [],
+          rowCount: 0,
+        }),
       );
       const server = buildStudioMcpServer(stateBox, { data: { queryDataSource } });
-      const result = await getHandler(server, LIST_RESOURCES)({ params: {}, method: LIST_RESOURCES });
+      const result = await getHandler(
+        server,
+        LIST_RESOURCES,
+      )({ params: {}, method: LIST_RESOURCES });
       const uris = ((result as any).resources as Array<{ uri: string }>).map((r) => r.uri);
       expect(uris).toContain('studio://data/source-orders');
     });
@@ -195,7 +248,10 @@ describe('buildStudioMcpServer', () => {
     it('is NOT listed when no data option', async () => {
       const stateBox = { current: makeStableState() };
       const server = buildStudioMcpServer(stateBox);
-      const result = await getHandler(server, LIST_RESOURCES)({ params: {}, method: LIST_RESOURCES });
+      const result = await getHandler(
+        server,
+        LIST_RESOURCES,
+      )({ params: {}, method: LIST_RESOURCES });
       const uris = ((result as any).resources as Array<{ uri: string }>).map((r) => r.uri);
       expect(uris).not.toContain('studio://data/source-orders');
     });
@@ -216,11 +272,17 @@ describe('buildStudioMcpServer', () => {
     it('get query_data_source_examples returns messages with source examples', async () => {
       const stateBox = { current: makeStableState() };
       const server = buildStudioMcpServer(stateBox);
-      const result = await getHandler(server, GET_PROMPT)({
+      const result = await getHandler(
+        server,
+        GET_PROMPT,
+      )({
         params: { name: 'query_data_source_examples' },
         method: GET_PROMPT,
       });
-      const messages = (result as any).messages as Array<{ role: string; content: { text: string } }>;
+      const messages = (result as any).messages as Array<{
+        role: string;
+        content: { text: string };
+      }>;
       expect(messages).toHaveLength(1);
       expect(messages[0].role).toBe('user');
       expect(messages[0].content.text).toContain('source-orders');
@@ -241,8 +303,14 @@ describe('buildStudioMcpServer', () => {
     it('returns sourceId completions for studio://schema/ prefix', async () => {
       const stateBox = { current: makeStableState() };
       const server = buildStudioMcpServer(stateBox);
-      const result = await getHandler(server, COMPLETE)({
-        params: { ref: { type: 'ref/resource', uri: 'studio://schema/' }, argument: { name: 'uri', value: 'studio://schema/' } },
+      const result = await getHandler(
+        server,
+        COMPLETE,
+      )({
+        params: {
+          ref: { type: 'ref/resource', uri: 'studio://schema/' },
+          argument: { name: 'uri', value: 'studio://schema/' },
+        },
         method: COMPLETE,
       });
       const values = (result as any).completion.values as string[];
@@ -252,8 +320,14 @@ describe('buildStudioMcpServer', () => {
     it('filters completions by partial sourceId', async () => {
       const stateBox = { current: makeStableState() };
       const server = buildStudioMcpServer(stateBox);
-      const result = await getHandler(server, COMPLETE)({
-        params: { ref: { type: 'ref/resource', uri: 'studio://schema/source-ord' }, argument: { name: 'uri', value: 'studio://schema/source-ord' } },
+      const result = await getHandler(
+        server,
+        COMPLETE,
+      )({
+        params: {
+          ref: { type: 'ref/resource', uri: 'studio://schema/source-ord' },
+          argument: { name: 'uri', value: 'studio://schema/source-ord' },
+        },
         method: COMPLETE,
       });
       const values = (result as any).completion.values as string[];
@@ -263,8 +337,14 @@ describe('buildStudioMcpServer', () => {
     it('returns data completions for studio://data/ prefix when source has tableName', async () => {
       const stateBox = { current: makeStableState() };
       const server = buildStudioMcpServer(stateBox);
-      const result = await getHandler(server, COMPLETE)({
-        params: { ref: { type: 'ref/resource', uri: 'studio://data/' }, argument: { name: 'uri', value: 'studio://data/' } },
+      const result = await getHandler(
+        server,
+        COMPLETE,
+      )({
+        params: {
+          ref: { type: 'ref/resource', uri: 'studio://data/' },
+          argument: { name: 'uri', value: 'studio://data/' },
+        },
         method: COMPLETE,
       });
       const values = (result as any).completion.values as string[];
@@ -274,8 +354,14 @@ describe('buildStudioMcpServer', () => {
     it('returns empty values for unknown URI prefix', async () => {
       const stateBox = { current: makeStableState() };
       const server = buildStudioMcpServer(stateBox);
-      const result = await getHandler(server, COMPLETE)({
-        params: { ref: { type: 'ref/resource', uri: 'studio://unknown/' }, argument: { name: 'uri', value: 'studio://unknown/' } },
+      const result = await getHandler(
+        server,
+        COMPLETE,
+      )({
+        params: {
+          ref: { type: 'ref/resource', uri: 'studio://unknown/' },
+          argument: { name: 'uri', value: 'studio://unknown/' },
+        },
         method: COMPLETE,
       });
       const values = (result as any).completion.values as string[];

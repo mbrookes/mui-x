@@ -42,6 +42,8 @@
  * Use `keyPrefix` in the constructor options for that case.
  */
 
+import type { CacheProvider, CacheEntry } from './types';
+
 export interface RedisClient {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, exMode: 'EX', ttlSeconds: number): Promise<unknown>;
@@ -62,8 +64,6 @@ export interface RedisCacheProviderOptions {
    */
   keyPrefix?: string;
 }
-
-import type { CacheProvider, CacheEntry } from './types';
 
 export class RedisCacheProvider implements CacheProvider {
   private readonly redis: RedisClient;

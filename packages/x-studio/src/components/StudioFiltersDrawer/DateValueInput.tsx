@@ -19,12 +19,10 @@ export function DateValueInput({
   value,
   onChange,
   label,
-  fieldType,
 }: {
   value: unknown;
   onChange: (v: unknown) => void;
   label?: string;
-  fieldType?: 'date' | 'datetime';
 }) {
   const localeText = useStudioLocaleText();
   const isRel = isRelativeDateValue(value);

@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * Run the full benchmark suite across three data sizes.
  *

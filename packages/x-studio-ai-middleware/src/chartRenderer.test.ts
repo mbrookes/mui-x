@@ -1,3 +1,4 @@
+/* eslint-disable testing-library/render-result-naming-convention */
 import { describe, it, expect } from 'vitest';
 import { renderChartSvg } from './chartRenderer';
 
@@ -48,7 +49,11 @@ describe('renderChartSvg — bar', () => {
   });
 
   it('uses custom colors', () => {
-    const svg = renderChartSvg({ type: 'bar', data: SIMPLE_DATA, colors: ['#ff0000', '#00ff00', '#0000ff'] });
+    const svg = renderChartSvg({
+      type: 'bar',
+      data: SIMPLE_DATA,
+      colors: ['#ff0000', '#00ff00', '#0000ff'],
+    });
     expect(svg).toContain('#ff0000');
     expect(svg).toContain('#00ff00');
   });
@@ -151,7 +156,11 @@ describe('renderChartSvg — pie', () => {
   });
 
   it('skips zero-value slices', () => {
-    const data = [{ label: 'A', value: 10 }, { label: 'B', value: 0 }, { label: 'C', value: 20 }];
+    const data = [
+      { label: 'A', value: 10 },
+      { label: 'B', value: 0 },
+      { label: 'C', value: 20 },
+    ];
     const svg = renderChartSvg({ type: 'pie', data });
     // Only 2 non-zero slices
     expect(countTag(svg, 'path')).toBe(2);
@@ -162,8 +171,6 @@ describe('renderChartSvg — pie', () => {
 
 describe('renderChartSvg — errors', () => {
   it('throws for an unknown chart type', () => {
-    expect(() =>
-      renderChartSvg({ type: 'scatter' as never }),
-    ).toThrow(/unknown chart type/i);
+    expect(() => renderChartSvg({ type: 'scatter' as never })).toThrow(/unknown chart type/i);
   });
 });

@@ -206,8 +206,8 @@ export interface StudioAIRateLimit {
    * Called when a limit is reached before the loop would naturally finish.
    * Use this to increment a quota counter, log the overage, or trigger an alert.
    *
-   * @param reason `'tokens'` — token budget exceeded; `'turns'` — max iterations reached.
-   * @param usage  Token counts and iteration number at the point the limit was hit.
+   * @param {'tokens' | 'turns'} reason `'tokens'` — token budget exceeded; `'turns'` — max iterations reached.
+   * @param {StudioAIUsage} usage  Token counts and iteration number at the point the limit was hit.
    */
   onLimitReached?: (reason: 'tokens' | 'turns', usage: StudioAIUsage) => void;
 }

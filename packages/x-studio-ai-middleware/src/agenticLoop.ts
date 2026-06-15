@@ -288,6 +288,7 @@ export async function* runAgenticLoop(
     }
 
     if (!response.ok) {
+      // eslint-disable-next-line no-await-in-loop -- single error-path read; cannot be parallelized
       const errText = await response.text().catch(() => response.statusText);
       yield { type: 'error', message: `HTTP ${response.status}: ${errText}` };
       return;
@@ -301,7 +302,6 @@ export async function* runAgenticLoop(
     const idToIdx: Record<string, number> = {};
     let nextAutoIdx = 0;
     let finishReason: string | null = null;
-    let textBuffer = '';
 
     // eslint-disable-next-line no-await-in-loop -- sequential SSE streaming; cannot be parallelized
     for await (const chunk of parseSSE(response)) {
@@ -342,7 +342,6 @@ export async function* runAgenticLoop(
       }
 
       if (delta.content) {
-        textBuffer += delta.content;
         yield { type: 'text-delta', delta: delta.content };
       }
 
@@ -366,10 +365,18 @@ export async function* runAgenticLoop(
           if (!reqToolCalls[idx]) {
             reqToolCalls[idx] = { id: tc.id ?? '', name: '', argsBuffer: '' };
           }
-          if (tc.id) reqToolCalls[idx].id = tc.id;
-          if (tc.extra_content) reqToolCalls[idx].extra_content = tc.extra_content;
-          if (tc.function?.name) reqToolCalls[idx].name += tc.function.name;
-          if (tc.function?.arguments) reqToolCalls[idx].argsBuffer += tc.function.arguments;
+          if (tc.id) {
+            reqToolCalls[idx].id = tc.id;
+          }
+          if (tc.extra_content) {
+            reqToolCalls[idx].extra_content = tc.extra_content;
+          }
+          if (tc.function?.name) {
+            reqToolCalls[idx].name += tc.function.name;
+          }
+          if (tc.function?.arguments) {
+            reqToolCalls[idx].argsBuffer += tc.function.arguments;
+          }
         }
       }
     }
@@ -463,6 +470,7 @@ export async function* runAgenticLoop(
       if (matchedSkill?.tool?.execute) {
         // Execute the skill server-side (may be sync or async)
         try {
+          // eslint-disable-next-line no-await-in-loop -- sequential skill execution; each tool call depends on prior state
           const result = await Promise.resolve(
             matchedSkill.tool.execute(toolInput as Record<string, unknown>, currentState),
           );
@@ -509,6 +517,7 @@ export async function* runAgenticLoop(
             });
           } else {
             const args = toolInput as { query: string; sourceId?: string };
+            // eslint-disable-next-line no-await-in-loop -- sequential query execution; each depends on prior tool results
             const result = await dataResolver.resolve(args.query, args.sourceId);
             output = JSON.stringify(result);
           }

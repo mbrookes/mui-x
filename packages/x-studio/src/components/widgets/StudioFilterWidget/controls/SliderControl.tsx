@@ -63,7 +63,8 @@ export function SliderControl(props: StudioFilterSliderControlProps) {
         step={step}
         valueLabelDisplay="auto"
         valueLabelFormat={formatLabel}
-        aria-label={label}
+        getAriaValueText={formatLabel}
+        getAriaLabel={(index) => `${label} ${index === 0 ? 'minimum' : 'maximum'}`}
         sx={{ display: 'block' }}
       />
     </Box>

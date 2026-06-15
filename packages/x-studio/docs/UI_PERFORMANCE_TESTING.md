@@ -30,7 +30,7 @@ A thorough UI performance review for a React/MUI X dashboard app has five interl
 
 For a dashboard application, metrics rank by user impact:
 
-```
+```text
 INP  ████████████████████  #1 — Every interaction (sort, filter, date change)
 LCP  ██████████████        #2 — Initial perceived load
 CLS  ████████              #3 — Layout stability during data load
@@ -41,7 +41,7 @@ TTFB █████                 #5 — Infrastructure (CDN, server)
 ### Core Web Vitals Thresholds
 
 | Metric                          | Good    | Needs Work | Poor    |
-| ------------------------------- | ------- | ---------- | ------- |
+| :------------------------------ | :------ | :--------- | :------ |
 | INP (Interaction to Next Paint) | ≤ 200ms | 200–500ms  | > 500ms |
 | LCP (Largest Contentful Paint)  | ≤ 2.5s  | 2.5–4.0s   | > 4.0s  |
 | CLS (Cumulative Layout Shift)   | ≤ 0.1   | 0.1–0.25   | > 0.25  |
@@ -64,7 +64,7 @@ The official Google package (`ChromeDevTools/chrome-devtools-mcp`, npm `chrome-d
 
 Records a Chrome DevTools-identical performance trace using CDP `Tracing` domain with categories including `devtools.timeline`, `v8.cpu_profiler`, `latencyInfo` (INP), and `disabled-by-default-devtools.timeline.frame`.[^3]
 
-```
+```text
 1. navigate_page(url="http://localhost:3000")
 2. performance_start_trace(reload=true, autoStop=true)
    // ← auto-navigates to about:blank, reloads page, waits 5s, stops, parses CrUX
@@ -75,7 +75,7 @@ Records a Chrome DevTools-identical performance trace using CDP `Tracing` domain
 
 For interaction-specific traces (e.g., profiling a DataGrid sort):
 
-```
+```text
 1. navigate_page(url="http://localhost:3000")
 2. performance_start_trace(reload=false, autoStop=false)
 3. take_snapshot()           // get element UIDs
@@ -87,7 +87,7 @@ For interaction-specific traces (e.g., profiling a DataGrid sort):
 
 **Heap memory snapshots** — requires `--experimentalMemory=true` flag in MCP config[^4]
 
-```
+```text
 1. take_heapsnapshot(filePath="before.heapsnapshot")
 2. // interact with app (open/close widgets, navigate pages)
 3. evaluate_script(function="() => { window.gc && window.gc() }")  // force GC
@@ -100,7 +100,7 @@ For interaction-specific traces (e.g., profiling a DataGrid sort):
 
 **Throttled simulation** — `emulate`
 
-```
+```text
 emulate(cpuThrottlingRate=4, networkConditions="Slow 4G", viewport="390x844x3,mobile,touch")
 // cpuThrottlingRate=4 simulates median Android device
 // Reset with: emulate()
@@ -110,14 +110,14 @@ emulate(cpuThrottlingRate=4, networkConditions="Slow 4G", viewport="390x844x3,mo
 
 > ⚠️ The MCP's `lighthouse_audit` **excludes the performance category** by design. It covers accessibility, SEO, and best-practices only. Performance scoring requires `performance_start_trace`.
 
-```
+```text
 lighthouse_audit(mode="navigation", device="desktop")
 lighthouse_audit(mode="navigation", device="mobile")  // 412×823, 1.75× DPR
 ```
 
 **Network analysis** — `list_network_requests` / `get_network_request`
 
-```
+```text
 list_network_requests(resourceTypes=["script","stylesheet"])  // find large bundles
 list_network_requests(resourceTypes=["xhr","fetch"])          // find slow API calls
 get_network_request(reqid=42)  // DNS → connect → SSL → TTFB → download timing
@@ -172,7 +172,7 @@ Fills the Lighthouse performance gap. Provides 13 tools including **actual Light
 **Key tools:**
 
 | Tool                       | What It Returns                                          |
-| -------------------------- | -------------------------------------------------------- |
+| :------------------------- | :------------------------------------------------------- |
 | `get_performance_score`    | Lighthouse score + FCP, LCP, TBT, CLS, Speed Index, TTI  |
 | `get_core_web_vitals`      | LCP/INP/CLS with configurable pass/fail thresholds       |
 | `compare_mobile_desktop`   | Side-by-side score diff                                  |
@@ -206,7 +206,7 @@ Best for orchestrating realistic user flows before measuring performance (e.g., 
 **Performance-relevant tools:**
 
 | Tool                                             | Performance Use Case                                             |
-| ------------------------------------------------ | ---------------------------------------------------------------- |
+| :----------------------------------------------- | :--------------------------------------------------------------- |
 | `browser_start_tracing` / `browser_stop_tracing` | Playwright trace files (open with `npx playwright show-trace`)   |
 | `browser_network_requests`                       | All requests since page load                                     |
 | `browser_evaluate`                               | Run `performance.getEntriesByType('navigation')` or custom marks |
@@ -238,7 +238,7 @@ Explicitly designed as a companion to chrome-devtools-mcp. Adds the 5 CDP domain
 **Performance additions:**
 
 | Domain      | Tool                                            | What It Adds                                                         |
-| ----------- | ----------------------------------------------- | -------------------------------------------------------------------- |
+| :---------- | :---------------------------------------------- | :------------------------------------------------------------------- |
 | Performance | `perf_metrics`                                  | Raw runtime: JS heap, DOM nodes, layout count, style recalc count    |
 | Performance | `perf_cpu_profile_start` / `stop`               | CPU profiling with hotspot analysis                                  |
 | Performance | `perf_heap_snapshot`                            | Memory snapshot (simpler than chrome-devtools-mcp's heap tools)      |
@@ -409,7 +409,7 @@ After installation, a **⚛️ Profiler** tab appears in DevTools.
 
 **Reading the flamegraph:**
 
-```
+```text
 Key rules:
 - Bar WIDTH = render time (wider = slower)
 - Bar COLOUR = yellow (expensive) → blue (cheap) → grey (did not render)
@@ -515,7 +515,7 @@ export default defineConfig({
 
 **Which template to use:**
 | Template | Best for |
-|----------|---------|
+| :------- | :------- |
 | `treemap` | "Find the largest modules fast" |
 | `network` | "Why is this library included?" (shows import graph) |
 | `list` | CI-diffable YAML output — commit and track over time |
@@ -756,10 +756,10 @@ rowHeight: 52,         // default row height
 
 **Historical benchmarks** (directionally valid):[^18]
 
-| Scenario | Rows    | Sort time    | Filter time  |
-| -------- | ------- | ------------ | ------------ |
-| DataGrid | 100     | 40ms         | 63ms         |
-| DataGrid | 10,000  | 83ms         | 115ms        |
+| Scenario |    Rows |    Sort time |  Filter time |
+| :------- | ------: | -----------: | -----------: |
+| DataGrid |     100 |         40ms |         63ms |
+| DataGrid |  10,000 |         83ms |        115ms |
 | DataGrid | 100,000 | **563ms ❌** | **392ms ❌** |
 
 → At 100k rows, `sortingMode="server"` and `filterMode="server"` are mandatory for acceptable INP.
@@ -809,10 +809,10 @@ function Component({ rows, someValue }) {
 **Source:** MUI official benchmarks[^20]
 
 | Approach                       | Render Time | Relative Cost |
-| ------------------------------ | ----------- | ------------- |
-| `<div className="...">`        | 100ms       | 1.0× baseline |
-| `<StyledDiv>` (emotion styled) | 181ms       | 1.8×          |
-| `<Box sx={...}>`               | **296ms**   | **~3×**       |
+| :----------------------------- | ----------: | :------------ |
+| `<div className="...">`        |       100ms | 1.0× baseline |
+| `<StyledDiv>` (emotion styled) |       181ms | 1.8×          |
+| `<Box sx={...}>`               |   **296ms** | **~3×**       |
 
 ```tsx
 // ❌ BAD on hot render paths (list rows, table cells, frequently-updating values)
@@ -894,7 +894,7 @@ const mode = useStudioSelector((s) => s.mode); // ❌ — new fn reference every
 
 ### Phase 1: Baseline (30 min)
 
-```
+```text
 1. Run Lighthouse via MCP (lighthouse MCP):
    get_performance_score(url="http://localhost:3000")
    compare_mobile_desktop(url="http://localhost:3000")
@@ -922,7 +922,7 @@ For each of these user flows, record a performance trace + React DevTools profil
 4. **Change a date range** → chart re-render cost
 5. **Scroll through DataGrid** → should stay ~60fps; virtualization check
 
-```
+```text
 # Per interaction (chrome-devtools-mcp):
 performance_start_trace(reload=false, autoStop=false)
 click(uid="<column-header>")
@@ -933,7 +933,7 @@ performance_stop_trace(filePath="sort-interaction.json.gz")
 
 ### Phase 3: Re-render Audit (30 min)
 
-```
+```text
 1. Start react-scan (already in dev build)
 2. Perform each user flow — watch for unexpected orange/red flashes
 3. For any suspicious component: add .whyDidYouRender = true
@@ -943,7 +943,7 @@ performance_stop_trace(filePath="sort-interaction.json.gz")
 
 ### Phase 4: Memory Audit (20 min)
 
-```
+```text
 # chrome-devtools-mcp (requires --experimentalMemory=true):
 1. take_heapsnapshot(filePath="baseline.heapsnapshot")
 2. Open and close 5 different widgets / navigate 5 pages
@@ -966,7 +966,7 @@ find_unused_javascript(url="http://localhost:3000")
 
 ### Phase 6: Fix, Verify, Repeat
 
-```
+```text
 1. Apply fixes in order: INP impact first (sort/filter interactions)
 2. Re-run interaction traces → compare TBT and long task durations
 3. Check React Profiler: actualDuration should decrease
@@ -979,7 +979,7 @@ find_unused_javascript(url="http://localhost:3000")
 ## 10. All Tools — Quick Reference
 
 | Tool                                    | Category              | Install                                                   | Dev-only?           | Cost                  |
-| --------------------------------------- | --------------------- | --------------------------------------------------------- | ------------------- | --------------------- |
+| :-------------------------------------- | :-------------------- | :-------------------------------------------------------- | :------------------ | :-------------------- |
 | `chrome-devtools-mcp`                   | MCP (existing)        | Already installed                                         | No (lab tool)       | Free                  |
 | `@danielsogl/lighthouse-mcp`            | MCP (add)             | MCP config npx                                            | No (lab tool)       | Free                  |
 | `@playwright/mcp`                       | MCP (add)             | MCP config npx                                            | No (lab tool)       | Free                  |
@@ -998,7 +998,7 @@ find_unused_javascript(url="http://localhost:3000")
 ## Confidence Assessment
 
 | Finding                                                                | Confidence | Basis                                                 |
-| ---------------------------------------------------------------------- | ---------- | ----------------------------------------------------- |
+| :--------------------------------------------------------------------- | :--------- | :---------------------------------------------------- |
 | chrome-devtools-mcp tool list (45 tools, perf/heap/network/lighthouse) | **High**   | GitHub source files read directly[^2][^3][^4]         |
 | `lighthouse_audit` excludes performance score                          | **High**   | Explicit note in tool description[^5]                 |
 | `@danielsogl/lighthouse-mcp` 13 tools                                  | **High**   | README + source files read[^6]                        |

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Box, Fab, IconButton, Tooltip } from '@mui/material';
+import { Box, Fab, Tooltip } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import StorageIcon from '@mui/icons-material/Storage';

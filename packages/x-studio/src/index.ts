@@ -184,7 +184,6 @@ export type {
   StudioRelationship,
   StudioFilterState,
   StudioFilterOperator,
-  StudioMetricRef,
   StudioKpiAggregation,
   StudioGridSummaryAggregation,
   StudioGridColumn,

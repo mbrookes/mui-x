@@ -7,7 +7,6 @@ import type { StudioDataSource, StudioWidget, StudioFilterState } from '../../..
 import { summarizeFilter } from '../../StudioFiltersDrawer/filterDrawerUtils';
 import {
   resolveRows,
-  resolveMetricRefs,
   resolveChartRowsForAggregation,
   analyzeChartSupport,
 } from '../../../internals/chartUtils';
@@ -368,10 +367,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
               crossFilterMode !== 'none'
                 ? filters.filter((f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id)
                 : [];
-            const allFilters = resolveMetricRefs(
-              [...pageFilters, ...widgetFilters, ...interactiveFilters],
-              dataSources,
-            );
+            const allFilters = [...pageFilters, ...widgetFilters, ...interactiveFilters];
 
             const prevDateFilter: StudioFilterState = {
               ...dateFilter,

@@ -248,8 +248,6 @@ export interface StudioLocaleText {
   filterRemoveSecondCondition: string;
   filterAbsoluteDate: string;
   filterRelativeDate: string;
-  filterLinkToField: string;
-  filterRemoveFieldLink: string;
   filterBooleanTrue: string;
   filterBooleanFalse: string;
   filterRemoveAriaLabel: string;
@@ -265,12 +263,8 @@ export interface StudioLocaleText {
   filterValueHelper: string;
   filterValueAmountLabel: string;
   filterSelectParent: string;
-  filterSourceLabel: string;
-  filterMetricRowLabel: string;
-  filterMetricHelperText: string;
   filterFieldLabel: string;
   filterRankByLabel: string;
-  filterMetricCurrentValue: string;
   filterSelectionNoValues: string;
   filterSelectionAll: string;
   filterSelectionSelectedCount: (count: number) => string;
@@ -1164,8 +1158,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterRemoveSecondCondition: 'Remove second condition',
   filterAbsoluteDate: 'Absolute date',
   filterRelativeDate: 'Relative date',
-  filterLinkToField: 'Link to field',
-  filterRemoveFieldLink: 'Remove field link',
   filterBooleanTrue: 'True',
   filterBooleanFalse: 'False',
   filterRemoveAriaLabel: 'Remove filter',
@@ -1181,12 +1173,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterValueHelper: 'Value to compare against',
   filterValueAmountLabel: 'Amount',
   filterSelectParent: 'Select parent filter\u2026',
-  filterSourceLabel: 'Source',
-  filterMetricRowLabel: 'Metric row',
-  filterMetricHelperText: 'Identifies the row in the business metrics table',
   filterFieldLabel: 'Field',
   filterRankByLabel: 'Rank by',
-  filterMetricCurrentValue: 'Current value:',
   filterSelectionNoValues: 'No values found.',
   filterSelectionAll: 'All',
   filterSelectionSelectedCount: (count) => `${count} selected`,

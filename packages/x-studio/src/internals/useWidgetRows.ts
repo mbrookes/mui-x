@@ -12,7 +12,6 @@ import {
   selectPartitionedFilters,
   selectPartitionedBaseFilters,
 } from '../context';
-import { resolveMetricRefs } from './chartUtils';
 import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
@@ -297,10 +296,7 @@ export function useWidgetRows(
     const interactiveFilters = deferredPartitioned.interactive.filter(
       (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
     );
-    const allFilters = resolveMetricRefs(
-      [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters],
-      dataSources,
-    );
+    const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters];
     return resolveRowsCached(
       normalizedDataSource.rows,
       widget.sourceId,
@@ -341,7 +337,7 @@ export function useWidgetRows(
     const widgetFilters = (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
       (f) => f.filterMode !== 'rank',
     );
-    const allFilters = resolveMetricRefs([...pageFilters, ...widgetFilters], dataSources);
+    const allFilters = [...pageFilters, ...widgetFilters];
     return resolveRowsCached(
       normalizedDataSource.rows,
       widget.sourceId,
@@ -389,10 +385,7 @@ export function useWidgetRows(
     const interactiveFilters = deferredPartitioned.interactive.filter(
       (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
     );
-    const allFilters = resolveMetricRefs(
-      [...pageFilters, ...widgetFilters, ...interactiveFilters],
-      dataSources,
-    );
+    const allFilters = [...pageFilters, ...widgetFilters, ...interactiveFilters];
     return resolveRowsCached(
       normalizedDataSource.rows,
       widget.sourceId,

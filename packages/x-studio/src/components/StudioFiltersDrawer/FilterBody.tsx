@@ -99,9 +99,6 @@ export function FilterBody({
             operator={activeOperator}
             value={filter.value}
             onChange={(v) => onChange({ value: v })}
-            valueRef={filter.valueRef}
-            onValueRefChange={(ref) => onChange({ valueRef: ref })}
-            onMetricSelect={(value, ref) => onChange({ value, valueRef: ref })}
             fieldValues={fieldValues}
           />
           <SecondCondition

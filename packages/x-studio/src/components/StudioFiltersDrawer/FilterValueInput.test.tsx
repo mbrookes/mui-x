@@ -1,6 +1,11 @@
 import * as React from 'react';
 import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  mockUseStudioSelector,
+  mockUseStudioController,
+  configureStudioContextMock,
+} from '../../../test/studioContextMock';
 import { FilterValueInput } from './FilterValueInput';
 
 const mockDataSources = {
@@ -18,18 +23,21 @@ const mockDataSources = {
   },
 };
 
-vi.mock('../../context', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../context')>();
-  return {
-    ...actual,
-    useStudioSelector: (selector: (state: { dataSources: typeof mockDataSources }) => unknown) =>
-      selector({ dataSources: mockDataSources }),
-  };
-});
+// Shared context mock (see test/studioContextMock.ts) — required because the repo runs
+// vitest with `isolate: false`, so a per-file mock factory would leak across files.
+vi.mock('../../context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../context')>()),
+  useStudioSelector: mockUseStudioSelector,
+  useStudioController: mockUseStudioController,
+}));
 
 const { render } = createRenderer();
 
 describe('FilterValueInput', () => {
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => ({ dataSources: mockDataSources }) });
+  });
+
   it('renders the link button inline with the amount field for relative date inputs', async () => {
     render(
       <FilterValueInput

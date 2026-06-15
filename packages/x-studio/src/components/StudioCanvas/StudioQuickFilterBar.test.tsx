@@ -7,12 +7,22 @@ import {
   DEFAULT_STUDIO_LOCALE_TEXT,
   type ResolvedStudioFeatures,
 } from '../../internals/StudioUIConfigContext';
+import {
+  mockUseStudioSelector,
+  mockUseStudioController,
+  configureStudioContextMock,
+} from '../../../test/studioContextMock';
 import { StudioQuickFilterBar } from './StudioQuickFilterBar';
 
 // ── Shared mutable state ──────────────────────────────────────────────────────
 
 let mockState: StudioState;
 let mockFeatures: ResolvedStudioFeatures;
+
+const controller = {
+  setDrawerOpen: vi.fn(),
+  removeFilter: vi.fn(),
+};
 
 const BASE_FEATURES: ResolvedStudioFeatures = {
   compose: true,
@@ -43,17 +53,13 @@ const BASE_FEATURES: ResolvedStudioFeatures = {
   calculatedFields: true,
 };
 
-vi.mock('../../context', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../context')>();
-  return {
-    ...actual,
-    useStudioController: () => ({
-      setDrawerOpen: vi.fn(),
-      removeFilter: vi.fn(),
-    }),
-    useStudioSelector: (selector: (state: StudioState) => unknown) => selector(mockState),
-  };
-});
+// Shared context mock (see test/studioContextMock.ts) — required because the repo runs
+// vitest with `isolate: false`, so a per-file mock factory would leak across files.
+vi.mock('../../context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../context')>()),
+  useStudioSelector: mockUseStudioSelector,
+  useStudioController: mockUseStudioController,
+}));
 
 vi.mock('../../internals/StudioUIConfigContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../internals/StudioUIConfigContext')>();
@@ -102,6 +108,7 @@ describe('StudioQuickFilterBar', () => {
 
   beforeEach(() => {
     mockFeatures = { ...BASE_FEATURES, quickFilter: false };
+    configureStudioContextMock({ getState: () => mockState, controller });
   });
 
   it('renders nothing when there are no page filters', () => {

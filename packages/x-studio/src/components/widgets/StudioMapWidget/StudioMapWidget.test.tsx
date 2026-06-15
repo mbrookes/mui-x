@@ -4,6 +4,11 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { StudioDataSource, StudioState, StudioWidget } from '../../../models';
+import {
+  mockUseStudioSelector,
+  mockUseStudioController,
+  configureStudioContextMock,
+} from '../../../../test/studioContextMock';
 import { StudioMapWidget } from './StudioMapWidget';
 
 // Capture the props passed to our custom plot so we can drive its `onShapeClick`.
@@ -76,14 +81,13 @@ const controller = {
   applyCrossFilter: vi.fn(),
 };
 
-vi.mock('../../../context', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../context')>();
-  return {
-    ...actual,
-    useStudioController: () => controller,
-    useStudioSelector: (selector: (state: StudioState) => unknown) => selector(mockState),
-  };
-});
+// Shared context mock (see test/studioContextMock.ts) — required because the repo runs
+// vitest with `isolate: false`, so a per-file mock factory would leak across files.
+vi.mock('../../../context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../context')>()),
+  useStudioSelector: mockUseStudioSelector,
+  useStudioController: mockUseStudioController,
+}));
 
 const { render } = createRenderer();
 
@@ -181,6 +185,7 @@ describe('<StudioMapWidget /> cross-filter emit', () => {
       widgets: { 'map-1': baseWidget },
       dataSources: { sales: dataSource },
     });
+    configureStudioContextMock({ getState: () => mockState, controller });
   });
 
   afterEach(() => {

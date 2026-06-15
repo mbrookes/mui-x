@@ -9,5 +9,5 @@
     ],
     "skipLibCheck": true
   },
-  "include": ["src/**/*", "../../test/utils/addChaiAssertions.ts"]
+  "include": ["src/**/*", "test/**/*", "../../test/utils/addChaiAssertions.ts"]
 }

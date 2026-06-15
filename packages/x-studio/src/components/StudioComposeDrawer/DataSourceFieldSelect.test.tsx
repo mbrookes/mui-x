@@ -1,6 +1,11 @@
 import { createRenderer, screen } from '@mui/internal-test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioDataSource, StudioExpressionField } from '../../models';
+import {
+  mockUseStudioSelector,
+  mockUseStudioController,
+  configureStudioContextMock,
+} from '../../../test/studioContextMock';
 import {
   DataSourceFieldSelect,
   type DataSourceFieldEntry,
@@ -13,13 +18,15 @@ const controller = {
   updateExpressionField: vi.fn(),
 };
 
-vi.mock('../../context', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../context')>();
-  return {
-    ...actual,
-    useStudioController: () => controller,
-  };
-});
+// Shared context mock (see test/studioContextMock.ts) — required because the repo runs
+// vitest with `isolate: false`, so a per-file mock factory would leak across files.
+// This component only uses `useStudioController`, but we override both hooks so the
+// mocked surface is identical across files and the binding can't leak.
+vi.mock('../../context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../context')>()),
+  useStudioSelector: mockUseStudioSelector,
+  useStudioController: mockUseStudioController,
+}));
 
 const ordersSource: StudioDataSource = {
   id: 'orders',
@@ -59,6 +66,11 @@ const expressionFields: StudioExpressionField[] = [
 const { render } = createRenderer();
 
 describe('DataSourceFieldSelect — calculated field affordance (BL-179/180)', () => {
+  beforeEach(() => {
+    // This component does not read the selector; an empty state is sufficient.
+    configureStudioContextMock({ getState: () => ({}), controller });
+  });
+
   it('renders the "Add calculated field…" entry in the dropdown when context is supplied', async () => {
     const calculatedField: DataSourceFieldSelectCalculatedFieldContext = {
       dataSource: ordersSource,

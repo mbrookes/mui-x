@@ -3,6 +3,11 @@ import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { StudioController } from '../../store/StudioController';
 import type { StudioState } from '../../models';
+import {
+  mockUseStudioSelector,
+  mockUseStudioController,
+  configureStudioContextMock,
+} from '../../../test/studioContextMock';
 import { TabbedSidebar } from './TabbedSidebar';
 
 // ── Shared mutable state ──────────────────────────────────────────────────────
@@ -10,14 +15,13 @@ import { TabbedSidebar } from './TabbedSidebar';
 let controller: StudioController;
 let mockState: StudioState;
 
-vi.mock('../../context', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../context')>();
-  return {
-    ...actual,
-    useStudioController: () => controller,
-    useStudioSelector: (selector: (state: StudioState) => unknown) => selector(mockState),
-  };
-});
+// Shared context mock (see test/studioContextMock.ts) — required because the repo runs
+// vitest with `isolate: false`, so a per-file mock factory would leak across files.
+vi.mock('../../context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../context')>()),
+  useStudioSelector: mockUseStudioSelector,
+  useStudioController: mockUseStudioController,
+}));
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
@@ -50,6 +54,8 @@ describe('TabbedSidebar', () => {
       },
     });
     syncState();
+    // Some tests reassign `controller` mid-test, so resolve it live via a getter.
+    configureStudioContextMock({ getState: () => mockState, getController: () => controller });
   });
 
   it('renders tab rail with all panel labels', () => {

@@ -9,6 +9,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@mui/internal-test-utils';
 import type { StudioDataSource, StudioState, StudioWidget } from '../../../models';
 import { studioRequestCache } from '../../../internals/StudioRequestCache';
+import {
+  mockUseStudioSelector,
+  mockUseStudioController,
+  configureStudioContextMock,
+} from '../../../../test/studioContextMock';
 // Static import is safe here: vitest hoists vi.mock() above all imports, and the
 // mock factory reads `mockState` lazily via closure (resolved at selector-call time).
 // Matches the sibling StudioChartWidget.test.tsx; avoids the per-test dynamic import
@@ -17,13 +22,13 @@ import { useChartWidgetData } from './useChartWidgetData';
 
 let mockState: StudioState;
 
-vi.mock('../../../context', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../context')>();
-  return {
-    ...actual,
-    useStudioSelector: (selector: (state: StudioState) => unknown) => selector(mockState),
-  };
-});
+// Shared context mock (see test/studioContextMock.ts) — required because the repo runs
+// vitest with `isolate: false`, so a per-file mock factory would leak across files.
+vi.mock('../../../context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../context')>()),
+  useStudioSelector: mockUseStudioSelector,
+  useStudioController: mockUseStudioController,
+}));
 
 function createState(overrides: Partial<StudioState> = {}): StudioState {
   return {
@@ -122,6 +127,9 @@ beforeEach(() => {
       },
     ],
   });
+  // The getter reads the live `mockState`, so the mid-test reassignment in the
+  // fieldless-count test below is reflected without re-configuring.
+  configureStudioContextMock({ getState: () => mockState });
 });
 
 afterEach(() => {

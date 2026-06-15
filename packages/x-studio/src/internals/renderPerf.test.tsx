@@ -13,6 +13,13 @@ import * as React from 'react';
 import { createRenderer, act } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+// Imported first: the vi.mock factory below references these, and they must be
+// initialized before any import (e.g. ../context/selectors) loads the mocked context.
+import {
+  mockUseStudioSelector,
+  mockUseStudioController,
+  configureStudioContextMock,
+} from '../../test/studioContextMock';
 import type { StudioDataSource, StudioState } from '../models';
 import { StudioController } from '../store/StudioController';
 import { selectPartitionedFilters, selectPartitionedBaseFilters } from '../context/selectors';
@@ -25,14 +32,13 @@ import { StudioKpiWidget } from '../components/widgets/StudioKpiWidget';
 let mockState: StudioState;
 let controller: StudioController;
 
-vi.mock('../context', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../context')>();
-  return {
-    ...actual,
-    useStudioController: () => controller,
-    useStudioSelector: (selector: (state: StudioState) => unknown) => selector(mockState),
-  };
-});
+// Shared context mock (see test/studioContextMock.ts) — required because the repo runs
+// vitest with `isolate: false`, so a per-file mock factory would leak across files.
+vi.mock('../context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../context')>()),
+  useStudioSelector: mockUseStudioSelector,
+  useStudioController: mockUseStudioController,
+}));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -97,6 +103,8 @@ describe('UI render performance', () => {
     studioRequestCache.clear();
     controller = new StudioController(buildInitialState());
     syncState();
+    // Some tests reassign `controller` mid-test, so resolve it live via a getter.
+    configureStudioContextMock({ getState: () => mockState, getController: () => controller });
   });
 
   it('selectPartitionedFilters: adding a page filter does not produce unbounded re-renders', () => {

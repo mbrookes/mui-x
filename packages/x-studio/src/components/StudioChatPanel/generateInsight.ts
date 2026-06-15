@@ -332,8 +332,12 @@ function buildChartWidgetSummary(
   const sortDir = cfg.chartSortDirection;
   const xOrder = source.fields.find((f) => f.id === xField)?.orderedValues;
 
-  const activeYFields: string[] =
-    ySeries.length > 0 ? ySeries.map((s) => s.fieldId).filter(Boolean) : yField ? [yField] : [];
+  let activeYFields: string[] = [];
+  if (ySeries.length > 0) {
+    activeYFields = ySeries.map((s) => s.fieldId).filter(Boolean);
+  } else if (yField) {
+    activeYFields = [yField];
+  }
 
   const isBlended = ySeries.some((s) => s.sourceId && s.sourceId !== widget.sourceId);
   if (isBlended || CHART_RAW_ROW_FALLBACK.has(chartType)) {
@@ -372,8 +376,8 @@ function buildChartWidgetSummary(
     const xSlice = result.xLabels.slice(0, maxRows);
     lines.push(
       `Heatmap (${yAggregation} of ${yFieldLabel(heatValue)} by ${xField} × ${heatY}):`,
-      `${result.xLabels.length} x-values × ${result.yLabels.length} y-values` +
-        (result.xLabels.length > maxRows ? `, showing first ${maxRows}` : ''),
+      `${result.xLabels.length} x-values × ${result.yLabels.length} y-values${ 
+        result.xLabels.length > maxRows ? `, showing first ${maxRows}` : ''}`,
       ['', ...result.yLabels].join(','),
     );
     for (const xLabel of xSlice) {

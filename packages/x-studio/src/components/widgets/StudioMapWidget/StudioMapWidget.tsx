@@ -314,7 +314,13 @@ export function StudioMapWidget({
       const defaultMargin = { top: 16, bottom: 8, left: 8, right: 8 };
 
       if (containerDims.width === 0) {
-        return { legendMaxWidth: undefined, mapMargin: defaultMargin, mapTranslate: undefined };
+        return {
+          legendMaxWidth: undefined,
+          mapMargin: defaultMargin,
+          mapTranslate: undefined,
+          chartBoxMaxW: undefined,
+          legendMaxHeight: undefined,
+        };
       }
 
       const aspect = PROJECTION_CONTENT_ASPECT[projectionName] ?? 1.8;
@@ -324,29 +330,10 @@ export function StudioMapWidget({
 
       const margin = { ...defaultMargin };
 
-      // Correct translate for the world map: mirrors what fitExtent computes before the
-      // upstream override erases it, so the content fills the drawing area without clipping
-      // at the top or dead space at the bottom.
-      let mapTranslate: [number, number] | undefined;
-      if (mapGeography === 'world') {
-        const drawH = svgH - margin.top - margin.bottom;
-        mapTranslate = [containerDims.width / 2, margin.top + (0.5 + WORLD_NORTH_SHIFT) * drawH];
-      }
-
-      // Cap horizontal legend width to the geographic content width so it doesn't
-      // span the full widget when the map is height-constrained.
-      let maxWidth: number | undefined;
-      if (legendDirection === 'horizontal' && !hideLegend) {
-        const drawW = containerDims.width - margin.left - margin.right;
-        const drawH = svgH - margin.top - margin.bottom;
-        if (drawH > 0) {
-          maxWidth = drawW / drawH > aspect ? Math.round(aspect * drawH) : drawW;
-        }
-      }
-
       // For vertical (left/right) legends in wide containers: the geographic content is
       // height-constrained and narrower than the full SVG. Capping the chart box width
       // makes the legend sit adjacent to the content rather than at the widget edge.
+      // Computed first so the chart box width is known before computing mapTranslate tx.
       let chartBoxMaxW: number | undefined;
       let legendMaxHeight: number | undefined;
       if (legendDirection === 'vertical' && !hideLegend) {
@@ -358,6 +345,30 @@ export function StudioMapWidget({
         }
         if (drawH > 0) {
           legendMaxHeight = drawH;
+        }
+      }
+
+      // Correct translate for the world map: mirrors what fitExtent computes before the
+      // upstream override erases it, so the content fills the drawing area without clipping
+      // at the top or dead space at the bottom.
+      // tx uses the actual chart SVG width (chartBoxMaxW when the legend constrains it,
+      // otherwise the full container width) — using containerDims.width would shift the
+      // projection centre outside the viewport when a vertical legend narrows the chart box.
+      let mapTranslate: [number, number] | undefined;
+      if (mapGeography === 'world') {
+        const effectiveSvgW = chartBoxMaxW ?? containerDims.width;
+        const drawH = svgH - margin.top - margin.bottom;
+        mapTranslate = [effectiveSvgW / 2, margin.top + (0.5 + WORLD_NORTH_SHIFT) * drawH];
+      }
+
+      // Cap horizontal legend width to the geographic content width so it doesn't
+      // span the full widget when the map is height-constrained.
+      let maxWidth: number | undefined;
+      if (legendDirection === 'horizontal' && !hideLegend) {
+        const drawW = containerDims.width - margin.left - margin.right;
+        const drawH = svgH - margin.top - margin.bottom;
+        if (drawH > 0) {
+          maxWidth = drawW / drawH > aspect ? Math.round(aspect * drawH) : drawW;
         }
       }
 
@@ -532,9 +543,11 @@ export function StudioMapWidget({
                 sx={
                   legendDirection === 'horizontal'
                     ? {
+                        // Explicit width (not just maxWidth) is required: ContinuousColorLegend
+                        // renders a CSS grid whose gradient column is `auto`. Without a width
+                        // the element shrinks to label content and the gradient collapses to 0.
                         mx: 'auto',
-                        maxWidth:
-                          legendMaxWidth !== undefined ? Math.min(legendMaxWidth, 240) : 240,
+                        width: legendMaxWidth !== undefined ? Math.min(legendMaxWidth, 180) : 180,
                         alignSelf:
                           legendAlign === 'start'
                             ? 'flex-start'
@@ -545,7 +558,7 @@ export function StudioMapWidget({
                       }
                     : {
                         height:
-                          legendMaxHeight !== undefined ? Math.min(legendMaxHeight, 200) : 200,
+                          legendMaxHeight !== undefined ? Math.min(legendMaxHeight, 140) : 140,
                         alignSelf:
                           legendAlign === 'start'
                             ? 'flex-start'

@@ -3,9 +3,13 @@ import * as React from 'react';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import BoltIcon from '@mui/icons-material/Bolt';
 import {
+  FormControl,
   FormControlLabel,
   IconButton,
   InputAdornment,
+  InputLabel,
+  MenuItem,
+  Select,
   Stack,
   Switch,
   TextField,
@@ -125,6 +129,60 @@ export function FormatPanel(props: { widgetId: string }) {
           }}
         />
       )}
+      {widget?.kind === 'map' &&
+        (() => {
+          const mapLegendPosition = (widget.config.mapLegendPosition ?? 'bottom') as string;
+          const mapLegendAlign = (widget.config.mapLegendAlign ?? 'center') as string;
+          const isVerticalLegend = mapLegendPosition === 'left' || mapLegendPosition === 'right';
+          return (
+            <React.Fragment>
+              <FormControl size="small" fullWidth>
+                <InputLabel>{localeText.mapSetupLegendPositionLabel}</InputLabel>
+                <Select
+                  label={localeText.mapSetupLegendPositionLabel}
+                  value={mapLegendPosition}
+                  onChange={(event) =>
+                    controller.updateWidgetConfig(widgetId, {
+                      mapLegendPosition: event.target.value,
+                    })
+                  }
+                >
+                  <MenuItem value="bottom">{localeText.mapSetupLegendBottom}</MenuItem>
+                  <MenuItem value="top">{localeText.mapSetupLegendTop}</MenuItem>
+                  <MenuItem value="left">{localeText.mapSetupLegendLeft}</MenuItem>
+                  <MenuItem value="right">{localeText.mapSetupLegendRight}</MenuItem>
+                  <MenuItem value="hidden">{localeText.mapSetupLegendHidden}</MenuItem>
+                </Select>
+              </FormControl>
+              {mapLegendPosition !== 'hidden' && (
+                <FormControl size="small" fullWidth>
+                  <InputLabel>{localeText.mapSetupLegendAlignLabel}</InputLabel>
+                  <Select
+                    label={localeText.mapSetupLegendAlignLabel}
+                    value={mapLegendAlign}
+                    onChange={(event) =>
+                      controller.updateWidgetConfig(widgetId, {
+                        mapLegendAlign: event.target.value,
+                      })
+                    }
+                  >
+                    <MenuItem value="start">
+                      {isVerticalLegend
+                        ? localeText.mapSetupLegendAlignStart
+                        : localeText.mapFormatLegendAlignLeft}
+                    </MenuItem>
+                    <MenuItem value="center">{localeText.mapSetupLegendAlignCenter}</MenuItem>
+                    <MenuItem value="end">
+                      {isVerticalLegend
+                        ? localeText.mapSetupLegendAlignEnd
+                        : localeText.mapFormatLegendAlignRight}
+                    </MenuItem>
+                  </Select>
+                </FormControl>
+              )}
+            </React.Fragment>
+          );
+        })()}
       <TextField
         label={localeText.formatPanelWidgetTitleLabel}
         size="small"

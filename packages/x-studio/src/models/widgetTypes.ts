@@ -378,6 +378,7 @@ export interface StudioWidgetConfig {
    * @default 'bottom'
    */
   mapLegendPosition?: 'bottom' | 'top' | 'left' | 'right' | 'hidden';
+  mapLegendAlign?: 'start' | 'center' | 'end';
   // Shared
   measures?: string[];
   dimensions?: string[];

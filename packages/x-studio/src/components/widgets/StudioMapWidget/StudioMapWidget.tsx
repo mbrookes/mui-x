@@ -126,6 +126,7 @@ export function StudioMapWidget({
   const crossFilterEmit = config.mapCrossFilterEmit ?? false;
 
   const hideLegend = legendPosition === 'hidden';
+  const legendAlign = (config.mapLegendAlign ?? 'center') as 'start' | 'center' | 'end';
   const legendDirection: 'horizontal' | 'vertical' =
     legendPosition === 'left' || legendPosition === 'right' ? 'vertical' : 'horizontal';
   // Flex direction for the chart+legend container.
@@ -509,15 +510,32 @@ export function StudioMapWidget({
               <ContinuousColorLegend
                 axisDirection="z"
                 direction={legendDirection}
-                labelPosition="end"
+                labelPosition="extremes"
                 minLabel={({ value }) => formatMapValue(value as number)}
                 maxLabel={({ value }) => formatMapValue(value as number)}
                 sx={
                   legendDirection === 'horizontal'
-                    ? { mx: 'auto', width: legendMaxWidth ?? '100%', order: legendOrder }
+                    ? {
+                        mx: 'auto',
+                        maxWidth:
+                          legendMaxWidth !== undefined ? Math.min(legendMaxWidth, 240) : 240,
+                        alignSelf:
+                          legendAlign === 'start'
+                            ? 'flex-start'
+                            : legendAlign === 'end'
+                              ? 'flex-end'
+                              : 'center',
+                        order: legendOrder,
+                      }
                     : {
-                        alignSelf: 'center',
-                        height: legendMaxHeight ?? 'calc(100% - 16px)',
+                        height:
+                          legendMaxHeight !== undefined ? Math.min(legendMaxHeight, 200) : 200,
+                        alignSelf:
+                          legendAlign === 'start'
+                            ? 'flex-start'
+                            : legendAlign === 'end'
+                              ? 'flex-end'
+                              : 'center',
                         order: legendOrder,
                       }
                 }

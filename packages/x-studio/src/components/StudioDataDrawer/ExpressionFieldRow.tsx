@@ -67,7 +67,7 @@ export default function ExpressionFieldRow({
             <Tooltip title={localeText.dataDrawerEditTooltip}>
               <IconButton
                 size="small"
-                sx={{ p: '2px' }}
+                sx={{ p: 0.5 }}
                 onClick={(event) => {
                   event.stopPropagation();
                   onEdit();
@@ -79,7 +79,7 @@ export default function ExpressionFieldRow({
             <Tooltip title={localeText.dataDrawerDeleteTooltip}>
               <IconButton
                 size="small"
-                sx={{ p: '2px' }}
+                sx={{ p: 0.5 }}
                 onClick={(event) => {
                   event.stopPropagation();
                   onDelete();

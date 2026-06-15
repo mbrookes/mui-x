@@ -159,7 +159,7 @@ export function RelationshipPanel(props: {
                   <Tooltip title={localeText.relationshipEditTooltip}>
                     <IconButton
                       size="small"
-                      sx={{ flexShrink: 0, p: '2px' }}
+                      sx={{ flexShrink: 0, p: 0.5 }}
                       onClick={() => handleEdit(rel)}
                     >
                       <EditIcon sx={{ fontSize: 14 }} />
@@ -168,7 +168,7 @@ export function RelationshipPanel(props: {
                   <Tooltip title={localeText.relationshipRemoveTooltip}>
                     <IconButton
                       size="small"
-                      sx={{ flexShrink: 0, p: '2px' }}
+                      sx={{ flexShrink: 0, p: 0.5 }}
                       onClick={() => controller.removeRelationship(rel.id)}
                     >
                       <DeleteIcon sx={{ fontSize: 14 }} />

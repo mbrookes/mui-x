@@ -36,11 +36,11 @@ gaps cluster into a small number of **systemic, repeated patterns** rather than
 scattered one-offs. Fixing the patterns fixes most of the package.
 
 | Severity | Count (approx., deduped) |
-| :--- | :--- |
-| Critical | 9 |
-| Serious | 18 |
-| Moderate | 22 |
-| Minor | 13 |
+| :------- | :----------------------- |
+| Critical | 9                        |
+| Serious  | 18                       |
+| Moderate | 22                       |
+| Minor    | 13                       |
 
 ### The five systemic themes (fix these first)
 
@@ -53,7 +53,7 @@ scattered one-offs. Fixing the patterns fixes most of the package.
    element, so it is unreachable by keyboard and silent to screen readers.
 
 2. **Mouse/pointer-only interactions with no keyboard path (Critical).**
-   Drag-and-drop is the *only* way to add, move, and reorder widgets on the
+   Drag-and-drop is the _only_ way to add, move, and reorder widgets on the
    canvas; column resize is pointer-events only; grid-column reorder, lineage
    graph edges, and map-region cross-filtering are all click/pointer-only. None
    expose a keyboard equivalent.
@@ -75,7 +75,7 @@ scattered one-offs. Fixing the patterns fixes most of the package.
 5. **Unlabeled form controls (Serious).** A number of `Select`, `Switch`, and
    `NumberField` controls render with no `InputLabel`/`aria-label`, so screen
    readers announce an unnamed combobox/spinbutton with no indication of
-   purpose. (The majority of the package's forms *are* correctly labelled — these
+   purpose. (The majority of the package's forms _are_ correctly labelled — these
    are the exceptions.)
 
 Secondary themes: missing live regions for async/no-data/error states; color as
@@ -88,6 +88,7 @@ table/tab semantics (APG Tabs rail, heatmap grid, pivot header `scope`).
 ## Critical findings
 
 ### C1. Custom data-viz charts have no text alternative — SC 1.1.1, 4.1.2
+
 - **Where:** `StudioChartWidget/StudioFunnelChart.tsx:71-83`,
   `StudioGanttChart.tsx:113-114`, `StudioHeatmapChart.tsx:76-77`,
   `StudioSankeyChart.tsx:33-43`; KPI `StudioKpiWidget/KpiSparkline.tsx:65-77`
@@ -100,6 +101,7 @@ table/tab semantics (APG Tabs rail, heatmap grid, pivot header `scope`).
   (`stages`/`cells`/`items`/`links`/series points).
 
 ### C2. Heatmap / funnel / gantt cell values live only in a mouse-hover tooltip — SC 1.1.1, 1.4.13, 4.1.2
+
 - **Where:** `StudioHeatmapChart.tsx:184-213` (cells; dense mode renders no
   in-cell text — `:203`), `StudioFunnelChart.tsx:176-202`,
   `StudioGanttChart.tsx:232-249`.
@@ -110,6 +112,7 @@ table/tab semantics (APG Tabs rail, heatmap grid, pivot header `scope`).
   carrying the tooltip text, or expose the data via the off-screen table (C1).
 
 ### C3. Choropleth map: region cross-filter is mouse-only and the map has no text alternative — SC 1.1.1, 2.1.1, 4.1.2
+
 - **Where:** `StudioMapWidget/StudioMapShapePlot.tsx:101-112` (`onClick` only on
   `MapShape`), `StudioMapWidget.tsx:519-525` (surface has no role/label); region
   value only in `StudioMapTooltipContent.tsx`.
@@ -117,11 +120,12 @@ table/tab semantics (APG Tabs rail, heatmap grid, pivot header `scope`).
   `onKeyDown`/`tabIndex`/`role`. Keyboard users cannot select a region; the
   region→value mapping is invisible to AT.
 - **Fix:** Focusable shapes with `role="button"` + `aria-label="<region>:
-  <value>"` + Enter/Space, or an adjacent listbox/table of regions; add a
+<value>"` + Enter/Space, or an adjacent listbox/table of regions; add a
   summary `aria-label` to the map container and name the color legend
   (`StudioMapWidget.tsx:527-563`).
 
 ### C4. Data-lineage graph: edges/edge-labels are mouse-only and unlabeled — SC 2.1.1, 4.1.2
+
 - **Where:** `StudioDataDrawer/EdgeLabel.tsx:79-86` (invisible hit path),
   `:97-121` (label badge), popover `:124-158`.
 - **Issue:** Edge hit-path and label `<g>` open a relationship-detail popover via
@@ -132,6 +136,7 @@ table/tab semantics (APG Tabs rail, heatmap grid, pivot header `scope`).
   keyboard-reachable `RelationshipPanel` list.
 
 ### C5. Data-lineage `<svg>` graph has no accessible name/structure — SC 1.1.1, 1.3.1
+
 - **Where:** `StudioDataDrawer/DataLineageGraph.tsx:73-149`; node `aria-label`
   only set when `onNodeClick` exists (`:122`).
 - **Issue:** The graph SVG has no `role="img"`/`<title>`/`<desc>`/`aria-label`;
@@ -141,6 +146,7 @@ table/tab semantics (APG Tabs rail, heatmap grid, pivot header `scope`).
   visually-hidden summary); ensure every node carries its full untruncated label.
 
 ### C6. Drag-and-drop is the only way to add/move/reorder canvas widgets — SC 2.1.1
+
 - **Where:** `StudioCanvas/InsertionPoint.tsx:25-116`, `WidgetGap.tsx:42-121`,
   `useStudioDraggable.ts:36-82`, `useStudioDropTarget.ts:23-53`,
   `StudioCanvas.tsx:327-505`; no keyboard reorder in
@@ -152,6 +158,7 @@ table/tab semantics (APG Tabs rail, heatmap grid, pivot header `scope`).
   `controller.updateState` row/col logic as `handleDrop`.
 
 ### C7. Column resize handles are pointer-only — SC 2.1.1
+
 - **Where:** `StudioCanvas/RowResizeHandle.tsx:109-141`, wired in
   `StudioCanvas.tsx:472-504`.
 - **Issue:** Handle is a `Box` driven entirely by
@@ -163,6 +170,7 @@ table/tab semantics (APG Tabs rail, heatmap grid, pivot header `scope`).
   keys calling the existing drag logic by ±1 span.
 
 ### C8. Grid-column drag-to-reorder is mouse-only — SC 2.1.1
+
 - **Where:** `StudioComposeDrawer/GridSetupPanel.tsx:479-503` (HTML5
   `draggable` row; the `⋮` menu offers only remove/aggregation, no reorder).
 - **Issue:** Column reordering has no keyboard alternative.
@@ -170,6 +178,7 @@ table/tab semantics (APG Tabs rail, heatmap grid, pivot header `scope`).
   arrow-key reordering on a focusable roled list.
 
 ### C9. Bare `Select`s in the expression InputNode have no accessible name — SC 4.1.2, 3.3.2
+
 - **Where:** `StudioExpressionFieldDialog/ExpressionNodeEditor.tsx:203-212`
   (kind), `:238-254` (field), `:256-272` (aggregation), `:279-297` (literal
   type), `:298-309` (boolean value).
@@ -189,8 +198,10 @@ table/tab semantics (APG Tabs rail, heatmap grid, pivot header `scope`).
 ## Serious findings
 
 ### S1. Disclosure pattern built from `<div onClick>` — no keyboard, no state — SC 2.1.1, 4.1.2, 1.3.1
+
 Same root defect in three components; fix once in the shared component and
 mirror in the others.
+
 - **`internals/CollapsibleSection.tsx:40-46`** — header is `Box onClick`,
   `cursor: 'default'`, no role/tabIndex/keydown/`aria-expanded`/`aria-controls`;
   chevron `IconButton` has `tabIndex={-1}` and no `aria-label`. Used by
@@ -198,7 +209,7 @@ mirror in the others.
   collapsed. Collapsed active-count `Chip` (`:49-55`) is a bare number with no
   accessible association.
 - **`StudioComposeDrawer/CollapsibleFeatureSection.tsx:54-87`** — same `Box
-  onClick` header; the `Switch` (`:81-85`) has no associated label (visible
+onClick` header; the `Switch` (`:81-85`) has no associated label (visible
   `Typography` not tied via `id`/`htmlFor`/`aria-labelledby`). Drives KPI
   Sparkline/Target/Trend/Date-range sections.
 - **`StudioFiltersDrawer/FilterCard.tsx:41-79`** — `Box onClick` header; expand
@@ -208,6 +219,7 @@ mirror in the others.
   chevron decorative (`aria-hidden`); bind each `Switch` via `FormControlLabel`.
 
 ### S2. APG Tabs pattern violated in the sidebar rail — SC 4.1.2, 2.1.1
+
 - **Where:** `Studio/TabbedSidebar.tsx:85-107`,
   `TabbedSidebarTabEntry.tsx:34-83`, `TabbedSidebarActivePanel.tsx:27-77`.
 - **Issue:** `role="tablist"`/`role="tab"` declared, but every tab is
@@ -220,6 +232,7 @@ mirror in the others.
   disclosure `<button aria-expanded aria-controls>` instead of a tab.
 
 ### S3. Compose-drawer `TabPanel` not associated with its tab — SC 1.3.1, 4.1.2
+
 - **Where:** `StudioComposeDrawer/StudioComposeDrawer.tsx:33-41`, `61-69`.
 - **Issue:** MUI `Tabs`/`Tab` give roles/arrow-nav, but the custom `TabPanel`
   sets no `id`/`aria-labelledby` and tabs no `aria-controls`/`id`; panel not
@@ -228,6 +241,7 @@ mirror in the others.
   to panels.
 
 ### S4. Collapsed drawer strip nests an interactive button inside `role="button"` — SC 4.1.2, 1.3.1
+
 - **Where:** `Studio/DrawerPanel.tsx:55-130`.
 - **Issue:** Outer `Box role="button" tabIndex={0}` contains another `IconButton`
   performing the same action (invalid: interactive content inside a button role).
@@ -236,6 +250,7 @@ mirror in the others.
   `aria-hidden` chevron.
 
 ### S5. Quick-filter bar opens a drawer via `onClick` on a non-interactive `div` — SC 2.1.1, 4.1.2
+
 - **Where:** `StudioCanvas/StudioQuickFilterBar.tsx:68-83`.
 - **Issue:** Container `Box` has `onClick={openFiltersDrawer}` but no
   role/tabIndex/keydown; mouse-only. (It also wraps interactive chips, so the
@@ -244,24 +259,27 @@ mirror in the others.
   `IconButton`/button with `aria-label`.
 
 ### S6. Custom filter controls: `Space` without `preventDefault`, `<span role="button">` — SC 2.1.1, 4.1.2
+
 - **Where:** `widgets/StudioFilterWidget/controls/MultiSelectControl.tsx:57-77,
-  123-140, 144-161, 164-188`; `ToggleControl.tsx:43-64`;
+123-140, 144-161, 164-188`; `ToggleControl.tsx:43-64`;
   `DateRangeControl.tsx:84-104`.
 - **Issue:** `Box component="span" role="button" tabIndex={0}` whose `onKeyDown`
-  fires on Space but never calls `preventDefault` (Space activates *and* scrolls);
+  fires on Space but never calls `preventDefault` (Space activates _and_ scrolls);
   `cursor: 'default'` undercuts affordance. Should be native controls.
 - **Fix:** Use MUI `IconButton`/`Button`; at minimum `preventDefault()` on Space
   and `cursor: 'pointer'`.
 
 ### S7. "Select all/Clear all/Exclude" + search injected as a `MenuItem` inside a `<Select multiple>` listbox — SC 1.3.1, 4.1.2
+
 - **Where:** `widgets/StudioFilterWidget/controls/MultiSelectControl.tsx:99-190`.
 - **Issue:** Non-option content (search field + action buttons) rendered as the
   first `MenuItem` becomes a bogus `role="option"`; `onKeyDown` stopPropagation
   (`:101`) breaks listbox type-ahead/navigation.
-- **Fix:** Render search/actions in `MenuProps` paper *outside* the option list
+- **Fix:** Render search/actions in `MenuProps` paper _outside_ the option list
   (sticky header), or switch to `Autocomplete`.
 
 ### S8. "View source" affordance is a mouse-only `<span onClick>` inside a tooltip — SC 2.1.1, 4.1.2
+
 - **Where:** `StudioDataDrawer/DataSourcePreviewTooltip.tsx:123-132`.
 - **Issue:** `Typography component="span"` with `onClick` only; lives inside a
   hover `Tooltip`, so it's the only path to the preview dialog yet is
@@ -269,21 +287,24 @@ mirror in the others.
 - **Fix:** Render as `Button`/`Link component="button"` with keyboard activation.
 
 ### S9. Unlabeled `Select` controls (no accessible name) — SC 4.1.2, 1.3.1
+
 - **Where:** `StudioComposeDrawer/InlineFormulaBar.tsx:208-212` (operator);
   `ChartSetupPanel.tsx:1062-1075` (annotation axis);
   `GridSetupPanel.tsx:755-770, 771-789, 809-832` (conditional-format
   field/operator/style); `StudioFiltersDrawer/RelativeDateInput.tsx:152-163,
-  164-174` (unit/direction); `widgets/.../MultiSelectControl.tsx:80-97` (trigger).
+164-174` (unit/direction); `widgets/.../MultiSelectControl.tsx:80-97` (trigger).
 - **Fix:** Add `aria-label` to each (compact inline UI → `aria-label` over
   visible `InputLabel`).
 
 ### S10. Unlabeled `Switch` toggles rely on adjacent text only — SC 1.3.1, 4.1.2
+
 - **Where:** `StudioComposeDrawer/KpiSparklineOptions.tsx:209-217, 224-232`;
   `KpiSetupPanel.tsx:381-387`. (Contrast: `MapSetupPanel`/`PivotSetupPanel`/
   `FormatPanel` correctly use `FormControlLabel`.)
 - **Fix:** Wrap in `FormControlLabel` or give `aria-label`/`aria-labelledby`.
 
 ### S11. Unlabeled rank/date inputs and icon-only toggle groups — SC 4.1.2
+
 - **Where:** `StudioFiltersDrawer/RankFilterInput.tsx:67-73` (NumberField),
   `:46-65` (Top/Bottom group); `DateValueInput.tsx:129-145` (absolute/relative
   group + icon-only toggles named by tooltip only).
@@ -291,6 +312,7 @@ mirror in the others.
   `aria-label` on each icon-only `ToggleButton`.
 
 ### S12. Widget type cards don't expose disabled state — SC 4.1.2
+
 - **Where:** `StudioComposeDrawer/WidgetTypeCard.tsx:60-91`.
 - **Issue:** When `canAdd` is false, only `opacity: 0.5` signals it; element stays
   focusable `role="button"` with no `aria-disabled` → announces actionable but
@@ -298,6 +320,7 @@ mirror in the others.
 - **Fix:** `aria-disabled={!canAdd}` (with a reason) or remove from tab order.
 
 ### S13. Widget card uses `aria-selected` on a roleless `<div>` — SC 4.1.2
+
 - **Where:** `StudioWidgetCard/StudioWidgetCard.tsx:480-538`.
 - **Issue:** `Paper` (div) has `aria-selected` + click/Enter/Space but no `role`,
   so `aria-selected` is invalid/ignored; announced as a generic group.
@@ -305,15 +328,17 @@ mirror in the others.
   `role="listbox"`.
 
 ### S14. View-mode card actions are hover-only — unreachable by keyboard — SC 2.1.1, 2.4.7
+
 - **Where:** `StudioWidgetCard.tsx:464-465, 514-515`;
   `StudioWidgetCardActionsOverlay.tsx:392-406, 415, 431`.
-- **Issue:** In view mode, Export/Expand become visible *and* focusable
+- **Issue:** In view mode, Export/Expand become visible _and_ focusable
   (`tabIndex` flips 0/-1) only while `hovered`; no `focus-within`, so keyboard
   users can never reach them.
 - **Fix:** Include `:focus-within`/focus state in the reveal + `tabIndex`
   condition, mirroring the edit-mode `isSelected` path.
 
 ### S15. KPI trend conveys good/bad purely by color — SC 1.4.1
+
 - **Where:** `widgets/StudioKpiWidget/KpiTrend.tsx:38-58, 86-99`.
 - **Issue:** Sentiment (respecting `isInverted`) is shown only via green/red; the
   arrow icon reflects raw direction, not good/bad, so colorblind users can't read
@@ -322,10 +347,12 @@ mirror in the others.
   iconography) and state it in the `aria-label`.
 
 ### S16. KPI sparkline & gauge are unlabeled data-viz — SC 1.1.1, 4.1.2
+
 - **Where:** `KpiSparkline.tsx:65-77` (Gauge), `:88-110` (SparkLineChart).
 - **Fix:** `aria-label` summarizing trend/value on the chart container.
 
 ### S17. Heatmap is a visual grid with no header→cell association — SC 1.3.1
+
 - **Where:** `StudioHeatmapChart.tsx:107-125, 153-168, 174-216`.
 - **Issue:** Grid built from `Box`es with rotated `writingMode: vertical-rl`
   labels; no table/grid semantics, no programmatic row/col header association.
@@ -333,6 +360,7 @@ mirror in the others.
   or the off-screen data table (C1).
 
 ### S18. Pivot data cells not associated with headers via `scope` — SC 1.3.1
+
 - **Where:** `widgets/StudioPivotWidget/PivotTable.tsx:78-124`.
 - **Issue:** Column `<th>` lacks `scope="col"`; row labels are `<td>` (`:97`) not
   `<th scope="row">`, so cell↔header association isn't guaranteed.
@@ -352,10 +380,10 @@ mirror in the others.
 - **M3. Inconsistent no-data/loading/error announcements in widgets:**
   `StudioPivotWidget.tsx:69-86` does it right (`role="status"`); missing in
   `StudioChartWidget.tsx` placeholders (`:790-915, 947-966, 1102-1217, 1327-1342,
-  1592-1603`) and `StudioMapWidget.tsx:438-459`. — SC 4.1.3 *(verify shared
+1592-1603`) and `StudioMapWidget.tsx:438-459`. — SC 4.1.3 _(verify shared
   `StudioNoDataOverlay`/`StudioWidgetErrorOverlay` already provide a live region —
   they do: `internals/StudioNoDataOverlay.tsx:21-25` `role="status"`,
-  `StudioWidgetErrorOverlay.tsx:26-30` `role="alert"`.)*
+  `StudioWidgetErrorOverlay.tsx:26-30` `role="alert"`.)_
 - **M4. Streaming AI responses rely on `@mui/x-chat` for live-region behavior;**
   Studio adds none, and the "Thinking…" caption has no `role="status"`:
   `StudioChatPanel.tsx:945-998, 368-377`. — SC 4.1.3 — **needs runtime
@@ -437,7 +465,7 @@ mirror in the others.
   `StudioExpressionFieldDialog.tsx:243, 268`.
 - **m8.** `cursor: 'default'` on clickable chart surfaces (affordance):
   `StudioChartWidget.tsx:1019, 1310, 1572, 1755, 1924, 2058, 2176, 2353, 2450,
-  2513, 2573`. — best practice
+2513, 2573`. — best practice
 - **m9.** Funnel drop-off `▼` glyph as adjacent indicator:
   `StudioFunnelChart.tsx:132-137` — `aria-hidden` the glyph. — SC 1.1.1
 - **m10.** Toggle chips rely on `aria-pressed` only (acceptable; verify MUI Chip
@@ -523,24 +551,29 @@ mirror in the others.
   focusable buttons; the column resize handle is an APG window-splitter;
   canvas widgets have up/down/left/right reorder controls (tested
   `moveWidgetInLayout` helper); grid columns have move-up/down buttons.
+- **C3 — keyboard map-region selection:** each interactive choropleth shape is a
+  focusable `role="button"` group (region name + Enter/Space → cross-filter); the
+  map container uses `role="group"` when interactive so shapes stay reachable.
+- **M1 — shell live region:** opening/closing a sidebar panel is announced via a
+  polite live region (panel open/close does not move focus).
+- **M3 — no-data/error announcements:** the map's no-data/error paths use the
+  shared `StudioNoDataOverlay`/`StudioWidgetErrorOverlay` (`role="status"`/`alert`).
+- **M11 — slider value text:** `getAriaValueText` (formatted dates) and per-thumb
+  `getAriaLabel` (minimum/maximum).
+- **M14 — map legend name:** the color legend has an accessible name (measure +
+  value range).
+- **M21 — target sizes:** insight-panel and data-drawer icon buttons raised to a
+  ≥24×24px hit area.
+- **m1 — landmark:** the canvas is a named `<main>` region.
 
 ### Outstanding (recommended follow-ups)
 
-- **C3 — per-region keyboard selection on the choropleth map.** The map already
-  exposes a text-alternative summary, but selecting an individual region for
-  cross-filtering is still pointer-only. Needs either the external premium
-  `MapShape` to forward focus/keyboard, or an adjacent keyboard-accessible
-  region list/table.
-- **M1 — shell-level live region** for drawer open/close, tab switch, resize and
-  drop results (per-component status regions were added where self-contained).
-- **M3 — consistent no-data/error `role="status"`** across the remaining chart
-  placeholders (the shared overlays already announce).
-- **M11 — slider `getAriaValueText`** so date sliders announce formatted values.
-- **M14 — accessible name on the map color legend.**
-- **M21 — target sizes (≥24×24px)** on the remaining small icon buttons.
-- **m1 — landmarks/headings** in the app shell; **m7 — localize** the remaining
-  hardcoded English strings (including the chart `aria-label` summaries added
-  here).
+- **M1 (extended)** — announce canvas resize / widget-drop results and tab
+  switches (panel open/close is done).
+- **m7 — localize** the remaining hardcoded English strings, including the chart
+  `aria-label` summaries and the canvas reorder labels added here.
+- **Sidebar `complementary` landmark** and a programmatic page heading (the
+  canvas `<main>` landmark is done).
 - **Runtime audit** (axe-core + screen reader) to close all "needs verification"
   items, especially contrast (M22, m5, m11) and the `@mui/x-chat` streaming
   live region (M4).

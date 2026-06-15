@@ -273,7 +273,7 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
                 position: 'absolute',
                 bottom: 20,
                 right: 20,
-                zIndex: (theme) => theme.zIndex.speedDial,
+                zIndex: (theme) => theme.zIndex.drawer + 2,
                 bgcolor: 'background.paper',
                 boxShadow: 4,
                 '&:hover': { bgcolor: 'action.hover' },

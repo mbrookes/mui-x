@@ -544,6 +544,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   mapSetupLegendAlignStart: 'Oben',
   mapSetupLegendAlignCenter: 'Mitte',
   mapSetupLegendAlignEnd: 'Unten',
+  mapFormatLegendAlignLeft: 'Links',
+  mapFormatLegendAlignRight: 'Rechts',
   mapSetupRegionFieldLabel: 'Regionsfeld',
   mapSetupRegionFieldHelperText:
     'Ein Feld, das Regionskennungen enthält, die geografischen Ressourcen-IDs entsprechen.',

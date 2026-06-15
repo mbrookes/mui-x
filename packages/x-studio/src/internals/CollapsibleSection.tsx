@@ -34,26 +34,55 @@ export function CollapsibleSection(props: CollapsibleSectionProps) {
     count,
   } = props;
   const [expanded, setExpanded] = React.useState(defaultExpanded);
+  const regionId = React.useId();
 
   return (
     <div>
-      <Box
-        sx={{ display: 'flex', alignItems: 'center', cursor: 'default', userSelect: 'none' }}
-        onClick={() => setExpanded((prev) => !prev)}
-      >
-        <IconButton size="small" tabIndex={-1}>
-          {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-        </IconButton>
-        <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
-          {title}
-          {!expanded && count != null && count > 0 && (
-            <Chip
-              label={count}
-              size="small"
-              sx={{ ml: 0.75, height: 16, fontSize: 10, '& .MuiChip-label': { px: 0.75 } }}
-            />
-          )}
-        </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Box
+          component="button"
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          aria-expanded={expanded}
+          aria-controls={regionId}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            flexGrow: 1,
+            minWidth: 0,
+            border: 0,
+            m: 0,
+            p: 0,
+            background: 'transparent',
+            font: 'inherit',
+            color: 'inherit',
+            textAlign: 'left',
+            cursor: 'pointer',
+            userSelect: 'none',
+            borderRadius: 1,
+            '&:focus-visible': {
+              outline: '2px solid',
+              outlineColor: 'primary.main',
+              outlineOffset: 2,
+            },
+          }}
+        >
+          {/* Decorative chevron — rendered as a span so it is not a nested button. */}
+          <IconButton component="span" size="small" tabIndex={-1} aria-hidden sx={{ pointerEvents: 'none' }}>
+            {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+          </IconButton>
+          <Typography variant="subtitle2" component="span" sx={{ flexGrow: 1 }}>
+            {title}
+            {!expanded && count != null && count > 0 && (
+              <Chip
+                component="span"
+                label={count}
+                size="small"
+                sx={{ ml: 0.75, height: 16, fontSize: 10, '& .MuiChip-label': { px: 0.75 } }}
+              />
+            )}
+          </Typography>
+        </Box>
         {secondaryAction}
         {onAdd != null && (
           <Tooltip title={addTooltip}>
@@ -61,6 +90,7 @@ export function CollapsibleSection(props: CollapsibleSectionProps) {
               <IconButton
                 size="small"
                 disabled={addDisabled}
+                aria-label={addTooltip}
                 onClick={(event) => {
                   event.stopPropagation();
                   onAdd();
@@ -73,7 +103,9 @@ export function CollapsibleSection(props: CollapsibleSectionProps) {
         )}
       </Box>
       <Collapse in={expanded}>
-        <Box sx={{ pl: 0.5 }}>{children}</Box>
+        <Box id={regionId} sx={{ pl: 0.5 }}>
+          {children}
+        </Box>
       </Collapse>
     </div>
   );

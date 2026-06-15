@@ -363,6 +363,7 @@ export function AppToolbar(props: AppToolbarProps) {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <span>{page.title}</span>
                     <IconButton
+                      component="span"
                       size="small"
                       aria-label={`Remove page ${page.title}`}
                       onClick={(event) => {

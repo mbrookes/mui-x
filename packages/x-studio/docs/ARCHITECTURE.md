@@ -571,7 +571,7 @@ Renders a `DataGrid` (MUI X) with:
 
 ### 10.3 Chart
 
-Supports 15 chart types: `bar`, `bar-stacked`, `bar-100`, `line`, `area`, `area-stacked`, `area-100`, `mixed`, `heatmap`, `funnel`, `gantt`, `pie`, `donut`, `scatter`, `gauge`.
+Supports 16 chart types: `bar`, `bar-stacked`, `bar-100`, `line`, `area`, `area-stacked`, `area-100`, `mixed`, `heatmap`, `funnel`, `gantt`, `sankey`, `pie`, `donut`, `scatter`, `gauge`.
 
 `useChartWidgetData` wraps `useWidgetRows` and adds:
 
@@ -612,7 +612,7 @@ Client-side pivot: groups `effectiveRows` by `pivotRowField` (vertical) × `pivo
 
 ### 10.7 Map (Choropleth)
 
-SVG choropleth of 174 countries (Natural Earth 110m, public domain). Country identifier normalisation accepts ISO alpha-2, alpha-3, or full English names. A sequential colour ramp (blues/reds/greens/oranges/purples) encodes the aggregate value. Country SVG paths are **lazy-loaded** (dynamic `import('./countryPaths')`) to avoid bundling ~120 KB eagerly.
+Renders via the official `@mui/x-charts-premium` Map (`GeoDataPlot` + `MapShapePlot`, behind `Unstable_ChartsGeoDataProviderPremium`) — the custom SVG `ChoroplethChart` was removed in favour of the upstream component (BL-182). Geographies are pluggable through `useStudioGeographies` / `geographyLoaders.ts`: built-in `world` (Natural Earth 110m via `world-atlas`), US states, and a Europe subset, plus consumer-supplied custom TopoJSON definitions; the topology is loaded lazily via dynamic `import`. Region identifier normalisation (ISO alpha-2, alpha-3, or full English names) is handled by `countryUtils`. A continuous colour ramp (5 schemes: blues/reds/greens/oranges/purples) encodes the aggregate value and is rendered with `ContinuousColorLegend`; hover tooltip via `StudioMapTooltip`. Cross-filter-on-click is currently unwired — the unstable `MapShapePlot` does not forward a per-shape item click (tracked as BL-184).
 
 ---
 

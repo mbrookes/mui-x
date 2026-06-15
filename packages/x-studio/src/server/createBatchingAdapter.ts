@@ -901,7 +901,19 @@ function flattenFilterNode(node: StudioFilterNode): FilterPredicate[] {
   if (!operator) {
     return [];
   }
-  const value = isRelativeDateValue(node.value) ? resolveRelativeDate(node.value) : node.value;
+  let value = isRelativeDateValue(node.value) ? resolveRelativeDate(node.value) : node.value;
+  // The server's queryBuilder expects between values as [lo, hi] tuple.
+  // setDashboardDateRange / setWidgetDateRange store them as { from, to } objects.
+  if (
+    operator === 'between' &&
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    'from' in (value as object)
+  ) {
+    const range = value as { from?: unknown; to?: unknown };
+    value = [range.from, range.to] as unknown;
+  }
   const predicate: FilterPredicate = { column: node.field, operator, value };
   const predicates: FilterPredicate[] = [predicate];
   // Handle range (op2 / value2) — e.g. date-range filter emits between with two bounds

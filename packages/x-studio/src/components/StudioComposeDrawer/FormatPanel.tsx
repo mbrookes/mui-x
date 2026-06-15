@@ -3,6 +3,7 @@ import * as React from 'react';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import BoltIcon from '@mui/icons-material/Bolt';
 import {
+  Divider,
   FormControl,
   FormControlLabel,
   IconButton,
@@ -20,15 +21,17 @@ import {
   useStudioSelector,
   selectWidgets,
   selectDataSources,
+  selectFilters,
   useStudioLocaleText,
 } from '../../context';
-import { inferWidgetTitles } from '../../internals/widgetUtils';
+import { inferWidgetTitles, inferKpiDateSubtitle } from '../../internals/widgetUtils';
 
 export function FormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
   const widget = useStudioSelector(selectWidgets)[widgetId];
   const dataSources = useStudioSelector(selectDataSources);
+  const allFilters = useStudioSelector(selectFilters);
   const localeText = useStudioLocaleText();
   const [formState, setFormState] = React.useState({
     title: widget?.title ?? '',
@@ -41,6 +44,18 @@ export function FormatPanel(props: { widgetId: string }) {
   const isAutoTitle = widget?.titleMode === 'auto' || (!widget?.titleMode && !widget?.title);
   const isAutoSubtitle =
     widget?.subtitleMode === 'auto' || (!widget?.subtitleMode && !widget?.subtitle);
+
+  // KPI widgets derive their subtitle dynamically from active date filters (same as the card).
+  // Show it in the text field so the user sees what the card displays.
+  const effectiveAutoSubtitle = React.useMemo(() => {
+    if (!widget || !isAutoSubtitle) {
+      return null;
+    }
+    if (widget.kind === 'kpi') {
+      return inferKpiDateSubtitle(widget, allFilters, localeText) ?? '';
+    }
+    return null;
+  }, [widget, isAutoSubtitle, allFilters, localeText]);
 
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- form state is intentionally reset when widget/page changes
   React.useEffect(() => {
@@ -96,93 +111,11 @@ export function FormatPanel(props: { widgetId: string }) {
     setFormState((prev) => ({ ...prev, subtitle: inferred.subtitle }));
   };
 
+  const hasKindControls =
+    widget?.kind === 'kpi' || widget?.kind === 'grid' || widget?.kind === 'map';
+
   return (
     <Stack spacing={2}>
-      {widget?.kind === 'kpi' && (
-        <FormControlLabel
-          slotProps={{ typography: { variant: 'body2' } }}
-          control={
-            <Switch
-              size="small"
-              checked={widget.config.kpiCompact ?? true}
-              onChange={(event) =>
-                controller.updateWidgetConfig(widgetId, { kpiCompact: event.target.checked })
-              }
-            />
-          }
-          label={localeText.formatPanelCompactNumbers}
-        />
-      )}
-      {widget?.kind === 'grid' && (
-        <TextField
-          label={localeText.gridSetupHeightLabel}
-          type="number"
-          size="small"
-          fullWidth
-          value={widget.config.gridHeight ?? 400}
-          slotProps={{ htmlInput: { min: 200, step: 50 } }}
-          onChange={(event) => {
-            const parsed = parseInt(event.target.value, 10);
-            if (!Number.isNaN(parsed) && parsed >= 200) {
-              controller.updateWidgetConfig(widgetId, { gridHeight: parsed });
-            }
-          }}
-        />
-      )}
-      {widget?.kind === 'map' &&
-        (() => {
-          const mapLegendPosition = (widget.config.mapLegendPosition ?? 'bottom') as string;
-          const mapLegendAlign = (widget.config.mapLegendAlign ?? 'center') as string;
-          const isVerticalLegend = mapLegendPosition === 'left' || mapLegendPosition === 'right';
-          return (
-            <React.Fragment>
-              <FormControl size="small" fullWidth>
-                <InputLabel>{localeText.mapSetupLegendPositionLabel}</InputLabel>
-                <Select
-                  label={localeText.mapSetupLegendPositionLabel}
-                  value={mapLegendPosition}
-                  onChange={(event) =>
-                    controller.updateWidgetConfig(widgetId, {
-                      mapLegendPosition: event.target.value,
-                    })
-                  }
-                >
-                  <MenuItem value="bottom">{localeText.mapSetupLegendBottom}</MenuItem>
-                  <MenuItem value="top">{localeText.mapSetupLegendTop}</MenuItem>
-                  <MenuItem value="left">{localeText.mapSetupLegendLeft}</MenuItem>
-                  <MenuItem value="right">{localeText.mapSetupLegendRight}</MenuItem>
-                  <MenuItem value="hidden">{localeText.mapSetupLegendHidden}</MenuItem>
-                </Select>
-              </FormControl>
-              {mapLegendPosition !== 'hidden' && (
-                <FormControl size="small" fullWidth>
-                  <InputLabel>{localeText.mapSetupLegendAlignLabel}</InputLabel>
-                  <Select
-                    label={localeText.mapSetupLegendAlignLabel}
-                    value={mapLegendAlign}
-                    onChange={(event) =>
-                      controller.updateWidgetConfig(widgetId, {
-                        mapLegendAlign: event.target.value,
-                      })
-                    }
-                  >
-                    <MenuItem value="start">
-                      {isVerticalLegend
-                        ? localeText.mapSetupLegendAlignStart
-                        : localeText.mapFormatLegendAlignLeft}
-                    </MenuItem>
-                    <MenuItem value="center">{localeText.mapSetupLegendAlignCenter}</MenuItem>
-                    <MenuItem value="end">
-                      {isVerticalLegend
-                        ? localeText.mapSetupLegendAlignEnd
-                        : localeText.mapFormatLegendAlignRight}
-                    </MenuItem>
-                  </Select>
-                </FormControl>
-              )}
-            </React.Fragment>
-          );
-        })()}
       <TextField
         label={localeText.formatPanelWidgetTitleLabel}
         size="small"
@@ -231,7 +164,7 @@ export function FormatPanel(props: { widgetId: string }) {
         size="small"
         fullWidth
         helperText={localeText.formatPanelSubtitleHelperText}
-        value={subtitle}
+        value={subtitleDirty ? subtitle : (effectiveAutoSubtitle ?? subtitle)}
         placeholder={isAutoSubtitle ? '' : localeText.formatPanelNoSubtitlePlaceholder}
         onChange={(event) => {
           setFormState((prev) => ({ ...prev, subtitle: event.target.value, subtitleDirty: true }));
@@ -270,6 +203,97 @@ export function FormatPanel(props: { widgetId: string }) {
           },
         }}
       />
+      {hasKindControls && <Divider />}
+      {widget?.kind === 'kpi' && (
+        <FormControlLabel
+          slotProps={{ typography: { variant: 'body2' } }}
+          control={
+            <Switch
+              size="small"
+              checked={widget.config.kpiCompact ?? true}
+              onChange={(event) =>
+                controller.updateWidgetConfig(widgetId, { kpiCompact: event.target.checked })
+              }
+            />
+          }
+          label={localeText.formatPanelCompactNumbers}
+        />
+      )}
+      {widget?.kind === 'grid' && (
+        <TextField
+          label={localeText.gridSetupHeightLabel}
+          type="number"
+          size="small"
+          fullWidth
+          value={widget.config.gridHeight ?? 400}
+          slotProps={{ htmlInput: { min: 200, step: 50 } }}
+          onChange={(event) => {
+            const parsed = parseInt(event.target.value, 10);
+            if (!Number.isNaN(parsed) && parsed >= 200) {
+              controller.updateWidgetConfig(widgetId, { gridHeight: parsed });
+            }
+          }}
+        />
+      )}
+      {widget?.kind === 'map' &&
+        (() => {
+          const mapLegendPosition = (widget.config.mapLegendPosition ?? 'bottom') as string;
+          const mapLegendAlign = (widget.config.mapLegendAlign ?? 'center') as string;
+          const isVerticalLegend = mapLegendPosition === 'left' || mapLegendPosition === 'right';
+          return (
+            <React.Fragment>
+              <FormControl size="small" fullWidth>
+                <InputLabel>{localeText.mapSetupLegendPositionLabel}</InputLabel>
+                <Select
+                  label={localeText.mapSetupLegendPositionLabel}
+                  value={mapLegendPosition}
+                  onChange={(event) =>
+                    controller.updateWidgetConfig(widgetId, {
+                      mapLegendPosition: event.target.value as
+                        | 'bottom'
+                        | 'top'
+                        | 'left'
+                        | 'right'
+                        | 'hidden',
+                    })
+                  }
+                >
+                  <MenuItem value="bottom">{localeText.mapSetupLegendBottom}</MenuItem>
+                  <MenuItem value="top">{localeText.mapSetupLegendTop}</MenuItem>
+                  <MenuItem value="left">{localeText.mapSetupLegendLeft}</MenuItem>
+                  <MenuItem value="right">{localeText.mapSetupLegendRight}</MenuItem>
+                  <MenuItem value="hidden">{localeText.mapSetupLegendHidden}</MenuItem>
+                </Select>
+              </FormControl>
+              {mapLegendPosition !== 'hidden' && (
+                <FormControl size="small" fullWidth>
+                  <InputLabel>{localeText.mapSetupLegendAlignLabel}</InputLabel>
+                  <Select
+                    label={localeText.mapSetupLegendAlignLabel}
+                    value={mapLegendAlign}
+                    onChange={(event) =>
+                      controller.updateWidgetConfig(widgetId, {
+                        mapLegendAlign: event.target.value as 'start' | 'center' | 'end',
+                      })
+                    }
+                  >
+                    <MenuItem value="start">
+                      {isVerticalLegend
+                        ? localeText.mapSetupLegendAlignStart
+                        : localeText.mapFormatLegendAlignLeft}
+                    </MenuItem>
+                    <MenuItem value="center">{localeText.mapSetupLegendAlignCenter}</MenuItem>
+                    <MenuItem value="end">
+                      {isVerticalLegend
+                        ? localeText.mapSetupLegendAlignEnd
+                        : localeText.mapFormatLegendAlignRight}
+                    </MenuItem>
+                  </Select>
+                </FormControl>
+              )}
+            </React.Fragment>
+          );
+        })()}
     </Stack>
   );
 }

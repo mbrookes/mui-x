@@ -10,21 +10,33 @@ type Row = Record<string, unknown>;
  * Returns a new filter array where any date-range preset filters have been resolved
  * to concrete `{ from, to }` values using the current date.
  *
- * Always recomputes from the preset, ignoring any previously stored `value`, so
- * dashboards that were persisted with stale absolute dates self-heal on load.
- * Custom presets (`dateRangePreset === 'custom'`) are left unchanged — they carry
- * the user's explicit date selection in `value`.
+ * Only resolves filters that have `value: null` — the storage format used by
+ * `setDashboardDateRange` / `setWidgetDateRange` for non-custom presets. Filters
+ * that already carry a value (relative dates, explicit `{ from, to }` objects) are
+ * left unchanged so their own resolution paths can handle them correctly.
+ *
+ * Custom presets (`dateRangePreset === 'custom'`) are always left unchanged — they
+ * carry the user's explicit date selection in `value`.
  */
 export function resolveDateRangePresets(filters: StudioFilterState[]): StudioFilterState[] {
   if (
     !filters.some(
-      (f) => f.isDashboardDateRange && f.dateRangePreset && f.dateRangePreset !== 'custom',
+      (f) =>
+        f.isDashboardDateRange &&
+        f.dateRangePreset &&
+        f.dateRangePreset !== 'custom' &&
+        f.value === null,
     )
   ) {
     return filters;
   }
   return filters.map((f) => {
-    if (!f.isDashboardDateRange || !f.dateRangePreset || f.dateRangePreset === 'custom') {
+    if (
+      !f.isDashboardDateRange ||
+      !f.dateRangePreset ||
+      f.dateRangePreset === 'custom' ||
+      f.value !== null
+    ) {
       return f;
     }
     const { from, to } = computeDateRangePreset(f.dateRangePreset);

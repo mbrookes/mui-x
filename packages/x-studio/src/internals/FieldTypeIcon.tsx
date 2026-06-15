@@ -55,6 +55,8 @@ export function FieldTypeIcon({ type, generated = false, size = 16 }: FieldTypeI
     <Tooltip title={label} placement="top">
       <Box
         component="span"
+        role="img"
+        aria-label={label}
         sx={{
           display: 'inline-flex',
           alignItems: 'center',

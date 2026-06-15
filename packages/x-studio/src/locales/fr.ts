@@ -540,6 +540,10 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   mapSetupLegendLeft: 'Gauche',
   mapSetupLegendRight: 'Droite',
   mapSetupLegendHidden: 'Caché',
+  mapSetupLegendAlignLabel: 'Alignement de la légende',
+  mapSetupLegendAlignStart: 'Haut',
+  mapSetupLegendAlignCenter: 'Milieu',
+  mapSetupLegendAlignEnd: 'Bas',
   mapSetupRegionFieldLabel: 'Champ Région',
   mapSetupRegionFieldHelperText:
     'Un champ qui contient des identifiants de région correspondant aux ID de ressources géographiques.',

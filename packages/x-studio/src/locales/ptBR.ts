@@ -533,6 +533,10 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   mapSetupLegendLeft: 'Esquerda',
   mapSetupLegendRight: 'Direita',
   mapSetupLegendHidden: 'Oculto',
+  mapSetupLegendAlignLabel: 'Alinhamento da legenda',
+  mapSetupLegendAlignStart: 'Topo',
+  mapSetupLegendAlignCenter: 'Meio',
+  mapSetupLegendAlignEnd: 'Base',
   mapSetupRegionFieldLabel: 'Campo de região',
   mapSetupRegionFieldHelperText:
     'Um campo que contém identificadores de região correspondentes aos IDs dos recursos geográficos.',

@@ -1,6 +1,6 @@
 # @mui/x-studio Gap Analysis vs AG Studio Clone Requirements
 
-**Date:** 2026-05-29 (last updated; originally 2026-04-29)
+**Date:** 2026-06-15 (last updated; originally 2026-04-29)
 **Reviewer:** Copilot (automated code review)
 **Scope:** `packages/x-studio/src/` vs `AG_STUDIO_CLONE_REQUIREMENTS.md`
 **AG Studio reference:** https://www.ag-grid.com/studio/react/reference/
@@ -186,21 +186,17 @@ Full implementation in `StudioKpiWidget.tsx`:
 
 ### XS-GRID-001 — Data grid with virtualization
 
-**Status: ⚠️ Partially implemented**
+**Status: ✅ Implemented**
 
-`StudioGridWidget.tsx` uses `<DataGrid>` (free tier from `@mui/x-data-grid`). Sorting and column display are functional.
-
-**Gap:** The component passes `autoHeight` to the grid, which causes it to render all rows at once and disables row virtualization. For large datasets this will degrade performance and contradict the requirement. The spec calls for virtualized rendering; switching to `DataGridPro` with a fixed height container would satisfy this.
+`StudioGridWidget.tsx` renders a `DataGridPremium` (`@mui/x-data-grid-premium`) inside a fixed-height container (`sx={{ height: widget.config.gridHeight ?? 400 }}`, `StudioGridWidget.tsx:330`). Because the grid has a bounded height rather than `autoHeight`, row virtualization is active — only the visible rows are rendered, so the widget scales to large datasets (validated at ~470k rows). The component also opts into `experimentalFeatures={{ virtualizerLayoutMode: 'controlled' }}` (`StudioGridWidget.tsx:378`) so the pinned summary row positions correctly at very large row counts. Sorting and column display are functional.
 
 ---
 
 ### XS-GRID-002 — Grouping and aggregation
 
-**Status: ⚠️ Partially implemented**
+**Status: ✅ Implemented**
 
-`gridGroupByField` and `gridAggregations` config fields exist on widget state, and group-by controls have been added to `GridSetupPanel`. However, the underlying grid widget still uses the free `DataGrid` tier which does not support full DataGrid Pro row-group collapsing. Server-side group expansion is not implemented.
-
-**Gap:** No UI for end-users to expand/collapse row groups at runtime; Pro-tier row grouping not wired through.
+`gridGroupByField` and `gridAggregations` config fields exist on widget state, and group-by controls are exposed in `GridSetupPanel`. These are wired through to `DataGridPremium`: `rowGroupingModel` is derived from `gridGroupByField` and `aggregationModel` (a `GridAggregationModel`) from `gridAggregations` (`StudioGridWidget.tsx:186-215`), both passed to the grid (`rowGroupingModel={rowGroupingModel}`, `aggregationModel={aggregationModel}`, `onAggregationModelChange={...}`). End-users get the Premium-tier row-group UI, so groups can be expanded/collapsed at runtime and aggregation functions are applied per column. Grouped columns are hidden from the data view via the controlled `columnVisibilityModel`.
 
 ---
 
@@ -483,6 +479,7 @@ No "Export as code" or "Copy config" feature. Correctly deferred.
 - `aria-selected` on selected widget card.
 - `role="button"` on drawer toggle targets.
 - `role="list"` / `role="listitem"` on widget rows and cards.
+- Some `aria-live` regions already exist for widget-level state: `aria-live="polite"` on the pivot widget (`StudioPivotWidget.tsx:73`) and the no-data overlay (`StudioNoDataOverlay.tsx:23`), and `role="alert"` / `aria-live="assertive"` on the widget error overlay (`StudioWidgetErrorOverlay.tsx:27`).
 
 **Gaps:**
 
@@ -515,11 +512,9 @@ HTML5 drag-and-drop in `StudioCanvas.tsx` uses the native browser DnD API, which
 
 ### XS-PERF-002 — Large dataset grid performance
 
-**Status: ⚠️ Partially implemented**
+**Status: ✅ Implemented**
 
-`StudioGridWidget.tsx` passes `pagination` and `pageSizeOptions={[5, 10, 25]}` to the grid, which limits rendered rows. However, `autoHeight` is also passed, which renders all rows of the current page at their natural height — there is no row virtualization within a page. For page size 25 this is acceptable; for larger page sizes it degrades.
-
-**Gap:** The `DataGrid` free tier (used here) does not support row grouping or full column virtualization for wide datasets. Upgrading to `DataGridPro` would unlock these.
+`StudioGridWidget.tsx` renders `DataGridPremium` in a fixed-height container (`sx={{ height: widget.config.gridHeight ?? 400 }}`) rather than `autoHeight`, so row virtualization is active and only the visible rows are rendered regardless of dataset size. This has been exercised at ~470k rows (the reason for the `virtualizerLayoutMode: 'controlled'` opt-in, which keeps the pinned summary row positioned correctly past browser CSS height limits). The Premium tier also provides row grouping and column virtualization for wide datasets.
 
 ---
 
@@ -590,8 +585,8 @@ Chart PNG export is implemented in `StudioChartWidget.tsx`. The chart SVG is ser
 | XS-WIDGET-004 KPI widget          | ⚡     | Exceeds spec (sparkline, trend, target, cross-source)   |
 | XS-WIDGET-002 Widget actions      | ✅     | —                                                       |
 | XS-WIDGET-003 Widget export       | ✅     | —                                                       |
-| XS-GRID-001 Grid virtualization   | ⚠️     | `autoHeight` disables row virtualization; free DataGrid |
-| XS-GRID-002 Grouping/aggregation  | ⚠️     | Config fields exist; Pro-tier collapse not wired        |
+| XS-GRID-001 Grid virtualization   | ✅     | DataGridPremium, fixed height, virtualized              |
+| XS-GRID-002 Grouping/aggregation  | ✅     | `rowGroupingModel` + `aggregationModel` wired           |
 | XS-GRID-003 Table formatting      | ⚠️     | No date format per-column, no alignment control         |
 | XS-GRID-004 Pinned/pivot          | ❌     | Parity+ — deferred                                      |
 | XS-CHART-001 Core chart types     | ✅     | —                                                       |
@@ -617,7 +612,7 @@ Chart PNG export is implemented in `StudioChartWidget.tsx`. The chart SVG is ser
 | XS-A11Y-002 ARIA/semantics        | ⚠️     | No live regions for dynamic updates                     |
 | XS-A11Y-003 Reduced motion        | ❌     | Parity+ — deferred                                      |
 | XS-PERF-001 60 fps drag           | ⚠️     | Not benchmarked                                         |
-| XS-PERF-002 Large dataset grid    | ⚠️     | autoHeight + free DataGrid limits scale                 |
+| XS-PERF-002 Large dataset grid    | ✅     | Fixed-height DataGridPremium; virtualized 470k+ rows    |
 | XS-PERF-003 Code splitting        | ❌     | Parity+ — deferred                                      |
 | XS-PERF-004 Memory leaks          | ⚠️     | Not profiled; history cap in place                      |
 | XS-COLLAB-001 Collaboration       | ❌     | Parity+ — deferred                                      |
@@ -709,8 +704,8 @@ These are present in the MUI X Studio implementation but are absent from or not 
 Based on the MVP definition in section 9 of the requirements, these gaps should be addressed before the MVP can be considered complete:
 
 1. ~~**XS-LAYOUT-002 / XS-CANVAS-002: Widget resize handles**~~ ✅ Done — 12-column resize handle implemented.
-2. **XS-GRID-002: Grid grouping** — AG Studio's grid widget prominently features row grouping; config fields exist but Pro-tier collapse is not wired through.
-3. **XS-GRID-001: Virtualization** — `autoHeight` + pagination is adequate for demos but degrades at scale. Consider removing `autoHeight` and using a fixed-height grid with proper row virtualization.
+2. ~~**XS-GRID-002: Grid grouping**~~ ✅ Done — `rowGroupingModel` and `aggregationModel` are wired through `DataGridPremium`, giving runtime group expand/collapse.
+3. ~~**XS-GRID-001: Virtualization**~~ ✅ Done — the grid uses a fixed-height `DataGridPremium`, so row virtualization is active (no `autoHeight`).
 4. **XS-LAYOUT-001 (partial): Drawer state persistence** — Shell state should be included in serialization or stored separately in `localStorage`.
 5. **XS-A11Y-001 / XS-A11Y-002: ARIA live regions and keyboard delete** — Needed for WCAG 2.1 AA compliance stated in the requirements.
 

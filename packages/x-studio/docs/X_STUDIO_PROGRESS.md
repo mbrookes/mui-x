@@ -1,6 +1,6 @@
 # @mui/x-studio — Requirements Progress Tracker
 
-> Last updated: 2026-06-13
+> Last updated: 2026-06-15
 
 ---
 
@@ -786,7 +786,7 @@
 
 - Removed the **Summarise dashboard** floating action button and bottom Drawer from `Studio.tsx`
 - Added `summarise_page` as the 16th AI tool in `studioAITools.ts`; no parameters — operates on the active page
-- `studioAdapter.ts` implements `case 'summarise_page'`: iterates active-page widgets, calls `buildWidgetDataSummary` with kind-appropriate sampling (`'aggregate'` for charts, `'stride'` for others), runs `detectWidgetAnomalies` for chart widgets, and returns `{ pageTitle, widgets: [{ id, title, kind, dataSummary, anomalies? }] }`
+- `executeToolOnState.ts` (in `@mui/x-studio-ai-middleware`) implements `case 'summarise_page'`: iterates active-page widgets, calls `buildWidgetDataSummary` with kind-appropriate sampling (`'aggregate'` for charts, `'stride'` for others), runs `detectWidgetAnomalies` for chart widgets, and returns `{ pageTitle, widgets: [{ id, title, kind, dataSummary, anomalies? }] }`
 - `buildWidgetDataSummary` in `generateInsight.ts` is now exported so the adapter can call it directly
 - `StudioChatPanel.tsx` adds a **Summarise page** suggestion chip in the `hasWidgets` branch
 - `generateDashboardSummary` remains a public export for consumers who call it programmatically
@@ -796,7 +796,7 @@
 ### UX-44 · Bulk state patch tool — `apply_bulk_update` (BL-164)
 
 - Added `apply_bulk_update` as the 17th AI tool in `studioAITools.ts`; accepts `widgetUpdates`, `widgetRemovals`, `widgetAdditions`, `layout`, and `colSpans`
-- `studioAdapter.ts` implements `case 'apply_bulk_update'`: applies all sub-operations in order (removals → additions → config patches → layout → column spans) then commits atomically with `controller.setState()` — a single undo step
+- `executeToolOnState.ts` (in `@mui/x-studio-ai-middleware`) implements `case 'apply_bulk_update'`: applies all sub-operations in order (removals → additions → config patches → layout → column spans) then commits atomically with `controller.setState()` — a single undo step
 - Title references in `layout` are resolved to newly-added widget IDs so the LLM can provide a layout that includes freshly created widgets
 - Failed sub-operations (e.g., unknown widget ID) are skipped and reported in `skipped[]`; successful operations proceed
 - `buildAISystemPrompt.ts` updated with a guideline: prefer `apply_bulk_update` over multiple individual tool calls when a prompt requires 3 or more related changes

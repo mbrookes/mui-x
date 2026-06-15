@@ -8,7 +8,10 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  Divider,
   IconButton,
+  ListItemIcon,
+  ListItemText,
   Menu,
   MenuItem,
   Stack,
@@ -23,7 +26,12 @@ import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined
 import EditIcon from '@mui/icons-material/Edit';
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 import TroubleshootIcon from '@mui/icons-material/Troubleshoot';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowLeftIcon from '@mui/icons-material/KeyboardArrowLeft';
+import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import { useStudioLocaleText } from '../../context';
+import type { WidgetMoveDirection } from '../../internals/widgetLayoutMove';
 
 export interface StudioWidgetCardActionsOverlayProps {
   mode: 'edit' | 'view';
@@ -58,6 +66,10 @@ export interface StudioWidgetCardActionsOverlayProps {
   onDuplicate: () => void;
   onDelete: () => void;
   onMoveToPage: (pageId: string) => void;
+  /** Keyboard-accessible reorder of the widget within the canvas layout. */
+  onMoveWidget?: (direction: WidgetMoveDirection) => void;
+  /** Which directional moves are unavailable (widget already at an edge). */
+  moveWidgetDisabled?: Record<WidgetMoveDirection, boolean>;
 }
 
 const actionButtonSx = { width: 24, height: 24, padding: 0, '& svg': { fontSize: 16 } } as const;
@@ -84,6 +96,8 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
     onExpand,
     onEdit,
     onDuplicate,
+    onMoveWidget,
+    moveWidgetDisabled,
     onDelete,
     onMoveToPage,
   } = props;
@@ -296,7 +310,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               <ContentCopyIcon />
             </IconButton>
           </Tooltip>
-          {moveToPageOptions.length > 0 && (
+          {(onMoveWidget || moveToPageOptions.length > 0) && (
             <React.Fragment>
               <Tooltip title={localeText.widgetMoveToPageLabel}>
                 <IconButton
@@ -307,6 +321,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                     setMoveMenuAnchor(event.currentTarget);
                   }}
                   aria-label={localeText.widgetMoveToPageLabel}
+                  aria-haspopup="menu"
                   tabIndex={showEditActions ? 0 : -1}
                 >
                   <DriveFileMoveOutlinedIcon />
@@ -318,6 +333,65 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
                 onClose={() => setMoveMenuAnchor(null)}
                 onClick={(event) => event.stopPropagation()}
               >
+                {onMoveWidget && [
+                  <MenuItem
+                    key="move-up"
+                    dense
+                    disabled={moveWidgetDisabled?.up}
+                    onClick={() => {
+                      onMoveWidget('up');
+                      setMoveMenuAnchor(null);
+                    }}
+                  >
+                    <ListItemIcon>
+                      <KeyboardArrowUpIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText>{localeText.canvasMoveWidgetUpAriaLabel}</ListItemText>
+                  </MenuItem>,
+                  <MenuItem
+                    key="move-down"
+                    dense
+                    disabled={moveWidgetDisabled?.down}
+                    onClick={() => {
+                      onMoveWidget('down');
+                      setMoveMenuAnchor(null);
+                    }}
+                  >
+                    <ListItemIcon>
+                      <KeyboardArrowDownIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText>{localeText.canvasMoveWidgetDownAriaLabel}</ListItemText>
+                  </MenuItem>,
+                  <MenuItem
+                    key="move-left"
+                    dense
+                    disabled={moveWidgetDisabled?.left}
+                    onClick={() => {
+                      onMoveWidget('left');
+                      setMoveMenuAnchor(null);
+                    }}
+                  >
+                    <ListItemIcon>
+                      <KeyboardArrowLeftIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText>{localeText.canvasMoveWidgetLeftAriaLabel}</ListItemText>
+                  </MenuItem>,
+                  <MenuItem
+                    key="move-right"
+                    dense
+                    disabled={moveWidgetDisabled?.right}
+                    onClick={() => {
+                      onMoveWidget('right');
+                      setMoveMenuAnchor(null);
+                    }}
+                  >
+                    <ListItemIcon>
+                      <KeyboardArrowRightIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText>{localeText.canvasMoveWidgetRightAriaLabel}</ListItemText>
+                  </MenuItem>,
+                ]}
+                {onMoveWidget && moveToPageOptions.length > 0 && <Divider key="move-divider" />}
                 {moveToPageOptions.map((page) => (
                   <MenuItem
                     key={page.id}

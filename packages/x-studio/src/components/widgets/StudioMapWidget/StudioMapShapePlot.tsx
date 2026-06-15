@@ -1,4 +1,11 @@
 'use client';
+// BL-185 (accepted): the studio map is built on the premium Map's `Unstable_`
+// surface — `@mui/x-charts-premium/Map` (`MapShape`/`FocusedMapShape`, the
+// `mapShape` series shape) and `@mui/x-charts-premium/hooks` — to attach the
+// per-shape click that `MapShapePlot` doesn't forward (BL-184). Premium-gating
+// the map is intended (the official map only ships in `@mui/x-charts-premium`).
+// Re-verify these imports on every master rebase; if upstream exposes a stable
+// per-shape item click, retire this fork in favour of it.
 import * as React from 'react';
 import { useZAxes } from '@mui/x-charts/hooks';
 import { useSeriesOfType, type ChartSeriesDefaultized } from '@mui/x-charts/internals';

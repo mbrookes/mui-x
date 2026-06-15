@@ -533,6 +533,7 @@ export default function App() {
     return {
       endpoint: `${serverUrl.replace(/\/$/, '')}/api/ai`,
       headers: token ? ({ Authorization: `Bearer ${token}` } as Record<string, string>) : undefined,
+      showToolCalls: import.meta.env.DEV,
     };
   }, []);
 

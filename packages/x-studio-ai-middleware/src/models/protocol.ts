@@ -35,6 +35,16 @@ export interface StudioAIRequest {
    * @default false
    */
   privateMode?: boolean;
+  /**
+   * Pre-built data snapshot of all widgets on the current page, built client-side
+   * where live pipeline-filtered rows are available.
+   *
+   * Format: one `### Widget Title (kind)\n<CSV data>` block per widget, joined by `\n\n`.
+   *
+   * When present, the `summarise_page` tool returns this snapshot to the model
+   * so it can write a business-focused data summary instead of a structural description.
+   */
+  pageSnapshot?: string;
 }
 
 // ── SSE events ────────────────────────────────────────────────────────────────

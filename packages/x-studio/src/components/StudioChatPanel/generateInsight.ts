@@ -1,12 +1,17 @@
 import type { StudioController } from '../../store/StudioController';
 import type { StudioAIConfig } from './studioBackendAdapter';
 import type { StudioChartAnnotation, StudioKpiAggregation } from '../../models/baseTypes';
-import type { StudioState } from '../../models/stateTypes';
+import type { StudioState, StudioFilterState } from '../../models/stateTypes';
 import type { StudioWidget } from '../../models/widgetTypes';
 import type { StudioDataSource } from '../../models/dataTypes';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
 import { pearsonCorrelation, interpretCorrelation } from '../../internals/forecastUtils';
-import { computeAggregate } from '../widgets/StudioKpiWidget/kpiUtils';
+import {
+  computeAggregate,
+  findDateFilter,
+  extractDateRange,
+  computePreviousPeriodRange,
+} from '../widgets/StudioKpiWidget/kpiUtils';
 import { resolveMetricRef } from '../../internals/filterUtils';
 import {
   aggregateByField,
@@ -212,11 +217,17 @@ function buildNumericStats(
   return parts.join(' | ');
 }
 
+function formatDate(d: Date): string {
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 function buildKpiWidgetSummary(
   widget: StudioWidget,
   source: StudioDataSource,
   filteredRows: Record<string, unknown>[],
   state: StudioState,
+  dateFilter: StudioFilterState | undefined,
+  currentRange: { start: Date; end: Date } | null,
 ): string {
   const cfg = widget.config;
   const valueField: string | undefined = cfg.kpiValueField;
@@ -247,6 +258,51 @@ function buildKpiWidgetSummary(
     const gMin = cfg.kpiSparklineGaugeMin ?? 0;
     const gMax = cfg.kpiSparklineGaugeMax ?? '(not set)';
     lines.push(`Gauge range: ${gMin} – ${gMax}`);
+  }
+
+  // Trend: compare current value against previous period or target
+  if (cfg.kpiTrend && valueField) {
+    if (cfg.kpiTarget && cfg.kpiTargetRef) {
+      const target = resolveMetricRef(cfg.kpiTargetRef, state.dataSources);
+      if (target != null && typeof target === 'number' && target !== 0) {
+        const delta = (value - target) / Math.abs(target);
+        lines.push(`Trend: ${delta >= 0 ? '+' : ''}${Math.round(delta * 100)}% vs target`);
+      }
+    } else if (dateFilter && currentRange) {
+      const comparisonMode = cfg.kpiTrendComparison ?? 'previous-period';
+      const prevRange = computePreviousPeriodRange(
+        currentRange.start,
+        currentRange.end,
+        comparisonMode,
+      );
+      const prevDateFilter: StudioFilterState = {
+        ...dateFilter,
+        operator: 'greater_than_or_equal',
+        value: prevRange.start.toISOString().slice(0, 10),
+        operator2: 'less_than_or_equal',
+        value2: prevRange.end.toISOString().slice(0, 10),
+        conjunction: 'and',
+      };
+      const prevPipeline = createStudioPipeline({
+        ...state,
+        filters: state.filters.map((f) => (f.id === dateFilter.id ? prevDateFilter : f)),
+      });
+      const prevRows = prevPipeline.resolveWidgetRows(
+        widget.id,
+        widget.sourceId as string,
+        source.rows as Record<string, unknown>[],
+        state.dashboard.activePageId,
+      );
+      const prevValue = computeAggregate(prevRows, valueField, agg as StudioKpiAggregation);
+      const label = comparisonMode === 'year-over-year' ? 'YoY' : 'vs previous period';
+      lines.push(
+        `Previous period (${formatDate(prevRange.start)} – ${formatDate(prevRange.end)}): ${cfg.kpiPrefix ?? ''}${prevValue}${cfg.kpiSuffix ?? ''}`,
+      );
+      if (prevValue !== 0) {
+        const delta = (value - prevValue) / Math.abs(prevValue);
+        lines.push(`Trend: ${delta >= 0 ? '+' : ''}${Math.round(delta * 100)}% ${label}`);
+      }
+    }
   }
 
   if (valueField) {
@@ -520,19 +576,30 @@ export function buildWidgetDataSummary(
 
   const maxRows = options.maxRows ?? MAX_DATA_ROWS;
 
+  // Compute the active date range once — used in every widget kind's output
+  const dateFilter = findDateFilter(state.filters, widget.id, source);
+  const currentRange = dateFilter ? extractDateRange(dateFilter) : null;
+  const dateRangeLine = currentRange
+    ? `Date range: ${formatDate(currentRange.start)} – ${formatDate(currentRange.end)}`
+    : '';
+
+  const prefix = (body: string) => (dateRangeLine ? `${dateRangeLine}\n${body}` : body);
+
   // Dispatch to widget-type-specific builders that represent what the widget actually displays
   if (widget.kind === 'kpi') {
-    return buildKpiWidgetSummary(widget, source, filteredRows, state);
+    return prefix(
+      buildKpiWidgetSummary(widget, source, filteredRows, state, dateFilter, currentRange),
+    );
   }
   if (widget.kind === 'chart') {
     const summary = buildChartWidgetSummary(widget, source, filteredRows, state, maxRows);
     if (summary) {
-      return summary;
+      return prefix(summary);
     }
     // Fall through to raw-row path for scatter/gantt/sankey/blended
   }
   if (widget.kind === 'map') {
-    return buildMapWidgetSummary(widget, source, filteredRows, maxRows);
+    return prefix(buildMapWidgetSummary(widget, source, filteredRows, maxRows));
   }
 
   // Raw-row path: grid, pivot, and chart fallbacks
@@ -596,7 +663,7 @@ export function buildWidgetDataSummary(
   }
   lines.push(headers.join(','), ...sample.map((row) => csvRow(row, fieldIds)));
 
-  return lines.join('\n');
+  return prefix(lines.join('\n'));
 }
 
 async function callInsightEndpoint(

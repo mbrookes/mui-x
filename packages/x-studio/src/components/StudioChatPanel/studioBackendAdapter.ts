@@ -171,8 +171,14 @@ export function createBackendChatAdapter(
         if (!w) {
           return [];
         }
-        const dataSummary = buildWidgetDataSummary(w, state, { sampling: 'aggregate' });
-        return [`### ${w.title} (${w.kind})\n${dataSummary || '(no data)'}`];
+        // Cap at 15 rows per widget to keep the total snapshot small enough for the
+        // model to have room to generate a text response. Stats (min/max/avg) are
+        // always included from the full filtered dataset regardless of this limit.
+        const dataSummary = buildWidgetDataSummary(w, state, { sampling: 'stride', maxRows: 15 });
+        if (!dataSummary) {
+          return []; // skip non-data widgets (text, filter, alert-banner, etc.)
+        }
+        return [`### ${w.title} (${w.kind})\n${dataSummary}`];
       });
       const pageSnapshot =
         pageSnapshotParts.length > 0 ? pageSnapshotParts.join('\n\n') : undefined;

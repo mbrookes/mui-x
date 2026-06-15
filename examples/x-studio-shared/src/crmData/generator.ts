@@ -140,16 +140,53 @@ const DEPARTMENTS = [
   'Engineering',
 ] as const;
 
-const DEAL_STAGES = [
+// Sequential pipeline path (depth 0..4). `Closed Lost` is a *terminal exit*, NOT a
+// sequential step, so it is intentionally excluded from this ordered sequence.
+const SEQ_STAGES = [
   'Prospecting',
   'Qualification',
   'Proposal',
   'Negotiation',
   'Closed Won',
-  'Closed Lost',
 ] as const;
 
-const DEAL_STAGE_WEIGHTS = [0.2, 0.2, 0.2, 0.15, 0.15, 0.1] as const;
+const CLOSED_LOST = 'Closed Lost';
+
+// Display order (keeps BL-173's ordering: Closed Lost sorts last) for widgets/grids.
+const DEAL_STAGES = [...SEQ_STAGES, CLOSED_LOST] as const;
+
+// Probability that a deal's *furthest-reached* depth is exactly k (k = 0..4),
+// i.e. how far it got along the pipeline. The distribution is **decreasing** so
+// that "reached ≥ k" counts fall off as k grows — making the cumulative funnel
+// (counted in `aggregateFunnelReached`) monotonically non-increasing by
+// construction. Because counts of "reached ≥ k" are derived from these
+// exact-depth weights, the funnel can never exceed 100% regardless of seed.
+const REACH_DEPTH_WEIGHTS = [0.32, 0.26, 0.2, 0.13, 0.09] as const;
+
+// Of the deals that stalled before Closed Won (depth < 4), this fraction exits
+// to `Closed Lost` (terminal). The rest stay open, currently sitting in the
+// stage at their reached depth. Deals reaching depth 4 are `Closed Won`.
+const LOST_FRACTION = 0.45;
+
+// Typical days a deal spends in each pipeline stage (index = depth). Used to
+// derive a coherent stage timeline and a per-deal `daysInStage` scalar.
+const STAGE_DURATION_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [7, 30], // Prospecting
+  [10, 35], // Qualification
+  [14, 45], // Proposal
+  [10, 40], // Negotiation
+  [1, 7], // Closed Won (short — the win is recorded quickly)
+];
+
+// A small fixed roster of sales reps — the `owner` axis for the time-in-stage heatmap.
+const DEAL_OWNERS = [
+  'Sofia Reyes',
+  'Marcus Bauer',
+  'Priya Nair',
+  'Tom Becker',
+  'Lena Hofmann',
+  'Diego Santos',
+] as const;
 
 const ACTIVITY_TYPES = ['Call', 'Email', 'Meeting', 'Demo', 'Follow-up'] as const;
 
@@ -262,13 +299,42 @@ function generateContacts(
   };
 }
 
+/**
+ * One entry of a deal's stage timeline: when it entered/exited a pipeline stage.
+ * Used only locally to derive a coherent `daysInStage` scalar and `closeDate`;
+ * it is intentionally NOT emitted as a row field (a nested array would not map
+ * to a flat data-source column / SQL ingest).
+ */
+interface DealStageInterval {
+  stage: string;
+  enteredDate: string;
+  /** `null` while the deal currently sits in this (last) stage. */
+  exitedDate: string | null;
+  days: number;
+}
+
 interface GeneratedDeal extends Record<string, unknown> {
   id: string;
   customerId: string;
   title: string;
+  /** Snapshot stage the deal is *currently* sitting in (or its terminal outcome). */
   stage: string;
+  /**
+   * Furthest-reached depth index along `SEQ_STAGES` (0..4). Drives the cumulative
+   * "reached stage" funnel. A deal that exited to Closed Lost keeps the depth it
+   * had reached, so it still counts toward the upper stages it passed through.
+   */
+  stageReached: number;
+  /** Sales rep who owns the deal — the heatmap row axis. */
+  owner: string;
   value: number;
   probability: number;
+  /**
+   * Days spent in the current/snapshot stage. NOTE: this is a per-deal *scalar*
+   * (the heatmap reads one row per deal), not a full per-stage matrix. It
+   * approximates "time in stage" with the duration of the deal's current stage.
+   */
+  daysInStage: number;
   openedDate: string;
   closeDate: string;
 }
@@ -320,23 +386,49 @@ function generateDeals(
     const dealCount = randInt(rng, 0, 3);
 
     for (let j = 0; j < dealCount; j++) {
-      const stage = pickWeighted(rng, DEAL_STAGES, DEAL_STAGE_WEIGHTS);
+      // 1. Draw a furthest-reached depth from a decreasing distribution. Counts
+      //    of "reached ≥ k" then fall off monotonically by construction.
+      const stageReached = SEQ_STAGES.indexOf(pickWeighted(rng, SEQ_STAGES, REACH_DEPTH_WEIGHTS));
+
+      // 2. Win/lost split. Reaching Closed Won (depth 4) = won. Otherwise the
+      //    deal either exited to Closed Lost or is still open in its reached stage.
+      const reachedWon = stageReached >= SEQ_STAGES.length - 1;
+      const isLost = !reachedWon && rng() < LOST_FRACTION;
+      const stage = reachedWon ? 'Closed Won' : isLost ? CLOSED_LOST : SEQ_STAGES[stageReached];
+
       const value = Math.round(randInt(rng, 5000, 250000) / 500) * 500;
-      const probability =
-        stage === 'Closed Won'
-          ? 100
-          : stage === 'Closed Lost'
-            ? 0
-            : stage === 'Negotiation'
-              ? randInt(rng, 60, 80)
-              : stage === 'Proposal'
-                ? randInt(rng, 40, 60)
-                : stage === 'Qualification'
-                  ? randInt(rng, 20, 40)
-                  : randInt(rng, 5, 20);
+      const probability = reachedWon
+        ? 100
+        : isLost
+          ? 0
+          : stage === 'Negotiation'
+            ? randInt(rng, 60, 80)
+            : stage === 'Proposal'
+              ? randInt(rng, 40, 60)
+              : stage === 'Qualification'
+                ? randInt(rng, 20, 40)
+                : randInt(rng, 5, 20);
 
       const openedDate = sampleOpenedDate(rng);
-      const closeDate = addDays(openedDate, randInt(rng, 30, 180));
+
+      // 3. Build a coherent stage timeline across the stages the deal passed
+      //    through (0..stageReached), with per-stage durations. closeDate is the
+      //    sum of all durations so it stays consistent with openedDate.
+      const stageTimeline: DealStageInterval[] = [];
+      let cursor = openedDate;
+      for (let d = 0; d <= stageReached; d++) {
+        const [lo, hi] = STAGE_DURATION_RANGES[d];
+        const days = randInt(rng, lo, hi);
+        const enteredDate = cursor;
+        const exitedDate = d < stageReached ? addDays(enteredDate, days) : null;
+        stageTimeline.push({ stage: SEQ_STAGES[d], enteredDate, exitedDate, days });
+        cursor = exitedDate ?? addDays(enteredDate, days);
+      }
+      // Days the deal has spent in its current/snapshot stage (heatmap value).
+      const daysInStage = stageTimeline[stageTimeline.length - 1]?.days ?? 0;
+      // closeDate = opened + all stage durations (terminal for won/lost; for
+      // still-open deals it is the projected close based on time-in-stage so far).
+      const closeDate = cursor;
 
       // Assign primary contact from this company (first one if available)
       const contacts = byCustomerId.get(customerId) ?? [];
@@ -348,8 +440,11 @@ function generateDeals(
         primaryContactId,
         title: pick(rng, DEAL_TITLE_TEMPLATES),
         stage,
+        stageReached,
+        owner: pick(rng, DEAL_OWNERS),
         value,
         probability,
+        daysInStage,
         openedDate,
         closeDate,
       };
@@ -374,17 +469,21 @@ function generateDeals(
           id: 'stage',
           label: 'Stage',
           type: 'string',
-          orderedValues: [
-            'Prospecting',
-            'Qualification',
-            'Proposal',
-            'Negotiation',
-            'Closed Won',
-            'Closed Lost',
-          ],
+          // Display order keeps Closed Lost last (BL-173); it is a terminal exit,
+          // not a sequential step in the funnel math.
+          orderedValues: [...DEAL_STAGES],
         },
+        {
+          id: 'stageReached',
+          label: 'Stage Reached',
+          type: 'number',
+          format: 'integer',
+          hidden: true,
+        },
+        { id: 'owner', label: 'Owner', type: 'string' },
         { id: 'value', label: 'Deal Value', type: 'number', format: 'currency' },
         { id: 'probability', label: 'Probability', type: 'number', format: 'percent' },
+        { id: 'daysInStage', label: 'Days in Stage', type: 'number', format: 'integer' },
         { id: 'openedDate', label: 'Opened', type: 'date' },
         { id: 'closeDate', label: 'Close Date', type: 'date' },
       ],

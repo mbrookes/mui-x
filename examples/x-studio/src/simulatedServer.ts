@@ -94,8 +94,23 @@ function matchLeaf(row: Row, node: Extract<StudioFilterNode, { type: 'leaf' }>):
       const list = Array.isArray(value) ? (value as unknown[]).map(coerce) : [fv];
       return list.includes(rv);
     }
-    case 'between':
-      return rv !== null && fv !== null && fv2 !== null && rv >= fv && rv <= fv2;
+    case 'between': {
+      // value may be a [lo, hi] tuple (AI-generated) or { from, to } object (date range bar).
+      let lo: string | number | null = null;
+      let hi: string | number | null = null;
+      if (Array.isArray(value)) {
+        lo = coerce(value[0]);
+        hi = coerce(value[1]);
+      } else if (value !== null && typeof value === 'object' && 'from' in (value as object)) {
+        const range = value as { from?: unknown; to?: unknown };
+        lo = coerce(range.from);
+        hi = coerce(range.to);
+      } else {
+        lo = fv;
+        hi = fv2;
+      }
+      return rv !== null && lo !== null && hi !== null && rv >= lo && rv <= hi;
+    }
     default:
       return true;
   }

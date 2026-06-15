@@ -5,6 +5,11 @@ import {
   findDateFilter,
   computePreviousPeriodRange,
   computeAggregate,
+  autoGranularity,
+  getBucketKey,
+  computeSparklineData,
+  formatPeriodShort,
+  formatDateRangeLong,
 } from './kpiUtils';
 import type { StudioDataSource, StudioFilterState } from '../../../models';
 
@@ -266,5 +271,83 @@ describe('computeAggregate', () => {
   it('returns 0 for empty rows', () => {
     expect(computeAggregate([], 'total', 'sum')).toBe(0);
     expect(computeAggregate([], 'total', 'count')).toBe(0);
+  });
+});
+
+describe('autoGranularity', () => {
+  const span = (days: number) => autoGranularity(new Date(2026, 0, 1), new Date(2026, 0, 1 + days));
+
+  it.each([
+    [7, 'day'],
+    [14, 'day'],
+    [30, 'week'],
+    [90, 'week'],
+    [200, 'month'],
+    [730, 'month'],
+    [1000, 'quarter'],
+    [1460, 'quarter'],
+    [2000, 'year'],
+  ] as const)('maps a %i-day span to "%s"', (days, expected) => {
+    expect(span(days)).toBe(expected);
+  });
+});
+
+describe('getBucketKey', () => {
+  const date = new Date(2026, 2, 5); // 5 Mar 2026 (local = UTC in tests)
+
+  it('formats day / month / quarter / year buckets', () => {
+    expect(getBucketKey(date, 'day')).toBe('2026-03-05');
+    expect(getBucketKey(date, 'month')).toBe('2026-03');
+    expect(getBucketKey(date, 'quarter')).toBe('2026-Q1');
+    expect(getBucketKey(date, 'year')).toBe('2026');
+  });
+
+  it('groups dates within the same Mon–Sun week under one key', () => {
+    // 2 Mar 2026 is a Monday; 5 Mar is the same week.
+    const monday = new Date(2026, 2, 2);
+    const thursday = new Date(2026, 2, 5);
+    expect(getBucketKey(monday, 'week')).toBe(getBucketKey(thursday, 'week'));
+  });
+});
+
+describe('computeSparklineData', () => {
+  const rows = [
+    { t: '2026-01-15', v: 10 },
+    { t: '2026-01-20', v: 5 },
+    { t: '2026-02-10', v: 20 },
+    { t: null, v: 99 }, // skipped — no date
+  ];
+
+  it('aggregates each period bucket in chronological order', () => {
+    expect(computeSparklineData(rows, 't', 'v', 'sum', 'month', false)).toEqual([15, 20]);
+  });
+
+  it('returns a running total when cumulative', () => {
+    expect(computeSparklineData(rows, 't', 'v', 'sum', 'month', true)).toEqual([15, 35]);
+  });
+});
+
+describe('formatPeriodShort', () => {
+  it('shows a single month when start and end share a month', () => {
+    expect(formatPeriodShort(new Date(2026, 2, 1), new Date(2026, 2, 31))).toBe('Mar 2026');
+  });
+
+  it('shows a month range within the same year', () => {
+    expect(formatPeriodShort(new Date(2026, 2, 1), new Date(2026, 3, 30))).toBe('Mar–Apr 2026');
+  });
+
+  it('shows a cross-year range', () => {
+    expect(formatPeriodShort(new Date(2025, 11, 1), new Date(2026, 0, 31))).toBe(
+      'Dec 2025–Jan 2026',
+    );
+  });
+});
+
+describe('formatDateRangeLong', () => {
+  it('formats a range with the year on the end date', () => {
+    const result = formatDateRangeLong(new Date(2026, 2, 1), new Date(2026, 2, 31));
+    expect(result).toContain('–');
+    expect(result).toContain('Mar');
+    expect(result).toContain('2026');
   });
 });

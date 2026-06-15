@@ -15,7 +15,6 @@
 import type {
   JwtSecurityClaims,
   BatchWidgetDescriptor,
-  FilterPredicate,
   HandleBatchQueryOptions,
 } from '../security/types';
 import { buildSecureQuery } from './queryBuilder';

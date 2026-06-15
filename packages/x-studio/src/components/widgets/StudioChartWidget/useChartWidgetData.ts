@@ -22,7 +22,6 @@ import {
   applyRankToAggregated,
   applyRankToMultiSeries,
   applyRankToSeriesFieldData,
-  resolveMetricRefs,
 } from '../../../internals/chartUtils';
 import { resolveRowsCached } from '../../../internals/resolvedRowsCache';
 import { getCachedNormalizedDataSource } from '../../../internals/normalizedRowsCache';
@@ -175,12 +174,8 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
   // blended series. Widget-specific, cross-filter and rank filters are tied to the
   // primary widget/source and are not applied to a foreign source's aggregation.
   const pageFilters = React.useMemo(
-    () =>
-      resolveMetricRefs(
-        filters.filter((f) => f.scope === 'page' && f.filterMode !== 'rank'),
-        dataSources,
-      ),
-    [filters, dataSources],
+    () => filters.filter((f) => f.scope === 'page' && f.filterMode !== 'rank'),
+    [filters],
   );
 
   // Distinct foreign sources referenced by the blended series, with the fields and

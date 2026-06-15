@@ -106,9 +106,6 @@ export function SecondCondition(props: SecondConditionProps) {
         operator={activeOperator2}
         value={filter.value2}
         onChange={(v) => onChange({ value2: v })}
-        valueRef={filter.value2Ref}
-        onValueRefChange={(ref) => onChange({ value2Ref: ref })}
-        onMetricSelect={(value, ref) => onChange({ value2: value, value2Ref: ref })}
         fieldValues={fieldValues}
       />
     </React.Fragment>

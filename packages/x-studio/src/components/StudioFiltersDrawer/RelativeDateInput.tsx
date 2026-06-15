@@ -1,18 +1,8 @@
 'use client';
-import {
-  Box,
-  Chip,
-  FormControl,
-  MenuItem,
-  Select,
-  Stack,
-  Typography,
-} from '@mui/material';
+import { Box, Chip, FormControl, MenuItem, Select, Stack } from '@mui/material';
 import { NumberField } from '../../internals/NumberField';
-import type { StudioMetricRef } from '../../models';
 import type { RelativeDateUnit, RelativeDateValue } from '../../internals/filterTypes';
 import { useStudioLocaleText } from '../../context';
-import { MetricPickerButton } from './MetricPickerButton';
 
 function getRelativeUnits(localeText: ReturnType<typeof useStudioLocaleText>) {
   return [
@@ -54,38 +44,13 @@ function getDatePresets(localeText: ReturnType<typeof useStudioLocaleText>) {
 export function RelativeDateInput({
   value,
   onChange,
-  valueRef,
-  onValueRefChange,
-  onMetricSelect,
-  metricLabel,
 }: {
   value: RelativeDateValue;
   onChange: (v: RelativeDateValue) => void;
-  valueRef?: StudioMetricRef;
-  onValueRefChange?: (ref: StudioMetricRef | undefined) => void;
-  onMetricSelect?: (value: RelativeDateValue, ref: StudioMetricRef) => void;
-  metricLabel?: string;
 }) {
   const localeText = useStudioLocaleText();
-  const isLinked = Boolean(valueRef);
   const relativeUnits = getRelativeUnits(localeText);
   const datePresets = getDatePresets(localeText);
-  const amountField = (
-    <NumberField
-      size="small"
-      label={localeText.filterValueAmountLabel}
-      value={value.amount}
-      disabled={isLinked}
-      onValueChange={(v) => {
-        onChange({ ...value, amount: Math.max(1, v ?? 1) });
-        if (valueRef && onValueRefChange) {
-          onValueRefChange(undefined);
-        }
-      }}
-      min={1}
-      fullWidth
-    />
-  );
 
   return (
     <Stack spacing={0.75} sx={{ flexGrow: 1, minWidth: 0 }}>
@@ -103,52 +68,19 @@ export function RelativeDateInput({
               size="small"
               color={isActive ? 'primary' : 'default'}
               variant={isActive ? 'filled' : 'outlined'}
-              onClick={() => {
-                onChange(preset.value);
-                if (valueRef && onValueRefChange) {
-                  onValueRefChange(undefined);
-                }
-              }}
+              onClick={() => onChange(preset.value)}
             />
           );
         })}
       </Box>
-      {onValueRefChange ? (
-        <Box sx={{ minWidth: 0 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            {amountField}
-            <MetricPickerButton
-              fieldType="number"
-              isLinked={isLinked}
-              onRemoveLink={() => onValueRefChange(undefined)}
-              onSelect={(opt) => {
-                const nextValue = {
-                  ...value,
-                  amount: Math.max(1, Math.trunc(opt.value as number) || 1),
-                };
-                const nextRef = { sourceId: opt.sourceId, rowId: opt.rowId, field: opt.field };
-                if (onMetricSelect) {
-                  onMetricSelect(nextValue, nextRef);
-                  return;
-                }
-                onChange(nextValue);
-                onValueRefChange(nextRef);
-              }}
-            />
-          </Box>
-          {metricLabel && (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ display: 'block', mt: 0.25, ml: 0.25 }}
-            >
-              {metricLabel}
-            </Typography>
-          )}
-        </Box>
-      ) : (
-        amountField
-      )}
+      <NumberField
+        size="small"
+        label={localeText.filterValueAmountLabel}
+        value={value.amount}
+        onValueChange={(v) => onChange({ ...value, amount: Math.max(1, v ?? 1) })}
+        min={1}
+        fullWidth
+      />
       <FormControl size="small" fullWidth>
         <Select
           value={value.unit}

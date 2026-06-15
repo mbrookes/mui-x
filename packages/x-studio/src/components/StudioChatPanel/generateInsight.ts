@@ -202,7 +202,12 @@ function buildNumericStats(
     const min = Math.min(...values);
     const max = Math.max(...values);
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
-    parts.push(`${field.label ?? id}: min=${min}, max=${max}, mean=${Math.round(avg)}`);
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+    parts.push(
+      `${field.label ?? id}: min=${min}, max=${max}, mean=${Math.round(avg)}, median=${Math.round(median)}`,
+    );
   }
   return parts.join(' | ');
 }

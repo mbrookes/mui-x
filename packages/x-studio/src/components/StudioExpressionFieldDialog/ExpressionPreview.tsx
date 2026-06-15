@@ -8,7 +8,7 @@ import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 // ─── Preview ──────────────────────────────────────────────────────────────────
 
-export interface ExpressionPreviewProps {
+interface ExpressionPreviewProps {
   expression: StudioExpression;
   isMeasure: boolean;
   dataSource: StudioDataSource;

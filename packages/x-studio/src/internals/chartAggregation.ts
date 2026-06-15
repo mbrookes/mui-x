@@ -1349,7 +1349,7 @@ export function aggregateSankey(
 }
 
 /** One stage of a cumulative ("reached") funnel. */
-export interface FunnelReachedStage {
+interface FunnelReachedStage {
   /** Stage label (e.g. `Prospecting`). */
   label: string;
   /**
@@ -1370,7 +1370,7 @@ export interface FunnelReachedStage {
   stepConversion: number | null;
 }
 
-export interface FunnelReachedData {
+interface FunnelReachedData {
   /** Sequential stages with cumulative + snapshot counts (Closed Lost excluded). */
   stages: FunnelReachedStage[];
   /**

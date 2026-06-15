@@ -12,7 +12,7 @@ export interface CrmSeedOptions {
  * Check whether the CRM database already has seeded data.
  * Uses the contacts table as a proxy.
  */
-export async function isCrmSeeded(db: Knex): Promise<boolean> {
+async function isCrmSeeded(db: Knex): Promise<boolean> {
   try {
     const result = await db('contacts').count('id as count').first();
     return Number(result?.count ?? 0) > 0;

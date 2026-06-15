@@ -11,7 +11,7 @@ export interface GanttItem {
   colorCategory?: string;
 }
 
-export interface StudioGanttChartProps {
+interface StudioGanttChartProps {
   items: GanttItem[];
   height: number;
   /** Ordered list of unique category values — determines colour palette assignment. */

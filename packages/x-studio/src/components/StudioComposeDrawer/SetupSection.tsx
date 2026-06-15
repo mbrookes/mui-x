@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Divider, Typography } from '@mui/material';
 
-export interface SetupSectionProps {
+interface SetupSectionProps {
   /** Section heading shown below the divider. */
   title: string;
   /** Optional helper text shown below the title. */

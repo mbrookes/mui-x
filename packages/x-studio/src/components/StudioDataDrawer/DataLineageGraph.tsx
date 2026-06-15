@@ -28,7 +28,7 @@ function layoutNodes(sources: StudioDataSource[]): NodeLayout[] {
   });
 }
 
-export interface DataLineageGraphProps {
+interface DataLineageGraphProps {
   sources: Record<string, StudioDataSource>;
   relationships: StudioRelationship[];
   onNodeClick?: (sourceId: string) => void;

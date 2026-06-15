@@ -3,7 +3,7 @@ import type { StudioDataSource, StudioGridColumn, StudioRelationship } from '../
 type Row = Record<string, unknown>;
 
 /** Minimal field reference used by enrichWithCrossSourceFields. */
-export interface CrossSourceFieldRef {
+interface CrossSourceFieldRef {
   fieldId: string;
   sourceId: string;
 }

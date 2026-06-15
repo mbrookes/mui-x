@@ -9,7 +9,7 @@ import type { StudioWidgetForecast } from '../models/widgetTypes';
 
 // ── Linear regression ─────────────────────────────────────────────────────────
 
-export interface LinearRegressionResult {
+interface LinearRegressionResult {
   slope: number;
   intercept: number;
   /** Root-mean-square error of residuals (standard error of estimate). */
@@ -181,7 +181,7 @@ function median(arr: number[]): number {
 
 // ── Main forecast computation ─────────────────────────────────────────────────
 
-export interface ForecastData {
+interface ForecastData {
   /** Extended labels (historical + forecast periods). */
   labels: (string | number)[];
   /** Historical values followed by nulls (same length as labels). */

@@ -24,7 +24,7 @@ import { FilterCard } from './FilterCard';
 import { FilterBody } from './FilterBody';
 import type { AvailableSeries } from './RankFilterInput';
 
-export interface WidgetFilterRowProps {
+interface WidgetFilterRowProps {
   filter: StudioFilterState;
   widgetSourceId?: string;
   fieldOptions: FieldOption[];

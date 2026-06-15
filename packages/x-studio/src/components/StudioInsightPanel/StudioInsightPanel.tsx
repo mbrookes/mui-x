@@ -9,7 +9,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import type { StudioInsightOptions, StudioInsightResult } from '../StudioChatPanel/generateInsight';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
-export interface StudioInsightPanelProps {
+interface StudioInsightPanelProps {
   /** The generated insight, or null if loading/not yet generated. */
   insight: StudioInsightResult | null;
   /** True while the insight is being generated. */

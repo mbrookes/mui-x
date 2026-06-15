@@ -29,7 +29,7 @@ export function useDataTypeLabels(): Record<string, string> {
   };
 }
 
-export type WidgetKindLocalizedInfo = { label: string; description: string };
+type WidgetKindLocalizedInfo = { label: string; description: string };
 
 export function getBuiltInWidgetKindInfo(
   localeText: StudioLocaleText,

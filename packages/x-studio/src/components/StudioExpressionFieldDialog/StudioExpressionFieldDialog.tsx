@@ -288,7 +288,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
 
           {/* Validation errors */}
           {hasErrors && (
-            <Alert severity="error">
+            <Alert severity="error" role="alert">
               <Stack spacing={0.5}>
                 {validationErrors.map((err, i) => (
                   // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- error list is ephemeral display, no reorder

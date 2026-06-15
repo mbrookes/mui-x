@@ -238,10 +238,16 @@ const StudioMessageActions = React.memo(function StudioMessageActions({
       .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
       .map((p) => p.text)
       .join('\n\n');
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => {
+        // Clipboard write can reject (permissions / insecure context); fail silently
+        // rather than leaving an unhandled rejection.
+      },
+    );
   };
 
   const handleRetry = () => {
@@ -362,6 +368,7 @@ interface ReasoningPartProps {
 
 function StudioReasoningPart({ part }: ReasoningPartProps) {
   const [expanded, setExpanded] = React.useState(false);
+  const reasoningRegionId = React.useId();
   const isStreaming = part.state === 'streaming';
 
   // While waiting for the first response: show "Thinking…" with animated ellipsis.
@@ -370,6 +377,7 @@ function StudioReasoningPart({ part }: ReasoningPartProps) {
       <Typography
         variant="caption"
         color="text.secondary"
+        role="status"
         sx={{ display: 'block', fontStyle: 'italic', px: 0.5, py: 0.25 }}
       >
         Thinking…
@@ -389,6 +397,8 @@ function StudioReasoningPart({ part }: ReasoningPartProps) {
         component="button"
         type="button"
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        aria-controls={reasoningRegionId}
         sx={{
           display: 'flex',
           alignItems: 'center',
@@ -407,6 +417,7 @@ function StudioReasoningPart({ part }: ReasoningPartProps) {
           Reasoning
         </Typography>
         <ExpandMoreIcon
+          aria-hidden
           sx={{
             fontSize: 16,
             color: 'text.secondary',
@@ -417,6 +428,7 @@ function StudioReasoningPart({ part }: ReasoningPartProps) {
       </Box>
       <Collapse in={expanded}>
         <Typography
+          id={reasoningRegionId}
           variant="caption"
           component="pre"
           sx={{
@@ -866,6 +878,10 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
         <Tooltip title={localeText.chatSwitchConversationTooltip}>
           <Box
             component="button"
+            type="button"
+            aria-label={localeText.chatSwitchConversationTooltip}
+            aria-haspopup="menu"
+            aria-expanded={Boolean(threadMenuAnchor)}
             onClick={(event: React.MouseEvent<HTMLElement>) =>
               setThreadMenuAnchor(event.currentTarget)
             }
@@ -876,11 +892,16 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
               flexGrow: 1,
               background: 'none',
               border: 'none',
-              cursor: 'default',
+              cursor: 'pointer',
               p: 0.5,
               borderRadius: 1,
               textAlign: 'left',
               '&:hover': { bgcolor: 'action.hover' },
+              '&:focus-visible': {
+                outline: '2px solid',
+                outlineColor: 'primary.main',
+                outlineOffset: 2,
+              },
             }}
           >
             <Typography
@@ -895,7 +916,10 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             >
               {activeThreadName}
             </Typography>
-            <ArrowDropDownIcon sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />
+            <ArrowDropDownIcon
+              aria-hidden
+              sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }}
+            />
           </Box>
         </Tooltip>
         <Tooltip title={localeText.chatNewConversationName}>
@@ -1007,6 +1031,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
               aria-label={
                 isListening ? localeText.chatVoiceInputStop : localeText.chatVoiceInputStart
               }
+              aria-pressed={isListening}
               color={isListening ? 'error' : 'default'}
               sx={{
                 position: 'absolute',

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Box, IconButton, Tooltip } from '@mui/material';
+import { Box, Fab, IconButton, Tooltip } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -265,30 +265,22 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
             }
             placement="left"
           >
-            <IconButton
+            <Fab
               onClick={() => setChatOpen((prev) => !prev)}
               color={chatOpen ? 'primary' : 'default'}
               aria-label={
                 chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip
               }
+              size="medium"
               sx={{
                 position: 'absolute',
                 bottom: 20,
                 right: 20,
                 zIndex: (theme) => theme.zIndex.drawer + 2,
-                bgcolor: 'background.paper',
-                boxShadow: 4,
-                '&:hover': {
-                  bgcolor: 'background.paper',
-                  backgroundImage: (theme) =>
-                    `linear-gradient(${theme.palette.action.hover}, ${theme.palette.action.hover})`,
-                },
-                width: 48,
-                height: 48,
               }}
             >
               <AutoAwesomeIcon />
-            </IconButton>
+            </Fab>
           </Tooltip>
           <React.Suspense fallback={null}>
             <StudioChatPanel

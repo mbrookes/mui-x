@@ -44,15 +44,16 @@ export function KpiSparkline(props: KpiSparklineProps) {
     gaugeMax = 100,
   } = props;
   const localeText = useStudioLocaleText();
-  const fmt = (v: number) => formatNumber(v, fieldFormat, fieldCurrencyCode, compact, fieldPrecision);
+  const fmt = (v: number) =>
+    formatNumber(v, fieldFormat, fieldCurrencyCode, compact, fieldPrecision);
 
   if (plotType === 'gauge') {
     const value = kpiValue ?? 0;
     // Sanitize range — guard against NaN and zero-width ranges
     const safeMax = Number.isFinite(gaugeMax) && gaugeMax > 0 ? gaugeMax : 1;
-    const clampedValue = Math.min(Math.max(value, 0), safeMax);
+    const percentValue = Math.min(Math.max((value / safeMax) * 100, 0), 100);
     // Text alternative: the gauge is a visual-only SVG.
-    const gaugeAriaLabel = `Gauge: ${fmt(clampedValue)} of ${fmt(safeMax)}.`;
+    const gaugeAriaLabel = `Gauge: ${fmt(value)} of ${fmt(safeMax)} (${Math.round(percentValue)}%).`;
     return (
       <Box
         role="img"
@@ -68,16 +69,12 @@ export function KpiSparkline(props: KpiSparklineProps) {
         }}
       >
         <Gauge
-          value={clampedValue}
+          value={percentValue}
           valueMin={0}
-          valueMax={safeMax}
+          valueMax={100}
           width={120}
           height={80}
-          text={({ value: v }) =>
-            v === null
-              ? ''
-              : formatNumber(v, fieldFormat, fieldCurrencyCode, compact, fieldPrecision)
-          }
+          text={({ value: v }) => (v === null ? '' : `${Math.round(v)}%`)}
         />
       </Box>
     );

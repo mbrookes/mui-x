@@ -36,7 +36,7 @@ import TitleIcon from '@mui/icons-material/Title';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { ChatBox, ChatMessage } from '@mui/x-chat';
+import { ChatBox, ChatComposerToolbar, ChatMessage } from '@mui/x-chat';
 import type {
   ChatAdapter,
   ChatMessage as ChatMessageType,
@@ -557,6 +557,46 @@ function generateSuggestions(
   return suggestions.slice(0, 4);
 }
 
+// ── Voice mic context — bridges voice state to the toolbar slot ───────────────
+// The toolbar slot component must be stable (module-level), so voice state is
+// passed via context rather than closing over render-scope variables.
+
+interface VoiceMicContextValue {
+  voiceSupported: boolean;
+  isListening: boolean;
+  onToggle: () => void;
+  startLabel: string;
+  stopLabel: string;
+}
+const VoiceMicContext = React.createContext<VoiceMicContextValue | null>(null);
+
+// ── StudioComposerToolbar — mic button + native toolbar children ──────────────
+
+function StudioComposerToolbar({
+  children,
+  ...props
+}: React.ComponentProps<typeof ChatComposerToolbar>) {
+  const voice = React.useContext(VoiceMicContext);
+  return (
+    <ChatComposerToolbar {...props}>
+      {voice?.voiceSupported && (
+        <Tooltip title={voice.isListening ? voice.stopLabel : voice.startLabel}>
+          <IconButton
+            size="small"
+            onClick={voice.onToggle}
+            aria-label={voice.isListening ? voice.stopLabel : voice.startLabel}
+            aria-pressed={voice.isListening}
+            color={voice.isListening ? 'error' : 'default'}
+          >
+            {voice.isListening ? <MicOffIcon fontSize="small" /> : <MicIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+      )}
+      {children}
+    </ChatComposerToolbar>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export interface StudioChatPanelSlotProps {
@@ -965,89 +1005,73 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
       </Menu>
 
       {/* Chat box */}
-      <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
-        <ChatBox
-          {...slotProps?.chatBox}
-          adapter={adapter}
-          density={density}
-          variant={variant}
-          messages={slotProps?.chatBox?.messages ?? threadMessages}
-          onMessagesChange={slotProps?.chatBox?.onMessagesChange ?? handleMessagesChange}
-          onFinish={slotProps?.chatBox?.onFinish}
-          onError={slotProps?.chatBox?.onError}
-          composerValue={composerValue}
-          onComposerValueChange={handleComposerValueChange}
-          // initialPrompt: pre-fill and auto-submit when there are no existing messages
-          initialComposerValue={
-            threadMessages.length === 0
-              ? (initialPrompt ?? slotProps?.chatBox?.initialComposerValue)
-              : slotProps?.chatBox?.initialComposerValue
-          }
-          autoSubmitInitialValue={threadMessages.length === 0 && Boolean(initialPrompt)}
-          suggestions={suggestions}
-          suggestionsAutoSubmit
-          currentUser={{ id: 'user', displayName: 'You', role: 'user' }}
-          features={{
-            // Consumer can configure optional features …
-            ...slotProps?.chatBox?.features,
-            // … but Studio always enforces these: we manage the conversation header
-            // ourselves and don't support file attachments in the AI flow.
-            conversationHeader: false,
-            attachments: false,
-          }}
-          localeText={{
-            // Studio-appropriate empty-state and placeholder text
-            composerInputPlaceholder: 'How can I help?',
-            threadNoMessagesLabel: 'Ask me anything about your dashboard',
-            threadNoMessagesHelperText: 'I can add widgets, analyse your data, and more',
-            // Consumer overrides last so they can tailor every string
-            ...slotProps?.chatBox?.localeText,
-          }}
-          partRenderers={{
-            // Studio default part renderers (reasoning "Thinking…", optional tool-call hiding)
-            ...studioPartRenderers,
-            // Consumer can add custom renderers or override Studio's defaults
-            ...slotProps?.chatBox?.partRenderers,
-          }}
-          slots={{
-            // Studio overrides: stop-streaming button, message root with metadata display,
-            // and per-message copy/retry actions
-            composerSendButton: StudioSendButton,
-            messageRoot: StudioMessageRoot,
-            messageActions: StudioMessageActions,
-            // Consumer slot overrides come last
-            ...slotProps?.chatBox?.slots,
-          }}
-          sx={{ height: '100%' }}
-        />
-        {/* Mic button — overlaid in the bottom-right corner of the composer area */}
-        {voiceSupported && (
-          <Tooltip
-            title={isListening ? localeText.chatVoiceInputStop : localeText.chatVoiceInputStart}
-          >
-            <IconButton
-              size="small"
-              onClick={handleToggleVoice}
-              aria-label={
-                isListening ? localeText.chatVoiceInputStop : localeText.chatVoiceInputStart
-              }
-              aria-pressed={isListening}
-              color={isListening ? 'error' : 'default'}
-              sx={{
-                position: 'absolute',
-                bottom: 10,
-                right: 44,
-                zIndex: 1,
-                bgcolor: 'background.paper',
-                boxShadow: 1,
-                '&:hover': { bgcolor: 'action.hover' },
-              }}
-            >
-              {isListening ? <MicOffIcon fontSize="small" /> : <MicIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
-        )}
-      </Box>
+      <VoiceMicContext.Provider
+        value={{
+          voiceSupported,
+          isListening,
+          onToggle: handleToggleVoice,
+          startLabel: localeText.chatVoiceInputStart,
+          stopLabel: localeText.chatVoiceInputStop,
+        }}
+      >
+        <Box sx={{ flexGrow: 1, minHeight: 0 }}>
+          <ChatBox
+            {...slotProps?.chatBox}
+            adapter={adapter}
+            density={density}
+            variant={variant}
+            messages={slotProps?.chatBox?.messages ?? threadMessages}
+            onMessagesChange={slotProps?.chatBox?.onMessagesChange ?? handleMessagesChange}
+            onFinish={slotProps?.chatBox?.onFinish}
+            onError={slotProps?.chatBox?.onError}
+            composerValue={composerValue}
+            onComposerValueChange={handleComposerValueChange}
+            // initialPrompt: pre-fill and auto-submit when there are no existing messages
+            initialComposerValue={
+              threadMessages.length === 0
+                ? (initialPrompt ?? slotProps?.chatBox?.initialComposerValue)
+                : slotProps?.chatBox?.initialComposerValue
+            }
+            autoSubmitInitialValue={threadMessages.length === 0 && Boolean(initialPrompt)}
+            suggestions={suggestions}
+            suggestionsAutoSubmit
+            currentUser={{ id: 'user', displayName: 'You', role: 'user' }}
+            features={{
+              // Consumer can configure optional features …
+              ...slotProps?.chatBox?.features,
+              // … but Studio always enforces these: we manage the conversation header
+              // ourselves and don't support file attachments in the AI flow.
+              conversationHeader: false,
+              attachments: false,
+            }}
+            localeText={{
+              // Studio-appropriate empty-state and placeholder text
+              composerInputPlaceholder: 'How can I help?',
+              threadNoMessagesLabel: 'Ask me anything about your dashboard',
+              threadNoMessagesHelperText: 'I can add widgets, analyse your data, and more',
+              // Consumer overrides last so they can tailor every string
+              ...slotProps?.chatBox?.localeText,
+            }}
+            partRenderers={{
+              // Studio default part renderers (reasoning "Thinking…", optional tool-call hiding)
+              ...studioPartRenderers,
+              // Consumer can add custom renderers or override Studio's defaults
+              ...slotProps?.chatBox?.partRenderers,
+            }}
+            slots={{
+              // Studio overrides: stop-streaming button, message root with metadata display,
+              // per-message copy/retry actions, and mic button in the composer toolbar
+              composerSendButton: StudioSendButton,
+              composerToolbar: StudioComposerToolbar,
+              messageRoot: StudioMessageRoot,
+              messageActions: StudioMessageActions,
+              // Consumer slot overrides come last
+              ...slotProps?.chatBox?.slots,
+            }}
+            sx={{ height: '100%' }}
+          />
+        </Box>
+      </VoiceMicContext.Provider>
     </Box>
   );
 

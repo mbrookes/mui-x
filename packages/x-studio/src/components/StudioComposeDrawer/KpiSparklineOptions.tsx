@@ -188,34 +188,19 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
       </FormControl>
 
       {plotType === 'gauge' && (
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField
-            size="small"
-            label={localeText.kpiSetupMinLabel}
-            type="number"
-            value={config.kpiSparklineGaugeMin ?? 0}
-            onChange={(event) => {
-              const n = Number(event.target.value);
-              if (Number.isFinite(n)) {
-                controller.updateWidgetConfig(widgetId, { kpiSparklineGaugeMin: n });
-              }
-            }}
-            sx={{ flex: 1 }}
-          />
-          <TextField
-            size="small"
-            label={localeText.kpiSetupMaxLabel}
-            type="number"
-            value={config.kpiSparklineGaugeMax ?? 100}
-            onChange={(event) => {
-              const n = Number(event.target.value);
-              if (Number.isFinite(n)) {
-                controller.updateWidgetConfig(widgetId, { kpiSparklineGaugeMax: n });
-              }
-            }}
-            sx={{ flex: 1 }}
-          />
-        </Box>
+        <TextField
+          size="small"
+          label={localeText.kpiSetupTargetLabel}
+          type="number"
+          value={config.kpiTargetValue ?? 100}
+          onChange={(event) => {
+            const n = Number(event.target.value);
+            if (Number.isFinite(n) && n > 0) {
+              controller.updateWidgetConfig(widgetId, { kpiTargetValue: n });
+            }
+          }}
+          fullWidth
+        />
       )}
 
       {plotType === 'line' && (

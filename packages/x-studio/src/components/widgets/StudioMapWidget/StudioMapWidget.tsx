@@ -305,81 +305,74 @@ export function StudioMapWidget({
   // The correct ty = margin.top + (0.5 + WORLD_NORTH_SHIFT) × drawH, which is exactly what
   // fitExtent computes before the bad override erases it. We scope this to 'world' only;
   // other geographies (europe, usa) have different bounding-box asymmetries.
-  const { legendMaxWidth, mapMargin, mapTranslate, chartBoxMaxW, legendMaxHeight } =
-    React.useMemo(() => {
-      // Fraction by which the world-map equator exceeds the 50% mark of the fitted
-      // content bounding box (empirically measured from naturalEarth1 + world-atlas data).
-      const WORLD_NORTH_SHIFT = 0.0862;
+  const { legendMaxWidth, mapMargin, mapTranslate, legendMaxHeight } = React.useMemo(() => {
+    // Fraction by which the world-map equator exceeds the 50% mark of the fitted
+    // content bounding box (empirically measured from naturalEarth1 + world-atlas data).
+    const WORLD_NORTH_SHIFT = 0.0862;
 
-      const defaultMargin = { top: 16, bottom: 8, left: 8, right: 8 };
+    const defaultMargin = { top: 16, bottom: 8, left: 8, right: 8 };
 
-      if (containerDims.width === 0) {
-        return {
-          legendMaxWidth: undefined,
-          mapMargin: defaultMargin,
-          mapTranslate: undefined,
-          chartBoxMaxW: undefined,
-          legendMaxHeight: undefined,
-        };
-      }
-
-      const aspect = PROJECTION_CONTENT_ASPECT[projectionName] ?? 1.8;
-      // Estimated legend height for horizontal placement (two rows: gradient + labels).
-      const legendEstH = !hideLegend && legendDirection === 'horizontal' ? 56 : 0;
-      const svgH = Math.max(100, containerDims.height - legendEstH);
-
-      const margin = { ...defaultMargin };
-
-      // For vertical (left/right) legends in wide containers: the geographic content is
-      // height-constrained and narrower than the full SVG. Capping the chart box width
-      // makes the legend sit adjacent to the content rather than at the widget edge.
-      // Computed first so the chart box width is known before computing mapTranslate tx.
-      let chartBoxMaxW: number | undefined;
-      let legendMaxHeight: number | undefined;
-      if (legendDirection === 'vertical' && !hideLegend) {
-        const legendEstW = 60; // approximate rendered width of vertical ContinuousColorLegend
-        const drawH = svgH - margin.top - margin.bottom;
-        const availDrawW = containerDims.width - legendEstW - margin.left - margin.right;
-        if (drawH > 0 && availDrawW > 0 && availDrawW / drawH > aspect) {
-          chartBoxMaxW = Math.round(aspect * drawH) + margin.left + margin.right;
-        }
-        if (drawH > 0) {
-          legendMaxHeight = drawH;
-        }
-      }
-
-      // Correct translate for the world map: mirrors what fitExtent computes before the
-      // upstream override erases it, so the content fills the drawing area without clipping
-      // at the top or dead space at the bottom.
-      // tx uses the actual chart SVG width (chartBoxMaxW when the legend constrains it,
-      // otherwise the full container width) — using containerDims.width would shift the
-      // projection centre outside the viewport when a vertical legend narrows the chart box.
-      let mapTranslate: [number, number] | undefined;
-      if (mapGeography === 'world') {
-        const effectiveSvgW = chartBoxMaxW ?? containerDims.width;
-        const drawH = svgH - margin.top - margin.bottom;
-        mapTranslate = [effectiveSvgW / 2, margin.top + (0.5 + WORLD_NORTH_SHIFT) * drawH];
-      }
-
-      // Cap horizontal legend width to the geographic content width so it doesn't
-      // span the full widget when the map is height-constrained.
-      let maxWidth: number | undefined;
-      if (legendDirection === 'horizontal' && !hideLegend) {
-        const drawW = containerDims.width - margin.left - margin.right;
-        const drawH = svgH - margin.top - margin.bottom;
-        if (drawH > 0) {
-          maxWidth = drawW / drawH > aspect ? Math.round(aspect * drawH) : drawW;
-        }
-      }
-
+    if (containerDims.width === 0) {
       return {
-        legendMaxWidth: maxWidth,
-        mapMargin: margin,
-        mapTranslate,
-        chartBoxMaxW,
-        legendMaxHeight,
+        legendMaxWidth: undefined,
+        mapMargin: defaultMargin,
+        mapTranslate: undefined,
+        legendMaxHeight: undefined,
       };
-    }, [containerDims, legendDirection, projectionName, hideLegend, mapGeography]);
+    }
+
+    const aspect = PROJECTION_CONTENT_ASPECT[projectionName] ?? 1.8;
+    // Estimated legend height for horizontal placement (two rows: gradient + labels).
+    const legendEstH = !hideLegend && legendDirection === 'horizontal' ? 56 : 0;
+    const svgH = Math.max(100, containerDims.height - legendEstH);
+
+    const margin = { ...defaultMargin };
+
+    // Estimated rendered width of a vertical ContinuousColorLegend (gradient + labels).
+    const legendEstW = 60;
+
+    // Size the vertical legend to match the map's drawing height.
+    let legendMaxHeight: number | undefined;
+    if (legendDirection === 'vertical' && !hideLegend) {
+      const drawH = svgH - margin.top - margin.bottom;
+      if (drawH > 0) {
+        legendMaxHeight = drawH;
+      }
+    }
+
+    // Correct translate for the world map: mirrors what fitExtent computes before the
+    // upstream override erases it, so the content fills the drawing area without clipping
+    // at the top or dead space at the bottom.
+    // For vertical legends tx uses the estimated chart SVG width (full container minus the
+    // legend strip); for horizontal layouts the SVG spans the full container width.
+    let mapTranslate: [number, number] | undefined;
+    if (mapGeography === 'world') {
+      const effectiveSvgW =
+        legendDirection === 'vertical' && !hideLegend
+          ? containerDims.width - legendEstW
+          : containerDims.width;
+      const drawH = svgH - margin.top - margin.bottom;
+      mapTranslate = [effectiveSvgW / 2, margin.top + (0.5 + WORLD_NORTH_SHIFT) * drawH];
+    }
+
+    // Cap horizontal legend width to the geographic content width so it doesn't
+    // span the full widget when the map is height-constrained.
+    let maxWidth: number | undefined;
+    if (legendDirection === 'horizontal' && !hideLegend) {
+      const drawW = containerDims.width - margin.left - margin.right;
+      const drawH = svgH - margin.top - margin.bottom;
+      if (drawH > 0) {
+        maxWidth = drawW / drawH > aspect ? Math.round(aspect * drawH) : drawW;
+      }
+    }
+
+    return {
+      legendMaxWidth: maxWidth,
+      mapMargin: margin,
+      mapTranslate,
+      legendMaxHeight,
+    };
+  }, [containerDims, legendDirection, projectionName, hideLegend, mapGeography]);
 
   // Lazy-load geography — async resource loading requires useEffect; the null-reset
   // on prop change and the .then(setGeography) are both intentional and correct here.
@@ -521,9 +514,7 @@ export function StudioMapWidget({
               height: '100%',
             }}
           >
-            <Box
-              sx={{ flex: 1, minHeight: 0, minWidth: 0, maxWidth: chartBoxMaxW, order: chartOrder }}
-            >
+            <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, order: chartOrder }}>
               <ChartsSurface>
                 <GeoDataPlot fill="#f5f5f5" stroke="#bdbdbd" />
                 <StudioMapShapePlot
@@ -546,7 +537,8 @@ export function StudioMapWidget({
                         // Explicit width (not just maxWidth) is required: ContinuousColorLegend
                         // renders a CSS grid whose gradient column is `auto`. Without a width
                         // the element shrinks to label content and the gradient collapses to 0.
-                        mx: 'auto',
+                        // mx: 'auto' is intentionally absent — it would override alignSelf and
+                        // prevent left/right alignment from working.
                         width: legendMaxWidth !== undefined ? Math.min(legendMaxWidth, 180) : 180,
                         alignSelf:
                           legendAlign === 'start'

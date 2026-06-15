@@ -56,6 +56,13 @@ export function StudioFunnelChart({
   const maxValue = stages[0].value;
   const formatter = (v: number) => formatNumber(v, valueFormat ?? 'decimal', currencyCode);
 
+  // Text alternative: a funnel is a visual-only SVG/Box composition, so expose a
+  // concise data summary as the accessible name (role="img" collapses the
+  // decorative subtree into a single labeled image for assistive technology).
+  const ariaLabel = `Funnel chart with ${stages.length} ${
+    stages.length === 1 ? 'stage' : 'stages'
+  }. ${stages.map((s) => `${s.label}: ${formatter(s.value)}`).join(', ')}.`;
+
   // Layout
   const LABEL_W = 110; // reserved for stage name on left
   const VALUE_W = 90; // reserved for value+% on right
@@ -70,6 +77,8 @@ export function StudioFunnelChart({
 
   return (
     <Box
+      role="img"
+      aria-label={ariaLabel}
       sx={{
         width: '100%',
         height,

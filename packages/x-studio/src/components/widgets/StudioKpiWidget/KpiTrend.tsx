@@ -57,6 +57,18 @@ export function KpiTrend(props: KpiTrendProps) {
       trendColor = 'error.main';
     }
 
+    // Sentiment (favorable / unfavorable) is otherwise conveyed only by the
+    // green/red color, which fails for color-blind users (SC 1.4.1). Expose it
+    // as screen-reader-only text so the meaning is not color-dependent.
+    let sentimentLabel: string;
+    if (trendFlat) {
+      sentimentLabel = localeText.kpiTrendNoChangeLabel;
+    } else if (isPositiveTrend) {
+      sentimentLabel = localeText.kpiTrendFavorableLabel;
+    } else {
+      sentimentLabel = localeText.kpiTrendUnfavorableLabel;
+    }
+
     const pct = Number.isFinite(trendResult.delta)
       ? `${trendResult.delta >= 0 ? '+' : ''}${(trendResult.delta * 100).toFixed(1)}%`
       : localeText.kpiTrendNewLabel;
@@ -99,6 +111,22 @@ export function KpiTrend(props: KpiTrendProps) {
             <Typography variant="body2" sx={{ color: trendColor, fontWeight: 600, lineHeight: 1 }}>
               {pct}
             </Typography>
+            <Box
+              component="span"
+              sx={{
+                position: 'absolute',
+                width: 1,
+                height: 1,
+                p: 0,
+                m: '-1px',
+                overflow: 'hidden',
+                clip: 'rect(0 0 0 0)',
+                whiteSpace: 'nowrap',
+                border: 0,
+              }}
+            >
+              {sentimentLabel}
+            </Box>
           </Box>
           <Typography variant="caption" sx={{ color: 'text.disabled' }}>
             vs. {periodShort}

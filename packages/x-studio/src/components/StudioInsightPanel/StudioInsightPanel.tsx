@@ -101,7 +101,9 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
             <Box
               key={t}
               component="button"
+              type="button"
               onClick={() => onRegenerate(t)}
+              aria-pressed={activeType === t}
               sx={{
                 border: 1,
                 borderColor: activeType === t ? 'primary.main' : 'divider',
@@ -111,8 +113,13 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
                 px: 0.75,
                 py: 0.25,
                 fontSize: '0.65rem',
-                cursor: 'default',
+                cursor: 'pointer',
                 '&:hover': { bgcolor: activeType === t ? 'primary.dark' : 'action.hover' },
+                '&:focus-visible': {
+                  outline: '2px solid',
+                  outlineColor: 'primary.main',
+                  outlineOffset: 1,
+                },
               }}
             >
               {typeLabels[t]}

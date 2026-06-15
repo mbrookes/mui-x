@@ -273,6 +273,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
       >
         <Paper
           variant="outlined"
+          role="status"
           sx={{
             alignItems: 'center',
             display: 'flex',
@@ -343,9 +344,13 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           row.length > 0 &&
           row.every((widgetId) => {
             const widget = widgets[widgetId];
-            if (!widget) return true;
+            if (!widget) {
+              return true;
+            }
             const customDef = customWidgetMap.get(widget.kind);
-            if (!customDef?.shouldHide) return false;
+            if (!customDef?.shouldHide) {
+              return false;
+            }
             const dataSource = widget.sourceId ? dataSources[widget.sourceId] : undefined;
             return customDef.shouldHide({ widget, dataSource });
           })

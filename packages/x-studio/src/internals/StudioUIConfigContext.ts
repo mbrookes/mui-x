@@ -920,6 +920,12 @@ export interface StudioLocaleText {
   gridConditionStyleAriaLabel: string;
   /** Accessible name for the grid conditional-format value field */
   gridConditionValueAriaLabel: string;
+  /** Screen-reader-only sentiment for a favorable KPI trend (color-independent) */
+  kpiTrendFavorableLabel: string;
+  /** Screen-reader-only sentiment for an unfavorable KPI trend (color-independent) */
+  kpiTrendUnfavorableLabel: string;
+  /** Screen-reader-only sentiment for an unchanged KPI trend */
+  kpiTrendNoChangeLabel: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1756,6 +1762,9 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   gridConditionOperatorAriaLabel: 'Condition operator',
   gridConditionStyleAriaLabel: 'Condition style',
   gridConditionValueAriaLabel: 'Condition value',
+  kpiTrendFavorableLabel: 'favorable',
+  kpiTrendUnfavorableLabel: 'unfavorable',
+  kpiTrendNoChangeLabel: 'no change',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

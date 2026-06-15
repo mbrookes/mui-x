@@ -77,12 +77,17 @@ export function StudioQuickFilterBar() {
         borderBottom: 1,
         borderColor: 'divider',
         backgroundColor: 'action.hover',
-        cursor: 'default',
       }}
-      onClick={openFiltersDrawer}
     >
       <Tooltip title={localeText.quickFilterBarOpenFilters}>
-        <FilterListIcon fontSize="small" color="action" sx={{ flexShrink: 0 }} />
+        <IconButton
+          size="small"
+          onClick={openFiltersDrawer}
+          aria-label={localeText.quickFilterBarOpenFilters}
+          sx={{ flexShrink: 0 }}
+        >
+          <FilterListIcon fontSize="small" color="action" />
+        </IconButton>
       </Tooltip>
 
       {pageFilters.map((filter) => {

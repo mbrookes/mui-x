@@ -121,14 +121,28 @@ export default function DataSourcePreviewTooltip({
         </Typography>
       )}
       {onOpenPreview && (
-        <Typography
-          component="span"
-          variant="caption"
+        <Box
+          component="button"
+          type="button"
           onClick={handleOpenPreviewClick}
-          sx={{ opacity: 0.8, cursor: 'default', '&:hover': { opacity: 1 } }}
+          sx={{
+            alignSelf: 'flex-start',
+            border: 0,
+            m: 0,
+            p: 0,
+            background: 'transparent',
+            font: 'inherit',
+            fontSize: '0.75rem',
+            color: 'inherit',
+            textDecoration: 'underline',
+            cursor: 'pointer',
+            opacity: 0.8,
+            '&:hover': { opacity: 1 },
+            '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+          }}
         >
           {localeText.dataDrawerViewSourceLink}
-        </Typography>
+        </Box>
       )}
     </Stack>
   );

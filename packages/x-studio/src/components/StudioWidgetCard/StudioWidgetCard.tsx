@@ -494,7 +494,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             onUnconfiguredClick(widgetId);
           }
         }}
-        aria-selected={isSelected}
+        role="group"
+        aria-current={isSelected ? true : undefined}
         aria-label={localeText.filtersSectionWidgetTitle(widget.title ?? '')}
         data-widget-card
         tabIndex={0}

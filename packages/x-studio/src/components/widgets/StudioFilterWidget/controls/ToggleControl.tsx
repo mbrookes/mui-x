@@ -1,6 +1,15 @@
 'use client';
 import * as React from 'react';
-import { Box, Chip, InputAdornment, Stack, TextField, Tooltip, Typography } from '@mui/material';
+import {
+  Box,
+  Chip,
+  IconButton,
+  InputAdornment,
+  Stack,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
 import { useStudioLocaleText } from '../../../../internals/StudioUIConfigContext';
@@ -40,26 +49,14 @@ export function ToggleControl(props: StudioFilterToggleControlProps) {
       {isActive && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Tooltip title={localeText.filterWidgetClearAriaLabel}>
-            <Box
-              component="span"
-              role="button"
-              tabIndex={0}
+            <IconButton
+              size="small"
               aria-label={localeText.filterWidgetClearAriaLabel}
               onClick={onClear}
-              onKeyDown={(evt) => {
-                if (evt.key === 'Enter' || evt.key === ' ') {
-                  onClear();
-                }
-              }}
-              sx={{
-                cursor: 'default',
-                color: 'text.secondary',
-                display: 'flex',
-                alignItems: 'center',
-              }}
+              sx={{ color: 'text.secondary', p: 0.5 }}
             >
               <CloseIcon sx={{ fontSize: 14 }} />
-            </Box>
+            </IconButton>
           </Tooltip>
         </Box>
       )}

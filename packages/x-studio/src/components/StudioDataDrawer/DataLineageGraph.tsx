@@ -68,12 +68,20 @@ export function DataLineageGraph({ sources, relationships, onNodeClick }: DataLi
     (r) => nodeById.has(r.sourceId) && nodeById.has(r.targetId),
   );
 
+  // Accessible name for the diagram. `role="group"` (not `img`) keeps the
+  // interactive nodes/edges reachable while still naming the graph as a whole.
+  const graphAriaLabel = `Data relationship graph with ${sourceList.length} ${
+    sourceList.length === 1 ? 'source' : 'sources'
+  } and ${visibleRels.length} ${visibleRels.length === 1 ? 'relationship' : 'relationships'}.`;
+
   return (
     <Box sx={{ width: '100%', overflowX: 'auto' }}>
       <svg
         width={svgWidth}
         height={svgHeight}
         viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+        role="group"
+        aria-label={graphAriaLabel}
         style={{ display: 'block' }}
       >
         <defs>
@@ -117,10 +125,10 @@ export function DataLineageGraph({ sources, relationships, onNodeClick }: DataLi
                   }
                 : undefined
             }
-            role={onNodeClick ? 'button' : undefined}
+            role={onNodeClick ? 'button' : 'img'}
             tabIndex={onNodeClick ? 0 : undefined}
-            aria-label={onNodeClick ? localeText.lineagePreviewAriaLabel(node.label) : undefined}
-            style={onNodeClick ? { cursor: 'default' } : undefined}
+            aria-label={onNodeClick ? localeText.lineagePreviewAriaLabel(node.label) : node.label}
+            style={onNodeClick ? { cursor: 'pointer' } : undefined}
           >
             <rect
               x={node.x}

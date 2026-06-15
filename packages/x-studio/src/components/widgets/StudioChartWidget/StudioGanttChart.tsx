@@ -110,8 +110,23 @@ export function StudioGanttChart({
 
   const ticks = buildTicks(minMs, maxMs, 5);
 
+  // Text alternative summarizing the timeline for assistive technology.
+  const ariaLabel = `Gantt chart with ${items.length} ${
+    items.length === 1 ? 'item' : 'items'
+  } from ${formatDate(minMs)} to ${formatDate(maxMs)}. ${items
+    .map(
+      (it) => `${it.label}: ${formatDate(it.startMs)} to ${formatDate(it.endMs)} (${formatDuration(
+        it.endMs - it.startMs,
+      )})`,
+    )
+    .join('; ')}.`;
+
   return (
-    <Box sx={{ position: 'relative', height, overflow: 'hidden', userSelect: 'none' }}>
+    <Box
+      role="img"
+      aria-label={ariaLabel}
+      sx={{ position: 'relative', height, overflow: 'hidden', userSelect: 'none' }}
+    >
       {/* Date axis */}
       <Box
         sx={{

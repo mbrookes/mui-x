@@ -1,4 +1,5 @@
 'use client';
+import { Box } from '@mui/material';
 import { SankeyChart } from '@mui/x-charts-pro/SankeyChart';
 import { formatNumber } from '../../../internals/numberFormat';
 import type { StudioNumberFormat } from '../../../models';
@@ -30,15 +31,24 @@ export function StudioSankeyChart({
   valueFormat,
   currencyCode,
 }: StudioSankeyChartProps) {
+  const formatter = (value: number) => formatNumber(value, valueFormat ?? 'decimal', currencyCode);
+  // Text alternative summarizing the flow diagram for assistive technology.
+  const ariaLabel = `Sankey flow diagram with ${data.nodes.length} ${
+    data.nodes.length === 1 ? 'node' : 'nodes'
+  } and ${data.links.length} ${data.links.length === 1 ? 'link' : 'links'}. ${data.links
+    .map((l) => `${l.source} to ${l.target}: ${formatter(l.value)}`)
+    .join('; ')}.`;
+
   return (
-    <SankeyChart
-      height={height}
-      series={{
-        data,
-        linkOptions: { color: linkColor, showValues },
-        valueFormatter: (value: number) =>
-          formatNumber(value, valueFormat ?? 'decimal', currencyCode),
-      }}
-    />
+    <Box role="img" aria-label={ariaLabel} sx={{ width: '100%', height }}>
+      <SankeyChart
+        height={height}
+        series={{
+          data,
+          linkOptions: { color: linkColor, showValues },
+          valueFormatter: formatter,
+        }}
+      />
+    </Box>
   );
 }

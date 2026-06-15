@@ -488,6 +488,7 @@ export function StudioMapWidget({
             sx={{
               display: 'flex',
               flexDirection: legendFlexDirection,
+              justifyContent: 'center',
               width: '100%',
               height: '100%',
             }}

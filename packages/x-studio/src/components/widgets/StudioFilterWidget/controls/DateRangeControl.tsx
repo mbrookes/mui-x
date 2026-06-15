@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Stack, Tooltip } from '@mui/material';
+import { Box, IconButton, Stack, Tooltip } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import CloseIcon from '@mui/icons-material/Close';
 import type { Dayjs } from 'dayjs';
@@ -81,26 +81,14 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
       {isActive && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Tooltip title={localeText.filterWidgetClearAriaLabel}>
-            <Box
-              component="span"
-              role="button"
-              tabIndex={0}
+            <IconButton
+              size="small"
               aria-label={localeText.filterWidgetClearAriaLabel}
               onClick={onClear}
-              onKeyDown={(evt) => {
-                if (evt.key === 'Enter' || evt.key === ' ') {
-                  onClear();
-                }
-              }}
-              sx={{
-                cursor: 'default',
-                color: 'text.secondary',
-                display: 'flex',
-                alignItems: 'center',
-              }}
+              sx={{ color: 'text.secondary', p: 0.5 }}
             >
               <CloseIcon sx={{ fontSize: 14 }} />
-            </Box>
+            </IconButton>
           </Tooltip>
         </Box>
       )}

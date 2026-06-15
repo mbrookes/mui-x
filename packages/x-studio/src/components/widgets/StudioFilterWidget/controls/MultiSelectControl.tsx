@@ -3,8 +3,10 @@ import * as React from 'react';
 import {
   Box,
   Checkbox,
+  IconButton,
   InputAdornment,
   ListItemText,
+  ListSubheader,
   MenuItem,
   Select,
   Stack,
@@ -15,6 +17,24 @@ import {
 import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
 import { useStudioLocaleText } from '../../../../internals/StudioUIConfigContext';
+
+/** Reset styles to make a native <button> look like an inline text action. */
+const inlineButtonSx = {
+  border: 0,
+  m: 0,
+  p: 0,
+  background: 'transparent',
+  font: 'inherit',
+  cursor: 'pointer',
+  textAlign: 'left',
+  fontSize: 12,
+  '&:focus-visible': {
+    outline: '2px solid',
+    outlineColor: 'primary.main',
+    outlineOffset: 2,
+    borderRadius: 2,
+  },
+} as const;
 
 export interface StudioFilterMultiSelectControlProps {
   label: string;
@@ -54,26 +74,14 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
       {isActive && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Tooltip title={localeText.filterWidgetClearAriaLabel}>
-            <Box
-              component="span"
-              role="button"
-              tabIndex={0}
+            <IconButton
+              size="small"
               aria-label={localeText.filterWidgetClearAriaLabel}
               onClick={onClear}
-              onKeyDown={(evt) => {
-                if (evt.key === 'Enter' || evt.key === ' ') {
-                  onClear();
-                }
-              }}
-              sx={{
-                cursor: 'default',
-                color: 'text.secondary',
-                display: 'flex',
-                alignItems: 'center',
-              }}
+              sx={{ color: 'text.secondary', p: 0.5 }}
             >
               <CloseIcon sx={{ fontSize: 14 }} />
-            </Box>
+            </IconButton>
           </Tooltip>
         </Box>
       )}
@@ -95,11 +103,21 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
           autoFocus: false,
         }}
       >
-        {/* Search + bulk actions inside the dropdown */}
-        <MenuItem
-          disableRipple
+        {/* Search + bulk actions live in a ListSubheader so they are not exposed as
+            selectable listbox options (which would break arrow-key navigation and
+            announce a bogus option). */}
+        <ListSubheader
+          disableGutters
           onKeyDown={(evt) => evt.stopPropagation()}
-          sx={{ position: 'sticky', top: 0, zIndex: 1, bgcolor: 'background.paper', pb: 0.5 }}
+          sx={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 1,
+            bgcolor: 'background.paper',
+            px: 1,
+            pb: 0.5,
+            lineHeight: 'unset',
+          }}
         >
           <Stack spacing={0.5} sx={{ width: '100%' }}>
             <TextField
@@ -110,6 +128,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
               onChange={(evt) => setSearch(evt.target.value)}
               onClick={(evt) => evt.stopPropagation()}
               slotProps={{
+                htmlInput: { 'aria-label': localeText.filterSearchValues },
                 input: {
                   startAdornment: (
                     <InputAdornment position="start">
@@ -119,66 +138,50 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                 },
               }}
             />
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <Box
-                component="span"
-                role="button"
-                tabIndex={0}
+                component="button"
+                type="button"
                 aria-label={localeText.filterWidgetSelectAllLabel}
                 onClick={(evt) => {
                   evt.stopPropagation();
                   handleSelectionChange(values);
                 }}
-                onKeyDown={(evt) => {
-                  if (evt.key === 'Enter' || evt.key === ' ') {
-                    handleSelectionChange(values);
-                  }
-                }}
-                sx={{ cursor: 'default', color: 'primary.main', fontSize: 12 }}
+                sx={{ ...inlineButtonSx, color: 'primary.main' }}
               >
                 {localeText.filterWidgetSelectAllLabel}
               </Box>
-              <Typography variant="caption" color="text.disabled">
+              <Typography variant="caption" color="text.disabled" aria-hidden>
                 ·
               </Typography>
               <Box
-                component="span"
-                role="button"
-                tabIndex={0}
+                component="button"
+                type="button"
                 aria-label={localeText.filterWidgetClearAllLabel}
                 onClick={(evt) => {
                   evt.stopPropagation();
                   onClear();
                 }}
-                onKeyDown={(evt) => {
-                  if (evt.key === 'Enter' || evt.key === ' ') {
-                    onClear();
-                  }
-                }}
-                sx={{ cursor: 'default', color: 'text.secondary', fontSize: 12 }}
+                sx={{ ...inlineButtonSx, color: 'text.secondary' }}
               >
                 {localeText.filterWidgetClearAllLabel}
               </Box>
             </Stack>
             {onExcludeChange && (
               <Box
-                component="span"
-                role="button"
-                tabIndex={0}
-                aria-label={exclude ? localeText.filterWidgetExcludingLabel : localeText.filterWidgetExcludeLabel}
+                component="button"
+                type="button"
+                aria-label={
+                  exclude ? localeText.filterWidgetExcludingLabel : localeText.filterWidgetExcludeLabel
+                }
                 aria-pressed={exclude}
                 onClick={(evt) => {
                   evt.stopPropagation();
                   onExcludeChange(!exclude);
                 }}
-                onKeyDown={(evt) => {
-                  if (evt.key === 'Enter' || evt.key === ' ') {
-                    onExcludeChange(!exclude);
-                  }
-                }}
                 sx={{
-                  cursor: 'default',
-                  fontSize: 12,
+                  ...inlineButtonSx,
+                  alignSelf: 'flex-start',
                   color: exclude ? 'error.main' : 'text.secondary',
                   mt: 0.5,
                 }}
@@ -187,7 +190,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
               </Box>
             )}
           </Stack>
-        </MenuItem>
+        </ListSubheader>
         {filtered.map((v) => (
           <MenuItem key={v} value={v} dense>
             <Checkbox

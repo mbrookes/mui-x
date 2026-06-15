@@ -238,6 +238,8 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
 
           <Box
             ref={canvasScrollRef}
+            component="main"
+            aria-label={localeText.canvasRegionAriaLabel}
             sx={{
               flexGrow: 1,
               minWidth: 0,

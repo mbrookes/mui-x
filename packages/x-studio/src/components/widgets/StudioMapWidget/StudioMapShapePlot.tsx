@@ -11,6 +11,7 @@ import { useZAxes } from '@mui/x-charts/hooks';
 import { useSeriesOfType, type ChartSeriesDefaultized } from '@mui/x-charts/internals';
 import { useGeoData, useGeoPath, useGeoFeatureIndexesByName } from '@mui/x-charts-premium/hooks';
 import { MapShape, FocusedMapShape } from '@mui/x-charts-premium/Map';
+import { StudioMapTooltipContext } from './StudioMapTooltipContext';
 
 interface StudioMapShapePlotProps {
   /**
@@ -48,6 +49,7 @@ export function StudioMapShapePlot(props: StudioMapShapePlotProps) {
   const { fill, stroke = 'none', strokeWidth = 1, onShapeClick } = props;
   const geoData = useGeoData();
   const path = useGeoPath();
+  const { featureIdToLabel } = React.useContext(StudioMapTooltipContext);
   // The no-argument overload always returns an array of series (see useSeriesOfType);
   // its loose union return type is narrowed here.
   const series = (useSeriesOfType('mapShape') ?? []) as ChartSeriesDefaultized<'mapShape'>[];
@@ -97,9 +99,8 @@ export function StudioMapShapePlot(props: StudioMapShapePlotProps) {
                     if (!d) {
                       return null;
                     }
-                    return (
+                    const shape = (
                       <MapShape
-                        key={featureIndex}
                         seriesId={id}
                         dataIndex={dataIndex}
                         d={d}
@@ -110,6 +111,31 @@ export function StudioMapShapePlot(props: StudioMapShapePlotProps) {
                           onShapeClick ? (event) => onShapeClick(event, item.name) : undefined
                         }
                       />
+                    );
+                    if (!onShapeClick) {
+                      return <React.Fragment key={featureIndex}>{shape}</React.Fragment>;
+                    }
+                    // Keyboard-accessible region selection: the external MapShape does not
+                    // expose focus/keyboard, so wrap it in a focusable button group.
+                    return (
+                      <g
+                        key={featureIndex}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={featureIdToLabel(item.name)}
+                        style={{ cursor: 'pointer', outline: 'revert' }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            onShapeClick(
+                              event as unknown as React.MouseEvent<SVGPathElement>,
+                              item.name,
+                            );
+                          }
+                        }}
+                      >
+                        {shape}
+                      </g>
                     );
                   })}
                 </React.Fragment>

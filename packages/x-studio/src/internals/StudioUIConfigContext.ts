@@ -940,6 +940,8 @@ export interface StudioLocaleText {
   gridColumnMoveUpAriaLabel: string;
   /** Accessible name for the grid-column "move down" (later) reorder control */
   gridColumnMoveDownAriaLabel: string;
+  /** Accessible name for the dashboard canvas landmark region */
+  canvasRegionAriaLabel: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1786,6 +1788,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   canvasMoveWidgetRightAriaLabel: 'Move widget right',
   gridColumnMoveUpAriaLabel: 'Move column up',
   gridColumnMoveDownAriaLabel: 'Move column down',
+  canvasRegionAriaLabel: 'Dashboard canvas',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

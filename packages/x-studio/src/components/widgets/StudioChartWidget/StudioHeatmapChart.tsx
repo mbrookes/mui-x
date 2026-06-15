@@ -2,6 +2,7 @@
 import { Box, Tooltip, Typography, useTheme } from '@mui/material';
 import type { HeatmapData } from '../../../internals/chartAggregation';
 import { formatNumber } from '../../../internals/numberFormat';
+import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import type { StudioNumberFormat } from '../../../models';
 
 interface StudioHeatmapChartProps {
@@ -29,6 +30,7 @@ export function StudioHeatmapChart({
   yLabel,
 }: StudioHeatmapChartProps) {
   const theme = useTheme();
+  const localeText = useStudioLocaleText();
   const { xLabels, yLabels, cells, minValue, maxValue } = data;
 
   const paletteColor = theme.palette[colorScheme].main;
@@ -78,14 +80,20 @@ export function StudioHeatmapChart({
   const axisSummary = [xLabel ? `x: ${xLabel}` : null, yLabel ? `y: ${yLabel}` : null]
     .filter(Boolean)
     .join(', ');
-  const ariaLabel = `Heatmap with ${xLabels.length} ${
-    xLabels.length === 1 ? 'column' : 'columns'
-  } and ${yLabels.length} ${yLabels.length === 1 ? 'row' : 'rows'}${
-    axisSummary ? ` (${axisSummary})` : ''
-  }. Values range from ${formatter(minValue)} to ${formatter(maxValue)}.`;
+  const ariaLabel = localeText.heatmapChartAriaLabel(
+    xLabels.length,
+    yLabels.length,
+    axisSummary,
+    formatter(minValue),
+    formatter(maxValue),
+  );
 
   return (
-    <Box role="img" aria-label={ariaLabel} sx={{ width: '100%', height, overflow: 'auto', userSelect: 'none' }}>
+    <Box
+      role="img"
+      aria-label={ariaLabel}
+      sx={{ width: '100%', height, overflow: 'auto', userSelect: 'none' }}
+    >
       {/* Y axis label */}
       {yLabel && (
         <Typography

@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Box, Tooltip, Typography, useTheme } from '@mui/material';
 import { clampWidthPct } from '../../../internals/chartAggregation';
 import { formatNumber } from '../../../internals/numberFormat';
+import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import type { StudioNumberFormat } from '../../../models';
 
 interface FunnelStage {
@@ -47,6 +48,7 @@ export function StudioFunnelChart({
   exitValue,
 }: StudioFunnelChartProps) {
   const theme = useTheme();
+  const localeText = useStudioLocaleText();
   const primaryColor = theme.palette.primary.main;
 
   if (stages.length === 0) {
@@ -59,9 +61,10 @@ export function StudioFunnelChart({
   // Text alternative: a funnel is a visual-only SVG/Box composition, so expose a
   // concise data summary as the accessible name (role="img" collapses the
   // decorative subtree into a single labeled image for assistive technology).
-  const ariaLabel = `Funnel chart with ${stages.length} ${
-    stages.length === 1 ? 'stage' : 'stages'
-  }. ${stages.map((s) => `${s.label}: ${formatter(s.value)}`).join(', ')}.`;
+  const ariaLabel = localeText.funnelChartAriaLabel(
+    stages.length,
+    stages.map((s) => `${s.label}: ${formatter(s.value)}`).join(', '),
+  );
 
   // Layout
   const LABEL_W = 110; // reserved for stage name on left

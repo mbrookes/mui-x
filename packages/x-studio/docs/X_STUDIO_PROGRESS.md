@@ -261,10 +261,11 @@
 ### W-08 · Map / choropleth
 
 - `StudioMapWidget` component; `'map'` added to `StudioWidgetKind`
-- `MapSetupPanel` with country field, value field, aggregation, and colour scheme selectors
-- 174-country equirectangular SVG map from Natural Earth 110m public-domain data
-- 5 colour ramps with linear interpolation; tooltip on hover
-- Lazy-loaded path data; alpha-2/alpha-3/name normalisation via `countryUtils`
+- `MapSetupPanel` with region field, value field, aggregation, and colour scheme selectors
+- Renders the official `@mui/x-charts-premium` Map (`GeoDataPlot`/`MapShapePlot`) — BL-182 replaced the custom `ChoroplethChart` with the upstream component
+- Pluggable geographies via `geographyLoaders` (`world` Natural Earth 110m, US states, Europe, or custom TopoJSON); topology lazy-loaded by dynamic `import`
+- 5 colour ramps rendered via `ContinuousColorLegend`; tooltip on hover; alpha-2/alpha-3/name normalisation via `countryUtils`
+- Known limitation: cross-filter-on-click is unwired (unstable `MapShapePlot` forwards no per-shape click — BL-184)
 
 ### W-09 · Gantt / timeline chart
 

@@ -59,6 +59,13 @@ describe('generateFieldDescriptions', () => {
     ]);
   });
 
+  it('unwraps an array nested inside a wrapper object', async () => {
+    // Some models return `{ "fields": [...] }` rather than a bare array.
+    stubFetch(JSON.stringify({ fields: [{ id: 'country', aiDescription: 'Customer country.' }] }));
+    const result = await generateFieldDescriptions('Orders', FIELDS, OPTIONS);
+    expect(result).toEqual([{ id: 'country', aiDescription: 'Customer country.' }]);
+  });
+
   it('trims whitespace from descriptions and drops malformed entries', async () => {
     stubFetch(
       JSON.stringify([

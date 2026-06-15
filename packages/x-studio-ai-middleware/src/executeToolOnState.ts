@@ -500,8 +500,11 @@ export function executeToolOnState(
 
     case 'summarise_page': {
       if (pageSnapshot) {
+        // Return the data snapshot as plain text so the model can read it directly
+        // without unwrapping a JSON structure. The tool description instructs the model
+        // to follow up with an executive summary of the key insights.
         return {
-          output: JSON.stringify({ snapshot: pageSnapshot }),
+          output: pageSnapshot,
           nextState: state,
         };
       }

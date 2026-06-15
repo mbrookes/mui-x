@@ -5,16 +5,6 @@ import type {
   StudioWidget,
 } from '../models';
 
-// ── Simple stable hash ──────────────────────────────────────────────────────
-
-/**
- * Produces a deterministic string key from any JSON-serializable value.
- * Used as a cache key for StudioQueryDescriptor.
- */
-export function stableHash(value: unknown): string {
-  return JSON.stringify(value, Object.keys(value as object).sort());
-}
-
 function sortedStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') {
     return JSON.stringify(value);

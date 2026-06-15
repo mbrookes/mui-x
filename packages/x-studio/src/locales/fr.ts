@@ -541,7 +541,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   mapSetupLegendTop: 'Plus haut',
   mapSetupLegendLeft: 'Gauche',
   mapSetupLegendRight: 'Droite',
-  mapSetupLegendHidden: 'Caché',
+  mapSetupLegendHidden: 'Aucune',
   mapSetupLegendAlignLabel: 'Alignement de la légende',
   mapSetupLegendAlignStart: 'Haut',
   mapSetupLegendAlignCenter: 'Milieu',

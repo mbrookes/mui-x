@@ -534,7 +534,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   mapSetupLegendTop: 'Superior',
   mapSetupLegendLeft: 'Esquerda',
   mapSetupLegendRight: 'Direita',
-  mapSetupLegendHidden: 'Oculto',
+  mapSetupLegendHidden: 'Nenhuma',
   mapSetupLegendAlignLabel: 'Alinhamento da legenda',
   mapSetupLegendAlignStart: 'Topo',
   mapSetupLegendAlignCenter: 'Meio',

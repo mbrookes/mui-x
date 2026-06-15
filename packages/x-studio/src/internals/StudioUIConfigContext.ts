@@ -940,6 +940,12 @@ export interface StudioLocaleText {
   sidebarPanelOpenedAnnouncement: (label: string) => string;
   /** Live-region announcement when the open sidebar panel closes */
   sidebarPanelClosedAnnouncement: string;
+  /** Live-region announcement after a keyboard column resize (span of total) */
+  canvasResizeAnnouncement: (span: number, total: number) => string;
+  /** Live-region announcement after a keyboard widget move */
+  canvasWidgetMovedAnnouncement: string;
+  /** Live-region announcement after a widget is added to the canvas */
+  canvasWidgetAddedAnnouncement: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1783,6 +1789,10 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   canvasRegionAriaLabel: 'Dashboard canvas',
   sidebarPanelOpenedAnnouncement: (label: string) => `${label} panel opened`,
   sidebarPanelClosedAnnouncement: 'Panel closed',
+  canvasResizeAnnouncement: (span: number, total: number) =>
+    `Column resized to ${span} of ${total}`,
+  canvasWidgetMovedAnnouncement: 'Widget moved',
+  canvasWidgetAddedAnnouncement: 'Widget added',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import { useStudioController, useStudioSelector, selectShell } from '../../conte
 import type { StudioDrawer } from '../../models';
 import { COLLAPSED_WIDTH } from './DrawerPanelContext';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
+import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { TabbedSidebarTabEntry } from './TabbedSidebarTabEntry';
 import { TabbedSidebarActivePanel } from './TabbedSidebarActivePanel';
 
@@ -61,14 +62,14 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
 
   // Announce panel open/close to assistive technology — opening a side panel
   // does not move focus, so without a live region the change is silent.
-  const [announcement, setAnnouncement] = React.useState('');
+  const announce = useStudioAnnounce();
   const firstRender = React.useRef(true);
   React.useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
       return;
     }
-    setAnnouncement(
+    announce(
       activePanel
         ? localeText.sidebarPanelOpenedAnnouncement(activePanel.label)
         : localeText.sidebarPanelClosedAnnouncement,
@@ -94,25 +95,6 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
 
   return (
     <Box sx={{ display: 'flex', flexShrink: 0, height: '100%' }}>
-      {/* Visually-hidden live region announcing panel open/close */}
-      <Box
-        role="status"
-        aria-live="polite"
-        sx={{
-          position: 'absolute',
-          width: 1,
-          height: 1,
-          p: 0,
-          m: '-1px',
-          overflow: 'hidden',
-          clip: 'rect(0 0 0 0)',
-          whiteSpace: 'nowrap',
-          border: 0,
-        }}
-      >
-        {announcement}
-      </Box>
-
       {/* Active panel content — rendered before tab rail when on the right */}
       {side === 'right' && activePanel && (
         <TabbedSidebarActivePanel key={activePanel.drawer} panel={activePanel} side={side} />

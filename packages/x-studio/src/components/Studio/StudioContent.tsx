@@ -19,6 +19,7 @@ import {
   selectDataSources,
 } from '../../context';
 import { useStudioKeyboardShortcuts } from '../../internals/useStudioKeyboardShortcuts';
+import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
 import { DrawerPanel } from './DrawerPanel';
 import { TabbedSidebar } from './TabbedSidebar';
 import { StudioCanvas } from '../StudioCanvas';
@@ -223,76 +224,80 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   }
 
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        bgcolor: 'background.default',
-        position: 'relative',
-      }}
-    >
-      <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
-        <CanvasScrollContext.Provider value={canvasScrollRef}>
-          {sidebarSide === 'left' && sidebar}
+    <StudioLiveRegionProvider>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          bgcolor: 'background.default',
+          position: 'relative',
+        }}
+      >
+        <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
+          <CanvasScrollContext.Provider value={canvasScrollRef}>
+            {sidebarSide === 'left' && sidebar}
 
-          <Box
-            ref={canvasScrollRef}
-            component="main"
-            aria-label={localeText.canvasRegionAriaLabel}
-            sx={{
-              flexGrow: 1,
-              minWidth: 0,
-              overflow: 'auto',
-              bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
-            }}
-          >
-            <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
-              {canvas ?? <StudioCanvas stackBreakpoint={stackBreakpoint} {...slotProps?.canvas} />}
-            </Box>
-          </Box>
-
-          {sidebarSide === 'right' && sidebar}
-        </CanvasScrollContext.Provider>
-      </Box>
-
-      {/* AI chat button + panel */}
-      {features.aiChat && aiConfig?.endpoint && (
-        <React.Fragment>
-          <Tooltip
-            title={
-              chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip
-            }
-            placement="left"
-          >
-            <Fab
-              onClick={() => setChatOpen((prev) => !prev)}
-              color={chatOpen ? 'primary' : 'default'}
-              aria-label={
-                chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip
-              }
-              size="medium"
+            <Box
+              ref={canvasScrollRef}
+              component="main"
+              aria-label={localeText.canvasRegionAriaLabel}
               sx={{
-                position: 'absolute',
-                bottom: 20,
-                right: 20,
-                zIndex: (theme) => theme.zIndex.drawer + 2,
+                flexGrow: 1,
+                minWidth: 0,
+                overflow: 'auto',
+                bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100'),
               }}
             >
-              <AutoAwesomeIcon />
-            </Fab>
-          </Tooltip>
-          <React.Suspense fallback={null}>
-            <StudioChatPanel
-              {...slotProps?.chatPanel}
-              aiConfig={aiConfig}
-              open={chatOpen}
-              onClose={() => setChatOpen(false)}
-              overlay
-            />
-          </React.Suspense>
-        </React.Fragment>
-      )}
-    </Box>
+              <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
+                {canvas ?? (
+                  <StudioCanvas stackBreakpoint={stackBreakpoint} {...slotProps?.canvas} />
+                )}
+              </Box>
+            </Box>
+
+            {sidebarSide === 'right' && sidebar}
+          </CanvasScrollContext.Provider>
+        </Box>
+
+        {/* AI chat button + panel */}
+        {features.aiChat && aiConfig?.endpoint && (
+          <React.Fragment>
+            <Tooltip
+              title={
+                chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip
+              }
+              placement="left"
+            >
+              <Fab
+                onClick={() => setChatOpen((prev) => !prev)}
+                color={chatOpen ? 'primary' : 'default'}
+                aria-label={
+                  chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip
+                }
+                size="medium"
+                sx={{
+                  position: 'absolute',
+                  bottom: 20,
+                  right: 20,
+                  zIndex: (theme) => theme.zIndex.drawer + 2,
+                }}
+              >
+                <AutoAwesomeIcon />
+              </Fab>
+            </Tooltip>
+            <React.Suspense fallback={null}>
+              <StudioChatPanel
+                {...slotProps?.chatPanel}
+                aiConfig={aiConfig}
+                open={chatOpen}
+                onClose={() => setChatOpen(false)}
+                overlay
+              />
+            </React.Suspense>
+          </React.Fragment>
+        )}
+      </Box>
+    </StudioLiveRegionProvider>
   );
 });

@@ -593,6 +593,44 @@ describe('formatDateFilterLabel — default EN tokens', () => {
   });
 });
 
+describe('formatDateFilterLabel — dashboard date range presets', () => {
+  function presetFilter(preset: string): StudioFilterState {
+    return {
+      id: 'f1',
+      field: 'date',
+      fieldType: 'date',
+      operator: 'between',
+      scope: 'page',
+      value: null,
+      isDashboardDateRange: true,
+      dateRangePreset: preset as any,
+    };
+  }
+
+  it('returns "Last 12 months" for last_12_months preset', () => {
+    expect(formatDateFilterLabel(presetFilter('last_12_months'))).toBe('Last 12 months');
+  });
+
+  it('returns "Last 3 months" for last_3_months preset', () => {
+    expect(formatDateFilterLabel(presetFilter('last_3_months'))).toBe('Last 3 months');
+  });
+
+  it('returns "This month" for this_month preset', () => {
+    expect(formatDateFilterLabel(presetFilter('this_month'))).toBe('This month');
+  });
+
+  it('returns "YTD" for ytd preset', () => {
+    expect(formatDateFilterLabel(presetFilter('ytd'))).toBe('YTD');
+  });
+
+  it('uses custom locale for preset label', () => {
+    const lt = {
+      dateRangePresetLast12Months: 'Derniers 12 mois',
+    } as StudioLocaleText;
+    expect(formatDateFilterLabel(presetFilter('last_12_months'), lt)).toBe('Derniers 12 mois');
+  });
+});
+
 describe('formatDateFilterLabel — custom locale tokens', () => {
   const ptBRLike: Partial<StudioLocaleText> = {
     dateFilterLast: (amount, unit) => `Últimos ${amount} ${unit}`,

@@ -138,6 +138,33 @@ export interface StudioWidgetConfig {
    */
   funnelCategoryOrder?: string[];
   /**
+   * Funnel chart: opt into **cumulative "reached stage"** counts. When set, the
+   * funnel counts deals whose numeric reached-depth (this field) is at or beyond
+   * each stage, which is monotonically non-increasing by construction (never
+   * > 100%). The snapshot count (`stage === label`) is kept for a
+   * "currently in stage: N" tooltip. When omitted, the funnel uses the legacy
+   * per-stage snapshot aggregation.
+   */
+  funnelReachedField?: string;
+  /**
+   * Funnel chart: the ordered sequential stage labels for the cumulative mode
+   * (must exclude any terminal exit stage such as `Closed Lost`). Required
+   * together with `funnelReachedField`.
+   */
+  funnelStageSequence?: string[];
+  /**
+   * Funnel chart: terminal exit stage label (e.g. `Closed Lost`). Excluded from
+   * the sequential conversion math and rendered as a separate exit stat.
+   */
+  funnelExitStage?: string;
+  /**
+   * Funnel widget: render the cumulative counts as a **step-conversion bar chart**
+   * (one bar per stage transition = conversion %) instead of the funnel trapezoids.
+   * Requires `funnelReachedField` + `funnelStageSequence`.
+   * @default false
+   */
+  funnelConversionBar?: boolean;
+  /**
    * Sankey chart: target ("to") node field. The source ("from") node uses `xField`
    * and the link weight uses `yField`. Links are summed per unique source→target pair.
    */

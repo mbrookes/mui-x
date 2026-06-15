@@ -1,12 +1,19 @@
 'use client';
 import * as React from 'react';
 import { Box, Tooltip, Typography, useTheme } from '@mui/material';
+import { clampWidthPct } from '../../../internals/chartAggregation';
 import { formatNumber } from '../../../internals/numberFormat';
 import type { StudioNumberFormat } from '../../../models';
 
 export interface FunnelStage {
   label: string;
   value: number;
+  /**
+   * Optional snapshot count ("currently in stage: N"). When present (cumulative
+   * "reached stage" mode) it is surfaced in the bar tooltip alongside the
+   * passed-through `value`.
+   */
+  snapshotValue?: number;
 }
 
 export interface StudioFunnelChartProps {
@@ -14,18 +21,30 @@ export interface StudioFunnelChartProps {
   height: number;
   valueFormat?: StudioNumberFormat;
   currencyCode?: string;
+  /**
+   * Optional terminal-exit stat (e.g. Closed Lost). Rendered as a side stat
+   * below the funnel, NOT as a funnel step, since an exit is not a sequential
+   * stage in the linear conversion path.
+   */
+  exitLabel?: string;
+  exitValue?: number;
 }
 
 /**
  * Renders a funnel (conversion) chart as a series of centred trapezoids.
  * Each stage shows the absolute value and the retention % relative to the
- * first stage. Drop-off % is shown between adjacent stages.
+ * first stage. **Step (stage-over-stage) conversion is headlined** as "▼ -x%"
+ * between adjacent stages; "% of total" retention is the secondary metric.
+ * A terminal exit (`exitLabel`/`exitValue`, e.g. Closed Lost) is shown as a
+ * separate side stat rather than a funnel step.
  */
 export function StudioFunnelChart({
   stages,
   height,
   valueFormat,
   currencyCode,
+  exitLabel,
+  exitValue,
 }: StudioFunnelChartProps) {
   const theme = useTheme();
   const primaryColor = theme.palette.primary.main;
@@ -44,8 +63,10 @@ export function StudioFunnelChart({
   const ROW_H = 36;
   const GAP_H = 14; // gap between bars for drop-off label
   const PADDING_TOP = 8;
+  const hasExitStat = exitLabel != null && exitValue != null && exitValue > 0;
+  const EXIT_H = hasExitStat ? ROW_H + GAP_H : 0;
   const totalRows = stages.length;
-  const totalHeight = PADDING_TOP + totalRows * ROW_H + (totalRows - 1) * GAP_H;
+  const totalHeight = PADDING_TOP + totalRows * ROW_H + (totalRows - 1) * GAP_H + EXIT_H;
 
   return (
     <Box
@@ -61,13 +82,19 @@ export function StudioFunnelChart({
     >
       <Box sx={{ width: '100%', position: 'relative', height: totalHeight, minWidth: 240 }}>
         {stages.map((stage, i) => {
-          const widthPct = maxValue > 0 ? (stage.value / maxValue) * BAR_AREA_W_PCT : 0;
+          const widthPct =
+            maxValue > 0 ? clampWidthPct((stage.value / maxValue) * BAR_AREA_W_PCT) : 0;
           const retentionPct = maxValue > 0 ? ((stage.value / maxValue) * 100).toFixed(0) : '0';
           const prevValue = i > 0 ? stages[i - 1].value : null;
+          // Headline metric: step (stage-over-stage) conversion drop-off.
           const dropOffPct =
             prevValue && prevValue > 0
               ? (((prevValue - stage.value) / prevValue) * 100).toFixed(0)
               : null;
+          const tooltipTitle =
+            stage.snapshotValue != null
+              ? `${stage.label}: ${formatter(stage.value)} reached · currently in stage: ${formatNumber(stage.snapshotValue, 'integer')}`
+              : `${stage.label}: ${formatter(stage.value)}`;
 
           const barTop = PADDING_TOP + i * (ROW_H + GAP_H);
 
@@ -146,7 +173,7 @@ export function StudioFunnelChart({
                   justifyContent: 'center',
                 }}
               >
-                <Tooltip title={`${stage.label}: ${formatter(stage.value)}`} placement="top">
+                <Tooltip title={tooltipTitle} placement="top">
                   <Box
                     sx={{
                       width: `${widthPct * 100}%`,
@@ -204,6 +231,32 @@ export function StudioFunnelChart({
             </React.Fragment>
           );
         })}
+
+        {/* Terminal exit stat (e.g. Closed Lost) — a side stat, not a funnel step. */}
+        {hasExitStat && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: PADDING_TOP + totalRows * (ROW_H + GAP_H),
+              left: 0,
+              right: 0,
+              height: ROW_H,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              borderTop: '1px dashed',
+              borderColor: 'divider',
+              pt: 0.5,
+            }}
+          >
+            <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary' }}>
+              {exitLabel} (exit)
+            </Typography>
+            <Typography variant="caption" sx={{ fontSize: 12, fontWeight: 600 }}>
+              {formatNumber(exitValue as number, 'integer')}
+            </Typography>
+          </Box>
+        )}
       </Box>
     </Box>
   );

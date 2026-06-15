@@ -17,23 +17,23 @@ It integrates with the MUI X Charts library for rendering and participates in th
 
 ## Chart types
 
-| Type               | `type` value   | Notes                                                                                                                                                                                                                                          |
-| :----------------- | :------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Grouped bar        | `bar`          | Default; grouped when multiple series                                                                                                                                                                                                          |
-| Stacked bar        | `bar-stacked`  | Stacks series as absolute values                                                                                                                                                                                                               |
-| 100 % stacked bar  | `bar-100`      | Stacks series as percentages                                                                                                                                                                                                                   |
-| Line               | `line`         | X axis is typically a category or time field                                                                                                                                                                                                   |
-| Area               | `area`         | Fills below the line                                                                                                                                                                                                                           |
-| Stacked area       | `area-stacked` |                                                                                                                                                                                                                                                |
-| 100 % stacked area | `area-100`     |                                                                                                                                                                                                                                                |
-| Mixed              | `mixed`        | Bar + line overlay on shared axes; requires 2+ measure fields; each `ySeries` entry can set `seriesType` to `'bar'` or `'line'`; optional `dualYAxis` adds an independent right Y axis                                                         |
-| Heatmap            | `heatmap`      | Uses `xField` for columns, `heatYField` for rows, and `yField` for colour intensity; `heatColorScheme` supports `primary`, `success`, `warning`, and `error`                                                                                   |
-| Funnel             | `funnel`       | Uses `xField` for stage and `yField` for value; stages are sorted by value descending with drop-off and retention percentages                                                                                                                  |
-| Gantt              | `gantt`        | Swimlane timeline using `ganttLabelField`, `ganttStartField`, `ganttEndField`, and optional `ganttColorField`; includes a date axis, grid lines, and tooltips                                                                                  |
-| Sankey             | `sankey`       | Flow diagram using `xField` for source node, `sankeyTargetField` for target node, and `yField` for the link value (summed per source→target pair); `sankeyLinkColor` (`'source'` or `'target'`) and `sankeyShowValues` control link appearance |
-| Pie                | `pie`          | No X axis; single numeric value series                                                                                                                                                                                                         |
-| Donut              | `donut`        | Like pie with a centre hole                                                                                                                                                                                                                    |
-| Scatter            | `scatter`      | Requires `xField` and `yField`                                                                                                                                                                                                                 |
+| Type               | `type` value   | Notes                                                                                                                                                                                                                                                                   |
+| :----------------- | :------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Grouped bar        | `bar`          | Default; grouped when multiple series                                                                                                                                                                                                                                   |
+| Stacked bar        | `bar-stacked`  | Stacks series as absolute values                                                                                                                                                                                                                                        |
+| 100 % stacked bar  | `bar-100`      | Stacks series as percentages                                                                                                                                                                                                                                            |
+| Line               | `line`         | X axis is typically a category or time field                                                                                                                                                                                                                            |
+| Area               | `area`         | Fills below the line                                                                                                                                                                                                                                                    |
+| Stacked area       | `area-stacked` |                                                                                                                                                                                                                                                                         |
+| 100 % stacked area | `area-100`     |                                                                                                                                                                                                                                                                         |
+| Mixed              | `mixed`        | Bar + line overlay on shared axes; requires 2+ measure fields; each `ySeries` entry can set `seriesType` to `'bar'` or `'line'`; optional `dualYAxis` adds an independent right Y axis                                                                                  |
+| Heatmap            | `heatmap`      | Uses `xField` for columns, `heatYField` for rows, and `yField` for colour intensity; `heatColorScheme` supports `primary`, `success`, `warning`, and `error`                                                                                                            |
+| Funnel             | `funnel`       | Uses `xField` for stage and `yField` for value; stages are sorted by value descending with drop-off and retention percentages. Set `funnelReachedField` (+ `funnelStageSequence`) for a monotonic cumulative "reached stage" funnel — see [Funnel modes](#funnel-modes) |
+| Gantt              | `gantt`        | Swimlane timeline using `ganttLabelField`, `ganttStartField`, `ganttEndField`, and optional `ganttColorField`; includes a date axis, grid lines, and tooltips                                                                                                           |
+| Sankey             | `sankey`       | Flow diagram using `xField` for source node, `sankeyTargetField` for target node, and `yField` for the link value (summed per source→target pair); `sankeyLinkColor` (`'source'` or `'target'`) and `sankeyShowValues` control link appearance                          |
+| Pie                | `pie`          | No X axis; single numeric value series                                                                                                                                                                                                                                  |
+| Donut              | `donut`        | Like pie with a centre hole                                                                                                                                                                                                                                             |
+| Scatter            | `scatter`      | Requires `xField` and `yField`                                                                                                                                                                                                                                          |
 
 ## Configuration
 
@@ -66,6 +66,39 @@ Category string fields produce one bar/point per unique value.
 
 **Y axis** — automatically generated from the configured series. Values are aggregated by
 the `aggregation` function before rendering.
+
+## Funnel modes
+
+A funnel chart has two counting modes:
+
+- **Snapshot (default)** — counts (or sums) the rows _currently in_ each stage. This is
+  only monotonic if each stage genuinely contains a subset of the previous one; with
+  independent per-stage data a later stage can exceed an earlier one (retention > 100%).
+- **Cumulative "reached stage"** — set `funnelReachedField` to a numeric depth field and
+  `funnelStageSequence` to the ordered stage labels. Each stage then counts rows whose depth
+  is _at or beyond_ that stage, which is monotonically non-increasing by construction, so the
+  funnel can never exceed 100%. The snapshot count is kept for a "currently in stage: N"
+  tooltip. Use `funnelExitStage` to mark a terminal exit (for example `Closed Lost`) that is
+  excluded from the sequential conversion math and rendered as a separate exit stat. Set
+  `funnelConversionBar: true` to render the same cumulative counts as a step-conversion bar
+  (one bar per stage transition) instead of the funnel trapezoids.
+
+```ts
+const funnelConfig = {
+  chartType: 'funnel',
+  xField: 'stage', // snapshot stage label
+  yField: 'id',
+  funnelReachedField: 'stageReached', // numeric furthest-reached depth
+  funnelStageSequence: [
+    'Prospecting',
+    'Qualification',
+    'Proposal',
+    'Negotiation',
+    'Closed Won',
+  ],
+  funnelExitStage: 'Closed Lost', // terminal exit, shown as a side stat
+};
+```
 
 ## Multi-series
 

@@ -290,24 +290,54 @@ export function StudioMapWidget({
     }
   }, []);
 
-  // For wide containers the naturalEarth / albers projections are height-constrained:
-  // the geographic content is narrower than the full SVG. Cap the legend at that width.
-  const legendMaxWidth = React.useMemo<number | undefined>(() => {
-    if (legendDirection !== 'horizontal' || containerDims.width === 0) {
-      return undefined;
+  // Compute the chart margin and legend max-width together.
+  //
+  // For naturalEarth1 (world map): the projection selector overrides fitExtent's translate
+  // with the drawing-area centre. The world GeoJSON is north-heavy (land to ~83°N, ocean to
+  // 90°S), so the equator sits at ~58.6% down the content rather than 50%. The translate
+  // override therefore shifts content upward by ~8.6% of the drawing height, clipping Arctic
+  // features. Increasing margin.top pushes the drawing-area centre down to counteract this.
+  const { legendMaxWidth, mapMargin } = React.useMemo(() => {
+    // Fraction by which the equator exceeds the 50% mark inside the fitted content.
+    const WORLD_NORTH_SHIFT = 0.0862;
+
+    const defaultMargin = { top: 16, bottom: 8, left: 8, right: 8 };
+
+    if (containerDims.width === 0) {
+      return { legendMaxWidth: undefined, mapMargin: defaultMargin };
     }
+
     const aspect = PROJECTION_CONTENT_ASPECT[projectionName] ?? 1.8;
-    const marginH = 16; // left(8) + right(8) from ChartsGeoDataProviderPremium margin prop
-    const marginV = 24; // top(16) + bottom(8)
-    const legendH = 36; // approximate rendered height of horizontal ContinuousColorLegend
-    const drawW = containerDims.width - marginH;
-    const drawH = containerDims.height - marginV - legendH;
-    if (drawH <= 0) {
-      return undefined;
+    // Estimated legend height for horizontal placement (two rows: gradient + labels).
+    const legendEstH = !hideLegend && legendDirection === 'horizontal' ? 56 : 0;
+    const svgH = Math.max(100, containerDims.height - legendEstH);
+
+    // Dynamic top margin keeps Arctic features from being clipped by SVG overflow:hidden.
+    let topMargin = defaultMargin.top;
+    if (projectionName === 'naturalEarth1') {
+      topMargin = Math.max(
+        defaultMargin.top,
+        Math.ceil(
+          (4 + WORLD_NORTH_SHIFT * (svgH - defaultMargin.bottom)) / (1 + WORLD_NORTH_SHIFT),
+        ),
+      );
     }
-    // Height-constrained → content width = aspect × drawH; otherwise fills full draw width.
-    return drawW / drawH > aspect ? Math.round(aspect * drawH) : drawW;
-  }, [containerDims, legendDirection, projectionName]);
+
+    const margin = { ...defaultMargin, top: topMargin };
+
+    // Cap horizontal legend width to the geographic content width so it doesn't
+    // span the full widget when the map is height-constrained.
+    let maxWidth: number | undefined;
+    if (legendDirection === 'horizontal' && !hideLegend) {
+      const drawW = containerDims.width - margin.left - margin.right;
+      const drawH = svgH - margin.top - margin.bottom;
+      if (drawH > 0) {
+        maxWidth = drawW / drawH > aspect ? Math.round(aspect * drawH) : drawW;
+      }
+    }
+
+    return { legendMaxWidth: maxWidth, mapMargin: margin };
+  }, [containerDims, legendDirection, projectionName, hideLegend]);
 
   // Lazy-load geography — async resource loading requires useEffect; the null-reset
   // on prop change and the .then(setGeography) are both intentional and correct here.
@@ -414,7 +444,7 @@ export function StudioMapWidget({
         <ChartsGeoDataProviderPremium
           geoData={geography}
           projection={projectionName}
-          margin={{ top: 16, bottom: 8, left: 8, right: 8 }}
+          margin={mapMargin}
           series={[
             {
               type: 'mapShape',
@@ -447,7 +477,7 @@ export function StudioMapWidget({
               height: '100%',
             }}
           >
-            <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, height: '100%' }}>
+            <Box sx={{ flex: 1, minHeight: 0, minWidth: 0 }}>
               <ChartsSurface>
                 <GeoDataPlot fill="#f5f5f5" stroke="#bdbdbd" />
                 <StudioMapShapePlot
@@ -461,12 +491,12 @@ export function StudioMapWidget({
               <ContinuousColorLegend
                 axisDirection="z"
                 direction={legendDirection}
-                labelPosition="extremes"
+                labelPosition="end"
                 minLabel={({ value }) => formatMapValue(value as number)}
                 maxLabel={({ value }) => formatMapValue(value as number)}
                 sx={
                   legendDirection === 'horizontal'
-                    ? { alignSelf: 'center', width: '100%', maxWidth: legendMaxWidth }
+                    ? { mx: 'auto', width: legendMaxWidth ?? '100%' }
                     : { alignSelf: 'center', height: 'calc(100% - 16px)' }
                 }
               />

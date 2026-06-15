@@ -927,6 +927,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       heatValueField,
       xGroupBy,
       heatAggregation,
+      xFieldDef?.orderedValues,
+      yFieldDef?.orderedValues,
     );
     return (
       <StudioHeatmapChart

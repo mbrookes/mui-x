@@ -3,9 +3,11 @@ import {
   aggregateBlendedSeries,
   aggregateByField,
   aggregateByTwoFields,
+  aggregateFunnelReached,
   aggregateMultipleSeries,
   aggregateSankey,
   analyzeChartSupport,
+  clampWidthPct,
   applyRankToAggregated,
   applyRankToMultiSeries,
   applyRankToSeriesFieldData,
@@ -1365,5 +1367,85 @@ describe('aggregateSankey', () => {
     ]);
     // Node 'A' still appears (as the source of A→B); no orphan nodes are emitted.
     expect(result.nodes).toEqual([{ id: 'A' }, { id: 'B' }, { id: 'C' }]);
+  });
+});
+
+describe('aggregateFunnelReached', () => {
+  const SEQUENCE = ['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won'];
+
+  it('produces a monotonically non-increasing "reached" series by construction', () => {
+    // A deal at depth d counts toward stages 0..d. Mix of depths + outcomes.
+    const rows = [
+      { stage: 'Prospecting', stageReached: 0 },
+      { stage: 'Closed Lost', stageReached: 0 }, // lost early, still passed Prospecting
+      { stage: 'Qualification', stageReached: 1 },
+      { stage: 'Closed Lost', stageReached: 2 }, // lost at Proposal depth
+      { stage: 'Proposal', stageReached: 2 },
+      { stage: 'Negotiation', stageReached: 3 },
+      { stage: 'Closed Won', stageReached: 4 },
+    ];
+    const result = aggregateFunnelReached(rows, 'stage', 'stageReached', SEQUENCE, 'Closed Lost');
+
+    const values = result.stages.map((s) => s.value);
+    // reached≥0:7, ≥1:5, ≥2:4, ≥3:2, ≥4:1
+    expect(values).toEqual([7, 5, 4, 2, 1]);
+    // Non-increasing along the whole sequence.
+    for (let i = 1; i < values.length; i += 1) {
+      expect(values[i]).toBeLessThanOrEqual(values[i - 1]);
+    }
+    // widthPct (value / first) can never exceed 1.
+    const first = values[0];
+    values.forEach((v) => expect(v / first).toBeLessThanOrEqual(1));
+  });
+
+  it('excludes Closed Lost from the sequence and reports it as a separate exit total', () => {
+    const rows = [
+      { stage: 'Prospecting', stageReached: 0 },
+      { stage: 'Closed Lost', stageReached: 1 },
+      { stage: 'Closed Lost', stageReached: 2 },
+      { stage: 'Closed Won', stageReached: 4 },
+    ];
+    const result = aggregateFunnelReached(rows, 'stage', 'stageReached', SEQUENCE, 'Closed Lost');
+
+    // No funnel step is labelled Closed Lost.
+    expect(result.stages.map((s) => s.label)).toEqual(SEQUENCE);
+    // The two lost deals are reported as the exit total...
+    expect(result.exitLabel).toBe('Closed Lost');
+    expect(result.exitValue).toBe(2);
+    // ...yet they still count toward the upper stages they passed through
+    // (passed-through view, not double counting): reached≥0 = all 4 deals.
+    expect(result.stages[0].value).toBe(4);
+    expect(result.stages[1].value).toBe(3); // depths 1,2,4 reached ≥1
+  });
+
+  it('carries the per-stage snapshot count and step-conversion fraction', () => {
+    const rows = [
+      { stage: 'Prospecting', stageReached: 0 },
+      { stage: 'Prospecting', stageReached: 0 },
+      { stage: 'Qualification', stageReached: 1 },
+      { stage: 'Closed Won', stageReached: 4 },
+    ];
+    const result = aggregateFunnelReached(rows, 'stage', 'stageReached', SEQUENCE, 'Closed Lost');
+
+    expect(result.stages[0].snapshotValue).toBe(2); // two deals currently in Prospecting
+    expect(result.stages[1].snapshotValue).toBe(1);
+    expect(result.stages[0].stepConversion).toBeNull(); // first stage has no previous
+    // reached≥0 = 4, reached≥1 = 2 → step conversion = 0.5
+    expect(result.stages[1].stepConversion).toBeCloseTo(0.5);
+  });
+});
+
+describe('clampWidthPct', () => {
+  it('clamps values above 1 down to 1 (overflow guard)', () => {
+    expect(clampWidthPct(1.05)).toBe(1);
+    expect(clampWidthPct(42)).toBe(1);
+  });
+
+  it('passes through valid fractions and floors negatives/NaN to 0', () => {
+    expect(clampWidthPct(0.5)).toBe(0.5);
+    expect(clampWidthPct(1)).toBe(1);
+    expect(clampWidthPct(0)).toBe(0);
+    expect(clampWidthPct(-0.3)).toBe(0);
+    expect(clampWidthPct(Number.NaN)).toBe(0);
   });
 });

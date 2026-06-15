@@ -109,6 +109,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
         ['widget-text-crm-pipeline'],
         ['widget-kpi6-open-deals', 'widget-kpi6-pipeline-value', 'widget-kpi6-win-rate'],
         ['widget-chart6-deals-by-stage', 'widget-chart6-value-by-stage'],
+        ['widget-chart6-stage-conversion', 'widget-chart6-time-in-stage'],
         ['widget-grid6-deals'],
       ],
     },
@@ -1076,7 +1077,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'widget-chart6-deals-by-stage': {
       id: 'widget-chart6-deals-by-stage',
       kind: 'chart',
-      title: 'Deals by Stage',
+      title: 'Deals by Stage (reached)',
       sourceId: CRM_DEALS_SOURCE_ID,
       config: {
         chartType: 'funnel',
@@ -1084,6 +1085,63 @@ export const INITIAL_STATE: Partial<StudioState> = {
         yField: 'id',
         yAggregation: 'count',
         chartSortBy: 'category' as const,
+        // Cumulative "reached stage" mode (EBL-03): counts deals whose reached
+        // depth is at or beyond each stage → monotonic by construction, never
+        // > 100%. Closed Lost is excluded from the sequence and shown as a
+        // separate exit stat; the donut/grid below keep the current snapshot.
+        funnelReachedField: 'stageReached',
+        funnelStageSequence: [
+          'Prospecting',
+          'Qualification',
+          'Proposal',
+          'Negotiation',
+          'Closed Won',
+        ],
+        funnelExitStage: 'Closed Lost',
+      },
+    },
+    'widget-chart6-stage-conversion': {
+      id: 'widget-chart6-stage-conversion',
+      kind: 'chart',
+      title: 'Stage Conversion Rate',
+      titleMode: 'manual' as const,
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        // EBL-04 #1: one bar per stage transition = step-conversion %, driven by
+        // the same cumulative "reached" counts as the funnel above.
+        chartType: 'funnel',
+        xField: 'stage',
+        yField: 'id',
+        funnelReachedField: 'stageReached',
+        funnelStageSequence: [
+          'Prospecting',
+          'Qualification',
+          'Proposal',
+          'Negotiation',
+          'Closed Won',
+        ],
+        funnelExitStage: 'Closed Lost',
+        funnelConversionBar: true,
+      },
+    },
+    'widget-chart6-time-in-stage': {
+      id: 'widget-chart6-time-in-stage',
+      kind: 'chart',
+      title: 'Avg Days in Stage by Owner',
+      titleMode: 'manual' as const,
+      sourceId: CRM_DEALS_SOURCE_ID,
+      config: {
+        // EBL-04 #3: time-in-stage heatmap. NOTE (approximation): the heatmap
+        // reads one row per deal, so `daysInStage` is a per-deal *scalar* (days
+        // in the deal's current/snapshot stage), not a full per-stage matrix.
+        // The heatmap x-axis sorts labels alphabetically (not by pipeline order),
+        // so stage columns appear A–Z rather than Prospecting→Closed Won.
+        chartType: 'heatmap',
+        xField: 'stage',
+        heatYField: 'owner',
+        yField: 'daysInStage',
+        yAggregation: 'avg',
+        heatColorScheme: 'warning',
       },
     },
     'widget-chart6-value-by-stage': {

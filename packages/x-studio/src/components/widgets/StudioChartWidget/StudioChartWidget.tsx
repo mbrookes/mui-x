@@ -29,6 +29,7 @@ import {
   periodKeyToDateRange,
   truncateToGranularity,
   aggregateByField,
+  aggregateFunnelReached,
   aggregateHeatmap,
   aggregateSankey,
 } from '../../../internals/chartUtils';
@@ -962,6 +963,80 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       );
     }
     const valueFieldDef = dataSource?.fields.find((f) => f.id === funnelValueField);
+
+    // Cumulative "reached stage" mode: count deals whose reached-depth is at or
+    // beyond each stage → monotonically non-increasing by construction (never
+    // > 100%). The terminal exit stage (e.g. Closed Lost) is excluded from the
+    // sequential math and reported separately. Opt-in via `funnelReachedField`.
+    if (config.funnelReachedField && config.funnelStageSequence) {
+      const reached = aggregateFunnelReached(
+        filteredRows,
+        funnelXField,
+        config.funnelReachedField,
+        config.funnelStageSequence,
+        config.funnelExitStage,
+      );
+
+      // EBL-04 #1: render the same cumulative counts as a step-conversion bar
+      // (one bar per stage transition = conversion %). Cross-bucket ratios can't
+      // be expressed by the generic grouped-bar aggregation, so this is a
+      // dedicated rendering path that reuses the reached aggregation.
+      if (config.funnelConversionBar) {
+        const transitions = reached.stages.slice(1);
+        const convLabels = transitions.map((s, i) => `${reached.stages[i].label} → ${s.label}`);
+        const convValues = transitions.map((s) =>
+          s.stepConversion != null ? Math.round(s.stepConversion * 1000) / 10 : 0,
+        );
+        if (convLabels.length === 0) {
+          return <StudioNoDataOverlay height={chartHeight} />;
+        }
+        return (
+          <div style={{ height: chartHeight }}>
+            <BarChart
+              {...slotProps?.barChart}
+              skipAnimation={skipAnimation}
+              layout="horizontal"
+              xAxis={[
+                {
+                  height: 'auto',
+                  min: 0,
+                  max: 100,
+                  valueFormatter: (v: number) => `${Math.round(v)}%`,
+                },
+              ]}
+              yAxis={[{ data: convLabels, scaleType: 'band', width: 'auto' }]}
+              series={[
+                {
+                  data: convValues,
+                  label: 'Step conversion',
+                  valueFormatter: (v: number | null) => (v == null ? '' : `${v}%`),
+                },
+              ]}
+              colors={chartColors}
+              margin={{ top: 16, right: 16, bottom: 8, left: 8 }}
+              sx={{ cursor: 'default' }}
+            >
+              {annotationChildren}
+            </BarChart>
+          </div>
+        );
+      }
+
+      return (
+        <StudioFunnelChart
+          stages={reached.stages.map((s) => ({
+            label: s.label,
+            value: s.value,
+            snapshotValue: s.snapshotValue,
+          }))}
+          height={chartHeight}
+          valueFormat="integer"
+          exitLabel={reached.exitLabel ?? undefined}
+          exitValue={reached.exitValue}
+        />
+      );
+    }
+
     const useCount =
       config.yAggregation === 'count' ||
       (() => {

@@ -4,7 +4,6 @@ import type {
   StudioGridColumn,
   StudioGridSummaryAggregation,
   StudioChartSeries,
-  StudioMetricRef,
   StudioChartAnnotation,
   StudioBarLayout,
   StudioCrossFilterMode,
@@ -214,10 +213,6 @@ export interface StudioWidgetConfig {
   kpiSparklineGranularity?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /** When true, the sparkline shows a cumulative running total instead of per-period values. */
   kpiSparklineCumulative?: boolean;
-  /** Minimum value for the gauge sparkline. @default 0 */
-  kpiSparklineGaugeMin?: number;
-  /** Maximum value for the gauge sparkline. The KPI headline value is plotted against this cap. */
-  kpiSparklineGaugeMax?: number;
   // KPI trend indicator
   /** When true, shows a period-over-period percentage change badge below the headline value. */
   kpiTrend?: boolean;
@@ -234,10 +229,10 @@ export interface StudioWidgetConfig {
    */
   kpiTrendInvert?: boolean;
   // KPI target line
-  /** When true, shows a horizontal reference line on the sparkline and (when kpiTrend is also enabled) compares the headline value against the target instead of the previous period. */
+  /** When true, shows a horizontal reference line on the sparkline and (when kpiTrend is also enabled) compares the headline value against the target instead of the previous period. For gauge sparklines the target is always active and sets the gauge maximum. */
   kpiTarget?: boolean;
-  /** Reference to the metric row/field that provides the target value. */
-  kpiTargetRef?: StudioMetricRef;
+  /** Discrete numeric target value. Used as the reference line / trend comparison target, and as the gauge max when kpiSparklinePlotType is 'gauge'. */
+  kpiTargetValue?: number;
   // Grid summary (totals) row
   /**
    * Aggregation to show in the pinned summary footer for each field.

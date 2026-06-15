@@ -338,8 +338,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiTrend: true,
         kpiSparkline: true,
         kpiSparklinePlotType: 'gauge',
-        kpiSparklineGaugeMin: 0,
-        kpiSparklineGaugeMax: 500,
+        kpiTargetValue: 500,
       },
     },
     'widget-kpi-revenue': {

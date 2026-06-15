@@ -9,12 +9,10 @@ import type {
   StudioWidgetKind,
 } from '../models';
 import { isRelativeDateValue } from './filterUtils';
+import { computeDateRangePreset } from './dateRangeUtils';
 import type { RelativeDateValue } from './filterTypes';
 import { formatFieldValue } from './numberFormat';
-import {
-  DEFAULT_STUDIO_LOCALE_TEXT,
-  type StudioLocaleText,
-} from './StudioUIConfigContext';
+import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from './StudioUIConfigContext';
 import { TextWidgetIcon } from '../icons/TextWidgetIcon';
 import { KpiWidgetIcon } from '../icons/KpiWidgetIcon';
 import { TableWidgetIcon } from '../icons/TableWidgetIcon';
@@ -180,11 +178,7 @@ const CHART_GROUP_BY_PREFIX_KEYS: Record<string, keyof StudioLocaleText> = {
   year: 'widgetGroupByPrefixYear',
 };
 
-function summarizeFieldLabels(
-  labels: string[],
-  localeText: StudioLocaleText,
-  maxVisible = 3,
-) {
+function summarizeFieldLabels(labels: string[], localeText: StudioLocaleText, maxVisible = 3) {
   if (labels.length <= maxVisible) {
     return labels.join(', ');
   }
@@ -225,9 +219,24 @@ export function formatDateFilterLabel(
   const { value, value2, operator } = filter;
 
   if (operator === 'between') {
-    const range = value as { from?: unknown; to?: unknown } | null;
-    const from = range?.from;
-    const to = range?.to;
+    // Non-custom presets store value: null — resolve fresh dates for display.
+    let resolvedFrom: unknown;
+    let resolvedTo: unknown;
+    if (
+      filter.isDashboardDateRange &&
+      filter.dateRangePreset &&
+      filter.dateRangePreset !== 'custom'
+    ) {
+      const preset = computeDateRangePreset(filter.dateRangePreset);
+      resolvedFrom = preset.from;
+      resolvedTo = preset.to;
+    } else {
+      const range = value as { from?: unknown; to?: unknown } | null;
+      resolvedFrom = range?.from;
+      resolvedTo = range?.to;
+    }
+    const from = resolvedFrom;
+    const to = resolvedTo;
     if (isRelativeDateValue(from) && isRelativeDateValue(to)) {
       return `${formatRelativeDateValue(from, localeText)} \u2013 ${formatRelativeDateValue(to, localeText)}`;
     }
@@ -265,10 +274,7 @@ export function formatDateFilterLabel(
   return '';
 }
 
-function formatRelativeDateValue(
-  rel: RelativeDateValue,
-  localeText: StudioLocaleText,
-): string {
+function formatRelativeDateValue(rel: RelativeDateValue, localeText: StudioLocaleText): string {
   const singularKey = UNIT_SINGULAR_KEYS[rel.unit];
   const pluralKey = UNIT_PLURAL_KEYS[rel.unit];
   const singular = singularKey ? (localeText[singularKey] as string) : rel.unit;
@@ -380,9 +386,10 @@ export function inferWidgetTitles(
         title = yLabels.join(', ');
       }
 
-      const splitLabel = seriesLabel && !groupByTitlePrefix
-        ? `${localeText.widgetAutoTitleSplitBy} ${seriesLabel}`
-        : '';
+      const splitLabel =
+        seriesLabel && !groupByTitlePrefix
+          ? `${localeText.widgetAutoTitleSplitBy} ${seriesLabel}`
+          : '';
       const subtitleParts = [source?.label, splitLabel].filter(Boolean);
       const subtitle = subtitleParts.join(' · ');
 
@@ -411,9 +418,7 @@ export function inferWidgetTitles(
       });
 
       const subtitle =
-        visibleColumnLabels.length > 0
-          ? summarizeFieldLabels(visibleColumnLabels, localeText)
-          : '';
+        visibleColumnLabels.length > 0 ? summarizeFieldLabels(visibleColumnLabels, localeText) : '';
 
       return { title, subtitle };
     }
@@ -451,10 +456,16 @@ export function inferWidgetTitles(
     }
 
     case 'text':
-      return { title: widget.title || localeText.widgetAutoTitleDefault, subtitle: widget.subtitle ?? '' };
+      return {
+        title: widget.title || localeText.widgetAutoTitleDefault,
+        subtitle: widget.subtitle ?? '',
+      };
 
     default:
-      return { title: widget.title || widget.kind || localeText.widgetAutoTitleDefault, subtitle: widget.subtitle ?? '' };
+      return {
+        title: widget.title || widget.kind || localeText.widgetAutoTitleDefault,
+        subtitle: widget.subtitle ?? '',
+      };
   }
 }
 

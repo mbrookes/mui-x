@@ -157,8 +157,11 @@ const SEND_BTN_SX = {
 // Receives disabled/type/data-is-streaming computed by ComposerSendButton (headless).
 const StudioSendButtonInner = React.forwardRef<
   HTMLButtonElement,
-  React.ButtonHTMLAttributes<HTMLButtonElement>
->(function StudioSendButtonInner({ children: _children, disabled, ...rest }, ref) {
+  React.ButtonHTMLAttributes<HTMLButtonElement> & { ownerState?: unknown }
+>(function StudioSendButtonInner(
+  { children: _children, disabled, ownerState: _ownerState, ...rest },
+  ref,
+) {
   const { stopStreaming } = useChat();
   const isStreaming = (rest as Record<string, unknown>)['data-is-streaming'] === 'true';
 

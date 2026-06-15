@@ -5,7 +5,8 @@
  * → tier selection → handler output. Uses a lightweight in-memory mock Knex
  * builder (no native module dependencies).
  */
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
+import { createHmac } from 'node:crypto';
 import { handleBatchQuery } from '../handler';
 import { generateCacheKey } from '../security/cacheKey';
 import { extractSecurityClaims } from '../security/extractSecurityClaims';
@@ -13,6 +14,7 @@ import { LRUCacheProvider } from '../cache/LRUCacheProvider';
 import { MapTierCacheProvider } from '../cache/MapTierCacheProvider';
 import type { JwtSecurityClaims, BatchQueryRequest } from '../security/types';
 import { createMockDb } from './mockDb';
+import { RedisTierCacheProvider } from '../cache/RedisTierCacheProvider';
 
 // ─── Test data ────────────────────────────────────────────────────────────────
 
@@ -119,7 +121,6 @@ describe('extractSecurityClaims', () => {
   const SECRET = 'test-secret-key';
 
   function makeJwt(payload: Record<string, unknown>, secret: string): string {
-    const { createHmac } = require('node:crypto') as typeof import('node:crypto');
     const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
     const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
     const sig = createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url');
@@ -472,7 +473,9 @@ describe('MapTierCacheProvider', () => {
   it('returns undefined after TTL expires', async () => {
     const cache = new MapTierCacheProvider();
     await cache.set('key1', { tier: 'client', rowCount: 100 }, 1); // 1ms TTL
-    await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => {
+      setTimeout(r, 10);
+    });
     expect(await cache.get('key1')).toBeUndefined();
   });
 
@@ -493,7 +496,9 @@ describe('MapTierCacheProvider', () => {
     const cache = new MapTierCacheProvider();
     await cache.set('k1', { tier: 'client', rowCount: 1 }, 50);
     await cache.set('k2', { tier: 'server', rowCount: 2 }, 1); // expires immediately
-    await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => {
+      setTimeout(r, 10);
+    });
     expect(cache.size).toBe(1); // k2 is expired
   });
 });
@@ -543,7 +548,9 @@ describe('handleBatchQuery — tier routing cache', () => {
 
     // Second call: tier cache is hit, preflight is skipped
     // Rows should still be returned correctly
-    await new Promise((r) => setTimeout(r, 5)); // let data cache expire
+    await new Promise((r) => {
+      setTimeout(r, 5);
+    }); // let data cache expire
     const r2 = await handleBatchQuery(body, ACME_CLAIMS, opts);
     expect(r2.results[0].rows.length).toBe(r1.results[0].rows.length);
     expect(r2.results[0].tier).toBe(r1.results[0].tier);
@@ -567,7 +574,6 @@ describe('handleBatchQuery — tier routing cache', () => {
 });
 
 // ─── RedisTierCacheProvider ──────────────────────────────────────────────────
-import { RedisTierCacheProvider } from '../cache/RedisTierCacheProvider';
 
 /** Minimal in-memory Redis mock that satisfies RedisClient. */
 function makeRedisClient() {

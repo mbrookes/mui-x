@@ -154,8 +154,8 @@ export function createMockDb(tables: Tables): (table: string) => MockQueryBuilde
           }
 
           resolve(filtered);
-        } catch (e) {
-          reject?.(e as Error);
+        } catch (err) {
+          reject?.(err as Error);
         }
       },
     };

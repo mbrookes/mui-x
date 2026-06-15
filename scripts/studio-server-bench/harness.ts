@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * Benchmark measurement harness for x-studio-server pipeline stages.
  *
@@ -39,7 +40,7 @@ export function bench(
   const times: number[] = [];
   let rowsReturned = 0;
 
-  for (let i = 0; i < iterations; i++) {
+  for (let i = 0; i < iterations; i += 1) {
     const t0 = performance.now();
     const rows = stmt.all(...params) as unknown[];
     times.push(performance.now() - t0);

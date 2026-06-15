@@ -926,6 +926,20 @@ export interface StudioLocaleText {
   kpiTrendUnfavorableLabel: string;
   /** Screen-reader-only sentiment for an unchanged KPI trend */
   kpiTrendNoChangeLabel: string;
+  /** Accessible name for the between-widget column resize handle */
+  canvasResizeColumnsAriaLabel: string;
+  /** Accessible name + action for the "move widget up" control */
+  canvasMoveWidgetUpAriaLabel: string;
+  /** Accessible name + action for the "move widget down" control */
+  canvasMoveWidgetDownAriaLabel: string;
+  /** Accessible name + action for the "move widget left" control */
+  canvasMoveWidgetLeftAriaLabel: string;
+  /** Accessible name + action for the "move widget right" control */
+  canvasMoveWidgetRightAriaLabel: string;
+  /** Accessible name for the grid-column "move up" (earlier) reorder control */
+  gridColumnMoveUpAriaLabel: string;
+  /** Accessible name for the grid-column "move down" (later) reorder control */
+  gridColumnMoveDownAriaLabel: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1765,6 +1779,13 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiTrendFavorableLabel: 'favorable',
   kpiTrendUnfavorableLabel: 'unfavorable',
   kpiTrendNoChangeLabel: 'no change',
+  canvasResizeColumnsAriaLabel: 'Resize columns',
+  canvasMoveWidgetUpAriaLabel: 'Move widget up',
+  canvasMoveWidgetDownAriaLabel: 'Move widget down',
+  canvasMoveWidgetLeftAriaLabel: 'Move widget left',
+  canvasMoveWidgetRightAriaLabel: 'Move widget right',
+  gridColumnMoveUpAriaLabel: 'Move column up',
+  gridColumnMoveDownAriaLabel: 'Move column down',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

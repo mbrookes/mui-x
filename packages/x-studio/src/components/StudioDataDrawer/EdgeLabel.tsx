@@ -73,6 +73,10 @@ export function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }:
   const tgtFieldLabel =
     tgtSource?.fields.find((f) => f.id === rel.targetField)?.label ?? rel.targetField;
 
+  const edgeAriaLabel = `${srcSource?.label ?? rel.sourceId} to ${
+    tgtSource?.label ?? rel.targetId
+  }, ${rel.type}`;
+
   return (
     <g>
       {/* Invisible wider hit area */}
@@ -93,10 +97,20 @@ export function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }:
         markerEnd="url(#arrowhead)"
         style={{ pointerEvents: 'none' }}
       />
-      {/* Label badge */}
+      {/* Label badge — focusable button so the relationship details are reachable by keyboard */}
       <g
-        style={{ cursor: 'default' }}
+        role="button"
+        tabIndex={0}
+        aria-label={edgeAriaLabel}
+        aria-haspopup="dialog"
+        style={{ cursor: 'pointer' }}
         onClick={(event) => setAnchorEl(event.currentTarget as SVGElement)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setAnchorEl(event.currentTarget as unknown as SVGElement);
+          }
+        }}
       >
         <rect
           x={mid.x - 14}

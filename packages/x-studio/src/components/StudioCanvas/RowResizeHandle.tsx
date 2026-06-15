@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Box } from '@mui/material';
 
 import { MIN_SPAN } from './canvasGridConstants';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 interface RowResizeHandleProps {
   leftId: string;
@@ -28,12 +29,58 @@ export function RowResizeHandle({
   onDragEnd,
 }: RowResizeHandleProps) {
   const totalSpan = leftSpan + rightSpan;
+  const localeText = useStudioLocaleText();
   const dragRef = React.useRef<{
     combinedLeft: number;
     combinedWidth: number;
     totalSpan: number;
   } | null>(null);
   const [active, setActive] = React.useState(false);
+
+  const minLeft = leftMinSpan;
+  const maxLeft = totalSpan - rightMinSpan;
+
+  // Keyboard resize: commit a new left span (clamped) via the same callbacks the
+  // pointer drag uses, so the handle is operable without a mouse (APG splitter).
+  const commitSpan = React.useCallback(
+    (nextLeft: number) => {
+      const clamped = Math.max(minLeft, Math.min(maxLeft, nextLeft));
+      if (clamped === leftSpan) {
+        return;
+      }
+      onDragMove(leftId, rightId, clamped);
+      onDragEnd(leftId, rightId, clamped, totalSpan - clamped);
+    },
+    [minLeft, maxLeft, leftSpan, leftId, rightId, totalSpan, onDragMove, onDragEnd],
+  );
+
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      switch (event.key) {
+        case 'ArrowLeft':
+        case 'ArrowDown':
+          event.preventDefault();
+          commitSpan(leftSpan - 1);
+          break;
+        case 'ArrowRight':
+        case 'ArrowUp':
+          event.preventDefault();
+          commitSpan(leftSpan + 1);
+          break;
+        case 'Home':
+          event.preventDefault();
+          commitSpan(minLeft);
+          break;
+        case 'End':
+          event.preventDefault();
+          commitSpan(maxLeft);
+          break;
+        default:
+          break;
+      }
+    },
+    [commitSpan, leftSpan, minLeft, maxLeft],
+  );
 
   const handlePointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -109,6 +156,14 @@ export function RowResizeHandle({
   return (
     <Box
       data-resize-handle
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={localeText.canvasResizeColumnsAriaLabel}
+      aria-valuemin={minLeft}
+      aria-valuemax={maxLeft}
+      aria-valuenow={leftSpan}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -120,7 +175,11 @@ export function RowResizeHandle({
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 20,
-        '&:hover .rh-bar, &[data-active] .rh-bar': { opacity: 1, bgcolor: 'primary.main' },
+        '&:hover .rh-bar, &[data-active] .rh-bar, &:focus-visible .rh-bar': {
+          opacity: 1,
+          bgcolor: 'primary.main',
+        },
+        '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main' },
       }}
       data-active={active ? '' : undefined}
     >

@@ -1143,6 +1143,20 @@ export interface HeatmapData {
  * @param xGroupBy - Optional date granularity to truncate the X axis values.
  * @param yAggregation - Aggregation function to apply per cell (default: 'sum').
  */
+/**
+ * Orders `labels` by `preferred` (a field's `orderedValues`): known labels first
+ * in `preferred` order, then any remaining labels naturally sorted. Used so a
+ * heatmap axis follows a domain order (e.g. pipeline stages) rather than A–Z.
+ */
+function orderLabelsByPreferred(labels: string[], preferred: string[]): string[] {
+  const orderMap = new Map(preferred.map((value, index) => [value, index]));
+  const known = labels
+    .filter((label) => orderMap.has(label))
+    .sort((a, b) => (orderMap.get(a) as number) - (orderMap.get(b) as number));
+  const unknown = sortLabels(labels.filter((label) => !orderMap.has(label))) as string[];
+  return [...known, ...unknown];
+}
+
 export function aggregateHeatmap(
   rows: Row[],
   xField: string,
@@ -1150,6 +1164,8 @@ export function aggregateHeatmap(
   valueField: string,
   xGroupBy?: XGroupBy,
   yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
+  xOrder?: string[],
+  yOrder?: string[],
 ): HeatmapData {
   const xSet = new Set<string>();
   const ySet = new Set<string>();
@@ -1197,8 +1213,15 @@ export function aggregateHeatmap(
     }
   }
 
-  const xLabels = sortLabels([...xSet]) as string[];
-  const yLabels = [...ySet];
+  // Honour the field's domain order (`orderedValues`) when supplied — e.g. show
+  // pipeline stages in pipeline order — otherwise keep the previous behaviour
+  // (x naturally sorted, y in first-seen order).
+  const xLabels =
+    xOrder && xOrder.length > 0
+      ? orderLabelsByPreferred([...xSet], xOrder)
+      : (sortLabels([...xSet]) as string[]);
+  const yLabels =
+    yOrder && yOrder.length > 0 ? orderLabelsByPreferred([...ySet], yOrder) : [...ySet];
 
   let minValue = Infinity;
   let maxValue = -Infinity;

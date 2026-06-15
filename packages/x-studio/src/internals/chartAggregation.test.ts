@@ -4,6 +4,7 @@ import {
   aggregateByField,
   aggregateByTwoFields,
   aggregateFunnelReached,
+  aggregateHeatmap,
   aggregateMultipleSeries,
   aggregateSankey,
   analyzeChartSupport,
@@ -1447,5 +1448,41 @@ describe('clampWidthPct', () => {
     expect(clampWidthPct(0)).toBe(0);
     expect(clampWidthPct(-0.3)).toBe(0);
     expect(clampWidthPct(Number.NaN)).toBe(0);
+  });
+});
+
+describe('aggregateHeatmap axis ordering', () => {
+  const rows = [
+    { stage: 'Negotiation', owner: 'Bob', days: 4 },
+    { stage: 'Prospecting', owner: 'Amy', days: 2 },
+    { stage: 'Proposal', owner: 'Amy', days: 6 },
+    { stage: 'Prospecting', owner: 'Bob', days: 8 },
+  ];
+  const stageOrder = ['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won'];
+
+  it('orders the x-axis by the field orderedValues, not alphabetically', () => {
+    const data = aggregateHeatmap(rows, 'stage', 'owner', 'days', undefined, 'avg', stageOrder);
+    // Alphabetical would be ['Negotiation', 'Proposal', 'Prospecting']; pipeline order differs.
+    expect(data.xLabels).toEqual(['Prospecting', 'Proposal', 'Negotiation']);
+  });
+
+  it('falls back to a natural sort when no order is provided', () => {
+    const data = aggregateHeatmap(rows, 'stage', 'owner', 'days', undefined, 'avg');
+    expect(data.xLabels).toEqual(['Negotiation', 'Proposal', 'Prospecting']);
+  });
+
+  it('appends labels missing from orderedValues after the known ones', () => {
+    const withExtra = [...rows, { stage: 'Closed Lost', owner: 'Amy', days: 1 }];
+    const data = aggregateHeatmap(
+      withExtra,
+      'stage',
+      'owner',
+      'days',
+      undefined,
+      'avg',
+      stageOrder,
+    );
+    // 'Closed Lost' isn't in stageOrder → sorted after the known pipeline stages.
+    expect(data.xLabels).toEqual(['Prospecting', 'Proposal', 'Negotiation', 'Closed Lost']);
   });
 });

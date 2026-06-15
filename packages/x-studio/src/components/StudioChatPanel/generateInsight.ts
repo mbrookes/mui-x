@@ -12,7 +12,6 @@ import {
   extractDateRange,
   computePreviousPeriodRange,
 } from '../widgets/StudioKpiWidget/kpiUtils';
-import { resolveMetricRef } from '../../internals/filterUtils';
 import {
   aggregateByField,
   aggregateByTwoFields,
@@ -247,27 +246,20 @@ function buildKpiWidgetSummary(
     `Value: ${cfg.kpiPrefix ?? ''}${value}${cfg.kpiSuffix ?? ''} (${fieldLabel})`,
   ];
 
-  if (cfg.kpiTarget && cfg.kpiTargetRef) {
-    const target = resolveMetricRef(cfg.kpiTargetRef, state.dataSources);
-    if (target != null) {
-      lines.push(`Target: ${cfg.kpiPrefix ?? ''}${target}${cfg.kpiSuffix ?? ''}`);
-    }
+  if (cfg.kpiTarget && cfg.kpiTargetValue !== undefined) {
+    lines.push(`Target: ${cfg.kpiPrefix ?? ''}${cfg.kpiTargetValue}${cfg.kpiSuffix ?? ''}`);
   }
 
   if (cfg.kpiSparklinePlotType === 'gauge') {
-    const gMin = cfg.kpiSparklineGaugeMin ?? 0;
-    const gMax = cfg.kpiSparklineGaugeMax ?? '(not set)';
-    lines.push(`Gauge range: ${gMin} – ${gMax}`);
+    const gMax = cfg.kpiTargetValue ?? 100;
+    lines.push(`Gauge range: 0 – ${gMax}`);
   }
 
   // Trend: compare current value against previous period or target
   if (cfg.kpiTrend && valueField) {
-    if (cfg.kpiTarget && cfg.kpiTargetRef) {
-      const target = resolveMetricRef(cfg.kpiTargetRef, state.dataSources);
-      if (target != null && typeof target === 'number' && target !== 0) {
-        const delta = (value - target) / Math.abs(target);
-        lines.push(`Trend: ${delta >= 0 ? '+' : ''}${Math.round(delta * 100)}% vs target`);
-      }
+    if (cfg.kpiTarget && cfg.kpiTargetValue !== undefined && cfg.kpiTargetValue !== 0) {
+      const delta = (value - cfg.kpiTargetValue) / Math.abs(cfg.kpiTargetValue);
+      lines.push(`Trend: ${delta >= 0 ? '+' : ''}${Math.round(delta * 100)}% vs target`);
     } else if (dateFilter && currentRange) {
       const comparisonMode = cfg.kpiTrendComparison ?? 'previous-period';
       const prevRange = computePreviousPeriodRange(

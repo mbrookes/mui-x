@@ -470,8 +470,6 @@ export interface StudioLocaleText {
   kpiSetupTimeFieldLabel: string;
   kpiSetupGranularityLabel: string;
   kpiSetupPlotTypeLabel: string;
-  kpiSetupMinLabel: string;
-  kpiSetupMaxLabel: string;
   kpiSetupValueFieldLabel: string;
   kpiSetupValueFieldHelperText: string;
   kpiSetupSparklineLabel: string;
@@ -1335,8 +1333,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupTimeFieldLabel: 'Time field',
   kpiSetupGranularityLabel: 'Granularity',
   kpiSetupPlotTypeLabel: 'Plot type',
-  kpiSetupMinLabel: 'Min',
-  kpiSetupMaxLabel: 'Max',
   kpiSetupValueFieldLabel: 'Value field',
   kpiSetupValueFieldHelperText: 'Field to aggregate',
   kpiSetupSparklineLabel: 'Sparkline',
@@ -1352,7 +1348,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupAutoDateFilterPrefix: 'Using date filter:',
   kpiSetupCalculatedField: 'Calculated field…',
   kpiSetupTargetHelperText:
-    'Reference value for the target line on the sparkline. When Trend is also enabled, the delta badge compares the current value against this target.',
+    'Numeric target value. Shows a reference line on the sparkline; when Trend is also enabled, the delta badge compares the current value against this target.',
   kpiSetupInvertColours: 'Invert colours (lower is better)',
 
   // KPI widget

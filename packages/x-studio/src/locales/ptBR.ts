@@ -450,8 +450,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   kpiSetupTimeFieldLabel: 'Campo de tempo',
   kpiSetupGranularityLabel: 'Granularidade',
   kpiSetupPlotTypeLabel: 'Tipo de gráfico',
-  kpiSetupMinLabel: 'Mín.',
-  kpiSetupMaxLabel: 'Máx.',
   kpiSetupValueFieldLabel: 'Campo de valor',
   kpiSetupValueFieldHelperText: 'Campo a agregar',
   kpiSetupSparklineLabel: 'Minigráfico',

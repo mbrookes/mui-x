@@ -454,8 +454,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   kpiSetupTimeFieldLabel: 'Campo de tiempo',
   kpiSetupGranularityLabel: 'Granularidad',
   kpiSetupPlotTypeLabel: 'Tipo de gráfico',
-  kpiSetupMinLabel: 'Mín.',
-  kpiSetupMaxLabel: 'Máx.',
   kpiSetupValueFieldLabel: 'Campo de valor',
   kpiSetupValueFieldHelperText: 'Campo para agregar',
   kpiSetupSparklineLabel: 'minigráfico',

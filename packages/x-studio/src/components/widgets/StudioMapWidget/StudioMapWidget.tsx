@@ -533,7 +533,11 @@ export function StudioMapWidget({
               height: '100%',
             }}
           >
-            <Box role="img" aria-label={mapAriaLabel} sx={{ flex: 1, minHeight: 0, minWidth: 0, order: chartOrder }}>
+            <Box
+              role={crossFilterEmit ? 'group' : 'img'}
+              aria-label={mapAriaLabel}
+              sx={{ flex: 1, minHeight: 0, minWidth: 0, order: chartOrder }}
+            >
               <ChartsSurface>
                 <GeoDataPlot fill="#f5f5f5" stroke="#bdbdbd" />
                 <StudioMapShapePlot
@@ -547,6 +551,9 @@ export function StudioMapWidget({
               <ContinuousColorLegend
                 axisDirection="z"
                 direction={legendDirection}
+                aria-label={`${valueFieldLabel ?? 'Value'} color scale from ${formatMapValue(
+                  minVal,
+                )} to ${formatMapValue(maxVal)}`}
                 labelPosition="extremes"
                 minLabel={({ value }) => formatMapValue(value as number)}
                 maxLabel={({ value }) => formatMapValue(value as number)}

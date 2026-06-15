@@ -128,7 +128,12 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
         </Box>
         {insight && (
           <Tooltip title={copied ? localeText.aiCopiedTooltip : localeText.aiCopyTooltip}>
-            <IconButton size="small" onClick={handleCopy} sx={{ p: 0.25 }}>
+            <IconButton
+              size="small"
+              onClick={handleCopy}
+              aria-label={localeText.aiCopyTooltip}
+              sx={{ p: 0.5 }}
+            >
               <ContentCopyIcon sx={{ fontSize: 14 }} />
             </IconButton>
           </Tooltip>
@@ -140,14 +145,20 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
               size="small"
               onClick={() => onRegenerate(activeType)}
               disabled={loading}
-              sx={{ p: 0.25 }}
+              aria-label={localeText.aiRegenerateTooltip}
+              sx={{ p: 0.5 }}
             >
               <RefreshIcon sx={{ fontSize: 14 }} />
             </IconButton>
           </span>
         </Tooltip>
         <Tooltip title={localeText.aiCloseTooltip}>
-          <IconButton size="small" onClick={onClose} sx={{ p: 0.25 }}>
+          <IconButton
+            size="small"
+            onClick={onClose}
+            aria-label={localeText.aiCloseTooltip}
+            sx={{ p: 0.5 }}
+          >
             <CloseIcon sx={{ fontSize: 14 }} />
           </IconButton>
         </Tooltip>

@@ -3,7 +3,7 @@ import * as React from 'react';
 import { Autocomplete, FormControl, InputLabel, MenuItem, Select, TextField } from '@mui/material';
 import type { StudioFilterOperator } from '../../models';
 import type { FieldType } from './filterDrawerTypes';
-import { useStudioSelector, selectDataSources, useStudioLocaleText } from '../../context';
+import { useStudioLocaleText } from '../../context';
 import { DateValueInput } from './DateValueInput';
 
 const OPERATORS_WITH_AUTOCOMPLETE = new Set<StudioFilterOperator>(['equals', 'not_equals']);
@@ -52,7 +52,7 @@ export function FilterValueInput(props: {
   }
 
   if (fieldType === 'date' || fieldType === 'datetime') {
-    return <DateValueInput value={value} onChange={onChange} fieldType={fieldType} />;
+    return <DateValueInput value={value} onChange={onChange} />;
   }
 
   if (fieldType === 'boolean') {

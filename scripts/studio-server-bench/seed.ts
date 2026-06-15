@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * Benchmark database seeder for x-studio-server performance tests.
  *
@@ -11,7 +12,6 @@ import { DatabaseSync } from 'node:sqlite';
 
 const REGIONS = ['north', 'south', 'east', 'west'] as const;
 const PRODUCTS = ['widget', 'gadget', 'doohickey', 'thingamajig'] as const;
-const INSERT_BATCH = 1000;
 
 export function seedBenchmarkDb(path: string, rowCount: number): DatabaseSync {
   const db = new DatabaseSync(path);
@@ -54,7 +54,7 @@ export function seedBenchmarkDb(path: string, rowCount: number): DatabaseSync {
 
   // node:sqlite doesn't have built-in transaction batching — use BEGIN/COMMIT
   db.exec('BEGIN');
-  for (let i = 0; i < rowCount; i++) {
+  for (let i = 0; i < rowCount; i += 1) {
     insert.run(
       Math.random() < 0.8 ? 'acme' : 'globex',
       REGIONS[Math.floor(Math.random() * REGIONS.length)],

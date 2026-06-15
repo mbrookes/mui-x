@@ -24,6 +24,7 @@ export function CollapsibleFeatureSection({
   children,
 }: CollapsibleFeatureSectionProps) {
   const [expanded, setExpanded] = React.useState(false);
+  const regionId = React.useId();
 
   const handleSwitch = (next: boolean) => {
     onToggle(next);
@@ -52,43 +53,71 @@ export function CollapsibleFeatureSection({
     >
       {/* Header row */}
       <Box
-        onClick={handleHeaderClick}
         sx={{
           display: 'flex',
           alignItems: 'center',
           gap: 0.5,
           px: 1,
           py: 0.5,
-          cursor: 'default',
-          userSelect: 'none',
         }}
       >
-        <Chevron
+        <Box
+          component="button"
+          type="button"
+          onClick={handleHeaderClick}
+          aria-expanded={isOpen}
+          aria-controls={regionId}
           sx={{
-            fontSize: 18,
-            color: 'text.secondary',
-            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+            flexGrow: 1,
+            minWidth: 0,
+            border: 0,
+            m: 0,
+            p: 0,
+            background: 'transparent',
+            font: 'inherit',
+            color: 'inherit',
+            textAlign: 'left',
+            cursor: 'pointer',
+            userSelect: 'none',
+            borderRadius: 1,
+            '&:focus-visible': {
+              outline: '2px solid',
+              outlineColor: 'primary.main',
+              outlineOffset: 2,
+            },
           }}
-        />
-        <Typography
-          variant="body2"
-          sx={{ flexGrow: 1, color: enabled ? 'text.primary' : 'text.disabled' }}
         >
-          {label}
-        </Typography>
-        {/* Stop click from toggling expand when clicking the switch */}
-        <Box onClick={(evt) => evt.stopPropagation()}>
-          <Switch
-            size="small"
-            checked={enabled}
-            onChange={(evt) => handleSwitch(evt.target.checked)}
+          <Chevron
+            aria-hidden
+            sx={{
+              fontSize: 18,
+              color: 'text.secondary',
+              flexShrink: 0,
+            }}
           />
+          <Typography
+            variant="body2"
+            component="span"
+            sx={{ flexGrow: 1, color: enabled ? 'text.primary' : 'text.disabled' }}
+          >
+            {label}
+          </Typography>
         </Box>
+        <Switch
+          size="small"
+          checked={enabled}
+          onChange={(evt) => handleSwitch(evt.target.checked)}
+          slotProps={{ input: { 'aria-label': label } }}
+        />
       </Box>
 
       {/* Collapsible content */}
       <Collapse in={isOpen}>
         <Stack
+          id={regionId}
           spacing={1.5}
           sx={{
             px: 1.5,

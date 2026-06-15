@@ -730,7 +730,7 @@ graph TD
 
 **StudioFiltersDrawer** — filter management. Grouped into page-scope and per-widget sections. Supports filter presets (Saved Views), filter search, and filter cards with inline editing.
 
-**StudioChatPanel** — AI chat assistant. Lazy-loaded on first open (single `React.lazy` in the package). Uses `@mui/x-chat` for the message thread. `studioAdapter.ts` translates user messages into an agentic SSE streaming loop: build system prompt → stream LLM response → execute tool calls → recurse until text response. Supports 12 built-in tools: `get_dashboard_state`, `add_page`, `remove_page`, `rename_page`, `set_active_page`, `add_widget`, `remove_widget`, `update_widget`, `add_filter`, `remove_filter`, `add_relationship`, `remove_relationship`. Destructive operations (`remove_widget`, `remove_page`) are gated by a `Promise<boolean>` confirmation rendered as a `ChatConfirmation` component inline in the chat thread. Can be used as a FAB overlay (`overlay={true}`, default in `<Studio>`) or as a persistent sidebar panel (`overlay={false}`, composable usage).
+**StudioChatPanel** — AI chat assistant. Lazy-loaded on first open (single `React.lazy` in the package). Uses `@mui/x-chat` for the message thread. The client `studioBackendAdapter.ts` streams the conversation from a backend AI endpoint via SSE; the agentic tool loop (build system prompt → call the LLM → execute tool calls → recurse until a text response) runs server-side in `@mui/x-studio-ai-middleware` (`agenticLoop.ts`, with tool execution in `executeToolOnState.ts`). Supports 20 built-in tools: `get_dashboard_state`, `add_page`, `rename_page`, `remove_page`, `set_active_page`, `set_dashboard_title`, `add_widget`, `update_widget`, `remove_widget`, `set_widget_layout`, `set_widget_width`, `add_page_filter`, `remove_page_filter`, `add_widget_filter`, `remove_widget_filter`, `summarise_page`, `apply_bulk_update`, `rename_thread`, `execute_query`, `set_widget_forecast`. Destructive operations (`remove_widget`, `remove_page`) are gated by a `Promise<boolean>` confirmation rendered as a `ChatConfirmation` component inline in the chat thread. Can be used as a FAB overlay (`overlay={true}`, default in `<Studio>`) or as a persistent sidebar panel (`overlay={false}`, composable usage).
 
 ### 12.4 StudioWidgetCard
 
@@ -1020,7 +1020,7 @@ This is the integration point for `examples/x-studio-ai` — the host app can op
 
 ### 14.6 NL Widget Creation (`createWidgetFromDescription`)
 
-A single-turn, non-streaming path used only by the Compose Drawer's "Describe a widget" text field. Forces an `add_widget` tool call, merges with `createDefaultWidget(kind)` defaults, and calls `controller.addWidget()` directly. Independent of `StudioChatPanel` and `studioAdapter.ts`.
+A single-turn, non-streaming path used only by the Compose Drawer's "Describe a widget" text field. Forces an `add_widget` tool call, merges with `createDefaultWidget(kind)` defaults, and calls `controller.addWidget()` directly. Independent of `StudioChatPanel` and `studioBackendAdapter.ts`.
 
 ### 14.7 Data Isolation
 

@@ -170,34 +170,6 @@ describe('summarizeFilter — condition mode', () => {
     );
     expect(result).toContain('OR');
   });
-
-  it('metric ref shows ⚡ metric for primary value', () => {
-    const result = summarizeFilter(
-      makeFilter({
-        operator: 'greater_than',
-        fieldType: 'number',
-        value: '',
-        valueRef: { sourceId: 'metrics', rowId: 'BM-001', field: 'value' },
-      }),
-    );
-    expect(result).toContain('⚡ metric');
-  });
-
-  it('metric ref shows ⚡ metric for secondary value', () => {
-    const result = summarizeFilter(
-      makeFilter({
-        operator: 'greater_than',
-        value: 0,
-        fieldType: 'number',
-        operator2: 'less_than',
-        value2: '',
-        value2Ref: { sourceId: 'metrics', rowId: 'BM-001', field: 'value' },
-        conjunction: 'and',
-      }),
-    );
-    expect(result).toContain('⚡ metric');
-    expect(result).toContain('AND');
-  });
 });
 
 // ─── summarizeFilter — selection mode ────────────────────────────────────────
@@ -450,7 +422,6 @@ describe('buildModeReset', () => {
     expect(reset.conjunction).toBeUndefined();
     expect(reset.rankDirection).toBeUndefined();
     expect(reset.rankMultiSeriesBy).toBeUndefined();
-    expect(reset.valueRef).toBeUndefined();
   });
 
   it('sets rankDirection to "top" when switching to rank mode', () => {

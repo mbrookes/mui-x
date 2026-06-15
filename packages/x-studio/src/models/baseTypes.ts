@@ -384,22 +384,6 @@ export interface StudioChartSeries {
 }
 
 /**
- * A reference to a specific field value within a named row of a data source.
- * Used to make filter values dynamic — driven by a business metric rather than
- * a hardcoded literal.
- *
- * Example: reference BM-012.value (= 6) as the threshold for "months active".
- */
-export interface StudioMetricRef {
-  /** ID of the data source containing the metric row */
-  sourceId: string;
-  /** ID of the specific row (e.g. 'BM-012') */
-  rowId: string;
-  /** Field on that row whose value to use (e.g. 'value') */
-  field: string;
-}
-
-/**
  * A single reference-line annotation drawn on a chart widget.
  */
 export interface StudioChartAnnotation {

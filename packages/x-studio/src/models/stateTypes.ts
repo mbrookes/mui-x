@@ -1,4 +1,4 @@
-import type { StudioMode, StudioDrawer, StudioFilterOperator, StudioMetricRef } from './baseTypes';
+import type { StudioMode, StudioDrawer, StudioFilterOperator } from './baseTypes';
 import type { StudioWidget, StudioPage, StudioPageTheme } from './widgetTypes';
 import type { StudioDataSource, StudioDataField } from './dataTypes';
 import type { StudioExpressionField, StudioRelationship } from './expressionTypes';
@@ -21,14 +21,10 @@ export interface StudioFilterState {
   // condition mode
   operator: StudioFilterOperator;
   value: unknown;
-  /** When set, overrides `value` with a live lookup from a metric data source. */
-  valueRef?: StudioMetricRef;
   /** Optional second condition for compound filters (e.g. date ≥ X AND date ≤ Y) */
   conjunction?: 'and' | 'or';
   operator2?: StudioFilterOperator;
   value2?: unknown;
-  /** When set, overrides `value2` with a live lookup from a metric data source. */
-  value2Ref?: StudioMetricRef;
   // rank mode
   rankDirection?: 'top' | 'bottom';
   /** Numeric field to aggregate by when ranking a non-numeric dimension (e.g. rank countries by revenue). */

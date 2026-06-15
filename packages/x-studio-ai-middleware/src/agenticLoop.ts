@@ -159,6 +159,12 @@ export interface AgenticLoopOptions {
    * When not provided, destructive tools execute without approval.
    */
   approvalPending?: Map<string, (approved: boolean, reason?: string) => void>;
+  /**
+   * Pre-built data snapshot of the active page's widgets, forwarded from the client
+   * where live pipeline rows are available. When present, enables the `summarise_page`
+   * tool so the model can produce business-focused data summaries.
+   */
+  pageSnapshot?: string;
 }
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
@@ -190,6 +196,7 @@ export async function* runAgenticLoop(
     privateMode = false,
     rateLimit,
     approvalPending,
+    pageSnapshot,
   } = options;
 
   // Tools that pause for user approval before execution.
@@ -218,7 +225,8 @@ export async function* runAgenticLoop(
       return Boolean(dataResolver);
     }
     if (t.function.name === 'summarise_page') {
-      return Boolean(allowedTools?.includes('summarise_page'));
+      // Enable when a live data snapshot was pre-built client-side, or host opts in explicitly.
+      return Boolean(pageSnapshot) || Boolean(allowedTools?.includes('summarise_page'));
     }
     return true;
   });
@@ -581,7 +589,13 @@ export async function* runAgenticLoop(
       }
 
       try {
-        const result = executeToolOnState(tc.name, toolInput, currentState, customWidgets);
+        const result = executeToolOnState(
+          tc.name,
+          toolInput,
+          currentState,
+          customWidgets,
+          pageSnapshot,
+        );
         output = result.output;
         mutation = result.mutation;
         currentState = result.nextState;

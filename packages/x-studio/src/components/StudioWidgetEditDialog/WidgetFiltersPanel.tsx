@@ -1,10 +1,6 @@
 'use client';
 import * as React from 'react';
-import {
-  Button,
-  Stack,
-  Typography,
-} from '@mui/material';
+import { Button, Stack, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import type { StudioFilterState, StudioDataField } from '../../models';
 import { useStudioController } from '../../context/StudioContext';
@@ -77,7 +73,10 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
   }, [dataSources, ownFields, relationships, sourceId]);
 
   const widgetFilters = React.useMemo(
-    () => allFilters.filter((f) => f.scope === 'widget' && f.widgetId === widgetId),
+    () =>
+      allFilters.filter(
+        (f) => f.scope === 'widget' && f.widgetId === widgetId && !f.isDashboardDateRange,
+      ),
     [allFilters, widgetId],
   );
 

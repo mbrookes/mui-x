@@ -463,6 +463,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   kpiSetupSparklineLabel: 'Sparkline',
   kpiSetupTargetLabel: 'Ziel',
   kpiSetupTrendLabel: 'Trend',
+  kpiSetupDateRangeLabel: 'Datumsbereich',
+  kpiSetupDateRangeFieldLabel: 'Datumsfeld',
   kpiSetupCompPeriodLabel: 'Vergleichszeitraum',
   kpiSetupDateAggEarliest: 'Früher',
   kpiSetupDateAggLatest: 'Später',

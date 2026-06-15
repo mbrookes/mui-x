@@ -461,6 +461,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   kpiSetupSparklineLabel: 'minigráfico',
   kpiSetupTargetLabel: 'Meta',
   kpiSetupTrendLabel: 'Tendencia',
+  kpiSetupDateRangeLabel: 'Rango de fechas',
+  kpiSetupDateRangeFieldLabel: 'Campo de fecha',
   kpiSetupCompPeriodLabel: 'Periodo de comparación',
   kpiSetupDateAggEarliest: 'Más temprano',
   kpiSetupDateAggLatest: 'Más tarde',

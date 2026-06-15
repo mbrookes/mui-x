@@ -454,6 +454,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     return null;
   }
 
+  // In view mode, let the custom widget def opt into collapsing the entire card.
+  if (mode === 'view' && customDef?.shouldHide?.({ widget, dataSource: source ?? undefined })) {
+    return null;
+  }
+
   const canExport = widget.kind === 'grid' || widget.kind === 'chart';
   const isChart = widget.kind === 'chart';
   const showEditActions = mode === 'edit' && (isSelected || (!dimmed && hovered));
@@ -589,6 +594,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                     minWidth: 0,
                     flexShrink: 1,
                     ...(widget.kind === 'text' && {
+                      flexGrow: 1,
                       ...(widget.config.textTitleColor && {
                         color: widget.config.textTitleColor,
                       }),

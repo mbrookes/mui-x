@@ -152,6 +152,7 @@ export function RelativeDateInput({
       <FormControl size="small" fullWidth>
         <Select
           value={value.unit}
+          aria-label={localeText.filterRelativeDateUnitAriaLabel}
           onChange={(event) => onChange({ ...value, unit: event.target.value as RelativeDateUnit })}
         >
           {relativeUnits.map((u) => (
@@ -164,6 +165,7 @@ export function RelativeDateInput({
       <FormControl size="small" fullWidth>
         <Select
           value={value.direction}
+          aria-label={localeText.filterRelativeDateDirectionAriaLabel}
           onChange={(event) =>
             onChange({ ...value, direction: event.target.value as 'past' | 'next' })
           }

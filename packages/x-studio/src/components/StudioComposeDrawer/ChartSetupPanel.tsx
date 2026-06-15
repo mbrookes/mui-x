@@ -1062,6 +1062,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   <FormControl size="small" sx={{ width: 56 }}>
                     <Select
                       value={ann.axis}
+                      aria-label={localeText.chartAnnotationAxisAriaLabel}
                       onChange={(event) => {
                         controller.updateWidgetConfig(widgetId, {
                           annotations: (config.annotations ?? []).map((a) =>

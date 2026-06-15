@@ -199,6 +199,8 @@ export interface StudioMcpOptions {
     /**
      * Execute a structured query against a data source.
      * The implementation is responsible for security, allowlisting, and DB routing.
+     * @param {StudioDataQueryParams} params - The structured query (source, columns, aggregations, filters, ordering).
+     * @returns {Promise<StudioDataQueryResult>} The resolved rows together with the row count and routing tier.
      */
     queryDataSource: (params: StudioDataQueryParams) => Promise<StudioDataQueryResult>;
   };
@@ -910,10 +912,9 @@ export function buildStudioMcpServer(
             role: 'user' as const,
             content: {
               type: 'text' as const,
-              text:
-                'Here are example `query_data_source` invocations for each data source:\n\n' +
-                examples.join('\n\n') +
-                '\n\nAdapt these by changing `columns`, `aggregations`, `filters`, and `orderBy` as needed.',
+              text: `Here are example \`query_data_source\` invocations for each data source:\n\n${examples.join(
+                '\n\n',
+              )}\n\nAdapt these by changing \`columns\`, \`aggregations\`, \`filters\`, and \`orderBy\` as needed.`,
             },
           },
         ],

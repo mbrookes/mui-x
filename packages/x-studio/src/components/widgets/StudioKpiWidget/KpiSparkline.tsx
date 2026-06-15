@@ -53,7 +53,11 @@ export function KpiSparkline(props: KpiSparklineProps) {
     const safeMax = Number.isFinite(gaugeMax) && gaugeMax > 0 ? gaugeMax : 1;
     const percentValue = Math.min(Math.max((value / safeMax) * 100, 0), 100);
     // Text alternative: the gauge is a visual-only SVG.
-    const gaugeAriaLabel = `Gauge: ${fmt(value)} of ${fmt(safeMax)} (${Math.round(percentValue)}%).`;
+    const gaugeAriaLabel = localeText.kpiGaugeAriaLabel(
+      fmt(value),
+      fmt(safeMax),
+      Math.round(percentValue),
+    );
     return (
       <Box
         role="img"
@@ -85,15 +89,18 @@ export function KpiSparkline(props: KpiSparklineProps) {
   if (hasEnoughData) {
     const first = data[0];
     const last = data[data.length - 1];
-    let direction = 'flat';
+    let direction: 'up' | 'down' | 'flat' = 'flat';
     if (last > first) {
-      direction = 'trending up';
+      direction = 'up';
     } else if (last < first) {
-      direction = 'trending down';
+      direction = 'down';
     }
-    const sparkAriaLabel = `Sparkline with ${data.length} points, ${direction}, from ${fmt(
-      first,
-    )} to ${fmt(last)}.`;
+    const sparkAriaLabel = localeText.kpiSparklineAriaLabel(
+      data.length,
+      direction,
+      fmt(first),
+      fmt(last),
+    );
     return (
       <Box
         role="img"

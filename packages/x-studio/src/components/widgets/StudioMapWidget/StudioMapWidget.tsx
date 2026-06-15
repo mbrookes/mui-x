@@ -67,6 +67,16 @@ const COLOR_RAMPS: Record<string, [string, string]> = {
   purples: ['#efedf5', '#3f007d'],
 };
 
+// Empirical content aspect ratios (content-width / content-height) for each d3 projection.
+// Used to compute how wide the geographic features are relative to the drawing area height,
+// so the horizontal legend can be sized to match the map's visible extent rather than
+// spanning the full widget width.
+const PROJECTION_CONTENT_ASPECT: Record<string, number> = {
+  naturalEarth1: 1.8,
+  albersUsa: 1.89,
+  mercator: 1.8,
+};
+
 type AggFn = 'sum' | 'count' | 'avg' | 'min' | 'max';
 
 function aggregateValues(values: number[], fn: AggFn): number {
@@ -250,6 +260,55 @@ export function StudioMapWidget({
     return [dataMin, dataMax];
   }, [regionData, legendZeroMin]);
 
+  // Map projection name derived from geography type.
+  const projectionName = React.useMemo<'albersUsa' | 'mercator' | 'naturalEarth1'>(() => {
+    if (mapGeography === 'usa') {
+      return 'albersUsa';
+    }
+    if (mapGeography === 'europe') {
+      return 'mercator';
+    }
+    return 'naturalEarth1';
+  }, [mapGeography]);
+
+  // Track container dimensions so the legend can be sized to match the geographic extent.
+  const [containerDims, setContainerDims] = React.useState({ width: 0, height: 0 });
+  const roRef = React.useRef<ResizeObserver | null>(null);
+  // Callback ref: set up / tear down a ResizeObserver whenever the element mounts/unmounts.
+  const containerRef = React.useCallback((el: HTMLDivElement | null) => {
+    if (roRef.current) {
+      roRef.current.disconnect();
+      roRef.current = null;
+    }
+    if (el) {
+      const ro = new ResizeObserver(([entry]) => {
+        const { width, height } = entry.contentRect;
+        setContainerDims({ width, height });
+      });
+      ro.observe(el);
+      roRef.current = ro;
+    }
+  }, []);
+
+  // For wide containers the naturalEarth / albers projections are height-constrained:
+  // the geographic content is narrower than the full SVG. Cap the legend at that width.
+  const legendMaxWidth = React.useMemo<number | undefined>(() => {
+    if (legendDirection !== 'horizontal' || containerDims.width === 0) {
+      return undefined;
+    }
+    const aspect = PROJECTION_CONTENT_ASPECT[projectionName] ?? 1.8;
+    const marginH = 16; // left(8) + right(8) from ChartsGeoDataProviderPremium margin prop
+    const marginV = 24; // top(16) + bottom(8)
+    const legendH = 36; // approximate rendered height of horizontal ContinuousColorLegend
+    const drawW = containerDims.width - marginH;
+    const drawH = containerDims.height - marginV - legendH;
+    if (drawH <= 0) {
+      return undefined;
+    }
+    // Height-constrained → content width = aspect × drawH; otherwise fills full draw width.
+    return drawW / drawH > aspect ? Math.round(aspect * drawH) : drawW;
+  }, [containerDims, legendDirection, projectionName]);
+
   // Lazy-load geography — async resource loading requires useEffect; the null-reset
   // on prop change and the .then(setGeography) are both intentional and correct here.
   const [geography, setGeography] = React.useState<ExtendedFeatureCollection | null>(null);
@@ -336,16 +395,6 @@ export function StudioMapWidget({
 
   const [colorStart, colorEnd] = COLOR_RAMPS[colorScheme] ?? COLOR_RAMPS.blues;
 
-  // The official premium Map takes a d3 projection name string.
-  let projectionName: 'albersUsa' | 'mercator' | 'naturalEarth1';
-  if (mapGeography === 'usa') {
-    projectionName = 'albersUsa';
-  } else if (mapGeography === 'europe') {
-    projectionName = 'mercator';
-  } else {
-    projectionName = 'naturalEarth1';
-  }
-
   // The geography is still loading: render nothing until it resolves.
   // (The provider needs `geoData` to project; an empty collection would render blank.)
   if (!geography) {
@@ -360,9 +409,8 @@ export function StudioMapWidget({
 
   return (
     <StudioMapTooltipContext.Provider value={tooltipContextValue}>
-      {/* The provider fills the parent box: with no explicit `height` it adopts the
-          parent element's height (see ChartsGeoDataProviderPremium `height` prop docs). */}
-      <Box sx={{ width: '100%', height: '100%', minHeight: 200 }}>
+      {/* containerRef drives the ResizeObserver that sizes the legend to the geographic extent. */}
+      <Box ref={containerRef} sx={{ width: '100%', height: '100%', minHeight: 200 }}>
         <ChartsGeoDataProviderPremium
           geoData={geography}
           projection={projectionName}
@@ -418,7 +466,7 @@ export function StudioMapWidget({
                 maxLabel={({ value }) => formatMapValue(value as number)}
                 sx={
                   legendDirection === 'horizontal'
-                    ? { alignSelf: 'center', width: 'calc(100% - 16px)' }
+                    ? { alignSelf: 'center', width: '100%', maxWidth: legendMaxWidth }
                     : { alignSelf: 'center', height: 'calc(100% - 16px)' }
                 }
               />

@@ -40,6 +40,7 @@ import {
   makeSelectWidgetActiveCrossFilter,
 } from '../../context';
 import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
+import { moveWidgetInLayout, type WidgetMoveDirection } from '../../internals/widgetLayoutMove';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import type { StudioPageTheme } from '../../models';
 import { StudioGridWidget } from '../widgets/StudioGridWidget/StudioGridWidget';
@@ -336,6 +337,30 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     [pages, activePageId],
   );
 
+  // Keyboard-accessible canvas reorder (the drag-and-drop path is pointer-only).
+  const widgetRows = React.useMemo(
+    () => pages[activePageId]?.widgetRows ?? [],
+    [pages, activePageId],
+  );
+  const handleMoveWidget = React.useCallback(
+    (direction: WidgetMoveDirection) => {
+      const next = moveWidgetInLayout(widgetRows, widgetId, direction);
+      if (next) {
+        controller.setWidgetLayout(next);
+      }
+    },
+    [widgetRows, widgetId, controller],
+  );
+  const moveWidgetDisabled = React.useMemo(
+    () => ({
+      up: moveWidgetInLayout(widgetRows, widgetId, 'up') === null,
+      down: moveWidgetInLayout(widgetRows, widgetId, 'down') === null,
+      left: moveWidgetInLayout(widgetRows, widgetId, 'left') === null,
+      right: moveWidgetInLayout(widgetRows, widgetId, 'right') === null,
+    }),
+    [widgetRows, widgetId],
+  );
+
   const ref = React.useRef<HTMLDivElement>(null);
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
   const chartExpandContainerRef = React.useRef<HTMLDivElement>(null);
@@ -567,6 +592,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           onDuplicate={() => controller.duplicateWidget(widgetId)}
           onDelete={() => controller.removeWidget(widgetId)}
           onMoveToPage={(pageId) => controller.moveWidgetToPage(widgetId, pageId)}
+          onMoveWidget={handleMoveWidget}
+          moveWidgetDisabled={moveWidgetDisabled}
         />
         {/* AI Insight panel — floats over widget content when open */}
         {insightOpen && (

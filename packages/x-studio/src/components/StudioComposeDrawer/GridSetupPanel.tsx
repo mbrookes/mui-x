@@ -27,6 +27,8 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import FunctionsIcon from '@mui/icons-material/Functions';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import type {
   StudioConditionalFormat,
   StudioCrossFilterMode,
@@ -420,6 +422,17 @@ export function GridSetupPanel(props: { widgetId: string }) {
     setDragOverIndex(null);
   };
 
+  // Keyboard-accessible alternative to drag reorder (drag-and-drop is mouse-only).
+  const moveColumn = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= configColumns.length) {
+      return;
+    }
+    const next = [...configColumns];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    controller.updateWidgetConfig(widgetId, { columns: next });
+  };
+
   const sourcePickerValue = source ? { id: source.id, label: source.label } : null;
 
   return (
@@ -524,6 +537,24 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     {localeText.gridSetupColumnGroupLabel}
                   </Typography>
                 )}
+                <IconButton
+                  size="small"
+                  aria-label={localeText.gridColumnMoveUpAriaLabel}
+                  disabled={index === 0}
+                  onClick={() => moveColumn(index, index - 1)}
+                  sx={{ p: 0.25 }}
+                >
+                  <KeyboardArrowUpIcon fontSize="small" />
+                </IconButton>
+                <IconButton
+                  size="small"
+                  aria-label={localeText.gridColumnMoveDownAriaLabel}
+                  disabled={index === configColumns.length - 1}
+                  onClick={() => moveColumn(index, index + 1)}
+                  sx={{ p: 0.25 }}
+                >
+                  <KeyboardArrowDownIcon fontSize="small" />
+                </IconButton>
                 <Tooltip title={aggregationTooltipTitle}>
                   <IconButton
                     size="small"

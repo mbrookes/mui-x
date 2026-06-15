@@ -57,11 +57,6 @@ Uses a two-level `WeakMap<rows[], Map<fieldSetKey, entry>>` cache:
 - **Outer key** — the rows array reference. Entries are garbage-collected automatically when the rows array is replaced.
 - **Inner key** — a sorted comma-joined string of field IDs being normalized (`usedFieldIds`). Each widget gets its own cache slot so adding an unused field to another widget has zero cost here.
 
-### L1 · Metric-ref resolution — `resolveMetricRefs`
-
-Replaces `{ type: 'metric-ref', sourceId, rowId, fieldId }` filter values with their current scalar value from the named row in the `businessMetrics` source.
-Called once over the merged filter list before the filter application step.
-
 ### L2 · Enrichment — `getCachedEnrichedRows`
 
 Appends expression-field values (calculated columns and join-field expressions) to each row.

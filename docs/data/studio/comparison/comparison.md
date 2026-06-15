@@ -141,13 +141,12 @@ AG Studio's public filter documentation describes Simple Filters (condition oper
 
 ### Advanced Features (MUI X Studio only)
 
-| Feature                  | Description                                                                                |
-| :----------------------- | :----------------------------------------------------------------------------------------- |
-| **Relative date values** | Filter values like "5 days ago" or "next 2 weeks" — `past`/`next` + time unit              |
-| **Metric reference**     | Filter threshold driven by a live aggregate from a metrics data source (`StudioMetricRef`) |
-| **Selection mode**       | `filterMode: 'selection'` — multi-value checkbox filter                                    |
-| **Cross-source filters** | Filter by a field on a related source (`filterSourceId`); join resolved automatically      |
-| **Compound conditions**  | Two operators on the same field with `and`/`or` conjunction                                |
+| Feature                  | Description                                                                           |
+| :----------------------- | :------------------------------------------------------------------------------------ |
+| **Relative date values** | Filter values like "5 days ago" or "next 2 weeks" — `past`/`next` + time unit         |
+| **Selection mode**       | `filterMode: 'selection'` — multi-value checkbox filter                               |
+| **Cross-source filters** | Filter by a field on a related source (`filterSourceId`); join resolved automatically |
+| **Compound conditions**  | Two operators on the same field with `and`/`or` conjunction                           |
 
 Both products support Rank / Top-N filtering: AG Studio's Rank filter is available at widget level; MUI X Studio also exposes `filterMode: 'rank'` at page and widget scope.
 

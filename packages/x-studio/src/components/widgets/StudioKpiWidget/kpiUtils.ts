@@ -44,6 +44,22 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
     return Number.isNaN(d.getTime()) ? null : d;
   };
 
+  // Handle `operator: 'between'` with `value: { from, to }` (used by the dashboard date range bar)
+  if (
+    filter.operator === 'between' &&
+    filter.value !== null &&
+    typeof filter.value === 'object' &&
+    'from' in (filter.value as object)
+  ) {
+    const obj = filter.value as { from?: string; to?: string };
+    const start = toDate(obj.from);
+    const end = toDate(obj.to);
+    if (start && end) {
+      return start <= end ? { start, end } : { start: end, end: start };
+    }
+    return null;
+  }
+
   const v1 = toDate(filter.value);
   const v2 = toDate(filter.value2);
 

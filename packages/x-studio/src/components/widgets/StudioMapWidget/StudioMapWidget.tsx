@@ -485,11 +485,12 @@ export function StudioMapWidget({
 
   // Text alternative: the map is a visual-only SVG. Summarize the measure,
   // region count and value range so assistive technology gets the gist.
-  const mapAriaLabel = `Choropleth map${
-    valueFieldLabel ? ` of ${valueFieldLabel}` : ''
-  } with ${regionData.size} ${
-    regionData.size === 1 ? 'region' : 'regions'
-  }, values from ${formatMapValue(minVal)} to ${formatMapValue(maxVal)}.`;
+  const mapAriaLabel = localeText.mapChartAriaLabel(
+    valueFieldLabel,
+    regionData.size,
+    formatMapValue(minVal),
+    formatMapValue(maxVal),
+  );
 
   return (
     <StudioMapTooltipContext.Provider value={tooltipContextValue}>

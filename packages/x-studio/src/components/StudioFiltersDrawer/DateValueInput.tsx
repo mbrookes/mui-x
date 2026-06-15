@@ -130,15 +130,24 @@ export function DateValueInput({
         exclusive
         value={mode}
         onChange={handleModeChange}
+        aria-label={localeText.filterDateModeAriaLabel}
         sx={{ alignSelf: 'center' }}
       >
         <Tooltip title={localeText.filterAbsoluteDate}>
-          <ToggleButton value="absolute" sx={{ px: 1.5, py: 0.5 }}>
+          <ToggleButton
+            value="absolute"
+            aria-label={localeText.filterAbsoluteDate}
+            sx={{ px: 1.5, py: 0.5 }}
+          >
             <CalendarTodayIcon sx={{ fontSize: 18 }} />
           </ToggleButton>
         </Tooltip>
         <Tooltip title={localeText.filterRelativeDate}>
-          <ToggleButton value="relative" sx={{ px: 1.5, py: 0.5 }}>
+          <ToggleButton
+            value="relative"
+            aria-label={localeText.filterRelativeDate}
+            sx={{ px: 1.5, py: 0.5 }}
+          >
             <AccessTimeIcon sx={{ fontSize: 18 }} />
           </ToggleButton>
         </Tooltip>

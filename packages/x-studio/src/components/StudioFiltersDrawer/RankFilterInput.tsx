@@ -47,6 +47,7 @@ export function RankFilterInput({
         exclusive
         size="small"
         value={direction}
+        aria-label={localeText.filterRankDirectionAriaLabel}
         onChange={(_event, val) => {
           if (val) {
             onChange({ rankDirection: val as 'top' | 'bottom' });
@@ -67,6 +68,7 @@ export function RankFilterInput({
       {/* N items number field */}
       <NumberField
         size="small"
+        label={localeText.filterRankCountLabel}
         value={n ?? null}
         min={1}
         onValueChange={(v) => onChange({ value: Math.max(1, v ?? 1) })}

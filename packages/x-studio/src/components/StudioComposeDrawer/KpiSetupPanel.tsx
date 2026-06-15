@@ -381,6 +381,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             <Switch
               size="small"
               checked={config.kpiTrendInvert ?? false}
+              slotProps={{ input: { 'aria-label': localeText.kpiSetupInvertColours } }}
               onChange={(event) =>
                 controller.updateWidgetConfig(widgetId, { kpiTrendInvert: event.target.checked })
               }

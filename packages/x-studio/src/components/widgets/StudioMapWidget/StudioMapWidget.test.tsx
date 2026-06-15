@@ -161,6 +161,19 @@ function getLatestOnShapeClick() {
 
 describe('<StudioMapWidget /> cross-filter emit', () => {
   beforeEach(() => {
+    // StudioMapWidget instantiates a ResizeObserver directly; jsdom doesn't
+    // provide one. Stub it so rendering the widget doesn't throw (the previous
+    // "pass" relied on an earlier chart test leaking the global — order-dependent).
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+      },
+    );
     mapShapePlotSpy.mockClear();
     controller.clearCrossFilter.mockClear();
     controller.applyCrossFilter.mockClear();
@@ -171,6 +184,7 @@ describe('<StudioMapWidget /> cross-filter emit', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 

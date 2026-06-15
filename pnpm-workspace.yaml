@@ -8,10 +8,8 @@ packages:
   # `workspace:*`, so they can only resolve as workspace members. Membership wires
   # their `typescript` scripts into the `typescript:ci` gate so example type
   # errors surface in CI (they are `private` and not `@mui/*`-scoped, so
-  # release/build jobs do not sweep them). `x-studio-ag` (ag-grid) is excluded —
-  # it has genuine type errors tracked separately (BL-193).
+  # release/build jobs do not sweep them).
   - examples/x-studio*
-  - '!examples/x-studio-ag'
 
 catalog:
   '@atlaskit/pragmatic-drag-and-drop': ^1.8.1

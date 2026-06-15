@@ -4,6 +4,7 @@ import type {
   StudioQueryDescriptor,
   StudioWidget,
 } from '../models';
+import { resolveDateRangePresets } from './filterUtils';
 
 function sortedStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') {
@@ -269,7 +270,12 @@ export function buildQueryDescriptor(
     (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
   );
 
-  const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters];
+  const allFilters = resolveDateRangePresets([
+    ...pageFilters,
+    ...widgetFilters,
+    ...crossFilters,
+    ...interactiveFilters,
+  ]);
   const filter = filtersToFilterNode(allFilters);
 
   const select = collectSelectFields(widget);

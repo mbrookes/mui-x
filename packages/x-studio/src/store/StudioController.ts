@@ -27,6 +27,7 @@ import {
 
 import { inferWidgetTitles } from '../internals/widgetUtils';
 import { studioRequestCache } from '../internals/StudioRequestCache';
+import { computeDateRangePreset } from '../internals/dateRangeUtils';
 
 /** Total column count for the widget resize grid — must match StudioCanvas.GRID_COLS. */
 const GRID_COLS = 24;
@@ -802,22 +803,17 @@ export class StudioController {
       return;
     }
 
-    const isDatetime = fieldType === 'datetime';
-    let from: string;
-    let to: string;
+    let value: { from: string; to: string } | null = null;
 
     if (preset === 'custom') {
       if (!customFrom && !customTo) {
         this.commitState({ ...state, filters: withoutExisting });
         return;
       }
-      from = customFrom ?? '';
-      to = customTo ?? '';
-    } else {
-      const dates = computeDateRangePreset(preset);
-      from = dates.from;
-      to = isDatetime ? `${dates.to}T23:59:59` : dates.to;
+      value = { from: customFrom ?? '', to: customTo ?? '' };
     }
+    // Non-custom presets: value stays null — resolveDateRangePresets computes fresh
+    // dates at query time so the stored filter never holds stale absolute dates.
 
     const newFilter: import('../models').StudioFilterState = {
       id: `dashboard-date-range-${pageId}`,
@@ -830,7 +826,7 @@ export class StudioController {
       filterSourceId: sourceId,
       filterMode: 'condition',
       operator: 'between',
-      value: { from, to },
+      value,
     };
 
     this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
@@ -866,22 +862,17 @@ export class StudioController {
       return;
     }
 
-    const isDatetime = fieldType === 'datetime';
-    let from: string;
-    let to: string;
+    let value: { from: string; to: string } | null = null;
 
     if (preset === 'custom') {
       if (!customFrom && !customTo) {
         this.commitState({ ...state, filters: withoutExisting });
         return;
       }
-      from = customFrom ?? '';
-      to = customTo ?? '';
-    } else {
-      const dates = computeDateRangePreset(preset);
-      from = dates.from;
-      to = isDatetime ? `${dates.to}T23:59:59` : dates.to;
+      value = { from: customFrom ?? '', to: customTo ?? '' };
     }
+    // Non-custom presets: value stays null — resolveDateRangePresets computes fresh
+    // dates at query time so the stored filter never holds stale absolute dates.
 
     const newFilter: import('../models').StudioFilterState = {
       id: `widget-date-range-${widgetId}`,
@@ -894,7 +885,7 @@ export class StudioController {
       filterSourceId: sourceId,
       filterMode: 'condition',
       operator: 'between',
-      value: { from, to },
+      value,
     };
 
     this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
@@ -1349,36 +1340,5 @@ export function createStudioController(initialState?: Partial<StudioState>): Stu
   return new StudioController(initialState);
 }
 
-/** Computes start/end ISO date strings for a given date range preset. */
-export function computeDateRangePreset(preset: Exclude<StudioDateRangePreset, 'custom'>): {
-  from: string;
-  to: string;
-} {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const toISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const today = toISO(now);
-
-  switch (preset) {
-    case 'this_month': {
-      const from = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
-      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-      const to = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(lastDay)}`;
-      return { from, to };
-    }
-    case 'last_3_months': {
-      const d = new Date(now);
-      d.setMonth(d.getMonth() - 3);
-      return { from: toISO(d), to: today };
-    }
-    case 'last_12_months': {
-      const d = new Date(now);
-      d.setFullYear(d.getFullYear() - 1);
-      return { from: toISO(d), to: today };
-    }
-    case 'ytd':
-      return { from: `${now.getFullYear()}-01-01`, to: today };
-    default:
-      return { from: today, to: today };
-  }
-}
+// Re-export for backwards compatibility with any external callers.
+export { computeDateRangePreset } from '../internals/dateRangeUtils';

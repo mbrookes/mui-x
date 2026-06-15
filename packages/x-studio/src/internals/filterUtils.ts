@@ -10,10 +10,13 @@ type Row = Record<string, unknown>;
  * Returns a new filter array where any date-range preset filters have been resolved
  * to concrete `{ from, to }` values using the current date.
  *
- * Only resolves filters that have `value: null` — the storage format used by
- * `setDashboardDateRange` / `setWidgetDateRange` for non-custom presets. Filters
- * that already carry a value (relative dates, explicit `{ from, to }` objects) are
- * left unchanged so their own resolution paths can handle them correctly.
+ * Filters carrying a `RelativeDateValue` (e.g. "12 months ago") are left unchanged —
+ * they resolve correctly in `flattenFilterNode` and should be persisted as relative so
+ * the date-range picker can display and highlight the correct relative option.
+ *
+ * All other non-custom preset filters (null values from `setDashboardDateRange` /
+ * `setWidgetDateRange`, or stale absolute `{ from, to }` objects from legacy persisted
+ * state) are always recomputed fresh from the preset key so stale dates self-heal.
  *
  * Custom presets (`dateRangePreset === 'custom'`) are always left unchanged — they
  * carry the user's explicit date selection in `value`.
@@ -25,7 +28,7 @@ export function resolveDateRangePresets(filters: StudioFilterState[]): StudioFil
         f.isDashboardDateRange &&
         f.dateRangePreset &&
         f.dateRangePreset !== 'custom' &&
-        f.value === null,
+        !isRelativeDateValue(f.value),
     )
   ) {
     return filters;
@@ -35,7 +38,7 @@ export function resolveDateRangePresets(filters: StudioFilterState[]): StudioFil
       !f.isDashboardDateRange ||
       !f.dateRangePreset ||
       f.dateRangePreset === 'custom' ||
-      f.value !== null
+      isRelativeDateValue(f.value)
     ) {
       return f;
     }

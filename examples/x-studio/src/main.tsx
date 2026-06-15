@@ -13,7 +13,7 @@ if (
   import.meta.env.DEV &&
   (import.meta.env.VITE_REACT_SCAN === 'true' || localStorage.getItem('reactScan') === '1')
 ) {
-  const { scan } = await import('react-scan');
+  const { scan } = await import(/* @vite-ignore */ 'react-scan');
   scan({ enabled: true, log: false, showToolbar: true });
 }
 

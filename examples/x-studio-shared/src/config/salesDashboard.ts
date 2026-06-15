@@ -392,8 +392,9 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
     // Example custom widget (registered via `<Studio customWidgets={[...]} />`).
     // Renders as a full-bleed banner whose severity is driven by the summed order
-    // total over the most recent 7 days of data. Thresholds are tuned so the demo
-    // data lands on `error`, showing the value-driven severity in action.
+    // total over the most recent 7 days of data. Higher values are better:
+    // ≥100k = success, ≥50k = warning (demo data ~65k lands here), ≥25k = error.
+    // hideBelow:'warning' collapses the row in view mode when everything is fine.
     'widget-alert-banner': {
       id: 'widget-alert-banner',
       kind: 'alert-banner',
@@ -407,10 +408,10 @@ export const INITIAL_STATE: Partial<StudioState> = {
           aggregation: 'sum',
           dateField: 'date',
           lookbackDays: 7,
-          thresholdSuccess: 10000,
-          thresholdWarning: 25000,
-          thresholdError: 50000,
-          hideBelow: 'never',
+          thresholdSuccess: 100000,
+          thresholdWarning: 50000,
+          thresholdError: 25000,
+          hideBelow: 'warning',
         },
       },
     },
@@ -859,9 +860,13 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'widget-text-analytics': {
       id: 'widget-text-analytics',
       kind: 'text',
-      title: 'Analytics',
+      title: 'Sales Analytics',
+      titleMode: 'manual' as const,
       sourceId: undefined,
-      config: { textContent: '## Analytics\nBreak down revenue by segment and order status.' },
+      config: {
+        textTitleFontSize: 32,
+        textTitleAlign: 'center' as const,
+      },
     },
     'widget-map-revenue-by-country': {
       id: 'widget-map-revenue-by-country',

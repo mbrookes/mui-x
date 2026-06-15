@@ -48,7 +48,13 @@ import type {
   SidebarSide,
   TableSourceMode,
 } from './components/SettingsDialog';
-import { AlertBannerWidget } from './components/AlertBannerWidget';
+import {
+  AlertBannerWidget,
+  computeBannerValue,
+  resolveBannerSeverity,
+  SEVERITY_RANK,
+} from './components/AlertBannerWidget';
+import type { AlertBannerConfig, HideBelow } from './components/AlertBannerWidget';
 import { AlertBannerSetupPanel } from './components/AlertBannerSetupPanel';
 import { theme } from './theme';
 import { createAdapter } from './simulatedServer';
@@ -500,6 +506,17 @@ export default function App() {
           aggregation: 'sum',
           lookbackDays: 7,
           hideBelow: 'never',
+        },
+        shouldHide: ({ widget, dataSource }) => {
+          const custom = (widget.config.customConfig ?? {}) as AlertBannerConfig;
+          const hideBelow = (custom.hideBelow ?? 'never') as HideBelow;
+          if (hideBelow === 'never') {
+            return false;
+          }
+          const value = computeBannerValue(custom, dataSource);
+          const severity = resolveBannerSeverity(value, custom);
+          const required = hideBelow === 'error' ? 'error' : 'warning';
+          return SEVERITY_RANK[severity] < SEVERITY_RANK[required];
         },
       },
     ],

@@ -1,43 +1,18 @@
 {
+  // Extend the repo base so the example resolves every `@mui/x-*` workspace
+  // package (the standalone `paths` block here was incomplete — missing
+  // x-charts-pro/premium etc. — which made `tsc` report cascading errors in
+  // package source). The base also keeps `noUnusedLocals: false` ("tested with
+  // eslint"); the previous strict noUnused*/noFallthrough flags applied to the
+  // unbuilt workspace source this config pulls in, producing ~1500 false errors.
+  "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "target": "ES2023",
-    "useDefineForClassFields": true,
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
+    // Inherit target/lib/module/paths/strictness from the base so package source
+    // type-checks identically to its own gate (e.g. base `lib: esnext` provides
+    // the iterator helpers x-charts-pro relies on). Only example-local needs are
+    // overridden here.
     "skipLibCheck": true,
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "paths": {
-      "@mui/x-internals": ["../../packages/x-internals/src"],
-      "@mui/x-internals/*": ["../../packages/x-internals/src/*"],
-      "@mui/x-internal-gestures/*": ["../../packages/x-internal-gestures/src/*"],
-      "@mui/x-data-grid": ["../../packages/x-data-grid/src"],
-      "@mui/x-data-grid/*": ["../../packages/x-data-grid/src/*"],
-      "@mui/x-data-grid-premium": ["../../packages/x-data-grid-premium/src"],
-      "@mui/x-data-grid-premium/*": ["../../packages/x-data-grid-premium/src/*"],
-      "@mui/x-studio": ["../../packages/x-studio/src"],
-      "@mui/x-studio/*": ["../../packages/x-studio/src/*"],
-      "@mui/x-studio-data-middleware": ["../../packages/x-studio-data-middleware/src"],
-      "@mui/x-studio-data-middleware/*": ["../../packages/x-studio-data-middleware/src/*"],
-      "@mui/x-chat": ["../../packages/x-chat/src"],
-      "@mui/x-chat/*": ["../../packages/x-chat/src/*"],
-      "@mui/x-chat-headless": ["../../packages/x-chat-headless/src"],
-      "@mui/x-chat-headless/*": ["../../packages/x-chat-headless/src/*"],
-      "@mui/x-charts": ["../../packages/x-charts/src"],
-      "@mui/x-charts/*": ["../../packages/x-charts/src/*"],
-      "@mui/x-data-grid": ["../../packages/x-data-grid/src"],
-      "@mui/x-data-grid/*": ["../../packages/x-data-grid/src/*"],
-      "@mui/x-date-pickers": ["../../packages/x-date-pickers/src"],
-      "@mui/x-date-pickers/*": ["../../packages/x-date-pickers/src/*"]
-    }
+    "resolveJsonModule": true
   },
   "include": ["src"],
   "exclude": ["src/server"],

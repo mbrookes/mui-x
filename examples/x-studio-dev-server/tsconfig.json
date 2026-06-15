@@ -1,21 +1,11 @@
 {
+  // Extend the repo base so workspace `@mui/x-*` packages resolve from source;
+  // see examples/x-studio/tsconfig.json for rationale.
+  "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "target": "ES2022",
-    "lib": ["ES2023", "dom"],
-    "esModuleInterop": true,
-    "strict": true,
     "skipLibCheck": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "baseUrl": ".",
-    "paths": {
-      "@mui/x-internals": ["../../packages/x-internals/src"],
-      "@mui/x-internals/*": ["../../packages/x-internals/src/*"],
-      "@mui/x-chat-headless": ["../../packages/x-chat-headless/src"],
-      "@mui/x-studio": ["../../packages/x-studio/src"]
-    }
+    "resolveJsonModule": true,
+    "esModuleInterop": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]

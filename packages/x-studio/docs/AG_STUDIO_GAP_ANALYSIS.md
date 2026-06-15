@@ -10,7 +10,7 @@
 ## Scoring key
 
 | Symbol | Meaning                                                |
-| ------ | ------------------------------------------------------ |
+| :----- | :----------------------------------------------------- |
 | ✅     | Implemented — all acceptance criteria met              |
 | ⚡     | Implemented and surpasses AG Studio                    |
 | ⚠️     | Partially implemented — some acceptance criteria unmet |
@@ -570,55 +570,55 @@ Chart PNG export is implemented in `StudioChartWidget.tsx`. The chart SVG is ser
 
 ## Summary table
 
-| Requirement                       | Status | Key gap                                                 |
-| --------------------------------- | ------ | ------------------------------------------------------- |
-| XS-LAYOUT-001 Shell/drawers       | ✅     | Drawer open state not serialized (resets on reload)     |
-| XS-LAYOUT-002 Canvas layout       | ✅     | Resize via 12-col drag handle implemented               |
-| XS-LAYOUT-003 Layout presets      | ❌     | Not implemented                                         |
-| XS-LAYOUT-004 Keyboard canvas     | ⚠️     | No arrow-key move/resize                                |
-| XS-LAYOUT-005 Mobile/responsive   | ⚠️     | View mode stacks; edit mode not responsive              |
-| XS-CANVAS-001 Add widgets         | ✅     | —                                                       |
-| XS-CANVAS-002 Move/resize         | ✅     | DnD reorder + 12-col resize both work                   |
-| XS-CANVAS-003 Focus model         | ✅     | —                                                       |
-| XS-CANVAS-004 Alignment guides    | ❌     | Not implemented                                         |
-| XS-WIDGET-001 Widget gallery      | ✅     | 7 types (text, kpi, chart, grid, filter, pivot, map)    |
-| XS-WIDGET-004 KPI widget          | ⚡     | Exceeds spec (sparkline, trend, target, cross-source)   |
-| XS-WIDGET-002 Widget actions      | ✅     | —                                                       |
-| XS-WIDGET-003 Widget export       | ✅     | —                                                       |
-| XS-GRID-001 Grid virtualization   | ✅     | DataGridPremium, fixed height, virtualized              |
-| XS-GRID-002 Grouping/aggregation  | ✅     | `rowGroupingModel` + `aggregationModel` wired           |
-| XS-GRID-003 Table formatting      | ⚠️     | No date format per-column, no alignment control         |
-| XS-GRID-004 Pinned/pivot          | ❌     | Parity+ — deferred                                      |
-| XS-CHART-001 Core chart types     | ✅     | —                                                       |
-| XS-CHART-002 Additional types     | ⚡     | 10 types; date grouping; multi-series; split-by field   |
-| XS-CHART-003 Interactivity        | ✅     | —                                                       |
-| XS-CHART-004 Advanced families    | ⚡     | Heatmap/funnel/Gantt/gauge done; histogram/treemap TBD  |
-| XS-DATA-001 Multiple sources      | ✅     | —                                                       |
-| XS-DATA-002 Relationships         | ✅     | —                                                       |
-| XS-DATA-003 Expression fields     | ⚡     | Full AST evaluator; GUI editor; measures                |
-| XS-DATA-004 Async sources         | ✅     | `StudioDataSourceAdapter` implemented                   |
-| XS-FILTER-001 Page/widget filters | ⚡     | Relative dates, MetricRef, rank mode, selection mode    |
-| XS-FILTER-002 Cross-filtering     | ✅     | —                                                       |
-| XS-FILTER-003 Filter visibility   | ✅     | —                                                       |
-| XS-EDIT-001 Edit panel            | ✅     | —                                                       |
-| XS-EDIT-002 Validation UX         | ⚠️     | No inline validation on filter inputs                   |
-| XS-EDIT-003 Field hints           | ⚠️     | Capability system exists; no proactive suggestions      |
-| XS-EDIT-004 Theming controls      | ✅     | —                                                       |
-| XS-STATE-001 Serialization        | ✅     | —                                                       |
-| XS-STATE-002 Schema migration     | ✅     | —                                                       |
-| XS-STATE-003 Autosave/dirty       | ⚠️     | No built-in dirty indicator or autosave hook            |
-| XS-STATE-004 Code generation      | ❌     | Parity+ — deferred                                      |
-| XS-A11Y-001 Keyboard authoring    | ⚠️     | No widget delete shortcut; no arrow-key move            |
-| XS-A11Y-002 ARIA/semantics        | ⚠️     | No live regions for dynamic updates                     |
-| XS-A11Y-003 Reduced motion        | ❌     | Parity+ — deferred                                      |
-| XS-PERF-001 60 fps drag           | ⚠️     | Not benchmarked                                         |
-| XS-PERF-002 Large dataset grid    | ✅     | Fixed-height DataGridPremium; virtualized 470k+ rows    |
-| XS-PERF-003 Code splitting        | ❌     | Parity+ — deferred                                      |
-| XS-PERF-004 Memory leaks          | ⚠️     | Not profiled; history cap in place                      |
-| XS-COLLAB-001 Collaboration       | ❌     | Parity+ — deferred                                      |
-| XS-EXPORT-001 CSV                 | ✅     | —                                                       |
-| XS-EXPORT-002 PNG                 | ✅     | Shipped ahead of Parity+ schedule                       |
-| XS-AI-001 AI assistant            | ⚡     | Full chat + streaming + NL widget creation              |
+| Requirement                       | Status | Key gap                                                |
+| :-------------------------------- | :----- | :----------------------------------------------------- |
+| XS-LAYOUT-001 Shell/drawers       | ✅     | Drawer open state not serialized (resets on reload)    |
+| XS-LAYOUT-002 Canvas layout       | ✅     | Resize via 12-col drag handle implemented              |
+| XS-LAYOUT-003 Layout presets      | ❌     | Not implemented                                        |
+| XS-LAYOUT-004 Keyboard canvas     | ⚠️     | No arrow-key move/resize                               |
+| XS-LAYOUT-005 Mobile/responsive   | ⚠️     | View mode stacks; edit mode not responsive             |
+| XS-CANVAS-001 Add widgets         | ✅     | —                                                      |
+| XS-CANVAS-002 Move/resize         | ✅     | DnD reorder + 12-col resize both work                  |
+| XS-CANVAS-003 Focus model         | ✅     | —                                                      |
+| XS-CANVAS-004 Alignment guides    | ❌     | Not implemented                                        |
+| XS-WIDGET-001 Widget gallery      | ✅     | 7 types (text, kpi, chart, grid, filter, pivot, map)   |
+| XS-WIDGET-004 KPI widget          | ⚡     | Exceeds spec (sparkline, trend, target, cross-source)  |
+| XS-WIDGET-002 Widget actions      | ✅     | —                                                      |
+| XS-WIDGET-003 Widget export       | ✅     | —                                                      |
+| XS-GRID-001 Grid virtualization   | ✅     | DataGridPremium, fixed height, virtualized             |
+| XS-GRID-002 Grouping/aggregation  | ✅     | `rowGroupingModel` + `aggregationModel` wired          |
+| XS-GRID-003 Table formatting      | ⚠️     | No date format per-column, no alignment control        |
+| XS-GRID-004 Pinned/pivot          | ❌     | Parity+ — deferred                                     |
+| XS-CHART-001 Core chart types     | ✅     | —                                                      |
+| XS-CHART-002 Additional types     | ⚡     | 10 types; date grouping; multi-series; split-by field  |
+| XS-CHART-003 Interactivity        | ✅     | —                                                      |
+| XS-CHART-004 Advanced families    | ⚡     | Heatmap/funnel/Gantt/gauge done; histogram/treemap TBD |
+| XS-DATA-001 Multiple sources      | ✅     | —                                                      |
+| XS-DATA-002 Relationships         | ✅     | —                                                      |
+| XS-DATA-003 Expression fields     | ⚡     | Full AST evaluator; GUI editor; measures               |
+| XS-DATA-004 Async sources         | ✅     | `StudioDataSourceAdapter` implemented                  |
+| XS-FILTER-001 Page/widget filters | ⚡     | Relative dates, MetricRef, rank mode, selection mode   |
+| XS-FILTER-002 Cross-filtering     | ✅     | —                                                      |
+| XS-FILTER-003 Filter visibility   | ✅     | —                                                      |
+| XS-EDIT-001 Edit panel            | ✅     | —                                                      |
+| XS-EDIT-002 Validation UX         | ⚠️     | No inline validation on filter inputs                  |
+| XS-EDIT-003 Field hints           | ⚠️     | Capability system exists; no proactive suggestions     |
+| XS-EDIT-004 Theming controls      | ✅     | —                                                      |
+| XS-STATE-001 Serialization        | ✅     | —                                                      |
+| XS-STATE-002 Schema migration     | ✅     | —                                                      |
+| XS-STATE-003 Autosave/dirty       | ⚠️     | No built-in dirty indicator or autosave hook           |
+| XS-STATE-004 Code generation      | ❌     | Parity+ — deferred                                     |
+| XS-A11Y-001 Keyboard authoring    | ⚠️     | No widget delete shortcut; no arrow-key move           |
+| XS-A11Y-002 ARIA/semantics        | ⚠️     | No live regions for dynamic updates                    |
+| XS-A11Y-003 Reduced motion        | ❌     | Parity+ — deferred                                     |
+| XS-PERF-001 60 fps drag           | ⚠️     | Not benchmarked                                        |
+| XS-PERF-002 Large dataset grid    | ✅     | Fixed-height DataGridPremium; virtualized 470k+ rows   |
+| XS-PERF-003 Code splitting        | ❌     | Parity+ — deferred                                     |
+| XS-PERF-004 Memory leaks          | ⚠️     | Not profiled; history cap in place                     |
+| XS-COLLAB-001 Collaboration       | ❌     | Parity+ — deferred                                     |
+| XS-EXPORT-001 CSV                 | ✅     | —                                                      |
+| XS-EXPORT-002 PNG                 | ✅     | Shipped ahead of Parity+ schedule                      |
+| XS-AI-001 AI assistant            | ⚡     | Full chat + streaming + NL widget creation             |
 
 ---
 
@@ -627,7 +627,7 @@ Chart PNG export is implemented in `StudioChartWidget.tsx`. The chart SVG is ser
 These items appear in the AG Studio reference docs but have no counterpart in the current implementation:
 
 | AG Studio feature                                             | AG Studio API                             | Status                                                                 |
-| ------------------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------- |
+| :------------------------------------------------------------ | :---------------------------------------- | :--------------------------------------------------------------------- |
 | `panels` prop (configure which panels show and on which side) | `AgStudioPanelConfig`                     | Not implemented; drawers are hardcoded left/right                      |
 | `overrides` prop (restrict widget types, customise panel)     | `AgStudioOverrides`                       | Not implemented                                                        |
 | `mode` prop on component                                      | `mode: 'edit' \| 'view'`                  | `setMode()` exists on controller; no prop                              |
@@ -651,7 +651,7 @@ These items appear in the AG Studio reference docs but have no counterpart in th
 These are present in the MUI X Studio implementation but are absent from or not described in AG Studio's public documentation:
 
 | Feature                                               | Implementation location                                                           | Notes                                                                              |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| :---------------------------------------------------- | :-------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------- |
 | **100-step undo/redo**                                | `StudioController.ts` (`MAX_HISTORY = 100`) + `Cmd+Z`/`Ctrl+Y` keyboard shortcuts | AG Studio has no public undo API                                                   |
 | **Text/narrative widget**                             | `StudioTextWidget.tsx`                                                            | AG Studio documents grid, KPI, chart only                                          |
 | **Pivot table widget**                                | `StudioPivotWidget.tsx`                                                           | AG Studio has no pivot table widget                                                |

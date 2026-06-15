@@ -7,7 +7,7 @@
 ## Summary Table
 
 | ID    | Area      | Description                                        | Status       |
-| ----- | --------- | -------------------------------------------------- | ------------ |
+| :---- | :-------- | :------------------------------------------------- | :----------- |
 | D-01  | Data      | Multi-source relational data model                 | ✅ Completed |
 | D-02  | Data      | Expression fields                                  | ✅ Completed |
 | D-03  | Data      | Cross-source join projection                       | ✅ Completed |
@@ -962,6 +962,7 @@ See `packages/x-studio/docs/AI_ASSISTANT_RESEARCH.md` for the full gap analysis.
   resource cleanup when the user stops a stream.
 
 **Files changed (batch 1):**
+
 - `packages/x-studio/src/components/StudioChatPanel/StudioChatPanel.tsx`
 - `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts`
 - `packages/x-studio-ai-middleware/src/models/protocol.ts`
@@ -986,6 +987,7 @@ See `packages/x-studio/docs/AI_ASSISTANT_RESEARCH.md` for the full gap analysis.
   stop() cancellation, abort signal handling, and server-emitted reasoning events.
 
 **Files changed (batch 2):**
+
 - `packages/x-studio/src/components/StudioChatPanel/StudioChatPanel.tsx`
 - `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts`
 - `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.test.ts`
@@ -1005,6 +1007,7 @@ See `packages/x-studio/docs/AI_ASSISTANT_RESEARCH.md` for the full gap analysis.
 - **Stale "zero tests" row removed** from moderate-issues table (18+ adapter tests now exist).
 
 **Files changed (batch 3):**
+
 - `packages/x-studio/src/components/StudioChatPanel/StudioChatPanel.tsx`
 - `packages/x-studio/docs/AI_ASSISTANT_RESEARCH.md`
 

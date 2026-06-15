@@ -9,7 +9,7 @@ AI Insights provide on-demand narrative intelligence using the same AI endpoint 
 Insights come in three flavours:
 
 | Type         | Description                                                                                       |
-| ------------ | ------------------------------------------------------------------------------------------------- |
+| :----------- | :------------------------------------------------------------------------------------------------ |
 | **Summary**  | A concise description of what the widget currently shows                                          |
 | **Analysis** | A deeper interpretation highlighting trends, comparisons, and notable patterns                    |
 | **Forecast** | A forward-looking projection based on existing data (best for time-series charts and KPI widgets) |
@@ -83,7 +83,7 @@ console.log(summary.text);
 ### `StudioInsightOptions`
 
 | Property          | Type                                    | Default | Description                                                       |
-| ----------------- | --------------------------------------- | ------- | ----------------------------------------------------------------- |
+| :---------------- | :-------------------------------------- | :------ | :---------------------------------------------------------------- |
 | `type`            | `'summary' \| 'analysis' \| 'forecast'` | —       | The kind of insight to generate                                   |
 | `forecastPeriods` | `number`                                | `6`     | Number of periods to forecast. Only used when `type = 'forecast'` |
 | `signal`          | `AbortSignal`                           | —       | Optional abort signal to cancel the in-flight request             |
@@ -91,7 +91,7 @@ console.log(summary.text);
 ### `StudioInsightResult`
 
 | Property | Type     | Description                |
-| -------- | -------- | -------------------------- |
+| :------- | :------- | :------------------------- |
 | `text`   | `string` | The generated insight text |
 
 ## Customisation

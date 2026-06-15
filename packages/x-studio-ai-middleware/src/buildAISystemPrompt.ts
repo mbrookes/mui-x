@@ -622,16 +622,13 @@ function buildDashboardState(
 // ── Skill section builder ─────────────────────────────────────────────────────
 
 function buildSkillSection(skills?: SerializableSkill[]): string {
-  if (!skills?.length) return '';
+  if (!skills?.length) {
+    return '';
+  }
   const fragments = skills
     .map((s) => `<skill name="${s.name}" mode="${s.mode}">\n${s.promptFragment}\n</skill>`)
     .join('\n\n');
-  return (
-    '\n\n## Skills\n\n' +
-    'The following skills are enabled. Use each skill when its trigger conditions match.\n' +
-    'Do not invent tool names beyond those listed here plus the built-in tools.\n\n' +
-    fragments
-  );
+  return `\n\n## Skills\n\nThe following skills are enabled. Use each skill when its trigger conditions match.\nDo not invent tool names beyond those listed here plus the built-in tools.\n\n${fragments}`;
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -671,6 +668,6 @@ export function buildAISystemPrompt(
   return (
     STUDIO_AI_INSTRUCTIONS +
     buildSkillSection(skills) +
-    (privateMode ? '' : '\n\n' + buildDashboardState(state, customWidgets, focusedWidgetId))
+    (privateMode ? '' : `\n\n${buildDashboardState(state, customWidgets, focusedWidgetId)}`)
   );
 }

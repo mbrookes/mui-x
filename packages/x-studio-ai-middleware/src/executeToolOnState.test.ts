@@ -615,6 +615,7 @@ describe('handleAIChat', () => {
     const events: string[] = [];
     let done = false;
     while (!done) {
+      // eslint-disable-next-line no-await-in-loop
       const chunk = await reader.read();
       done = chunk.done;
       if (chunk.value) {

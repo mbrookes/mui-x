@@ -1,1 +1,1 @@
-export * from '@mui/x-internals/useFirstRender';
+export { useFirstRender } from '@mui/x-internals/useFirstRender';

@@ -231,7 +231,6 @@ export function executeToolOnState(
       ];
       const nextColSpans = { ...(activePage?.widgetColSpans ?? {}) };
       if (columns === null) {
-        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
         delete nextColSpans[widgetId];
       } else {
         nextColSpans[widgetId] = columns;
@@ -271,7 +270,6 @@ export function executeToolOnState(
     case 'remove_page': {
       const pageId = String(args.pageId ?? '');
       const nextPages = { ...state.pages };
-      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
       delete nextPages[pageId];
       const nextState: StudioState = { ...state, pages: nextPages };
       return {
@@ -375,7 +373,7 @@ export function executeToolOnState(
       const skipped: string[] = [];
       const applied = { updated: 0, added: 0, removed: 0, layout: false, colSpans: 0 };
 
-      let pageWidgets = { ...state.widgets };
+      const pageWidgets = { ...state.widgets };
       let widgetRows = activePage.widgetRows.map((row) => [...row]);
       const colSpans = { ...(activePage.widgetColSpans ?? {}) };
 
@@ -386,7 +384,6 @@ export function executeToolOnState(
           skipped.push(`remove ${wid}: not found`);
           continue;
         }
-        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
         delete pageWidgets[wid];
         widgetRows = widgetRows
           .map((row) => row.filter((id) => id !== wid))

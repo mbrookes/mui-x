@@ -1,6 +1,11 @@
 import { createRenderer, screen } from '@mui/internal-test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioWidgetConfig } from '../../models';
+import {
+  mockUseStudioSelector,
+  mockUseStudioController,
+  configureStudioContextMock,
+} from '../../../test/studioContextMock';
 import { ChartSetupPanel } from './ChartSetupPanel';
 
 const controller = {
@@ -76,18 +81,21 @@ const mockState = {
   expressionFields: [],
 };
 
-vi.mock('../../context', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../context')>();
-  return {
-    ...actual,
-    useStudioController: () => controller,
-    useStudioSelector: (selector: (state: typeof mockState) => unknown) => selector(mockState),
-  };
-});
+// Shared context mock (see test/studioContextMock.ts) — required because the repo runs
+// vitest with `isolate: false`, so a per-file mock factory would leak across files.
+vi.mock('../../context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../context')>()),
+  useStudioSelector: mockUseStudioSelector,
+  useStudioController: mockUseStudioController,
+}));
 
 const { render } = createRenderer();
 
 describe('ChartSetupPanel', () => {
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
   it('shows a section title for the category field', () => {
     render(<ChartSetupPanel widgetId="widget-1" />);
 

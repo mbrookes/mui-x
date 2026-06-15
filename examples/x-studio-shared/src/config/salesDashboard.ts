@@ -1134,8 +1134,9 @@ export const INITIAL_STATE: Partial<StudioState> = {
         // EBL-04 #3: time-in-stage heatmap. NOTE (approximation): the heatmap
         // reads one row per deal, so `daysInStage` is a per-deal *scalar* (days
         // in the deal's current/snapshot stage), not a full per-stage matrix.
-        // The heatmap x-axis sorts labels alphabetically (not by pipeline order),
-        // so stage columns appear A–Z rather than Prospecting→Closed Won.
+        // The heatmap x-axis follows the `stage` field's `orderedValues`
+        // (Prospecting→Closed Won, Closed Lost last), so stage columns appear in
+        // pipeline order rather than A–Z.
         chartType: 'heatmap',
         xField: 'stage',
         heatYField: 'owner',

@@ -20,12 +20,18 @@ import {
   selectWidgets,
   selectDataSources,
   selectExpressionFields,
+  selectFilters,
   selectRelationships,
   useStudioLocaleText,
 } from '../../context';
+import { fieldHasCapability } from '../../utils/fieldCapabilities';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { getReachableSourceIds } from '../../internals/chartUtils';
-import type { StudioKpiAggregation, StudioCrossFilterMode } from '../../models';
+import type {
+  StudioKpiAggregation,
+  StudioCrossFilterMode,
+  StudioDateRangePreset,
+} from '../../models';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import { SetupSection } from './SetupSection';
 import { MetricRefInput } from '../StudioFiltersDrawer/MetricRefInput';
@@ -174,6 +180,50 @@ export function KpiSetupPanel(props: { widgetId: string }) {
   const sourcePickerValue = widgetSource
     ? { id: widgetSource.id, label: widgetSource.label }
     : null;
+
+  // Date/datetime fields from the primary source for the date range picker.
+  const allFilters = useStudioSelector(selectFilters);
+  const dateFields = React.useMemo(() => {
+    if (!widgetSource) {
+      return [];
+    }
+    return widgetSource.fields
+      .filter((f) => !f.hidden && fieldHasCapability(f, 'temporal'))
+      .map((f) => ({
+        id: f.id,
+        label: f.label,
+        type: f.type,
+        sourceId: widgetSource.id,
+        sourceLabel: widgetSource.label,
+      }));
+  }, [widgetSource]);
+
+  const widgetDateRangeFilter = React.useMemo(
+    () =>
+      allFilters.find(
+        (f) => f.scope === 'widget' && f.widgetId === widgetId && f.isDashboardDateRange,
+      ),
+    [allFilters, widgetId],
+  );
+  const activeDatePreset: StudioDateRangePreset | 'all_time' =
+    widgetDateRangeFilter?.dateRangePreset ?? 'all_time';
+  const activeDateFieldId = widgetDateRangeFilter?.field ?? dateFields[0]?.id ?? '';
+  const activeDateFieldSourceId = widgetDateRangeFilter?.filterSourceId ?? widgetSource?.id ?? '';
+  const activeDateFieldType =
+    widgetDateRangeFilter?.fieldType ??
+    dateFields.find((f) => f.id === activeDateFieldId)?.type ??
+    null;
+
+  const dateRangePresets = React.useMemo(
+    () => [
+      { value: 'all_time' as const, label: localeText.dateRangePresetAllTime },
+      { value: 'ytd' as const, label: localeText.dateRangePresetYTD },
+      { value: 'this_month' as const, label: localeText.dateRangePresetThisMonth },
+      { value: 'last_3_months' as const, label: localeText.dateRangePresetLast3Months },
+      { value: 'last_12_months' as const, label: localeText.dateRangePresetLast12Months },
+    ],
+    [localeText],
+  );
 
   return (
     <Stack spacing={2}>
@@ -326,6 +376,70 @@ export function KpiSetupPanel(props: { widgetId: string }) {
               }
             />
           </Box>
+        </CollapsibleFeatureSection>
+      )}
+
+      {dateFields.length > 0 && (
+        <CollapsibleFeatureSection
+          label={localeText.kpiSetupDateRangeLabel}
+          enabled={activeDatePreset !== 'all_time'}
+          onToggle={(next) => {
+            if (!next) {
+              controller.setWidgetDateRange(widgetId, null, null, null, null);
+            } else {
+              const field = dateFields[0];
+              controller.setWidgetDateRange(
+                widgetId,
+                field.id,
+                field.sourceId,
+                field.type as import('../../models').StudioDataField['type'],
+                'last_12_months',
+              );
+            }
+          }}
+        >
+          <DataSourceFieldSelect
+            value={activeDateFieldId}
+            onChange={(fieldId, fSourceId) => {
+              const field = dateFields.find((f) => f.id === fieldId && f.sourceId === fSourceId);
+              controller.setWidgetDateRange(
+                widgetId,
+                fieldId || null,
+                fSourceId || null,
+                (field?.type as import('../../models').StudioDataField['type']) ?? null,
+                activeDatePreset === 'all_time' ? null : activeDatePreset,
+              );
+            }}
+            fields={dateFields}
+            label={localeText.kpiSetupDateRangeFieldLabel}
+          />
+          <FormControl size="small" fullWidth>
+            <InputLabel>{localeText.kpiSetupDateRangeLabel}</InputLabel>
+            <Select
+              label={localeText.kpiSetupDateRangeLabel}
+              value={activeDatePreset}
+              onChange={(event) => {
+                const preset = event.target.value as StudioDateRangePreset | 'all_time';
+                if (preset === 'all_time') {
+                  controller.setWidgetDateRange(widgetId, null, null, null, null);
+                } else {
+                  controller.setWidgetDateRange(
+                    widgetId,
+                    activeDateFieldId,
+                    activeDateFieldSourceId,
+                    activeDateFieldType as import('../../models').StudioDataField['type'],
+                    preset,
+                  );
+                }
+              }}
+            >
+              {dateRangePresets.map((p) => (
+                <MenuItem key={p.value} value={p.value}>
+                  {p.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </CollapsibleFeatureSection>
       )}
 

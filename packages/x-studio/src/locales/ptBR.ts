@@ -457,6 +457,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   kpiSetupSparklineLabel: 'Minigráfico',
   kpiSetupTargetLabel: 'Meta',
   kpiSetupTrendLabel: 'Tendência',
+  kpiSetupDateRangeLabel: 'Intervalo de datas',
+  kpiSetupDateRangeFieldLabel: 'Campo de data',
   kpiSetupCompPeriodLabel: 'Período de comparação',
   kpiSetupDateAggEarliest: 'Mais cedo',
   kpiSetupDateAggLatest: 'Mais tarde',

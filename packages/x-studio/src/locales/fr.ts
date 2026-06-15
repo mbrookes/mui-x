@@ -463,6 +463,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   kpiSetupSparklineLabel: 'Ligne scintillante',
   kpiSetupTargetLabel: 'But',
   kpiSetupTrendLabel: "S'orienter",
+  kpiSetupDateRangeLabel: 'Plage de dates',
+  kpiSetupDateRangeFieldLabel: 'Champ de date',
   kpiSetupCompPeriodLabel: 'Période de comparaison',
   kpiSetupDateAggEarliest: 'Plus tôt',
   kpiSetupDateAggLatest: 'Plus tard',

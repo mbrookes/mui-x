@@ -477,6 +477,8 @@ export interface StudioLocaleText {
   kpiSetupSparklineLabel: string;
   kpiSetupTargetLabel: string;
   kpiSetupTrendLabel: string;
+  kpiSetupDateRangeLabel: string;
+  kpiSetupDateRangeFieldLabel: string;
   kpiSetupCompPeriodLabel: string;
   kpiSetupDateAggEarliest: string;
   kpiSetupDateAggLatest: string;
@@ -1340,6 +1342,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupSparklineLabel: 'Sparkline',
   kpiSetupTargetLabel: 'Target',
   kpiSetupTrendLabel: 'Trend',
+  kpiSetupDateRangeLabel: 'Date range',
+  kpiSetupDateRangeFieldLabel: 'Date field',
   kpiSetupCompPeriodLabel: 'Comparison period',
   kpiSetupDateAggEarliest: 'Earliest',
   kpiSetupDateAggLatest: 'Latest',

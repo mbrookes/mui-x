@@ -255,7 +255,9 @@ export class StudioController {
         ...state.dataSources,
         [sourceId]: {
           ...source,
-          fields: source.fields.map((f: StudioDataField) => (f.id === fieldId ? { ...f, ...updates } : f)),
+          fields: source.fields.map((f: StudioDataField) =>
+            f.id === fieldId ? { ...f, ...updates } : f,
+          ),
         },
       },
     });
@@ -294,7 +296,9 @@ export class StudioController {
     const state = this.store.state;
     this.commitState({
       ...state,
-      expressionFields: state.expressionFields.filter((ef: StudioExpressionField) => ef.id !== fieldId),
+      expressionFields: state.expressionFields.filter(
+        (ef: StudioExpressionField) => ef.id !== fieldId,
+      ),
     });
   };
 
@@ -656,6 +660,16 @@ export class StudioController {
       }
     }
 
+    // Clone widget-scoped filters (including managed date range filters) for the duplicate.
+    const widgetScopeFilters = state.filters.filter(
+      (f: StudioFilterState) => f.scope === 'widget' && f.widgetId === widgetId,
+    );
+    const clonedFilters = widgetScopeFilters.map((f: StudioFilterState) => ({
+      ...f,
+      id: `${f.id}-copy-${Date.now()}`,
+      widgetId: newId,
+    }));
+
     this.commitState({
       ...state,
       widgets: {
@@ -669,6 +683,7 @@ export class StudioController {
           widgetRows: newWidgetRows,
         },
       },
+      filters: [...state.filters, ...clonedFilters],
       shell: {
         ...state.shell,
         selectedWidgetId: newId,
@@ -700,7 +715,9 @@ export class StudioController {
     const state = this.store.state;
     this.commitState({
       ...state,
-      relationships: state.relationships.map((rel: StudioRelationship) => (rel.id === id ? { ...rel, ...patch } : rel)),
+      relationships: state.relationships.map((rel: StudioRelationship) =>
+        rel.id === id ? { ...rel, ...patch } : rel,
+      ),
     });
   };
 
@@ -819,6 +836,70 @@ export class StudioController {
     this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
   };
 
+  /**
+   * Set or clear the date range filter for a specific KPI widget.
+   *
+   * - Pass `null` for `preset` (or `fieldId`) to remove the widget date range filter.
+   * - Pass `'custom'` as `preset` with explicit `customFrom` / `customTo` ISO strings.
+   *
+   * The filter is stored as a widget-scoped `StudioFilterState` tagged with
+   * `isDashboardDateRange: true` so the filters drawer hides it (it is managed
+   * exclusively via the KPI setup panel).
+   */
+  setWidgetDateRange = (
+    widgetId: string,
+    fieldId: string | null,
+    sourceId: string | null,
+    fieldType: StudioDataField['type'] | null,
+    preset: StudioDateRangePreset | null,
+    customFrom?: string,
+    customTo?: string,
+  ) => {
+    const state = this.store.state;
+    const withoutExisting = state.filters.filter(
+      (f: StudioFilterState) =>
+        !(f.isDashboardDateRange && f.scope === 'widget' && f.widgetId === widgetId),
+    );
+
+    if (!preset || !fieldId || !sourceId) {
+      this.commitState({ ...state, filters: withoutExisting });
+      return;
+    }
+
+    const isDatetime = fieldType === 'datetime';
+    let from: string;
+    let to: string;
+
+    if (preset === 'custom') {
+      if (!customFrom && !customTo) {
+        this.commitState({ ...state, filters: withoutExisting });
+        return;
+      }
+      from = customFrom ?? '';
+      to = customTo ?? '';
+    } else {
+      const dates = computeDateRangePreset(preset);
+      from = dates.from;
+      to = isDatetime ? `${dates.to}T23:59:59` : dates.to;
+    }
+
+    const newFilter: import('../models').StudioFilterState = {
+      id: `widget-date-range-${widgetId}`,
+      scope: 'widget',
+      widgetId,
+      isDashboardDateRange: true,
+      dateRangePreset: preset,
+      field: fieldId,
+      fieldType: fieldType ?? 'date',
+      filterSourceId: sourceId,
+      filterMode: 'condition',
+      operator: 'between',
+      value: { from, to },
+    };
+
+    this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
+  };
+
   applyInteractiveFilter = (
     sourceWidgetId: string,
     field: string,
@@ -863,7 +944,8 @@ export class StudioController {
       {
         ...state,
         filters: state.filters.filter(
-          (f: StudioFilterState) => !(f.scope === 'interactive' && f.sourceWidgetId === sourceWidgetId),
+          (f: StudioFilterState) =>
+            !(f.scope === 'interactive' && f.sourceWidgetId === sourceWidgetId),
         ),
       },
       { undoable: false },
@@ -885,7 +967,8 @@ export class StudioController {
     const state = this.store.state;
     // Remove any existing cross-filter from the same source widget
     const existingFilters = state.filters.filter(
-      (f: StudioFilterState) => !(f.scope === 'cross-filter' && f.sourceWidgetId === sourceWidgetId),
+      (f: StudioFilterState) =>
+        !(f.scope === 'cross-filter' && f.sourceWidgetId === sourceWidgetId),
     );
 
     const crossFilter: StudioFilterState = {
@@ -915,7 +998,8 @@ export class StudioController {
     this.commitState({
       ...state,
       filters: state.filters.filter(
-        (f: StudioFilterState) => !(f.scope === 'cross-filter' && f.sourceWidgetId === sourceWidgetId),
+        (f: StudioFilterState) =>
+          !(f.scope === 'cross-filter' && f.sourceWidgetId === sourceWidgetId),
       ),
     });
   };
@@ -973,7 +1057,9 @@ export class StudioController {
     const state = this.store.state;
     this.commitState({
       ...state,
-      filterPresets: (state.filterPresets ?? []).filter((p: StudioFilterPreset) => p.id !== presetId),
+      filterPresets: (state.filterPresets ?? []).filter(
+        (p: StudioFilterPreset) => p.id !== presetId,
+      ),
     });
   };
 

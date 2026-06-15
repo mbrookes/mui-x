@@ -56,10 +56,15 @@ function computeSecurityHash(claims: JwtSecurityClaims, hmacSecret: string): str
  * Generate a deterministic hash from a widget descriptor (the "query shape").
  * The widget `id` is excluded so two widgets with identical table/columns/filters
  * share the same cache entry — enabling cross-widget deduplication.
- * Keys are recursively sorted so filter order never affects the hash.
+ *
+ * Object keys are recursively sorted so property insertion order never affects
+ * the hash. Array element order is preserved and therefore IS significant — two
+ * descriptors whose `filters` differ only in order produce different keys.
  */
 function computeQueryHash(descriptor: BatchWidgetDescriptor): string {
-  const { id: _id, ...queryShape } = descriptor;
+  // Exclude the widget `id` so two widgets with an identical query shape share a key.
+  const queryShape: Record<string, unknown> = { ...descriptor };
+  delete queryShape.id;
   return createHash('sha256').update(sortedStringify(queryShape)).digest('hex').slice(0, 16);
 }
 

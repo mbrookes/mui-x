@@ -138,12 +138,15 @@ export async function generateFieldDescriptions(
   try {
     parsed = JSON.parse(raw);
   } catch {
-    // Some models wrap the array in an object — try common keys
-    try {
-      const wrapper = JSON.parse(raw) as Record<string, unknown>;
-      parsed = Object.values(wrapper)[0];
-    } catch {
-      throw new Error(`Field description: LLM returned unparseable JSON: ${raw.slice(0, 200)}`);
+    throw new Error(`Field description: LLM returned unparseable JSON: ${raw.slice(0, 200)}`);
+  }
+
+  // Some models (especially with response_format: json_object) wrap the array in
+  // an object, e.g. `{ "fields": [...] }`. Unwrap the first array-valued property.
+  if (!Array.isArray(parsed) && parsed !== null && typeof parsed === 'object') {
+    const wrapped = Object.values(parsed as Record<string, unknown>).find(Array.isArray);
+    if (wrapped) {
+      parsed = wrapped;
     }
   }
 

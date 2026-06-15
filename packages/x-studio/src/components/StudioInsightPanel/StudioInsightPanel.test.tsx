@@ -32,9 +32,6 @@ describe('StudioInsightPanel', () => {
   });
 
   it('shows a progress indicator while loading', () => {
-    // Source antipattern: the disabled refresh button is wrapped in a Tooltip,
-    // which MUI warns about. Suppress here; flagged as a source follow-up.
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
     setup({ loading: true, insight: null });
     expect(screen.getByRole('progressbar')).not.toBe(null);
     expect(screen.queryByText('Revenue grew 12% QoQ.')).toBe(null);
@@ -78,7 +75,6 @@ describe('StudioInsightPanel', () => {
   });
 
   it('disables the refresh button while loading', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
     setup({ loading: true, insight: null });
     expect(screen.getByTestId('RefreshIcon').closest('button')).toHaveProperty('disabled', true);
   });

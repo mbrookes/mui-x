@@ -942,6 +942,10 @@ export interface StudioLocaleText {
   gridColumnMoveDownAriaLabel: string;
   /** Accessible name for the dashboard canvas landmark region */
   canvasRegionAriaLabel: string;
+  /** Live-region announcement when a sidebar panel opens (receives the panel label) */
+  sidebarPanelOpenedAnnouncement: (label: string) => string;
+  /** Live-region announcement when the open sidebar panel closes */
+  sidebarPanelClosedAnnouncement: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1789,6 +1793,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   gridColumnMoveUpAriaLabel: 'Move column up',
   gridColumnMoveDownAriaLabel: 'Move column down',
   canvasRegionAriaLabel: 'Dashboard canvas',
+  sidebarPanelOpenedAnnouncement: (label: string) => `${label} panel opened`,
+  sidebarPanelClosedAnnouncement: 'Panel closed',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

@@ -59,6 +59,24 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
   const activePanel = panels.find((p) => shell.openDrawers[p.drawer]) ?? null;
   const activeDrawer = activePanel?.drawer ?? null;
 
+  // Announce panel open/close to assistive technology — opening a side panel
+  // does not move focus, so without a live region the change is silent.
+  const [announcement, setAnnouncement] = React.useState('');
+  const firstRender = React.useRef(true);
+  React.useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    setAnnouncement(
+      activePanel
+        ? localeText.sidebarPanelOpenedAnnouncement(activePanel.label)
+        : localeText.sidebarPanelClosedAnnouncement,
+    );
+    // Only re-run when the active drawer changes (activePanel/localeText are derived/stable).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDrawer]);
+
   const handleTabClick = (drawer: StudioDrawer) => {
     if (activeDrawer === drawer) {
       // Same tab → close
@@ -76,6 +94,25 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
 
   return (
     <Box sx={{ display: 'flex', flexShrink: 0, height: '100%' }}>
+      {/* Visually-hidden live region announcing panel open/close */}
+      <Box
+        role="status"
+        aria-live="polite"
+        sx={{
+          position: 'absolute',
+          width: 1,
+          height: 1,
+          p: 0,
+          m: '-1px',
+          overflow: 'hidden',
+          clip: 'rect(0 0 0 0)',
+          whiteSpace: 'nowrap',
+          border: 0,
+        }}
+      >
+        {announcement}
+      </Box>
+
       {/* Active panel content — rendered before tab rail when on the right */}
       {side === 'right' && activePanel && (
         <TabbedSidebarActivePanel key={activePanel.drawer} panel={activePanel} side={side} />

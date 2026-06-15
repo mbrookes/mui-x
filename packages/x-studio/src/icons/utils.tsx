@@ -32,30 +32,9 @@ export function ChartSvg({
   );
 }
 
-// ─── Field-type icon SVG wrapper (16×16 viewBox) ──────────────────────────────
+// ─── Field icon default size (16×16 viewBox baseline) ─────────────────────────
 
 const FIELD_DEFAULT_SIZE = 16;
-
-export function FieldSvg({
-  size = FIELD_DEFAULT_SIZE,
-  children,
-}: {
-  size?: number;
-  children: React.ReactNode;
-}) {
-  return React.createElement(
-    'svg',
-    {
-      width: size,
-      height: size,
-      viewBox: '0 0 16 16',
-      fill: 'none',
-      xmlns: 'http://www.w3.org/2000/svg',
-      'aria-hidden': true,
-    },
-    children,
-  );
-}
 
 // ─── Generated field icon SVG wrapper (20×16 viewBox, = mark built-in) ────────
 // "size" is the height; width is proportionally wider (20/16 × size).

@@ -1,0 +1,92 @@
+import * as React from 'react';
+import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { describe, expect, it, vi } from 'vitest';
+import type { StudioState, StudioWidget, StudioWidgetConfig } from '../../models';
+import { createStudioHarness } from '../../internals/test-utils';
+import { StudioWidgetCard } from './StudioWidgetCard';
+
+const { render } = createRenderer();
+
+function widget(overrides: Partial<StudioWidget> = {}): StudioWidget {
+  return {
+    id: 'w1',
+    kind: 'text',
+    title: 'My widget',
+    config: { textBody: 'Note body' } as StudioWidgetConfig,
+    ...overrides,
+  };
+}
+
+function setup(
+  options: {
+    widget?: StudioWidget;
+    shell?: Partial<StudioState['shell']>;
+    onUnconfiguredClick?: (id: string) => void;
+  } = {},
+) {
+  const w = options.widget ?? widget();
+  const { controller, wrapper } = createStudioHarness({
+    initialState: {
+      widgets: { [w.id]: w },
+      ...(options.shell ? { shell: options.shell as StudioState['shell'] } : {}),
+    },
+  });
+  const setSelectedSpy = vi.spyOn(controller, 'setSelectedWidget');
+  render(<StudioWidgetCard widgetId={w.id} onUnconfiguredClick={options.onUnconfiguredClick} />, {
+    wrapper,
+  });
+  // The card root carries aria-label `Widget: <title>` (filtersSectionWidgetTitle).
+  const card = screen.getByLabelText(/^Widget: /);
+  return { card, controller, setSelectedSpy };
+}
+
+describe('StudioWidgetCard', () => {
+  it('renders a card element with the widget content', () => {
+    const { card } = setup();
+    expect(card).not.toBe(null);
+    expect(card.getAttribute('aria-label')).toContain('My widget');
+  });
+
+  it('marks the card aria-selected when it is the selected widget', () => {
+    const { card } = setup({ shell: { selectedWidgetId: 'w1' } });
+    expect(card.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('is not aria-selected when another widget is selected', () => {
+    const { card } = setup({ shell: { selectedWidgetId: 'other' } });
+    expect(card.getAttribute('aria-selected')).toBe('false');
+  });
+
+  it('selects the widget when the card is clicked', () => {
+    const { card, setSelectedSpy } = setup();
+    // Use fireEvent.click since the card is a div (not a button role).
+    fireEvent.click(card);
+    expect(setSelectedSpy).toHaveBeenCalledWith('w1');
+  });
+
+  it('selects the widget on Enter and Space key presses', () => {
+    const { card, setSelectedSpy } = setup();
+    card.focus(); // fireEvent.keyDown targets the active element in this harness
+    fireEvent.keyDown(card, { key: 'Enter' });
+    fireEvent.keyDown(card, { key: ' ' });
+    expect(setSelectedSpy).toHaveBeenCalledTimes(2);
+    expect(setSelectedSpy).toHaveBeenCalledWith('w1');
+  });
+
+  it('does not call onUnconfiguredClick for a text widget', () => {
+    const onUnconfiguredClick = vi.fn();
+    const { card } = setup({ onUnconfiguredClick });
+    fireEvent.click(card);
+    expect(onUnconfiguredClick).not.toHaveBeenCalled();
+  });
+
+  it('calls onUnconfiguredClick for a non-text widget with no source (edit mode)', () => {
+    const onUnconfiguredClick = vi.fn();
+    const { card } = setup({
+      widget: widget({ kind: 'kpi', title: 'KPI', config: {} as StudioWidgetConfig }),
+      onUnconfiguredClick,
+    });
+    fireEvent.click(card);
+    expect(onUnconfiguredClick).toHaveBeenCalledWith('w1');
+  });
+});

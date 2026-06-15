@@ -102,26 +102,6 @@ Use `filterMode: 'rank'` to keep only the top or bottom N items by a numeric mea
 | `rankByField`       | Numeric field to rank by. Required when the filtered field is non-numeric (for example rank product names by their total revenue). |
 | `rankMultiSeriesBy` | How to aggregate multi-series values for ranking: `'__sum'`, `'__avg'`, `'__max'`, `'__min'`, or a specific series field ID.       |
 
-## Metric references (dynamic values)
-
-Replace a filter's literal `value` with a live lookup from a metrics data source using `valueRef`. This makes filter thresholds data-driven:
-
-```ts
-{
-  id: 'threshold-filter',
-  scope: 'page',
-  field: 'daysActive',
-  operator: 'greater_than',
-  valueRef: {
-    sourceId: 'kpi-metrics',   // the data source holding the metric
-    rowId: 'BM-012',           // which row
-    field: 'value',            // which field on that row
-  },
-}
-```
-
-Whenever the `kpi-metrics` data source updates, the filter threshold automatically re-evaluates. The metrics source is typically declared with `hidden: true` so it doesn't appear in the widget picker.
-
 ## Cross-source filters
 
 A page filter can target a field that lives on a related source. Set `filterSourceId` to the source that owns the field. Studio resolves the join path automatically using the declared [relationships](/x/react-studio/data/relationships/):

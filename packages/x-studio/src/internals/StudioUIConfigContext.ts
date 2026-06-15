@@ -946,6 +946,38 @@ export interface StudioLocaleText {
   canvasWidgetMovedAnnouncement: string;
   /** Live-region announcement after a widget is added to the canvas */
   canvasWidgetAddedAnnouncement: string;
+  /** Text alternative (accessible name) for the funnel chart */
+  funnelChartAriaLabel: (stageCount: number, details: string) => string;
+  /** Text alternative for the gantt chart */
+  ganttChartAriaLabel: (itemCount: number, from: string, to: string, details: string) => string;
+  /** Text alternative for the heatmap chart */
+  heatmapChartAriaLabel: (
+    columnCount: number,
+    rowCount: number,
+    axisSummary: string,
+    min: string,
+    max: string,
+  ) => string;
+  /** Text alternative for the sankey diagram */
+  sankeyChartAriaLabel: (nodeCount: number, linkCount: number, details: string) => string;
+  /** Text alternative for the KPI gauge */
+  kpiGaugeAriaLabel: (value: string, max: string, percent: number) => string;
+  /** Text alternative for the KPI sparkline */
+  kpiSparklineAriaLabel: (
+    pointCount: number,
+    trend: 'up' | 'down' | 'flat',
+    from: string,
+    to: string,
+  ) => string;
+  /** Text alternative for the choropleth map */
+  mapChartAriaLabel: (
+    measure: string | null,
+    regionCount: number,
+    min: string,
+    max: string,
+  ) => string;
+  /** Text alternative for the data-lineage graph */
+  lineageGraphAriaLabel: (sourceCount: number, relationshipCount: number) => string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1793,6 +1825,38 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
     `Column resized to ${span} of ${total}`,
   canvasWidgetMovedAnnouncement: 'Widget moved',
   canvasWidgetAddedAnnouncement: 'Widget added',
+  funnelChartAriaLabel: (stageCount, details) =>
+    `Funnel chart with ${stageCount} ${stageCount === 1 ? 'stage' : 'stages'}. ${details}.`,
+  ganttChartAriaLabel: (itemCount, from, to, details) =>
+    `Gantt chart with ${itemCount} ${
+      itemCount === 1 ? 'item' : 'items'
+    } from ${from} to ${to}. ${details}.`,
+  heatmapChartAriaLabel: (columnCount, rowCount, axisSummary, min, max) =>
+    `Heatmap with ${columnCount} ${columnCount === 1 ? 'column' : 'columns'} and ${rowCount} ${
+      rowCount === 1 ? 'row' : 'rows'
+    }${axisSummary ? ` (${axisSummary})` : ''}. Values range from ${min} to ${max}.`,
+  sankeyChartAriaLabel: (nodeCount, linkCount, details) =>
+    `Sankey flow diagram with ${nodeCount} ${nodeCount === 1 ? 'node' : 'nodes'} and ${linkCount} ${
+      linkCount === 1 ? 'link' : 'links'
+    }. ${details}.`,
+  kpiGaugeAriaLabel: (value, max, percent) => `Gauge: ${value} of ${max} (${percent}%).`,
+  kpiSparklineAriaLabel: (pointCount, trend, from, to) => {
+    let trendText = 'flat';
+    if (trend === 'up') {
+      trendText = 'trending up';
+    } else if (trend === 'down') {
+      trendText = 'trending down';
+    }
+    return `Sparkline with ${pointCount} points, ${trendText}, from ${from} to ${to}.`;
+  },
+  mapChartAriaLabel: (measure, regionCount, min, max) =>
+    `Choropleth map${measure ? ` of ${measure}` : ''} with ${regionCount} ${
+      regionCount === 1 ? 'region' : 'regions'
+    }, values from ${min} to ${max}.`,
+  lineageGraphAriaLabel: (sourceCount, relationshipCount) =>
+    `Data relationship graph with ${sourceCount} ${
+      sourceCount === 1 ? 'source' : 'sources'
+    } and ${relationshipCount} ${relationshipCount === 1 ? 'relationship' : 'relationships'}.`,
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

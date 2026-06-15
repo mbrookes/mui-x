@@ -70,9 +70,7 @@ export function DataLineageGraph({ sources, relationships, onNodeClick }: DataLi
 
   // Accessible name for the diagram. `role="group"` (not `img`) keeps the
   // interactive nodes/edges reachable while still naming the graph as a whole.
-  const graphAriaLabel = `Data relationship graph with ${sourceList.length} ${
-    sourceList.length === 1 ? 'source' : 'sources'
-  } and ${visibleRels.length} ${visibleRels.length === 1 ? 'relationship' : 'relationships'}.`;
+  const graphAriaLabel = localeText.lineageGraphAriaLabel(sourceList.length, visibleRels.length);
 
   return (
     <Box sx={{ width: '100%', overflowX: 'auto' }}>

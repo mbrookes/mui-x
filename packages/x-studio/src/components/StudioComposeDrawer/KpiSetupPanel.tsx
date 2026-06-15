@@ -34,7 +34,6 @@ import type {
 } from '../../models';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import { SetupSection } from './SetupSection';
-import { MetricRefInput } from '../StudioFiltersDrawer/MetricRefInput';
 import { CollapsibleFeatureSection } from './CollapsibleFeatureSection';
 import { KpiSparklineOptions } from './KpiSparklineOptions';
 
@@ -332,9 +331,20 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           <Typography variant="caption" color="text.secondary">
             {localeText.kpiSetupTargetHelperText}
           </Typography>
-          <MetricRefInput
-            value={config.kpiTargetRef}
-            onChange={(ref) => controller.updateWidgetConfig(widgetId, { kpiTargetRef: ref })}
+          <TextField
+            size="small"
+            label={localeText.kpiSetupTargetLabel}
+            type="number"
+            value={config.kpiTargetValue ?? ''}
+            onChange={(event) => {
+              const n = Number(event.target.value);
+              if (event.target.value !== '' && Number.isFinite(n)) {
+                controller.updateWidgetConfig(widgetId, { kpiTargetValue: n });
+              } else if (event.target.value === '') {
+                controller.updateWidgetConfig(widgetId, { kpiTargetValue: undefined });
+              }
+            }}
+            fullWidth
           />
         </CollapsibleFeatureSection>
       )}

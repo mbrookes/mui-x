@@ -24,9 +24,7 @@ export interface KpiSparklineProps {
   targetValue?: number;
   /** Current KPI aggregate value — used only when plotType is 'gauge'. */
   kpiValue?: number;
-  /** Gauge minimum. @default 0 */
-  gaugeMin?: number;
-  /** Gauge maximum. Required when plotType is 'gauge'. */
+  /** Gauge maximum (target value). Required when plotType is 'gauge'. */
   gaugeMax?: number;
 }
 
@@ -43,17 +41,15 @@ export function KpiSparkline(props: KpiSparklineProps) {
     colors,
     targetValue,
     kpiValue,
-    gaugeMin = 0,
     gaugeMax = 100,
   } = props;
   const localeText = useStudioLocaleText();
 
   if (plotType === 'gauge') {
     const value = kpiValue ?? 0;
-    // Sanitize range — guard against NaN and inverted/zero-width ranges
-    const safeMin = Number.isFinite(gaugeMin) ? gaugeMin : 0;
-    const safeMax = Number.isFinite(gaugeMax) && gaugeMax > safeMin ? gaugeMax : safeMin + 1;
-    const clampedValue = Math.min(Math.max(value, safeMin), safeMax);
+    // Sanitize range — guard against NaN and zero-width ranges
+    const safeMax = Number.isFinite(gaugeMax) && gaugeMax > 0 ? gaugeMax : 1;
+    const clampedValue = Math.min(Math.max(value, 0), safeMax);
     return (
       <Box
         sx={{
@@ -68,7 +64,7 @@ export function KpiSparkline(props: KpiSparklineProps) {
       >
         <Gauge
           value={clampedValue}
-          valueMin={safeMin}
+          valueMin={0}
           valueMax={safeMax}
           width={120}
           height={80}
@@ -105,7 +101,11 @@ export function KpiSparkline(props: KpiSparklineProps) {
           margin={{ top: 4, bottom: 4, left: 4, right: 4 }}
         >
           {targetValue !== undefined && (
-            <ChartsReferenceLine y={targetValue} label={localeText.kpiSetupTargetLabel} labelAlign="end" />
+            <ChartsReferenceLine
+              y={targetValue}
+              label={localeText.kpiSetupTargetLabel}
+              labelAlign="end"
+            />
           )}
         </SparkLineChart>
       </Box>

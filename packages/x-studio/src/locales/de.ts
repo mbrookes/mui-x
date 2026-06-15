@@ -456,8 +456,6 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   kpiSetupTimeFieldLabel: 'Zeitfeld',
   kpiSetupGranularityLabel: 'Granularität',
   kpiSetupPlotTypeLabel: 'Diagrammtyp',
-  kpiSetupMinLabel: 'Min.',
-  kpiSetupMaxLabel: 'Max.',
   kpiSetupValueFieldLabel: 'Wertfeld',
   kpiSetupValueFieldHelperText: 'Feld zum Hinzufügen',
   kpiSetupSparklineLabel: 'Sparkline',

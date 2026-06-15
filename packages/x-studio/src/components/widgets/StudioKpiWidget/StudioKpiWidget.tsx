@@ -8,7 +8,6 @@ import { summarizeFilter } from '../../StudioFiltersDrawer/filterDrawerUtils';
 import {
   resolveRows,
   resolveMetricRefs,
-  resolveMetricRef,
   resolveChartRowsForAggregation,
   analyzeChartSupport,
 } from '../../../internals/chartUtils';
@@ -163,12 +162,11 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   ]);
 
   const resolvedTargetValue = React.useMemo(() => {
-    if (!config.kpiTarget || !config.kpiTargetRef) {
+    if (!config.kpiTarget || config.kpiTargetValue === undefined) {
       return null;
     }
-    const val = resolveMetricRef(config.kpiTargetRef, dataSources);
-    return typeof val === 'number' ? val : null;
-  }, [config.kpiTarget, config.kpiTargetRef, dataSources]);
+    return config.kpiTargetValue;
+  }, [config.kpiTarget, config.kpiTargetValue]);
 
   const {
     displayValue,
@@ -555,8 +553,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             colors={chartColors}
             targetValue={resolvedTargetValue ?? undefined}
             kpiValue={kpiNumericValue}
-            gaugeMin={config.kpiSparklineGaugeMin ?? 0}
-            gaugeMax={config.kpiSparklineGaugeMax ?? 100}
+            gaugeMax={config.kpiTargetValue ?? 100}
             {...slotProps?.sparkline}
           />
         )}

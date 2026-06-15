@@ -554,8 +554,12 @@ onClick` header; the `Switch` (`:81-85`) has no associated label (visible
 - **C3 — keyboard map-region selection:** each interactive choropleth shape is a
   focusable `role="button"` group (region name + Enter/Space → cross-filter); the
   map container uses `role="group"` when interactive so shapes stay reachable.
-- **M1 — shell live region:** opening/closing a sidebar panel is announced via a
-  polite live region (panel open/close does not move focus).
+- **M1 — shell live region:** a single shared `StudioLiveRegionProvider` (polite
+  region + `useStudioAnnounce`) announces sidebar panel open/close, keyboard
+  column resize, keyboard widget reorder, and drag-drop add/move on the canvas.
+- **m7 — localized text alternatives:** the chart accessible-name summaries
+  (funnel/gantt/heatmap/sankey/KPI/map/lineage) and all canvas reorder/resize/
+  landmark/announcement strings are `StudioLocaleText` tokens, not hardcoded.
 - **M3 — no-data/error announcements:** the map's no-data/error paths use the
   shared `StudioNoDataOverlay`/`StudioWidgetErrorOverlay` (`role="status"`/`alert`).
 - **M11 — slider value text:** `getAriaValueText` (formatted dates) and per-thumb
@@ -568,12 +572,11 @@ onClick` header; the `Switch` (`:81-85`) has no associated label (visible
 
 ### Outstanding (recommended follow-ups)
 
-- **M1 (extended)** — announce canvas resize / widget-drop results and tab
-  switches (panel open/close is done).
-- **m7 — localize** the remaining hardcoded English strings, including the chart
-  `aria-label` summaries and the canvas reorder labels added here.
 - **Sidebar `complementary` landmark** and a programmatic page heading (the
   canvas `<main>` landmark is done).
+- **m7 (broader)** — the chart _config_ surfaces (e.g. the large
+  `StudioChartWidget`/setup panels) still contain hardcoded English unrelated to
+  the accessible names; a dedicated i18n pass over those is out of scope here.
 - **Runtime audit** (axe-core + screen reader) to close all "needs verification"
   items, especially contrast (M22, m5, m11) and the `@mui/x-chat` streaming
   live region (M4).

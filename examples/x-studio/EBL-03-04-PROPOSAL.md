@@ -1,7 +1,7 @@
-# EBL-03 / EBL-04 — Deals by Stage funnel: proposal
+# EBL-03 / EBL-04 — Deals by Stage funnel: implemented
 
-> Status: **proposal — options for review, nothing implemented.**
-> Pick a direction per item; a follow-up agent will implement.
+> Status: **implemented.** EBL-03 → Option B (generator fix); EBL-04 → #1 (conversion bar)
+> and #3 (time-in-stage heatmap). See the "Implemented" note at the bottom for details.
 
 ## 1. Current state (what's actually happening)
 
@@ -167,3 +167,58 @@ stretch/"creative" follow-up once stage-duration data exists, since it answers t
 no `owner`). That one gap is why the funnel is non-monotonic _and_ why time-in-stage / where-lost /
 Sankey can't be built today. Closing it (Option B generator work) unblocks EBL-03 and every EBL-04
 option at once.
+
+---
+
+## 6. Implemented
+
+**EBL-03 → Option B (generator fix). EBL-04 → #1 (conversion bar) + #3 (time-in-stage heatmap).**
+
+### Data model (`examples/x-studio-shared/src/crmData/generator.ts`)
+
+- Replaced the independent weighted `stage` pick with a **furthest-reached depth** model.
+  Each deal draws a depth `d` along `Prospecting → Qualification → Proposal → Negotiation →
+Closed Won` from a **decreasing** distribution (`REACH_DEPTH_WEIGHTS`), so counts of
+  "reached ≥ k" fall off monotonically **by construction** (the funnel can never exceed 100%).
+- New deal fields: **`stageReached`** (numeric depth 0–4, hidden), **`owner`** (fixed roster
+  of 6 reps — the heatmap row axis), **`daysInStage`** (days in the current/snapshot stage),
+  and a **`stageTimeline`** array (per-stage entry/exit dates + durations). `closeDate` is
+  derived from the sum of stage durations so it stays coherent with `openedDate`.
+- Win/lost split: depth-4 deals are `Closed Won`; deals that stall earlier either exit to
+  `Closed Lost` (terminal, keeps `stageReached`) or stay open in their reached stage. `stage`
+  (single field) is kept for "currently in stage" semantics and existing widgets.
+- `Closed Lost` is excluded from the sequential sequence but kept last in display
+  `orderedValues` (BL-173).
+
+### Funnel aggregation + rendering
+
+- `aggregateFunnelReached()` and `clampWidthPct()` added to
+  `packages/x-studio/src/internals/chartAggregation.ts`. The aggregation returns cumulative
+  reached counts, snapshot counts, step-conversion fractions, and a separate `Closed Lost`
+  exit total.
+- New config flags (`packages/x-studio/src/models/widgetTypes.ts`): `funnelReachedField`,
+  `funnelStageSequence`, `funnelExitStage`, `funnelConversionBar`. Cumulative mode is opt-in
+  (presence of `funnelReachedField`), matching the existing `heatYField`/`sankeyTargetField`
+  style, so other funnels are untouched.
+- `StudioFunnelChart.tsx`: clamps `widthPct ≤ 1`; headlines step-conversion ("▼ -x%"); keeps
+  "% of total" secondary; shows a "currently in stage: N" tooltip; renders `Closed Lost` as a
+  separate exit stat (not a funnel step).
+
+### Widgets (`examples/x-studio-shared/src/config/salesDashboard.ts`, page 6)
+
+- `widget-chart6-deals-by-stage` → cumulative reached mode.
+- `widget-chart6-stage-conversion` (EBL-04 #1) → step-conversion bar driven by the same counts.
+- `widget-chart6-time-in-stage` (EBL-04 #3) → heatmap `stage × owner`, value = avg
+  `daysInStage`. **Approximation:** the heatmap reads one row per deal, so `daysInStage` is a
+  per-deal scalar (days in the current stage), not a full per-stage matrix — noted in a config
+  comment.
+
+### Files touched
+
+`examples/x-studio-shared/src/crmData/generator.ts`,
+`examples/x-studio-shared/src/config/salesDashboard.ts`,
+`packages/x-studio/src/internals/chartAggregation.ts` (+ `.test.ts`),
+`packages/x-studio/src/models/widgetTypes.ts`,
+`packages/x-studio/src/components/widgets/StudioChartWidget/StudioChartWidget.tsx`,
+`packages/x-studio/src/components/widgets/StudioChartWidget/StudioFunnelChart.tsx`,
+`docs/data/studio/widgets/chart/chart.md`.

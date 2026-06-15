@@ -41,6 +41,7 @@ import {
 } from '../../context';
 import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
 import { moveWidgetInLayout, type WidgetMoveDirection } from '../../internals/widgetLayoutMove';
+import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import type { StudioPageTheme } from '../../models';
 import { StudioGridWidget } from '../widgets/StudioGridWidget/StudioGridWidget';
@@ -342,14 +343,16 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     () => pages[activePageId]?.widgetRows ?? [],
     [pages, activePageId],
   );
+  const announce = useStudioAnnounce();
   const handleMoveWidget = React.useCallback(
     (direction: WidgetMoveDirection) => {
       const next = moveWidgetInLayout(widgetRows, widgetId, direction);
       if (next) {
         controller.setWidgetLayout(next);
+        announce(localeText.canvasWidgetMovedAnnouncement);
       }
     },
-    [widgetRows, widgetId, controller],
+    [widgetRows, widgetId, controller, announce, localeText],
   );
   const moveWidgetDisabled = React.useMemo(
     () => ({

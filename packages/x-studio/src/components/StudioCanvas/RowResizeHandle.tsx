@@ -5,6 +5,7 @@ import { Box } from '@mui/material';
 
 import { MIN_SPAN } from './canvasGridConstants';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
+import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 
 interface RowResizeHandleProps {
   leftId: string;
@@ -30,6 +31,7 @@ export function RowResizeHandle({
 }: RowResizeHandleProps) {
   const totalSpan = leftSpan + rightSpan;
   const localeText = useStudioLocaleText();
+  const announce = useStudioAnnounce();
   const dragRef = React.useRef<{
     combinedLeft: number;
     combinedWidth: number;
@@ -50,8 +52,20 @@ export function RowResizeHandle({
       }
       onDragMove(leftId, rightId, clamped);
       onDragEnd(leftId, rightId, clamped, totalSpan - clamped);
+      announce(localeText.canvasResizeAnnouncement(clamped, totalSpan));
     },
-    [minLeft, maxLeft, leftSpan, leftId, rightId, totalSpan, onDragMove, onDragEnd],
+    [
+      minLeft,
+      maxLeft,
+      leftSpan,
+      leftId,
+      rightId,
+      totalSpan,
+      onDragMove,
+      onDragEnd,
+      announce,
+      localeText,
+    ],
   );
 
   const handleKeyDown = React.useCallback(

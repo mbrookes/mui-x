@@ -85,8 +85,8 @@ export interface StudioAIHandlerOptions {
    * Called when a tool execution throws an error.
    * Use this to log errors without interrupting the stream.
    *
-   * @param toolName - The name of the tool that threw.
-   * @param error - The error that was thrown.
+   * @param {string} toolName - The name of the tool that threw.
+   * @param {Error} error - The error that was thrown.
    */
   onToolError?: (toolName: string, error: Error) => void;
   /**

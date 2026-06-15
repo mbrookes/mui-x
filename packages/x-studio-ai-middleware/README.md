@@ -303,7 +303,11 @@ The client adapter (`studioBackendAdapter`) strips the non-serializable `execute
 ### Basic usage
 
 ```ts
-import { buildStudioMcpServer, createDefaultStudioState, type StudioStateBox } from '@mui/x-studio-ai-middleware';
+import {
+  buildStudioMcpServer,
+  createDefaultStudioState,
+  type StudioStateBox,
+} from '@mui/x-studio-ai-middleware';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import express from 'express';
@@ -323,7 +327,10 @@ router.post('/', async (req, res) => {
     const stateBox: StudioStateBox = { current: createDefaultStudioState() };
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
-      onsessioninitialized: (sid) => { transports[sid] = transport; stateBoxes[sid] = stateBox; },
+      onsessioninitialized: (sid) => {
+        transports[sid] = transport;
+        stateBoxes[sid] = stateBox;
+      },
     });
     const server = buildStudioMcpServer(stateBox);
     await server.connect(transport);
@@ -336,13 +343,13 @@ Each MCP session gets its own isolated `StudioStateBox`. Mutations made by tool 
 
 ### `StudioMcpOptions`
 
-| Option | Type | Default | Description |
-| ------ | ---- | ------- | ----------- |
-| `serverName` | `string` | `'x-studio'` | Name reported in `initialize` response |
-| `serverVersion` | `string` | `'1.0.0'` | Version reported in `initialize` response |
-| `allowedTools` | `string[]` | all except `summarise_page`, `execute_query` | Exact list of tool names to expose |
-| `customWidgets` | `StudioCustomWidgetDef[]` | `[]` | Custom widget definitions for tool handling |
-| `data.queryDataSource` | `(params) => Promise<result>` | — | When provided, enables `query_data_source` tool and data resources |
+| Option                 | Type                          | Default                                      | Description                                                        |
+| :--------------------- | :---------------------------- | :------------------------------------------- | :----------------------------------------------------------------- |
+| `serverName`           | `string`                      | `'x-studio'`                                 | Name reported in `initialize` response                             |
+| `serverVersion`        | `string`                      | `'1.0.0'`                                    | Version reported in `initialize` response                          |
+| `allowedTools`         | `string[]`                    | all except `summarise_page`, `execute_query` | Exact list of tool names to expose                                 |
+| `customWidgets`        | `StudioCustomWidgetDef[]`     | `[]`                                         | Custom widget definitions for tool handling                        |
+| `data.queryDataSource` | `(params) => Promise<result>` | —                                            | When provided, enables `query_data_source` tool and data resources |
 
 ### Tools registered by default
 
@@ -352,20 +359,20 @@ When `data.queryDataSource` is provided, the `query_data_source` tool is also re
 
 ### Resources
 
-| URI | Description |
-| --- | ----------- |
-| `studio://dashboard/state` | Full dashboard JSON |
-| `studio://dashboard/system-prompt` | AI system prompt for the current state |
-| `studio://dashboard/data-health` | Row counts per source (requires `data` option) |
-| `studio://schema/{sourceId}` | Field definitions with type, format, sample values |
-| `studio://data/{sourceId}` | Raw row preview — up to 20 rows (requires `data` option) |
+| URI                                | Description                                              |
+| :--------------------------------- | :------------------------------------------------------- |
+| `studio://dashboard/state`         | Full dashboard JSON                                      |
+| `studio://dashboard/system-prompt` | AI system prompt for the current state                   |
+| `studio://dashboard/data-health`   | Row counts per source (requires `data` option)           |
+| `studio://schema/{sourceId}`       | Field definitions with type, format, sample values       |
+| `studio://data/{sourceId}`         | Raw row preview — up to 20 rows (requires `data` option) |
 
 All resources support `resources/subscribe`. Subscribe to `studio://dashboard/state` to receive `notifications/resources/updated` whenever a tool call mutates the dashboard.
 
 ### Prompts
 
-| Name | Description |
-| ---- | ----------- |
+| Name                         | Description                                          |
+| :--------------------------- | :--------------------------------------------------- |
 | `query_data_source_examples` | Auto-generated query templates for every data source |
 
 ### URI autocomplete

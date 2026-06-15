@@ -552,6 +552,8 @@ export interface StudioLocaleText {
   mapSetupLegendAlignStart: string;
   mapSetupLegendAlignCenter: string;
   mapSetupLegendAlignEnd: string;
+  mapFormatLegendAlignLeft: string;
+  mapFormatLegendAlignRight: string;
   mapSetupRegionFieldLabel: string;
   mapSetupRegionFieldHelperText: string;
 
@@ -1418,6 +1420,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   mapSetupLegendAlignStart: 'Top',
   mapSetupLegendAlignCenter: 'Middle',
   mapSetupLegendAlignEnd: 'Bottom',
+  mapFormatLegendAlignLeft: 'Left',
+  mapFormatLegendAlignRight: 'Right',
   mapSetupRegionFieldLabel: 'Region field',
   mapSetupRegionFieldHelperText:
     'A field containing region identifiers matching the geography feature IDs.',

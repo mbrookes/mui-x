@@ -39,8 +39,6 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   const aggFn = config.mapAggregation ?? 'sum';
   const colorScheme = config.mapColorScheme ?? 'blues';
   const mapGeography = config.mapGeography ?? 'world';
-  const legendPosition = config.mapLegendPosition ?? 'bottom';
-  const legendAlign = config.mapLegendAlign ?? 'center';
   const legendZeroMin = config.mapLegendZeroMin ?? false;
   const crossFilterEmit = config.mapCrossFilterEmit ?? false;
   const crossFilterMode = config.crossFilterMode ?? 'cross-highlight';
@@ -250,40 +248,6 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           <MenuItem value="purples">{localeText.mapSetupColorPurples}</MenuItem>
         </Select>
       </FormControl>
-
-      <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.mapSetupLegendPositionLabel}</InputLabel>
-        <Select
-          label={localeText.mapSetupLegendPositionLabel}
-          value={legendPosition}
-          onChange={(event) =>
-            update({ mapLegendPosition: event.target.value as typeof legendPosition })
-          }
-        >
-          <MenuItem value="bottom">{localeText.mapSetupLegendBottom}</MenuItem>
-          <MenuItem value="top">{localeText.mapSetupLegendTop}</MenuItem>
-          <MenuItem value="left">{localeText.mapSetupLegendLeft}</MenuItem>
-          <MenuItem value="right">{localeText.mapSetupLegendRight}</MenuItem>
-          <MenuItem value="hidden">{localeText.mapSetupLegendHidden}</MenuItem>
-        </Select>
-      </FormControl>
-
-      {(legendPosition === 'left' || legendPosition === 'right') && (
-        <FormControl size="small" fullWidth>
-          <InputLabel>{localeText.mapSetupLegendAlignLabel}</InputLabel>
-          <Select
-            label={localeText.mapSetupLegendAlignLabel}
-            value={legendAlign}
-            onChange={(event) =>
-              update({ mapLegendAlign: event.target.value as typeof legendAlign })
-            }
-          >
-            <MenuItem value="start">{localeText.mapSetupLegendAlignStart}</MenuItem>
-            <MenuItem value="center">{localeText.mapSetupLegendAlignCenter}</MenuItem>
-            <MenuItem value="end">{localeText.mapSetupLegendAlignEnd}</MenuItem>
-          </Select>
-        </FormControl>
-      )}
 
       <FormControlLabel
         control={

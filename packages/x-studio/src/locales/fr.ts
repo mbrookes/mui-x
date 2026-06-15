@@ -544,6 +544,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   mapSetupLegendAlignStart: 'Haut',
   mapSetupLegendAlignCenter: 'Milieu',
   mapSetupLegendAlignEnd: 'Bas',
+  mapFormatLegendAlignLeft: 'Gauche',
+  mapFormatLegendAlignRight: 'Droite',
   mapSetupRegionFieldLabel: 'Champ Région',
   mapSetupRegionFieldHelperText:
     'Un champ qui contient des identifiants de région correspondant aux ID de ressources géographiques.',

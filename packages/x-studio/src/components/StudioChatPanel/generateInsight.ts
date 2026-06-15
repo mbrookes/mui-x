@@ -1,10 +1,25 @@
 import type { StudioController } from '../../store/StudioController';
 import type { StudioAIConfig } from './studioBackendAdapter';
-import type { StudioChartAnnotation } from '../../models/baseTypes';
+import type { StudioChartAnnotation, StudioKpiAggregation } from '../../models/baseTypes';
 import type { StudioState } from '../../models/stateTypes';
 import type { StudioWidget } from '../../models/widgetTypes';
+import type { StudioDataSource } from '../../models/dataTypes';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
 import { pearsonCorrelation, interpretCorrelation } from '../../internals/forecastUtils';
+import { computeAggregate } from '../widgets/StudioKpiWidget/kpiUtils';
+import { resolveMetricRef } from '../../internals/filterUtils';
+import {
+  aggregateByField,
+  aggregateByTwoFields,
+  aggregateMultipleSeries,
+  aggregateHeatmap,
+  resolveChartRowsForAggregation,
+  type AggregatedData,
+  type MultiSeriesData,
+  type MultiYSeriesData,
+  type HeatmapData,
+} from '../../internals/chartAggregation';
+import { detectWidgetAnomalies } from '../../internals/anomalyDetection';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -52,7 +67,7 @@ interface DataSummaryOptions {
    * Maximum number of rows/buckets to include in the CSV sample.
    * Defaults to MAX_DATA_ROWS (100). Use a smaller value (e.g. 15) for contexts
    * where token budget is tight, such as the `summarise_page` tool snapshot.
-   * The numeric stats block (min/max/avg) is always computed from the full dataset.
+   * The numeric stats block (min/max/mean) is always computed from the full dataset.
    */
   maxRows?: number;
 }
@@ -187,9 +202,261 @@ function buildNumericStats(
     const min = Math.min(...values);
     const max = Math.max(...values);
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
-    parts.push(`${field.label ?? id}: min=${min}, max=${max}, avg=${Math.round(avg)}`);
+    parts.push(`${field.label ?? id}: min=${min}, max=${max}, mean=${Math.round(avg)}`);
   }
   return parts.join(' | ');
+}
+
+function buildKpiWidgetSummary(
+  widget: StudioWidget,
+  source: StudioDataSource,
+  filteredRows: Record<string, unknown>[],
+  state: StudioState,
+): string {
+  const cfg = widget.config;
+  const valueField: string | undefined = cfg.kpiValueField;
+  const agg: string = cfg.kpiAggregation ?? (valueField ? 'sum' : 'count');
+
+  if (!valueField && agg !== 'count') {
+    return '';
+  }
+
+  const value = computeAggregate(filteredRows, valueField ?? '', agg as StudioKpiAggregation);
+  const fieldLabel = valueField
+    ? (source.fields.find((f) => f.id === valueField)?.label ?? valueField)
+    : 'rows';
+
+  const lines: string[] = [
+    `Aggregation: ${agg} of ${filteredRows.length} rows`,
+    `Value: ${cfg.kpiPrefix ?? ''}${value}${cfg.kpiSuffix ?? ''} (${fieldLabel})`,
+  ];
+
+  if (cfg.kpiTarget && cfg.kpiTargetRef) {
+    const target = resolveMetricRef(cfg.kpiTargetRef, state.dataSources);
+    if (target != null) {
+      lines.push(`Target: ${cfg.kpiPrefix ?? ''}${target}${cfg.kpiSuffix ?? ''}`);
+    }
+  }
+
+  if (cfg.kpiSparklinePlotType === 'gauge') {
+    const gMin = cfg.kpiSparklineGaugeMin ?? 0;
+    const gMax = cfg.kpiSparklineGaugeMax ?? '(not set)';
+    lines.push(`Gauge range: ${gMin} – ${gMax}`);
+  }
+
+  if (valueField) {
+    const stats = buildNumericStats(filteredRows, [valueField], source.fields);
+    if (stats) {
+      lines.push(`Stats: ${stats}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+const CHART_RAW_ROW_FALLBACK = new Set(['scatter', 'gantt', 'sankey']);
+
+function buildChartWidgetSummary(
+  widget: StudioWidget,
+  source: StudioDataSource,
+  filteredRows: Record<string, unknown>[],
+  state: StudioState,
+  maxRows: number,
+): string {
+  const cfg = widget.config;
+  const xField: string | undefined = cfg.xField;
+  if (!xField) {
+    return '';
+  }
+
+  const chartType: string = cfg.chartType ?? 'bar';
+  const seriesField: string | undefined = cfg.seriesField;
+  const yField: string | undefined = cfg.yField;
+  const ySeries: Array<{ fieldId: string; sourceId?: string }> = cfg.ySeries ?? [];
+  const yAggregation: string = cfg.yAggregation ?? 'sum';
+  const xGroupBy = cfg.xGroupBy;
+  const sortBy = cfg.chartSortBy;
+  const sortDir = cfg.chartSortDirection;
+  const xOrder = source.fields.find((f) => f.id === xField)?.orderedValues;
+
+  const activeYFields: string[] =
+    ySeries.length > 0 ? ySeries.map((s) => s.fieldId).filter(Boolean) : yField ? [yField] : [];
+
+  const isBlended = ySeries.some((s) => s.sourceId && s.sourceId !== widget.sourceId);
+  if (isBlended || CHART_RAW_ROW_FALLBACK.has(chartType)) {
+    return '';
+  }
+
+  const enrichedRows = resolveChartRowsForAggregation(
+    filteredRows,
+    widget.sourceId,
+    xField,
+    activeYFields,
+    seriesField,
+    state.dataSources,
+    state.relationships,
+    state.expressionFields,
+  );
+
+  const yFieldLabel = (id: string) => source.fields.find((f) => f.id === id)?.label ?? id;
+
+  const lines: string[] = [];
+
+  if (chartType === 'heatmap') {
+    const heatY: string | undefined = cfg.heatYField;
+    const heatValue: string | undefined = cfg.yField;
+    if (!heatY || !heatValue) {
+      return '';
+    }
+    const result: HeatmapData = aggregateHeatmap(
+      enrichedRows,
+      xField,
+      heatY,
+      heatValue,
+      xGroupBy,
+      yAggregation as 'sum' | 'count' | 'avg' | 'min' | 'max',
+    );
+    const xSlice = result.xLabels.slice(0, maxRows);
+    lines.push(
+      `Heatmap (${yAggregation} of ${yFieldLabel(heatValue)} by ${xField} × ${heatY}):`,
+      `${result.xLabels.length} x-values × ${result.yLabels.length} y-values` +
+        (result.xLabels.length > maxRows ? `, showing first ${maxRows}` : ''),
+      ['', ...result.yLabels].join(','),
+    );
+    for (const xLabel of xSlice) {
+      const row = result.yLabels.map((yLabel) =>
+        String(result.cells.get(`${xLabel}::${yLabel}`) ?? 0),
+      );
+      lines.push([xLabel, ...row].join(','));
+    }
+  } else if (seriesField && activeYFields.length === 1) {
+    const result: MultiSeriesData = aggregateByTwoFields(
+      enrichedRows,
+      xField,
+      seriesField,
+      activeYFields[0],
+      xGroupBy,
+      sortBy,
+      sortDir,
+      xOrder,
+    );
+    const total = result.labels.length;
+    const slice = result.labels.slice(0, maxRows);
+    lines.push(
+      `Aggregated by ${xField}${xGroupBy ? ` (${xGroupBy})` : ''} × ${seriesField} (sum of ${yFieldLabel(activeYFields[0])})`,
+      `${total} x-values${total > maxRows ? `, showing first ${maxRows}` : ''}`,
+      [xField, ...result.seriesNames].join(','),
+    );
+    for (let i = 0; i < slice.length; i += 1) {
+      const vals = result.seriesNames.map((s) => String(result.seriesData[s]?.[i] ?? 0));
+      lines.push([slice[i], ...vals].join(','));
+    }
+  } else if (activeYFields.length > 1 && !seriesField) {
+    const result: MultiYSeriesData = aggregateMultipleSeries(
+      enrichedRows,
+      xField,
+      activeYFields,
+      xGroupBy,
+      sortBy,
+      sortDir,
+      xOrder,
+    );
+    const total = result.labels.length;
+    const slice = result.labels.slice(0, maxRows);
+    lines.push(
+      `Aggregated by ${xField}${xGroupBy ? ` (${xGroupBy})` : ''} (multiple measures)`,
+      `${total} x-values${total > maxRows ? `, showing first ${maxRows}` : ''}`,
+      [xField, ...result.series.map((s) => yFieldLabel(s.fieldId))].join(','),
+    );
+    for (let i = 0; i < slice.length; i += 1) {
+      const vals = result.series.map((s) => String(s.values[i] ?? 0));
+      lines.push([slice[i], ...vals].join(','));
+    }
+  } else {
+    const yF = activeYFields[0] ?? '';
+    const result: AggregatedData = aggregateByField(
+      enrichedRows,
+      xField,
+      yF,
+      xGroupBy,
+      yAggregation as 'sum' | 'count' | 'avg' | 'min' | 'max',
+      sortBy,
+      sortDir,
+      xOrder,
+    );
+    const total = result.labels.length;
+    const slice = result.labels.slice(0, maxRows);
+    lines.push(
+      `Aggregated by ${xField}${xGroupBy ? ` (${xGroupBy})` : ''} (${yAggregation} of ${yF ? yFieldLabel(yF) : 'rows'})`,
+      `${total} categories${total > maxRows ? `, showing first ${maxRows}` : ''}`,
+      [xField, yF ? yFieldLabel(yF) : 'count'].join(','),
+    );
+    for (let i = 0; i < slice.length; i += 1) {
+      lines.push([slice[i], String(result.values[i])].join(','));
+    }
+  }
+
+  if (activeYFields.length > 0) {
+    const stats = buildNumericStats(filteredRows, activeYFields, source.fields);
+    if (stats) {
+      lines.push(`Stats: ${stats}`);
+    }
+  }
+
+  const anomalies = detectWidgetAnomalies(widget, filteredRows);
+  if (anomalies.length > 0) {
+    lines.push(`Anomalies detected at: ${anomalies.map((a) => String(a.value)).join(', ')}`);
+  }
+
+  return lines.join('\n');
+}
+
+function buildMapWidgetSummary(
+  widget: StudioWidget,
+  source: StudioDataSource,
+  filteredRows: Record<string, unknown>[],
+  maxRows: number,
+): string {
+  const cfg = widget.config;
+  const countryField: string | undefined = cfg.mapCountryField;
+  const valueField: string | undefined = cfg.mapValueField;
+  const agg: string = cfg.mapAggregation ?? 'sum';
+
+  if (!countryField) {
+    return '';
+  }
+
+  const result: AggregatedData = aggregateByField(
+    filteredRows,
+    countryField,
+    valueField ?? '',
+    undefined,
+    (valueField ? agg : 'count') as 'sum' | 'count' | 'avg' | 'min' | 'max',
+    'value',
+    'desc',
+  );
+
+  const total = result.labels.length;
+  const slice = result.labels.slice(0, maxRows);
+  const valueLabel = valueField
+    ? (source.fields.find((f) => f.id === valueField)?.label ?? valueField)
+    : 'count';
+
+  const lines: string[] = [
+    `Aggregated by country (${agg} of ${valueLabel})`,
+    `${total} countries${total > maxRows ? `, showing top ${maxRows}` : ''}`,
+    `Country,${valueLabel}`,
+    ...slice.map((label, i) => `${label},${result.values[i]}`),
+  ];
+
+  if (valueField) {
+    const stats = buildNumericStats(filteredRows, [valueField], source.fields);
+    if (stats) {
+      lines.push(`Stats: ${stats}`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 function csvRow(row: Record<string, unknown>, fieldIds: string[]): string {
@@ -237,53 +504,38 @@ export function buildWidgetDataSummary(
     return '';
   }
 
+  // Apply the widget's active filters so data matches what the user sees
+  const pipeline = createStudioPipeline(state);
+  const filteredRows = pipeline.resolveWidgetRows(
+    widget.id,
+    widget.sourceId,
+    rawRows,
+    state.dashboard.activePageId,
+  );
+
+  const maxRows = options.maxRows ?? MAX_DATA_ROWS;
+
+  // Dispatch to widget-type-specific builders that represent what the widget actually displays
+  if (widget.kind === 'kpi') {
+    return buildKpiWidgetSummary(widget, source, filteredRows, state);
+  }
+  if (widget.kind === 'chart') {
+    const summary = buildChartWidgetSummary(widget, source, filteredRows, state, maxRows);
+    if (summary) {
+      return summary;
+    }
+    // Fall through to raw-row path for scatter/gantt/sankey/blended
+  }
+  if (widget.kind === 'map') {
+    return buildMapWidgetSummary(widget, source, filteredRows, maxRows);
+  }
+
+  // Raw-row path: grid, pivot, and chart fallbacks
   const cfg = widget.config;
   let fieldIds: string[] = [];
   let xFieldId: string | undefined;
 
-  if (widget.kind === 'chart') {
-    xFieldId = cfg.xField as string | undefined;
-    if (cfg.xField) {
-      fieldIds.push(cfg.xField);
-    }
-    if (cfg.yField) {
-      fieldIds.push(cfg.yField);
-    }
-    if (cfg.ySeries?.length) {
-      fieldIds.push(...cfg.ySeries.map((s: { fieldId: string }) => s.fieldId));
-    }
-    if (cfg.seriesField) {
-      fieldIds.push(cfg.seriesField);
-    }
-    if (cfg.heatYField) {
-      fieldIds.push(cfg.heatYField);
-    }
-    if (cfg.ganttLabelField) {
-      fieldIds.push(cfg.ganttLabelField);
-    }
-    if (cfg.ganttStartField) {
-      fieldIds.push(cfg.ganttStartField);
-    }
-    if (cfg.ganttEndField) {
-      fieldIds.push(cfg.ganttEndField);
-    }
-    if (cfg.ganttColorField) {
-      fieldIds.push(cfg.ganttColorField);
-    }
-    if (cfg.scatterColorField) {
-      fieldIds.push(cfg.scatterColorField);
-    }
-    if (cfg.scatterSizeField) {
-      fieldIds.push(cfg.scatterSizeField);
-    }
-  } else if (widget.kind === 'kpi') {
-    if (cfg.kpiValueField) {
-      fieldIds.push(cfg.kpiValueField);
-    }
-    if (cfg.kpiSparklineField) {
-      fieldIds.push(cfg.kpiSparklineField);
-    }
-  } else if (widget.kind === 'grid') {
+  if (widget.kind === 'grid') {
     fieldIds = (cfg.columns ?? []).map((c: { fieldId: string }) => c.fieldId).slice(0, 8);
   } else if (widget.kind === 'pivot') {
     if (cfg.pivotRowField) {
@@ -295,12 +547,18 @@ export function buildWidgetDataSummary(
     if (cfg.pivotValueField) {
       fieldIds.push(cfg.pivotValueField);
     }
-  } else if (widget.kind === 'map') {
-    if (cfg.mapCountryField) {
-      fieldIds.push(cfg.mapCountryField);
+  } else if (widget.kind === 'chart') {
+    xFieldId = cfg.xField as string | undefined;
+    if (cfg.xField) {
+      fieldIds.push(cfg.xField);
     }
-    if (cfg.mapValueField) {
-      fieldIds.push(cfg.mapValueField);
+    if (cfg.yField) {
+      fieldIds.push(cfg.yField);
+    } else if (cfg.ySeries?.[0]) {
+      fieldIds.push(cfg.ySeries[0].fieldId);
+    }
+    if (cfg.seriesField) {
+      fieldIds.push(cfg.seriesField);
     }
   }
 
@@ -313,16 +571,7 @@ export function buildWidgetDataSummary(
     return '';
   }
 
-  // Apply the widget's active filters so data matches what the user sees
-  const pipeline = createStudioPipeline(state);
-  const filteredRows = pipeline.resolveWidgetRows(
-    widget.id,
-    widget.sourceId,
-    rawRows,
-    state.dashboard.activePageId,
-  );
-
-  const { sampling = 'stride', maxRows } = options;
+  const { sampling = 'stride' } = options;
   const { sample, label } =
     sampling === 'aggregate'
       ? aggregateRows(filteredRows, fieldIds, source.fields, maxRows)

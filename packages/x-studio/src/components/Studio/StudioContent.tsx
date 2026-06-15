@@ -278,7 +278,11 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
                 zIndex: (theme) => theme.zIndex.drawer + 2,
                 bgcolor: 'background.paper',
                 boxShadow: 4,
-                '&:hover': { bgcolor: 'action.hover' },
+                '&:hover': {
+                  bgcolor: 'background.paper',
+                  backgroundImage: (theme) =>
+                    `linear-gradient(${theme.palette.action.hover}, ${theme.palette.action.hover})`,
+                },
                 width: 48,
                 height: 48,
               }}

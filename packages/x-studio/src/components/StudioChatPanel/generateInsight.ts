@@ -38,7 +38,7 @@ const MAX_DATA_ROWS = 100;
 
 interface DataSummaryOptions {
   /**
-   * Row selection strategy when the dataset exceeds MAX_DATA_ROWS:
+   * Row selection strategy when the dataset exceeds the row cap:
    * - `'aggregate'`: bucket rows into groups and aggregate numeric fields per bucket —
    *   best for summary/analysis/forecast on dense time-series (every period represented)
    * - `'stride'`: evenly distributed sample — kept for non-numeric/non-time widget kinds
@@ -48,6 +48,13 @@ interface DataSummaryOptions {
   sampling?: 'stride' | 'aggregate' | 'anomaly';
   /** X-axis values identifying anomaly rows — only used when sampling === 'anomaly' */
   anomalyAxisValues?: string[];
+  /**
+   * Maximum number of rows/buckets to include in the CSV sample.
+   * Defaults to MAX_DATA_ROWS (100). Use a smaller value (e.g. 15) for contexts
+   * where token budget is tight, such as the `summarise_page` tool snapshot.
+   * The numeric stats block (min/max/avg) is always computed from the full dataset.
+   */
+  maxRows?: number;
 }
 
 function selectSampleRows(
@@ -56,7 +63,8 @@ function selectSampleRows(
   xFieldId: string | undefined,
 ): { sample: Record<string, unknown>[]; label: string } {
   const total = rows.length;
-  if (total <= MAX_DATA_ROWS) {
+  const maxRows = options.maxRows ?? MAX_DATA_ROWS;
+  if (total <= maxRows) {
     return { sample: rows, label: `${total} row${total !== 1 ? 's' : ''}` };
   }
 
@@ -66,7 +74,7 @@ function selectSampleRows(
     // Build a stride-based index set, then merge in anomaly row indices so
     // the anomalous data points are always present in the sample.
     const anomalySet = new Set(anomalyAxisValues.map(String));
-    const stride = Math.ceil(total / MAX_DATA_ROWS);
+    const stride = Math.ceil(total / maxRows);
     const strideIndices = rows.flatMap((_, i) => (i % stride === 0 ? [i] : []));
     const anomalyIndices = rows.reduce<number[]>((acc, r, i) => {
       if (anomalySet.has(String(r[xFieldId] ?? ''))) {
@@ -76,7 +84,7 @@ function selectSampleRows(
     }, []);
     const allIndices = [...new Set([...strideIndices, ...anomalyIndices])]
       .toSorted((a, b) => a - b)
-      .slice(0, MAX_DATA_ROWS);
+      .slice(0, maxRows);
     return {
       sample: allIndices.map((i) => rows[i]),
       label: `${allIndices.length} of ${total} rows (including anomaly points)`,
@@ -84,8 +92,8 @@ function selectSampleRows(
   }
 
   // stride (default) — distributed sample covers the full date/value range
-  const stride = Math.ceil(total / MAX_DATA_ROWS);
-  const sample = rows.filter((_, i) => i % stride === 0).slice(0, MAX_DATA_ROWS);
+  const stride = Math.ceil(total / maxRows);
+  const sample = rows.filter((_, i) => i % stride === 0).slice(0, maxRows);
   return {
     sample,
     label: `${sample.length} of ${total} rows (sampled)`,
@@ -106,13 +114,14 @@ function aggregateRows(
   rows: Record<string, unknown>[],
   fieldIds: string[],
   sourceFields: SourceField[],
+  maxRows: number = MAX_DATA_ROWS,
 ): { sample: Record<string, unknown>[]; label: string } {
   const total = rows.length;
-  if (total <= MAX_DATA_ROWS) {
+  if (total <= maxRows) {
     return { sample: rows, label: `${total} row${total !== 1 ? 's' : ''}` };
   }
 
-  const bucketSize = Math.ceil(total / MAX_DATA_ROWS);
+  const bucketSize = Math.ceil(total / maxRows);
   const sample: Record<string, unknown>[] = [];
 
   const fieldById = new Map(sourceFields.map((f) => [f.id, f]));
@@ -313,10 +322,10 @@ export function buildWidgetDataSummary(
     state.dashboard.activePageId,
   );
 
-  const { sampling = 'stride' } = options;
+  const { sampling = 'stride', maxRows } = options;
   const { sample, label } =
     sampling === 'aggregate'
-      ? aggregateRows(filteredRows, fieldIds, source.fields)
+      ? aggregateRows(filteredRows, fieldIds, source.fields, maxRows)
       : selectSampleRows(filteredRows, options, xFieldId);
 
   // Stats computed from ALL filtered rows (not just sample) for global context

@@ -886,6 +886,40 @@ export interface StudioLocaleText {
   widgetDeleteConfirmOk: string;
   /** Label for the cancel button */
   widgetDeleteConfirmCancel: string;
+
+  // Accessible names for otherwise-unlabeled form controls
+  /** Accessible name for the expression input-kind select (field / literal / function) */
+  exprNodeKindAriaLabel: string;
+  /** Accessible name for the expression field select */
+  exprFieldAriaLabel: string;
+  /** Accessible name for the expression aggregation select */
+  exprAggregationAriaLabel: string;
+  /** Accessible name for the expression literal-type select */
+  exprLiteralTypeAriaLabel: string;
+  /** Accessible name for the expression boolean-value select */
+  exprBooleanValueAriaLabel: string;
+  /** Accessible name for the rank filter direction (top / bottom) toggle group */
+  filterRankDirectionAriaLabel: string;
+  /** Visible/accessible label for the rank filter count field */
+  filterRankCountLabel: string;
+  /** Accessible name for the relative-date unit select */
+  filterRelativeDateUnitAriaLabel: string;
+  /** Accessible name for the relative-date direction select */
+  filterRelativeDateDirectionAriaLabel: string;
+  /** Accessible name for the date value type (absolute / relative) toggle group */
+  filterDateModeAriaLabel: string;
+  /** Accessible name for the inline formula operator select */
+  formulaOperatorAriaLabel: string;
+  /** Accessible name for the chart reference-line axis select */
+  chartAnnotationAxisAriaLabel: string;
+  /** Accessible name for the grid conditional-format field select */
+  gridConditionFieldAriaLabel: string;
+  /** Accessible name for the grid conditional-format operator select */
+  gridConditionOperatorAriaLabel: string;
+  /** Accessible name for the grid conditional-format style select */
+  gridConditionStyleAriaLabel: string;
+  /** Accessible name for the grid conditional-format value field */
+  gridConditionValueAriaLabel: string;
 }
 
 /** Default English locale text for all Studio UI strings. */
@@ -1704,6 +1738,24 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetDeleteConfirmMessage: 'This widget will be permanently removed from the page.',
   widgetDeleteConfirmOk: 'Delete',
   widgetDeleteConfirmCancel: 'Cancel',
+
+  // Accessible names for otherwise-unlabeled form controls
+  exprNodeKindAriaLabel: 'Input type',
+  exprFieldAriaLabel: 'Field',
+  exprAggregationAriaLabel: 'Aggregation',
+  exprLiteralTypeAriaLabel: 'Literal type',
+  exprBooleanValueAriaLabel: 'Boolean value',
+  filterRankDirectionAriaLabel: 'Rank direction',
+  filterRankCountLabel: 'Number of items',
+  filterRelativeDateUnitAriaLabel: 'Time unit',
+  filterRelativeDateDirectionAriaLabel: 'Direction',
+  filterDateModeAriaLabel: 'Date value type',
+  formulaOperatorAriaLabel: 'Operator',
+  chartAnnotationAxisAriaLabel: 'Reference line axis',
+  gridConditionFieldAriaLabel: 'Condition field',
+  gridConditionOperatorAriaLabel: 'Condition operator',
+  gridConditionStyleAriaLabel: 'Condition style',
+  gridConditionValueAriaLabel: 'Condition value',
 };
 
 // ── Config context ──────────────────────────────────────────────────────────

@@ -207,6 +207,7 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
           <FormControl size="small" sx={{ minWidth: 60 }}>
             <Select
               value={operator}
+              aria-label={localeText.formulaOperatorAriaLabel}
               onChange={(event) => setOperator(event.target.value as ArithmeticOp)}
               sx={{ fontSize: '0.85rem', fontWeight: 700 }}
             >

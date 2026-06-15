@@ -92,4 +92,16 @@ export interface StudioCustomWidgetDef {
    * @default false
    */
   fullBleed?: boolean;
+  /**
+   * Optional predicate called in **view mode** to decide whether the entire widget card
+   * (including its Paper shell) should be removed from the DOM. Returning `true` causes
+   * the card to render as `null`, allowing the canvas row to collapse to nothing.
+   *
+   * Only invoked in view mode — the card always renders in edit mode so the widget
+   * remains accessible for configuration.
+   */
+  shouldHide?: (params: {
+    widget: StudioWidget;
+    dataSource: StudioDataSource | undefined;
+  }) => boolean;
 }

@@ -2,6 +2,7 @@ import * as React from 'react';
 
 import type {
   StudioDataSource,
+  StudioDateRangePreset,
   StudioFilterState,
   StudioGridColumn,
   StudioKpiAggregation,
@@ -219,18 +220,26 @@ export function formatDateFilterLabel(
   const { value, value2, operator } = filter;
 
   if (operator === 'between') {
-    // Non-custom presets store value: null — resolve fresh dates for display.
-    let resolvedFrom: unknown;
-    let resolvedTo: unknown;
+    // Named presets (e.g. "Last 12 months") — show the preset label directly.
     if (
       filter.isDashboardDateRange &&
       filter.dateRangePreset &&
       filter.dateRangePreset !== 'custom'
     ) {
-      const preset = computeDateRangePreset(filter.dateRangePreset);
-      resolvedFrom = preset.from;
-      resolvedTo = preset.to;
-    } else {
+      const PRESET_LOCALE_KEY: Partial<Record<StudioDateRangePreset, keyof StudioLocaleText>> = {
+        this_month: 'dateRangePresetThisMonth',
+        last_3_months: 'dateRangePresetLast3Months',
+        last_12_months: 'dateRangePresetLast12Months',
+        ytd: 'dateRangePresetYTD',
+      };
+      const localeKey = PRESET_LOCALE_KEY[filter.dateRangePreset];
+      if (localeKey) {
+        return localeText[localeKey] as string;
+      }
+    }
+    let resolvedFrom: unknown;
+    let resolvedTo: unknown;
+    {
       const range = value as { from?: unknown; to?: unknown } | null;
       resolvedFrom = range?.from;
       resolvedTo = range?.to;

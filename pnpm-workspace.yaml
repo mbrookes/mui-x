@@ -4,6 +4,15 @@ packages:
   - test
   - test/*
   - bundle-size
+  # The primary x-studio example depends on the unpublished `@mui/x-studio` via
+  # `workspace:*`, so it can only resolve as a workspace member. Membership wires
+  # its `typescript` script into the `typescript:ci` gate so example type errors
+  # surface in CI (it is `private` and not `@mui/*`-scoped, so release/build jobs
+  # do not sweep it). `x-studio-shared` is its `workspace:*` data dependency.
+  # The other x-studio-* example variants share the same tsconfig issue and are a
+  # follow-up (see BL-193) — kept out so the gate stays green.
+  - examples/x-studio
+  - examples/x-studio-shared
 
 catalog:
   '@atlaskit/pragmatic-drag-and-drop': ^1.8.1
@@ -116,6 +125,10 @@ allowBuilds:
   core-js: false
   msw: false
   core-js-pure: false
+  # better-sqlite3 (x-studio example data server) needs no native build for the
+  # typecheck gate — only its @types are required. Left unbuilt so CI installs
+  # stay native-compile-free; the example's `pnpm server` builds it on demand.
+  better-sqlite3: false
 
 overrides:
   # Pin the version otherwise emotion uses its own version resulting in docs build error

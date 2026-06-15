@@ -35,7 +35,7 @@ export interface AlertBannerConfig {
   hideBelow?: HideBelow;
 }
 
-const SEVERITY_RANK: Record<Severity, number> = { info: 0, success: 1, warning: 2, error: 3 };
+export const SEVERITY_RANK: Record<Severity, number> = { info: 0, success: 1, warning: 2, error: 3 };
 
 /**
  * Filter rows to the look-back window then aggregate `valueField`.
@@ -106,22 +106,22 @@ export function computeBannerValue(
 
 /**
  * Map a computed value to a severity using the configured thresholds.
- * Thresholds are evaluated highest-first (error → warning → success). When no
- * value is available, falls back to `info`.
+ * Higher values are better: success is checked first (highest bar), then warning,
+ * then error. Falls back to `info` when no threshold is met or value is null.
  */
 export function resolveBannerSeverity(value: number | null, config: AlertBannerConfig): Severity {
   if (value == null) {
     return 'info';
   }
   const { thresholdError, thresholdWarning, thresholdSuccess } = config;
-  if (thresholdError != null && value >= thresholdError) {
-    return 'error';
+  if (thresholdSuccess != null && value >= thresholdSuccess) {
+    return 'success';
   }
   if (thresholdWarning != null && value >= thresholdWarning) {
     return 'warning';
   }
-  if (thresholdSuccess != null && value >= thresholdSuccess) {
-    return 'success';
+  if (thresholdError != null && value >= thresholdError) {
+    return 'error';
   }
   return 'info';
 }
@@ -149,9 +149,9 @@ export function AlertBannerWidget({ widget, dataSource }: StudioCustomWidgetProp
   const value = React.useMemo(() => computeBannerValue(custom, dataSource), [custom, dataSource]);
   const severity = resolveBannerSeverity(value, custom);
 
-  // Display condition: in view mode, the whole widget removes its content when the
-  // severity does not reach the configured level. (The card chrome itself is owned
-  // by the framework and cannot be unmounted from inside a custom widget.)
+  // Display condition: the `shouldHide` callback on the custom widget def handles
+  // true card removal in view mode (StudioWidgetCard returns null before mounting
+  // this component). This null-return is a belt-and-suspenders fallback.
   const hideBelow = custom.hideBelow ?? 'never';
   if (mode === 'view' && hideBelow !== 'never') {
     const required = hideBelow === 'error' ? 'error' : 'warning';
@@ -165,10 +165,9 @@ export function AlertBannerWidget({ widget, dataSource }: StudioCustomWidgetProp
 
   return (
     <React.Fragment>
-      {/* In-flow sizer: custom widgets get no minHeight from the card, and the
-          banner below is taken out of flow — this reserves a height floor so the
-          card can't collapse to a thin strip. */}
-      <Box aria-hidden sx={{ minHeight: 88 }} />
+      {/* Alert is the first Stack child so MUI Stack's gap/margin-top is not
+          applied to it (only subsequent siblings get it). Being absolutely
+          positioned it fills the card via inset:0 regardless of DOM order. */}
       <Alert
         severity={severity}
         sx={{
@@ -186,6 +185,10 @@ export function AlertBannerWidget({ widget, dataSource }: StudioCustomWidgetProp
       >
         <Typography variant="body2">{message}</Typography>
       </Alert>
+      {/* In-flow sizer: custom widgets get no minHeight from the card, and the
+          banner above is taken out of flow — this reserves a height floor so the
+          card can't collapse to a thin strip. */}
+      <Box aria-hidden sx={{ minHeight: 88 }} />
     </React.Fragment>
   );
 }

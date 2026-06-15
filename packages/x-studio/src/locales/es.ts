@@ -539,7 +539,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   mapSetupLegendTop: 'Más alto',
   mapSetupLegendLeft: 'Izquierda',
   mapSetupLegendRight: 'Bien',
-  mapSetupLegendHidden: 'Oculto',
+  mapSetupLegendHidden: 'Ninguna',
   mapSetupLegendAlignLabel: 'Alineación de leyenda',
   mapSetupLegendAlignStart: 'Arriba',
   mapSetupLegendAlignCenter: 'Centro',

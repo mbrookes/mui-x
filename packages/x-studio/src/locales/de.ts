@@ -541,7 +541,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   mapSetupLegendTop: 'Höher',
   mapSetupLegendLeft: 'Links',
   mapSetupLegendRight: 'Rechts',
-  mapSetupLegendHidden: 'Versteckt',
+  mapSetupLegendHidden: 'Keine',
   mapSetupLegendAlignLabel: 'Legenden-Ausrichtung',
   mapSetupLegendAlignStart: 'Oben',
   mapSetupLegendAlignCenter: 'Mitte',

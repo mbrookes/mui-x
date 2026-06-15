@@ -1419,7 +1419,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   mapSetupLegendTop: 'Top',
   mapSetupLegendLeft: 'Left',
   mapSetupLegendRight: 'Right',
-  mapSetupLegendHidden: 'Hidden',
+  mapSetupLegendHidden: 'None',
   mapSetupLegendAlignLabel: 'Legend alignment',
   mapSetupLegendAlignStart: 'Top',
   mapSetupLegendAlignCenter: 'Middle',

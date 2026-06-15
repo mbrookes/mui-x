@@ -20,6 +20,11 @@ import type {
   StudioWidget,
 } from '../models';
 import { studioRequestCache } from './StudioRequestCache';
+import {
+  mockUseStudioSelector,
+  mockUseStudioController,
+  configureStudioContextMock,
+} from '../../test/studioContextMock';
 
 type Row = Record<string, unknown>;
 
@@ -27,13 +32,13 @@ type Row = Record<string, unknown>;
 
 let mockState: StudioState;
 
-vi.mock('../context', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../context')>();
-  return {
-    ...actual,
-    useStudioSelector: (selector: (state: StudioState) => unknown) => selector(mockState),
-  };
-});
+// Shared context mock (see test/studioContextMock.ts) — required because the repo runs
+// vitest with `isolate: false`, so a per-file mock factory would leak across files.
+vi.mock('../context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../context')>()),
+  useStudioSelector: mockUseStudioSelector,
+  useStudioController: mockUseStudioController,
+}));
 
 // ── Factories ───────────────────────────────────────────────────────────────
 
@@ -114,6 +119,7 @@ let useWidgetRows: (typeof import('./useWidgetRows'))['useWidgetRows'];
 
 beforeEach(async () => {
   studioRequestCache.clear();
+  configureStudioContextMock({ getState: () => mockState });
   ({ useWidgetRows } = await import('./useWidgetRows'));
 });
 

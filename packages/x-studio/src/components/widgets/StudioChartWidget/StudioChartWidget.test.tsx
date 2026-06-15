@@ -4,6 +4,11 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { StudioDataSource, StudioState, StudioWidget } from '../../../models';
+import {
+  mockUseStudioSelector,
+  mockUseStudioController,
+  configureStudioContextMock,
+} from '../../../../test/studioContextMock';
 import { StudioChartWidget } from './StudioChartWidget';
 
 const barChartSpy = vi.fn();
@@ -54,14 +59,13 @@ const controller = {
   applyCrossFilter: vi.fn(),
 };
 
-vi.mock('../../../context', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../context')>();
-  return {
-    ...actual,
-    useStudioController: () => controller,
-    useStudioSelector: (selector: (state: StudioState) => unknown) => selector(mockState),
-  };
-});
+// Shared context mock (see test/studioContextMock.ts) — required because the repo runs
+// vitest with `isolate: false`, so a per-file mock factory would leak across files.
+vi.mock('../../../context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../context')>()),
+  useStudioSelector: mockUseStudioSelector,
+  useStudioController: mockUseStudioController,
+}));
 
 const { render } = createRenderer();
 
@@ -115,6 +119,8 @@ describe('<StudioChartWidget />', () => {
     sankeyChartSpy.mockClear();
     controller.clearCrossFilter.mockClear();
     controller.applyCrossFilter.mockClear();
+    // The getter reads the live `mockState`, which each test assigns before rendering.
+    configureStudioContextMock({ getState: () => mockState, controller });
   });
 
   afterEach(() => {

@@ -128,20 +128,18 @@ export function StudioMapWidget({
   const hideLegend = legendPosition === 'hidden';
   const legendDirection: 'horizontal' | 'vertical' =
     legendPosition === 'left' || legendPosition === 'right' ? 'vertical' : 'horizontal';
-  // Flex direction for the chart+legend container. Chart is always first in DOM;
-  // *-reverse directions visually flip it to place the legend on the correct side.
+  // Flex direction for the chart+legend container.
+  // Row layouts always use 'row'; CSS `order` below places the legend on the correct side.
+  // Column-reverse handles 'top' so the chart stays first in DOM (better for screen readers).
   const legendFlexDirection = React.useMemo(() => {
-    switch (legendPosition) {
-      case 'top':
-        return 'column-reverse' as const;
-      case 'left':
-        return 'row-reverse' as const;
-      case 'right':
-        return 'row' as const;
-      default:
-        return 'column' as const;
-    }
+    if (legendPosition === 'top') return 'column-reverse' as const;
+    if (legendPosition === 'left' || legendPosition === 'right') return 'row' as const;
+    return 'column' as const;
   }, [legendPosition]);
+
+  // CSS order: 'left' is the only case where the legend must precede the chart visually.
+  const chartOrder = legendPosition === 'left' ? 1 : 0;
+  const legendOrder = legendPosition === 'left' ? 0 : 1;
 
   // Look up the full field definition for the value field (format, currencyCode, precision).
   const fieldDef = React.useMemo(
@@ -297,7 +295,7 @@ export function StudioMapWidget({
   // 90°S), so the equator sits at ~58.6% down the content rather than 50%. The translate
   // override therefore shifts content upward by ~8.6% of the drawing height, clipping Arctic
   // features. Increasing margin.top pushes the drawing-area centre down to counteract this.
-  const { legendMaxWidth, mapMargin } = React.useMemo(() => {
+  const { legendMaxWidth, mapMargin, chartBoxMaxW, legendMaxHeight } = React.useMemo(() => {
     // Fraction by which the equator exceeds the 50% mark inside the fitted content.
     const WORLD_NORTH_SHIFT = 0.0862;
 
@@ -336,7 +334,24 @@ export function StudioMapWidget({
       }
     }
 
-    return { legendMaxWidth: maxWidth, mapMargin: margin };
+    // For vertical (left/right) legends in wide containers: the geographic content is
+    // height-constrained and narrower than the full SVG. Capping the chart box width
+    // makes the legend sit adjacent to the content rather than at the widget edge.
+    let chartBoxMaxW: number | undefined;
+    let legendMaxHeight: number | undefined;
+    if (legendDirection === 'vertical' && !hideLegend) {
+      const legendEstW = 60; // approximate rendered width of vertical ContinuousColorLegend
+      const drawH = svgH - margin.top - margin.bottom;
+      const availDrawW = containerDims.width - legendEstW - margin.left - margin.right;
+      if (drawH > 0 && availDrawW > 0 && availDrawW / drawH > aspect) {
+        chartBoxMaxW = Math.round(aspect * drawH) + margin.left + margin.right;
+      }
+      if (drawH > 0) {
+        legendMaxHeight = drawH;
+      }
+    }
+
+    return { legendMaxWidth: maxWidth, mapMargin: margin, chartBoxMaxW, legendMaxHeight };
   }, [containerDims, legendDirection, projectionName, hideLegend]);
 
   // Lazy-load geography — async resource loading requires useEffect; the null-reset
@@ -477,7 +492,9 @@ export function StudioMapWidget({
               height: '100%',
             }}
           >
-            <Box sx={{ flex: 1, minHeight: 0, minWidth: 0 }}>
+            <Box
+              sx={{ flex: 1, minHeight: 0, minWidth: 0, maxWidth: chartBoxMaxW, order: chartOrder }}
+            >
               <ChartsSurface>
                 <GeoDataPlot fill="#f5f5f5" stroke="#bdbdbd" />
                 <StudioMapShapePlot
@@ -496,8 +513,12 @@ export function StudioMapWidget({
                 maxLabel={({ value }) => formatMapValue(value as number)}
                 sx={
                   legendDirection === 'horizontal'
-                    ? { mx: 'auto', width: legendMaxWidth ?? '100%' }
-                    : { alignSelf: 'center', height: 'calc(100% - 16px)' }
+                    ? { mx: 'auto', width: legendMaxWidth ?? '100%', order: legendOrder }
+                    : {
+                        alignSelf: 'center',
+                        height: legendMaxHeight ?? 'calc(100% - 16px)',
+                        order: legendOrder,
+                      }
                 }
               />
             )}

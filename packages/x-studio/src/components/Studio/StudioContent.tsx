@@ -39,7 +39,7 @@ const StudioChatPanel = React.lazy(() =>
 
 const MIN_CANVAS_WIDTH = 480;
 
-export interface StudioContentProps {
+interface StudioContentProps {
   dataDrawer?: React.ReactNode;
   composeDrawer?: React.ReactNode;
   filtersDrawer?: React.ReactNode;

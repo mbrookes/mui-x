@@ -30,7 +30,7 @@ function isoDate(dayOffset: number): string {
  * Generate n sales rows for a single tenant.
  * Deterministic — row i always has the same values.
  */
-export function makeSalesRows(n: number, tenantId = 'acme'): Row[] {
+function makeSalesRows(n: number, tenantId = 'acme'): Row[] {
   const rows: Row[] = [];
   for (let i = 0; i < n; i++) {
     rows.push({

@@ -21,7 +21,7 @@ function SSRInitialFilled(_: BaseNumberField.Root.Props) {
 }
 SSRInitialFilled.muiName = 'Input';
 
-export interface NumberFieldProps extends Omit<
+interface NumberFieldProps extends Omit<
   BaseNumberField.Root.Props,
   'onChange' | 'children'
 > {

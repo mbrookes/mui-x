@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 
-export interface CrossFilterBarData {
+interface CrossFilterBarData {
   /** filteredValues[seriesId][dataIndex] = cross-filter value (null if category is filtered out) */
   filteredValuesBySeriesId: Record<string, (number | null)[]>;
   /** allValues[seriesId][dataIndex] = baseline (no cross-filter) value */

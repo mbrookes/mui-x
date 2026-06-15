@@ -12,7 +12,7 @@ export interface SeedOptions {
  * Check whether the database already has seeded data.
  * Uses the orders table as a proxy — if it has rows, we consider the DB seeded.
  */
-export async function isSeeded(db: Knex): Promise<boolean> {
+async function isSeeded(db: Knex): Promise<boolean> {
   try {
     const result = await db('orders').count('id as count').first();
     return Number(result?.count ?? 0) > 0;

@@ -16,7 +16,7 @@ import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { CollapsibleSection } from '../../internals/CollapsibleSection';
 import { ColorInput } from './ColorInput';
 
-export interface TextSectionFormatProps {
+interface TextSectionFormatProps {
   label: string;
   fontFamily?: 'serif' | 'monospace';
   fontSize?: number;

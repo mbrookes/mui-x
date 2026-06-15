@@ -8,7 +8,7 @@ import { useStudioDropTarget } from './useStudioDropTarget';
 import { MIN_SPAN, isAdjacentToDraggingWidget } from './canvasGridConstants';
 import { RowResizeHandle } from './RowResizeHandle';
 
-export interface WidgetGapProps {
+interface WidgetGapProps {
   rowIndex: number;
   colIndex: number;
   onDrop: (

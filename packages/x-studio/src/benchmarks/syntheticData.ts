@@ -50,7 +50,7 @@ function isoDate(dayOffset: number): string {
 
 // ─── Row generators ───────────────────────────────────────────────────────────
 
-export function makeCustomerRows(n: number): Record<string, unknown>[] {
+function makeCustomerRows(n: number): Record<string, unknown>[] {
   const rows: Record<string, unknown>[] = [];
   for (let i = 0; i < n; i++) {
     rows.push({
@@ -62,7 +62,7 @@ export function makeCustomerRows(n: number): Record<string, unknown>[] {
   return rows;
 }
 
-export function makeOrderRows(n: number): Record<string, unknown>[] {
+function makeOrderRows(n: number): Record<string, unknown>[] {
   const customerCount = Math.max(1, Math.floor(n / 10));
   const rows: Record<string, unknown>[] = [];
   for (let i = 0; i < n; i++) {
@@ -78,7 +78,7 @@ export function makeOrderRows(n: number): Record<string, unknown>[] {
   return rows;
 }
 
-export function makeOrderItemRows(orderCount: number): Record<string, unknown>[] {
+function makeOrderItemRows(orderCount: number): Record<string, unknown>[] {
   const itemsPerOrder = 3;
   const total = orderCount * itemsPerOrder;
   const rows: Record<string, unknown>[] = [];
@@ -96,7 +96,7 @@ export function makeOrderItemRows(orderCount: number): Record<string, unknown>[]
 
 // ─── DataSource builders ──────────────────────────────────────────────────────
 
-export function makeCustomersSource(n: number): StudioDataSource {
+function makeCustomersSource(n: number): StudioDataSource {
   return {
     id: 'customers',
     label: 'Customers',
@@ -109,7 +109,7 @@ export function makeCustomersSource(n: number): StudioDataSource {
   };
 }
 
-export function makeOrdersSource(n: number): StudioDataSource {
+function makeOrdersSource(n: number): StudioDataSource {
   return {
     id: 'orders',
     label: 'Orders',
@@ -125,7 +125,7 @@ export function makeOrdersSource(n: number): StudioDataSource {
   };
 }
 
-export function makeOrderItemsSource(orderCount: number): StudioDataSource {
+function makeOrderItemsSource(orderCount: number): StudioDataSource {
   return {
     id: 'orderItems',
     label: 'Order Items',
@@ -142,7 +142,7 @@ export function makeOrderItemsSource(orderCount: number): StudioDataSource {
 
 // ─── Relationships ────────────────────────────────────────────────────────────
 
-export const relationships: StudioRelationship[] = [
+const relationships: StudioRelationship[] = [
   {
     id: 'rel-orders-customers',
     sourceId: 'orders',
@@ -166,7 +166,7 @@ export const relationships: StudioRelationship[] = [
 /**
  * Arithmetic column: orders.total * 1.1  →  expr-revenue-adj (per-row scalar)
  */
-export const exprRevenueAdj: StudioExpressionField = {
+const exprRevenueAdj: StudioExpressionField = {
   id: 'expr-revenue-adj',
   label: 'Adjusted Revenue',
   sourceId: 'orders',
@@ -180,7 +180,7 @@ export const exprRevenueAdj: StudioExpressionField = {
 /**
  * Join column: pull customers.country onto each order row  →  expr-country
  */
-export const exprCountry: StudioExpressionField = {
+const exprCountry: StudioExpressionField = {
   id: 'expr-country',
   label: 'Customer Country',
   sourceId: 'orders',

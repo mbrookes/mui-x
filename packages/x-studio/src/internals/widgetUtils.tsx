@@ -95,7 +95,7 @@ export function widgetKindRequiresDataSource(kind: StudioWidgetKind) {
 }
 
 /** Extracts the `fieldId` strings from a `StudioGridColumn[]` for callers that only need IDs. */
-export function columnFieldIds(columns: StudioGridColumn[] | undefined): string[] {
+function columnFieldIds(columns: StudioGridColumn[] | undefined): string[] {
   return columns?.map((c) => c.fieldId) ?? [];
 }
 

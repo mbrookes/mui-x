@@ -354,7 +354,7 @@ function InputNode({
 
 // ─── Expression builder ───────────────────────────────────────────────────────
 
-export interface ExpressionBuilderProps {
+interface ExpressionBuilderProps {
   expression: StudioExpression;
   sourceFields: StudioDataField[];
   expressionFields: StudioExpressionField[];

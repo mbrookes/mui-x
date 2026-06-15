@@ -59,7 +59,7 @@ import { renderChartSvg } from './chartRenderer';
 import type { ChartRendererInput } from './chartRenderer';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 
-export type { StudioState, StudioCustomWidgetDef };
+export type { StudioState };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data query types (framework-agnostic — no Knex dependency in this package)

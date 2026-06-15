@@ -127,14 +127,17 @@ export function StudioInsightPanel(props: StudioInsightPanelProps) {
           </Tooltip>
         )}
         <Tooltip title={localeText.aiRegenerateTooltip}>
-          <IconButton
-            size="small"
-            onClick={() => onRegenerate(activeType)}
-            disabled={loading}
-            sx={{ p: 0.25 }}
-          >
-            <RefreshIcon sx={{ fontSize: 14 }} />
-          </IconButton>
+          {/* span wrapper: a disabled button can't fire the events the Tooltip listens for. */}
+          <span>
+            <IconButton
+              size="small"
+              onClick={() => onRegenerate(activeType)}
+              disabled={loading}
+              sx={{ p: 0.25 }}
+            >
+              <RefreshIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          </span>
         </Tooltip>
         <Tooltip title={localeText.aiCloseTooltip}>
           <IconButton size="small" onClick={onClose} sx={{ p: 0.25 }}>

@@ -116,6 +116,7 @@ export function ChartTypePicker({
                 onClick={() => onChange(opt.chartType, opt.barLayout)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
                     onChange(opt.chartType, opt.barLayout);
                   }
                 }}

@@ -47,14 +47,17 @@ describe('StudioWidgetCard', () => {
     expect(card.getAttribute('aria-label')).toContain('My widget');
   });
 
-  it('marks the card aria-selected when it is the selected widget', () => {
+  it('marks the card aria-current when it is the selected widget', () => {
+    // `aria-current` is used instead of `aria-selected` because the card is a
+    // `role="group"` container (it holds interactive content), where
+    // `aria-selected` would be invalid.
     const { card } = setup({ shell: { selectedWidgetId: 'w1' } });
-    expect(card.getAttribute('aria-selected')).toBe('true');
+    expect(card.getAttribute('aria-current')).toBe('true');
   });
 
-  it('is not aria-selected when another widget is selected', () => {
+  it('is not aria-current when another widget is selected', () => {
     const { card } = setup({ shell: { selectedWidgetId: 'other' } });
-    expect(card.getAttribute('aria-selected')).toBe('false');
+    expect(card.getAttribute('aria-current')).toBe(null);
   });
 
   it('selects the widget when the card is clicked', () => {

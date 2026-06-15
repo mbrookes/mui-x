@@ -44,14 +44,19 @@ export function KpiSparkline(props: KpiSparklineProps) {
     gaugeMax = 100,
   } = props;
   const localeText = useStudioLocaleText();
+  const fmt = (v: number) => formatNumber(v, fieldFormat, fieldCurrencyCode, compact, fieldPrecision);
 
   if (plotType === 'gauge') {
     const value = kpiValue ?? 0;
     // Sanitize range — guard against NaN and zero-width ranges
     const safeMax = Number.isFinite(gaugeMax) && gaugeMax > 0 ? gaugeMax : 1;
     const clampedValue = Math.min(Math.max(value, 0), safeMax);
+    // Text alternative: the gauge is a visual-only SVG.
+    const gaugeAriaLabel = `Gauge: ${fmt(clampedValue)} of ${fmt(safeMax)}.`;
     return (
       <Box
+        role="img"
+        aria-label={gaugeAriaLabel}
         sx={{
           flexGrow: 1,
           minWidth: 0,
@@ -81,8 +86,21 @@ export function KpiSparkline(props: KpiSparklineProps) {
   const hasEnoughData = data !== null && data.length > 1;
 
   if (hasEnoughData) {
+    const first = data[0];
+    const last = data[data.length - 1];
+    let direction = 'flat';
+    if (last > first) {
+      direction = 'trending up';
+    } else if (last < first) {
+      direction = 'trending down';
+    }
+    const sparkAriaLabel = `Sparkline with ${data.length} points, ${direction}, from ${fmt(
+      first,
+    )} to ${fmt(last)}.`;
     return (
       <Box
+        role="img"
+        aria-label={sparkAriaLabel}
         sx={{ flexGrow: 1, minWidth: 0, alignSelf: 'stretch', minHeight: 48, overflow: 'hidden' }}
       >
         <SparkLineChart

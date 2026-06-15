@@ -133,8 +133,12 @@ export function StudioMapWidget({
   // Row layouts always use 'row'; CSS `order` below places the legend on the correct side.
   // Column-reverse handles 'top' so the chart stays first in DOM (better for screen readers).
   const legendFlexDirection = React.useMemo(() => {
-    if (legendPosition === 'top') return 'column-reverse' as const;
-    if (legendPosition === 'left' || legendPosition === 'right') return 'row' as const;
+    if (legendPosition === 'top') {
+      return 'column-reverse' as const;
+    }
+    if (legendPosition === 'left' || legendPosition === 'right') {
+      return 'row' as const;
+    }
     return 'column' as const;
   }, [legendPosition]);
 
@@ -332,11 +336,11 @@ export function StudioMapWidget({
     const legendEstW = 60;
 
     // Size the vertical legend to match the map's drawing height.
-    let legendMaxHeight: number | undefined;
+    let computedLegendMaxHeight: number | undefined;
     if (legendDirection === 'vertical' && !hideLegend) {
       const drawH = svgH - margin.top - margin.bottom;
       if (drawH > 0) {
-        legendMaxHeight = drawH;
+        computedLegendMaxHeight = drawH;
       }
     }
 
@@ -345,14 +349,14 @@ export function StudioMapWidget({
     // at the top or dead space at the bottom.
     // For vertical legends tx uses the estimated chart SVG width (full container minus the
     // legend strip); for horizontal layouts the SVG spans the full container width.
-    let mapTranslate: [number, number] | undefined;
+    let computedMapTranslate: [number, number] | undefined;
     if (mapGeography === 'world') {
       const effectiveSvgW =
         legendDirection === 'vertical' && !hideLegend
           ? containerDims.width - legendEstW
           : containerDims.width;
       const drawH = svgH - margin.top - margin.bottom;
-      mapTranslate = [effectiveSvgW / 2, margin.top + (0.5 + WORLD_NORTH_SHIFT) * drawH];
+      computedMapTranslate = [effectiveSvgW / 2, margin.top + (0.5 + WORLD_NORTH_SHIFT) * drawH];
     }
 
     // Cap horizontal legend width to the geographic content width so it doesn't
@@ -369,8 +373,8 @@ export function StudioMapWidget({
     return {
       legendMaxWidth: maxWidth,
       mapMargin: margin,
-      mapTranslate,
-      legendMaxHeight,
+      mapTranslate: computedMapTranslate,
+      legendMaxHeight: computedLegendMaxHeight,
     };
   }, [containerDims, legendDirection, projectionName, hideLegend, mapGeography]);
 
@@ -472,6 +476,21 @@ export function StudioMapWidget({
   // on the public premium hooks and forwards an `onShapeClick(featureId)`, which drives
   // `handleFeatureClick` to emit the cross-filter. See `StudioMapShapePlot.tsx`.
 
+  let legendAlignSelf: 'flex-start' | 'flex-end' | 'center' = 'center';
+  if (legendAlign === 'start') {
+    legendAlignSelf = 'flex-start';
+  } else if (legendAlign === 'end') {
+    legendAlignSelf = 'flex-end';
+  }
+
+  // Text alternative: the map is a visual-only SVG. Summarize the measure,
+  // region count and value range so assistive technology gets the gist.
+  const mapAriaLabel = `Choropleth map${
+    valueFieldLabel ? ` of ${valueFieldLabel}` : ''
+  } with ${regionData.size} ${
+    regionData.size === 1 ? 'region' : 'regions'
+  }, values from ${formatMapValue(minVal)} to ${formatMapValue(maxVal)}.`;
+
   return (
     <StudioMapTooltipContext.Provider value={tooltipContextValue}>
       {/* containerRef drives the ResizeObserver that sizes the legend to the geographic extent. */}
@@ -514,7 +533,7 @@ export function StudioMapWidget({
               height: '100%',
             }}
           >
-            <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, order: chartOrder }}>
+            <Box role="img" aria-label={mapAriaLabel} sx={{ flex: 1, minHeight: 0, minWidth: 0, order: chartOrder }}>
               <ChartsSurface>
                 <GeoDataPlot fill="#f5f5f5" stroke="#bdbdbd" />
                 <StudioMapShapePlot
@@ -540,23 +559,13 @@ export function StudioMapWidget({
                         // mx: 'auto' is intentionally absent — it would override alignSelf and
                         // prevent left/right alignment from working.
                         width: legendMaxWidth !== undefined ? Math.min(legendMaxWidth, 180) : 180,
-                        alignSelf:
-                          legendAlign === 'start'
-                            ? 'flex-start'
-                            : legendAlign === 'end'
-                              ? 'flex-end'
-                              : 'center',
+                        alignSelf: legendAlignSelf,
                         order: legendOrder,
                       }
                     : {
                         height:
                           legendMaxHeight !== undefined ? Math.min(legendMaxHeight, 140) : 140,
-                        alignSelf:
-                          legendAlign === 'start'
-                            ? 'flex-start'
-                            : legendAlign === 'end'
-                              ? 'flex-end'
-                              : 'center',
+                        alignSelf: legendAlignSelf,
                         order: legendOrder,
                       }
                 }

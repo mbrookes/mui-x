@@ -73,8 +73,19 @@ export function StudioHeatmapChart({
       ? Math.max(CELL_HEIGHT, Math.floor((gridHeight - 16) / yLabels.length))
       : CELL_HEIGHT;
 
+  // Text alternative: a per-cell read-out would be unwieldy for large grids, so
+  // summarize the dimensions and value range for assistive technology.
+  const axisSummary = [xLabel ? `x: ${xLabel}` : null, yLabel ? `y: ${yLabel}` : null]
+    .filter(Boolean)
+    .join(', ');
+  const ariaLabel = `Heatmap with ${xLabels.length} ${
+    xLabels.length === 1 ? 'column' : 'columns'
+  } and ${yLabels.length} ${yLabels.length === 1 ? 'row' : 'rows'}${
+    axisSummary ? ` (${axisSummary})` : ''
+  }. Values range from ${formatter(minValue)} to ${formatter(maxValue)}.`;
+
   return (
-    <Box sx={{ width: '100%', height, overflow: 'auto', userSelect: 'none' }}>
+    <Box role="img" aria-label={ariaLabel} sx={{ width: '100%', height, overflow: 'auto', userSelect: 'none' }}>
       {/* Y axis label */}
       {yLabel && (
         <Typography

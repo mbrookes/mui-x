@@ -78,11 +78,15 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
           <tr>
             <th style={cornerStyle} aria-label={localeText.pivotCornerHeaderAriaLabel} />
             {matrix.colValues.map((cv) => (
-              <th key={cv} style={headerStyle}>
+              <th key={cv} scope="col" style={headerStyle}>
                 {cv || localeText.pivotBlankValueLabel}
               </th>
             ))}
-            {showTotals && <th style={{ ...headerStyle, background: totalBg }}>{localeText.pivotTotalLabel}</th>}
+            {showTotals && (
+              <th scope="col" style={{ ...headerStyle, background: totalBg }}>
+                {localeText.pivotTotalLabel}
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -94,7 +98,9 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
             }
             return (
               <tr key={rv}>
-                <td style={{ ...labelStyle, background: rowBg }}>{rv || localeText.pivotBlankValueLabel}</td>
+                <th scope="row" style={{ ...labelStyle, background: rowBg }}>
+                  {rv || localeText.pivotBlankValueLabel}
+                </th>
                 {matrix.colValues.map((cv) => (
                   <td key={cv} style={{ ...cellStyle, background: rowBg }}>
                     {fmt(resolveAgg(rowCells?.get(cv), aggFn))}
@@ -110,7 +116,9 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
           })}
           {showTotals && (
             <tr>
-              <td style={{ ...labelStyle, background: totalBg, fontWeight: 600 }}>{localeText.pivotTotalLabel}</td>
+              <th scope="row" style={{ ...labelStyle, background: totalBg, fontWeight: 600 }}>
+                {localeText.pivotTotalLabel}
+              </th>
               {matrix.colValues.map((cv) => (
                 <td key={cv} style={{ ...cellStyle, background: totalBg, fontWeight: 500 }}>
                   {fmt(resolveAgg(matrix.colTotals.get(cv), aggFn))}

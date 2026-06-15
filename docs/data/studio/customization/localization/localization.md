@@ -864,11 +864,10 @@ These are passed as `unit` into `dateFilterLast` / `dateFilterNext` above.
 | `filterSectionValueDisplay`         | `(fieldLabel, value) => string`          |
 | `filterSectionSourcePrefix`         | `(widgetTitle) => string`                |
 | `filterBodyAddCondition`            | `'Add condition'`                        |
-| `filterBodyNarrowOptions`           | `'Narrow options by parent'`             |
+| `filterBodyNarrowOptions`           | `'Narrow options based on:'`             |
 | `filterModeFilter`                  | `'Filter'`                               |
 | `filterModeSelect`                  | `'Select'`                               |
 | `filterModeRank`                    | `'Rank'`                                 |
-| `filterMetricCurrentValue`          | `'Current value'`                        |
 | `filterSelectionNoValues`           | `'No values found.'`                     |
 | `filterSelectionAll`                | `'All'`                                  |
 | `filterSelectionSelectedCount`      | `(count) => string`                      |

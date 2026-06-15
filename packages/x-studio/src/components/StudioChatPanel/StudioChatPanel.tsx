@@ -36,7 +36,7 @@ import TitleIcon from '@mui/icons-material/Title';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { ChatBox, ChatComposerToolbar, ChatMessage } from '@mui/x-chat';
+import { ChatBox, ChatComposerSendButton, ChatComposerToolbar, ChatMessage } from '@mui/x-chat';
 import type {
   ChatAdapter,
   ChatMessage as ChatMessageType,
@@ -118,8 +118,11 @@ const studioApprovalOnlyRenderer: ChatPartRendererMap['dynamic-tool'] = (props) 
 };
 
 // ── StudioSendButton — stop/send toggle for the composer ──────────────────────
-// Defined at module level so the reference is stable across renders (required by
-// ChatBox slot system to avoid re-mounting the button on every render).
+// Wraps ChatComposerSendButton (x-chat) via slots.sendButton so that x-chat's
+// ComposerSendButton headless layer computes `disabled` correctly from hasValue,
+// isStreaming, etc. — avoiding the need to replicate that logic here.
+// Defined at module level for a stable slot reference (unstable references
+// cause the button to remount on every render).
 
 // Normalize an optional `sx` prop into an array of sx entries so it can be spread into a
 // combined `sx={[...]}` array. The element type excludes the array form of `SxProps` so the
@@ -150,64 +153,78 @@ const SEND_BTN_SX = {
     }),
 } as const;
 
-const StudioSendButton = React.forwardRef<
+// Inner <button> element rendered by ChatComposerSendButton.
+// Receives disabled/type/data-is-streaming computed by ComposerSendButton (headless).
+const StudioSendButtonInner = React.forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement>
->(function StudioSendButton({ disabled, ...rest }, ref) {
-  const { isStreaming, stopStreaming } = useChat();
-
-  if (isStreaming) {
-    return (
-      <Box
-        component="button"
-        ref={ref as React.Ref<HTMLButtonElement>}
-        type="button"
-        onClick={(event: React.MouseEvent) => {
-          event.preventDefault();
-          stopStreaming();
-        }}
-        aria-label="Stop generating"
-        sx={{
-          ...SEND_BTN_SX,
-          bgcolor: 'error.main',
-          color: 'error.contrastText',
-          '&:hover': { bgcolor: 'error.dark' },
-        }}
-      >
-        <StopCircleIcon sx={{ width: '1em', height: '1em', fontSize: 'inherit' }} />
-      </Box>
-    );
-  }
+>(function StudioSendButtonInner({ children: _children, disabled, ...rest }, ref) {
+  const { stopStreaming } = useChat();
+  const isStreaming = (rest as Record<string, unknown>)['data-is-streaming'] === 'true';
 
   return (
     <Box
       component="button"
       ref={ref as React.Ref<HTMLButtonElement>}
-      type="submit"
-      disabled={disabled}
-      aria-label="Send message"
+      {...(rest as object)}
+      type={isStreaming ? 'button' : 'submit'}
+      disabled={isStreaming ? false : disabled}
+      onClick={
+        isStreaming
+          ? (event: React.MouseEvent) => {
+              event.preventDefault();
+              stopStreaming();
+            }
+          : (rest.onClick as React.MouseEventHandler | undefined)
+      }
+      aria-label={isStreaming ? 'Stop generating' : (rest['aria-label'] ?? 'Send message')}
       sx={{
         ...SEND_BTN_SX,
-        bgcolor: disabled ? 'action.disabledBackground' : 'primary.main',
-        color: disabled ? 'action.disabled' : 'primary.contrastText',
-        '&:hover:not(:disabled)': { bgcolor: 'primary.dark' },
+        bgcolor: isStreaming
+          ? 'error.main'
+          : disabled
+            ? 'action.disabledBackground'
+            : 'primary.main',
+        color: isStreaming
+          ? 'error.contrastText'
+          : disabled
+            ? 'action.disabled'
+            : 'primary.contrastText',
+        '&:hover:not(:disabled)': { bgcolor: isStreaming ? 'error.dark' : 'primary.dark' },
         '&:disabled': {
           cursor: 'not-allowed',
           opacity: 'var(--mui-palette-action-disabledOpacity, 0.38)',
         },
       }}
-      {...(rest as object)}
     >
-      {/* Same paper-airplane SVG as the default ChatComposerSendButton */}
-      <svg
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        aria-hidden="true"
-        style={{ width: '1em', height: '1em' }}
-      >
-        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-      </svg>
+      {isStreaming ? (
+        <StopCircleIcon sx={{ width: '1em', height: '1em', fontSize: 'inherit' }} />
+      ) : (
+        <svg
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          aria-hidden="true"
+          style={{ width: '1em', height: '1em' }}
+        >
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+        </svg>
+      )}
     </Box>
+  );
+});
+
+// Outer slot component — wraps ChatComposerSendButton so slots.sendButton can
+// be injected without bypassing the headless disabled/streaming state logic.
+const StudioSendButton = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentProps<typeof ChatComposerSendButton>
+>(function StudioSendButton(props, ref) {
+  return (
+    <ChatComposerSendButton
+      ref={ref}
+      {...props}
+      slots={{ ...props.slots, sendButton: StudioSendButtonInner }}
+    />
   );
 });
 
@@ -873,6 +890,23 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     [isListening, stopVoice],
   );
 
+  const voiceMicContextValue = React.useMemo(
+    () => ({
+      voiceSupported,
+      isListening,
+      onToggle: handleToggleVoice,
+      startLabel: localeText.chatVoiceInputStart,
+      stopLabel: localeText.chatVoiceInputStop,
+    }),
+    [
+      voiceSupported,
+      isListening,
+      handleToggleVoice,
+      localeText.chatVoiceInputStart,
+      localeText.chatVoiceInputStop,
+    ],
+  );
+
   if (!adapter) {
     return null;
   }
@@ -1005,15 +1039,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
       </Menu>
 
       {/* Chat box */}
-      <VoiceMicContext.Provider
-        value={{
-          voiceSupported,
-          isListening,
-          onToggle: handleToggleVoice,
-          startLabel: localeText.chatVoiceInputStart,
-          stopLabel: localeText.chatVoiceInputStop,
-        }}
-      >
+      <VoiceMicContext.Provider value={voiceMicContextValue}>
         <Box sx={{ flexGrow: 1, minHeight: 0 }}>
           <ChatBox
             {...slotProps?.chatBox}

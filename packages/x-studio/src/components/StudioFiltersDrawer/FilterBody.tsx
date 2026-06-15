@@ -20,7 +20,7 @@ import { RankFilterInput } from './RankFilterInput';
 import { useStudioLocaleText } from '../../context';
 import { SecondCondition } from './SecondCondition';
 
-export interface FilterBodyProps {
+interface FilterBodyProps {
   filter: StudioFilterState;
   fieldType: FieldType | undefined;
   operators: { value: StudioFilterOperator; label: string }[];

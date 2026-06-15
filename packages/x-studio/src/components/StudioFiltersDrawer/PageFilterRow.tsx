@@ -27,7 +27,7 @@ import {
   type DataSourceFieldEntry,
 } from '../StudioComposeDrawer/DataSourceFieldSelect';
 
-export interface PageFilterRowProps {
+interface PageFilterRowProps {
   filter: StudioFilterState;
   fields: SimpleField[];
   fieldOptions: FieldOption[];

@@ -20,9 +20,9 @@ import type {
 } from '../security/types';
 import { buildSecureQuery } from './queryBuilder';
 
-export type RoutingTier = 'client' | 'server' | 'db';
+type RoutingTier = 'client' | 'server' | 'db';
 
-export interface PreflightResult {
+interface PreflightResult {
   rowCount: number;
   tier: RoutingTier;
 }

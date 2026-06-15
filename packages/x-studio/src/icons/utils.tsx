@@ -93,7 +93,7 @@ export function PaddedFieldSvg({
 
 // ─── Polar geometry helpers (used by Pie / Donut) ─────────────────────────────
 
-export function polarToXY(cx: number, cy: number, r: number, angleDeg: number): [number, number] {
+function polarToXY(cx: number, cy: number, r: number, angleDeg: number): [number, number] {
   const rad = ((angleDeg - 90) * Math.PI) / 180;
   return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
 }

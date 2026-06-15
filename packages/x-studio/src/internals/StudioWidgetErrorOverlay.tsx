@@ -4,7 +4,7 @@ import { Box, BoxProps, Typography } from '@mui/material';
 import ErrorIcon from '@mui/icons-material/Error';
 import { useStudioLocaleText } from '../context';
 
-export interface StudioWidgetErrorOverlayProps extends Omit<BoxProps, 'role'> {
+interface StudioWidgetErrorOverlayProps extends Omit<BoxProps, 'role'> {
   /** Custom error message. Falls back to the `widgetLoadError` locale token. */
   message?: string;
   /** Height of the overlay container (optional, used by chart widget). */

@@ -7,7 +7,7 @@ import type { TabbedSidebarPanel } from './TabbedSidebar';
 
 // ── Tab rail entry ────────────────────────────────────────────────────────────
 
-export interface TabbedSidebarTabEntryProps {
+interface TabbedSidebarTabEntryProps {
   panel: TabbedSidebarPanel;
   isActive: boolean;
   onClick: () => void;

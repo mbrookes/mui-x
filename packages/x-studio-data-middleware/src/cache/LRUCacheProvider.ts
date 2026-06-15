@@ -17,7 +17,7 @@
 import { LRUCache } from 'lru-cache';
 import type { CacheEntry, CacheProvider } from './types';
 
-export interface LRUCacheProviderOptions {
+interface LRUCacheProviderOptions {
   /**
    * Maximum total cache size in bytes.
    * Default: 128 MB. Tune based on available server memory.

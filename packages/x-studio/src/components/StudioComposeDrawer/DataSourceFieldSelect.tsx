@@ -48,7 +48,7 @@ export interface DataSourceFieldSelectCalculatedFieldContext {
   reachableSourceIds?: ReadonlySet<string>;
 }
 
-export interface DataSourceFieldSelectProps {
+interface DataSourceFieldSelectProps {
   /** Selected field ID (empty string = none). */
   value: string;
   /** Source ID of the selected field — used to disambiguate when multiple sources share the same field ID. */

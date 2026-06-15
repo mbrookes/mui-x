@@ -6,7 +6,7 @@ import { setCustomNativeDragPreview } from '@atlaskit/pragmatic-drag-and-drop/el
 import { pointerOutsideOfPreview } from '@atlaskit/pragmatic-drag-and-drop/element/pointer-outside-of-preview';
 import type { StudioDragItem } from './studioWidgetDndTypes';
 
-export interface UseStudioDraggableParameters {
+interface UseStudioDraggableParameters {
   /** Ref to the element that becomes draggable. */
   ref: React.RefObject<HTMLElement | null>;
   /** Whether the element can currently be dragged. When false, no drag is registered. */

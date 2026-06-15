@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 
-export interface PieHighlightContextValue {
+interface PieHighlightContextValue {
   ratioByIndex: Map<number, number>;
   isActive: boolean;
   skipAnimation: boolean;

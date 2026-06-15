@@ -3,7 +3,7 @@ import * as React from 'react';
 import { dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { isStudioDragItem, type StudioDragItem } from './studioWidgetDndTypes';
 
-export interface UseStudioDropTargetParameters {
+interface UseStudioDropTargetParameters {
   /** Ref to the element that becomes a drop target. */
   ref: React.RefObject<HTMLElement | null>;
   /** Whether the dragged item may be dropped here. Receives the live drag item. */

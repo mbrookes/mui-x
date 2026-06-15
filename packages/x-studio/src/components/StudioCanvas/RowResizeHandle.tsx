@@ -5,7 +5,7 @@ import { Box } from '@mui/material';
 
 import { MIN_SPAN } from './canvasGridConstants';
 
-export interface RowResizeHandleProps {
+interface RowResizeHandleProps {
   leftId: string;
   rightId: string;
   leftSpan: number;

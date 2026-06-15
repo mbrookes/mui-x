@@ -546,7 +546,7 @@ export function inferExpressionType(
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
-export interface ExpressionValidationError {
+interface ExpressionValidationError {
   message: string;
   /** Expression path for nested errors, e.g. ['inputs', '0', 'inputs', '1'] */
   path?: string[];

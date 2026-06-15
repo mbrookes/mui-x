@@ -83,7 +83,7 @@ async function loadTopoFeatures(topo: any, objectName: string): Promise<Extended
  * Loads the Natural Earth 110m world countries map.
  * Feature IDs are ISO 3166-1 alpha-2 codes.
  */
-export async function loadWorldGeography(): Promise<ExtendedFeatureCollection> {
+async function loadWorldGeography(): Promise<ExtendedFeatureCollection> {
   const topo = await import('world-atlas/countries-110m.json');
   const fc = await loadTopoFeatures(topo, 'countries');
   return {
@@ -111,7 +111,7 @@ export async function loadWorldGeography(): Promise<ExtendedFeatureCollection> {
  * Loads the US Census 10m states map.
  * Feature IDs are 2-letter US postal state abbreviations (e.g. `'CA'`, `'TX'`).
  */
-export async function loadUsaGeography(): Promise<ExtendedFeatureCollection> {
+async function loadUsaGeography(): Promise<ExtendedFeatureCollection> {
   const topo = await import('us-atlas/states-10m.json');
   const fc = await loadTopoFeatures(topo, 'states');
   return {
@@ -133,7 +133,7 @@ export async function loadUsaGeography(): Promise<ExtendedFeatureCollection> {
  * Loads the European countries subset of the Natural Earth 110m world map.
  * Feature IDs are ISO 3166-1 alpha-2 codes.
  */
-export async function loadEuropeGeography(): Promise<ExtendedFeatureCollection> {
+async function loadEuropeGeography(): Promise<ExtendedFeatureCollection> {
   const world = await loadWorldGeography();
   return {
     ...world,

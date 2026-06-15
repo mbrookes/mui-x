@@ -5,7 +5,7 @@ import AddIcon from '@mui/icons-material/Add';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
-export interface CollapsibleSectionProps {
+interface CollapsibleSectionProps {
   title: string;
   children: React.ReactNode;
   /** When provided, renders an "+" icon button on the right. */

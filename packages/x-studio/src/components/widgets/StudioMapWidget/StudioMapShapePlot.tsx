@@ -12,7 +12,7 @@ import { useSeriesOfType, type ChartSeriesDefaultized } from '@mui/x-charts/inte
 import { useGeoData, useGeoPath, useGeoFeatureIndexesByName } from '@mui/x-charts-premium/hooks';
 import { MapShape, FocusedMapShape } from '@mui/x-charts-premium/Map';
 
-export interface StudioMapShapePlotProps {
+interface StudioMapShapePlotProps {
   /**
    * Fill color applied to every feature path. Overrides item and series colors.
    */

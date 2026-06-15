@@ -10,7 +10,7 @@ import { CollapsibleSection } from '../../internals/CollapsibleSection';
 
 // ─── Page filter section ──────────────────────────────────────────────────────
 
-export interface FilterSectionProps {
+interface FilterSectionProps {
   title: string;
   filters: StudioFilterState[];
   /** All page filters (unfiltered by search) — used for dependency option discovery. */
@@ -68,7 +68,7 @@ export function FilterSection(props: FilterSectionProps) {
 
 // ─── Widget filter section ────────────────────────────────────────────────────
 
-export interface WidgetFilterSectionProps {
+interface WidgetFilterSectionProps {
   title: string;
   filters: StudioFilterState[];
   widgetSourceId?: string;

@@ -4,7 +4,7 @@ import { Box, Collapse, Stack, Switch, Typography } from '@mui/material';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
-export interface CollapsibleFeatureSectionProps {
+interface CollapsibleFeatureSectionProps {
   label: string;
   enabled: boolean;
   onToggle: (next: boolean) => void;

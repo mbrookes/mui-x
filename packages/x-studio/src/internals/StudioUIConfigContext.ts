@@ -1760,7 +1760,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
 // ── Config context ──────────────────────────────────────────────────────────
 
-export interface StudioUIConfig {
+interface StudioUIConfig {
   /**
    * Controls how the table widget's data source is determined.
    * - `'explicit'` (default): a data source picker is shown at the top of the

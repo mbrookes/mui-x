@@ -6,7 +6,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useStudioLocaleText } from '../../context';
 
-export interface FilterCardProps {
+interface FilterCardProps {
   /** Primary label shown in the card header (field name or "Rank by Revenue"). */
   title: string;
   /** Summary text shown in the header when the card is collapsed. */

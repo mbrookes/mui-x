@@ -6,7 +6,7 @@ import LinkOffIcon from '@mui/icons-material/LinkOff';
 import { useStudioSelector, selectDataSources, useStudioLocaleText } from '../../context';
 import { fieldHasCapability } from '../../utils/fieldCapabilities';
 
-export interface MetricOption {
+interface MetricOption {
   label: string;
   sourceId: string;
   rowId: string;

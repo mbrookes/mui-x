@@ -537,25 +537,3 @@ export const STUDIO_AI_TOOLS = [
     },
   },
 ] as const;
-
-export type StudioAIToolName =
-  | 'get_dashboard_state'
-  | 'add_page'
-  | 'set_dashboard_title'
-  | 'add_widget'
-  | 'update_widget'
-  | 'remove_widget'
-  | 'set_widget_layout'
-  | 'set_widget_width'
-  | 'rename_page'
-  | 'remove_page'
-  | 'set_active_page'
-  | 'add_page_filter'
-  | 'remove_page_filter'
-  | 'add_widget_filter'
-  | 'remove_widget_filter'
-  | 'summarise_page'
-  | 'apply_bulk_update'
-  | 'rename_thread'
-  | 'execute_query'
-  | 'set_widget_forecast';

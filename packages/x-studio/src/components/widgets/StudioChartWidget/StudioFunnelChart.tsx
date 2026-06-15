@@ -5,7 +5,7 @@ import { clampWidthPct } from '../../../internals/chartAggregation';
 import { formatNumber } from '../../../internals/numberFormat';
 import type { StudioNumberFormat } from '../../../models';
 
-export interface FunnelStage {
+interface FunnelStage {
   label: string;
   value: number;
   /**
@@ -16,7 +16,7 @@ export interface FunnelStage {
   snapshotValue?: number;
 }
 
-export interface StudioFunnelChartProps {
+interface StudioFunnelChartProps {
   stages: FunnelStage[];
   height: number;
   valueFormat?: StudioNumberFormat;

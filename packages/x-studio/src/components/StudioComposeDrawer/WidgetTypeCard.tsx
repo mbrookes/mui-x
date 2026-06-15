@@ -20,7 +20,7 @@ export interface WidgetTypeEntry {
   icon: React.ReactNode;
 }
 
-export interface WidgetTypeCardProps {
+interface WidgetTypeCardProps {
   wt: WidgetTypeEntry;
   canAdd: boolean;
   onSelect: (kind: StudioWidgetKind) => void;

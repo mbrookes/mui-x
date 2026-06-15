@@ -20,7 +20,7 @@ import type { FieldType } from './filterDrawerTypes';
 import { FilterValueInput } from './FilterValueInput';
 import { useStudioLocaleText } from '../../context';
 
-export interface SecondConditionProps {
+interface SecondConditionProps {
   filter: StudioFilterState;
   operators: { value: StudioFilterOperator; label: string }[];
   activeOperator2: StudioFilterOperator;

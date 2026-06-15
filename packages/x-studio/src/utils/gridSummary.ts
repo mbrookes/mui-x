@@ -5,7 +5,7 @@ import {
   type StudioLocaleText,
 } from '../internals/StudioUIConfigContext';
 
-export interface GridSummaryConfig {
+interface GridSummaryConfig {
   /** Map of fieldId → aggregation function. Only listed fields get a summary cell. */
   fields: Record<string, StudioGridSummaryAggregation>;
 }

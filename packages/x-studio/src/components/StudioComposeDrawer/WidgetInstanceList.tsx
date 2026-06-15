@@ -74,7 +74,7 @@ function WidgetInstanceItem({ widget, isSelected, onSelect }: WidgetInstanceItem
   );
 }
 
-export interface WidgetInstanceListProps {
+interface WidgetInstanceListProps {
   kind: StudioWidgetKind;
   onBack: () => void;
   onAdd: (kind: StudioWidgetKind) => void;

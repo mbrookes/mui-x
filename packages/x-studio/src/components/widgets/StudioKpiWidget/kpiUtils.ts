@@ -105,7 +105,7 @@ export function findDateFilter(
 
 // ─── Previous period range ─────────────────────────────────────────────────────
 
-export type TrendComparison = 'previous-period' | 'previous-calendar-period' | 'year-over-year';
+type TrendComparison = 'previous-period' | 'previous-calendar-period' | 'year-over-year';
 
 /**
  * Given a current [start, end] date range and a comparison mode, computes the

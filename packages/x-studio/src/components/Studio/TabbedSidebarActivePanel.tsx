@@ -11,7 +11,7 @@ import type { TabbedSidebarPanel } from './TabbedSidebar';
 
 // ── Panel content area ────────────────────────────────────────────────────────
 
-export interface TabbedSidebarActivePanelProps {
+interface TabbedSidebarActivePanelProps {
   panel: TabbedSidebarPanel;
   side?: 'left' | 'right';
 }

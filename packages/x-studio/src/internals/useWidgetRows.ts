@@ -21,7 +21,7 @@ import { enrichWithCrossSourceFields } from './crossSourceEnrichment';
 
 type Row = Record<string, unknown>;
 
-export interface UseWidgetRowsResult {
+interface UseWidgetRowsResult {
   /** Rows after applying all active filters — page, widget, cross-filter, and interactive. */
   filteredRows: Row[];
   /**

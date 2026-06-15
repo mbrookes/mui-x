@@ -4,7 +4,7 @@ import { formatNumber } from '../../../internals/numberFormat';
 import type { StudioNumberFormat } from '../../../models';
 import type { SankeyAggregateData } from '../../../internals/chartAggregation';
 
-export interface StudioSankeyChartProps {
+interface StudioSankeyChartProps {
   /** Node ids and weighted links, as produced by `aggregateSankey`. */
   data: SankeyAggregateData;
   height: number;

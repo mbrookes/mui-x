@@ -12,7 +12,7 @@
 // ── Primitives / shared ───────────────────────────────────────────────────────
 
 export type StudioMode = 'edit' | 'view';
-export type StudioDrawer = 'data' | 'compose' | 'filters';
+type StudioDrawer = 'data' | 'compose' | 'filters';
 
 export type BuiltinStudioWidgetKind =
   | 'grid'
@@ -26,9 +26,9 @@ export type BuiltinStudioWidgetKind =
 /** All widget kinds: built-in plus any consumer-defined custom kind. */
 export type StudioWidgetKind = BuiltinStudioWidgetKind | (string & {});
 
-export type StudioFilterWidgetType = 'date-range' | 'multi-select' | 'toggle' | 'slider';
+type StudioFilterWidgetType = 'date-range' | 'multi-select' | 'toggle' | 'slider';
 
-export type StudioChartType =
+type StudioChartType =
   | 'bar'
   | 'bar-stacked'
   | 'bar-100'
@@ -45,9 +45,9 @@ export type StudioChartType =
   | 'scatter'
   | 'gauge';
 
-export type StudioBarLayout = 'grouped' | 'stacked' | 'horizontal';
+type StudioBarLayout = 'grouped' | 'stacked' | 'horizontal';
 export type StudioNumberFormat = 'integer' | 'decimal' | 'percent' | 'currency';
-export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
+type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
 export type StudioGridSummaryAggregation =
   | 'sum'
   | 'avg'
@@ -55,7 +55,7 @@ export type StudioGridSummaryAggregation =
   | 'min'
   | 'max'
   | 'count_distinct';
-export type StudioCrossFilterMode = 'cross-highlight' | 'cross-filter' | 'none';
+type StudioCrossFilterMode = 'cross-highlight' | 'cross-filter' | 'none';
 
 export type StudioFilterOperator =
   | 'equals'
@@ -76,7 +76,7 @@ export type StudioFilterOperator =
   | 'less_than_or_equal'
   | 'between';
 
-export interface StudioChartSeries {
+interface StudioChartSeries {
   fieldId: string;
   label?: string;
   seriesType?: 'bar' | 'line';
@@ -89,20 +89,20 @@ export interface StudioMetricRef {
   field: string;
 }
 
-export interface StudioChartAnnotation {
+interface StudioChartAnnotation {
   id: string;
   axis: 'y' | 'x';
   value: number | string;
   label?: string;
 }
 
-export interface StudioConditionalFormatStyle {
+interface StudioConditionalFormatStyle {
   backgroundColor?: string;
   color?: string;
   fontWeight?: 'bold' | 'normal';
 }
 
-export interface StudioConditionalFormat {
+interface StudioConditionalFormat {
   fieldId: string;
   operator:
     | 'equals'
@@ -118,7 +118,7 @@ export interface StudioConditionalFormat {
   style: StudioConditionalFormatStyle;
 }
 
-export interface StudioGridColumn {
+interface StudioGridColumn {
   fieldId: string;
   sourceId?: string;
   aggregationFn?: StudioGridSummaryAggregation;
@@ -160,7 +160,7 @@ export interface StudioDataSource {
 
 // ── Expression types ──────────────────────────────────────────────────────────
 
-export type StudioExpressionOperator =
+type StudioExpressionOperator =
   | 'add'
   | 'subtract'
   | 'multiply'
@@ -184,23 +184,23 @@ export type StudioExpressionOperator =
   | 'isNotNull'
   | 'datediff';
 
-export interface StudioFunctionExpression {
+interface StudioFunctionExpression {
   operator: StudioExpressionOperator;
   inputs: StudioExpression[];
 }
-export interface StudioValueExpression {
+interface StudioValueExpression {
   type: 'number' | 'string' | 'boolean';
   value: string | number | boolean | null;
 }
-export interface StudioFieldExpression {
+interface StudioFieldExpression {
   id: string;
   aggregation?: StudioKpiAggregation;
 }
-export interface StudioJoinFieldExpression {
+interface StudioJoinFieldExpression {
   joinSourceId: string;
   fieldId: string;
 }
-export type StudioExpression =
+type StudioExpression =
   | StudioFunctionExpression
   | StudioValueExpression
   | StudioFieldExpression
@@ -357,7 +357,7 @@ export interface StudioWidget {
   config: StudioWidgetConfig;
 }
 
-export interface StudioPageTheme {
+interface StudioPageTheme {
   pageBackground?: string;
   cardBackground?: string;
   cardPadding?: number;

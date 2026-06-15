@@ -4,7 +4,7 @@ import type { HeatmapData } from '../../../internals/chartAggregation';
 import { formatNumber } from '../../../internals/numberFormat';
 import type { StudioNumberFormat } from '../../../models';
 
-export interface StudioHeatmapChartProps {
+interface StudioHeatmapChartProps {
   data: HeatmapData;
   height: number;
   colorScheme?: 'primary' | 'success' | 'warning' | 'error';

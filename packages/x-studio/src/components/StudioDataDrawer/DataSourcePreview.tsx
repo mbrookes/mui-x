@@ -7,7 +7,7 @@ import type { StudioDataSource, StudioExpressionField, StudioRelationship } from
 import { enrichRowsWithExpressions } from '../../utils/expressionEvaluator';
 import { formatFieldValue } from '../../internals/numberFormat';
 
-export interface DataSourcePreviewProps {
+interface DataSourcePreviewProps {
   source: StudioDataSource;
   expressionFields: StudioExpressionField[];
   dataSources: Record<string, StudioDataSource>;

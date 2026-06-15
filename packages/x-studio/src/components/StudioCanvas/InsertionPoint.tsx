@@ -7,7 +7,7 @@ import type { StudioDragItem } from './studioWidgetDndTypes';
 import { useStudioDropTarget } from './useStudioDropTarget';
 import { isAdjacentToDraggingWidget } from './canvasGridConstants';
 
-export interface InsertionPointProps {
+interface InsertionPointProps {
   rowIndex: number;
   colIndex: number;
   onDrop: (

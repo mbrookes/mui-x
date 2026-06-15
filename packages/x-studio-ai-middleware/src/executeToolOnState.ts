@@ -36,6 +36,7 @@ export function executeToolOnState(
   input: unknown,
   state: StudioState,
   customWidgets?: StudioCustomWidgetDef[],
+  pageSnapshot?: string,
 ): ToolExecutionResult {
   const args = (input ?? {}) as Record<string, unknown>;
 
@@ -498,9 +499,13 @@ export function executeToolOnState(
     }
 
     case 'summarise_page': {
-      // summarise_page requires runtime data (rows/pipeline) — not available server-side.
-      // Return a prompt to the model explaining this limitation; the client-side adapter
-      // should handle this tool locally if needed.
+      if (pageSnapshot) {
+        return {
+          output: JSON.stringify({ snapshot: pageSnapshot }),
+          nextState: state,
+        };
+      }
+      // No snapshot available — explain the limitation so the model can degrade gracefully.
       return {
         output: JSON.stringify({
           error:

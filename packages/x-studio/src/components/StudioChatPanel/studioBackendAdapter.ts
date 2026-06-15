@@ -13,6 +13,7 @@ import type { StudioController } from '../../store/StudioController';
 import type { StudioCustomWidgetDef, StateMutation, SerializableSkill } from '../../models';
 import { applyStateMutation } from './applyStateMutation';
 import type { StudioAIToolName } from './studioAITools';
+import { buildWidgetDataSummary } from './generateInsight';
 
 /**
  * Configuration for the x-studio AI assistant.
@@ -160,6 +161,22 @@ export function createBackendChatAdapter(
         }
       };
 
+      // Build a per-widget data snapshot from the active page so the server-side
+      // summarise_page handler has live pipeline-filtered row data to work with.
+      const state = controller.getState();
+      const activePage = state.pages[state.dashboard.activePageId];
+      const pageWidgetIds = (activePage?.widgetRows ?? []).flat() as string[];
+      const pageSnapshotParts = pageWidgetIds.flatMap((id) => {
+        const w = state.widgets[id];
+        if (!w) {
+          return [];
+        }
+        const dataSummary = buildWidgetDataSummary(w, state, { sampling: 'aggregate' });
+        return [`### ${w.title} (${w.kind})\n${dataSummary || '(no data)'}`];
+      });
+      const pageSnapshot =
+        pageSnapshotParts.length > 0 ? pageSnapshotParts.join('\n\n') : undefined;
+
       return new ReadableStream<ChatMessageChunk>({
         async start(streamController) {
           streamController.enqueue({ type: 'start', messageId: msgId });
@@ -185,6 +202,7 @@ export function createBackendChatAdapter(
                 allowedTools,
                 skills: serializableSkills,
                 privateMode,
+                pageSnapshot,
               }),
             });
           } catch (err) {

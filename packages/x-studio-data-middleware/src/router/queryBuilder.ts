@@ -58,8 +58,14 @@ export function buildSecureQuery(
   // ── Joins (Phase 7) ────────────────────────────────────────────────────────
   // Applied before WHERE predicates so joined columns are available to filters.
   for (const join of descriptor.joins ?? []) {
-    const joinMethod =
-      join.type === 'left' ? 'leftJoin' : join.type === 'right' ? 'rightJoin' : 'join';
+    let joinMethod: string;
+    if (join.type === 'left') {
+      joinMethod = 'leftJoin';
+    } else if (join.type === 'right') {
+      joinMethod = 'rightJoin';
+    } else {
+      joinMethod = 'join';
+    }
     for (const [left, right] of join.on) {
       query[joinMethod](join.table, left, '=', right);
     }

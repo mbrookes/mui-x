@@ -32,7 +32,7 @@ Visit [https://mui.com/x/react-studio/](https://mui.com/x/react-studio/) to view
 Additional MUI developer reference documentation in this package:
 
 | Document                                                                  | Description                                                                                           |
-| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| :------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------- |
 | Planning                                                                  |
 | [AG_STUDIO_CLONE_REQUIREMENTS.md](./docs/AG_STUDIO_CLONE_REQUIREMENTS.md) | Feature requirements modelled on AG Studio                                                            |
 | [AG_STUDIO_GAP_ANALYSIS.md](./docs/AG_STUDIO_GAP_ANALYSIS.md)             | Gap analysis against AG Studio clone requirements                                                     |

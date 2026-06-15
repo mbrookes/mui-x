@@ -210,22 +210,20 @@ for (const filterCount of [1, 10, 50]) {
 for (const entryCount of [10, 100, 1_000]) {
   const cache = new LRUCacheProvider({ ttlMs: 60_000 });
 
-  await runBenchAsync(
-    `B4 invalidatePrefix`,
-    `${entryCount} entries`,
-    async () => {
-      // Repopulate before each scan so work is constant across iterations.
-      for (let i = 0; i < entryCount; i++) {
-        const key = generateCacheKey(
-          ACME_CLAIMS,
-          makeDescriptor({ filters: [makeFilter(`v${i}`)] }),
-          HMAC_SECRET,
-        );
-        await cache.set(key, { rows: [], cachedAt: Date.now() });
-      }
-      await cache.invalidatePrefix(`studio:v1:acme:`);
-    },
-  ).then((r) => results.push(r));
+  // eslint-disable-next-line no-await-in-loop
+  await runBenchAsync(`B4 invalidatePrefix`, `${entryCount} entries`, async () => {
+    // Repopulate before each scan so work is constant across iterations.
+    for (let i = 0; i < entryCount; i++) {
+      const key = generateCacheKey(
+        ACME_CLAIMS,
+        makeDescriptor({ filters: [makeFilter(`v${i}`)] }),
+        HMAC_SECRET,
+      );
+      // eslint-disable-next-line no-await-in-loop
+      await cache.set(key, { rows: [], cachedAt: Date.now() });
+    }
+    await cache.invalidatePrefix(`studio:v1:acme:`);
+  }).then((r) => results.push(r));
 }
 
 // ─── B5: runPreflight (COUNT(*) tier routing) ─────────────────────────────────
@@ -241,6 +239,7 @@ for (const scale of SCALES) {
   const db = createMockDb({ [tableKey]: rows });
   const descriptor = makeDescriptor({ filters: [makeFilter('completed')] });
 
+  // eslint-disable-next-line no-await-in-loop
   await runBenchAsync(
     'B5 runPreflight (COUNT(*) + tier routing)',
     `${scale.toLocaleString()} rows`,
@@ -268,17 +267,22 @@ for (const scale of SCALES) {
     widgets: [makeDescriptor({ filters: [makeFilter('completed')] })],
   };
 
+  // eslint-disable-next-line no-await-in-loop
   await runBenchAsync(
     'B6 handleBatchQuery (cold, no cache)',
     `${scale.toLocaleString()} rows`,
     async () => {
-      await handleBatchQuery(body, { ...ACME_CLAIMS, tenantId }, {
-        db,
-        schemaAllowlist: [tableKey],
-        tenantColumn: 'tenant_id',
-        cacheProvider: new LRUCacheProvider({ ttlMs: 0 }), // TTL=0 → never caches
-        tierCacheTtlMs: 0, // disable tier cache for a true cold measurement
-      });
+      await handleBatchQuery(
+        body,
+        { ...ACME_CLAIMS, tenantId },
+        {
+          db,
+          schemaAllowlist: [tableKey],
+          tenantColumn: 'tenant_id',
+          cacheProvider: new LRUCacheProvider({ ttlMs: 0 }), // TTL=0 → never caches
+          tierCacheTtlMs: 0, // disable tier cache for a true cold measurement
+        },
+      );
     },
   ).then((r) => results.push(r));
 }
@@ -297,23 +301,33 @@ for (const scale of SCALES) {
   const warmCache = new LRUCacheProvider({ ttlMs: 60_000 });
 
   // Prime the cache with one cold call.
-  await handleBatchQuery(body, { ...ACME_CLAIMS, tenantId }, {
-    db,
-    schemaAllowlist: [tableKey],
-    tenantColumn: 'tenant_id',
-    cacheProvider: warmCache,
-  });
+  // eslint-disable-next-line no-await-in-loop
+  await handleBatchQuery(
+    body,
+    { ...ACME_CLAIMS, tenantId },
+    {
+      db,
+      schemaAllowlist: [tableKey],
+      tenantColumn: 'tenant_id',
+      cacheProvider: warmCache,
+    },
+  );
 
+  // eslint-disable-next-line no-await-in-loop
   await runBenchAsync(
     'B7 handleBatchQuery (warm, cache hit)',
     `${scale.toLocaleString()} rows`,
     async () => {
-      await handleBatchQuery(body, { ...ACME_CLAIMS, tenantId }, {
-        db,
-        schemaAllowlist: [tableKey],
-        tenantColumn: 'tenant_id',
-        cacheProvider: warmCache,
-      });
+      await handleBatchQuery(
+        body,
+        { ...ACME_CLAIMS, tenantId },
+        {
+          db,
+          schemaAllowlist: [tableKey],
+          tenantColumn: 'tenant_id',
+          cacheProvider: warmCache,
+        },
+      );
     },
   ).then((r) => results.push(r));
 }
@@ -334,28 +348,38 @@ for (const scale of SCALES) {
 
   // Pre-warm the tier cache with one cold call (full preflight run).
   const tierCache = new MapTierCacheProvider();
-  await handleBatchQuery(body, { ...ACME_CLAIMS, tenantId }, {
-    db,
-    schemaAllowlist: [tableKey],
-    tenantColumn: 'tenant_id',
-    cacheProvider: new LRUCacheProvider({ ttlMs: 60_000 }),
-    tierCacheProvider: tierCache,
-    tierCacheTtlMs: 300_000,
-  });
+  // eslint-disable-next-line no-await-in-loop
+  await handleBatchQuery(
+    body,
+    { ...ACME_CLAIMS, tenantId },
+    {
+      db,
+      schemaAllowlist: [tableKey],
+      tenantColumn: 'tenant_id',
+      cacheProvider: new LRUCacheProvider({ ttlMs: 60_000 }),
+      tierCacheProvider: tierCache,
+      tierCacheTtlMs: 300_000,
+    },
+  );
 
+  // eslint-disable-next-line no-await-in-loop
   await runBenchAsync(
     'B8 handleBatchQuery (tier-cache cold, no preflight)',
     `${scale.toLocaleString()} rows`,
     async () => {
-      await handleBatchQuery(body, { ...ACME_CLAIMS, tenantId }, {
-        db,
-        schemaAllowlist: [tableKey],
-        tenantColumn: 'tenant_id',
-        // New data cache each iteration → always a cold data miss
-        cacheProvider: new LRUCacheProvider({ ttlMs: 1 }),
-        tierCacheProvider: tierCache,
-        tierCacheTtlMs: 300_000,
-      });
+      await handleBatchQuery(
+        body,
+        { ...ACME_CLAIMS, tenantId },
+        {
+          db,
+          schemaAllowlist: [tableKey],
+          tenantColumn: 'tenant_id',
+          // New data cache each iteration → always a cold data miss
+          cacheProvider: new LRUCacheProvider({ ttlMs: 1 }),
+          tierCacheProvider: tierCache,
+          tierCacheTtlMs: 300_000,
+        },
+      );
     },
   ).then((r) => results.push(r));
 }

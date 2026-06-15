@@ -47,6 +47,7 @@ require runtime confirmation as such.
 ## Core checklist (WCAG 2.2 AA)
 
 ### 1. Name, Role, Value (SC 4.1.2)
+
 - Every interactive element exposes an **accessible name**. For icon-only
   buttons that means `aria-label`, `aria-labelledby`, or visually-hidden text —
   not just a tooltip (tooltips are not reliably announced and are mouse-hover
@@ -58,6 +59,7 @@ require runtime confirmation as such.
   without role + `tabIndex={0}` + keyboard handler — prefer a real `<button>`.
 
 ### 2. Keyboard (SC 2.1.1 / 2.1.2 / 2.1.4)
+
 - All functionality is operable by keyboard; no mouse-only actions
   (drag-and-drop, hover-only menus, click-only resize handles need a keyboard
   path or equivalent).
@@ -66,6 +68,7 @@ require runtime confirmation as such.
   type-ahead, roving `tabIndex`).
 
 ### 3. Focus management (SC 2.4.3 / 2.4.7 / 2.4.11)
+
 - Logical, visible focus order. Visible focus indicator never removed
   (`outline: none` without a replacement is a fail).
 - Dialogs/drawers/popovers: focus moves in on open, is trapped while open,
@@ -76,12 +79,14 @@ require runtime confirmation as such.
   content.
 
 ### 4. Roles, landmarks & structure (SC 1.3.1)
+
 - Use semantic HTML/landmarks (`main`, `nav`, `header`, `aside`) or ARIA
   landmark roles. Multiple same-type landmarks need distinguishing labels.
 - Headings convey structure and don't skip levels arbitrarily.
 - Lists use list semantics; tables use table semantics.
 
 ### 5. Forms & labels (SC 1.3.1 / 3.3.2 / 4.1.2)
+
 - Every form control has a programmatically associated label
   (`<label htmlFor>`, `aria-label`, `aria-labelledby`). Placeholder is **not** a
   label.
@@ -90,26 +95,31 @@ require runtime confirmation as such.
 - Required fields communicated non-visually.
 
 ### 6. Live regions & status (SC 4.1.3)
+
 - Async updates, toasts, validation, loading and "no data" states that appear
   without focus change are announced via `aria-live` / `role="status"` /
   `role="alert"`.
 
 ### 7. Images & non-text (SC 1.1.1)
+
 - Informative `<img>`/SVG have text alternatives; decorative ones are hidden
   (`alt=""`, `aria-hidden`, `role="presentation"`). Charts/maps/data-viz need a
   text summary or accessible data table.
 
 ### 8. Color & contrast (SC 1.4.1 / 1.4.3 / 1.4.11)
+
 - Don't rely on color alone to convey information.
 - Text contrast ≥ 4.5:1 (≥ 3:1 large); UI component / graphical-object contrast
   ≥ 3:1. (Flag for runtime/design verification — exact values need the rendered
   theme.)
 
 ### 9. Target size & pointer (SC 2.5.8)
+
 - Interactive targets ≥ 24×24 CSS px (or spacing exception). Watch tiny
   icon buttons / drag handles / resize grips.
 
 ### 10. Motion, reflow, zoom (SC 1.4.10 / 2.3.3 / 1.4.4)
+
 - Respect `prefers-reduced-motion`. Content reflows at 320px / 400% zoom.
 
 ## APG widget patterns (quick reference)
@@ -157,19 +167,22 @@ When a component implements one of these by hand, verify against the pattern:
 
 Produce a Markdown report:
 
-```
+```markdown
 # Accessibility Review — <scope>
 
 ## Summary
+
 <counts by severity, headline themes>
 
 ## Findings
+
 ### [SEVERITY] <short title> — <WCAG SC>
+
 - **Where:** path/to/File.tsx:NN
 - **Issue:** what's wrong and who it affects
 - **Fix:** concrete remediation
 - **Verify:** (if runtime confirmation needed)
 ```
 
-Always cite real `file:line`. Never invent issues; if something only *might* be
+Always cite real `file:line`. Never invent issues; if something only _might_ be
 a problem, say so and mark it for runtime verification.

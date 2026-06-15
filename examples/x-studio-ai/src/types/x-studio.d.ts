@@ -109,6 +109,9 @@ declare module '@mui/x-studio' {
   ): StudioDataSourceAdapter;
 
   export const ptBRLocaleText: Partial<StudioLocaleText>;
+  export const deLocaleText: Partial<StudioLocaleText>;
+  export const esLocaleText: Partial<StudioLocaleText>;
+  export const frLocaleText: Partial<StudioLocaleText>;
 
   export const selectDashboard: (state: StudioState) => StudioState['dashboard'];
   export const selectPages: (state: StudioState) => StudioState['pages'];

@@ -359,16 +359,16 @@ export const STUDIO_AI_TOOLS = [
     function: {
       name: 'summarise_page',
       description:
-        'Returns a rich data snapshot of every widget on the active dashboard page — ' +
-        'including a sampled CSV data excerpt and numeric stats for each widget, and ' +
-        'anomaly axis values for chart widgets. ' +
+        'Returns a data snapshot of every widget on the active dashboard page — ' +
+        'a sampled CSV excerpt and numeric stats (min/max/avg) per widget. ' +
         'Call this when the user asks you to summarise, analyse, or describe the current page. ' +
-        'After receiving the result, write an executive summary focused entirely on the DATA and KEY INSIGHTS: ' +
-        'lead with the most important finding or trend across the page, then cover notable patterns, ' +
-        'significant values, and any anomalies detected in chart data. ' +
-        'Reference the relevant widget by name only where it helps the user locate the data being described — ' +
-        'do not list widgets structurally or describe the page layout. ' +
-        'Write in flowing prose, not bullet lists.',
+        'After receiving the result, write an executive summary of the key insights. ' +
+        'IMPORTANT FORMATTING RULES: ' +
+        '(1) Begin immediately with the content — no preamble like "Here is a summary", "I will now...", "Based on the data...", etc. ' +
+        '(2) Use 2–4 short markdown paragraphs separated by blank lines. ' +
+        '(3) **Bold** the most important numbers or findings in each paragraph. ' +
+        '(4) Lead with the single most important metric or trend, then cover patterns, notable values, and anomalies. ' +
+        '(5) Name a widget only when it helps locate the specific data — never list widgets as a structure.',
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },

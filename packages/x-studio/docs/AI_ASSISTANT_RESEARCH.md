@@ -639,7 +639,7 @@ graph TD
     ChatPanel[StudioChatPanel lazy-loaded]
     ChatBox[ChatBox from @mui/x-chat]
     Adapter[createStudioChatAdapter]
-    Tools[STUDIO_AI_TOOLS: 15 tools]
+    Tools[STUDIO_AI_TOOLS: 20 tools]
     SystemPrompt[buildAISystemPrompt]
     Controller[StudioController mutations]
     LLM[OpenAI-compatible endpoint SSE]
@@ -654,7 +654,7 @@ graph TD
     Adapter --> Controller
 ```
 
-### Current AI Tools (15 Implemented)
+### Current AI Tools (20 Implemented)
 
 | Tool                   | Description                                                                            |
 | ---------------------- | -------------------------------------------------------------------------------------- |
@@ -674,7 +674,7 @@ graph TD
 | `add_widget_filter`    | Adds a filter scoped to a specific widget                                              |
 | `remove_widget_filter` | Removes a widget-scoped filter by ID                                                   |
 
-Source: `packages/x-studio/src/StudioChatPanel/studioAITools.ts`[^32]
+Source: `packages/x-studio/src/components/StudioChatPanel/studioAITools.ts`[^32]
 
 ### StudioAIConfig
 
@@ -687,7 +687,7 @@ interface StudioAIConfig {
 }
 ```
 
-Source: `packages/x-studio/src/StudioChatPanel/studioAdapter.ts:11-39`[^33]
+Source: `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts:24`[^33]
 
 ### What the Adapter Does
 
@@ -698,13 +698,13 @@ Source: `packages/x-studio/src/StudioChatPanel/studioAdapter.ts:11-39`[^33]
 5. Recursively calls follow-up requests to get text response after tool execution
 6. Emits `ChatMessageChunk` events: `start`, `text-delta`, `tool-input-start`, `tool-output-available`, `finish`
 
-Source: `packages/x-studio/src/StudioChatPanel/studioAdapter.ts:292-592`[^34]
+Source: `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts`[^34]
 
 ### NL Widget Creation (Non-Chat Path)
 
 `createWidgetFromDescription()` — single-turn, non-streaming path triggered from the Compose drawer "Describe a widget" text field. Uses `add_widget` tool with `tool_choice: forced`. Normalises output through `createDefaultWidget(kind)`.
 
-Source: `packages/x-studio/src/StudioChatPanel/createWidgetFromDescription.ts`[^35]
+Source: `packages/x-studio/src/components/StudioChatPanel/createWidgetFromDescription.ts`[^35]
 
 ### System Prompt Contents
 
@@ -741,10 +741,10 @@ The documentation claims several AI features that were not in the original code:
 | `add_data_source` tool                  | —          | ❌ Not implemented                                      | AI cannot connect new data      |
 | `add_page_filter` / `add_widget_filter` | `tools.md` | ✅ Implemented (separate page- and widget-scoped tools) | —                               |
 | `update_dashboard_title`                | old docs   | ✅ (real tool name: `set_dashboard_title`)              | Resolved — use `set_dashboard_title` |
-| `allowedTools` on `aiConfig`            | `tools.md` | ✅ Implemented (`studioAdapter.ts:451–453`)             | —                               |
+| `allowedTools` on `aiConfig`            | `tools.md` | ✅ Implemented (`studioBackendAdapter.ts`)              | —                               |
 | `allowedTools: []` disable all          | `tools.md` | ✅ Implemented                                          | —                               |
-| `onToolError` callback                  | `tools.md` | ✅ Implemented (`studioAdapter.ts:766`)                 | —                               |
-| `extraTools` / `StudioAiTool`           | `tools.md` | ✅ Implemented (`studioAdapter.ts:52,455,734`)          | —                               |
+| `onToolError` callback                  | `tools.md` | ✅ Implemented (`studioBackendAdapter.ts`)              | —                               |
+| `extraTools` / `StudioAiTool`           | `tools.md` | ✅ Implemented (`studioBackendAdapter.ts`)              | —                               |
 
 **Current tool count:** 20 tools — `get_dashboard_state`, `add_page`, `rename_page`, `remove_page`,
 `set_active_page`, `set_dashboard_title`, `add_widget`, `update_widget`, `remove_widget`,
@@ -767,7 +767,7 @@ Source: `packages/x-studio-ai-middleware/src/studioAITools.ts`
 | **`onAiRequest` hook** on widget card                                       | P1       | ✅ Consumer-provided prop on `StudioWidgetCard`         | —                                                     |
 | **AI conversation state persistence**                                       | P1       | ✅ Core `StudioState.ai` (schema v2), serialize/migrate | AG Grid Studio                                        |
 | **Named conversation threads**                                              | P2       | ✅ Thread selector UI + `rename_thread` tool (auto)     | AG Grid Studio                                        |
-| **`allowedTools` / `extraTools`** (API completeness)                        | P1       | ✅ Implemented (`studioAdapter.ts`)                     | AG Grid Studio (custom widget AI metadata)            |
+| **`allowedTools` / `extraTools`** (API completeness)                        | P1       | ✅ Implemented (`studioBackendAdapter.ts`)              | AG Grid Studio (custom widget AI metadata)            |
 | **`skillHandlers` in `handleAIChat`**                                       | P1       | ✅ `StudioAIHandlerOptions.skillHandlers`               | —                                                     |
 | **MCP server** for x-studio                                                 | P1       | ✅ `buildStudioMcpServer` in `mcp.ts` — production-ready; 20 tools; `render_chart` SVG tool | Tableau, Metabase, ThoughtSpot, Sisense, Hex          |
 | **Data question answering** (`execute_query`)                               | P2       | ✅ `execute_query` tool + `StudioDataResolver`          | AG Grid Studio (Data agent)                           |
@@ -780,20 +780,21 @@ Source: `packages/x-studio-ai-middleware/src/studioAITools.ts`
 
 ### 🟡 Moderate: Remaining Code Quality Issues
 
-| Issue                                                                     | Location                   | Impact                                  |
-| ------------------------------------------------------------------------- | -------------------------- | --------------------------------------- |
-| `add_widget` in `executeTool` skips `createDefaultWidget()` normalisation | `studioAdapter.ts:170-189` | Partially configured widgets from chat  |
-| `add_data_source` tool not implemented                                    | `studioAITools.ts`         | AI cannot connect new data sources      |
+| Issue                                  | Location                                               | Impact                             |
+| -------------------------------------- | ------------------------------------------------------ | ---------------------------------- |
+| `add_data_source` tool not implemented | `packages/x-studio-ai-middleware/src/studioAITools.ts` | AI cannot connect new data sources |
+
+> **Resolved:** `add_widget` previously skipped `createDefaultWidget()` normalisation. The server-side tool executor now calls it — `const base = createDefaultWidget(kind)` in `packages/x-studio-ai-middleware/src/executeToolOnState.ts:88` — so chat-created widgets are normalised the same way as UI-created ones.
 
 ### 🟢 Minor: Undocumented / Noteworthy Features
 
 | Feature                                                                    | Location                                 | Notes                                                  |
 | -------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------ |
-| Gemini compatibility (`tc.id`-based accumulation)                          | `studioAdapter.ts`                       | Works but not documented                               |
-| `extra_content`/`thought_signature` handling                               | `studioAdapter.ts`                       | Gemini reasoning tokens handled silently               |
-| Insight pipeline is separate from chat — no LLM row data in chat path      | `generateInsight.ts`, `studioAdapter.ts` | Chat uses schema only; row data only via insight tools |
+| Gemini compatibility (`tc.id`-based accumulation)                          | `studioBackendAdapter.ts`                | Works but not documented                               |
+| `extra_content`/`thought_signature` handling                               | `studioBackendAdapter.ts`                | Gemini reasoning tokens handled silently               |
+| Insight pipeline is separate from chat — no LLM row data in chat path      | `generateInsight.ts`, `studioBackendAdapter.ts`| Chat uses schema only; row data only via insight tools |
 | `generateInsight.ts` functions are exported publicly from `src/index.ts`   | `src/index.ts:245-247`                   | Consumers can build custom insight UIs                 |
-| `createWidgetFromDescription` is independent of chat — Compose Drawer only | `createWidgetFromDescription.ts`         | Bypasses `studioAdapter.ts`; uses `WIDGET_CONFIG_DESCRIPTION` from middleware |
+| `createWidgetFromDescription` is independent of chat — Compose Drawer only | `createWidgetFromDescription.ts`         | Bypasses `studioBackendAdapter.ts`; uses `WIDGET_CONFIG_DESCRIPTION` from middleware |
 | `WIDGET_CONFIG_DESCRIPTION` exported from middleware                       | `studioAITools.ts`                       | Consumers can build their own widget-creation prompts  |
 
 ---
@@ -807,7 +808,7 @@ Source: `packages/x-studio-ai-middleware/src/studioAITools.ts`
 
 #### ~~1.1 Implement Missing Page Management Tools~~ ✅ DONE
 
-`remove_page`, `rename_page`, and `set_active_page` are all implemented in `studioAdapter.ts`.
+`remove_page`, `rename_page`, and `set_active_page` are all implemented in `studioBackendAdapter.ts`.
 `remove_page` is gated by a `Promise<boolean>` confirmation (same pattern as `remove_widget`).
 
 #### ~~1.2 Implement Filter Tools~~ ✅ DONE
@@ -818,7 +819,7 @@ page-scoped filters (stamped with `activePageId` automatically), and `add_widget
 
 #### ~~1.3 Implement `allowedTools`, `extraTools`, and `onToolError`~~ ✅ DONE
 
-All three are implemented in `studioAdapter.ts`:
+All three are implemented in `studioBackendAdapter.ts`:
 
 - `allowedTools?: StudioAIToolName[]` — whitelist; `undefined` = all 20 tools enabled
 - `extraTools?: StudioAiTool[]` — custom app-specific tools appended to the built-in list
@@ -850,7 +851,7 @@ Both types are correctly serialized to the LLM system prompt.
 
 Widget-level and dashboard-level AI insight generation are fully implemented.
 
-**Implemented (`packages/x-studio/src/StudioChatPanel/generateInsight.ts`):**
+**Implemented (`packages/x-studio/src/components/StudioChatPanel/generateInsight.ts`):**
 
 - `generateWidgetInsight(widgetId, controller, aiConfig, { type })` — per-widget summary, analysis, or forecast. Sends up to 100 aggregated rows (via `buildWidgetDataSummary`) using `sampling: 'aggregate'`. Returns `{ text: string }`.
 - `generateDashboardSummary(controller, aiConfig)` — schema-only narrative of the whole dashboard. Triggered from the "Summarise" FAB at `bottom: 76, right: 20` in `<Studio>`. Displays in a bottom `<Drawer>` (`maxHeight: 40vh`).
@@ -1202,7 +1203,7 @@ graph LR
 
 | Finding                                                                                                             | Confidence | Source                                                        |
 | ------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------- |
-| x-studio has 15 AI tools (`studioAITools.ts`) — `allowedTools`, `extraTools`, and `onToolError` are all implemented | **High**   | Direct code read of `studioAITools.ts` and `studioAdapter.ts` |
+| x-studio has 20 AI tools (`studioAITools.ts`) — `allowedTools`, `extraTools`, and `onToolError` are all implemented | **High**   | Direct code read of `studioAITools.ts` and `studioBackendAdapter.ts`|
 | 7 features in docs not implemented in code                                                                          | **High**   | Direct code read confirmed absence                            |
 | AG Grid Studio uses 5-agent architecture                                                                            | **High**   | Official AG Grid Studio docs                                  |
 | Reveal BI AI released March 2026                                                                                    | **High**   | Official blog post                                            |
@@ -1213,7 +1214,7 @@ graph LR
 | `buildAISystemPrompt` missing pivot/map cases                                                                       | **High**   | Direct code read                                              |
 | x-studio has zero AI-specific tests                                                                                 | **High**   | Directory listing confirmed                                   |
 | AG Grid Studio conversation state uses `getState()`/`setState()`                                                    | **High**   | Official AG Grid Studio docs                                  |
-| Gemini compatibility is implemented but undocumented                                                                | **High**   | Direct code read of studioAdapter.ts                          |
+| Gemini compatibility is implemented but undocumented                                                                | **High**   | Direct code read of studioBackendAdapter.ts                   |
 
 **Assumptions made:**
 
@@ -1287,17 +1288,17 @@ graph LR
 
 [^31]: [Microsoft LIDA - github.com/microsoft/lida](https://github.com/microsoft/lida) — Full API, persona-aware goals, error rate <3.5%
 
-[^32]: `packages/x-studio/src/StudioChatPanel/studioAITools.ts` — All 15 tool definitions and `StudioAIToolName` union type
+[^32]: `packages/x-studio/src/components/StudioChatPanel/studioAITools.ts` — tool definitions (the `StudioAIToolName` union type lives in `packages/x-studio/src/models/aiTypes.ts`)
 
-[^33]: `packages/x-studio/src/StudioChatPanel/studioAdapter.ts:11-39` — `StudioAIConfig` interface
+[^33]: `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts:24` — `StudioAIConfig` interface
 
-[^34]: `packages/x-studio/src/StudioChatPanel/studioAdapter.ts:292-592` — SSE streaming, tool accumulation, `doRequest()` recursive flow
+[^34]: `packages/x-studio/src/components/StudioChatPanel/studioBackendAdapter.ts` — SSE streaming, tool accumulation, `doRequest()` recursive flow
 
-[^35]: `packages/x-studio/src/StudioChatPanel/createWidgetFromDescription.ts:1-158` — Single-turn NL widget creation with schema subset
+[^35]: `packages/x-studio/src/components/StudioChatPanel/createWidgetFromDescription.ts:1-158` — Single-turn NL widget creation with schema subset
 
 [^36]: `packages/x-studio/src/internals/buildAISystemPrompt.ts:90-221` — System prompt builder; pages, widgets, sources, layout, kinds
 
-[^37]: `docs/data/studio/ai/tools/tools.md` — Documentation of all 15 tools, `allowedTools`, `extraTools`, `onToolError`, and NL widget creation
+[^37]: `docs/data/studio/ai/tools/tools.md` — Documentation of all 20 tools, `allowedTools`, `extraTools`, `onToolError`, and NL widget creation
 
 [^38]: [Reveal BI Insights SDK - help.revealbi.io/ai/sdk-insights/](https://help.revealbi.io/ai/sdk-insights/) — Three insight types API reference
 

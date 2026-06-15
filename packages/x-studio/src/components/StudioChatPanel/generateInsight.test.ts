@@ -235,7 +235,7 @@ describe('generateWidgetInsight', () => {
     await expect(promise).rejects.toThrow('Aborted');
   });
 
-  it('includes data sample in the request body when source has rows', async () => {
+  it('includes an aggregated data summary in the request body when source has rows', async () => {
     const fetchMock = mockFetch('ok');
     vi.stubGlobal('fetch', fetchMock);
     const controller = makeControllerWithData('w1');
@@ -243,7 +243,8 @@ describe('generateWidgetInsight', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
       dataSummary: string;
     };
-    expect(body.dataSummary).toContain('Data sample');
+    // Chart widgets are summarised by aggregating the y-field per x-category.
+    expect(body.dataSummary).toContain('Aggregated by month');
     expect(body.dataSummary).toContain('Jan');
     expect(body.dataSummary).toContain('1000');
   });
@@ -257,33 +258,31 @@ describe('generateWidgetInsight', () => {
     ).resolves.toEqual({ text: 'ok' });
   });
 
-  it('uses aggregate sampling for forecast — covers full range (first AND last bucket present)', async () => {
+  it('aggregates by category for forecast and caps the listing at the first 100 categories', async () => {
     const fetchMock = mockFetch('ok');
     vi.stubGlobal('fetch', fetchMock);
-    // 150 rows → bucketSize=2 → 75 buckets; first month value of each bucket: row-0, row-2, ..., row-148
+    // 150 unique x-values → 150 categories; the summary lists the first 100.
     const controller = makeControllerWithLargeData('w1');
     await generateWidgetInsight('w1', controller, AI_CONFIG, { type: 'forecast' });
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
       dataSummary: string;
     };
-    expect(body.dataSummary).toContain('row-0'); // first bucket — full range coverage
-    expect(body.dataSummary).toContain('row-148'); // last bucket
-    expect(body.dataSummary).toContain('aggregated buckets'); // confirms aggregate mode
+    expect(body.dataSummary).toContain('Aggregated by month'); // confirms category-aggregate mode
+    expect(body.dataSummary).toContain('150 categories, showing first 100');
+    expect(body.dataSummary).toContain('row-0'); // a category in the listing
   });
 
-  it('uses aggregate sampling for summary — covers full range with averaged values', async () => {
+  it('reports the per-category aggregated value for summary', async () => {
     const fetchMock = mockFetch('ok');
     vi.stubGlobal('fetch', fetchMock);
-    // 150 rows → bucketSize=2 → 75 buckets; bucket 0 avg revenue = (0+1)/2 = 0.5
+    // 150 unique months, one row each → sum per category equals that row's revenue.
     const controller = makeControllerWithLargeData('w1');
     await generateWidgetInsight('w1', controller, AI_CONFIG, { type: 'summary' });
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
       dataSummary: string;
     };
-    expect(body.dataSummary).toContain('row-0'); // first bucket present
-    expect(body.dataSummary).toContain('row-148'); // last bucket present
-    expect(body.dataSummary).toContain('aggregated buckets'); // confirms aggregate mode
-    expect(body.dataSummary).toContain('0.5'); // first bucket avg revenue = (0+1)/2 = 0.5
+    expect(body.dataSummary).toContain('Aggregated by month');
+    expect(body.dataSummary).toContain('row-0,0'); // category row-0 → revenue 0
   });
 
   it('includes stats preamble with min/max/avg for numeric fields', async () => {
@@ -384,7 +383,7 @@ describe('generateAnomalyExplanation', () => {
     ).rejects.toThrow('Widget "nonexistent" not found');
   });
 
-  it('includes data sample in the anomaly body when source has rows', async () => {
+  it('includes an aggregated data summary in the anomaly body when source has rows', async () => {
     const fetchMock = mockFetch('explanation');
     vi.stubGlobal('fetch', fetchMock);
     const controller = makeControllerWithData('w1');
@@ -392,7 +391,7 @@ describe('generateAnomalyExplanation', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
       dataSummary: string;
     };
-    expect(body.dataSummary).toContain('Data sample');
+    expect(body.dataSummary).toContain('Aggregated by month');
     expect(body.dataSummary).toContain('Jan');
     expect(body.dataSummary).toContain('1000');
   });

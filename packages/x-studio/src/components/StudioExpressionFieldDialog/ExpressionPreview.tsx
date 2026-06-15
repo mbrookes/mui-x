@@ -60,7 +60,7 @@ export function ExpressionPreview({
 
   if (previewResult.kind === 'measure') {
     return (
-      <Box sx={{ mt: 1 }}>
+      <Box role="status" aria-live="polite" sx={{ mt: 1 }}>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
           {localeText.expressionPreviewMeasureLabel(previewResult.count)}
         </Typography>
@@ -75,7 +75,7 @@ export function ExpressionPreview({
   }
 
   return (
-    <Box sx={{ mt: 1 }}>
+    <Box role="status" aria-live="polite" sx={{ mt: 1 }}>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
         {localeText.expressionPreviewFirstRowsLabel(previewResult.count)}
       </Typography>

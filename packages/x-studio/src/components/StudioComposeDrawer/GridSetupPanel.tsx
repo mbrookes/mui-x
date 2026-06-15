@@ -755,6 +755,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     <Select
                       size="small"
                       value={rule.fieldId}
+                      aria-label={localeText.gridConditionFieldAriaLabel}
                       onChange={(event) => {
                         const next = [...conditionalFormats];
                         next[i] = { ...rule, fieldId: event.target.value };
@@ -771,6 +772,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     <Select
                       size="small"
                       value={rule.operator}
+                      aria-label={localeText.gridConditionOperatorAriaLabel}
                       onChange={(event) => {
                         const next = [...conditionalFormats];
                         next[i] = {
@@ -794,6 +796,9 @@ export function GridSetupPanel(props: { widgetId: string }) {
                           rule.value !== undefined && rule.value !== null ? String(rule.value) : ''
                         }
                         placeholder={fieldEntry?.type === 'number' ? '0' : 'value'}
+                        slotProps={{
+                          htmlInput: { 'aria-label': localeText.gridConditionValueAriaLabel },
+                        }}
                         onChange={(event) => {
                           const next = [...conditionalFormats];
                           const v =
@@ -809,6 +814,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     <Select
                       size="small"
                       value={preset?.label ?? '__custom__'}
+                      aria-label={localeText.gridConditionStyleAriaLabel}
                       onChange={(event) => {
                         const selected = cfStylePresets.find((p) => p.label === event.target.value);
                         if (selected) {

@@ -209,6 +209,7 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
           <Switch
             size="small"
             checked={config.kpiSparklineArea ?? false}
+            slotProps={{ input: { 'aria-label': localeText.kpiSetupFillAreaLabel } }}
             onChange={(event) =>
               controller.updateWidgetConfig(widgetId, {
                 kpiSparklineArea: event.target.checked,
@@ -224,6 +225,7 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
           <Switch
             size="small"
             checked={config.kpiSparklineCumulative ?? false}
+            slotProps={{ input: { 'aria-label': localeText.kpiSetupCumulativeLabel } }}
             onChange={(event) =>
               controller.updateWidgetConfig(widgetId, {
                 kpiSparklineCumulative: event.target.checked,

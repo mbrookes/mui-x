@@ -204,6 +204,7 @@ function InputNode({
           size="small"
           value={inputKind}
           onChange={(event) => handleKindChange(event.target.value as InputKind)}
+          aria-label={localeText.exprNodeKindAriaLabel}
           sx={{ minWidth: 90, fontSize: '0.75rem' }}
         >
           <MenuItem value="field">{localeText.exprNodeTypeField}</MenuItem>
@@ -241,6 +242,7 @@ function InputNode({
             onChange={(event) => {
               onChange({ ...expr, id: event.target.value });
             }}
+            aria-label={localeText.exprFieldAriaLabel}
             sx={{ flexGrow: 1, fontSize: '0.75rem' }}
           >
             {allFieldOptions.map((opt) => (
@@ -262,6 +264,7 @@ function InputNode({
                   aggregation: event.target.value as StudioKpiAggregation,
                 });
               }}
+              aria-label={localeText.exprAggregationAriaLabel}
               sx={{ minWidth: 80, fontSize: '0.75rem' }}
             >
               {AGGREGATION_OPTIONS.map((opt) => (
@@ -289,6 +292,7 @@ function InputNode({
               }
               onChange({ type, value: defaultValue });
             }}
+            aria-label={localeText.exprLiteralTypeAriaLabel}
             sx={{ minWidth: 80, fontSize: '0.75rem' }}
           >
             <MenuItem value="number">{localeText.exprDataTypeNumber}</MenuItem>
@@ -302,6 +306,7 @@ function InputNode({
               onChange={(event) => {
                 onChange({ ...expr, value: event.target.value === 'true' });
               }}
+              aria-label={localeText.exprBooleanValueAriaLabel}
               sx={{ flexGrow: 1, fontSize: '0.75rem' }}
             >
               <MenuItem value="true">{localeText.exprBooleanTrue}</MenuItem>

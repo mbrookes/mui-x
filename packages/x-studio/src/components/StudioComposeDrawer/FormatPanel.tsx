@@ -25,6 +25,7 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { inferWidgetTitles, inferKpiDateSubtitle } from '../../internals/widgetUtils';
+import { GridConditionalFormatSection } from './GridConditionalFormatSection';
 
 export function FormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
@@ -220,20 +221,23 @@ export function FormatPanel(props: { widgetId: string }) {
         />
       )}
       {widget?.kind === 'grid' && (
-        <TextField
-          label={localeText.gridSetupHeightLabel}
-          type="number"
-          size="small"
-          fullWidth
-          value={widget.config.gridHeight ?? 400}
-          slotProps={{ htmlInput: { min: 200, step: 50 } }}
-          onChange={(event) => {
-            const parsed = parseInt(event.target.value, 10);
-            if (!Number.isNaN(parsed) && parsed >= 200) {
-              controller.updateWidgetConfig(widgetId, { gridHeight: parsed });
-            }
-          }}
-        />
+        <React.Fragment>
+          <TextField
+            label={localeText.gridSetupHeightLabel}
+            type="number"
+            size="small"
+            fullWidth
+            value={widget.config.gridHeight ?? 400}
+            slotProps={{ htmlInput: { min: 200, step: 50 } }}
+            onChange={(event) => {
+              const parsed = parseInt(event.target.value, 10);
+              if (!Number.isNaN(parsed) && parsed >= 200) {
+                controller.updateWidgetConfig(widgetId, { gridHeight: parsed });
+              }
+            }}
+          />
+          <GridConditionalFormatSection widgetId={widgetId} />
+        </React.Fragment>
       )}
       {widget?.kind === 'map' &&
         (() => {

@@ -14,6 +14,7 @@ import {
 } from '../context';
 import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
+import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 import { studioRequestCache } from './StudioRequestCache';
 import { enrichWithCrossSourceFields } from './crossSourceEnrichment';
@@ -150,8 +151,14 @@ export function useWidgetRows(
     if (!hasAdapter || !widget.sourceId) {
       return null;
     }
-    return buildQueryDescriptor(widget, filters, activePageId, dataSource?.tableName);
-  }, [hasAdapter, widget, filters, activePageId, dataSource]);
+    return buildQueryDescriptor(
+      widget,
+      filters,
+      activePageId,
+      dataSource?.tableName,
+      expressionFields,
+    );
+  }, [hasAdapter, widget, filters, activePageId, dataSource, expressionFields]);
 
   // Async state: rows fetched from adapter.
   const [adapterRows, setAdapterRows] = React.useState<Row[]>(() => {
@@ -279,9 +286,36 @@ export function useWidgetRows(
   // 2. There is a chart-click cross-filter active (never for interactive/filter-widget filters)
   const shouldShowGhost = crossFilterMode === 'cross-highlight' && hasChartCrossFilters;
 
+  // Adapter/server responses contain only physical columns — expression (calculated)
+  // fields are a client-side concept the server cannot produce. Enrich the returned raw
+  // rows with expression columns here so KPIs/charts using a calculated value field (e.g.
+  // `price - cost`) aggregate against real values instead of `undefined` (which renders $0).
+  // No-op for aggregated responses where the requested fields are already physical.
+  const enrichedAdapterRows = React.useMemo((): Row[] => {
+    if (!hasAdapter || !widget.sourceId || adapterRows.length === 0) {
+      return adapterRows;
+    }
+    return getCachedEnrichedRows(
+      adapterRows,
+      widget.sourceId,
+      expressionFields,
+      dataSources,
+      relationships,
+      usedFieldIds,
+    );
+  }, [
+    hasAdapter,
+    adapterRows,
+    widget.sourceId,
+    expressionFields,
+    dataSources,
+    relationships,
+    usedFieldIds,
+  ]);
+
   const filteredRows = React.useMemo((): Row[] => {
     if (hasAdapter) {
-      return adapterRows;
+      return enrichedAdapterRows;
     }
     if (!normalizedDataSource?.rows) {
       return [];
@@ -308,7 +342,7 @@ export function useWidgetRows(
     );
   }, [
     hasAdapter,
-    adapterRows,
+    enrichedAdapterRows,
     normalizedDataSource,
     deferredPartitioned,
     dataSources,

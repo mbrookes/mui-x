@@ -42,6 +42,7 @@ import {
 import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
 import { moveWidgetInLayout, type WidgetMoveDirection } from '../../internals/widgetLayoutMove';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
+import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import type { StudioPageTheme } from '../../models';
 import { StudioGridWidget } from '../widgets/StudioGridWidget/StudioGridWidget';
@@ -200,6 +201,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const localeText = useStudioLocaleText();
   const customWidgetMap = useCustomWidgetMap();
   const { aiConfig } = useStudioUIConfig();
+  const features = useStudioFeatures();
 
   // For KPI widgets with auto subtitle and no user-set subtitle, derive a date range label
   // dynamically from the active date filters so it always reflects current filter state.
@@ -223,8 +225,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // Full-bleed custom widgets render edge-to-edge: no title/subtitle header and no card padding.
   const isFullBleedCustom = customDef?.fullBleed === true;
 
-  // AI insights are disabled for filter/text/kpi widgets; custom widgets opt in via `aiInsight: true`
+  // AI insights are disabled for filter/text/kpi widgets; custom widgets opt in via `aiInsight: true`.
+  // The `aiInsights` feature flag lets embedders hide per-widget AI actions independently of AI chat.
   const supportsInsight =
+    features.aiInsights &&
     widget != null &&
     widget.kind !== 'filter' &&
     widget.kind !== 'text' &&
@@ -490,7 +494,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     return null;
   }
 
-  const canExport = widget.kind === 'grid' || widget.kind === 'chart' || widget.kind === 'pivot';
+  const canExport =
+    features.export &&
+    (widget.kind === 'grid' || widget.kind === 'chart' || widget.kind === 'pivot');
   const isChart = widget.kind === 'chart';
   const showEditActions = mode === 'edit' && (isSelected || (!dimmed && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
@@ -586,7 +592,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           }
           anomalyEnabled={anomalyEnabled}
           anomalyCount={anomalyAnnotations.length}
-          onAnomalyToggle={isChart ? handleAnomalyToggle : undefined}
+          onAnomalyToggle={isChart && features.aiInsights ? handleAnomalyToggle : undefined}
           onAnomalyExplain={
             isChart && aiConfig?.endpoint && anomalyEnabled && anomalyAnnotations.length > 0
               ? handleAnomalyExplain

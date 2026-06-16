@@ -46,20 +46,6 @@ export function ToggleControl(props: StudioFilterToggleControlProps) {
 
   return (
     <Stack spacing={1} role="group" aria-label={label}>
-      {isActive && (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Tooltip title={localeText.filterWidgetClearAriaLabel}>
-            <IconButton
-              size="small"
-              aria-label={localeText.filterWidgetClearAriaLabel}
-              onClick={onClear}
-              sx={{ color: 'text.secondary', p: 0.5 }}
-            >
-              <CloseIcon sx={{ fontSize: 14 }} />
-            </IconButton>
-          </Tooltip>
-        </Box>
-      )}
       {showSearch && (
         <TextField
           size="small"
@@ -79,7 +65,7 @@ export function ToggleControl(props: StudioFilterToggleControlProps) {
         />
       )}
       {filtered.length > 0 ? (
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75 }}>
           {filtered.map((v) => (
             <Chip
               key={v}
@@ -90,6 +76,20 @@ export function ToggleControl(props: StudioFilterToggleControlProps) {
               aria-pressed={selected.includes(v)}
             />
           ))}
+          {/* Clear sits inline as the last item so it wraps with the chips and never
+              adds a dedicated row (which would make the widget taller). */}
+          {isActive && (
+            <Tooltip title={localeText.filterWidgetClearAriaLabel}>
+              <IconButton
+                size="small"
+                aria-label={localeText.filterWidgetClearAriaLabel}
+                onClick={onClear}
+                sx={{ color: 'text.secondary', p: 0.25 }}
+              >
+                <CloseIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
       ) : (
         <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>

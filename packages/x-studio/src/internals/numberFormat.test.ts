@@ -89,6 +89,16 @@ describe('formatNumber — currency format', () => {
   it('compact: abbreviates with K/M suffix', () => {
     expect(formatNumber(2_000_000, 'currency', 'USD', true)).toMatch(/M/i);
   });
+
+  it('compact: does not append a trailing .0 to whole values', () => {
+    // Whole value → no fractional part (e.g. "$40", not "$40.0")
+    expect(formatNumber(40, 'currency', 'USD', true)).not.toMatch(/[.,]\d/);
+  });
+
+  it('compact: keeps up to 1 fraction digit for non-whole abbreviations', () => {
+    // 40,500 → "$40.5K": the fractional digit is preserved
+    expect(formatNumber(40_500, 'currency', 'USD', true)).toMatch(/[.,]5K/i);
+  });
 });
 
 describe('formatNumber — default format (no format argument)', () => {

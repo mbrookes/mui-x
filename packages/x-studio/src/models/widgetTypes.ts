@@ -119,6 +119,18 @@ export interface StudioWidgetConfig {
    */
   heatColorScheme?: 'primary' | 'success' | 'warning' | 'error';
   /**
+   * Heatmap chart: position of the continuous-colour legend.
+   * - `'bottom'` (default) — gradient bar below the chart
+   * - `'top'` — gradient bar above the chart
+   * - `'left'` — vertical gradient bar to the left
+   * - `'right'` — vertical gradient bar to the right
+   * - `'hidden'` — legend not rendered
+   * @default 'bottom'
+   */
+  heatLegendPosition?: 'bottom' | 'top' | 'left' | 'right' | 'hidden';
+  /** Heatmap chart: alignment of the legend along its cross axis. @default 'center' */
+  heatLegendAlign?: 'start' | 'center' | 'end';
+  /**
    * Gantt / timeline chart: field providing the row label (Y axis).
    */
   ganttLabelField?: string;

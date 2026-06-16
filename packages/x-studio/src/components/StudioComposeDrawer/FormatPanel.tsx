@@ -113,7 +113,10 @@ export function FormatPanel(props: { widgetId: string }) {
   };
 
   const hasKindControls =
-    widget?.kind === 'kpi' || widget?.kind === 'grid' || widget?.kind === 'map';
+    widget?.kind === 'kpi' ||
+    widget?.kind === 'grid' ||
+    widget?.kind === 'map' ||
+    (widget?.kind === 'chart' && widget?.config?.chartType === 'heatmap');
 
   return (
     <Stack spacing={2}>
@@ -278,6 +281,66 @@ export function FormatPanel(props: { widgetId: string }) {
                     onChange={(event) =>
                       controller.updateWidgetConfig(widgetId, {
                         mapLegendAlign: event.target.value as 'start' | 'center' | 'end',
+                      })
+                    }
+                  >
+                    <MenuItem value="start">
+                      {isVerticalLegend
+                        ? localeText.mapSetupLegendAlignStart
+                        : localeText.mapFormatLegendAlignLeft}
+                    </MenuItem>
+                    <MenuItem value="center">{localeText.mapSetupLegendAlignCenter}</MenuItem>
+                    <MenuItem value="end">
+                      {isVerticalLegend
+                        ? localeText.mapSetupLegendAlignEnd
+                        : localeText.mapFormatLegendAlignRight}
+                    </MenuItem>
+                  </Select>
+                </FormControl>
+              )}
+            </React.Fragment>
+          );
+        })()}
+      {widget?.kind === 'chart' &&
+        widget?.config?.chartType === 'heatmap' &&
+        (() => {
+          const heatLegendPosition = (widget.config.heatLegendPosition ?? 'bottom') as string;
+          const heatLegendAlign = (widget.config.heatLegendAlign ?? 'center') as string;
+          const isVerticalLegend = heatLegendPosition === 'left' || heatLegendPosition === 'right';
+          return (
+            <React.Fragment>
+              <FormControl size="small" fullWidth>
+                <InputLabel>{localeText.mapSetupLegendPositionLabel}</InputLabel>
+                <Select
+                  label={localeText.mapSetupLegendPositionLabel}
+                  value={heatLegendPosition}
+                  onChange={(event) =>
+                    controller.updateWidgetConfig(widgetId, {
+                      heatLegendPosition: event.target.value as
+                        | 'bottom'
+                        | 'top'
+                        | 'left'
+                        | 'right'
+                        | 'hidden',
+                    })
+                  }
+                >
+                  <MenuItem value="top">{localeText.mapSetupLegendTop}</MenuItem>
+                  <MenuItem value="bottom">{localeText.mapSetupLegendBottom}</MenuItem>
+                  <MenuItem value="left">{localeText.mapSetupLegendLeft}</MenuItem>
+                  <MenuItem value="right">{localeText.mapSetupLegendRight}</MenuItem>
+                  <MenuItem value="hidden">{localeText.mapSetupLegendHidden}</MenuItem>
+                </Select>
+              </FormControl>
+              {heatLegendPosition !== 'hidden' && (
+                <FormControl size="small" fullWidth>
+                  <InputLabel>{localeText.mapSetupLegendAlignLabel}</InputLabel>
+                  <Select
+                    label={localeText.mapSetupLegendAlignLabel}
+                    value={heatLegendAlign}
+                    onChange={(event) =>
+                      controller.updateWidgetConfig(widgetId, {
+                        heatLegendAlign: event.target.value as 'start' | 'center' | 'end',
                       })
                     }
                   >

@@ -395,6 +395,9 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chartSetupHeatmapValueHelperText:
     'Campo numérico sumado por celda para determinar la intensidad del color',
   chartSetupHeatmapColourSchemeLabel: 'esquema de color',
+  chartSetupHeatmapSortByLabel: 'Ordenar por',
+  chartSetupHeatmapSortXAxis: 'Eje de columnas (X)',
+  chartSetupHeatmapSortYAxis: 'Eje de filas (Y)',
   chartSetupArcLabelLabel: 'Etiqueta de arco',
   chartSetupMinAngleLabel: 'Ángulo mínimo (°)',
   chartSetupMinAngleHelperText:

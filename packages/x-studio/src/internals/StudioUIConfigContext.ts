@@ -407,6 +407,9 @@ export interface StudioLocaleText {
   chartSetupHeatmapValueLabel: string;
   chartSetupHeatmapValueHelperText: string;
   chartSetupHeatmapColourSchemeLabel: string;
+  chartSetupHeatmapSortByLabel: string;
+  chartSetupHeatmapSortXAxis: string;
+  chartSetupHeatmapSortYAxis: string;
   chartSetupSankeySourceLabel: string;
   chartSetupSankeySourceHelperText: string;
   chartSetupSankeyTargetLabel: string;
@@ -1358,6 +1361,9 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupHeatmapValueLabel: 'Value / colour field',
   chartSetupHeatmapValueHelperText: 'Numeric field summed per cell to determine colour intensity',
   chartSetupHeatmapColourSchemeLabel: 'Colour scheme',
+  chartSetupHeatmapSortByLabel: 'Sort by',
+  chartSetupHeatmapSortXAxis: 'Column axis (X)',
+  chartSetupHeatmapSortYAxis: 'Row axis (Y)',
   chartSetupSankeySourceLabel: 'Source (from) field',
   chartSetupSankeySourceHelperText: 'Categorical field for the start node of each flow',
   chartSetupSankeyTargetLabel: 'Target (to) field',

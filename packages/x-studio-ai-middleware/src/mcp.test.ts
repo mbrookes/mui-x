@@ -257,6 +257,63 @@ describe('buildStudioMcpServer', () => {
     });
   });
 
+  describe('query_data_source tool — limit clamping', () => {
+    const CALL_TOOL = 'tools/call';
+
+    function makeQueryServer(maxQueryRows?: number) {
+      const stateBox = { current: makeStableState() };
+      const queryDataSource = vi.fn(
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [],
+          rowCount: 0,
+        }),
+      );
+      const server = buildStudioMcpServer(stateBox, {
+        data: { queryDataSource, ...(maxQueryRows !== undefined && { maxQueryRows }) },
+      });
+      return { server, queryDataSource };
+    }
+
+    it('defaults to 1000 when no limit arg and no maxQueryRows', async () => {
+      const { server, queryDataSource } = makeQueryServer();
+      await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'query_data_source', arguments: { sourceId: 'source-orders' } },
+        method: CALL_TOOL,
+      });
+      expect(queryDataSource).toHaveBeenCalledWith(expect.objectContaining({ limit: 1000 }));
+    });
+
+    it('clamps model-supplied limit to maxQueryRows', async () => {
+      const { server, queryDataSource } = makeQueryServer(100);
+      await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: {
+          name: 'query_data_source',
+          arguments: { sourceId: 'source-orders', limit: 9999 },
+        },
+        method: CALL_TOOL,
+      });
+      expect(queryDataSource).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }));
+    });
+
+    it('respects a lower model-supplied limit when within maxQueryRows', async () => {
+      const { server, queryDataSource } = makeQueryServer(500);
+      await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'query_data_source', arguments: { sourceId: 'source-orders', limit: 50 } },
+        method: CALL_TOOL,
+      });
+      expect(queryDataSource).toHaveBeenCalledWith(expect.objectContaining({ limit: 50 }));
+    });
+  });
+
   describe('prompts/list + prompts/get', () => {
     const LIST_PROMPTS = 'prompts/list';
     const GET_PROMPT = 'prompts/get';

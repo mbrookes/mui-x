@@ -457,7 +457,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   kpiSetupValueFieldLabel: 'Champ de valeur',
   kpiSetupValueFieldHelperText: 'Champ à ajouter',
   kpiSetupSparklineLabel: 'Ligne scintillante',
-  kpiSetupGaugeMaxLabel: 'Max de la jauge',
+  kpiSetupGaugeMaxLabel: 'But',
   kpiSetupTrendLabel: "S'orienter",
   kpiSetupDateRangeLabel: 'Plage de dates',
   kpiSetupDateRangeFieldLabel: 'Champ de date',

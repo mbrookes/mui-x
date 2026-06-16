@@ -451,7 +451,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   kpiSetupValueFieldLabel: 'Campo de valor',
   kpiSetupValueFieldHelperText: 'Campo a agregar',
   kpiSetupSparklineLabel: 'Minigráfico',
-  kpiSetupGaugeMaxLabel: 'Máx. do medidor',
+  kpiSetupGaugeMaxLabel: 'Meta',
   kpiSetupTrendLabel: 'Tendência',
   kpiSetupDateRangeLabel: 'Intervalo de datas',
   kpiSetupDateRangeFieldLabel: 'Campo de data',

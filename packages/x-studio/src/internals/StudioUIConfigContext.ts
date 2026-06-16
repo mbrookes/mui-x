@@ -1425,7 +1425,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupValueFieldLabel: 'Value field',
   kpiSetupValueFieldHelperText: 'Field to aggregate',
   kpiSetupSparklineLabel: 'Sparkline',
-  kpiSetupGaugeMaxLabel: 'Gauge max',
+  kpiSetupGaugeMaxLabel: 'Target',
   kpiSetupTrendLabel: 'Trend',
   kpiSetupDateRangeLabel: 'Date range',
   kpiSetupDateRangeFieldLabel: 'Date field',

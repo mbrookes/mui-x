@@ -3,23 +3,10 @@ import type {
   StudioDataSource,
   StudioState,
   StudioWidget,
-  StudioWidgetKind,
   StudioFilterState,
 } from './models/studioTypes';
 import type { SerializableSkill } from './models/aiTypes';
-
-// ── Widget kind / chart type descriptions ─────────────────────────────────────
-
-const WIDGET_KIND_DESCRIPTIONS: Record<StudioWidgetKind, string> = {
-  chart:
-    'Chart (bar, line, area, pie, donut, scatter, heatmap, funnel, gantt, gauge, mixed multi-series)',
-  grid: 'Data grid / table',
-  kpi: 'KPI card (single metric with optional sparkline/gauge and trend)',
-  text: 'Text / markdown card',
-  filter: 'Interactive filter widget (date range, multi-select, toggle, slider)',
-  pivot: 'Pivot table (cross-tabulation with row/column dimensions and value aggregation)',
-  map: 'Choropleth world map (country-level data visualisation)',
-};
+import { WIDGET_KIND_DESCRIPTIONS, CHART_TYPE_DOCS, KPI_SPARKLINE_DOC } from './widgetConfigMeta';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -547,34 +534,10 @@ function buildDashboardState(
   }
   lines.push('');
   lines.push('## Chart Types (required config keys shown)');
-  lines.push(
-    '- bar / bar-stacked / bar-100: xField (categorical), yField, yAggregation. Optional: barLayout ("horizontal"), seriesField, chartSortBy ("value"|"category"), chartSortDirection ("asc"|"desc"), xGroupBy.',
-  );
-  lines.push(
-    '- line / area / area-stacked / area-100: xField (date/datetime), yField, yAggregation, xGroupBy. Optional: seriesField.',
-  );
-  lines.push(
-    '- pie / donut: xField (categorical, ≤7 values), yField, yAggregation. Optional: pieArcLabel ("value"|"percent"|"none").',
-  );
-  lines.push(
-    '- scatter: xField (numeric), yField (numeric). Optional: scatterColorField (categorical), scatterSizeField (numeric for bubbles), yField2.',
-  );
-  lines.push(
-    '- heatmap: xField (columns), heatYField (rows), yField (intensity), yAggregation. Optional: heatColorScheme ("primary"|"success"|"warning"|"error").',
-  );
-  lines.push(
-    '- funnel: xField (stages in order), yField, yAggregation (use "count" for string yField).',
-  );
-  lines.push(
-    '- gantt: ganttLabelField, ganttStartField (date), ganttEndField (date). Optional: ganttColorField.',
-  );
-  lines.push('- gauge: yField, yAggregation, gaugeMin (default 0), gaugeMax. No xField.');
-  lines.push(
-    '- mixed: ySeries (array of {fieldId, label, type: "bar"|"line", yAggregation, sourceId}). Optional: dualYAxis (boolean). Set a per-series sourceId to overlay a metric from another source — xField must be a categorical field present (same id) in every source used.',
-  );
-  lines.push(
-    'KPI sparkline plotType: line, bar, gauge (kpiSparklineGaugeMin, kpiSparklineGaugeMax).',
-  );
+  for (const entry of CHART_TYPE_DOCS) {
+    lines.push(`- ${entry}`);
+  }
+  lines.push(KPI_SPARKLINE_DOC);
   lines.push('');
 
   // Guidelines (kept in dynamic block as they reference field and widget IDs from state)

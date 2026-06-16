@@ -30,14 +30,15 @@ async function isCrmSeeded(db: Knex): Promise<boolean> {
         return false;
       }
     }
-    // If createdAt column exists but has no data, contacts were seeded before the
+    // If createdAt column is missing or has no data, contacts were seeded before the
     // column was added — reseed so the trend badge has date data to work with.
     const hasCreatedAt = await db.schema.hasColumn('contacts', 'createdAt');
-    if (hasCreatedAt) {
-      const contactWithDate = await db('contacts').whereNotNull('createdAt').first();
-      if (!contactWithDate) {
-        return false;
-      }
+    if (!hasCreatedAt) {
+      return false;
+    }
+    const contactWithDate = await db('contacts').whereNotNull('createdAt').first();
+    if (!contactWithDate) {
+      return false;
     }
     return true;
   } catch {

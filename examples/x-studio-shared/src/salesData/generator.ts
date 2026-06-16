@@ -316,6 +316,7 @@ function generateCustomers(rng: Rng, count: number): StudioDataSource {
 
   return {
     id: CUSTOMERS_SOURCE_ID,
+    tableName: 'customers',
     label: 'Customers',
     fields: [
       { id: 'id', label: 'Customer ID', type: 'string', hidden: true },
@@ -355,6 +356,7 @@ function generateProducts(rng: Rng): StudioDataSource {
 
   return {
     id: PRODUCTS_SOURCE_ID,
+    tableName: 'products',
     label: 'Products',
     fields: [
       { id: 'id', label: 'Product ID', type: 'string', hidden: true },
@@ -414,6 +416,7 @@ function generateOrders(
   return {
     source: {
       id: ORDERS_SOURCE_ID,
+      tableName: 'orders',
       label: 'Orders',
       fields: [
         { id: 'id', label: 'Order ID', type: 'string', hidden: true },
@@ -505,6 +508,7 @@ function generateOrderItems(
   return {
     source: {
       id: ORDER_ITEMS_SOURCE_ID,
+      tableName: 'order_items',
       label: 'Order Items',
       fields: [
         { id: 'id', label: 'Order Item ID', type: 'string', hidden: true },
@@ -601,6 +605,7 @@ function generateShipments(
   return {
     source: {
       id: SHIPMENTS_SOURCE_ID,
+      tableName: 'shipments',
       label: 'Shipments',
       fields: [
         { id: 'id', label: 'Shipment ID', type: 'string', hidden: true },
@@ -641,6 +646,7 @@ function generateShipmentItems(
 
   return {
     id: SHIPMENT_ITEMS_SOURCE_ID,
+    tableName: 'shipment_items',
     label: 'Shipment Items',
     hidden: true,
     fields: [

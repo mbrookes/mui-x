@@ -367,6 +367,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const ref = React.useRef<HTMLDivElement>(null);
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
   const chartExpandContainerRef = React.useRef<HTMLDivElement>(null);
+  const pivotExportRef = React.useRef<(() => void) | null>(null);
 
   // Detect when filter recomputation is in-flight (deferred rendering).
   // Only relevant for chart and grid widgets that go through useWidgetRows.
@@ -693,6 +694,21 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                     onClear={() => controller.clearInteractiveFilter(widgetId)}
                   />
                 )}
+                {widget.kind === 'pivot' && (
+                  <Tooltip title={localeText.widgetExportCsvTooltip}>
+                    <IconButton
+                      size="small"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        pivotExportRef.current?.();
+                      }}
+                      aria-label={localeText.widgetExportCsvTooltip}
+                      sx={{ ml: 'auto', flexShrink: 0 }}
+                    >
+                      <DownloadIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
               </Stack>
               {effectiveSubtitle && (
                 <Typography
@@ -771,7 +787,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           {widget.kind === 'pivot' &&
             (showContent ? (
               <Box sx={{ position: 'relative' }}>
-                <StudioPivotWidget widget={widget} dataSource={source} />
+                <StudioPivotWidget widget={widget} dataSource={source} exportRef={pivotExportRef} />
                 {isRecomputing && <LoadingOverlay />}
               </Box>
             ) : (
@@ -870,7 +886,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
             {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
             {widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
-            {widget.kind === 'pivot' && <StudioPivotWidget widget={widget} dataSource={source} />}
+            {widget.kind === 'pivot' && (
+              <StudioPivotWidget widget={widget} dataSource={source} exportRef={pivotExportRef} />
+            )}
             {widget.kind === 'map' && (
               <Box sx={{ height: MAP_WIDGET_DEFAULT_HEIGHT }}>
                 {source && <StudioMapWidget widget={widget} dataSource={source} />}

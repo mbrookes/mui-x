@@ -1485,4 +1485,16 @@ describe('aggregateHeatmap axis ordering', () => {
     // 'Closed Lost' isn't in stageOrder → sorted after the known pipeline stages.
     expect(data.xLabels).toEqual(['Prospecting', 'Proposal', 'Negotiation', 'Closed Lost']);
   });
+
+  it('sorts numeric string labels numerically, not alphabetically', () => {
+    const numericRows = [
+      { discount: '20', owner: 'Amy', revenue: 100 },
+      { discount: '1', owner: 'Bob', revenue: 50 },
+      { discount: '10', owner: 'Amy', revenue: 75 },
+      { discount: '2', owner: 'Bob', revenue: 60 },
+    ];
+    const data = aggregateHeatmap(numericRows, 'discount', 'owner', 'revenue', undefined, 'sum');
+    // Alphabetical order would be ['1', '10', '2', '20']; numeric order is correct.
+    expect(data.xLabels).toEqual(['1', '2', '10', '20']);
+  });
 });

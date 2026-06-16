@@ -22,10 +22,18 @@
 
 **Fixed**: Added `heatSortBy?: 'x-axis' | 'y-axis' | 'natural'` and `heatSortDirection?: 'asc' | 'desc'` to `StudioWidgetConfig`. Removed heatmap from the generic sort-control guard in `ChartSetupPanel`; added a dedicated sort `Select` (Natural / Column axis (X) / Row axis (Y)) plus an asc/desc `ToggleButtonGroup` (shown only when an axis is selected) inside the `isHeatmap` block, after the colour scheme picker, disabled when either axis field is unset. `aggregateHeatmap` extended with `sortBy`/`sortDirection` params: `'x-axis'` sorts xLabels, `'y-axis'` sorts yLabels (both using `sortLabels` + optional `.toReversed()`), `'natural'` preserves insertion order for both; `orderedValues` still takes precedence when set. Locale tokens added in all four locales. `widgetConfigMeta.ts` updated for the AI agent.
 
-BL-209: Sort should sort numerical fields numerically, not alphabetically.
+✅ BL-209: Sort should sort numerical fields numerically, not alphabetically.
 
-BL-210: Sort-by should show the field/axis labels, not just generic x/y. If sort is disabled, ascending/descending should be too.
+**Fixed** (`chartAggregation.ts`): Added `sortHeatmapLabels()` — a heatmap-local helper that detects all-numeric string labels (after the date check, so 4-digit years stay as dates) and sorts them numerically. Replaces `sortLabels()` calls in the `aggregateHeatmap` x/y label ordering paths. Test added in `chartAggregation.test.ts` asserting `['1','2','10','20']` not `['1','10','2','20']`.
 
-BL-211: LocalStorage state shouldn't overide the URL parameter.
+✅ BL-210: Sort-by should show the field/axis labels, not just generic x/y. If sort is disabled, ascending/descending should be too.
 
-BL-212: MAke the alert banner half the height.
+**Fixed** (`ChartSetupPanel.tsx`): Computed `heatXFieldLabel`/`heatYFieldLabel` from `allFields`; the sort MenuItems now show the selected field's label, falling back to the locale token when no field is set. Added `disabled={!heatAxesSet}` to the asc/desc `ToggleButtonGroup` so direction controls are disabled when either axis field is unset.
+
+✅ BL-211: LocalStorage state shouldn't override the URL parameter.
+
+**Fixed** (`examples/x-studio/src/App.tsx`): Added `withPage()` helper that applies `urlPageId` to `activePageId` when a `?page=` param is present (no-op when absent). Applied to both return paths in the saved-state branch so the URL page always wins over localStorage.
+
+✅ BL-212: Make the alert banner half the height.
+
+**Fixed** (`examples/x-studio/src/components/AlertBannerWidget.tsx`): Reduced the in-flow sizer `minHeight` from 88 to 44.

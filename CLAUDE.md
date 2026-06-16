@@ -92,8 +92,19 @@ cd examples/<name> && pnpm dev
 2. Create a directory under `src/components/widgets/Studio<Kind>Widget/`
 3. Add the widget component and an optional setup panel
 4. Register the kind in the widget factory / compose drawer
+5. Add an entry to `WIDGET_KIND_DESCRIPTIONS` and `KIND_CONFIG_LINES` in `packages/x-studio-ai-middleware/src/widgetConfigMeta.ts` (TypeScript will error if you forget — both are typed `Record<BuiltinStudioWidgetKind, …>`)
 
 > Custom charts stay app-level: compose the public `@mui/x-charts*` APIs inside an x-studio widget — never patch a new chart type into the shipping `x-charts*` packages. See the "x-studio custom charts" section of `AGENTS.md` for the rationale (BL-182).
+
+## Adding a new StudioWidgetConfig field
+
+`StudioWidgetConfig` is the flat config bag shared by all widget kinds (`packages/x-studio/src/models/widgetTypes.ts`). When adding a field:
+
+1. Add the TypeScript property with a JSDoc `/** … */` comment (one line, describes purpose and default).
+2. Open `packages/x-studio-ai-middleware/src/widgetConfigMeta.ts` and add the field to the relevant `KIND_CONFIG_LINES` entry — this is what the AI agent sees in its tool schema and system prompt. Both stay in sync automatically via `buildWidgetConfigDescription()`.
+3. If the field is a new `chartType` value, also add a line to `CHART_TYPE_DOCS` in the same file.
+
+Do **not** edit `WIDGET_CONFIG_DESCRIPTION` directly in `studioAITools.ts` — it is now generated.
 
 ## Schema migrations
 

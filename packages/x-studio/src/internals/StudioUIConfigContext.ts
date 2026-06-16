@@ -1988,6 +1988,8 @@ export interface ResolvedStudioFeatures {
   relationships: boolean;
   widgetFilters: boolean;
   aiChat: boolean;
+  aiInsights: boolean;
+  export: boolean;
   // ── Widget kind availability ───────────────────────────────────────────────
   grid: boolean;
   chart: boolean;
@@ -2045,6 +2047,8 @@ export function useStudioFeatures(): ResolvedStudioFeatures {
     relationships: featureFlags.relationships ?? true,
     widgetFilters: featureFlags.widgetFilters ?? true,
     aiChat: featureFlags.aiChat ?? true,
+    aiInsights: featureFlags.aiInsights ?? true,
+    export: featureFlags.export ?? true,
     // Widget kinds: enabled when the flag is not `false` (true, undefined, or an object all enable the kind)
     grid: grid !== false,
     chart: chart !== false,

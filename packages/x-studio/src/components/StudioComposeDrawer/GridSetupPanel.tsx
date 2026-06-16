@@ -11,7 +11,6 @@ import {
   ListSubheader,
   Menu,
   MenuItem,
-  Select,
   Stack,
   TextField,
   ToggleButton,
@@ -30,7 +29,6 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import type {
-  StudioConditionalFormat,
   StudioCrossFilterMode,
   StudioGridColumn,
   StudioGridSummaryAggregation,
@@ -92,37 +90,6 @@ export function GridSetupPanel(props: { widgetId: string }) {
     min: localeText.aggFnMin,
     max: localeText.aggFnMax,
   };
-  const cfOperators: { value: StudioConditionalFormat['operator']; label: string }[] = [
-    { value: 'equals', label: '=' },
-    { value: 'not_equals', label: '≠' },
-    { value: 'greater_than', label: '>' },
-    { value: 'greater_than_or_equal', label: '≥' },
-    { value: 'less_than', label: '<' },
-    { value: 'less_than_or_equal', label: '≤' },
-    { value: 'contains', label: localeText.gridSetupCFContains },
-    { value: 'is_empty', label: localeText.gridSetupCFIsEmpty },
-    { value: 'is_not_empty', label: localeText.gridSetupCFNotEmpty },
-  ];
-  const cfStylePresets: { label: string; style: StudioConditionalFormat['style'] }[] = [
-    {
-      label: localeText.gridSetupCFStyleRed,
-      style: { backgroundColor: '#ffcdd2', color: '#b71c1c' },
-    },
-    {
-      label: localeText.gridSetupCFStyleGreen,
-      style: { backgroundColor: '#c8e6c9', color: '#1b5e20' },
-    },
-    {
-      label: localeText.gridSetupCFStyleYellow,
-      style: { backgroundColor: '#fff9c4', color: '#f57f17' },
-    },
-    {
-      label: localeText.gridSetupCFStyleBlue,
-      style: { backgroundColor: '#bbdefb', color: '#0d47a1' },
-    },
-    { label: localeText.gridSetupCFStyleBold, style: { fontWeight: 'bold' } },
-  ];
-
   const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
 
   // configColumns: the current StudioGridColumn[] from widget config, or default all-primary-fields
@@ -314,8 +281,6 @@ export function GridSetupPanel(props: { widgetId: string }) {
     widget?.config?.gridAggregations ?? {};
   const sortField = widget?.config?.gridSortField ?? '';
   const sortDirection = widget?.config?.gridSortDirection ?? 'asc';
-  const conditionalFormats: StudioConditionalFormat[] =
-    widget?.config?.gridConditionalFormats ?? [];
 
   const availableSources = React.useMemo(
     () => Object.values(dataSources).filter((s) => !s.hidden),
@@ -763,152 +728,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
         </React.Fragment>
       )}
 
-      {source && features.gridConditionalFormats !== false && (
-        <React.Fragment>
-          {/* Conditional formatting rules */}
-          <SetupSection title={localeText.gridSetupConditionalFormattingTitle}>
-            <Stack spacing={1}>
-              {conditionalFormats.map((rule, i) => {
-                const noValueOp = rule.operator === 'is_empty' || rule.operator === 'is_not_empty';
-                const fieldEntry = source.fields.find((f) => f.id === rule.fieldId);
-                const preset = cfStylePresets.find(
-                  (p) =>
-                    p.style.backgroundColor === rule.style.backgroundColor &&
-                    p.style.color === rule.style.color &&
-                    p.style.fontWeight === rule.style.fontWeight,
-                );
-                return (
-                  // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- conditional format rules have no stable ID
-                  <Box
-                    key={i}
-                    sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}
-                  >
-                    <Select
-                      size="small"
-                      value={rule.fieldId}
-                      aria-label={localeText.gridConditionFieldAriaLabel}
-                      onChange={(event) => {
-                        const next = [...conditionalFormats];
-                        next[i] = { ...rule, fieldId: event.target.value };
-                        controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
-                      }}
-                      sx={{ fontSize: 12, flex: '1 1 80px', minWidth: 60 }}
-                    >
-                      {source.fields.map((f) => (
-                        <MenuItem key={f.id} value={f.id} dense sx={{ fontSize: 12 }}>
-                          {f.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                    <Select
-                      size="small"
-                      value={rule.operator}
-                      aria-label={localeText.gridConditionOperatorAriaLabel}
-                      onChange={(event) => {
-                        const next = [...conditionalFormats];
-                        next[i] = {
-                          ...rule,
-                          operator: event.target.value as StudioConditionalFormat['operator'],
-                        };
-                        controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
-                      }}
-                      sx={{ fontSize: 12, flex: '0 0 auto', minWidth: 60 }}
-                    >
-                      {cfOperators.map((op) => (
-                        <MenuItem key={op.value} value={op.value} dense sx={{ fontSize: 12 }}>
-                          {op.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                    {!noValueOp && (
-                      <TextField
-                        size="small"
-                        value={
-                          rule.value !== undefined && rule.value !== null ? String(rule.value) : ''
-                        }
-                        placeholder={fieldEntry?.type === 'number' ? '0' : 'value'}
-                        slotProps={{
-                          htmlInput: { 'aria-label': localeText.gridConditionValueAriaLabel },
-                        }}
-                        onChange={(event) => {
-                          const next = [...conditionalFormats];
-                          const v =
-                            fieldEntry?.type === 'number'
-                              ? Number(event.target.value)
-                              : event.target.value;
-                          next[i] = { ...rule, value: v };
-                          controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
-                        }}
-                        sx={{ flex: '1 1 60px', minWidth: 48, '& input': { fontSize: 12 } }}
-                      />
-                    )}
-                    <Select
-                      size="small"
-                      value={preset?.label ?? '__custom__'}
-                      aria-label={localeText.gridConditionStyleAriaLabel}
-                      onChange={(event) => {
-                        const selected = cfStylePresets.find((p) => p.label === event.target.value);
-                        if (selected) {
-                          const next = [...conditionalFormats];
-                          next[i] = { ...rule, style: selected.style };
-                          controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
-                        }
-                      }}
-                      sx={{ fontSize: 12, flex: '0 0 auto', minWidth: 64 }}
-                    >
-                      {cfStylePresets.map((p) => (
-                        <MenuItem key={p.label} value={p.label} dense sx={{ fontSize: 12 }}>
-                          {p.label}
-                        </MenuItem>
-                      ))}
-                      {!preset && (
-                        <MenuItem value="__custom__" dense sx={{ fontSize: 12 }}>
-                          {localeText.gridSetupConditionalCustom}
-                        </MenuItem>
-                      )}
-                    </Select>
-                    <IconButton
-                      size="small"
-                      aria-label={localeText.gridSetupRemoveRuleAriaLabel}
-                      onClick={() => {
-                        const next = conditionalFormats.filter((_, j) => j !== i);
-                        controller.updateWidgetConfig(widgetId, {
-                          gridConditionalFormats: next.length > 0 ? next : undefined,
-                        });
-                      }}
-                    >
-                      <DeleteIcon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </Box>
-                );
-              })}
-              <Button
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={() => {
-                  const firstField = source.fields[0];
-                  if (!firstField) {
-                    return;
-                  }
-                  const next: StudioConditionalFormat[] = [
-                    ...conditionalFormats,
-                    {
-                      fieldId: firstField.id,
-                      operator: 'greater_than',
-                      value: 0,
-                      style: cfStylePresets[0].style,
-                    },
-                  ];
-                  controller.updateWidgetConfig(widgetId, { gridConditionalFormats: next });
-                }}
-                sx={{ alignSelf: 'flex-start', fontSize: 12 }}
-              >
-                {localeText.gridSetupAddRule}
-              </Button>
-            </Stack>
-          </SetupSection>
-        </React.Fragment>
-      )}
+      {/* Conditional formatting now lives in the Format tab (see GridConditionalFormatSection). */}
 
       {source && (
         <React.Fragment>

@@ -1,4 +1,3 @@
-
 ✅ BL-206: Mixed (bar+line) charts — line series invisible. "Revenue & Avg Discount by Category" and "Revenue vs Inventory Stock by Category (blended sources)" showed only bars; the line overlay was not visible.
 
 **Root cause**: `StudioChartWidget.tsx` used `yAxisKey` when building `mixedSeries` objects, but the MUI X Charts API property is `yAxisId`. With `dualYAxis: true`, the unrecognized `yAxisKey` was silently ignored, so every series fell back to the first (left) y-axis. Bar values (revenue, millions) dominated the scale; line values (discount %, stock counts) were compressed to near-zero and invisible.
@@ -7,4 +6,8 @@
 
 BL-207: Make the heatmap widget legend the same size as the map's.
 
-BL-208: Heatmap doesn't have a control to set the Y axis.
+✅ BL-208: Heatmap doesn't have a control to set the Y axis.
+
+**Root cause**: The `heatYField` picker in `ChartSetupPanel` used `categoryFields` (only string/boolean fields), but the heatmap Y axis can be any field type. The example config already used `discount` (a `number` field) as the Y axis, which never appeared in the picker dropdown.
+
+**Fixed** (`ChartSetupPanel.tsx`): changed `heatYField` picker from `categoryFields` to `reachableFields` so any field type (numeric, string, date, boolean) can be selected as the row axis. Updated the helper text in all locale files to reflect that the field is not restricted to categorical types.

@@ -634,7 +634,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 onChange={(fieldId) =>
                   controller.updateWidgetConfig(widgetId, { heatYField: fieldId || undefined })
                 }
-                fields={categoryFields}
+                fields={reachableFields}
                 label={localeText.chartSetupHeatmapRowAxisLabel}
                 helperText={localeText.chartSetupHeatmapRowAxisHelperText}
               />

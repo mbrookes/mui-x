@@ -901,8 +901,9 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   } = useSpeechRecognition();
   // Track the text that was in the composer before voice started.
   const voiceBaseTextRef = React.useRef('');
-  // Controlled composer value (undefined = let ChatBox manage it internally).
-  const [composerValue, setComposerValue] = React.useState<string | undefined>(undefined);
+  // Always-controlled composer value — start with '' so ChatBox never switches
+  // from uncontrolled to controlled mid-session.
+  const [composerValue, setComposerValue] = React.useState('');
 
   const handleToggleVoice = React.useCallback(() => {
     if (isListening) {
@@ -911,7 +912,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
       voiceBaseTextRef.current = '';
     } else {
       // Snapshot current composer text so we can prepend it to the transcript.
-      voiceBaseTextRef.current = composerValue ?? '';
+      voiceBaseTextRef.current = composerValue;
       resetTranscript();
       startVoice();
     }
@@ -1114,13 +1115,14 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             onError={slotProps?.chatBox?.onError}
             composerValue={composerValue}
             onComposerValueChange={handleComposerValueChange}
-            // initialPrompt: pre-fill and auto-submit when there are no existing messages
+            // initialPrompt: pre-fill when there are no existing messages.
+            // autoSubmitInitialValue is declared in ChatBox PropTypes but not implemented —
+            // omit it to avoid the "unrecognized DOM prop" console warning.
             initialComposerValue={
               threadMessages.length === 0
                 ? (initialPrompt ?? slotProps?.chatBox?.initialComposerValue)
                 : slotProps?.chatBox?.initialComposerValue
             }
-            autoSubmitInitialValue={threadMessages.length === 0 && Boolean(initialPrompt)}
             suggestions={suggestions}
             suggestionsAutoSubmit
             currentUser={{ id: 'user', displayName: 'You', role: 'user' }}
@@ -1193,7 +1195,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             bottom: 80,
             right: 16,
             width: 380,
-            height: 'clamp(320px, 50vh, calc(100vh - 96px))',
+            height: 'clamp(480px, 75vh, calc(100vh - 96px))',
             bgcolor: 'background.paper',
             border: 1,
             borderColor: 'divider',

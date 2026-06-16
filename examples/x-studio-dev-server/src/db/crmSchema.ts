@@ -19,7 +19,15 @@ export async function createCrmTables(db: Knex): Promise<void> {
       t.string('phone').notNullable();
       t.string('role').notNullable();
       t.string('department').notNullable();
+      t.string('createdAt').nullable();
     });
+  } else {
+    // Migrate existing contacts table: add columns introduced after initial schema.
+    if (!(await db.schema.hasColumn('contacts', 'createdAt'))) {
+      await db.schema.alterTable('contacts', (t) => {
+        t.string('createdAt').nullable();
+      });
+    }
   }
 
   if (!(await db.schema.hasTable('deals'))) {

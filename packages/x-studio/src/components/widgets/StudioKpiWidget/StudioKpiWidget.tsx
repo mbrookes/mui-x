@@ -31,7 +31,9 @@ import {
   autoGranularity,
   extractDateRange,
   findDateFilter,
+  computeFixedPeriodRange,
   computePreviousPeriodRange,
+  filterRowsByDateRange,
   computeAggregate,
   computeSparklineData,
 } from './kpiUtils';
@@ -302,12 +304,18 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     // Trend
     let kpiTrend: KpiTrendResult | null = null;
 
+    const hasFixedPeriodTrend = !!(config.kpiTrend && config.kpiTrendFixedPeriod);
+
+    // Fixed-period mode derives its own windows from today — no date filter required.
+    // The existing filter-based mode still requires an active date filter to define the
+    // current period (shown as a warning badge when missing).
     const needsDateFilter =
+      !hasFixedPeriodTrend &&
       !!(config.kpiTrend && config.kpiValueField) &&
       !config.kpiTarget &&
       !findDateFilter(filters, widget.id, dataSource);
 
-    if (config.kpiTrend && config.kpiValueField) {
+    if (config.kpiTrend && (config.kpiValueField || hasFixedPeriodTrend)) {
       if (config.kpiTarget && resolvedTargetValue !== null) {
         // Target-based comparison: compare current value against the configured target
         if (resolvedTargetValue !== 0) {
@@ -323,8 +331,61 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             comparisonLabel: localeText.kpiWidgetComparisonTargetLabel,
           };
         }
+      } else if (hasFixedPeriodTrend) {
+        // Fixed-period mode: compute rolling windows from today without a date filter.
+        // The headline (value / currentRows) is the all-time total — unfiltered. Only
+        // the trend delta rows are windowed by the date field.
+        const fixedDateField =
+          config.kpiSparklineField ??
+          dataSource.fields.find((f) => f.type === 'date' || f.type === 'datetime')?.id ??
+          null;
+        if (fixedDateField) {
+          const today = new Date();
+          const currentRange = computeFixedPeriodRange(config.kpiTrendFixedPeriod!, today);
+          const comparisonMode = config.kpiTrendComparison ?? 'previous-period';
+          const prevRange = computePreviousPeriodRange(
+            currentRange.start,
+            currentRange.end,
+            comparisonMode,
+          );
+
+          const currentPeriodRows = filterRowsByDateRange(
+            rows,
+            fixedDateField,
+            currentRange.start,
+            currentRange.end,
+          );
+          const prevPeriodRows = filterRowsByDateRange(
+            rows,
+            fixedDateField,
+            prevRange.start,
+            prevRange.end,
+          );
+
+          const aggField = config.kpiValueField ?? '';
+          const currentPeriodValue = computeAggregate(currentPeriodRows, aggField, aggregation);
+          const previousValue = computeAggregate(prevPeriodRows, aggField, aggregation);
+
+          if (previousValue !== 0) {
+            kpiTrend = {
+              delta: (currentPeriodValue - previousValue) / Math.abs(previousValue),
+              previousValue,
+              previousStart: prevRange.start,
+              previousEnd: prevRange.end,
+            };
+          } else if (currentPeriodValue !== 0) {
+            kpiTrend = {
+              delta: Infinity,
+              previousValue,
+              previousStart: prevRange.start,
+              previousEnd: prevRange.end,
+            };
+          }
+        }
       } else {
-        const previousKpiValueField = config.kpiValueField;
+        // In this branch hasFixedPeriodTrend is false, so the outer gate's
+        // (config.kpiValueField || hasFixedPeriodTrend) means kpiValueField is set.
+        const previousKpiValueField = config.kpiValueField!;
         const dateFilter = findDateFilter(filters, widget.id, dataSource);
         if (dateFilter) {
           const currentRange = extractDateRange(dateFilter);

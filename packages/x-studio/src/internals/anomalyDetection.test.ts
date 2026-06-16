@@ -3,6 +3,7 @@ import {
   detectAnomaliesIQR,
   detectAnomaliesZScore,
   detectWidgetAnomalies,
+  detectChartDataAnomalies,
 } from './anomalyDetection';
 import type { StudioWidget } from '../models';
 
@@ -228,7 +229,7 @@ describe('detectWidgetAnomalies', () => {
     expect(annotations[0].value).toBe(new Date('2024-07-01T00:00:00.000Z').getTime());
   });
 
-  it('deduplicates anomaly annotations that fall into the same x bucket', () => {
+  it('deduplicates anomaly annotations for multiple rows with the same x bucket (raw rows)', () => {
     const widget = makeWidget({
       config: {
         chartType: 'line',
@@ -256,5 +257,77 @@ describe('detectWidgetAnomalies', () => {
     const annotations = detectWidgetAnomalies(widget, rows);
     expect(annotations).toHaveLength(1);
     expect(annotations[0].value).toBe(new Date('2024-01-01T00:00:00.000Z').getTime());
+  });
+});
+
+// ── detectChartDataAnomalies ──────────────────────────────────────────────────
+
+describe('detectChartDataAnomalies', () => {
+  it('detects an anomalous period using aggregated labels and values', () => {
+    const labels = [
+      '2024-01',
+      '2024-02',
+      '2024-03',
+      '2024-04',
+      '2024-05',
+      '2024-06',
+      '2024-07',
+      '2024-08',
+    ];
+    const values = [10, 11, 10, 12, 10, 11, 10, 200];
+    const annotations = detectChartDataAnomalies('w1', labels, values);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].axis).toBe('x');
+    expect(annotations[0].value).toBe('2024-08');
+    expect(annotations[0].label).toBe('⚠');
+    expect(annotations[0].id).toContain('w1');
+  });
+
+  it('returns empty array when fewer than 4 non-null values', () => {
+    expect(detectChartDataAnomalies('w1', ['a', 'b', 'c'], [10, 200, 5])).toEqual([]);
+  });
+
+  it('skips null values when finding clean points', () => {
+    const labels = [
+      '2024-01',
+      '2024-02',
+      '2024-03',
+      '2024-04',
+      '2024-05',
+      '2024-06',
+      '2024-07',
+      '2024-08',
+      '2024-09',
+    ];
+    const values = [10, null, 11, 10, 12, 10, 11, 10, 200];
+    const annotations = detectChartDataAnomalies('w1', labels, values);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].value).toBe('2024-09');
+  });
+
+  it('returns empty array when no anomalies in tightly clustered data', () => {
+    const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+    const values = [50, 51, 49, 50, 52, 48];
+    expect(detectChartDataAnomalies('w1', labels, values)).toEqual([]);
+  });
+
+  it('deduplicates annotations with the same label', () => {
+    // Shouldn't happen with pre-aggregated data, but guard it anyway
+    const labels = ['2024-Q1', '2024-Q1', '2024-Q2', '2024-Q3', '2024-Q4'];
+    const values = [10, 200, 10, 11, 10];
+    const annotations = detectChartDataAnomalies('w1', labels, values);
+    const uniqueValues = new Set(annotations.map((a) => a.value));
+    expect(annotations.length).toBe(uniqueValues.size);
+  });
+
+  it('assigns sequential ids starting from 0', () => {
+    const labels = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
+    // Normal cluster varies so IQR > 0; last two values are clear outliers.
+    const values = [10, 11, 12, 11, 10, 12, 11, 10, 200, 300];
+    const annotations = detectChartDataAnomalies('widget99', labels, values);
+    expect(annotations.length).toBeGreaterThan(0);
+    annotations.forEach((ann, i) => {
+      expect(ann.id).toBe(`anomaly-widget99-${i}`);
+    });
   });
 });

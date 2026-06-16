@@ -28,6 +28,8 @@ import type { StudioDataField, StudioDataSource, StudioWidget } from '../../../m
 import {
   formatPeriodLabel,
   periodKeyToDateRange,
+  normalizeToDate,
+  getTemporalAxisData,
   truncateToGranularity,
   aggregateByField,
   aggregateFunnelReached,
@@ -64,7 +66,11 @@ import {
   makeValueFormatter,
   normalizeCrossFilterValue,
 } from './chartWidgetHelpers';
-import { detectWidgetAnomalies } from '../../../internals/anomalyDetection';
+import {
+  detectWidgetAnomalies,
+  detectChartDataAnomalies,
+  SUPPORTED_CHART_TYPES,
+} from '../../../internals/anomalyDetection';
 import { computeWidgetForecast } from '../../../internals/forecastUtils';
 import { formatFieldValue } from '../../../internals/numberFormat';
 
@@ -460,8 +466,30 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     if (!anomalyEnabled) {
       return [];
     }
-    return detectWidgetAnomalies(widget, filteredRows);
-  }, [anomalyEnabled, widget, filteredRows]);
+    const ct = config.chartType ?? 'bar';
+    if (!SUPPORTED_CHART_TYPES.has(ct)) {
+      return [];
+    }
+    // Scatter plots individual points on continuous axes — raw rows are correct.
+    if (ct === 'scatter') {
+      return detectWidgetAnomalies(widget, filteredRows);
+    }
+
+    // Bar/line/area: use aggregated chart data so annotation x-values match the
+    // chart's actual x-axis labels (e.g. period-key strings on band-scale axes).
+    let annotations: import('../../../models/baseTypes').StudioChartAnnotation[] = [];
+    if (chartData && chartData.labels.length > 0) {
+      annotations = detectChartDataAnomalies(widget.id, chartData.labels, chartData.values);
+    } else if (multiYData && multiYData.labels.length > 0 && multiYData.series.length > 0) {
+      annotations = detectChartDataAnomalies(
+        widget.id,
+        multiYData.labels,
+        multiYData.series[0].values,
+      );
+    }
+
+    return annotations;
+  }, [anomalyEnabled, widget, filteredRows, chartData, multiYData, config.chartType]);
 
   React.useEffect(() => {
     onAnomalyDetected?.(detectedAnomalyAnnotations);
@@ -476,12 +504,28 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     if (!allAnnotations.length) {
       return null;
     }
+
+    // Line/area charts with temporal period-key labels use scaleType:'utc' with Date objects.
+    // ChartsReferenceLine x values must be timestamps (numbers), not period-key strings.
+    const isBarType = chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100';
+    const sourceLabels = chartData?.labels ?? multiYData?.labels ?? [];
+    const useTemporalX = !isBarType && getTemporalAxisData(sourceLabels) != null;
+
     return allAnnotations.map((ann) => {
       const isAnomalyAnnotation = ann.id.startsWith('anomaly-') || ann.label === '⚠';
       const lineStyle = isAnomalyAnnotation
         ? { strokeDasharray: '4 2', stroke: '#c60000' }
         : { strokeDasharray: '4 2' };
       const labelStyle = isAnomalyAnnotation ? { fill: '#c60000' } : undefined;
+
+      let xValue: string | number = ann.value;
+      if (ann.axis === 'x' && useTemporalX && typeof xValue === 'string') {
+        const range = periodKeyToDateRange(xValue);
+        const date = range ? normalizeToDate(range.from) : normalizeToDate(xValue);
+        if (date) {
+          xValue = date.getTime();
+        }
+      }
 
       return ann.axis === 'y' ? (
         <ChartsReferenceLine
@@ -495,7 +539,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ) : (
         <ChartsReferenceLine
           key={ann.id}
-          x={ann.value as string | number}
+          x={xValue}
           label={ann.label || ''}
           labelAlign="end"
           lineStyle={lineStyle}
@@ -503,7 +547,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         />
       );
     });
-  }, [config.annotations, overlayAnnotations, detectedAnomalyAnnotations]);
+  }, [
+    config.annotations,
+    overlayAnnotations,
+    detectedAnomalyAnnotations,
+    chartType,
+    chartData,
+    multiYData,
+  ]);
 
   const getSelectedDataIndex = React.useCallback(
     (labels: Array<string | number | Date>) => {

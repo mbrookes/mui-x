@@ -62,7 +62,7 @@ export function detectAnomaliesZScore(values: number[], threshold = 2.5): Set<nu
 
 // ── Chart types that support anomaly detection ────────────────────────────────
 
-const SUPPORTED_CHART_TYPES = new Set([
+export const SUPPORTED_CHART_TYPES = new Set([
   'bar',
   'bar-stacked',
   'bar-100',
@@ -171,6 +171,50 @@ export function detectWidgetAnomalies(
       value,
       label: '⚠',
     });
+    counter += 1;
+  }
+  return annotations;
+}
+
+/**
+ * Detects anomalies in pre-aggregated chart data.
+ *
+ * Accepts the labels/values arrays that the chart renders on the x-axis, so
+ * annotation x-values always match chart scale labels exactly — including
+ * period-key strings used by bar charts with `scaleType: 'band'`.
+ *
+ * Prefer this over `detectWidgetAnomalies` for bar/line/area charts where the
+ * x-axis shows aggregated period totals, not individual data-row values.
+ */
+export function detectChartDataAnomalies(
+  widgetId: string,
+  labels: (string | number)[],
+  values: (number | null)[],
+): StudioChartAnnotation[] {
+  const cleanValues: number[] = [];
+  const cleanLabels: (string | number)[] = [];
+  for (let i = 0; i < labels.length; i += 1) {
+    const v = values[i];
+    if (v != null) {
+      cleanValues.push(v);
+      cleanLabels.push(labels[i]);
+    }
+  }
+  if (cleanValues.length < 4) {
+    return [];
+  }
+  const outlierIndices = detectAnomaliesIQR(cleanValues);
+  const annotations: StudioChartAnnotation[] = [];
+  const seen = new Set<string>();
+  let counter = 0;
+  for (const idx of outlierIndices) {
+    const value = cleanLabels[idx];
+    const key = `${typeof value}:${String(value)}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    annotations.push({ id: `anomaly-${widgetId}-${counter}`, axis: 'x', value, label: '⚠' });
     counter += 1;
   }
   return annotations;

@@ -28,7 +28,6 @@ function timestamp() {
 
 export function log(...args: unknown[]) {
   const msg = args.map(String).join(' ');
-  console.log(...args);
   write(`[${timestamp()}] INFO  ${msg}`);
 }
 
@@ -40,7 +39,6 @@ export function error(...args: unknown[]) {
 
 export function warn(...args: unknown[]) {
   const msg = args.map(String).join(' ');
-  console.warn(...args);
   write(`[${timestamp()}] WARN  ${msg}`);
 }
 

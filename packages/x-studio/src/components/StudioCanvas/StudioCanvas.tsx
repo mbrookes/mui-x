@@ -496,8 +496,9 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   const canvasRef = React.useRef<HTMLDivElement>(null);
 
   // Track which pages have ever been active — mount them once and keep alive.
-  // Inactive pages are hidden with display:none so their widgets stay mounted
-  // and data pipelines don't re-run when the user switches back.
+  // Inactive pages use visibility:hidden + position:absolute (NOT display:none).
+  // display:none restarts CSS animations on reveal; visibility:hidden does not,
+  // so charts don't reanimate when the user switches back to a visited page.
   const [mountedPageIds, setMountedPageIds] = React.useState<ReadonlySet<string>>(
     () => new Set(activePageId ? [activePageId] : []),
   );
@@ -595,6 +596,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
       ref={canvasRef}
       sx={[
         {
+          position: 'relative',
           width: '100%',
           p: mode === 'edit' ? 0 : '8px',
           backgroundColor: activePage?.theme?.pageBackground ?? undefined,
@@ -621,7 +623,22 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           return null;
         }
         return (
-          <Box key={page.id} sx={page.id !== activePageId ? { display: 'none' } : undefined}>
+          <Box
+            key={page.id}
+            sx={
+              page.id !== activePageId
+                ? {
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    visibility: 'hidden',
+                    pointerEvents: 'none',
+                    overflow: 'hidden',
+                  }
+                : undefined
+            }
+          >
             <StudioPageRows
               page={page}
               pageId={page.id}

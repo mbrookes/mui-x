@@ -480,6 +480,11 @@ export interface StudioLocaleText {
   kpiSetupCalculatedField: string;
   kpiSetupTargetHelperText: string;
   kpiSetupInvertColours: string;
+  kpiSetupFixedWindowLabel: string;
+  kpiSetupFixedWindowNone: string;
+  kpiSetupFixedWindowMonth: string;
+  kpiSetupFixedWindowQuarter: string;
+  kpiSetupFixedWindowYear: string;
 
   // ── KPI widget ─────────────────────────────────────────────────────────────
   kpiGrandTotalTooltip: string;
@@ -1436,6 +1441,11 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupTargetHelperText:
     'Numeric target value. Shows a reference line on the sparkline; when Trend is also enabled, the delta badge compares the current value against this target.',
   kpiSetupInvertColours: 'Invert colours (lower is better)',
+  kpiSetupFixedWindowLabel: 'Trend window',
+  kpiSetupFixedWindowNone: 'From date filter',
+  kpiSetupFixedWindowMonth: 'Last 30 days',
+  kpiSetupFixedWindowQuarter: 'Last 90 days',
+  kpiSetupFixedWindowYear: 'Last 365 days',
 
   // KPI widget
   kpiGrandTotalTooltip:

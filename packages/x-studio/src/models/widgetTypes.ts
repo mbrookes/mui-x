@@ -228,6 +228,15 @@ export interface StudioWidgetConfig {
    * decrease shows as green. Use for cost, error-rate, or other "lower is better" metrics.
    */
   kpiTrendInvert?: boolean;
+  /**
+   * When set, the trend is computed over a fixed rolling window ending today rather than
+   * the active date filter. The headline value is unaffected (all-time total). Requires a
+   * date field in the source — auto-detected from `kpiSparklineField` when set.
+   * - 'month': last 30 days vs. the 30 days before
+   * - 'quarter': last 90 days vs. the 90 days before
+   * - 'year': last 365 days vs. the 365 days before
+   */
+  kpiTrendFixedPeriod?: 'month' | 'quarter' | 'year';
   // KPI target line
   /** When true, shows a horizontal reference line on the sparkline and (when kpiTrend is also enabled) compares the headline value against the target instead of the previous period. For gauge sparklines the target is always active and sets the gauge maximum. */
   kpiTarget?: boolean;

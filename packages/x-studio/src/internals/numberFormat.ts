@@ -65,15 +65,18 @@ function getCurrencyFormat(
   const key = `${currencyCode}:${compact}:${normalizedPrecision ?? 'default'}`;
   let fmt = currencyFormatCache.get(key);
   if (!fmt) {
-    const defaultDigits = compact ? 1 : 0;
-    const digits = normalizedPrecision ?? defaultDigits;
+    // Compact notation keeps up to 1 fraction digit (e.g. $40.5K) but must not force a
+    // trailing zero onto whole values (e.g. $40, not $40.0); standard notation defaults
+    // to whole currency amounts. An explicit precision pins both bounds.
+    const minimumFractionDigits = normalizedPrecision ?? 0;
+    const maximumFractionDigits = normalizedPrecision ?? (compact ? 1 : 0);
     // react-doctor-disable-next-line react-doctor/js-hoist-intl -- cached; only created once per currency+compact combination
     fmt = new Intl.NumberFormat(undefined, {
       style: 'currency',
       currency: currencyCode,
       currencyDisplay: 'narrowSymbol',
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits,
+      minimumFractionDigits,
+      maximumFractionDigits,
       notation: compact ? 'compact' : 'standard',
       compactDisplay: 'short',
     });

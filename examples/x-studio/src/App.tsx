@@ -411,7 +411,7 @@ export default function App() {
     } as Partial<StudioState>;
   }, [dataset, osData, urlPageId]);
 
-  // Phase 2: if ?rows=N is in the URL, generate the large dataset after first
+  // If ?rows=N is in the URL, regenerate all sources with that count after first
   // paint so the main thread is not blocked during initial render.
   const [generatedState, setGeneratedState] = React.useState<Partial<StudioState> | null>(null);
 

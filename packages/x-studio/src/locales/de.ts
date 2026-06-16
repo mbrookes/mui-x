@@ -361,6 +361,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   chartSetupSortByLabel: 'Sortieren nach',
   chartSetupSortCategory: 'Kategorie',
   chartSetupSortValue: 'Wert',
+  chartSetupSortNatural: 'Natürlich',
   chartSetupSortNone: 'Keiner',
   chartSetupSortPercent: 'Prozentsatz',
   chartSetupSortDirectionAriaLabel: 'Bestellrichtung',

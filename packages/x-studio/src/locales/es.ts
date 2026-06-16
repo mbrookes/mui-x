@@ -361,6 +361,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chartSetupSortByLabel: 'Ordenar por',
   chartSetupSortCategory: 'Categoría',
   chartSetupSortValue: 'Valor',
+  chartSetupSortNatural: 'Natural',
   chartSetupSortNone: 'Ninguno',
   chartSetupSortPercent: 'Porcentaje',
   chartSetupSortDirectionAriaLabel: 'Dirección de pedido',

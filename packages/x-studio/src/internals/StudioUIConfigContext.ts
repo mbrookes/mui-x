@@ -377,6 +377,7 @@ export interface StudioLocaleText {
   chartSetupSortByLabel: string;
   chartSetupSortCategory: string;
   chartSetupSortValue: string;
+  chartSetupSortNatural: string;
   chartSetupSortNone: string;
   chartSetupSortPercent: string;
   chartSetupSortDirectionAriaLabel: string;
@@ -1333,6 +1334,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupSortByLabel: 'Sort by',
   chartSetupSortCategory: 'Category',
   chartSetupSortValue: 'Value',
+  chartSetupSortNatural: 'Natural',
   chartSetupSortNone: 'None',
   chartSetupSortPercent: 'Percent',
   chartSetupSortDirectionAriaLabel: 'Sort direction',

@@ -81,8 +81,9 @@ export interface StudioWidgetConfig {
    * How to sort chart x-axis categories.
    * - 'category': sort labels alphabetically / numerically (default).
    * - 'value': sort by the aggregated y-value.
+   * - 'natural': preserve data insertion order (no explicit sort).
    */
-  chartSortBy?: 'category' | 'value';
+  chartSortBy?: 'category' | 'value' | 'natural';
   /** Sort direction for chartSortBy. @default 'asc' */
   chartSortDirection?: 'asc' | 'desc';
   /** Scatter chart: categorical field used to split points into colour-coded series. */

@@ -83,7 +83,7 @@ export function makeValueFormatter(
     if (!format && precision == null) {
       return String(value);
     }
-    return formatNumber(value, format, currencyCode, undefined, precision);
+    return formatNumber(value, format, currencyCode, true, precision);
   };
 }
 

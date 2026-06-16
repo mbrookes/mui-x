@@ -79,6 +79,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   // AI assistant
   aiAssistantOpenTooltip: 'KI-Assistent öffnen',
   aiAssistantCloseTooltip: 'KI-Assistent schließen',
+  aiCloseTooltip: 'Schließen',
 
   // Drawer panel / sidebar
   drawerPanelCloseAriaLabel: 'Widget-Konfiguration schließen',
@@ -98,14 +99,6 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   aiCreateWidgetButton: 'Erstellen',
   aiCreateWidgetLoading: 'Erstellen…',
   aiCreateWidgetError: 'Widget konnte nicht erstellt werden',
-
-  // AI insight panel (per-widget summary/analysis/forecast)
-  aiSummaryTitle: 'KI-Einblick',
-  aiSummarizeTooltip: 'Dashboard zusammenfassen',
-  aiRegenerateTooltip: 'Regenerieren',
-  aiCopyTooltip: 'Kopieren',
-  aiCopiedTooltip: 'Kopiert!',
-  aiCloseTooltip: 'Schließen',
 
   // Widget type names
   widgetKindGrid: 'Tabelle',

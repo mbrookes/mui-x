@@ -44,6 +44,7 @@ import type {
 } from '@mui/x-chat/headless';
 import {
   useChat,
+  useChatComposer,
   useMessage,
   useMessageContext,
   createToolPartRenderer,
@@ -157,6 +158,24 @@ const SEND_BTN_SX = {
       duration: theme.transitions.duration.short,
     }),
 } as const;
+
+// Invisible component rendered inside ChatBox (inside ChatRoot context).
+// When `pending` changes to a new seq, sets the composer value and submits.
+function AutoSubmitTrigger({ pending }: { pending: { text: string; seq: number } | null }) {
+  const { setValue, submit } = useChatComposer();
+  const seqRef = React.useRef(-1);
+
+  React.useEffect(() => {
+    if (!pending || pending.seq === seqRef.current) {
+      return;
+    }
+    seqRef.current = pending.seq;
+    setValue(pending.text);
+    void Promise.resolve().then(() => submit());
+  }, [pending, setValue, submit]);
+
+  return null;
+}
 
 // Inner <button> element rendered by ChatComposerSendButton.
 // Receives disabled/type/data-is-streaming computed by ComposerSendButton (headless).
@@ -714,6 +733,12 @@ export interface StudioChatPanelProps {
    * Only takes effect when the conversation is new (no existing messages).
    */
   initialPrompt?: string;
+  /**
+   * When set, immediately submits `text` as a new user message.
+   * Change the `id` to trigger a new submission (even if `text` is the same).
+   * Used by widget insight actions to route AI analysis through the chat panel.
+   */
+  pendingMessage?: { text: string; id: number };
 }
 
 // react-doctor-disable-next-line react-doctor/no-giant-component -- chat panel orchestrates thread/message/suggestion state and cannot be split further
@@ -727,6 +752,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     open = true,
     onClose,
     overlay = false,
+    pendingMessage,
     slotProps,
     sx,
     variant,
@@ -830,6 +856,21 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     },
     [controller],
   );
+
+  // ── Pending message auto-submit ──────────────────────────────────────────────
+  const [pendingAutoSubmit, setPendingAutoSubmit] = React.useState<{
+    text: string;
+    seq: number;
+  } | null>(null);
+  const pendingMessageIdRef = React.useRef<number | undefined>(undefined);
+
+  React.useEffect(() => {
+    if (!pendingMessage || pendingMessage.id === pendingMessageIdRef.current) {
+      return;
+    }
+    pendingMessageIdRef.current = pendingMessage.id;
+    setPendingAutoSubmit({ text: pendingMessage.text, seq: pendingMessage.id });
+  }, [pendingMessage]);
 
   const sortedThreads = React.useMemo(
     () =>
@@ -1124,7 +1165,9 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
               ...slotProps?.chatBox?.slotProps,
             }}
             sx={{ height: '100%' }}
-          />
+          >
+            <AutoSubmitTrigger pending={pendingAutoSubmit} />
+          </ChatBox>
         </Box>
       </VoiceMicContext.Provider>
     </Box>

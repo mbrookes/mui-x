@@ -899,7 +899,7 @@ This caused `customers` to appear twice in the query, making `customers.country`
 
 ✅ BL-198: Use square corners for heatmap items with no gap between them. In Quantity by Category & Discount the heatmap items are far wider than they need to be. Heatmap doesn't support annotations. Remove the config control.
 
-**Fixed** (`borderRadius: 0` (square corners), removed `gap`/`mb` between rows, added `maxWidth: 80` per cell to prevent extreme stretching on low-column-count heatmaps, excluded `heatmap` from the annotation config panel condition)
+**Fixed** (replaced custom `StudioHeatmapChart` CSS-grid implementation with the official `HeatmapPremium` component from `@mui/x-charts-premium`, which renders via SVG with square corners and no cell gaps by default — same migration pattern as BL-181/BL-182; color scheme mapped to `zAxis[0].colorMap` continuous gradient using the MUI theme palette color; annotations already excluded from heatmap config panel)
 
 ✅ BL-199: Sales logistics page > On-Time Shipments shows 0% with a flat trend. Fix the config or rendering issue.
 

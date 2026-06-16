@@ -21,7 +21,7 @@ import { Gauge } from '@mui/x-charts/Gauge';
 import type { GaugeProps } from '@mui/x-charts/Gauge';
 import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, useTheme } from '@mui/material';
 
 import type { StudioDataSource, StudioWidget } from '../../../models';
 import {
@@ -48,7 +48,7 @@ import { useChartWidgetData } from './useChartWidgetData';
 import { buildMultiYLineSeries } from './lineSeries';
 import { CrossFilterBarContext } from './CrossFilterBarContext';
 import { CrossFilterGhostBar } from './CrossFilterGhostBar';
-import { StudioHeatmapChart } from './StudioHeatmapChart';
+import { HeatmapPremium } from '@mui/x-charts-premium/HeatmapPremium';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
 import { StudioSankeyChart } from './StudioSankeyChart';
@@ -136,6 +136,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     slotProps,
   } = props;
   const chartHeight = heightProp ?? CHART_MIN_HEIGHT;
+  const theme = useTheme();
   const { config } = widget;
   const xGroupBy = config.xGroupBy;
   const controller = useStudioController();
@@ -930,15 +931,33 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       xFieldDef?.orderedValues,
       yFieldDef?.orderedValues,
     );
+    const { xLabels, yLabels, cells, minValue, maxValue } = heatData;
+    const seriesData: [number, number, number][] = [];
+    for (let xi = 0; xi < xLabels.length; xi += 1) {
+      for (let yi = 0; yi < yLabels.length; yi += 1) {
+        seriesData.push([xi, yi, cells.get(`${xLabels[xi]}\x00${yLabels[yi]}`) ?? 0]);
+      }
+    }
+    const colorScheme = config.heatColorScheme ?? 'primary';
+    const paletteColor = theme.palette[colorScheme].main;
     return (
-      <StudioHeatmapChart
-        data={heatData}
+      <HeatmapPremium
         height={chartHeight}
-        colorScheme={config.heatColorScheme}
-        valueFormat={valueFieldDef?.format}
-        currencyCode={valueFieldDef?.currencyCode}
-        xLabel={xFieldDef?.label}
-        yLabel={yFieldDef?.label}
+        series={[{ data: seriesData }]}
+        xAxis={[{ data: xLabels, scaleType: 'band', label: xFieldDef?.label }]}
+        yAxis={[{ data: yLabels, scaleType: 'band', label: yFieldDef?.label }]}
+        zAxis={[
+          {
+            colorMap: {
+              type: 'continuous',
+              color: ['#ffffff', paletteColor],
+              min: minValue,
+              max: maxValue,
+            },
+          },
+        ]}
+        hideLegend
+        margin={{ left: 100, bottom: xFieldDef?.label ? 60 : 40 }}
       />
     );
   }

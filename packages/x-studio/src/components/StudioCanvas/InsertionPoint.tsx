@@ -5,7 +5,7 @@ import { Box } from '@mui/material';
 
 import type { StudioDragItem } from './studioWidgetDndTypes';
 import { useStudioDropTarget } from './useStudioDropTarget';
-import { isAdjacentToDraggingWidget } from './canvasGridConstants';
+import { isAdjacentToDraggingWidget, isRedundantHorizontalDrop } from './canvasGridConstants';
 
 interface InsertionPointProps {
   rowIndex: number;
@@ -40,6 +40,9 @@ export function InsertionPoint({
     }
     const { rowIndex: myRow, colIndex: myCol, orientation: myOrientation } = posRef.current;
     if (myOrientation === 'vertical' && isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef)) {
+      return false;
+    }
+    if (myOrientation === 'horizontal' && isRedundantHorizontalDrop(myRow, widgetRowsRef)) {
       return false;
     }
     return true;

@@ -121,7 +121,7 @@ export function StudioComposeDrawer(props: StudioComposeDrawerProps = {}) {
   const selectedWidgetId = shell.selectedWidgetId;
   const selectedFieldId = shell.selectedFieldId;
 
-  const parentConfig = React.useContext(StudioUIConfigContext);
+  const parentConfig = React.use(StudioUIConfigContext);
   const resolvedTableSourceMode = tableSourceMode ?? parentConfig.tableSourceMode;
 
   const configValue = React.useMemo(

@@ -28,7 +28,7 @@ const MapTooltipRegionLabel = styled('caption', {
 
 export function StudioMapTooltipContent() {
   const tooltipData = useItemTooltip<'mapShape'>();
-  const { valueFieldLabel, featureIdToLabel } = React.useContext(StudioMapTooltipContext);
+  const { valueFieldLabel, featureIdToLabel } = React.use(StudioMapTooltipContext);
 
   // No data for this region — suppress the tooltip entirely.
   if (!tooltipData || !tooltipData.formattedValue) {

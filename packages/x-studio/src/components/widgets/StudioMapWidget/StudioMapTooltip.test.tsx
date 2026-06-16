@@ -11,7 +11,7 @@ describe('StudioMapTooltipContext defaults', () => {
   it('provides a featureIdToLabel that returns the raw featureId', () => {
     let captured: ((id: string) => string) | null = null;
     function Probe() {
-      const ctx = React.useContext(StudioMapTooltipContext);
+      const ctx = React.use(StudioMapTooltipContext);
       captured = ctx.featureIdToLabel;
       return null;
     }
@@ -24,7 +24,7 @@ describe('StudioMapTooltipContext defaults', () => {
   it('has a null valueFieldLabel by default', () => {
     let label: string | null = 'not-set';
     function Probe() {
-      const ctx = React.useContext(StudioMapTooltipContext);
+      const ctx = React.use(StudioMapTooltipContext);
       label = ctx.valueFieldLabel;
       return null;
     }
@@ -44,7 +44,7 @@ describe('StudioMapTooltipContext provider', () => {
     };
 
     function Probe() {
-      const ctx = React.useContext(StudioMapTooltipContext);
+      const ctx = React.use(StudioMapTooltipContext);
       captured = {
         valueFieldLabel: ctx.valueFieldLabel,
         regionName: ctx.featureIdToLabel('FR'),
@@ -69,7 +69,7 @@ describe('StudioMapTooltipContext provider', () => {
     let regionName = '';
 
     function Probe() {
-      const ctx = React.useContext(StudioMapTooltipContext);
+      const ctx = React.use(StudioMapTooltipContext);
       regionName = ctx.featureIdToLabel('ZZ');
       return null;
     }

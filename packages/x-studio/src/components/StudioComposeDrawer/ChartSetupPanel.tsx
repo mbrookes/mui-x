@@ -519,7 +519,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     });
                   }}
                 >
-                  <MenuItem value="category">{localeText.chartSetupSortCategory}</MenuItem>
+                  <MenuItem value="category">
+                    {selectedXField?.label ?? localeText.chartSetupSortCategory}
+                  </MenuItem>
                   <MenuItem value="value">{localeText.chartSetupSortValue}</MenuItem>
                   <MenuItem value="natural">{localeText.chartSetupSortNatural}</MenuItem>
                 </Select>

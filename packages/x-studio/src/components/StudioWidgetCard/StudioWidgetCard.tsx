@@ -696,21 +696,6 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                     onClear={() => controller.clearInteractiveFilter(widgetId)}
                   />
                 )}
-                {widget.kind === 'pivot' && (
-                  <Tooltip title={localeText.widgetExportCsvTooltip}>
-                    <IconButton
-                      size="small"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        pivotExportRef.current?.();
-                      }}
-                      aria-label={localeText.widgetExportCsvTooltip}
-                      sx={{ ml: 'auto', flexShrink: 0 }}
-                    >
-                      <DownloadIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
               </Stack>
               {effectiveSubtitle && (
                 <Typography

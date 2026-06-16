@@ -1,5 +1,6 @@
 {
   "props": {
+    "autoSubmitInitialValue": { "type": { "name": "bool" }, "default": "false" },
     "classes": { "type": { "name": "object" }, "additionalInfo": { "cssApi": true } },
     "currentUser": {
       "type": {

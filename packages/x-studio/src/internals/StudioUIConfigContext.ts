@@ -1066,8 +1066,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiCreateWidgetLoading: 'Creating\u2026',
   aiCreateWidgetError: 'Failed to create widget',
 
-  // AI dashboard summary panel
-  aiSummaryTitle: 'Dashboard Summary',
+  // AI insight panel (per-widget summary/analysis/forecast)
+  aiSummaryTitle: 'AI Insight',
   aiSummarizeTooltip: 'Summarise dashboard',
   aiRegenerateTooltip: 'Regenerate',
   aiCopyTooltip: 'Copy',

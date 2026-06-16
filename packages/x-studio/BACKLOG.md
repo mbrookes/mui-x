@@ -17,3 +17,7 @@
 **Root cause**: The `heatYField` picker in `ChartSetupPanel` used `categoryFields` (only string/boolean fields), but the heatmap Y axis can be any field type. The example config already used `discount` (a `number` field) as the Y axis, which never appeared in the picker dropdown.
 
 **Fixed** (`ChartSetupPanel.tsx`): changed `heatYField` picker from `categoryFields` to `reachableFields` so any field type (numeric, string, date, boolean) can be selected as the row axis. Updated the helper text in all locale files to reflect that the field is not restricted to categorical types.
+
+✅ BL-209: Heatmap sort options should target one of the two axes (not the generic category/value picker), placed below axis field selection, disabled until both axes are set.
+
+**Fixed**: Added `heatSortBy?: 'x-axis' | 'y-axis' | 'natural'` and `heatSortDirection?: 'asc' | 'desc'` to `StudioWidgetConfig`. Removed heatmap from the generic sort-control guard in `ChartSetupPanel`; added a dedicated sort `Select` (Natural / Column axis (X) / Row axis (Y)) plus an asc/desc `ToggleButtonGroup` (shown only when an axis is selected) inside the `isHeatmap` block, after the colour scheme picker, disabled when either axis field is unset. `aggregateHeatmap` extended with `sortBy`/`sortDirection` params: `'x-axis'` sorts xLabels, `'y-axis'` sorts yLabels (both using `sortLabels` + optional `.toReversed()`), `'natural'` preserves insertion order for both; `orderedValues` still takes precedence when set. Locale tokens added in all four locales. `widgetConfigMeta.ts` updated for the AI agent.

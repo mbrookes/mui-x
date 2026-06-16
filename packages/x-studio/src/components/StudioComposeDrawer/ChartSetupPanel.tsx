@@ -495,8 +495,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               </FormControl>
             )}
 
-          {/* Sort controls — shown when x-field is set on categorical charts (not scatter, not gauge, not gantt, not sankey) */}
-          {config.xField && !isScatter && !isSankey && (
+          {/* Sort controls — shown when x-field is set on categorical charts (not scatter, not heatmap, not gauge, not gantt, not sankey) */}
+          {config.xField && !isScatter && !isHeatmap && !isSankey && (
             <Stack direction="column" spacing={1}>
               <FormControl size="small" fullWidth>
                 <InputLabel>{localeText.chartSetupSortByLabel}</InputLabel>
@@ -671,6 +671,48 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   <MenuItem value="error">{localeText.chartColorSchemeError}</MenuItem>
                 </Select>
               </FormControl>
+              {/* Heatmap sort — disabled until both axes are configured */}
+              <Stack direction="column" spacing={1}>
+                <FormControl size="small" fullWidth disabled={!config.xField || !config.heatYField}>
+                  <InputLabel>{localeText.chartSetupHeatmapSortByLabel}</InputLabel>
+                  <Select
+                    label={localeText.chartSetupHeatmapSortByLabel}
+                    value={config.heatSortBy ?? 'natural'}
+                    onChange={(evt) =>
+                      controller.updateWidgetConfig(widgetId, {
+                        heatSortBy: evt.target.value as 'x-axis' | 'y-axis' | 'natural',
+                      })
+                    }
+                  >
+                    <MenuItem value="natural">{localeText.chartSetupSortNatural}</MenuItem>
+                    <MenuItem value="x-axis">{localeText.chartSetupHeatmapSortXAxis}</MenuItem>
+                    <MenuItem value="y-axis">{localeText.chartSetupHeatmapSortYAxis}</MenuItem>
+                  </Select>
+                </FormControl>
+                {(config.heatSortBy === 'x-axis' || config.heatSortBy === 'y-axis') && (
+                  <ToggleButtonGroup
+                    value={config.heatSortDirection ?? 'asc'}
+                    exclusive
+                    onChange={(_e, val) => {
+                      if (val) {
+                        controller.updateWidgetConfig(widgetId, {
+                          heatSortDirection: val as 'asc' | 'desc',
+                        });
+                      }
+                    }}
+                    size="small"
+                    aria-label={localeText.chartSetupSortDirectionAriaLabel}
+                    sx={{ alignSelf: 'flex-start' }}
+                  >
+                    <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
+                      {localeText.sortAscendingAriaLabel}
+                    </ToggleButton>
+                    <ToggleButton value="desc" aria-label={localeText.sortDescendingAriaLabel}>
+                      {localeText.sortDescendingAriaLabel}
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+                )}
+              </Stack>
             </React.Fragment>
           )}
 

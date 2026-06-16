@@ -28,9 +28,8 @@ import {
   useStudioUIConfig,
   selectMode,
   selectPages,
-  selectActivePageId,
   selectFilters,
-  selectPartitionedBaseFilters,
+  makeSelectPartitionedBaseFiltersForPage,
   makeSelectWidget,
   makeSelectIsWidgetSelected,
   makeSelectIsWidgetDimmed,
@@ -79,6 +78,8 @@ import { createClonePreview } from '../StudioCanvas/createClonePreview';
 
 export interface StudioWidgetCardProps {
   widgetId: string;
+  /** ID of the page this widget card belongs to. Used to scope filters and drag metadata. */
+  pageId: string;
   isFirstRow?: boolean;
   pageTheme?: StudioPageTheme;
   /** Replaceable sub-components. */
@@ -160,6 +161,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const [hovered, setHovered] = React.useState(false);
   const {
     widgetId,
+    pageId,
     isFirstRow = false,
     pageTheme,
     slots,
@@ -169,7 +171,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     onAiRequest,
   } = props;
   const controller = useStudioController();
-  // Create stable selector functions scoped to this widgetId.
+  // Create stable selector functions scoped to this widgetId / pageId.
   // Using React.useMemo ensures the selector identity is preserved across renders
   // so React 19's useSyncExternalStore doesn't recreate getSelection each render.
   const selectWidgetFn = React.useMemo(() => makeSelectWidget(widgetId), [widgetId]);
@@ -178,12 +180,16 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const selectSourceFn = React.useMemo(() => makeSelectWidgetSource(widgetId), [widgetId]);
   const selectRankFilterFn = React.useMemo(() => makeSelectWidgetRankFilter(widgetId), [widgetId]);
   const selectSliderFilterFn = React.useMemo(
-    () => makeSelectWidgetSliderFilter(widgetId),
-    [widgetId],
+    () => makeSelectWidgetSliderFilter(widgetId, pageId),
+    [widgetId, pageId],
   );
   const selectCrossFilterFn = React.useMemo(
-    () => makeSelectWidgetActiveCrossFilter(widgetId),
-    [widgetId],
+    () => makeSelectWidgetActiveCrossFilter(widgetId, pageId),
+    [widgetId, pageId],
+  );
+  const selectBasePartitioned = React.useMemo(
+    () => makeSelectPartitionedBaseFiltersForPage(pageId),
+    [pageId],
   );
 
   const mode = useStudioSelector(selectMode);
@@ -196,7 +202,6 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const activeSliderFilter = useStudioSelector(selectSliderFilterFn);
   const activeCrossFilter = useStudioSelector(selectCrossFilterFn);
   const pages = useStudioSelector(selectPages);
-  const activePageId = useStudioSelector(selectActivePageId);
   const allFilters = useStudioSelector(selectFilters);
   const localeText = useStudioLocaleText();
   const customWidgetMap = useCustomWidgetMap();
@@ -333,20 +338,15 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     });
   }, [aiConfig, anomalyAnnotations, widgetId, controller, handleInsightRequest]);
 
-  // Pages the user can move this widget to (all pages except the current one)
+  // Pages the user can move this widget to (all pages except the one this widget is on)
   const moveToPageOptions = React.useMemo(
     () =>
-      Object.values(pages).flatMap((p) =>
-        p.id !== activePageId ? [{ id: p.id, title: p.title }] : [],
-      ),
-    [pages, activePageId],
+      Object.values(pages).flatMap((p) => (p.id !== pageId ? [{ id: p.id, title: p.title }] : [])),
+    [pages, pageId],
   );
 
   // Keyboard-accessible canvas reorder (the drag-and-drop path is pointer-only).
-  const widgetRows = React.useMemo(
-    () => pages[activePageId]?.widgetRows ?? [],
-    [pages, activePageId],
-  );
+  const widgetRows = React.useMemo(() => pages[pageId]?.widgetRows ?? [], [pages, pageId]);
   const announce = useStudioAnnounce();
   const handleMoveWidget = React.useCallback(
     (direction: WidgetMoveDirection) => {
@@ -375,7 +375,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
 
   // Detect when filter recomputation is in-flight (deferred rendering).
   // Only relevant for chart and grid widgets that go through useWidgetRows.
-  const partitioned = useStudioSelector(selectPartitionedBaseFilters);
+  // Detect when filter recomputation is in-flight (deferred rendering).
+  // Scoped to this widget's own page so inactive pages don't show spurious spinners.
+  const partitioned = useStudioSelector(selectBasePartitioned);
   const deferredPartitioned = React.useDeferredValue(partitioned);
   const isRecomputing =
     (widget?.kind === 'chart' || widget?.kind === 'grid' || widget?.kind === 'pivot') &&
@@ -389,9 +391,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     (): CanvasWidgetDragItem => ({
       type: DRAG_TYPE_CANVAS_WIDGET,
       widgetId,
-      sourcePageId: activePageId,
+      sourcePageId: pageId,
     }),
-    [widgetId, activePageId],
+    [widgetId, pageId],
   );
 
   const renderPreview = React.useMemo(() => createClonePreview(ref), []);
@@ -463,16 +465,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         // Compute filtered rows lazily at export time — no need for a reactive subscription
         const state = controller.getState();
         const pipeline = createStudioPipeline(state);
-        const currentActivePageId = state.dashboard.activePageId;
         const sourceRows = source?.rows ?? [];
         const rows =
           sourceRows.length > 0
-            ? pipeline.resolveWidgetRows(
-                widget.id,
-                widget.sourceId,
-                sourceRows,
-                currentActivePageId,
-              )
+            ? pipeline.resolveWidgetRows(widget.id, widget.sourceId, sourceRows, pageId)
             : [];
         exportGridToCsv(widget, source, rows);
       } else if (widget.kind === 'chart') {
@@ -721,7 +717,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           {widget.kind === 'grid' &&
             (showContent ? (
               <Box sx={{ position: 'relative' }}>
-                <StudioGridWidget widget={widget} dataSource={source} {...slotProps?.grid} />
+                <StudioGridWidget
+                  widget={widget}
+                  dataSource={source}
+                  pageId={pageId}
+                  {...slotProps?.grid}
+                />
                 {isRecomputing && <LoadingOverlay />}
               </Box>
             ) : (
@@ -738,6 +739,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                   <StudioChartWidget
                     widget={widget}
                     dataSource={source}
+                    pageId={pageId}
                     height={CHART_MIN_HEIGHT}
                     anomalyEnabled={anomalyEnabled}
                     onAnomalyDetected={setAnomalyAnnotations}
@@ -752,7 +754,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           {widget.kind === 'kpi' &&
             (showContent ? (
               <Box sx={{ flexGrow: 1, minHeight: 0 }}>
-                <StudioKpiWidget widget={widget} dataSource={source} {...slotProps?.kpi} />
+                <StudioKpiWidget
+                  widget={widget}
+                  dataSource={source}
+                  pageId={pageId}
+                  {...slotProps?.kpi}
+                />
               </Box>
             ) : (
               <Skeleton
@@ -780,7 +787,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           {widget.kind === 'pivot' &&
             (showContent ? (
               <Box sx={{ position: 'relative' }}>
-                <StudioPivotWidget widget={widget} dataSource={source} exportRef={pivotExportRef} />
+                <StudioPivotWidget
+                  widget={widget}
+                  dataSource={source}
+                  pageId={pageId}
+                  exportRef={pivotExportRef}
+                />
                 {isRecomputing && <LoadingOverlay />}
               </Box>
             ) : (
@@ -789,7 +801,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           {widget.kind === 'map' &&
             (showContent ? (
               <Box sx={{ position: 'relative', height: MAP_WIDGET_DEFAULT_HEIGHT }}>
-                {source && <StudioMapWidget widget={widget} dataSource={source} />}
+                {source && <StudioMapWidget widget={widget} dataSource={source} pageId={pageId} />}
                 {isRecomputing && <LoadingOverlay />}
               </Box>
             ) : (
@@ -849,7 +861,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             </DialogTitle>
             <DialogContent sx={{ p: 2, pt: 0 }}>
               <Box ref={chartExpandContainerRef}>
-                <StudioChartWidget widget={widget} dataSource={source} height={500} />
+                <StudioChartWidget
+                  widget={widget}
+                  dataSource={source}
+                  pageId={pageId}
+                  height={500}
+                />
               </Box>
             </DialogContent>
             <DialogActions sx={{ px: 2, pb: 1.5 }}>
@@ -872,19 +889,33 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             onClose={() => setEditDialogOpen(false)}
             widgetId={widgetId}
           >
-            {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
-            {widget.kind === 'chart' && (
-              <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} />
+            {widget.kind === 'grid' && (
+              <StudioGridWidget widget={widget} dataSource={source} pageId={pageId} />
             )}
-            {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
+            {widget.kind === 'chart' && (
+              <StudioChartWidget
+                widget={widget}
+                dataSource={source}
+                pageId={pageId}
+                height={CHART_MIN_HEIGHT}
+              />
+            )}
+            {widget.kind === 'kpi' && (
+              <StudioKpiWidget widget={widget} dataSource={source} pageId={pageId} />
+            )}
             {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
             {widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
             {widget.kind === 'pivot' && (
-              <StudioPivotWidget widget={widget} dataSource={source} exportRef={pivotExportRef} />
+              <StudioPivotWidget
+                widget={widget}
+                dataSource={source}
+                pageId={pageId}
+                exportRef={pivotExportRef}
+              />
             )}
             {widget.kind === 'map' && (
               <Box sx={{ height: MAP_WIDGET_DEFAULT_HEIGHT }}>
-                {source && <StudioMapWidget widget={widget} dataSource={source} />}
+                {source && <StudioMapWidget widget={widget} dataSource={source} pageId={pageId} />}
               </Box>
             )}
             {customDef && <customDef.component widget={widget} dataSource={source ?? undefined} />}

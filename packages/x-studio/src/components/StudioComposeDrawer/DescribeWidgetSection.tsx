@@ -1,20 +1,10 @@
 'use client';
 import * as React from 'react';
-import {
-  Alert,
-  Button,
-  IconButton,
-  Stack,
-  TextField,
-  Typography,
-} from '@mui/material';
+import { Alert, Button, IconButton, Stack, TextField, Typography } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
-import {
-  useStudioController,
-  useStudioLocaleText,
-} from '../../context';
+import { useStudioController, useStudioLocaleText } from '../../context';
 import { useStudioUIConfig, useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { createWidgetFromDescription } from '../StudioChatPanel/createWidgetFromDescription';
 

@@ -40,4 +40,3 @@ export function isAdjacentToDraggingWidget(
   // Adjacent left: colIndex === dCol; adjacent right: colIndex === dCol + 1
   return dRow === rowIndex && (colIndex === dCol || colIndex === dCol + 1);
 }
-

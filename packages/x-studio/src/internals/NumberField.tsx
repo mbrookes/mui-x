@@ -21,10 +21,7 @@ function SSRInitialFilled(_: BaseNumberField.Root.Props) {
 }
 SSRInitialFilled.muiName = 'Input';
 
-interface NumberFieldProps extends Omit<
-  BaseNumberField.Root.Props,
-  'onChange' | 'children'
-> {
+interface NumberFieldProps extends Omit<BaseNumberField.Root.Props, 'onChange' | 'children'> {
   label?: React.ReactNode;
   helperText?: React.ReactNode;
   size?: 'small' | 'medium';

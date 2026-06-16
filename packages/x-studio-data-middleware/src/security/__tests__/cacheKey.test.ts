@@ -41,8 +41,16 @@ describe('generateCacheKey', () => {
     });
 
     it('ignores roleIds and userId (not part of the row-level security profile)', () => {
-      const a = generateCacheKey({ ...CLAIMS, userId: 'user-1', roleIds: ['admin'] }, DESCRIPTOR, SECRET);
-      const b = generateCacheKey({ ...CLAIMS, userId: 'user-2', roleIds: ['viewer'] }, DESCRIPTOR, SECRET);
+      const a = generateCacheKey(
+        { ...CLAIMS, userId: 'user-1', roleIds: ['admin'] },
+        DESCRIPTOR,
+        SECRET,
+      );
+      const b = generateCacheKey(
+        { ...CLAIMS, userId: 'user-2', roleIds: ['viewer'] },
+        DESCRIPTOR,
+        SECRET,
+      );
       expect(a).toBe(b);
     });
   });
@@ -55,38 +63,62 @@ describe('generateCacheKey', () => {
     });
 
     it('is independent of descriptor property insertion order', () => {
-      const a = generateCacheKey(CLAIMS, { id: 'w1', table: 'sales', limit: 10, columns: ['x'] }, SECRET);
-      const b = generateCacheKey(CLAIMS, { columns: ['x'], limit: 10, table: 'sales', id: 'w1' }, SECRET);
+      const a = generateCacheKey(
+        CLAIMS,
+        { id: 'w1', table: 'sales', limit: 10, columns: ['x'] },
+        SECRET,
+      );
+      const b = generateCacheKey(
+        CLAIMS,
+        { columns: ['x'], limit: 10, table: 'sales', id: 'w1' },
+        SECRET,
+      );
       expect(a).toBe(b);
     });
 
     it('is independent of filter-predicate property order', () => {
-      const a = generateCacheKey(CLAIMS, {
-        id: 'w1',
-        table: 'sales',
-        filters: [{ column: 'status', operator: 'eq', value: 'active' }],
-      }, SECRET);
-      const b = generateCacheKey(CLAIMS, {
-        id: 'w1',
-        table: 'sales',
-        filters: [{ value: 'active', operator: 'eq', column: 'status' } as any],
-      }, SECRET);
+      const a = generateCacheKey(
+        CLAIMS,
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ column: 'status', operator: 'eq', value: 'active' }],
+        },
+        SECRET,
+      );
+      const b = generateCacheKey(
+        CLAIMS,
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ value: 'active', operator: 'eq', column: 'status' } as any],
+        },
+        SECRET,
+      );
       expect(a).toBe(b);
     });
   });
 
   describe('query-shape scoping', () => {
     it('produces different keys for different filter values', () => {
-      const a = generateCacheKey(CLAIMS, {
-        id: 'w1',
-        table: 'sales',
-        filters: [{ column: 'status', operator: 'eq', value: 'active' }],
-      }, SECRET);
-      const b = generateCacheKey(CLAIMS, {
-        id: 'w1',
-        table: 'sales',
-        filters: [{ column: 'status', operator: 'eq', value: 'archived' }],
-      }, SECRET);
+      const a = generateCacheKey(
+        CLAIMS,
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ column: 'status', operator: 'eq', value: 'active' }],
+        },
+        SECRET,
+      );
+      const b = generateCacheKey(
+        CLAIMS,
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ column: 'status', operator: 'eq', value: 'archived' }],
+        },
+        SECRET,
+      );
       expect(a).not.toBe(b);
     });
   });

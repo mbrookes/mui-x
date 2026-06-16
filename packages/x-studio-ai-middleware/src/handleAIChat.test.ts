@@ -112,7 +112,9 @@ describe('handleAIChat', () => {
 
     const events = parseEvents(chunks);
     const text = events
-      .filter((event): event is { type: 'text-delta'; delta: string } => event.type === 'text-delta')
+      .filter(
+        (event): event is { type: 'text-delta'; delta: string } => event.type === 'text-delta',
+      )
       .map((event) => event.delta)
       .join('');
     expect(text).toContain('Hello world');

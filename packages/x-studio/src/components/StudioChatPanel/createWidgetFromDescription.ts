@@ -23,34 +23,38 @@ export async function createWidgetFromDescription(
     if (s.hidden) {
       return [];
     }
-    return [{
-      id: s.id,
-      label: s.label,
-      aiDescription: s.aiDescription,
-      fields: s.fields.flatMap((f) => {
-        if (f.hidden) {
-          return [];
-        }
-        const vals = s.fieldDistinctValues?.[f.id];
-        let cardinality: string | undefined;
-        if (vals) {
-          if (vals.length <= 8) {
-            cardinality = `${vals.length}: ${vals.join('|')}`;
-          } else if (vals.length <= 30) {
-            cardinality = `${vals.length} values`;
+    return [
+      {
+        id: s.id,
+        label: s.label,
+        aiDescription: s.aiDescription,
+        fields: s.fields.flatMap((f) => {
+          if (f.hidden) {
+            return [];
           }
-        }
-        return [{
-          id: f.id,
-          type: f.type,
-          label: f.label,
-          ...(f.format ? { format: f.format } : {}),
-          ...(f.aiDescription ? { aiDescription: f.aiDescription } : {}),
-          ...(f.defaultAggregationFn ? { defaultAggregationFn: f.defaultAggregationFn } : {}),
-          ...(cardinality ? { cardinality } : {}),
-        }];
-      }),
-    }];
+          const vals = s.fieldDistinctValues?.[f.id];
+          let cardinality: string | undefined;
+          if (vals) {
+            if (vals.length <= 8) {
+              cardinality = `${vals.length}: ${vals.join('|')}`;
+            } else if (vals.length <= 30) {
+              cardinality = `${vals.length} values`;
+            }
+          }
+          return [
+            {
+              id: f.id,
+              type: f.type,
+              label: f.label,
+              ...(f.format ? { format: f.format } : {}),
+              ...(f.aiDescription ? { aiDescription: f.aiDescription } : {}),
+              ...(f.defaultAggregationFn ? { defaultAggregationFn: f.defaultAggregationFn } : {}),
+              ...(cardinality ? { cardinality } : {}),
+            },
+          ];
+        }),
+      },
+    ];
   });
 
   const url = `${config.endpoint.replace(/\/?$/, '')}/widget`;

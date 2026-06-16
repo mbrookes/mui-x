@@ -35,7 +35,7 @@ export function BuiltinWidgetPreview({ widgetId }: { widgetId: string }) {
     <React.Fragment>
       {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
       {widget.kind === 'chart' && (
-        <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT } />
+        <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} />
       )}
       {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
       {widget.kind === 'text' && <StudioTextWidget widget={widget} />}

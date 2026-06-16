@@ -166,7 +166,9 @@ describe('serializeState', () => {
       createdAt: '2026-01-01T00:00:00.000Z',
       messages: [],
     };
-    const state = createDefaultStudioState({ ai: { threads: [thread], activeThreadId: 'thread-1' } });
+    const state = createDefaultStudioState({
+      ai: { threads: [thread], activeThreadId: 'thread-1' },
+    });
     const serialized = serializeState(state);
     expect(serialized.ai).toBeDefined();
     expect(serialized.ai!.threads).toHaveLength(1);

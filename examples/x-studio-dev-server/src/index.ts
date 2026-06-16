@@ -41,6 +41,7 @@ async function main(): Promise<void> {
     log(`[startup]   Sales API: http://localhost:${config.port}/api/sales-data`);
     log(`[startup]   CRM API:   http://localhost:${config.port}/api/crm-data`);
     log(`[startup]   AI API:    http://localhost:${config.port}/api/ai/chat`);
+    log(`[startup]   MCP API:   http://localhost:${config.port}/api/mcp`);
     if (!config.studioToken) {
       log(`[startup]   Dev token: http://localhost:${config.port}/api/dev-token`);
       log('[startup]   ⚠ Running in open dev mode (no STUDIO_TOKEN set)');

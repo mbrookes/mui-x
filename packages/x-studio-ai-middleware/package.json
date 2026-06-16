@@ -14,7 +14,8 @@
   "scripts": {
     "typescript": "tsc -p tsconfig.json",
     "build": "echo 'build not yet implemented'",
-    "test:unit": "vitest --config vitest.config.mts"
+    "test:unit": "vitest --config vitest.config.jsdom.mts",
+    "test:integration": "vitest --config vitest.config.node.mts"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

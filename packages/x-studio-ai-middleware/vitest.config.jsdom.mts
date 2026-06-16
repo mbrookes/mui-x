@@ -7,5 +7,6 @@ export default mergeConfig(sharedConfig, {
     name: getTestName(import.meta.url),
     environment: 'jsdom',
     testTimeout: 30000,
+    exclude: ['src/**/__tests__/**'],
   },
 });

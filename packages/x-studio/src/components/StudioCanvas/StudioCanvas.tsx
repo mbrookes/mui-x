@@ -54,6 +54,8 @@ export interface StudioCanvasProps {
   stackBreakpoint?: number;
   /** Custom styles applied to the canvas root element. */
   sx?: SxProps<Theme>;
+  /** Called when the user clicks the canvas background (not on a widget). */
+  onBackgroundClick?: () => void;
   slotProps?: {
     /** Forwarded to every `StudioWidgetCard` rendered on the canvas. */
     widgetCard?: Partial<Omit<StudioWidgetCardProps, 'widgetId' | 'isFirstRow' | 'pageTheme'>>;
@@ -481,7 +483,7 @@ function StudioPageRows({
 }
 
 export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvasProps) {
-  const { slotProps, stackBreakpoint: stackBreakpointProp = 600, sx } = props;
+  const { slotProps, stackBreakpoint: stackBreakpointProp = 600, sx, onBackgroundClick } = props;
   const mode = useStudioSelector(selectMode);
   const features = useStudioFeatures();
   const localeText = useStudioLocaleText();
@@ -606,6 +608,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         ...(Array.isArray(sx) ? sx : [sx]),
       ]}
       onMouseDown={(event) => {
+        onBackgroundClick?.();
         // Deselect when clicking the canvas background (not a widget card)
         const target = event.target as HTMLElement;
         if (!target.closest('[data-widget-card]')) {

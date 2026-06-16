@@ -76,6 +76,15 @@ export async function createCrmTables(db: Knex): Promise<void> {
     });
   }
 
+  if (!(await db.schema.hasTable('deal_stage_transitions'))) {
+    await db.schema.createTable('deal_stage_transitions', (t) => {
+      t.string('from_stage').notNullable();
+      t.string('to_stage').notNullable();
+      t.integer('deal_count').notNullable();
+      t.float('deal_value').notNullable();
+    });
+  }
+
   // Indexes for common query patterns
   const indexes: [string, string][] = [
     [
@@ -104,6 +113,11 @@ export async function createCrmTables(db: Knex): Promise<void> {
 }
 
 /** Table names in dependency order (used for drops during reseed). */
-export const CRM_TABLE_NAMES = ['activities', 'deals', 'contacts'] as const;
+export const CRM_TABLE_NAMES = [
+  'activities',
+  'deal_stage_transitions',
+  'deals',
+  'contacts',
+] as const;
 
 export type CrmTableName = (typeof CRM_TABLE_NAMES)[number];

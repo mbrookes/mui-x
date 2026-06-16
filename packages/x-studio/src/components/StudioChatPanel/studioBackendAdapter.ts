@@ -183,6 +183,22 @@ export function createBackendChatAdapter(
       const pageSnapshot =
         pageSnapshotParts.length > 0 ? pageSnapshotParts.join('\n\n') : undefined;
 
+      // Strip raw data rows and adapter instances before sending state to the server.
+      // The server uses state only for structural information (widget configs, filters, layout)
+      // and never reads dataSources.rows or dataSources.adapter. Sending raw rows can push
+      // the request body into tens of megabytes, exceeding server body-size limits.
+      // The pageSnapshot (built above from live client-side pipeline rows) is the server's
+      // source of truth for data analysis via the summarise_page tool.
+      const serializableState = {
+        ...state,
+        dataSources: Object.fromEntries(
+          Object.entries(state.dataSources).map(([id, source]) => {
+            const { rows: _rows, adapter: _adapter, ...sourceWithoutData } = source;
+            return [id, sourceWithoutData];
+          }),
+        ),
+      };
+
       return new ReadableStream<ChatMessageChunk>({
         async start(streamController) {
           streamController.enqueue({ type: 'start', messageId: msgId });
@@ -202,7 +218,7 @@ export function createBackendChatAdapter(
               },
               body: JSON.stringify({
                 messages: input.messages,
-                dashboardState: controller.getState(),
+                dashboardState: serializableState,
                 customWidgets: serializableCustomWidgets,
                 focusedWidgetId,
                 allowedTools,

@@ -26,11 +26,12 @@ import {
 } from '@mui/x-studio-data-middleware';
 import type { BatchQueryRequest } from '@mui/x-studio-data-middleware';
 import { seedDatabase } from './seedDatabase.js';
+import { log, error } from './logger.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const DEMO_JWT_SECRET = process.env.JWT_SECRET ?? 'demo-secret-change-in-production';
 
-const SCHEMA_ALLOWLIST = ['orders', 'order_items', 'customers', 'products'];
+const SCHEMA_ALLOWLIST = ['orders', 'order_items', 'customers', 'products', 'shipments', 'shipment_items'];
 
 // ── Database setup ─────────────────────────────────────────────────────────────
 
@@ -40,9 +41,9 @@ const db = knexLib({
   useNullAsDefault: true,
 });
 
-console.log('Seeding in-memory SQLite database…');
+log('Seeding in-memory SQLite database…');
 await seedDatabase(db);
-console.log('Database ready.\n');
+log('Database ready.\n');
 
 // ── Tier cache (shared across requests, resets on process restart) ─────────────
 
@@ -82,6 +83,8 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     return;
   }
 
+  log(`→ ${req.method} ${req.url}`);
+
   try {
     const rawBody = await readBody(req);
     const body = JSON.parse(rawBody) as BatchQueryRequest;
@@ -103,22 +106,21 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       tierCacheProvider: tierCache,
     });
 
+    log(`← 200 (${result.results.length} results)`);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(result));
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';
-    console.error('[server] Error:', message);
+    error(`← 500 ${message}`);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: message }));
   }
 });
 
 server.listen(PORT, () => {
-  console.log(`x-studio example server listening on http://localhost:${PORT}`);
-  console.log(`\nOpen the dev server with:`);
-  console.log(`  ?server=http://localhost:${PORT}/api/sales-data\n`);
-  console.log('This routes widget queries through this server (instead of simulatedServer.ts).');
-  console.log(
-    'All N widget requests are batched into a single POST via createBatchingAdapter().\n',
-  );
+  log(`x-studio example server listening on http://localhost:${PORT}`);
+  log(`\nOpen the dev server with:`);
+  log(`  ?server=http://localhost:${PORT}/api/sales-data\n`);
+  log('This routes widget queries through this server (instead of simulatedServer.ts).');
+  log('All N widget requests are batched into a single POST via createBatchingAdapter().\n');
 });

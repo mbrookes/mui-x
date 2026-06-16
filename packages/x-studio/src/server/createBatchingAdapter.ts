@@ -381,8 +381,9 @@ interface ResolvedField {
   joins?: JoinDescriptorInternal[];
   skip?: boolean;
   /** True when the field cannot be resolved to any column in the primary or related sources.
-   *  The column is passed through as-is for SELECT (backward-compat) but MUST be dropped from
-   *  WHERE clauses to avoid "no such column" SQL errors. */
+   *  The column MUST be dropped from both SELECT and WHERE clauses to avoid "no such column"
+   *  SQL errors — qualifying an unresolved name with the primary table (e.g. `products.date`)
+   *  will fail if that column does not exist on the table. */
   unresolved?: boolean;
   /**
    * When skip=true because the join target lives on a different adapter endpoint,
@@ -425,8 +426,8 @@ function isJoinExpression(expr: unknown): expr is { joinSourceId: string; fieldI
  *    via the relationship graph to a LEFT JOIN + qualified column.
  * 6. Field not found anywhere (e.g. a field from a source 2+ hops away, like `orders.date`
  *    used as a filter on a `products` widget) — returned with `unresolved: true`. Callers
- *    should DROP this field from WHERE clauses (to avoid "no such column" SQL errors) but MAY
- *    pass it through in SELECT for backward compatibility.
+ *    MUST drop this field from both SELECT and WHERE clauses; qualifying the name with the
+ *    primary table (e.g. `products.date`) would cause "no such column" SQL errors.
  *
  * Only `many-to-one` and `one-to-one` relationships are traversed (one hop per step).
  */
@@ -785,12 +786,13 @@ function buildBatchWidgetDescriptor(
   }
 
   // SELECT all fields (group-by AND aggregate-source fields), skipping server-incompatible
-  // expressions. Including aggregate fields ensures client/server-tier raw rows contain the
+  // expressions and fields that cannot be resolved to any column in the primary or related
+  // sources. Including aggregate fields ensures client/server-tier raw rows contain the
   // measure columns Studio needs for client-side aggregation. For db-tier, executeForTier
   // filters out aggregate fields from the GROUP BY using aggregations[*].column.
   const columns = d.select.flatMap((fieldId) => {
     const r = resolve(fieldId);
-    return r.skip ? [] : [r.column];
+    return r.skip || r.unresolved ? [] : [r.column];
   });
 
   // For cross-endpoint enrichments, add the FK column to the SELECT so the client

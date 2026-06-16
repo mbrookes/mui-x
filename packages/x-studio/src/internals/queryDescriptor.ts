@@ -117,7 +117,13 @@ export function collectSelectFields(widget: StudioWidget): string[] {
     fields.add(config.kpiValueField);
   }
   if (config.kpiSparklineField) {
-    fields.add(config.kpiSparklineField);
+    // Skip sparkline field when it belongs to a different source — the KPI widget
+    // resolves it via in-memory join (resolveChartRowsForAggregation), so it must
+    // not be SELECTed from the widget's primary table (causes "no such column" SQL errors).
+    const sparklineSourceId = config.kpiSparklineSourceId;
+    if (!sparklineSourceId || sparklineSourceId === widget.sourceId) {
+      fields.add(config.kpiSparklineField);
+    }
   }
 
   // Pivot fields
@@ -129,6 +135,11 @@ export function collectSelectFields(widget: StudioWidget): string[] {
   }
   if (config.pivotValueField) {
     fields.add(config.pivotValueField);
+  }
+
+  // Funnel reached-depth field (used by aggregateFunnelReached for cumulative funnel / step-conversion)
+  if (config.funnelReachedField) {
+    fields.add(config.funnelReachedField);
   }
 
   // Heatmap fields

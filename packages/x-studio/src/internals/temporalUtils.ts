@@ -503,5 +503,12 @@ export function sortLabels(labels: (string | number)[]): (string | number)[] {
   if (allDates) {
     return labels.toSorted((a, b) => Date.parse(String(a)) - Date.parse(String(b)));
   }
+  const allNumericStrings = labels.every((l) => {
+    const s = String(l);
+    return s !== '' && !Number.isNaN(Number(s));
+  });
+  if (allNumericStrings) {
+    return labels.toSorted((a, b) => Number(a) - Number(b));
+  }
   return labels.toSorted((a, b) => String(a).localeCompare(String(b)));
 }

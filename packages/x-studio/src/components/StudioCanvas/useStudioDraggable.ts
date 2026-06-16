@@ -3,7 +3,7 @@ import * as React from 'react';
 import { draggable } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { disableNativeDragPreview } from '@atlaskit/pragmatic-drag-and-drop/element/disable-native-drag-preview';
 import { setCustomNativeDragPreview } from '@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview';
-import { pointerOutsideOfPreview } from '@atlaskit/pragmatic-drag-and-drop/element/pointer-outside-of-preview';
+
 import type { StudioDragItem } from './studioWidgetDndTypes';
 
 interface UseStudioDraggableParameters {
@@ -58,16 +58,23 @@ export function useStudioDraggable(params: UseStudioDraggableParameters): void {
       // pragmatic types drag data as a record; the discriminated StudioDragItem
       // is read back via `isStudioDragItem` in the drop target.
       getInitialData: () => getDataRef.current() as unknown as Record<string, unknown>,
-      onGenerateDragPreview: ({ nativeSetDragImage }) => {
+      onGenerateDragPreview: ({ nativeSetDragImage, location }) => {
         const render = renderPreviewRef.current;
         if (!render) {
           disableNativeDragPreview({ nativeSetDragImage });
           return;
         }
+        const rect = element.getBoundingClientRect();
+        const clickOffsetX = location.current.input.clientX - rect.left;
+        const clickOffsetY = location.current.input.clientY - rect.top;
         setCustomNativeDragPreview({
           nativeSetDragImage,
-          // Offset the ghost slightly ahead of the pointer so the cursor stays visible.
-          getOffset: pointerOutsideOfPreview({ x: '16px', y: '8px' }),
+          // Position the ghost so the pointer stays at the spot the user clicked.
+          // Clamp to container size in case the widget is larger than the ghost cap.
+          getOffset: ({ container }) => ({
+            x: Math.min(clickOffsetX, container.offsetWidth - 1),
+            y: Math.min(clickOffsetY, container.offsetHeight - 1),
+          }),
           render: ({ container }) => render(container),
         });
       },

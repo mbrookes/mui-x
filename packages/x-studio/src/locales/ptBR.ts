@@ -451,7 +451,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   kpiSetupValueFieldLabel: 'Campo de valor',
   kpiSetupValueFieldHelperText: 'Campo a agregar',
   kpiSetupSparklineLabel: 'Minigráfico',
-  kpiSetupTargetLabel: 'Meta',
+  kpiSetupGaugeMaxLabel: 'Máx. do medidor',
   kpiSetupTrendLabel: 'Tendência',
   kpiSetupDateRangeLabel: 'Intervalo de datas',
   kpiSetupDateRangeFieldLabel: 'Campo de data',
@@ -462,8 +462,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   kpiSetupCumulativeLabel: 'Acumulado (total cumulativo)',
   kpiSetupAutoDateFilterPrefix: 'Usando filtro de data:',
   kpiSetupCalculatedField: 'Campo calculado…',
-  kpiSetupTargetHelperText:
-    'Valor de referência para a linha de meta no minigráfico. Quando Tendência também estiver ativado, o indicador de delta compara o valor atual com essa meta.',
   kpiSetupInvertColours: 'Inverter cores (menor é melhor)',
   kpiSetupFixedWindowLabel: 'Trend window',
   kpiSetupFixedWindowNone: 'From date filter',
@@ -475,7 +473,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   kpiGrandTotalTooltip:
     'Total geral \u2014 widgets de filtro ativos não são aplicados a este KPI. Ative o modo Filtro cruzado nas configurações do KPI para respeitá-los.',
   kpiGranularityAutoLabel: 'Auto',
-  kpiWidgetComparisonTargetLabel: 'meta',
 
   // Grid setup panel
   gridSetupDataSourceLabel: 'Fonte de dados',

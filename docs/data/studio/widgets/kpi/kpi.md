@@ -145,35 +145,6 @@ The sparkline uses the same data source and applies the same active filters. It 
 not emit cross-filter events when clicked.
 :::
 
-## Target line
-
-Enable `kpiTarget` to draw a horizontal reference line on the sparkline at a target
-value. Set `kpiTargetValue` to a fixed number:
-
-```ts
-{
-  kind: 'kpi',
-  config: {
-    kpiValueField: 'revenue',
-    kpiAggregation: 'sum',
-    kpiSparkline: true,
-    kpiTarget: true,
-    kpiTargetValue: 500000,
-  },
-}
-```
-
-When the sparkline type is `'gauge'`, the target value also sets the gauge maximum
-(the arc represents 0 → target, with the needle at the current value).
-
-When both `kpiTrend` and `kpiTarget` are enabled, the trend badge compares the
-headline value against the target instead of the previous period. The reference line
-still appears on the sparkline even when `kpiTrend` is disabled.
-
-:::info
-Set `featureFlags.kpiTarget` to `false` to hide this feature in the UI.
-:::
-
 ## Trend badge styling
 
 The trend badge is displayed as a pill chip: a semi-transparent background in the trend colour (8% alpha) and a 1 px solid border. Green indicates a positive trend, red indicates a negative trend (or vice-versa when `invertTrend` is set).
@@ -190,13 +161,12 @@ Set `kpiSparklinePlotType` to `'gauge'` to render the KPI sparkline as a radial 
     kpiAggregation: 'sum',
     kpiSparkline: true,
     kpiSparklinePlotType: 'gauge',
-    kpiTarget: true,
-    kpiTargetValue: 1000000,
+    kpiSparklineGaugeMax: 1000000,
   },
 }
 ```
 
-The gauge renders using `@mui/x-charts` `<Gauge>` with the current aggregated value mapped between 0 and `kpiTargetValue`. The target value doubles as the gauge maximum — when no target is set, the gauge max defaults to 1.
+The gauge renders using `@mui/x-charts` `<Gauge>` with the current aggregated value mapped between 0 and `kpiSparklineGaugeMax`. When `kpiSparklineGaugeMax` is not set, the gauge max defaults to 100.
 
 ## Rendering with `StudioKpiWidget`
 

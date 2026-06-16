@@ -251,18 +251,6 @@ export type {
   StudioAIState,
   StudioAIChatThread,
 } from './models/aiTypes';
-export {
-  generateWidgetInsight,
-  generateDashboardSummary,
-  generateAnomalyExplanation,
-  generateCorrelationInsight,
-  buildCorrelationSummary,
-} from './components/StudioChatPanel/generateInsight';
-export type {
-  StudioInsightOptions,
-  StudioInsightResult,
-} from './components/StudioChatPanel/generateInsight';
-
 // ─── Server adapter utilities ─────────────────────────────────────────────────
 export { createBatchingAdapter } from './server/createBatchingAdapter';
 export type { BatchingAdapterOptions } from './server/createBatchingAdapter';

@@ -1,10 +1,5 @@
 /**
- * `handleGenerateInsight` — simple text-generation request for widget insights.
- *
- * Unlike `handleAIChat`, this function:
- * - Runs a single LLM call (no tools, no agentic loop)
- * - Returns a `Promise<string>` (plain text, not SSE)
- * - Is used for summary, analysis, forecast, and anomaly-explanation requests
+ * LLM utility helpers — title generation and widget creation.
  *
  * PURE FUNCTION GUARANTEE: no HTTP framework imports, no global state.
  */
@@ -20,100 +15,6 @@ export interface GenerateInsightOptions {
   model?: string;
   /** Extra headers forwarded to the LLM endpoint */
   headers?: Record<string, string>;
-}
-
-export interface GenerateInsightRequest {
-  /** The insight type requested by the client */
-  insightType: 'summary' | 'analysis' | 'forecast' | 'anomaly' | 'correlation';
-  /** Widget kind (e.g. `'bar-chart'`, `'kpi'`) for context */
-  widgetKind: string;
-  /** Human-readable widget title */
-  widgetTitle: string;
-  /**
-   * Compact data payload: field labels + sampled rows.
-   * Serialized by the client from the widget's current data.
-   */
-  dataSummary: string;
-  /** Number of forecast periods (only used when `insightType === 'forecast'`) */
-  forecastPeriods?: number;
-  /** AbortSignal to cancel the request */
-  signal?: AbortSignal;
-}
-
-const INSIGHT_SYSTEM_PROMPTS: Record<GenerateInsightRequest['insightType'], string> = {
-  summary:
-    'You are a concise business analyst. Write a 3–4 sentence plain-English summary of the widget data provided. ' +
-    'Cover the key values, scale of the data, and any immediately obvious trend or pattern. ' +
-    'Always write complete sentences — never cut off mid-thought. No preamble.',
-  analysis:
-    'You are a data analyst. Provide a 4–6 sentence analysis of the widget data: identify trends, patterns, outliers, or noteworthy comparisons. ' +
-    'Be specific and quantitative where possible. Always write complete sentences. No preamble.',
-  forecast:
-    'You are a forecasting analyst. Based on the historical data provided, write a 3–5 sentence forecast. ' +
-    'Mention expected direction, magnitude if estimable, and any important caveats. ' +
-    'Always write complete sentences. No preamble.',
-  anomaly:
-    'You are a data quality analyst. The following data contains one or more anomalies. ' +
-    'Write a 3–4 sentence plain-English explanation of the anomaly, why it stands out, and a likely cause. ' +
-    'Always write complete sentences. No preamble.',
-  correlation:
-    'You are a data analyst specialising in correlation analysis. ' +
-    'You will be given pairwise Pearson r values and a data sample. ' +
-    'Write a 4–6 sentence plain-English interpretation: explain what the correlations mean, ' +
-    'which relationships are strongest, whether they are positive or negative, ' +
-    'and any business implications. Be specific. Always write complete sentences. No preamble.',
-};
-
-/**
- * Generate a single-paragraph insight for a studio widget.
- *
- * @param request - Insight type, widget metadata, and data summary.
- * @param options - LLM connection options (endpoint, apiKey, model).
- * @returns The generated insight text.
- */
-export async function handleGenerateInsight(
-  request: GenerateInsightRequest,
-  options: GenerateInsightOptions,
-): Promise<string> {
-  const { insightType, widgetKind, widgetTitle, dataSummary, forecastPeriods, signal } = request;
-  const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders } = options;
-
-  const systemPrompt = INSIGHT_SYSTEM_PROMPTS[insightType];
-
-  let userContent = `Widget type: ${widgetKind}\nTitle: "${widgetTitle}"\n\nData:\n${dataSummary}`;
-  if (insightType === 'forecast' && forecastPeriods) {
-    userContent += `\n\nForecast horizon: ${forecastPeriods} periods.`;
-  }
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    signal,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      ...extraHeaders,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userContent },
-      ],
-      max_tokens: 600,
-      temperature: 0.4,
-    }),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => response.statusText);
-    throw new Error(`Insight generation failed: ${response.status} ${errText}`);
-  }
-
-  const json = (await response.json()) as {
-    choices: Array<{ message: { content: string } }>;
-  };
-
-  return json.choices[0]?.message?.content?.trim() ?? '';
 }
 
 /**

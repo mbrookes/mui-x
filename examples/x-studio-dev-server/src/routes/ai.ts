@@ -2,7 +2,6 @@ import { Router, type Request, type Response } from 'express';
 import type { Knex } from 'knex';
 import {
   handleAIChat,
-  handleGenerateInsight,
   handleGenerateTitle,
   handleCreateWidget,
   type StudioDataResolver,
@@ -170,27 +169,6 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
       res.json({ ok: true });
     } else {
       res.status(404).json({ error: `No pending approval for id: ${id}` });
-    }
-  });
-
-  router.post('/insight', async (req: Request, res: Response): Promise<void> => {
-    if (!config.llm.apiKey) {
-      res.status(503).json({
-        error: 'LLM_API_KEY is not configured. Set it in your .env.local file.',
-      });
-      return;
-    }
-
-    try {
-      const text = await handleGenerateInsight(req.body, {
-        endpoint: config.llm.endpoint,
-        apiKey: config.llm.apiKey,
-        model: config.llm.model,
-      });
-      res.json({ text });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: message });
     }
   });
 

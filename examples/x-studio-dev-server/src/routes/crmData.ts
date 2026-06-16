@@ -5,7 +5,7 @@ import type { Config } from '../config.js';
 import { resolveClaims } from '../middleware/claims.js';
 import { error } from '../logger.js';
 
-const CRM_SCHEMA_ALLOWLIST = ['contacts', 'deals', 'activities'];
+const CRM_SCHEMA_ALLOWLIST = ['contacts', 'deals', 'activities', 'deal_stage_transitions'];
 
 /**
  * POST /api/crm-data

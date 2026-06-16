@@ -41,6 +41,15 @@ async function isCrmSeeded(db: Knex): Promise<boolean> {
     if (!contactWithDate) {
       return false;
     }
+    // If deal_stage_transitions table is missing, the DB was seeded before it was added.
+    const hasDealTransitions = await db.schema.hasTable('deal_stage_transitions');
+    if (!hasDealTransitions) {
+      return false;
+    }
+    const transitionCount = await db('deal_stage_transitions').count('from_stage as count').first();
+    if (Number(transitionCount?.count ?? 0) === 0) {
+      return false;
+    }
     return true;
   } catch {
     return false;
@@ -83,17 +92,19 @@ async function seedCrm(db: Knex, opts: CrmSeedOptions): Promise<void> {
   log('[crm-seed] Generating CRM data…');
   const data = generateCrmData({ seed: 42, orderCount: opts.orderCount ?? 500 });
 
-  const { contactsSource, dealsSource, activitiesSource } = data;
+  const { contactsSource, dealsSource, activitiesSource, dealTransitionsSource } = data;
 
   log(
     `[crm-seed] Inserting ${contactsSource.rows?.length ?? 0} contacts, ` +
       `${dealsSource.rows?.length ?? 0} deals, ` +
-      `${activitiesSource.rows?.length ?? 0} activities…`,
+      `${activitiesSource.rows?.length ?? 0} activities, ` +
+      `${dealTransitionsSource.rows?.length ?? 0} deal stage transitions…`,
   );
 
   await batchInsert(db, 'contacts', contactsSource.rows ?? []);
   await batchInsert(db, 'deals', dealsSource.rows ?? []);
   await batchInsert(db, 'activities', activitiesSource.rows ?? []);
+  await batchInsert(db, 'deal_stage_transitions', dealTransitionsSource.rows ?? []);
 
   log('[crm-seed] Done.');
 }

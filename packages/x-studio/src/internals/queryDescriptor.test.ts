@@ -312,4 +312,44 @@ describe('buildQueryDescriptor', () => {
     const desc2 = buildQueryDescriptor(widget2, [], PAGE_ID);
     expect(desc1.cacheKey).toBe(desc2.cacheKey);
   });
+
+  // ── JoinFieldExpression select pass-through (BL-XXX) ─────────────────────────
+  // Expression fields whose expression is a JoinFieldExpression (e.g. expr-order-segment
+  // looking up customers.segment via the orders.customerId FK) must be kept in the select
+  // list unchanged so the batching adapter can resolve them to a server-side LEFT JOIN.
+  // Previously, expandToNativeFields dropped them silently (JoinFieldExpression has no
+  // native column refs on the primary source), causing the server to omit the JOIN and
+  // return rows without the segment value → client enrichment found no FK → null → "(blank)".
+
+  const segmentJoinExprField = {
+    id: 'expr-order-segment',
+    label: 'Segment',
+    sourceId: 'source-orders',
+    isMeasure: false,
+    type: 'string' as const,
+    expression: { joinSourceId: 'source-customers', fieldId: 'segment' },
+  };
+
+  it('keeps JoinFieldExpression field IDs in select (passes through for batching adapter JOIN resolution)', () => {
+    const widget = {
+      ...makeWidget({
+        pivotRowField: 'expr-order-segment',
+        pivotColField: 'status',
+        pivotValueField: 'total',
+      }),
+      kind: 'pivot' as const,
+    };
+    const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [segmentJoinExprField]);
+    expect(desc.select).toContain('expr-order-segment');
+  });
+
+  it('does not expand JoinFieldExpression to native fields (no native column on primary source)', () => {
+    const widget = makeWidget({ yField: 'expr-order-segment' });
+    const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [segmentJoinExprField]);
+    // The logical ID stays; the batching adapter resolves it to customers.segment via JOIN.
+    expect(desc.select).toContain('expr-order-segment');
+    // joinSourceId and fieldId are not physical columns on source-orders — not in select.
+    expect(desc.select).not.toContain('segment');
+    expect(desc.select).not.toContain('source-customers');
+  });
 });

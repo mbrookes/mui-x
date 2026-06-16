@@ -7,7 +7,11 @@ import type {
   StudioWidget,
 } from '../models';
 import { resolveDateRangePresets } from './filterUtils';
-import { isFieldExpression, isFunctionExpression } from '../utils/expressionEvaluator';
+import {
+  isFieldExpression,
+  isFunctionExpression,
+  isJoinFieldExpression,
+} from '../utils/expressionEvaluator';
 
 function sortedStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') {
@@ -234,6 +238,14 @@ export function expandToNativeFields(
       return; // guard against cyclic expression definitions
     }
     expanding.add(id);
+    if (isJoinFieldExpression(expr.expression)) {
+      // JoinFieldExpression has no native column on this source — pass the logical
+      // field ID through so the batching adapter can resolve it to a server-side JOIN
+      // (via resolveField). If the join target is on a different endpoint, the adapter
+      // marks it skip=true and falls back to client-side enrichment instead.
+      result.add(id);
+      return;
+    }
     for (const ref of collectExpressionRefs(expr.expression)) {
       addNative(ref);
     }

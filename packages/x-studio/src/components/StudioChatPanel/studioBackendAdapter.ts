@@ -367,7 +367,11 @@ export function createBackendChatAdapter(
               streamController.close();
             } else if (type === 'error') {
               endReasoning(streamController);
-              streamController.error(new Error(String(event.message ?? 'Unknown server error')));
+              streamController.error(
+                /* minify-error-disabled */ new Error(
+                  String(event.message ?? 'Unknown server error'),
+                ),
+              );
             }
           };
 

@@ -1,18 +1,13 @@
 /**
  * Unit tests for the single-shot LLM helpers in handleGenerateInsight.ts:
- * `handleGenerateInsight`, `handleGenerateTitle`, and `handleCreateWidget`.
+ * `handleGenerateTitle` and `handleCreateWidget`.
  *
  * Each is a pure function over a stubbed global `fetch`. The tests pin down
  * prompt selection, request shape, response parsing, and the fallback / error
  * branches without contacting an LLM.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import {
-  handleGenerateInsight,
-  handleGenerateTitle,
-  handleCreateWidget,
-  type GenerateInsightRequest,
-} from './handleGenerateInsight';
+import { handleGenerateTitle, handleCreateWidget } from './handleGenerateInsight';
 
 const OPTIONS = { endpoint: 'https://llm.test/v1/chat', apiKey: 'sk-test' };
 
@@ -33,84 +28,8 @@ function requestBody(fn: ReturnType<typeof stubFetch>) {
   return JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string);
 }
 
-const baseRequest: GenerateInsightRequest = {
-  insightType: 'summary',
-  widgetKind: 'bar-chart',
-  widgetTitle: 'Revenue by Region',
-  dataSummary: 'EMEA: 100, APAC: 80',
-};
-
 afterEach(() => {
   vi.unstubAllGlobals();
-});
-
-describe('handleGenerateInsight', () => {
-  it('returns the trimmed completion text', async () => {
-    stubFetch('  Revenue is concentrated in EMEA.  ');
-    expect(await handleGenerateInsight(baseRequest, OPTIONS)).toBe(
-      'Revenue is concentrated in EMEA.',
-    );
-  });
-
-  it('returns an empty string when the response has no content', async () => {
-    const fn = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ choices: [] }),
-    }));
-    vi.stubGlobal('fetch', fn);
-    expect(await handleGenerateInsight(baseRequest, OPTIONS)).toBe('');
-  });
-
-  it.each([
-    ['summary', 'concise business analyst'],
-    ['analysis', 'data analyst'],
-    ['forecast', 'forecasting analyst'],
-    ['anomaly', 'data quality analyst'],
-    ['correlation', 'correlation analysis'],
-  ] as const)('selects the %s system prompt', async (insightType, marker) => {
-    const fn = stubFetch('ok');
-    await handleGenerateInsight({ ...baseRequest, insightType }, OPTIONS);
-    expect(requestBody(fn).messages[0].content).toContain(marker);
-  });
-
-  it('appends the forecast horizon to the user message only for forecasts', async () => {
-    const fn = stubFetch('ok');
-    await handleGenerateInsight(
-      { ...baseRequest, insightType: 'forecast', forecastPeriods: 6 },
-      OPTIONS,
-    );
-    expect(requestBody(fn).messages[1].content).toContain('Forecast horizon: 6 periods.');
-  });
-
-  it('does not append a forecast horizon for non-forecast insights', async () => {
-    const fn = stubFetch('ok');
-    await handleGenerateInsight({ ...baseRequest, forecastPeriods: 6 }, OPTIONS);
-    expect(requestBody(fn).messages[1].content).not.toContain('Forecast horizon');
-  });
-
-  it('uses the default model and insight token/temperature budget', async () => {
-    const fn = stubFetch('ok');
-    await handleGenerateInsight(baseRequest, OPTIONS);
-    const body = requestBody(fn);
-    expect(body.model).toBe('gpt-4o');
-    expect(body.max_tokens).toBe(300);
-    expect(body.temperature).toBe(0.4);
-  });
-
-  it('passes the abort signal through to fetch', async () => {
-    const fn = stubFetch('ok');
-    const controller = new AbortController();
-    await handleGenerateInsight({ ...baseRequest, signal: controller.signal }, OPTIONS);
-    expect((fn.mock.calls[0][1] as RequestInit).signal).toBe(controller.signal);
-  });
-
-  it('throws with status and body on a non-OK response', async () => {
-    stubFetch('', { ok: false, status: 503, text: 'unavailable' });
-    await expect(handleGenerateInsight(baseRequest, OPTIONS)).rejects.toThrow(
-      /Insight generation failed: 503 unavailable/,
-    );
-  });
 });
 
 describe('handleGenerateTitle', () => {

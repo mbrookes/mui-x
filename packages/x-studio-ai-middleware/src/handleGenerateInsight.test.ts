@@ -53,7 +53,11 @@ describe('handleGenerateInsight', () => {
   });
 
   it('returns an empty string when the response has no content', async () => {
-    const fn = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => ({ ok: true, status: 200, json: async () => ({ choices: [] }) }));
+    const fn = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [] }),
+    }));
     vi.stubGlobal('fetch', fn);
     expect(await handleGenerateInsight(baseRequest, OPTIONS)).toBe('');
   });

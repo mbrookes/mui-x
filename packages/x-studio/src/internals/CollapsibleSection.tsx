@@ -68,7 +68,13 @@ export function CollapsibleSection(props: CollapsibleSectionProps) {
           }}
         >
           {/* Decorative chevron — rendered as a span so it is not a nested button. */}
-          <IconButton component="span" size="small" tabIndex={-1} aria-hidden sx={{ pointerEvents: 'none' }}>
+          <IconButton
+            component="span"
+            size="small"
+            tabIndex={-1}
+            aria-hidden
+            sx={{ pointerEvents: 'none' }}
+          >
             {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
           </IconButton>
           <Typography variant="subtitle2" component="span" sx={{ flexGrow: 1 }}>

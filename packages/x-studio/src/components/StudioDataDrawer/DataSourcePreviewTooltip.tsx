@@ -138,7 +138,11 @@ export default function DataSourcePreviewTooltip({
             cursor: 'pointer',
             opacity: 0.8,
             '&:hover': { opacity: 1 },
-            '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+            '&:focus-visible': {
+              outline: '2px solid',
+              outlineColor: 'primary.main',
+              outlineOffset: 2,
+            },
           }}
         >
           {localeText.dataDrawerViewSourceLink}

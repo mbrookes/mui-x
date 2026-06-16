@@ -101,8 +101,7 @@ export class RedisTierCacheProvider implements TierCacheProvider {
 
   async set(key: string, value: TierEntry, ttlMs?: number): Promise<void> {
     // TierCacheProvider interface uses ttlMs; Redis EX uses seconds.
-    const ttlSeconds =
-      ttlMs !== undefined ? Math.max(1, Math.ceil(ttlMs / 1000)) : this.defaultTtl;
+    const ttlSeconds = ttlMs !== undefined ? Math.max(1, Math.ceil(ttlMs / 1000)) : this.defaultTtl;
     await this.redis.set(this.prefix + key, JSON.stringify(value), 'EX', ttlSeconds);
   }
 

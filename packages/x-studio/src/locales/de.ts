@@ -99,8 +99,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   aiCreateWidgetLoading: 'Erstellen…',
   aiCreateWidgetError: 'Widget konnte nicht erstellt werden',
 
-  // AI dashboard summary panel
-  aiSummaryTitle: 'Dashboard-Zusammenfassung',
+  // AI insight panel (per-widget summary/analysis/forecast)
+  aiSummaryTitle: 'KI-Einblick',
   aiSummarizeTooltip: 'Dashboard zusammenfassen',
   aiRegenerateTooltip: 'Regenerieren',
   aiCopyTooltip: 'Kopieren',

@@ -42,19 +42,26 @@ export interface GenerateInsightRequest {
 
 const INSIGHT_SYSTEM_PROMPTS: Record<GenerateInsightRequest['insightType'], string> = {
   summary:
-    'You are a concise business analyst. Write a 2–3 sentence plain-English summary of the chart data provided. Focus on the most important values and trends. No preamble.',
+    'You are a concise business analyst. Write a 3–4 sentence plain-English summary of the widget data provided. ' +
+    'Cover the key values, scale of the data, and any immediately obvious trend or pattern. ' +
+    'Always write complete sentences — never cut off mid-thought. No preamble.',
   analysis:
-    'You are a data analyst. Provide a 3–5 sentence analysis of the chart data: identify trends, patterns, outliers, or noteworthy comparisons. Be specific and quantitative where possible. No preamble.',
+    'You are a data analyst. Provide a 4–6 sentence analysis of the widget data: identify trends, patterns, outliers, or noteworthy comparisons. ' +
+    'Be specific and quantitative where possible. Always write complete sentences. No preamble.',
   forecast:
-    'You are a forecasting analyst. Based on the historical data provided, write a short 2–4 sentence forecast. Mention expected direction and any caveats. No preamble.',
+    'You are a forecasting analyst. Based on the historical data provided, write a 3–5 sentence forecast. ' +
+    'Mention expected direction, magnitude if estimable, and any important caveats. ' +
+    'Always write complete sentences. No preamble.',
   anomaly:
-    'You are a data quality analyst. The following data contains one or more anomalies. Write a 2–3 sentence plain-English explanation of the anomaly and a likely cause. No preamble.',
+    'You are a data quality analyst. The following data contains one or more anomalies. ' +
+    'Write a 3–4 sentence plain-English explanation of the anomaly, why it stands out, and a likely cause. ' +
+    'Always write complete sentences. No preamble.',
   correlation:
     'You are a data analyst specialising in correlation analysis. ' +
     'You will be given pairwise Pearson r values and a data sample. ' +
-    'Write a 3–5 sentence plain-English interpretation: explain what the correlations mean, ' +
+    'Write a 4–6 sentence plain-English interpretation: explain what the correlations mean, ' +
     'which relationships are strongest, whether they are positive or negative, ' +
-    'and any business implications. Be specific. No preamble.',
+    'and any business implications. Be specific. Always write complete sentences. No preamble.',
 };
 
 /**
@@ -92,7 +99,7 @@ export async function handleGenerateInsight(
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent },
       ],
-      max_tokens: 300,
+      max_tokens: 600,
       temperature: 0.4,
     }),
   });

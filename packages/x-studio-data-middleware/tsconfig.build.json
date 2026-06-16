@@ -19,10 +19,5 @@
     "target": "ES2022"
   },
   "include": ["src/**/*"],
-  "exclude": [
-    "src/**/*.test.ts",
-    "src/**/*.spec.ts",
-    "src/__tests__/**/*",
-    "src/benchmarks/**/*"
-  ]
+  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts", "src/__tests__/**/*", "src/benchmarks/**/*"]
 }

@@ -274,12 +274,7 @@ describe('computeAggregate', () => {
   });
 
   it('avg of boolean field returns correct ratio (true=1, false=0)', () => {
-    const boolRows = [
-      { onTime: true },
-      { onTime: true },
-      { onTime: true },
-      { onTime: false },
-    ];
+    const boolRows = [{ onTime: true }, { onTime: true }, { onTime: true }, { onTime: false }];
     expect(computeAggregate(boolRows, 'onTime', 'avg')).toBe(0.75);
   });
 

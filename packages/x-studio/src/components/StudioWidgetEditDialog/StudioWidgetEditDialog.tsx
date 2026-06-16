@@ -2,10 +2,7 @@
 import * as React from 'react';
 import { Box, Dialog, DialogTitle, IconButton, Stack, Tab, Tabs, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import {
-  useStudioSelector,
-  selectWidgets,
-} from '../../context';
+import { useStudioSelector, selectWidgets } from '../../context';
 import { useStudioFeatures, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
 import { ChartSetupPanel } from '../StudioComposeDrawer/ChartSetupPanel';

@@ -190,7 +190,12 @@ describe('computeGridSummary with custom localeText', () => {
     const lt = {
       gridSummaryLabelSum: 'Summe:',
     } as import('../internals/StudioUIConfigContext').StudioLocaleText;
-    const result = computeGridSummary(ROWS, [numField('amount')], { fields: { amount: 'sum' } }, lt);
+    const result = computeGridSummary(
+      ROWS,
+      [numField('amount')],
+      { fields: { amount: 'sum' } },
+      lt,
+    );
     expect(result.amount).toBe('Summe: 450');
   });
 
@@ -198,7 +203,12 @@ describe('computeGridSummary with custom localeText', () => {
     const lt = {
       gridSummaryLabelCount: 'Total:',
     } as import('../internals/StudioUIConfigContext').StudioLocaleText;
-    const result = computeGridSummary(ROWS, [numField('amount')], { fields: { amount: 'count' } }, lt);
+    const result = computeGridSummary(
+      ROWS,
+      [numField('amount')],
+      { fields: { amount: 'count' } },
+      lt,
+    );
     expect(result.amount).toBe('Total: 3');
   });
 });

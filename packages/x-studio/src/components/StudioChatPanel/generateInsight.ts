@@ -376,8 +376,9 @@ function buildChartWidgetSummary(
     const xSlice = result.xLabels.slice(0, maxRows);
     lines.push(
       `Heatmap (${yAggregation} of ${yFieldLabel(heatValue)} by ${xField} × ${heatY}):`,
-      `${result.xLabels.length} x-values × ${result.yLabels.length} y-values${ 
-        result.xLabels.length > maxRows ? `, showing first ${maxRows}` : ''}`,
+      `${result.xLabels.length} x-values × ${result.yLabels.length} y-values${
+        result.xLabels.length > maxRows ? `, showing first ${maxRows}` : ''
+      }`,
       ['', ...result.yLabels].join(','),
     );
     for (const xLabel of xSlice) {

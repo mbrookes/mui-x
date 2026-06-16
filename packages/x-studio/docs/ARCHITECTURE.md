@@ -749,7 +749,7 @@ Each widget in the canvas is wrapped in `StudioWidgetCard`, which provides:
 
 Canvas widget reposition and compose-panel-to-canvas drop use **react-dnd** (v16) with the HTML5 backend.
 
-**Why react-dnd instead of native HTML5 DnD:**  
+**Why react-dnd instead of native HTML5 DnD:**
 Chrome locks the OS pointer cursor before `dragstart` fires (~3 px movement threshold). Native DnD `cursor` CSS set in `dragstart` is ignored. `react-dnd` with `getEmptyImage({ captureDraggingState: true })` sets `isDragging = true` on `mousedown` — before the threshold — letting CSS `cursor: grabbing` take effect at the correct moment.
 
 **Architecture:**
@@ -770,7 +770,7 @@ Chrome locks the OS pointer cursor before `dragstart` fires (~3 px movement thre
 - `cursor: copy` when hovering an active drop zone (`[data-studio-drop-active]` attribute)
 - `cursor: col-resize` on `RowResizeHandle` — intentional, not overridden
 
-**Adjacent gap exclusion (BL-112):**  
+**Adjacent gap exclusion (BL-112):**
 `useDrag`'s `isDragging` effect sets `document.body.dataset.studioDraggingWidgetId`; `useDrop`'s `canDrop` callback calls `isAdjacentToDraggingWidget()` to disable the two gaps immediately flanking the dragged widget.
 
 ### 12.5 Keyboard shortcuts

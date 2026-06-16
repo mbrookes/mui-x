@@ -49,7 +49,10 @@ export function FieldDetailView() {
       label: localeText.fieldDetailRowDataType,
       value: dataTypeLabels[field.type] ?? field.type.charAt(0).toUpperCase() + field.type.slice(1),
     },
-    { label: localeText.fieldDetailRowCalculationType, value: localeText.fieldDetailRowNoCalculation },
+    {
+      label: localeText.fieldDetailRowCalculationType,
+      value: localeText.fieldDetailRowNoCalculation,
+    },
     { label: localeText.fieldDetailRowFormat, value: dataTypeLabels[field.type] ?? field.type },
   ];
 
@@ -71,7 +74,9 @@ export function FieldDetailView() {
           <Divider />
           <Box sx={{ py: 1.25 }}>
             <FormControl fullWidth size="small">
-              <InputLabel id="field-number-format-label">{localeText.fieldDetailNumberFormatLabel}</InputLabel>
+              <InputLabel id="field-number-format-label">
+                {localeText.fieldDetailNumberFormatLabel}
+              </InputLabel>
               <Select
                 labelId="field-number-format-label"
                 label={localeText.fieldDetailNumberFormatLabel}

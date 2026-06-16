@@ -1144,27 +1144,6 @@ export interface HeatmapData {
  * @param yAggregation - Aggregation function to apply per cell (default: 'sum').
  */
 /**
- * Like `sortLabels` but for string[] that may represent numbers. Numeric strings
- * sort numerically (10 before 20, not "10" < "20" alphabetically). Falls back to
- * date-aware then locale sort. The date check must come before the numeric check
- * because 4-digit year strings like "2024" are also valid numbers.
- */
-function sortHeatmapLabels(labels: string[]): string[] {
-  if (labels.length === 0) {
-    return labels;
-  }
-  const allDates = labels.every((l) => l.length >= 4 && !Number.isNaN(Date.parse(l)));
-  if (allDates) {
-    return labels.toSorted((a, b) => Date.parse(a) - Date.parse(b));
-  }
-  const allNumeric = labels.every((l) => l !== '' && !Number.isNaN(Number(l)));
-  if (allNumeric) {
-    return labels.toSorted((a, b) => Number(a) - Number(b));
-  }
-  return labels.toSorted((a, b) => a.localeCompare(b));
-}
-
-/**
  * Orders `labels` by `preferred` (a field's `orderedValues`): known labels first
  * in `preferred` order, then any remaining labels naturally sorted. Used so a
  * heatmap axis follows a domain order (e.g. pipeline stages) rather than A–Z.
@@ -1241,12 +1220,12 @@ export function aggregateHeatmap(
   if (xOrder && xOrder.length > 0) {
     xLabels = orderLabelsByPreferred([...xSet], xOrder);
   } else if (sortBy === 'x-axis') {
-    const sorted = sortHeatmapLabels([...xSet]);
+    const sorted = sortLabels([...xSet]) as string[];
     xLabels = sortDirection === 'desc' ? sorted.toReversed() : sorted;
   } else if (sortBy === 'natural' || sortBy === 'y-axis') {
     xLabels = [...xSet];
   } else {
-    xLabels = sortHeatmapLabels([...xSet]);
+    xLabels = sortLabels([...xSet]) as string[];
   }
 
   // Build y-axis labels: orderedValues > explicit sort > default (insertion order).
@@ -1254,7 +1233,7 @@ export function aggregateHeatmap(
   if (yOrder && yOrder.length > 0) {
     yLabels = orderLabelsByPreferred([...ySet], yOrder);
   } else if (sortBy === 'y-axis') {
-    const sorted = sortHeatmapLabels([...ySet]);
+    const sorted = sortLabels([...ySet]) as string[];
     yLabels = sortDirection === 'desc' ? sorted.toReversed() : sorted;
   } else {
     yLabels = [...ySet];

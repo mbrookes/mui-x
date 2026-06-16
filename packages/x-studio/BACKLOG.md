@@ -893,7 +893,7 @@ This caused `customers` to appear twice in the query, making `customers.country`
 
 🚫 BL-196 (NoOp — future consideration): Re-introduce dynamic filter values driven by a "business metrics" data source (the `StudioMetricRef` concept). This would allow a filter threshold (e.g. "sales > target") to be dynamically pulled from a row in a separate metrics table, updating automatically when the source data changes. Deferred: the use case is real but the previous implementation was complex and tightly coupled to the filter pipeline. A future version should integrate with the expression-field system instead of adding a separate ref-resolution layer.
 
-BL-197: Sales PRoducts page > Price vs Unit MArgin widget scatter values make a straight line. They didn't used to. Something isn't right.
+BL-197: Sales Products page > Price vs Unit MArgin widget scatter values make a straight line. They didn't used to. Something isn't right.
 
 BL-198: Use square corners for heatmap items with no gap between them. In Quantity by Category & Discount the heatmap items are far wider than they need to be. Heatmap doesn't support annotations. Remove the config control.
 

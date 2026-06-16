@@ -61,7 +61,6 @@ import {
   inferKpiDateSubtitle,
 } from '../../internals/widgetUtils';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
-import type { StudioInsightOptions } from '../StudioChatPanel/generateInsight';
 import { SliderFilterPill } from './SliderFilterPill';
 import {
   DRAG_TYPE_CANVAS_WIDGET,
@@ -244,14 +243,14 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
 
   // ── AI Insight routing ────────────────────────────────────────────────────
   const handleInsightRequest = React.useCallback(
-    (type: StudioInsightOptions['type']) => {
+    (type: 'summary' | 'analysis' | 'forecast' | 'correlation') => {
       if (!onInsightRequest || !widget) {
         return;
       }
       const title = widget.title || widget.kind;
       let prompt: string;
       if (type === 'summary') {
-        prompt = `Summarise the "${title}" widget`;
+        prompt = `Give me a 2–3 sentence high-level summary of the "${title}" widget — what it shows and the single most important takeaway. Be brief, no bullet points.`;
       } else if (type === 'analysis') {
         prompt = `Analyse the "${title}" widget — identify key trends, patterns, and notable values`;
       } else if (type === 'forecast') {

@@ -1,7 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Button, Skeleton, Typography } from '@mui/material';
-import DownloadIcon from '@mui/icons-material/Download';
+import { Box, Skeleton, Typography } from '@mui/material';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { useStudioLocaleText } from '../../../context';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
@@ -12,9 +11,11 @@ import { buildPivotMatrix, pivotToCsv, downloadCsv } from './pivotUtils';
 export interface StudioPivotWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
+  /** Ref populated with an export function when data is available, or null when not. */
+  exportRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps) {
+export function StudioPivotWidget({ widget, dataSource, exportRef }: StudioPivotWidgetProps) {
   const { config } = widget;
   const {
     pivotRowField,
@@ -41,6 +42,12 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
     const csv = pivotToCsv(matrix, pivotAggregation, pivotShowTotals);
     downloadCsv(csv, `${widget.title || 'pivot'}.csv`);
   }, [matrix, pivotAggregation, pivotShowTotals, widget.title]);
+
+  React.useEffect(() => {
+    if (exportRef) {
+      exportRef.current = matrix ? handleExport : null;
+    }
+  }, [exportRef, matrix, handleExport]);
 
   if (isLoading) {
     return <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 1 }} />;
@@ -85,32 +92,8 @@ export function StudioPivotWidget({ widget, dataSource }: StudioPivotWidgetProps
     );
   }
 
-  const rowCount = matrix.rowValues.length;
-  const colCount = matrix.colValues.length;
-
   return (
     <Box sx={{ position: 'relative' }}>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          mb: 0.5,
-          gap: 1,
-        }}
-      >
-        <Typography variant="caption" color="text.secondary">
-          {localeText.pivotRowsColumnsLabel(rowCount, colCount)}
-        </Typography>
-        <Button
-          size="small"
-          startIcon={<DownloadIcon fontSize="small" />}
-          onClick={handleExport}
-          sx={{ minWidth: 0, fontSize: 11, py: 0.25 }}
-        >
-          CSV
-        </Button>
-      </Box>
       <PivotTable
         matrix={matrix}
         aggFn={pivotAggregation}

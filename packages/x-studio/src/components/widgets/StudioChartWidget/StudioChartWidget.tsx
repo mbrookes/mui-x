@@ -23,7 +23,7 @@ import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, Typography, useTheme } from '@mui/material';
 
-import type { StudioDataSource, StudioWidget } from '../../../models';
+import type { StudioDataField, StudioDataSource, StudioWidget } from '../../../models';
 import {
   formatPeriodLabel,
   periodKeyToDateRange,
@@ -67,6 +67,7 @@ import {
 } from './chartWidgetHelpers';
 import { detectWidgetAnomalies } from '../../../internals/anomalyDetection';
 import { computeWidgetForecast } from '../../../internals/forecastUtils';
+import { formatFieldValue } from '../../../internals/numberFormat';
 
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
@@ -961,7 +962,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           vertical: (heatLegendPosition === 'top' ? 'top' : 'bottom') as 'top' | 'bottom',
           horizontal: heatLegendAlign,
         };
-    const heatValueFormatter = (v: number) => `${Math.round(v * 10) / 10}`;
+    const heatFormatDef = valueFieldDef?.type
+      ? (valueFieldDef as Pick<StudioDataField, 'type' | 'format' | 'currencyCode' | 'precision'>)
+      : undefined;
+    const heatValueFormatter = (v: number) => formatFieldValue(v, heatFormatDef);
 
     return (
       <HeatmapPremium

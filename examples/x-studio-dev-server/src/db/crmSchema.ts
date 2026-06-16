@@ -29,11 +29,31 @@ export async function createCrmTables(db: Knex): Promise<void> {
       t.string('primaryContactId').nullable();
       t.string('title').notNullable();
       t.string('stage').notNullable();
+      t.integer('stageReached').nullable();
+      t.string('owner').nullable();
       t.float('value').notNullable();
       t.integer('probability').notNullable();
+      t.integer('daysInStage').nullable();
       t.string('openedDate').notNullable();
       t.string('closeDate').notNullable();
     });
+  } else {
+    // Migrate existing deals table: add columns introduced after initial schema.
+    if (!(await db.schema.hasColumn('deals', 'owner'))) {
+      await db.schema.alterTable('deals', (t) => {
+        t.string('owner').nullable();
+      });
+    }
+    if (!(await db.schema.hasColumn('deals', 'stageReached'))) {
+      await db.schema.alterTable('deals', (t) => {
+        t.integer('stageReached').nullable();
+      });
+    }
+    if (!(await db.schema.hasColumn('deals', 'daysInStage'))) {
+      await db.schema.alterTable('deals', (t) => {
+        t.integer('daysInStage').nullable();
+      });
+    }
   }
 
   if (!(await db.schema.hasTable('activities'))) {

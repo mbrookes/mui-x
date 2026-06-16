@@ -25,7 +25,6 @@ import {
   useStudioSelector,
   useStudioLocaleText,
   useCustomWidgetMap,
-  useStudioUIConfig,
   selectMode,
   selectPages,
   selectFilters,
@@ -62,12 +61,7 @@ import {
   inferKpiDateSubtitle,
 } from '../../internals/widgetUtils';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
-import { StudioInsightPanel } from '../StudioInsightPanel/StudioInsightPanel';
-import {
-  generateWidgetInsight,
-  type StudioInsightOptions,
-  type StudioInsightResult,
-} from '../StudioChatPanel/generateInsight';
+import type { StudioInsightOptions } from '../StudioChatPanel/generateInsight';
 import { SliderFilterPill } from './SliderFilterPill';
 import {
   DRAG_TYPE_CANVAS_WIDGET,
@@ -126,6 +120,14 @@ export interface StudioWidgetCardProps {
    * @param {string} widgetId The ID of the widget to assist with.
    */
   onAiRequest?: (widgetId: string) => void;
+  /**
+   * Called when the user triggers an AI insight action (summary/analysis/forecast/anomaly).
+   * The `prompt` is a ready-to-send message for the chat panel.
+   * When omitted, the insight button is not shown.
+   * @param {string} widgetId The ID of the widget.
+   * @param {string} prompt The pre-built chat message to submit.
+   */
+  onInsightRequest?: (widgetId: string, prompt: string) => void;
 }
 
 // Module-level set survives component unmount/remount (e.g. drag-and-drop repositioning).
@@ -169,6 +171,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     onUnconfiguredClick,
     onEditRequest,
     onAiRequest,
+    onInsightRequest,
   } = props;
   const controller = useStudioController();
   // Create stable selector functions scoped to this widgetId / pageId.
@@ -205,7 +208,6 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const allFilters = useStudioSelector(selectFilters);
   const localeText = useStudioLocaleText();
   const customWidgetMap = useCustomWidgetMap();
-  const { aiConfig } = useStudioUIConfig();
   const features = useStudioFeatures();
 
   // For KPI widgets with auto subtitle and no user-set subtitle, derive a date range label
@@ -240,60 +242,35 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     widget.kind !== 'kpi' &&
     (customDef === null || customDef.aiInsight === true);
 
-  // ── AI Insight state ───────────────────────────────────────────────────────
-  const [insightOpen, setInsightOpen] = React.useState(false);
-  const [insightLoading, setInsightLoading] = React.useState(false);
-  const [insightError, setInsightError] = React.useState<string | null>(null);
-  const [insightResult, setInsightResult] = React.useState<StudioInsightResult | null>(null);
-  const [insightType, setInsightType] = React.useState<StudioInsightOptions['type']>('summary');
-  const insightAbortRef = React.useRef<AbortController | null>(null);
-
+  // ── AI Insight routing ────────────────────────────────────────────────────
   const handleInsightRequest = React.useCallback(
     (type: StudioInsightOptions['type']) => {
-      if (!aiConfig?.endpoint) {
+      if (!onInsightRequest || !widget) {
         return;
       }
-      insightAbortRef.current?.abort();
-      const controller2 = new AbortController();
-      insightAbortRef.current = controller2;
-
-      setInsightType(type);
-      setInsightOpen(true);
-      setInsightLoading(true);
-      setInsightError(null);
-      setInsightResult(null);
-
-      generateWidgetInsight(widgetId, controller, aiConfig, { type, signal: controller2.signal })
-        .then((result) => {
-          setInsightResult(result);
-        })
-        .catch((err: unknown) => {
-          if (err instanceof Error && err.name === 'AbortError') {
-            return;
-          }
-          setInsightError(err instanceof Error ? err.message : 'Failed to generate insight.');
-        })
-        .finally(() => {
-          setInsightLoading(false);
-        });
+      const title = widget.title || widget.kind;
+      let prompt: string;
+      if (type === 'summary') {
+        prompt = `Summarise the "${title}" widget`;
+      } else if (type === 'analysis') {
+        prompt = `Analyse the "${title}" widget — identify key trends, patterns, and notable values`;
+      } else if (type === 'forecast') {
+        prompt = `Forecast the "${title}" widget — what trend do you expect over the next few periods?`;
+      } else if (type === 'correlation') {
+        prompt = `Show a correlation analysis for the "${title}" widget`;
+      } else {
+        prompt = `Analyse the "${title}" widget`;
+      }
+      onInsightRequest(widgetId, prompt);
     },
-    [widgetId, controller, aiConfig],
+    [onInsightRequest, widget, widgetId],
   );
-
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional: abort on unmount only
-  React.useEffect(() => {
-    return () => {
-      insightAbortRef.current?.abort();
-    };
-  }, []);
 
   // ── Anomaly detection state ────────────────────────────────────────────────
   const [anomalyEnabled, setAnomalyEnabled] = React.useState(false);
   const [anomalyAnnotations, setAnomalyAnnotations] = React.useState<
     import('../../models/baseTypes').StudioChartAnnotation[]
   >([]);
-  const anomalyExplainAbortRef = React.useRef<AbortController | null>(null);
-
   // Toggle anomaly detection; clear annotations immediately when disabling
   const handleAnomalyToggle = React.useCallback(() => {
     setAnomalyEnabled((prev) => {
@@ -304,39 +281,21 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     });
   }, []);
 
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional: abort on unmount only
-  React.useEffect(() => {
-    return () => {
-      anomalyExplainAbortRef.current?.abort();
-    };
-  }, []);
-
   const handleAnomalyExplain = React.useCallback(() => {
-    if (!aiConfig?.endpoint || !anomalyAnnotations.length) {
+    if (!onInsightRequest || !anomalyAnnotations.length || !widget) {
       return;
     }
-    import('../StudioChatPanel/generateInsight').then(({ generateAnomalyExplanation }) => {
-      anomalyExplainAbortRef.current?.abort();
-      const abortCtrl = new AbortController();
-      anomalyExplainAbortRef.current = abortCtrl;
-      handleInsightRequest('anomaly' as StudioInsightOptions['type']);
-      generateAnomalyExplanation(widgetId, anomalyAnnotations, controller, aiConfig, {
-        signal: abortCtrl.signal,
+    const title = widget.title || widget.kind;
+    const annotationDetails = anomalyAnnotations
+      .map((a) => {
+        const axisLabel = a.axis === 'x' ? 'X-axis' : 'Y-axis';
+        const labelPart = a.label ? ` (${a.label})` : '';
+        return `- ${axisLabel} anomaly at ${JSON.stringify(a.value)}${labelPart}`;
       })
-        .then((result) => {
-          setInsightResult(result);
-        })
-        .catch((err: unknown) => {
-          if (err instanceof Error && err.name === 'AbortError') {
-            return;
-          }
-          setInsightError(err instanceof Error ? err.message : 'Failed to explain anomalies.');
-        })
-        .finally(() => {
-          setInsightLoading(false);
-        });
-    });
-  }, [aiConfig, anomalyAnnotations, widgetId, controller, handleInsightRequest]);
+      .join('\n');
+    const prompt = `Explain the anomalies detected in the "${title}" widget:\n${annotationDetails}`;
+    onInsightRequest(widgetId, prompt);
+  }, [onInsightRequest, anomalyAnnotations, widget, widgetId]);
 
   // Pages the user can move this widget to (all pages except the one this widget is on)
   const moveToPageOptions = React.useMemo(
@@ -494,7 +453,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     features.export &&
     (widget.kind === 'grid' || widget.kind === 'chart' || widget.kind === 'pivot');
   const isChart = widget.kind === 'chart';
-  const showEditActions = mode === 'edit' && (isSelected || (!dimmed && hovered));
+  const showEditActions = !isDragging && mode === 'edit' && (isSelected || (!dimmed && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
   const showViewExpand = mode === 'view' && hovered && isChart;
   const exportLabel =
@@ -583,14 +542,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           overlayTopSx={overlayTopSx}
           moveToPageOptions={moveToPageOptions}
           onAiRequest={onAiRequest ? () => onAiRequest(widgetId) : undefined}
-          onInsightRequest={
-            aiConfig?.endpoint && supportsInsight ? handleInsightRequest : undefined
-          }
+          onInsightRequest={supportsInsight && onInsightRequest ? handleInsightRequest : undefined}
           anomalyEnabled={anomalyEnabled}
           anomalyCount={anomalyAnnotations.length}
           onAnomalyToggle={isChart && features.aiInsights ? handleAnomalyToggle : undefined}
           onAnomalyExplain={
-            isChart && aiConfig?.endpoint && anomalyEnabled && anomalyAnnotations.length > 0
+            isChart && onInsightRequest && anomalyEnabled && anomalyAnnotations.length > 0
               ? handleAnomalyExplain
               : undefined
           }
@@ -603,21 +560,6 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           onMoveWidget={handleMoveWidget}
           moveWidgetDisabled={moveWidgetDisabled}
         />
-        {/* AI Insight panel — floats over widget content when open */}
-        {insightOpen && (
-          <StudioInsightPanel
-            insight={insightResult}
-            loading={insightLoading}
-            error={insightError}
-            activeType={insightType}
-            showForecast={isChart || widget.kind === 'kpi'}
-            onClose={() => {
-              setInsightOpen(false);
-              insightAbortRef.current?.abort();
-            }}
-            onRegenerate={handleInsightRequest}
-          />
-        )}
         <Stack spacing={widget.kind === 'grid' ? 2 : 0.5} sx={{ flexGrow: 1, minHeight: 0 }}>
           {/* Widget header — omitted for full-bleed custom widgets that render edge-to-edge */}
           {!isFullBleedCustom && (

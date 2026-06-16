@@ -1,6 +1,6 @@
 import type { Knex } from 'knex';
 import { generateCrmData } from 'x-studio-shared';
-import { CRM_TABLE_NAMES } from './crmSchema.js';
+import { CRM_TABLE_NAMES, createCrmTables } from './crmSchema.js';
 
 export interface CrmSeedOptions {
   orderCount?: number;
@@ -9,15 +9,39 @@ export interface CrmSeedOptions {
 }
 
 /**
- * Check whether the CRM database already has seeded data.
- * Uses the contacts table as a proxy.
+ * Check whether the CRM database already has complete seeded data.
+ * Returns false when:
+ * - The contacts table is empty (never seeded), OR
+ * - The deals table has daysInStage column but no values (schema updated after initial
+ *   seed — server must reseed to populate the new column).
  */
 async function isCrmSeeded(db: Knex): Promise<boolean> {
   try {
-    const result = await db('contacts').count('id as count').first();
-    return Number(result?.count ?? 0) > 0;
+    const contactCount = await db('contacts').count('id as count').first();
+    if (Number(contactCount?.count ?? 0) === 0) {
+      return false;
+    }
+    // If daysInStage column exists but has no data, the deals were seeded before the
+    // column was added — return false so seedCrmIfEmpty triggers a full reseed.
+    const hasColumn = await db.schema.hasColumn('deals', 'daysInStage');
+    if (hasColumn) {
+      const dealWithData = await db('deals').whereNotNull('daysInStage').first();
+      if (!dealWithData) {
+        return false;
+      }
+    }
+    return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Drop all CRM tables so they can be recreated and reseeded from scratch.
+ */
+async function dropCrmTables(db: Knex): Promise<void> {
+  for (const table of CRM_TABLE_NAMES) {
+    await db.schema.dropTableIfExists(table);
   }
 }
 
@@ -32,12 +56,14 @@ export async function seedCrmIfEmpty(db: Knex, opts: CrmSeedOptions = {}): Promi
     return;
   }
 
-  if (opts.force) {
-    console.log('[crm-seed] Dropping existing CRM data…');
-    for (const table of CRM_TABLE_NAMES) {
-      await db.schema.dropTableIfExists(table);
-    }
-  }
+  // Drop existing tables before reseeding (either forced or stale-data auto-reseed).
+  // Dropping is safe here: either force=true requested it, or isCrmSeeded detected
+  // that the data is incomplete (e.g. daysInStage column was empty after a schema
+  // migration), so we need a clean slate. Recreate tables immediately after dropping
+  // so the INSERT in seedCrm finds the updated schema.
+  console.log('[crm-seed] Dropping existing CRM data…');
+  await dropCrmTables(db);
+  await createCrmTables(db);
 
   await seedCrm(db, opts);
 }

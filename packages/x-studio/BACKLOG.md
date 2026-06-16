@@ -37,3 +37,7 @@
 ✅ BL-212: Make the alert banner half the height.
 
 **Fixed** (`examples/x-studio/src/components/AlertBannerWidget.tsx`): Reduced the in-flow sizer `minHeight` from 88 to 44.
+
+✅ BL-213: Guage spark should show percentage above 100 when the value is greater than the target. Also change the label on the textfield from Guage Max to Target, along with localisations.
+
+**Fixed** (`KpiSparkline.tsx`): Removed `Math.min(..., 100)` cap on `percentValue` so values exceeding the target display as e.g. 125%. Renamed `kpiSetupGaugeMaxLabel` to `'Target'` (and locale equivalents in de/es/fr/ptBR).

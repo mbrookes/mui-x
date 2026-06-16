@@ -37,6 +37,7 @@ import {
   OS_INITIAL_STATE,
   loadOfficeSuppliesData,
   generateSalesData,
+  generateCrmData,
 } from 'x-studio-shared';
 import type { OfficeSuppliesData } from 'x-studio-shared';
 import dayjs from 'dayjs';
@@ -436,9 +437,15 @@ export default function App() {
       if (cancelled) {
         return;
       }
+      const { contactsSource, dealsSource, activitiesSource, dealTransitionsSource } =
+        generateCrmData({ seed: 42, orderCount: rowCount });
+      if (cancelled) {
+        return;
+      }
       // eslint-disable-next-line no-console
       console.info(
-        `[x-studio] Generated data: ${rowCount} orders, ${ordersSource.rows?.length} order rows`,
+        `[x-studio] Generated data: ${rowCount} orders, ${ordersSource.rows?.length} order rows, ` +
+          `${contactsSource.rows?.length} contacts`,
       );
       const newState: Partial<StudioState> = {
         ...baseInitialState,
@@ -450,6 +457,10 @@ export default function App() {
           [orderItemsSource.id]: orderItemsSource,
           [shipmentsSource.id]: shipmentsSource,
           [shipmentItemsSource.id]: shipmentItemsSource,
+          [contactsSource.id]: contactsSource,
+          [dealsSource.id]: dealsSource,
+          [activitiesSource.id]: activitiesSource,
+          [dealTransitionsSource.id]: dealTransitionsSource,
         },
       };
       React.startTransition(() => {

@@ -893,13 +893,25 @@ This caused `customers` to appear twice in the query, making `customers.country`
 
 🚫 BL-196 (NoOp — future consideration): Re-introduce dynamic filter values driven by a "business metrics" data source (the `StudioMetricRef` concept). This would allow a filter threshold (e.g. "sales > target") to be dynamically pulled from a row in a separate metrics table, updating automatically when the source data changes. Deferred: the use case is real but the previous implementation was complex and tightly coupled to the filter pipeline. A future version should integrate with the expression-field system instead of adding a separate ref-resolution layer.
 
-BL-197: Sales Products page > Price vs Unit MArgin widget scatter values make a straight line. They didn't used to. Something isn't right.
+✅ BL-197: Sales Products page > Price vs Unit Margin widget scatter values make a straight line. They didn't used to. Something isn't right.
 
-BL-198: Use square corners for heatmap items with no gap between them. In Quantity by Category & Discount the heatmap items are far wider than they need to be. Heatmap doesn't support annotations. Remove the config control.
+**Fixed** (generator now gives `cost` its own independent `costVariation` separate from `priceVariation`, so unit margin varies independently from price and the scatter shows a proper spread rather than a straight line)
 
-BL-199: Sales logistics page > Ontime shipments shows 0% with a flat trend. Fix the config or rendering issue. Make sure the working config can be set by the user in the config dialog.
+✅ BL-198: Use square corners for heatmap items with no gap between them. In Quantity by Category & Discount the heatmap items are far wider than they need to be. Heatmap doesn't support annotations. Remove the config control.
 
-BL-200: Pipeline widget config: The select is smooshed to the left by the button group, and the botton group is too tall because of the arrows. put the select abouve the button group, and rearrange the buttons. Add an option for "natural". Make it a shared widget, and use it anywhere else that has the same broken ui as pipeline.
+**Fixed** (`borderRadius: 0` (square corners), removed `gap`/`mb` between rows, added `maxWidth: 80` per cell to prevent extreme stretching on low-column-count heatmaps, excluded `heatmap` from the annotation config panel condition)
+
+✅ BL-199: Sales logistics page > On-Time Shipments shows 0% with a flat trend. Fix the config or rendering issue.
+
+**Fixed** (`computeAggregate` now coerces boolean field values to 0/1 before the `typeof v === 'number'` filter, so `avg` of a boolean `onTime` field returns the correct ratio rather than 0)
+
+✅ BL-200: Pipeline widget config: The select is smooshed to the left by the button group, and the button group is too tall because of the arrows. Put the select above the button group, and rearrange the buttons. Add an option for "natural".
+
+**Fixed** (sort controls now use `Stack direction="column"` so the select sits above the direction toggle; direction toggle is hidden when "Natural" is selected; added `chartSortBy: 'natural'` option (preserves data insertion order) to the Select and to `StudioWidgetConfig`; locale strings added in all 4 languages; funnel chart rendering handles `'natural'` by skipping sort)
+
+✅ BL-201: Deals by stage reached pipeline chart has all 0 for values.
+
+**Fixed** (`funnelReachedField` was missing from `collectSelectFields`, so server-mode adapter queries omitted it from the SELECT; `aggregateFunnelReached` read it as `undefined` → NaN → every row skipped → all counts 0. Fixed in `eb140b29` alongside the kpiSparklineField fix — backlog entry was added after the code fix landed)
 
 ✅ BL-201: Sales products page has Avg Unit Margin and Total Inventory Value KPIs as $0
 

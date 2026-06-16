@@ -289,7 +289,7 @@ export function createBatchingAdapter(
             return new Error(`Studio batch response missing result for widget "${d.widgetId}"`);
           }
           if (result.error) {
-            return new Error(result.error);
+            return /* minify-error-disabled */ new Error(result.error);
           }
 
           const { crossEndpointEnrichments } = builtDescriptors[i];

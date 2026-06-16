@@ -489,7 +489,10 @@ export async function* runAgenticLoop(
             output,
           };
         } catch (skillErr) {
-          const skillError = skillErr instanceof Error ? skillErr : new Error(String(skillErr));
+          const skillError =
+            skillErr instanceof Error
+              ? skillErr
+              : /* minify-error-disabled */ new Error(String(skillErr));
           onToolError?.(tc.name, skillError);
           const output = JSON.stringify({ error: skillError.message });
           toolResults.push({ toolCallId: tc.id, toolName: tc.name, input: toolInput, output });
@@ -522,7 +525,10 @@ export async function* runAgenticLoop(
             output = JSON.stringify(result);
           }
         } catch (queryErr) {
-          const queryError = queryErr instanceof Error ? queryErr : new Error(String(queryErr));
+          const queryError =
+            queryErr instanceof Error
+              ? queryErr
+              : /* minify-error-disabled */ new Error(String(queryErr));
           onToolError?.(tc.name, queryError);
           output = JSON.stringify({ error: queryError.message });
         }
@@ -609,7 +615,8 @@ export async function* runAgenticLoop(
         mutation = result.mutation;
         currentState = result.nextState;
       } catch (err) {
-        const toolErr = err instanceof Error ? err : new Error(String(err));
+        const toolErr =
+          err instanceof Error ? err : /* minify-error-disabled */ new Error(String(err));
         onToolError?.(tc.name, toolErr);
         output = JSON.stringify({ error: toolErr.message });
       }

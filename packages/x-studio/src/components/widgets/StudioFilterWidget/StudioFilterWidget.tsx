@@ -239,6 +239,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     return (
       <DateRangeControlComponent
         label={label}
+        fieldId={fieldId}
         currentValue={val}
         {...slotProps?.dateRangeControl}
         onApply={managedOnApply}

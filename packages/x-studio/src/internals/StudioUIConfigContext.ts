@@ -471,7 +471,7 @@ export interface StudioLocaleText {
   kpiSetupValueFieldLabel: string;
   kpiSetupValueFieldHelperText: string;
   kpiSetupSparklineLabel: string;
-  kpiSetupTargetLabel: string;
+  kpiSetupGaugeMaxLabel: string;
   kpiSetupTrendLabel: string;
   kpiSetupDateRangeLabel: string;
   kpiSetupDateRangeFieldLabel: string;
@@ -482,7 +482,6 @@ export interface StudioLocaleText {
   kpiSetupCumulativeLabel: string;
   kpiSetupAutoDateFilterPrefix: string;
   kpiSetupCalculatedField: string;
-  kpiSetupTargetHelperText: string;
   kpiSetupInvertColours: string;
   kpiSetupFixedWindowLabel: string;
   kpiSetupFixedWindowNone: string;
@@ -493,7 +492,6 @@ export interface StudioLocaleText {
   // ── KPI widget ─────────────────────────────────────────────────────────────
   kpiGrandTotalTooltip: string;
   kpiGranularityAutoLabel: string;
-  kpiWidgetComparisonTargetLabel: string;
 
   // ── Grid setup panel ──────────────────────────────────────────────────────
   gridSetupDataSourceLabel: string;
@@ -1427,7 +1425,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupValueFieldLabel: 'Value field',
   kpiSetupValueFieldHelperText: 'Field to aggregate',
   kpiSetupSparklineLabel: 'Sparkline',
-  kpiSetupTargetLabel: 'Target',
+  kpiSetupGaugeMaxLabel: 'Gauge max',
   kpiSetupTrendLabel: 'Trend',
   kpiSetupDateRangeLabel: 'Date range',
   kpiSetupDateRangeFieldLabel: 'Date field',
@@ -1438,8 +1436,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupCumulativeLabel: 'Cumulative (running total)',
   kpiSetupAutoDateFilterPrefix: 'Using date filter:',
   kpiSetupCalculatedField: 'Calculated field…',
-  kpiSetupTargetHelperText:
-    'Numeric target value. Shows a reference line on the sparkline; when Trend is also enabled, the delta badge compares the current value against this target.',
   kpiSetupInvertColours: 'Invert colours (lower is better)',
   kpiSetupFixedWindowLabel: 'Trend window',
   kpiSetupFixedWindowNone: 'From date filter',
@@ -1451,7 +1447,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiGrandTotalTooltip:
     'Grand total \u2014 active filter widgets are not applied to this KPI. Enable Cross-filter mode in KPI settings to respect them.',
   kpiGranularityAutoLabel: 'Auto',
-  kpiWidgetComparisonTargetLabel: 'target',
 
   // Grid setup panel
   gridSetupDataSourceLabel: 'Data source',
@@ -2007,7 +2002,6 @@ export interface ResolvedStudioFeatures {
   // ── KPI sub-flags ──────────────────────────────────────────────────────────
   kpiSparkline: boolean;
   kpiTrend: boolean;
-  kpiTarget: boolean;
   kpiCalculatedFields: boolean;
   // ── Chart sub-flags ────────────────────────────────────────────────────────
   chartAnnotations: boolean;
@@ -2066,7 +2060,6 @@ export function useStudioFeatures(): ResolvedStudioFeatures {
     // KPI sub-flags
     kpiSparkline: resolveSubFlag<KpiFeatureFlags>(kpi, 'sparkline'),
     kpiTrend: resolveSubFlag<KpiFeatureFlags>(kpi, 'trend'),
-    kpiTarget: resolveSubFlag<KpiFeatureFlags>(kpi, 'target'),
     kpiCalculatedFields: resolveSubFlag<KpiFeatureFlags>(kpi, 'calculatedFields'),
     // Chart sub-flags
     chartAnnotations: resolveSubFlag<ChartFeatureFlags>(chart, 'annotations'),

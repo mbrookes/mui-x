@@ -51,11 +51,6 @@ export interface KpiFeatureFlags {
    */
   trend?: boolean;
   /**
-   * Show the target line configuration in the KPI setup panel.
-   * @default true
-   */
-  target?: boolean;
-  /**
    * Show the "Add calculated field" button in the KPI setup panel.
    * Has no effect when the global `calculatedFields` flag is `false`.
    * @default true

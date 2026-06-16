@@ -457,7 +457,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   kpiSetupValueFieldLabel: 'Champ de valeur',
   kpiSetupValueFieldHelperText: 'Champ à ajouter',
   kpiSetupSparklineLabel: 'Ligne scintillante',
-  kpiSetupTargetLabel: 'But',
+  kpiSetupGaugeMaxLabel: 'Max de la jauge',
   kpiSetupTrendLabel: "S'orienter",
   kpiSetupDateRangeLabel: 'Plage de dates',
   kpiSetupDateRangeFieldLabel: 'Champ de date',
@@ -468,8 +468,6 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   kpiSetupCumulativeLabel: 'Cumulatif (total cumulé)',
   kpiSetupAutoDateFilterPrefix: 'Utilisation du filtre de date :',
   kpiSetupCalculatedField: 'Champ calculé…',
-  kpiSetupTargetHelperText:
-    "Valeur de référence pour la ligne cible dans le sparkline. Lorsque la tendance est également activée, l'indicateur delta compare la valeur actuelle à cet objectif.",
   kpiSetupInvertColours: 'Inverser les couleurs (plus petit est mieux)',
   kpiSetupFixedWindowLabel: 'Trend window',
   kpiSetupFixedWindowNone: 'From date filter',
@@ -481,7 +479,6 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   kpiGrandTotalTooltip:
     'Grand Total — Les widgets de filtre actif ne sont pas appliqués à ce KPI. Activez le mode Cross Filter dans les paramètres des KPI pour les respecter.',
   kpiGranularityAutoLabel: 'Soi',
-  kpiWidgetComparisonTargetLabel: 'but',
 
   // Grid setup panel
   gridSetupDataSourceLabel: 'Source de données',

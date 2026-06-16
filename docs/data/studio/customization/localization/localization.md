@@ -465,7 +465,7 @@ These tokens are retained as public API for consumers who call `generateDashboar
 | `kpiSetupValueFieldLabel`         | `'Value field'`                                                      |
 | `kpiSetupValueFieldHelperText`    | `'Field to aggregate'`                                               |
 | `kpiSetupSparklineLabel`          | `'Sparkline'`                                                        |
-| `kpiSetupTargetLabel`             | `'Target'`                                                           |
+| `kpiSetupGaugeMaxLabel`           | `'Gauge max'`                                                        |
 | `kpiSetupTrendLabel`              | `'Trend'`                                                            |
 | `kpiSetupCompPeriodLabel`         | `'Comparison period'`                                                |
 | `kpiGrandTotalTooltip`            | `'Grand total — active filter widgets are not applied to this KPI…'` |
@@ -794,15 +794,14 @@ These are passed as `unit` into `dateFilterLast` / `dateFilterNext` above.
 
 ### KPI widget
 
-| Token                            | Default                                             |
-| :------------------------------- | :-------------------------------------------------- |
-| `kpiGranularityAutoLabel`        | `'Auto'`                                            |
-| `kpiWidgetComparisonTargetLabel` | `'vs'`                                              |
-| `kpiTrendNewLabel`               | `'New'`                                             |
-| `kpiTrendTargetTooltip`          | `(value) => string` → `"Target: 5,000"`             |
-| `kpiTrendPreviousPeriodTooltip`  | `(period) => string` → `"Previous period: Q1 2024"` |
-| `kpiTrendNoDateFilterHint`       | `'Add a date filter to show the trend'`             |
-| `kpiSparklineNoTimeFieldHint`    | `'Choose a time field to show the sparkline'`       |
+| Token                           | Default                                             |
+| :------------------------------ | :-------------------------------------------------- |
+| `kpiGranularityAutoLabel`       | `'Auto'`                                            |
+| `kpiTrendNewLabel`              | `'New'`                                             |
+| `kpiTrendTargetTooltip`         | `(value) => string` → `"Target: 5,000"`             |
+| `kpiTrendPreviousPeriodTooltip` | `(period) => string` → `"Previous period: Q1 2024"` |
+| `kpiTrendNoDateFilterHint`      | `'Add a date filter to show the trend'`             |
+| `kpiSparklineNoTimeFieldHint`   | `'Choose a time field to show the sparkline'`       |
 
 ### Chart and Gantt widget
 
@@ -987,17 +986,16 @@ Shown in the compose drawer widget type picker.
 
 ### KPI setup panel (additional tokens)
 
-| Token                          | Default                                                   |
-| :----------------------------- | :-------------------------------------------------------- |
-| `kpiSetupAggregationLabel`     | `'Aggregation'`                                           |
-| `kpiSetupDateAggEarliest`      | `'Earliest'`                                              |
-| `kpiSetupDateAggLatest`        | `'Latest'`                                                |
-| `kpiSetupFillAreaLabel`        | `'Fill area'`                                             |
-| `kpiSetupCumulativeLabel`      | `'Cumulative'`                                            |
-| `kpiSetupAutoDateFilterPrefix` | `'Last'`                                                  |
-| `kpiSetupCalculatedField`      | `'Add calculated field'`                                  |
-| `kpiSetupTargetHelperText`     | `'Constant value or field for the target reference line'` |
-| `kpiSetupInvertColours`        | `'Invert colours (below target = good)'`                  |
+| Token                          | Default                                  |
+| :----------------------------- | :--------------------------------------- |
+| `kpiSetupAggregationLabel`     | `'Aggregation'`                          |
+| `kpiSetupDateAggEarliest`      | `'Earliest'`                             |
+| `kpiSetupDateAggLatest`        | `'Latest'`                               |
+| `kpiSetupFillAreaLabel`        | `'Fill area'`                            |
+| `kpiSetupCumulativeLabel`      | `'Cumulative'`                           |
+| `kpiSetupAutoDateFilterPrefix` | `'Last'`                                 |
+| `kpiSetupCalculatedField`      | `'Add calculated field'`                 |
+| `kpiSetupInvertColours`        | `'Invert colours (below target = good)'` |
 
 ## Adding a custom translation
 

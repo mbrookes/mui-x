@@ -299,8 +299,6 @@ export interface StudioWidgetConfig {
   kpiTrend?: boolean;
   kpiTrendComparison?: 'previous-period' | 'previous-calendar-period' | 'year-over-year';
   kpiTrendInvert?: boolean;
-  kpiTarget?: boolean;
-  kpiTargetRef?: StudioMetricRef;
   // Text
   textSubtitle?: string;
   textBody?: string;

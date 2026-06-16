@@ -1,40 +1,12 @@
+import { buildWidgetConfigDescription } from './widgetConfigMeta';
+
 /**
  * Canonical description of widget config keys for all widget kinds.
+ * Generated from `widgetConfigMeta.ts` — edit that file to update what the LLM sees.
  * Shared between the chat tool schema (add_widget) and the createWidget system prompt
  * so that both paths support the same full set of widget types.
  */
-export const WIDGET_CONFIG_DESCRIPTION =
-  'Widget configuration. Keys depend on the widget kind:\n' +
-  // Chart keys
-  'chart: chartType (bar|line|area|pie|donut|scatter|bar-stacked|bar-100|area-stacked|area-100|heatmap|funnel|gantt|gauge|mixed), xField, yField, yAggregation (sum|count|avg|min|max — use "count" when yField is a string/boolean; default "sum"), seriesField;\n' +
-  '  barLayout: "horizontal" — use for >5 categories, long names, or ranking charts; do NOT use for time-series;\n' +
-  '  chartSortBy: "value"|"category", chartSortDirection: "asc"|"desc" — for ranked bar charts;\n' +
-  '  xGroupBy: "day"|"week"|"month"|"quarter"|"year" — required when xField is date/datetime;\n' +
-  '  scatterColorField: categorical field to colour scatter points; scatterSizeField: numeric field for bubble size (scatter→bubble);\n' +
-  '  pieArcLabel: "value"|"percent"|"none" — labels shown on pie/donut arcs;\n' +
-  '  heatColorScheme: "primary"|"success"|"warning"|"error" — colour palette for heatmap;\n' +
-  '  crossFilterMode: "cross-highlight"|"cross-filter"|"none" — how widget responds to cross-filter events (default: "cross-highlight");\n' +
-  '  crossFilterField: field ID to emit when a bar/point is clicked (default: xField);\n' +
-  '  yField2: second numeric field for a secondary scatter axis or additional bar series;\n' +
-  // Heatmap / funnel / gantt / gauge / mixed
-  'heatmap: xField (columns), heatYField (rows), yField (intensity), yAggregation, heatColorScheme;\n' +
-  'funnel: xField (stages), yField (value), yAggregation (use "count" when yField is string);\n' +
-  'gantt: ganttLabelField, ganttStartField (date), ganttEndField (date), ganttColorField (optional);\n' +
-  'gauge: yField, yAggregation, gaugeMin (default 0), gaugeMax;\n' +
-  'mixed: ySeries (array of {fieldId, label, type: bar|line, yAggregation, sourceId}), dualYAxis (boolean) — set a per-series sourceId to overlay a metric from a different source onto the shared categorical xField (the join key must exist with the same id in every source used);\n' +
-  // KPI
-  'kpi: kpiValueField, kpiAggregation (sum|avg|count|min|max), kpiSparkline (boolean), kpiSparklinePlotType (line|bar|gauge), kpiSparklineGaugeMin, kpiSparklineGaugeMax, kpiSparklineCumulative (boolean), kpiSparklineGranularity ("day"|"week"|"month"|"quarter"|"year"),\n' +
-  '  kpiTrend (boolean), kpiTrendComparison ("previous-period"|"previous-calendar-period"|"year-over-year"), kpiTrendInvert (boolean — true if lower is better),\n' +
-  '  kpiTarget (number), kpiTargetRef (StudioMetricRef ID);\n' +
-  // Grid
-  'grid: columns (array of field IDs), gridSortField (field ID), gridSortDirection ("asc"|"desc"), gridGroupByField (categorical field to group rows);\n' +
-  // Filter
-  'filter: filterWidgetType (date-range|multi-select|toggle|slider), filterWidgetField;\n' +
-  // Pivot
-  'pivot: pivotRowField, pivotColField, pivotValueField, pivotAggregation (sum|count|avg|min|max), pivotShowTotals (boolean);\n' +
-  // Map
-  'map: mapCountryField, mapValueField, mapAggregation (sum|count|avg|min|max), mapColorScheme (blues|reds|greens|oranges|purples), mapCrossFilterEmit (boolean — emit cross-filter on country click).\n' +
-  'For custom widget kinds registered by the app, pass any config keys the custom widget expects.';
+export const WIDGET_CONFIG_DESCRIPTION = buildWidgetConfigDescription();
 
 /**
  * OpenAI-compatible tool definitions for the x-studio AI assistant.

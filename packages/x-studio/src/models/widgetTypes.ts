@@ -63,9 +63,13 @@ export interface StudioWidgetConfig {
   /** Conditional formatting rules applied to grid cells. */
   gridConditionalFormats?: StudioConditionalFormat[];
   // Chart config
+  /** Chart sub-type. Determines which other config keys are relevant. @default 'bar' */
   chartType?: StudioChartType;
+  /** Bar orientation. `'horizontal'` — prefer for >5 categories, long labels, or ranking lists. */
   barLayout?: StudioBarLayout;
+  /** X-axis field (categorical or date). For date fields, combine with `xGroupBy`. */
   xField?: string;
+  /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */
   yField?: string;
   /** How to aggregate the y-axis values. Defaults to 'sum'. Use 'count' when yField is a string field. */
   yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
@@ -198,19 +202,28 @@ export interface StudioWidgetConfig {
   /** Maximum value for gauge chart. @default 100 */
   gaugeMax?: number;
   // KPI config
+  /** Field whose values are aggregated to produce the headline metric. */
   kpiValueField?: string;
+  /** Aggregation applied to `kpiValueField`. @default 'sum' */
   kpiAggregation?: StudioKpiAggregation;
+  /** When true, formats the headline value in compact notation (e.g. 1.2M instead of 1,200,000). */
   kpiCompact?: boolean;
+  /** String prepended to the formatted headline value (e.g. `'$'`). */
   kpiPrefix?: string;
+  /** String appended to the formatted headline value (e.g. `'%'`). */
   kpiSuffix?: string;
   // KPI sparkline
+  /** When true, renders a small chart below the headline value. */
   kpiSparkline?: boolean;
   /** Time/date field to group rows by for the sparkline. Auto-detected from date filters if omitted. */
   kpiSparklineField?: string;
   /** Source ID for the sparkline time field — only needed when field is from a related source. */
   kpiSparklineSourceId?: string;
+  /** Visual style of the sparkline. @default 'line' */
   kpiSparklinePlotType?: 'line' | 'bar' | 'gauge';
+  /** When true, fills the area under a line sparkline. */
   kpiSparklineArea?: boolean;
+  /** Time bucket for grouping rows in the sparkline. Auto-detected from date filters when omitted. */
   kpiSparklineGranularity?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /** When true, the sparkline shows a cumulative running total instead of per-period values. */
   kpiSparklineCumulative?: boolean;
@@ -262,7 +275,9 @@ export interface StudioWidgetConfig {
   // Text config
   /** Markdown content for a text/markdown widget (alternative to textBody for raw markdown). */
   textContent?: string;
+  /** Subtitle text (HTML string). Rendered between the title and body. */
   textSubtitle?: string;
+  /** Body text (HTML string). Rendered below the subtitle. */
   textBody?: string;
   // Text formatting — undefined means "use the default" and is never persisted
   /** Font family for the title section. undefined = theme default. */
@@ -290,6 +305,7 @@ export interface StudioWidgetConfig {
   /** Text alignment for the body section. undefined = left. */
   textBodyAlign?: 'left' | 'center' | 'right';
   // Filter widget config
+  /** The type of filter control to render. */
   filterWidgetType?: StudioFilterWidgetType;
   /** Field ID to filter on */
   filterWidgetField?: string;
@@ -385,7 +401,9 @@ export interface StudioWidgetConfig {
   mapLegendPosition?: 'bottom' | 'top' | 'left' | 'right' | 'hidden';
   mapLegendAlign?: 'start' | 'center' | 'end';
   // Shared
+  /** Numeric fields to aggregate (used by some custom widgets). */
   measures?: string[];
+  /** Categorical / grouping fields (used by some custom widgets). */
   dimensions?: string[];
 
   // ── Custom widget configuration ────────────────────────────────────────────

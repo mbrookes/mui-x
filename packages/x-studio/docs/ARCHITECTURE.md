@@ -553,7 +553,7 @@ When a chart widget's `xField` or `yField` belongs to a related source, the filt
 | -------- | -------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `grid`   | `StudioGridWidget`   | `useWidgetRows`                        | `columns`, `gridGroupByField`, `gridSummaryFields`, `gridConditionalFormats`, `drilldownWidgetId`      |
 | `chart`  | `StudioChartWidget`  | `useWidgetRows` + `useChartWidgetData` | `chartType`, `xField`, `yField`/`ySeries`, `seriesField`, `xGroupBy`, `crossFilterMode`, `annotations` |
-| `kpi`    | `StudioKpiWidget`    | `useWidgetRows`                        | `kpiValueField`, `kpiAggregation`, `kpiSparkline`, `kpiTrend`, `kpiTarget`, `kpiTargetRef`             |
+| `kpi`    | `StudioKpiWidget`    | `useWidgetRows`                        | `kpiValueField`, `kpiAggregation`, `kpiSparkline`, `kpiSparklinePlotType`, `kpiSparklineGaugeMax`, `kpiTrend` |
 | `text`   | `StudioTextWidget`   | —                                      | `textBody`, `textSubtitle`, font/colour/alignment fields                                               |
 | `filter` | `StudioFilterWidget` | `useWidgetRows` (for value list)       | `filterWidgetType`, `filterWidgetField`, `filterWidgetSourceId`                                        |
 | `pivot`  | `StudioPivotWidget`  | `useWidgetRows`                        | `pivotRowField`, `pivotColField`, `pivotValueField`, `pivotAggregation`, `pivotShowTotals`             |

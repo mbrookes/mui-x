@@ -457,7 +457,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   kpiSetupValueFieldLabel: 'Wertfeld',
   kpiSetupValueFieldHelperText: 'Feld zum Hinzufügen',
   kpiSetupSparklineLabel: 'Sparkline',
-  kpiSetupTargetLabel: 'Ziel',
+  kpiSetupGaugeMaxLabel: 'Messgerät Max',
   kpiSetupTrendLabel: 'Trend',
   kpiSetupDateRangeLabel: 'Datumsbereich',
   kpiSetupDateRangeFieldLabel: 'Datumsfeld',
@@ -468,8 +468,6 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   kpiSetupCumulativeLabel: 'Kumulativ (kumulierte Summe)',
   kpiSetupAutoDateFilterPrefix: 'Datumsfilter verwenden:',
   kpiSetupCalculatedField: 'Berechnetes Feld…',
-  kpiSetupTargetHelperText:
-    'Referenzwert für die Ziellinie in der Sparkline. Wenn Trend ebenfalls aktiviert ist, vergleicht der Delta-Indikator den aktuellen Wert mit diesem Ziel.',
   kpiSetupInvertColours: 'Farben invertieren (kleiner ist besser)',
   kpiSetupFixedWindowLabel: 'Trend window',
   kpiSetupFixedWindowNone: 'From date filter',
@@ -481,7 +479,6 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   kpiGrandTotalTooltip:
     'Gesamtsumme – Aktive Filter-Widgets werden nicht auf diesen KPI angewendet. Aktivieren Sie den Kreuzfiltermodus in den KPI-Einstellungen, um diese zu berücksichtigen.',
   kpiGranularityAutoLabel: 'Selbst',
-  kpiWidgetComparisonTargetLabel: 'Ziel',
 
   // Grid setup panel
   gridSetupDataSourceLabel: 'Datenquelle',

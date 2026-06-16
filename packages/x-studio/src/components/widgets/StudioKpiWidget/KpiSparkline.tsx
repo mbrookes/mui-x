@@ -2,7 +2,6 @@
 import { Box, Typography } from '@mui/material';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
 import { Gauge } from '@mui/x-charts/Gauge';
-import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { StudioNumberFormat } from '../../../models';
 import { formatNumber } from '../../../internals/numberFormat';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
@@ -20,11 +19,9 @@ export interface KpiSparklineProps {
   fieldCurrencyCode?: string;
   /** Chart palette from the active page theme. Used to pick the sparkline color. */
   colors?: string[];
-  /** When set, renders a horizontal reference line at this y-value. */
-  targetValue?: number;
   /** Current KPI aggregate value — used only when plotType is 'gauge'. */
   kpiValue?: number;
-  /** Gauge maximum (target value). Required when plotType is 'gauge'. */
+  /** Gauge maximum. Required when plotType is 'gauge'. @default 100 */
   gaugeMax?: number;
 }
 
@@ -39,7 +36,6 @@ export function KpiSparkline(props: KpiSparklineProps) {
     fieldPrecision,
     fieldCurrencyCode,
     colors,
-    targetValue,
     kpiValue,
     gaugeMax = 100,
   } = props;
@@ -121,15 +117,7 @@ export function KpiSparkline(props: KpiSparklineProps) {
           color={colors?.[0]}
           sx={{ height: '100%' }}
           margin={{ top: 4, bottom: 4, left: 4, right: 4 }}
-        >
-          {targetValue !== undefined && (
-            <ChartsReferenceLine
-              y={targetValue}
-              label={localeText.kpiSetupTargetLabel}
-              labelAlign="end"
-            />
-          )}
-        </SparkLineChart>
+        />
       </Box>
     );
   }

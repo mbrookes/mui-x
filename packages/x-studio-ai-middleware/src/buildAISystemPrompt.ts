@@ -153,9 +153,6 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
       const invert = (cfg as any).kpiTrendInvert ? ', invert' : '';
       parts.push(`trend: ${comparison}${invert}`);
     }
-    if ((cfg as any).kpiTarget != null) {
-      parts.push(`target: ${(cfg as any).kpiTarget}`);
-    }
   } else if (widget.kind === 'grid') {
     if (cfg.columns?.length) {
       parts.push(`columns: [${cfg.columns.map((c) => c.fieldId).join(', ')}]`);

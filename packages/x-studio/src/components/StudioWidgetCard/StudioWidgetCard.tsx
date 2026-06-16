@@ -473,6 +473,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         exportGridToCsv(widget, source, rows);
       } else if (widget.kind === 'chart') {
         exportChartToPng(widget, chartContainerRef.current, theme.palette.background.default);
+      } else if (widget.kind === 'pivot') {
+        pivotExportRef.current?.();
       }
     },
     // react-doctor-disable-next-line react-doctor/exhaustive-deps -- deps are correct
@@ -488,13 +490,13 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     return null;
   }
 
-  const canExport = widget.kind === 'grid' || widget.kind === 'chart';
+  const canExport = widget.kind === 'grid' || widget.kind === 'chart' || widget.kind === 'pivot';
   const isChart = widget.kind === 'chart';
   const showEditActions = mode === 'edit' && (isSelected || (!dimmed && hovered));
   const showViewExport = mode === 'view' && hovered && canExport;
   const showViewExpand = mode === 'view' && hovered && isChart;
   const exportLabel =
-    widget.kind === 'grid' ? localeText.widgetExportCsvTooltip : localeText.widgetExportPngTooltip;
+    widget.kind === 'chart' ? localeText.widgetExportPngTooltip : localeText.widgetExportCsvTooltip;
 
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
   // inside the card for top-row widgets (where there's no room above to overhang).

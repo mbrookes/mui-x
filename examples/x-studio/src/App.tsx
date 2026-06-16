@@ -304,18 +304,43 @@ export default function App() {
     if (saved) {
       const restored = deserializeState(saved, baseDataSources);
 
-      // Merge in any pages from the current initial state that are absent from the
-      // saved state. This ensures new pages added to INITIAL_STATE always appear
-      // even when a saved state exists from an earlier session.
+      // Merge in any pages, widgets, and expression fields from the current initial
+      // state that are absent from the saved state. This ensures new content added
+      // to INITIAL_STATE always appears even when a saved state exists from an
+      // earlier session (e.g. expression fields added after the user's last save).
       const mergedPages = { ...restored.pages };
-      let pagesAdded = false;
+      const mergedWidgets = { ...restored.widgets };
+      const mergedExprFields = [...restored.expressionFields];
+      const existingEfIds = new Set(restored.expressionFields.map((ef) => ef.id));
+      let stateChanged = false;
+
       for (const [pageId, page] of Object.entries(baseConfig.pages ?? {})) {
         if (!mergedPages[pageId]) {
           mergedPages[pageId] = page;
-          pagesAdded = true;
+          stateChanged = true;
         }
       }
-      const mergedState = pagesAdded ? { ...restored, pages: mergedPages } : restored;
+      for (const [widgetId, widget] of Object.entries(baseConfig.widgets ?? {})) {
+        if (!mergedWidgets[widgetId]) {
+          mergedWidgets[widgetId] = widget;
+          stateChanged = true;
+        }
+      }
+      for (const ef of baseConfig.expressionFields ?? []) {
+        if (!existingEfIds.has(ef.id)) {
+          mergedExprFields.push(ef);
+          stateChanged = true;
+        }
+      }
+
+      const mergedState = stateChanged
+        ? {
+            ...restored,
+            pages: mergedPages,
+            widgets: mergedWidgets,
+            expressionFields: mergedExprFields,
+          }
+        : restored;
 
       // Apply ?fv= filter value overrides on top of saved state
       const fvParam = getUrlFilterValuesParam();

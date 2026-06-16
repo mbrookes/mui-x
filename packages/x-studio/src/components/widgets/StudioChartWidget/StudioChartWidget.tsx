@@ -21,6 +21,7 @@ import { Gauge } from '@mui/x-charts/Gauge';
 import type { GaugeProps } from '@mui/x-charts/Gauge';
 import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
+import { HeatmapPremium } from '@mui/x-charts-premium/HeatmapPremium';
 import { Box, Typography, useTheme } from '@mui/material';
 
 import type { StudioDataField, StudioDataSource, StudioWidget } from '../../../models';
@@ -48,7 +49,6 @@ import { useChartWidgetData } from './useChartWidgetData';
 import { buildMultiYLineSeries } from './lineSeries';
 import { CrossFilterBarContext } from './CrossFilterBarContext';
 import { CrossFilterGhostBar } from './CrossFilterGhostBar';
-import { HeatmapPremium } from '@mui/x-charts-premium/HeatmapPremium';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
 import { StudioSankeyChart } from './StudioSankeyChart';
@@ -1456,7 +1456,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const xAxisData = multiYData.labels;
     // Find a representative field def for each y-axis side (for axis tick formatting)
     const getMixedFieldDef = (sc: { fieldId: string; sourceId?: string } | undefined) => {
-      if (!sc) return undefined;
+      if (!sc) {
+        return undefined;
+      }
       const srcId = sc.sourceId ?? widget.sourceId;
       return (srcId ? dataSources[srcId] : dataSource)?.fields.find((f) => f.id === sc.fieldId);
     };

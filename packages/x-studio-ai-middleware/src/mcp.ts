@@ -204,6 +204,13 @@ export interface StudioMcpOptions {
      * @returns {Promise<StudioDataQueryResult>} The resolved rows together with the row count and routing tier.
      */
     queryDataSource: (params: StudioDataQueryParams) => Promise<StudioDataQueryResult>;
+    /**
+     * Hard upper bound on the number of rows the `query_data_source` tool may request.
+     * The model-supplied `limit` (or the default of 1000) is clamped to this value before
+     * the query reaches your `queryDataSource` implementation.
+     * @default 1000
+     */
+    maxQueryRows?: number;
   };
 }
 
@@ -430,6 +437,8 @@ export function buildStudioMcpServer(
     data,
   } = options;
 
+  const MAX_QUERY_ROWS = data?.maxQueryRows ?? 1000;
+
   const server = new Server(
     { name: serverName, version: serverVersion },
     {
@@ -586,14 +595,7 @@ export function buildStudioMcpServer(
         };
       }
 
-      const {
-        sourceId,
-        columns,
-        filters,
-        aggregations,
-        orderBy,
-        limit = 1000,
-      } = (args ?? {}) as {
+      const { sourceId, columns, filters, aggregations, orderBy, limit } = (args ?? {}) as {
         sourceId: string;
         columns?: string[];
         filters?: StudioDataFilter[];
@@ -601,6 +603,8 @@ export function buildStudioMcpServer(
         orderBy?: StudioDataOrderBy[];
         limit?: number;
       };
+
+      const clampedLimit = Math.min(limit ?? MAX_QUERY_ROWS, MAX_QUERY_ROWS);
 
       if (!sourceId) {
         return {
@@ -623,7 +627,7 @@ export function buildStudioMcpServer(
           filters,
           aggregations,
           orderBy,
-          limit,
+          limit: clampedLimit,
         });
 
         return {

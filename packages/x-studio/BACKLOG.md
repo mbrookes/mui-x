@@ -16,7 +16,7 @@
 
 **Root cause**: The `heatYField` picker in `ChartSetupPanel` used `categoryFields` (only string/boolean fields), but the heatmap Y axis can be any field type. The example config already used `discount` (a `number` field) as the Y axis, which never appeared in the picker dropdown.
 
-**Fixed** (`ChartSetupPanel.tsx`): changed `heatYField` picker from `categoryFields` to `reachableFields` so any field type (numeric, string, date, boolean) can be selected as the row axis. Updated the helper text in all locale files to reflect that the field is not restricted to categorical types.
+**Fixed** (`ChartSetupPanel.tsx`): changed `heatYField` picker from `categoryFields` to a new `heatYFields` memo that accepts any field type but restricts to the widget's primary source. `reachableFields` was tried first but included cross-source fields (e.g. `segment` from CUSTOMERS) that are not present on the primary-source row objects read by `aggregateHeatmap`, causing "No data to display". Updated the helper text in all locale files to reflect the primary-source restriction.
 
 ✅ BL-209: Heatmap sort options should target one of the two axes (not the generic category/value picker), placed below axis field selection, disabled until both axes are set.
 

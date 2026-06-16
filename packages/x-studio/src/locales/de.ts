@@ -390,7 +390,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
     'Nach Stufe summiertes numerisches Feld – Stufen werden nach Wert geordnet (größter zuerst)',
   chartSetupHeatmapRowAxisLabel: 'Linienachsenfeld',
   chartSetupHeatmapRowAxisHelperText:
-    'Feld für die vertikale Achse (Linie) — beliebiger Feldtyp, z.B. Kategorie, Rabatt % oder Uhrzeit',
+    'Feld für die vertikale Achse (Linie) — beliebiger Feldtyp aus der Primärquelle, z.B. Kategorie, Rabatt % oder Uhrzeit',
   chartSetupHeatmapValueLabel: 'Wert-/Farbfeld',
   chartSetupHeatmapValueHelperText:
     'Numerisches Feld, das pro Zelle summiert wird, um die Farbintensität zu bestimmen',

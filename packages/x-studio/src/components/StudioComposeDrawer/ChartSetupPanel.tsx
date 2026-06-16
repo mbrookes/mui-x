@@ -132,6 +132,13 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     [reachableFields],
   );
 
+  // Heatmap Y axis: any field type, but restricted to the primary source so that
+  // aggregateHeatmap() can resolve values directly from the row objects.
+  const heatYFields = React.useMemo(
+    () => allFields.filter((f) => f.sourceId === widgetSourceId).sort(sortBySourceLabel),
+    [allFields, widgetSourceId],
+  );
+
   const chartType: StudioChartType = config.chartType ?? 'bar';
   const isHorizontalBarChart =
     (chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100') &&
@@ -634,7 +641,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 onChange={(fieldId) =>
                   controller.updateWidgetConfig(widgetId, { heatYField: fieldId || undefined })
                 }
-                fields={reachableFields}
+                fields={heatYFields}
                 label={localeText.chartSetupHeatmapRowAxisLabel}
                 helperText={localeText.chartSetupHeatmapRowAxisHelperText}
               />

@@ -1166,6 +1166,8 @@ export function aggregateHeatmap(
   yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
   xOrder?: string[],
   yOrder?: string[],
+  sortBy?: 'x-axis' | 'y-axis' | 'natural',
+  sortDirection?: 'asc' | 'desc',
 ): HeatmapData {
   const xSet = new Set<string>();
   const ySet = new Set<string>();
@@ -1213,15 +1215,29 @@ export function aggregateHeatmap(
     }
   }
 
-  // Honour the field's domain order (`orderedValues`) when supplied — e.g. show
-  // pipeline stages in pipeline order — otherwise keep the previous behaviour
-  // (x naturally sorted, y in first-seen order).
-  const xLabels =
-    xOrder && xOrder.length > 0
-      ? orderLabelsByPreferred([...xSet], xOrder)
-      : (sortLabels([...xSet]) as string[]);
-  const yLabels =
-    yOrder && yOrder.length > 0 ? orderLabelsByPreferred([...ySet], yOrder) : [...ySet];
+  // Build x-axis labels: orderedValues > explicit sort > default (alphabetical).
+  let xLabels: string[];
+  if (xOrder && xOrder.length > 0) {
+    xLabels = orderLabelsByPreferred([...xSet], xOrder);
+  } else if (sortBy === 'x-axis') {
+    const sorted = sortLabels([...xSet]) as string[];
+    xLabels = sortDirection === 'desc' ? sorted.toReversed() : sorted;
+  } else if (sortBy === 'natural' || sortBy === 'y-axis') {
+    xLabels = [...xSet];
+  } else {
+    xLabels = sortLabels([...xSet]) as string[];
+  }
+
+  // Build y-axis labels: orderedValues > explicit sort > default (insertion order).
+  let yLabels: string[];
+  if (yOrder && yOrder.length > 0) {
+    yLabels = orderLabelsByPreferred([...ySet], yOrder);
+  } else if (sortBy === 'y-axis') {
+    const sorted = sortLabels([...ySet]) as string[];
+    yLabels = sortDirection === 'desc' ? sorted.toReversed() : sorted;
+  } else {
+    yLabels = [...ySet];
+  }
 
   let minValue = Infinity;
   let maxValue = -Infinity;

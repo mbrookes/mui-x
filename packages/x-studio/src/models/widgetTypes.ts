@@ -131,6 +131,16 @@ export interface StudioWidgetConfig {
   /** Heatmap chart: alignment of the legend along its cross axis. @default 'center' */
   heatLegendAlign?: 'start' | 'center' | 'end';
   /**
+   * Heatmap chart: which axis's labels to sort.
+   * - `'x-axis'`: sort column-axis labels alphabetically / numerically.
+   * - `'y-axis'`: sort row-axis labels alphabetically / numerically.
+   * - `'natural'`: preserve data insertion order (no explicit sort).
+   * @default undefined (x-axis sorted ascending, y-axis in insertion order)
+   */
+  heatSortBy?: 'x-axis' | 'y-axis' | 'natural';
+  /** Heatmap chart: sort direction for heatSortBy. @default 'asc' */
+  heatSortDirection?: 'asc' | 'desc';
+  /**
    * Gantt / timeline chart: field providing the row label (Y axis).
    */
   ganttLabelField?: string;

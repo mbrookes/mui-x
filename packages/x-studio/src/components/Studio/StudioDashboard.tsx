@@ -1,5 +1,4 @@
 'use client';
-/* eslint-disable react/no-unused-prop-types */
 import * as React from 'react';
 import { Box } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material/styles';

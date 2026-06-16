@@ -182,14 +182,15 @@ describe('MCP server — resources', () => {
 });
 
 describe('MCP server — tool calls', () => {
-  it('get_dashboard_state returns the AI system prompt text', async () => {
+  it('get_dashboard_state returns the full state JSON', async () => {
     const result = await client.callTool({ name: 'get_dashboard_state', arguments: {} });
     const content = (result.content as Array<{ type: string; text: string }>)[0];
     expect(content.type).toBe('text');
-    // Response is { output: "<system prompt text>" }
+    // Response is { output: { dashboard, pages, widgets, ... } }
     const response = JSON.parse(content.text);
-    expect(typeof response.output).toBe('string');
-    expect(response.output.length).toBeGreaterThan(0);
+    expect(response.output).toHaveProperty('dashboard');
+    expect(response.output).toHaveProperty('pages');
+    expect(response.output).toHaveProperty('widgets');
   });
 
   it('add_page reports success and mutation, page appears in state resource', async () => {

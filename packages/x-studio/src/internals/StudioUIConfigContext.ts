@@ -90,6 +90,8 @@ export interface StudioLocaleText {
   // ── AI assistant ───────────────────────────────────────────────────────────
   aiAssistantOpenTooltip: string;
   aiAssistantCloseTooltip: string;
+  /** Tooltip on the close button inside the chat panel header. */
+  aiCloseTooltip: string;
 
   // ── Drawer panel / sidebar ────────────────────────────────────────────────
   drawerPanelCloseAriaLabel: string;
@@ -109,14 +111,6 @@ export interface StudioLocaleText {
   aiCreateWidgetButton: string;
   aiCreateWidgetLoading: string;
   aiCreateWidgetError: string;
-
-  // ── AI dashboard summary panel ─────────────────────────────────────────────
-  aiSummaryTitle: string;
-  aiSummarizeTooltip: string;
-  aiRegenerateTooltip: string;
-  aiCopyTooltip: string;
-  aiCopiedTooltip: string;
-  aiCloseTooltip: string;
 
   // ── Widget type names (used in picker, dialog titles, empty states) ────────
   widgetKindGrid: string;
@@ -1045,6 +1039,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // AI assistant
   aiAssistantOpenTooltip: 'Open AI assistant',
   aiAssistantCloseTooltip: 'Close AI assistant',
+  aiCloseTooltip: 'Close',
 
   // Drawer panel / sidebar
   drawerPanelCloseAriaLabel: 'Close widget configuration',
@@ -1065,14 +1060,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aiCreateWidgetButton: 'Create',
   aiCreateWidgetLoading: 'Creating\u2026',
   aiCreateWidgetError: 'Failed to create widget',
-
-  // AI insight panel (per-widget summary/analysis/forecast)
-  aiSummaryTitle: 'AI Insight',
-  aiSummarizeTooltip: 'Summarise dashboard',
-  aiRegenerateTooltip: 'Regenerate',
-  aiCopyTooltip: 'Copy',
-  aiCopiedTooltip: 'Copied!',
-  aiCloseTooltip: 'Close',
 
   // Widget type names
   widgetKindGrid: 'Table',

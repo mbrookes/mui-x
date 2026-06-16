@@ -96,6 +96,19 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   useStudioKeyboardShortcuts();
 
   const [chatOpen, setChatOpen] = React.useState(false);
+  const [pendingInsight, setPendingInsight] = React.useState<{
+    text: string;
+    id: number;
+  } | null>(null);
+  const [insightFocusedWidgetId, setInsightFocusedWidgetId] = React.useState<string | undefined>(
+    undefined,
+  );
+
+  const handleWidgetInsightRequest = React.useCallback((widgetId: string, prompt: string) => {
+    setChatOpen(true);
+    setInsightFocusedWidgetId(widgetId);
+    setPendingInsight({ text: prompt, id: Date.now() });
+  }, []);
 
   const showCompose = features.compose;
   const showFilters = features.filters;
@@ -251,7 +264,20 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
             >
               <Box sx={{ minWidth: MIN_CANVAS_WIDTH, minHeight: '100%' }}>
                 {canvas ?? (
-                  <StudioCanvas stackBreakpoint={stackBreakpoint} {...slotProps?.canvas} />
+                  <StudioCanvas
+                    stackBreakpoint={stackBreakpoint}
+                    {...slotProps?.canvas}
+                    slotProps={{
+                      ...slotProps?.canvas?.slotProps,
+                      widgetCard: {
+                        ...slotProps?.canvas?.slotProps?.widgetCard,
+                        onInsightRequest:
+                          features.aiChat && aiConfig?.endpoint
+                            ? handleWidgetInsightRequest
+                            : undefined,
+                      },
+                    }}
+                  />
                 )}
               </Box>
             </Box>
@@ -288,11 +314,13 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
             </Tooltip>
             <React.Suspense fallback={null}>
               <StudioChatPanel
+                focusedWidgetId={insightFocusedWidgetId}
                 {...slotProps?.chatPanel}
                 aiConfig={aiConfig}
                 open={chatOpen}
                 onClose={() => setChatOpen(false)}
                 overlay
+                pendingMessage={pendingInsight ?? undefined}
               />
             </React.Suspense>
           </React.Fragment>

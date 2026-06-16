@@ -1423,12 +1423,54 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     });
 
     const xAxisData = multiYData.labels;
+    // Find a representative field def for each y-axis side (for axis tick formatting)
+    const getMixedFieldDef = (sc: { fieldId: string; sourceId?: string } | undefined) => {
+      if (!sc) return undefined;
+      const srcId = sc.sourceId ?? widget.sourceId;
+      return (srcId ? dataSources[srcId] : dataSource)?.fields.find((f) => f.id === sc.fieldId);
+    };
+    const leftSeriesConfig =
+      (config.ySeries ?? []).find((sc) => (sc.seriesType ?? sc.type ?? 'bar') === 'bar') ??
+      config.ySeries?.[0];
+    const rightSeriesConfig = config.dualYAxis
+      ? (config.ySeries ?? []).find((sc) => (sc.seriesType ?? sc.type ?? 'bar') === 'line')
+      : undefined;
+    const leftAxisFieldDef = getMixedFieldDef(leftSeriesConfig);
+    const rightAxisFieldDef = getMixedFieldDef(rightSeriesConfig);
     const yAxes = config.dualYAxis
       ? [
-          { id: 'left', scaleType: 'linear' as const, position: 'left' as const },
-          { id: 'right', scaleType: 'linear' as const, position: 'right' as const },
+          {
+            id: 'left',
+            scaleType: 'linear' as const,
+            position: 'left' as const,
+            valueFormatter: makeValueFormatter(
+              leftAxisFieldDef?.format,
+              leftAxisFieldDef?.currencyCode,
+              leftAxisFieldDef?.precision,
+            ),
+          },
+          {
+            id: 'right',
+            scaleType: 'linear' as const,
+            position: 'right' as const,
+            valueFormatter: makeValueFormatter(
+              rightAxisFieldDef?.format,
+              rightAxisFieldDef?.currencyCode,
+              rightAxisFieldDef?.precision,
+            ),
+          },
         ]
-      : [{ id: 'left', scaleType: 'linear' as const }];
+      : [
+          {
+            id: 'left',
+            scaleType: 'linear' as const,
+            valueFormatter: makeValueFormatter(
+              leftAxisFieldDef?.format,
+              leftAxisFieldDef?.currencyCode,
+              leftAxisFieldDef?.precision,
+            ),
+          },
+        ];
 
     return (
       <div style={{ width: '100%', height: chartHeight }}>
@@ -1482,20 +1524,33 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             ),
           )
         : null;
+      const multiYBarFieldDefs = effectiveMultiYData.series.map(
+        (s) =>
+          dataSource?.fields.find((f) => f.id === s.fieldId) ??
+          expressionFields.find((ef) => ef.id === s.fieldId),
+      );
       const yAxes = useIndependentAxes
         ? effectiveMultiYData.series.map((_s, i) => ({
             id: `y-${i}`,
             position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
             width: 'auto' as const,
+            valueFormatter: makeValueFormatter(
+              multiYBarFieldDefs[i]?.format,
+              multiYBarFieldDefs[i]?.currencyCode,
+              multiYBarFieldDefs[i]?.precision,
+            ),
           }))
         : [
             {
               width: 'auto' as const,
-              ...(is100 && {
-                min: 0,
-                max: 100,
-                valueFormatter: (v: number) => `${Math.round(v)}%`,
-              }),
+              valueFormatter: is100
+                ? (v: number) => `${Math.round(v)}%`
+                : makeValueFormatter(
+                    multiYBarFieldDefs[0]?.format,
+                    multiYBarFieldDefs[0]?.currencyCode,
+                    multiYBarFieldDefs[0]?.precision,
+                  ),
+              ...(is100 && { min: 0, max: 100 }),
             },
           ];
 
@@ -1566,11 +1621,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                   ? [
                       {
                         height: 'auto',
-                        ...(is100 && {
-                          min: 0,
-                          max: 100,
-                          valueFormatter: (v: number) => `${Math.round(v)}%`,
-                        }),
+                        valueFormatter: is100
+                          ? (v: number) => `${Math.round(v)}%`
+                          : makeValueFormatter(
+                              multiYBarFieldDefs[0]?.format,
+                              multiYBarFieldDefs[0]?.currencyCode,
+                              multiYBarFieldDefs[0]?.precision,
+                            ),
+                        ...(is100 && { min: 0, max: 100 }),
                       },
                     ]
                   : [
@@ -1906,11 +1964,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 ? [
                     {
                       height: 'auto',
-                      ...(is100 && {
-                        min: 0,
-                        max: 100,
-                        valueFormatter: (v: number) => `${Math.round(v)}%`,
-                      }),
+                      valueFormatter: is100
+                        ? (v: number) => `${Math.round(v)}%`
+                        : makeValueFormatter(
+                            yFieldDef?.format,
+                            yFieldDef?.currencyCode,
+                            yFieldDef?.precision,
+                          ),
+                      ...(is100 && { min: 0, max: 100 }),
                     },
                   ]
                 : [
@@ -1937,11 +1998,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 : [
                     {
                       width: 'auto' as const,
-                      ...(is100 && {
-                        min: 0,
-                        max: 100,
-                        valueFormatter: (v: number) => `${Math.round(v)}%`,
-                      }),
+                      valueFormatter: is100
+                        ? (v: number) => `${Math.round(v)}%`
+                        : makeValueFormatter(
+                            yFieldDef?.format,
+                            yFieldDef?.currencyCode,
+                            yFieldDef?.precision,
+                          ),
+                      ...(is100 && { min: 0, max: 100 }),
                     },
                   ]
             }
@@ -2072,11 +2136,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           yAxis={[
             {
               width: 'auto',
-              ...(is100 && {
-                min: 0,
-                max: 100,
-                valueFormatter: (v: number) => `${Math.round(v)}%`,
-              }),
+              valueFormatter: is100
+                ? (v: number) => `${Math.round(v)}%`
+                : makeValueFormatter(
+                    yFieldDef?.format,
+                    yFieldDef?.currencyCode,
+                    yFieldDef?.precision,
+                  ),
+              ...(is100 && { min: 0, max: 100 }),
             },
           ]}
           series={[...ghostSeries, ...series]}
@@ -2130,16 +2197,33 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     const selectedDataIndex = getSelectedDataIndex(effectiveLabels);
 
     const useIndependentAxes = !isStacked && multiYData.series.length > 1;
+    const multiYLineFieldDefs = multiYData.series.map(
+      (s) =>
+        dataSource?.fields.find((f) => f.id === s.fieldId) ??
+        expressionFields.find((ef) => ef.id === s.fieldId),
+    );
     const yAxes = useIndependentAxes
       ? multiYData.series.map((_s, i) => ({
           id: `y-${i}`,
           position: (i === 0 ? 'left' : 'right') as 'left' | 'right',
           width: 'auto' as const,
+          valueFormatter: makeValueFormatter(
+            multiYLineFieldDefs[i]?.format,
+            multiYLineFieldDefs[i]?.currencyCode,
+            multiYLineFieldDefs[i]?.precision,
+          ),
         }))
       : [
           {
             width: 'auto' as const,
-            ...(is100 && { min: 0, max: 100, valueFormatter: (v: number) => `${Math.round(v)}%` }),
+            valueFormatter: is100
+              ? (v: number) => `${Math.round(v)}%`
+              : makeValueFormatter(
+                  multiYLineFieldDefs[0]?.format,
+                  multiYLineFieldDefs[0]?.currencyCode,
+                  multiYLineFieldDefs[0]?.precision,
+                ),
+            ...(is100 && { min: 0, max: 100 }),
           },
         ];
 
@@ -2297,7 +2381,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           {...slotProps?.lineChart}
           skipAnimation={skipAnimation}
           xAxis={xAxis}
-          yAxis={[{ width: 'auto' }]}
+          yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}
           series={[
             // Ghost series: baseline (all-data) shown at low opacity — only when cross-filtering
             ...(ghostLineValues
@@ -2431,7 +2515,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           {...slotProps?.lineChart}
           skipAnimation={skipAnimation}
           xAxis={xAxis}
-          yAxis={[{ width: 'auto' }]}
+          yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}
           series={[
             ...(ghostLineValues
               ? [
@@ -2517,7 +2601,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             {...slotProps?.barChart}
             skipAnimation={skipAnimation}
             layout="horizontal"
-            xAxis={[{ height: 'auto' }]}
+            xAxis={[{ height: 'auto', valueFormatter: seriesValueFormatter }]}
             yAxis={[
               {
                 id: CROSS_FILTER_AXIS_ID,
@@ -2586,7 +2670,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               valueFormatter: (v: string | number) => formatLabel(String(v)),
             },
           ]}
-          yAxis={[{ width: 'auto' }]}
+          yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,

@@ -38,6 +38,11 @@ export function createClonePreview(
     clone.style.overflow = 'hidden';
     clone.style.pointerEvents = 'none';
 
+    // Hide the widget toolbar so it doesn't appear cropped in the ghost image.
+    clone.querySelectorAll<HTMLElement>('[data-widget-overlay]').forEach((el) => {
+      el.style.display = 'none';
+    });
+
     container.appendChild(clone);
 
     return () => {

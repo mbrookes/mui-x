@@ -1123,7 +1123,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
                 ? (initialPrompt ?? slotProps?.chatBox?.initialComposerValue)
                 : slotProps?.chatBox?.initialComposerValue
             }
-            suggestions={suggestions}
+            suggestions={threadMessages.length === 0 ? suggestions : undefined}
             suggestionsAutoSubmit
             currentUser={{ id: 'user', displayName: 'You', role: 'user' }}
             features={{

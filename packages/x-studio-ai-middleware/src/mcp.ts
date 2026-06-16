@@ -859,7 +859,11 @@ export function buildStudioMcpServer(
   });
 
   server.setRequestHandler(SubscribeRequestSchema, async (request) => {
-    subscribedUris.add(request.params.uri);
+    const { uri } = request.params;
+    subscribedUris.add(uri);
+    // Immediately notify so clients that wait for a push before reading (e.g. the
+    // MCP Inspector in proxy mode) get the current value right after subscribing.
+    server.sendResourceUpdated({ uri }).catch(() => {});
     return {};
   });
 

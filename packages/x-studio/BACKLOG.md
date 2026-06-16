@@ -920,3 +920,10 @@ BL-200: Pipeline widget config: The select is smooshed to the left by the button
 ✅ BL-205: Move table conditional formatting to the format tab
 
 **Fixed** (extracted the conditional-formatting rule editor into `GridConditionalFormatSection` and rendered it from `FormatPanel` (the Format tab) instead of `GridSetupPanel` (Setup tab); removed the now-unused presets/operators and imports from `GridSetupPanel`. The `gridConditionalFormats` feature flag is still respected.)
+BL-205: Move table conditional formatting to the format tab
+
+✅ BL-206: Mixed (bar+line) charts — line series invisible. "Revenue & Avg Discount by Category" and "Revenue vs Inventory Stock by Category (blended sources)" showed only bars; the line overlay was not visible.
+
+**Root cause**: `StudioChartWidget.tsx` used `yAxisKey` when building `mixedSeries` objects, but the MUI X Charts API property is `yAxisId`. With `dualYAxis: true`, the unrecognized `yAxisKey` was silently ignored, so every series fell back to the first (left) y-axis. Bar values (revenue, millions) dominated the scale; line values (discount %, stock counts) were compressed to near-zero and invisible.
+
+**Fixed** (`StudioChartWidget.tsx`): renamed `yAxisKey` → `yAxisId` in both the `line` and `bar` branches of the `mixedSeries.map()` block. Line series now correctly bind to `'right'` and bars to `'left'` when dual-axis is enabled.

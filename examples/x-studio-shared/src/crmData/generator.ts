@@ -203,6 +203,7 @@ const ACTIVITY_OUTCOMES = [
 export const CRM_CONTACTS_SOURCE_ID = 'source-crm-contacts';
 export const CRM_DEALS_SOURCE_ID = 'source-crm-deals';
 export const CRM_ACTIVITIES_SOURCE_ID = 'source-crm-activities';
+export const CRM_DEAL_TRANSITIONS_SOURCE_ID = 'source-crm-deal-transitions';
 
 // ─── Generator options ────────────────────────────────────────────────────────
 
@@ -223,6 +224,7 @@ export interface GeneratedCrmData {
   contactsSource: StudioDataSource;
   dealsSource: StudioDataSource;
   activitiesSource: StudioDataSource;
+  dealTransitionsSource: StudioDataSource;
 }
 
 // ─── Individual table generators ─────────────────────────────────────────────
@@ -555,6 +557,38 @@ function generateActivities(
   };
 }
 
+function buildDealTransitions(deals: GeneratedDeal[]): StudioDataSource {
+  const SEQ = ['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won'] as const;
+  const rows: Record<string, unknown>[] = [];
+
+  for (const deal of deals) {
+    for (let d = 1; d <= deal.stageReached; d++) {
+      rows.push({ from_stage: SEQ[d - 1], to_stage: SEQ[d], deal_count: 1, deal_value: deal.value });
+    }
+    if (deal.stage === 'Closed Lost') {
+      rows.push({
+        from_stage: SEQ[deal.stageReached],
+        to_stage: 'Closed Lost',
+        deal_count: 1,
+        deal_value: deal.value,
+      });
+    }
+  }
+
+  return {
+    id: CRM_DEAL_TRANSITIONS_SOURCE_ID,
+    label: 'CRM Deal Transitions',
+    tableName: 'deal_stage_transitions',
+    fields: [
+      { id: 'from_stage', label: 'From Stage', type: 'string' },
+      { id: 'to_stage', label: 'To Stage', type: 'string' },
+      { id: 'deal_count', label: 'Deal Count', type: 'number', format: 'integer', hidden: true },
+      { id: 'deal_value', label: 'Deal Value', type: 'number', format: 'currency' },
+    ],
+    rows,
+  };
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 /**
@@ -585,6 +619,7 @@ export function generateCrmData(opts?: CrmGeneratorOptions): GeneratedCrmData {
     byDealId: _,
   } = generateDeals(rng, customerRows, byCustomerId);
   const activitiesSource = generateActivities(rng, dealRows, byCustomerId);
+  const dealTransitionsSource = buildDealTransitions(dealRows);
 
-  return { contactsSource, dealsSource, activitiesSource };
+  return { contactsSource, dealsSource, activitiesSource, dealTransitionsSource };
 }

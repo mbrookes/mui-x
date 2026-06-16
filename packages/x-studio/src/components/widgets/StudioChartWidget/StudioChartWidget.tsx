@@ -1367,7 +1367,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           label: seriesLabel,
           data: s.values,
           color,
-          yAxisKey: config.dualYAxis ? 'right' : 'left',
+          yAxisId: config.dualYAxis ? 'right' : 'left',
         };
       }
       return {
@@ -1376,7 +1376,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         label: seriesLabel,
         data: s.values,
         color,
-        yAxisKey: 'left',
+        yAxisId: 'left',
       };
     });
 

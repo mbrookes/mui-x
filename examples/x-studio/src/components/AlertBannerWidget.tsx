@@ -195,7 +195,7 @@ export function AlertBannerWidget({ widget, dataSource }: StudioCustomWidgetProp
       {/* In-flow sizer: custom widgets get no minHeight from the card, and the
           banner above is taken out of flow — this reserves a height floor so the
           card can't collapse to a thin strip. */}
-      <Box aria-hidden sx={{ minHeight: 88 }} />
+      <Box aria-hidden sx={{ minHeight: 44 }} />
     </React.Fragment>
   );
 }

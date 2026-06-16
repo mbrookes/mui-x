@@ -901,14 +901,25 @@ BL-199: Sales logistics page > Ontime shipments shows 0% with a flat trend. Fix 
 
 BL-200: Pipeline widget config: The select is smooshed to the left by the button group, and the botton group is too tall because of the arrows. put the select abouve the button group, and rearrange the buttons. Add an option for "natural". Make it a shared widget, and use it anywhere else that has the same broken ui as pipeline.
 
-BL:201: Sales products page has Avg Unit Margin and Total Inventory Value KPIs as $0
+✅ BL-201: Sales products page has Avg Unit Margin and Total Inventory Value KPIs as $0
 
-BL-202: Determine which features and sub-features that don't already should have a feature flag, and add them, including the settings dialog in the example apps.
+**Fixed** (root cause was the async adapter/server data path, not the demo config — the in-memory pipeline computes both KPIs correctly). Those KPIs use expression (calculated) value fields (`price - cost`, `stock * price`), which the server cannot project or aggregate. `buildQueryDescriptor` now expands expression columns to their native dependencies in `select` and drops expression-field aggregations (a computed-column aggregate is not a column aggregate), and `useWidgetRows` enriches the adapter-returned raw rows with expression columns client-side via `getCachedEnrichedRows`. Native-field KPIs are unaffected. New `expandToNativeFields` export plus regression tests in `queryDescriptor.test.ts`.
 
-BL-203: Compact numbers are longer than not for whole values, eg $40.0 rather than $40
+✅ BL-202: Determine which features and sub-features that don't already should have a feature flag, and add them, including the settings dialog in the example apps.
 
-BL-204: The toggle chips clear button makes the widget taller. Put it immediately to the right of the last chip instead.
+**Fixed** (added two embedder-facing flags that previously had no toggle: `aiInsights` — the per-widget AI insight button and chart anomaly detection/explanation, gated independently of `aiChat`; and `export` — the widget CSV/PNG export action. Both resolved in `useStudioFeatures()` (default `true`), gated in `StudioWidgetCard`, and exposed as toggles in the shared `FeatureFlagSettings` used by both example apps.)
 
+✅ BL-203: Compact numbers are longer than not for whole values, eg $40.0 rather than $40
+
+**Fixed** (compact currency formatting forced `minimumFractionDigits: 1`, adding a trailing `.0` to whole values. `getCurrencyFormat` now decouples the bounds — `minimumFractionDigits: 0`, `maximumFractionDigits: 1` for compact — so `$40` stays `$40` while `$40.5K` keeps its digit. An explicit precision still pins both bounds.)
+
+✅ BL-204: The toggle chips clear button makes the widget taller. Put it immediately to the right of the last chip instead.
+
+**Fixed** (the clear button moved out of its own top row into the chips flex container as the last item, so it wraps inline with the chips and no longer adds a dedicated row.)
+
+✅ BL-205: Move table conditional formatting to the format tab
+
+**Fixed** (extracted the conditional-formatting rule editor into `GridConditionalFormatSection` and rendered it from `FormatPanel` (the Format tab) instead of `GridSetupPanel` (Setup tab); removed the now-unused presets/operators and imports from `GridSetupPanel`. The `gridConditionalFormats` feature flag is still respected.)
 BL-205: Move table conditional formatting to the format tab
 
 ✅ BL-206: Mixed (bar+line) charts — line series invisible. "Revenue & Avg Discount by Category" and "Revenue vs Inventory Stock by Category (blended sources)" showed only bars; the line overlay was not visible.

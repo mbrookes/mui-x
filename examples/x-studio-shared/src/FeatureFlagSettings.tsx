@@ -59,6 +59,8 @@ const TOP_LEVEL_FLAGS: {
   { key: 'relationships', label: 'Relationships panel', parentKey: 'dataManagement' },
   { key: 'widgetFilters', label: 'Widget filters tab' },
   { key: 'aiChat', label: 'AI chat assistant' },
+  { key: 'aiInsights', label: 'AI widget insights' },
+  { key: 'export', label: 'Widget export (CSV / PNG)' },
   { key: 'calculatedFields', label: 'Calculated fields (all)' },
 ];
 

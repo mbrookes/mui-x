@@ -33,6 +33,8 @@ const BASE_FEATURES: ResolvedStudioFeatures = {
   relationships: true,
   widgetFilters: true,
   aiChat: false,
+  aiInsights: true,
+  export: true,
   grid: true,
   chart: true,
   kpi: true,

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildQueryDescriptor, filtersToFilterNode } from './queryDescriptor';
+import { getCachedEnrichedRows } from './enrichedRowsCache';
+import { computeAggregate } from '../components/widgets/StudioKpiWidget/kpiUtils';
 import type { StudioFilterState, StudioWidget, StudioWidgetConfig } from '../models';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -135,6 +137,75 @@ describe('buildQueryDescriptor', () => {
         expect.objectContaining({ field: 'revenue', fn: 'avg', alias: 'revenue' }),
       ]),
     );
+  });
+
+  // ── Expression (calculated) field expansion (BL-201) ─────────────────────────
+  // The server can only project/aggregate physical columns. A KPI whose value field is an
+  // expression (e.g. `price - cost`) must NOT push the expression to the server; instead the
+  // native dependencies are selected and the expression is re-derived client-side.
+
+  const marginExprField = {
+    id: 'expr-margin',
+    label: 'Margin',
+    sourceId: 'source-orders',
+    isMeasure: false,
+    type: 'number' as const,
+    expression: { operator: 'subtract' as const, inputs: [{ id: 'price' }, { id: 'cost' }] },
+  };
+
+  it('expands an expression KPI value field to its native dependencies in select', () => {
+    const widget = makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' });
+    const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
+    expect(desc.select).toEqual(expect.arrayContaining(['price', 'cost']));
+    expect(desc.select).not.toContain('expr-margin');
+  });
+
+  it('drops expression-field aggregations (cannot be computed server-side)', () => {
+    const widget = makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' });
+    const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
+    expect(desc.aggregations?.some((a) => a.field === 'expr-margin')).not.toBe(true);
+  });
+
+  it('leaves native value fields untouched when expression fields are supplied', () => {
+    const widget = makeWidget({ kpiValueField: 'revenue', kpiAggregation: 'sum' });
+    const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
+    expect(desc.select).toContain('revenue');
+    expect(desc.aggregations).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'revenue', fn: 'sum' })]),
+    );
+  });
+
+  it('end-to-end: a server returning the native columns yields a non-zero expression KPI (BL-201)', () => {
+    // Reproduces the adapter/server path: the descriptor selects native deps (no expression
+    // column), a "server" projects those raw columns, then the client enriches + aggregates.
+    const widget = makeWidget({ kpiValueField: 'expr-margin', kpiAggregation: 'avg' });
+    const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
+
+    // Simulated server: returns only the requested physical columns (no expr-margin).
+    const dbRows = [
+      { price: 1299, cost: 850 },
+      { price: 49, cost: 18 },
+    ];
+    const serverRows = dbRows.map((r) => {
+      const projected: Record<string, unknown> = {};
+      for (const col of desc.select) {
+        projected[col] = r[col as 'price' | 'cost'];
+      }
+      return projected;
+    });
+
+    // Client re-derives the expression column from the native inputs.
+    const enriched = getCachedEnrichedRows(
+      serverRows,
+      'source-orders',
+      [marginExprField as never],
+      { 'source-orders': { id: 'source-orders', label: 'Orders', fields: [], rows: serverRows } },
+      [],
+      new Set(['expr-margin']),
+    );
+    const value = computeAggregate(enriched, 'expr-margin', 'avg');
+    expect(value).toBeGreaterThan(0); // (449 + 31) / 2 = 240
+    expect(value).toBe(240);
   });
 
   it('includes page-scoped filters in the descriptor', () => {

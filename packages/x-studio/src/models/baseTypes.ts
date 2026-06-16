@@ -170,6 +170,20 @@ export interface StudioFeatureFlags {
    * @default true
    */
   aiChat?: boolean;
+  /**
+   * Enable the per-widget AI insight features (the "AI insight" button and chart anomaly
+   * detection/explanation). Requires `aiConfig` to also be provided — this flag only controls
+   * visibility. Set to `false` to keep the AI chat assistant while hiding per-widget AI actions.
+   * @default true
+   */
+  aiInsights?: boolean;
+  /**
+   * Allow exporting widget data from the card action menu — CSV for table/pivot widgets and
+   * PNG for charts. Set to `false` to remove the export button in both edit and view modes
+   * (useful when the underlying data must not leave the dashboard).
+   * @default true
+   */
+  export?: boolean;
 
   // ── Widget kind availability ───────────────────────────────────────────────
 

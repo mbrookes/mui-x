@@ -390,7 +390,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
     'Campo numérico resumido por etapa: las etapas están ordenadas por valor (el más grande primero)',
   chartSetupHeatmapRowAxisLabel: 'Campo de eje de línea',
   chartSetupHeatmapRowAxisHelperText:
-    'Campo categórico para el eje vertical (línea), p.e. hora del día',
+    'Campo para el eje vertical (línea) — cualquier tipo de campo, p.e. categoría, descuento % u hora del día',
   chartSetupHeatmapValueLabel: 'Campo de valor/color',
   chartSetupHeatmapValueHelperText:
     'Campo numérico sumado por celda para determinar la intensidad del color',

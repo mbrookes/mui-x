@@ -1354,7 +1354,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
     'Numeric field summed per stage \u2014 stages are sorted by value (largest first)',
   chartSetupHeatmapRowAxisLabel: 'Row axis field',
   chartSetupHeatmapRowAxisHelperText:
-    'Categorical field for the vertical (row) axis, e.g. hour of day',
+    'Field for the vertical (row) axis — any field type, e.g. category, discount %, or hour of day',
   chartSetupHeatmapValueLabel: 'Value / colour field',
   chartSetupHeatmapValueHelperText: 'Numeric field summed per cell to determine colour intensity',
   chartSetupHeatmapColourSchemeLabel: 'Colour scheme',

@@ -17,11 +17,12 @@ import {
   CRM_CONTACTS_SOURCE_ID,
   CRM_DEALS_SOURCE_ID,
   CRM_ACTIVITIES_SOURCE_ID,
+  CRM_DEAL_TRANSITIONS_SOURCE_ID,
   generateCrmData,
 } from '../crmData';
 
 // Generate CRM data (matched to same seed as sales data)
-const { contactsSource, dealsSource, activitiesSource } = generateCrmData({ seed: 42 });
+const { contactsSource, dealsSource, activitiesSource, dealTransitionsSource } = generateCrmData({ seed: 42 });
 
 export const INITIAL_STATE: Partial<StudioState> = {
   dashboard: {
@@ -110,6 +111,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
         ['widget-kpi6-open-deals', 'widget-kpi6-pipeline-value', 'widget-kpi6-win-rate'],
         ['widget-chart6-deals-by-stage', 'widget-chart6-value-by-stage'],
         ['widget-chart6-stage-conversion', 'widget-chart6-time-in-stage'],
+        ['widget-chart6-stage-flow'],
         ['widget-grid6-deals'],
       ],
     },
@@ -147,6 +149,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
     [CRM_CONTACTS_SOURCE_ID]: contactsSource,
     [CRM_DEALS_SOURCE_ID]: dealsSource,
     [CRM_ACTIVITIES_SOURCE_ID]: activitiesSource,
+    [CRM_DEAL_TRANSITIONS_SOURCE_ID]: dealTransitionsSource,
   },
   relationships: [
     {
@@ -1158,6 +1161,20 @@ export const INITIAL_STATE: Partial<StudioState> = {
         chartType: 'donut',
         xField: 'stage',
         yField: 'value',
+      },
+    },
+    'widget-chart6-stage-flow': {
+      id: 'widget-chart6-stage-flow',
+      kind: 'chart',
+      title: 'Deal Stage Flow',
+      sourceId: CRM_DEAL_TRANSITIONS_SOURCE_ID,
+      config: {
+        chartType: 'sankey',
+        xField: 'from_stage',
+        sankeyTargetField: 'to_stage',
+        yField: 'deal_count',
+        sankeyLinkColor: 'source',
+        sankeyShowValues: true,
       },
     },
     'widget-grid6-deals': {

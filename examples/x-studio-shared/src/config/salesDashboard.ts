@@ -1,17 +1,12 @@
 import type { StudioState, RelativeDateValue } from '@mui/x-studio';
 import {
   CUSTOMERS_SOURCE_ID,
-  customersSource,
   ORDERS_SOURCE_ID,
-  ordersSource,
   ORDER_ITEMS_SOURCE_ID,
-  orderItemsSource,
   PRODUCTS_SOURCE_ID,
-  productsSource,
   SHIPMENT_ITEMS_SOURCE_ID,
-  shipmentItemsSource,
   SHIPMENTS_SOURCE_ID,
-  shipmentsSource,
+  generateSalesData,
 } from '../salesData';
 import {
   CRM_CONTACTS_SOURCE_ID,
@@ -21,8 +16,19 @@ import {
   generateCrmData,
 } from '../crmData';
 
-// Generate CRM data (matched to same seed as sales data)
-const { contactsSource, dealsSource, activitiesSource, dealTransitionsSource } = generateCrmData({ seed: 42 });
+const {
+  customersSource,
+  productsSource,
+  ordersSource,
+  orderItemsSource,
+  shipmentsSource,
+  shipmentItemsSource,
+} = generateSalesData({ seed: 42, orderCount: 1000 });
+
+const { contactsSource, dealsSource, activitiesSource, dealTransitionsSource } = generateCrmData({
+  seed: 42,
+  orderCount: 1000,
+});
 
 export const INITIAL_STATE: Partial<StudioState> = {
   dashboard: {

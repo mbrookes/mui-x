@@ -44,7 +44,8 @@ export function computeFixedPeriodRange(
   period: 'month' | 'quarter' | 'year',
   today: Date,
 ): { start: Date; end: Date } {
-  const days = period === 'month' ? 30 : period === 'quarter' ? 90 : 365;
+  const PERIOD_DAYS: Record<typeof period, number> = { month: 30, quarter: 90, year: 365 };
+  const days = PERIOD_DAYS[period];
   const end = new Date(today);
   end.setHours(23, 59, 59, 999);
   const start = new Date(today);
@@ -246,7 +247,10 @@ export function computeAggregate(
   const values = rows
     .map((row) => {
       const v = row[field];
-      return typeof v === 'boolean' ? (v ? 1 : 0) : v;
+      if (typeof v === 'boolean') {
+        return v ? 1 : 0;
+      }
+      return v;
     })
     .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
 

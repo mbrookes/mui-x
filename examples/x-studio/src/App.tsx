@@ -343,12 +343,18 @@ export default function App() {
           }
         : restored;
 
+      // ?page= URL parameter overrides the saved active page.
+      const withPage = (state: Partial<StudioState>): Partial<StudioState> =>
+        urlPageId
+          ? { ...state, dashboard: { ...state.dashboard, activePageId: urlPageId } }
+          : state;
+
       // Apply ?fv= filter value overrides on top of saved state
       const fvParam = getUrlFilterValuesParam();
       if (fvParam) {
         const filterValues = decodeFilterValues(fvParam);
         if (filterValues && mergedState.filters) {
-          return {
+          return withPage({
             ...mergedState,
             filters: mergedState.filters.map((f) => {
               const patch = filterValues[f.id];
@@ -365,10 +371,10 @@ export default function App() {
                 ...(patch.value2 != null && { value2: patch.value2 }),
               };
             }),
-          };
+          });
         }
       }
-      return mergedState;
+      return withPage(mergedState);
     }
 
     let baseState: Partial<StudioState> = { ...baseConfig, dataSources: baseDataSources };

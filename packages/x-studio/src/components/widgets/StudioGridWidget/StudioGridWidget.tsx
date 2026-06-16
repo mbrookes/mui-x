@@ -16,7 +16,6 @@ import {
   useStudioLocaleText,
   selectFilters,
   makeSelectExpressionFieldsForSource,
-  selectActivePageId,
 } from '../../../context';
 import { formatFieldValue } from '../../../internals/numberFormat';
 
@@ -68,6 +67,8 @@ function evalConditionalFormat(rule: StudioConditionalFormat, cellValue: unknown
 export interface StudioGridWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
+  /** ID of the page this widget belongs to. Used to scope cross-filters to the correct page. */
+  pageId: string;
   /** Props forwarded to the underlying `DataGridPremium`. */
   slotProps?: {
     dataGrid?: Partial<import('@mui/x-data-grid-premium').DataGridPremiumProps>;
@@ -75,7 +76,7 @@ export interface StudioGridWidgetProps {
 }
 
 export const StudioGridWidget = React.memo(function StudioGridWidget(props: StudioGridWidgetProps) {
-  const { dataSource, widget, slotProps } = props;
+  const { dataSource, widget, pageId, slotProps } = props;
   const controller = useStudioController();
   const filters = useStudioSelector(selectFilters);
   const localeText = useStudioLocaleText();
@@ -84,7 +85,6 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [widget.sourceId],
   );
   const expressionFields = useStudioSelector(selectExpressionFields);
-  const activePageId = useStudioSelector(selectActivePageId);
   const visibleFields = React.useMemo(
     () =>
       widget.config.columns?.length
@@ -93,14 +93,13 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [widget.config.columns, dataSource?.fields],
   );
 
-  // Check if this widget has an active cross-filter (on the current page)
+  // Check if this widget has an active cross-filter (on its own page)
   const activeCrossFilter = React.useMemo(
     () =>
       filters.find(
-        (f) =>
-          f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === activePageId,
+        (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widget.id && f.pageId === pageId,
       ) ?? null,
-    [filters, widget.id, activePageId],
+    [filters, widget.id, pageId],
   );
 
   // Build column defs for ALL data source fields so any field can be used for
@@ -152,7 +151,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     isLoading,
     isError,
     errorMessage,
-  } = useWidgetRows(widget, dataSource);
+  } = useWidgetRows(widget, dataSource, pageId);
 
   const crossFilterMode = widget.config?.crossFilterMode ?? 'cross-highlight';
 

@@ -140,13 +140,13 @@ afterEach(() => {
 describe('useChartWidgetData — cross-source blending', () => {
   it('flags the chart as blended', () => {
     const widget = blendedWidget();
-    const { result } = renderHook(() => useChartWidgetData(widget, ordersSource));
+    const { result } = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
     expect(result.current.isBlended).toBe(true);
   });
 
   it('aggregates the primary series from its own source despite a related foreign field', () => {
     const widget = blendedWidget();
-    const { result } = renderHook(() => useChartWidgetData(widget, ordersSource));
+    const { result } = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
     const data = result.current.multiYData!;
     const totalSeries = data.series.find((s) => s.fieldId === 'total')!;
     const ent = data.labels.indexOf('Electronics');
@@ -159,7 +159,7 @@ describe('useChartWidgetData — cross-source blending', () => {
 
   it('aggregates the foreign series from its own source and outer-joins categories', () => {
     const widget = blendedWidget();
-    const { result } = renderHook(() => useChartWidgetData(widget, ordersSource));
+    const { result } = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
     const data = result.current.multiYData!;
     const stockSeries = data.series.find((s) => s.fieldId === 'stock')!;
     const totalSeries = data.series.find((s) => s.fieldId === 'total')!;
@@ -201,7 +201,7 @@ describe('useChartWidgetData — cross-source blending', () => {
       dataSources: { contacts: contactsSource },
     });
 
-    const { result } = renderHook(() => useChartWidgetData(countWidget, contactsSource));
+    const { result } = renderHook(() => useChartWidgetData(countWidget, contactsSource, 'page-1'));
     const data = result.current.chartData!;
     expect(data).not.toBeNull();
     const sales = data.labels.indexOf('Sales');
@@ -230,7 +230,7 @@ describe('useChartWidgetData — cross-source blending', () => {
     });
 
     const widget = blendedWidget();
-    const { result } = renderHook(() => useChartWidgetData(widget, ordersSource));
+    const { result } = renderHook(() => useChartWidgetData(widget, ordersSource, 'page-1'));
 
     await waitFor(() => {
       const stockSeries = result.current.multiYData?.series.find((s) => s.fieldId === 'stock');

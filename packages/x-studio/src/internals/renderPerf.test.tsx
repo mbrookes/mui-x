@@ -221,7 +221,7 @@ describe('UI render performance', () => {
 
     const { container } = render(
       <ThemeProvider theme={theme}>
-        <StudioKpiWidget widget={widget} dataSource={source} />
+        <StudioKpiWidget widget={widget} dataSource={source} pageId="page-1" />
       </ThemeProvider>,
     );
 
@@ -248,7 +248,7 @@ describe('UI render performance', () => {
 
     const { container } = render(
       <ThemeProvider theme={theme}>
-        <StudioKpiWidget widget={widget} dataSource={source} />
+        <StudioKpiWidget widget={widget} dataSource={source} pageId="page-1" />
       </ThemeProvider>,
     );
 
@@ -265,7 +265,7 @@ describe('UI render performance', () => {
 
     const { container } = render(
       <ThemeProvider theme={theme}>
-        <StudioKpiWidget widget={widget} dataSource={source} />
+        <StudioKpiWidget widget={widget} dataSource={source} pageId="page-1" />
       </ThemeProvider>,
     );
 

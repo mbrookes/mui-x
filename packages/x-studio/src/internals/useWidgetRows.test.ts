@@ -135,7 +135,7 @@ describe('sync path (no adapter)', () => {
     mockState = createState();
     const widget = makeWidget();
     const dataSource = makeDataSource(rows);
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     expect(result.current.filteredRows).toHaveLength(3);
     expect(result.current.isLoading).toBe(false);
@@ -150,7 +150,7 @@ describe('sync path (no adapter)', () => {
     });
     const widget = makeWidget();
     const dataSource = makeDataSource(rows);
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     expect(result.current.filteredRows).toHaveLength(2);
     expect(result.current.filteredRows.every((r) => r.region === 'EU')).toBe(true);
@@ -171,7 +171,7 @@ describe('sync path (no adapter)', () => {
     });
     const widget = makeWidget({ id: 'w1' });
     const dataSource = makeDataSource(rows);
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     expect(result.current.filteredRows).toHaveLength(2);
     expect(result.current.filteredRows.every((r) => (r.amount as number) > 120)).toBe(true);
@@ -193,7 +193,7 @@ describe('sync path (no adapter)', () => {
     });
     const widget = makeWidget({ id: 'w1' });
     const dataSource = makeDataSource(rows);
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     expect(result.current.hasCrossFilters).toBe(true);
     // filteredRows applies the cross-filter; filteredRowsNoCross does not
@@ -205,7 +205,7 @@ describe('sync path (no adapter)', () => {
     mockState = createState();
     const widget = makeWidget({ id: 'w1' });
     const dataSource = makeDataSource(rows);
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     // Same reference when no chart cross-filters
     expect(result.current.filteredRowsNoChartCross).toBe(result.current.filteredRows);
@@ -241,7 +241,7 @@ describe('sync path (no adapter)', () => {
     });
     const widget = makeWidget({ id: 'w1' });
     const dataSource = makeDataSource(rows);
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     // All 3 filters: page+widget+interactive+chart-cross
     expect(result.current.filteredRows).toHaveLength(1);
@@ -274,7 +274,7 @@ describe('sync path (no adapter)', () => {
     });
     const widget = makeWidget({ id: 'w1' });
     const dataSource = makeDataSource(rows);
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     expect(result.current.hasChartCrossFilters).toBe(false);
     expect(result.current.hasCrossFilters).toBe(true);
@@ -286,7 +286,7 @@ describe('sync path (no adapter)', () => {
     mockState = createState();
     const widget = makeWidget();
     const dataSource = makeDataSource([]);
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     expect(result.current.filteredRows).toHaveLength(0);
   });
@@ -294,7 +294,7 @@ describe('sync path (no adapter)', () => {
   it('returns empty array when dataSource is undefined', () => {
     mockState = createState();
     const widget = makeWidget();
-    const { result } = renderHook(() => useWidgetRows(widget, undefined));
+    const { result } = renderHook(() => useWidgetRows(widget, undefined, 'page-1'));
 
     expect(result.current.filteredRows).toHaveLength(0);
     expect(result.current.isLoading).toBe(false);
@@ -318,7 +318,7 @@ describe('async adapter path', () => {
     };
     const dataSource = makeDataSource([], { adapter });
 
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     // Before promise resolves: should be loading
     expect(result.current.isLoading).toBe(true);
@@ -345,7 +345,7 @@ describe('async adapter path', () => {
     };
     const dataSource = makeDataSource([], { adapter });
 
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     // eslint-disable-next-line testing-library/no-unnecessary-act
     await act(async () => {
@@ -374,7 +374,7 @@ describe('async adapter path', () => {
     };
     const dataSource = makeDataSource([], { adapter });
 
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     // Cached data served synchronously — no loading state
     expect(result.current.filteredRows).toHaveLength(1);
@@ -400,10 +400,10 @@ describe('async adapter path', () => {
 
     // Render two instances of the hook with the same widget/source
     const { result: result1, unmount: unmount1 } = renderHook(() =>
-      useWidgetRows(widget, dataSource),
+      useWidgetRows(widget, dataSource, 'page-1'),
     );
     const { result: result2, unmount: unmount2 } = renderHook(() =>
-      useWidgetRows(widget, dataSource),
+      useWidgetRows(widget, dataSource, 'page-1'),
     );
 
     await act(async () => {
@@ -441,7 +441,7 @@ describe('async adapter path', () => {
     };
     const dataSource = makeDataSource([], { adapter });
 
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     // eslint-disable-next-line testing-library/no-unnecessary-act
     await act(async () => {
@@ -463,7 +463,7 @@ describe('async adapter path', () => {
     };
     const dataSource = makeDataSource([], { adapter });
 
-    const { result } = renderHook(() => useWidgetRows(widget, dataSource));
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
     // eslint-disable-next-line testing-library/no-unnecessary-act
     await act(async () => {
@@ -493,7 +493,9 @@ describe('sync vs async parity', () => {
     mockState = createState({ filters: [filter] });
     const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
     const syncDataSource = makeDataSource(rows);
-    const { result: syncResult } = renderHook(() => useWidgetRows(widget, syncDataSource));
+    const { result: syncResult } = renderHook(() =>
+      useWidgetRows(widget, syncDataSource, 'page-1'),
+    );
     const syncRows = syncResult.current.filteredRows;
 
     // Async setup — adapter returns all rows; descriptor carries the EU filter
@@ -507,7 +509,9 @@ describe('sync vs async parity', () => {
       adapter,
     } as Partial<StudioDataSource>);
 
-    const { result: asyncResult } = renderHook(() => useWidgetRows(widget, asyncDataSource));
+    const { result: asyncResult } = renderHook(() =>
+      useWidgetRows(widget, asyncDataSource, 'page-1'),
+    );
 
     // eslint-disable-next-line testing-library/no-unnecessary-act
     await act(async () => {

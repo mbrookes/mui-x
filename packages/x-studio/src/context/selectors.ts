@@ -269,6 +269,150 @@ export const selectPartitionedBaseFilters = (state: StudioState): BasePartitione
 };
 
 /**
+ * Per-page variant of `selectPartitionedFilters`. Returns a memoized selector
+ * that scopes page-level filters to the given `pageId` instead of the globally
+ * active page.
+ *
+ * Use this (via React.useMemo) in widgets that must remain mounted even when
+ * their page is not the active one — ensures each page's widgets only see
+ * their own page's filters.
+ */
+export function makeSelectPartitionedFiltersForPage(pageId: string) {
+  let lastInput: StudioFilterState[] | undefined;
+  let lastResult: PartitionedFilters | undefined;
+
+  return (state: StudioState): PartitionedFilters => {
+    const filters = state.filters;
+    if (filters === lastInput && lastResult !== undefined) {
+      return lastResult;
+    }
+
+    const page: StudioFilterState[] = [];
+    const byWidgetId = new Map<string, StudioFilterState[]>();
+    const cross: StudioFilterState[] = [];
+    const interactive: StudioFilterState[] = [];
+
+    for (const f of filters) {
+      if (f.scope === 'page') {
+        if (!f.pageId || f.pageId === pageId) {
+          page.push(f);
+        }
+      } else if (f.scope === 'widget') {
+        const key = f.widgetId ?? '';
+        let bucket = byWidgetId.get(key);
+        if (!bucket) {
+          bucket = [];
+          byWidgetId.set(key, bucket);
+        }
+        bucket.push(f);
+      } else if (f.scope === 'cross-filter') {
+        cross.push(f);
+      } else if (f.scope === 'interactive') {
+        interactive.push(f);
+      }
+    }
+
+    const result: PartitionedFilters = { page, byWidgetId, cross, interactive };
+
+    // Reference-stable: if the content matches the previous result, return the
+    // prior object so useSyncExternalStore / useDeferredValue see no change.
+    if (lastResult !== undefined) {
+      const prev = lastResult;
+      const pageUnchanged =
+        prev.page.length === page.length && prev.page.every((f, i) => f === page[i]);
+      const crossUnchanged =
+        prev.cross.length === cross.length && prev.cross.every((f, i) => f === cross[i]);
+      const interactiveUnchanged =
+        prev.interactive.length === interactive.length &&
+        prev.interactive.every((f, i) => f === interactive[i]);
+      let widgetUnchanged = prev.byWidgetId.size === byWidgetId.size;
+      if (widgetUnchanged) {
+        for (const [key, arr] of byWidgetId) {
+          const prevArr = prev.byWidgetId.get(key);
+          if (!prevArr || prevArr.length !== arr.length || arr.some((f, i) => f !== prevArr[i])) {
+            widgetUnchanged = false;
+            break;
+          }
+        }
+      }
+      if (pageUnchanged && crossUnchanged && interactiveUnchanged && widgetUnchanged) {
+        lastInput = filters;
+        return prev;
+      }
+    }
+
+    lastInput = filters;
+    lastResult = result;
+    return result;
+  };
+}
+
+/**
+ * Per-page variant of `selectPartitionedBaseFilters`. Returns a memoized
+ * selector that scopes page-level filters to the given `pageId`.
+ *
+ * Use this for `isRecomputing` detection in mounted-but-inactive page widgets.
+ */
+export function makeSelectPartitionedBaseFiltersForPage(pageId: string) {
+  let lastInput: StudioFilterState[] | undefined;
+  let lastResult: BasePartitionedFilters | undefined;
+
+  return (state: StudioState): BasePartitionedFilters => {
+    const filters = state.filters;
+    if (filters === lastInput && lastResult !== undefined) {
+      return lastResult;
+    }
+
+    const page: StudioFilterState[] = [];
+    const byWidgetId = new Map<string, StudioFilterState[]>();
+
+    for (const f of filters) {
+      if (f.scope === 'page') {
+        if (!f.pageId || f.pageId === pageId) {
+          page.push(f);
+        }
+      } else if (f.scope === 'widget') {
+        const key = f.widgetId ?? '';
+        let bucket = byWidgetId.get(key);
+        if (!bucket) {
+          bucket = [];
+          byWidgetId.set(key, bucket);
+        }
+        bucket.push(f);
+      }
+    }
+
+    // Reference-stable: reuse prior result when content is identical.
+    if (lastResult !== undefined) {
+      const prev = lastResult;
+      const pageUnchanged =
+        prev.page.length === page.length && prev.page.every((f, i) => f === page[i]);
+      if (pageUnchanged) {
+        let widgetUnchanged = prev.byWidgetId.size === byWidgetId.size;
+        if (widgetUnchanged) {
+          for (const [key, arr] of byWidgetId) {
+            const prevArr = prev.byWidgetId.get(key);
+            if (!prevArr || prevArr.length !== arr.length || arr.some((f, i) => f !== prevArr[i])) {
+              widgetUnchanged = false;
+              break;
+            }
+          }
+        }
+        if (widgetUnchanged) {
+          lastInput = filters;
+          return prev;
+        }
+      }
+    }
+
+    const result: BasePartitionedFilters = { page, byWidgetId };
+    lastInput = filters;
+    lastResult = result;
+    return result;
+  };
+}
+
+/**
  * Returns a stable memoized selector that returns only the cross-filter
  * emitted by the given widget on the given page (or null if none).
  *
@@ -405,21 +549,20 @@ export function makeSelectWidgetRankFilter(
 
 /**
  * Returns the active interactive (slider) filter emitted by this widget on the
- * current page, or null if the widget is not a slider or has no active filter.
+ * given page, or null if the widget is not a slider or has no active filter.
  */
 export function makeSelectWidgetSliderFilter(
   widgetId: string,
+  pageId: string,
 ): (state: StudioState) => StudioFilterState | null {
   return (state) => {
     const w = state.widgets[widgetId];
     if (w?.kind !== 'filter' || w?.config?.filterWidgetType !== 'slider') {
       return null;
     }
-    const activePageId = state.dashboard.activePageId;
     return (
       state.filters.find(
-        (f) =>
-          f.scope === 'interactive' && f.sourceWidgetId === widgetId && f.pageId === activePageId,
+        (f) => f.scope === 'interactive' && f.sourceWidgetId === widgetId && f.pageId === pageId,
       ) ?? null
     );
   };
@@ -427,22 +570,21 @@ export function makeSelectWidgetSliderFilter(
 
 /**
  * Returns the active cross-filter emitted by this chart/grid widget on the
- * current page, or null if the widget kind doesn't emit cross-filters or has
+ * given page, or null if the widget kind doesn't emit cross-filters or has
  * none active.
  */
 export function makeSelectWidgetActiveCrossFilter(
   widgetId: string,
+  pageId: string,
 ): (state: StudioState) => StudioFilterState | null {
   return (state) => {
     const w = state.widgets[widgetId];
     if (w?.kind !== 'chart' && w?.kind !== 'grid') {
       return null;
     }
-    const activePageId = state.dashboard.activePageId;
     return (
       state.filters.find(
-        (f) =>
-          f.scope === 'cross-filter' && f.sourceWidgetId === widgetId && f.pageId === activePageId,
+        (f) => f.scope === 'cross-filter' && f.sourceWidgetId === widgetId && f.pageId === pageId,
       ) ?? null
     );
   };

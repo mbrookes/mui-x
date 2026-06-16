@@ -331,7 +331,7 @@ describe('makeSelectWidgetSliderFilter', () => {
       widgets: { w1: widget('w1', 'filter', { config: { filterWidgetType: 'slider' } }) },
       filters: [f],
     });
-    expect(makeSelectWidgetSliderFilter('w1')(s)).toBe(f);
+    expect(makeSelectWidgetSliderFilter('w1', 'page-1')(s)).toBe(f);
   });
 
   it('returns null when the filter widget is not a slider', () => {
@@ -340,7 +340,7 @@ describe('makeSelectWidgetSliderFilter', () => {
       widgets: { w1: widget('w1', 'filter', { config: { filterWidgetType: 'dropdown' } }) },
       filters: [f],
     });
-    expect(makeSelectWidgetSliderFilter('w1')(s)).toBeNull();
+    expect(makeSelectWidgetSliderFilter('w1', 'page-1')(s)).toBeNull();
   });
 });
 
@@ -354,11 +354,11 @@ describe('makeSelectWidgetActiveCrossFilter', () => {
 
   it.each(['chart', 'grid'] as const)('returns the cross-filter for a %s widget', (kind) => {
     const s = state({ widgets: { w1: widget('w1', kind) }, filters: [crossFilter] });
-    expect(makeSelectWidgetActiveCrossFilter('w1')(s)).toBe(crossFilter);
+    expect(makeSelectWidgetActiveCrossFilter('w1', 'page-1')(s)).toBe(crossFilter);
   });
 
   it('returns null for a widget kind that does not emit cross-filters', () => {
     const s = state({ widgets: { w1: widget('w1', 'kpi') }, filters: [crossFilter] });
-    expect(makeSelectWidgetActiveCrossFilter('w1')(s)).toBeNull();
+    expect(makeSelectWidgetActiveCrossFilter('w1', 'page-1')(s)).toBeNull();
   });
 });

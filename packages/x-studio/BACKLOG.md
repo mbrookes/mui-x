@@ -6,7 +6,11 @@
 
 **Fixed** (`StudioChartWidget.tsx`): renamed `yAxisKey` → `yAxisId` in both the `line` and `bar` branches of the `mixedSeries.map()` block. Line series now correctly bind to `'right'` and bars to `'left'` when dual-axis is enabled.
 
-BL-207: Make the heatmap widget legend the same size as the map's.
+✅ BL-207: Make the heatmap widget legend the same size as the map's.
+
+**Root cause**: `useHeatmapProps.ts` (x-charts-pro) hardcodes `width: '50%'` for horizontal legends and `height: 150` for vertical legends. The map widget uses explicit pixel sizes (180px wide / 140px tall) matched to the geographic content extent.
+
+**Fixed** (`StudioChartWidget.tsx`): added `sx: isVerticalHeatLegend ? { height: 140 } : { width: 180 }` to `slotProps.legend`. The `consumeSlots` HOC merges `externalSlotProps` (consumer's `slotProps.legend`) after `additionalProps`, so the consumer's `sx` overrides the default via MUI's sx array cascade.
 
 ✅ BL-208: Heatmap doesn't have a control to set the Y axis.
 

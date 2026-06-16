@@ -393,6 +393,9 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chartSetupHeatmapValueHelperText:
     'Campo numérico somado por célula para determinar a intensidade da cor',
   chartSetupHeatmapColourSchemeLabel: 'Esquema de cores',
+  chartSetupHeatmapSortByLabel: 'Ordenar por',
+  chartSetupHeatmapSortXAxis: 'Eixo de colunas (X)',
+  chartSetupHeatmapSortYAxis: 'Eixo de linhas (Y)',
   chartSetupArcLabelLabel: 'Rótulo de arco',
   chartSetupMinAngleLabel: 'Ângulo mínimo (\u00b0)',
   chartSetupMinAngleHelperText: 'Fatias menores que este ângulo (graus) n\u00e3o exibirão rótulo',

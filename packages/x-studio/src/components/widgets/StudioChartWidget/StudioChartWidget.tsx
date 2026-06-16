@@ -940,12 +940,28 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
     const colorScheme = config.heatColorScheme ?? 'primary';
     const paletteColor = theme.palette[colorScheme].main;
+    // Size y-axis width to the longest label so owner names aren't truncated.
+    // 7px/char is a reasonable estimate for the default axis font; cap at 240px.
+    const longestYLabel = yLabels.reduce((max, l) => Math.max(max, String(l).length), 0);
+    const yAxisWidth = Math.min(Math.max(longestYLabel * 7 + 8, 64), 240);
     return (
       <HeatmapPremium
         height={chartHeight}
         series={[{ data: seriesData }]}
-        xAxis={[{ data: xLabels, scaleType: 'band', label: xFieldDef?.label }]}
-        yAxis={[{ data: yLabels, scaleType: 'band', label: yFieldDef?.label }]}
+        xAxis={[
+          {
+            data: xLabels,
+            label: xFieldDef?.label,
+            height: xFieldDef?.label ? 60 : 40,
+          },
+        ]}
+        yAxis={[
+          {
+            data: yLabels,
+            label: yFieldDef?.label,
+            width: yAxisWidth,
+          },
+        ]}
         zAxis={[
           {
             colorMap: {
@@ -957,7 +973,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           },
         ]}
         hideLegend
-        margin={{ left: 100, bottom: xFieldDef?.label ? 60 : 40 }}
       />
     );
   }

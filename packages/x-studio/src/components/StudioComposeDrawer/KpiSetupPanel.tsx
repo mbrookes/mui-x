@@ -356,6 +356,27 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTrend: next })}
         >
           <FormControl size="small" fullWidth>
+            <InputLabel>{localeText.kpiSetupFixedWindowLabel}</InputLabel>
+            <Select
+              label={localeText.kpiSetupFixedWindowLabel}
+              value={config.kpiTrendFixedPeriod ?? ''}
+              onChange={(event) =>
+                controller.updateWidgetConfig(widgetId, {
+                  kpiTrendFixedPeriod: (event.target.value || undefined) as
+                    | 'month'
+                    | 'quarter'
+                    | 'year'
+                    | undefined,
+                })
+              }
+            >
+              <MenuItem value="">{localeText.kpiSetupFixedWindowNone}</MenuItem>
+              <MenuItem value="month">{localeText.kpiSetupFixedWindowMonth}</MenuItem>
+              <MenuItem value="quarter">{localeText.kpiSetupFixedWindowQuarter}</MenuItem>
+              <MenuItem value="year">{localeText.kpiSetupFixedWindowYear}</MenuItem>
+            </Select>
+          </FormControl>
+          <FormControl size="small" fullWidth>
             <InputLabel>{localeText.kpiSetupCompPeriodLabel}</InputLabel>
             <Select
               label={localeText.kpiSetupCompPeriodLabel}

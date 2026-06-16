@@ -1221,6 +1221,16 @@ export const INITIAL_STATE: Partial<StudioState> = {
         // recreate this widget from scratch (pick the source, leave the value field
         // empty, aggregation defaults to Count).
         kpiAggregation: 'count',
+        // Trend: fixed 90-day window so the headline (all-time total) is never gated
+        // by a date filter. Delta shows new contacts added in the last 90 days vs the
+        // 90 days before that.
+        kpiTrend: true,
+        kpiTrendFixedPeriod: 'quarter' as const,
+        // Sparkline: show contacts added over time (monthly buckets).
+        kpiSparkline: true,
+        kpiSparklineField: 'createdAt',
+        kpiSparklinePlotType: 'bar' as const,
+        kpiSparklineGranularity: 'month' as const,
       },
     },
     'widget-kpi7-open-activities': {

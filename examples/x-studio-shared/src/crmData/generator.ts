@@ -238,6 +238,7 @@ interface GeneratedContact extends Record<string, unknown> {
   phone: string;
   role: string;
   department: string;
+  createdAt: string;
 }
 
 function generateContacts(
@@ -251,6 +252,7 @@ function generateContacts(
   const rows: GeneratedContact[] = [];
   const byCustomerId = new Map<string, GeneratedContact[]>();
   let contactIdx = 1;
+  const sampleContactDate = makeDateSampler('2024-01-01', '2026-07-01');
 
   for (const customer of customerRows) {
     const customerId = customer.id as string;
@@ -270,6 +272,7 @@ function generateContacts(
         phone: `+${randInt(rng, 1, 99)}-${randInt(rng, 100, 999)}-${randInt(rng, 1000000, 9999999)}`,
         role: pick(rng, ROLES),
         department: pick(rng, DEPARTMENTS),
+        createdAt: sampleContactDate(() => Math.pow(rng(), 0.4)),
       };
       rows.push(contact);
       customerContacts.push(contact);
@@ -293,6 +296,7 @@ function generateContacts(
         { id: 'phone', label: 'Phone', type: 'string' },
         { id: 'role', label: 'Role', type: 'string' },
         { id: 'department', label: 'Department', type: 'string' },
+        { id: 'createdAt', label: 'Created', type: 'date' as const },
       ],
       rows,
     },

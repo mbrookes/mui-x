@@ -31,6 +31,50 @@ export function autoGranularity(start: Date, end: Date): Granularity {
   return 'year';
 }
 
+// ─── Fixed-period window ──────────────────────────────────────────────────────
+
+/**
+ * Computes the rolling "current period" window ending at the given date for
+ * fixed-period trend mode. The window is always a contiguous N-day block:
+ * - 'month'   → last 30 days
+ * - 'quarter' → last 90 days
+ * - 'year'    → last 365 days
+ */
+export function computeFixedPeriodRange(
+  period: 'month' | 'quarter' | 'year',
+  today: Date,
+): { start: Date; end: Date } {
+  const days = period === 'month' ? 30 : period === 'quarter' ? 90 : 365;
+  const end = new Date(today);
+  end.setHours(23, 59, 59, 999);
+  const start = new Date(today);
+  start.setDate(start.getDate() - days);
+  start.setHours(0, 0, 0, 0);
+  return { start, end };
+}
+
+/**
+ * Filter rows to those where the given date field falls within [start, end] inclusive.
+ */
+export function filterRowsByDateRange(
+  rows: Record<string, unknown>[],
+  dateField: string,
+  start: Date,
+  end: Date,
+): Record<string, unknown>[] {
+  return rows.filter((row) => {
+    const raw = row[dateField];
+    if (raw === null || raw === undefined) {
+      return false;
+    }
+    const d = normalizeToDate(raw);
+    if (!d) {
+      return false;
+    }
+    return d >= start && d <= end;
+  });
+}
+
 // ─── Date range extraction ─────────────────────────────────────────────────────
 
 /** Extract a concrete date range [start, end] from a filter value, resolving relative values. */

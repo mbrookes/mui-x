@@ -465,6 +465,11 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   kpiSetupTargetHelperText:
     'Valor de referencia para la línea de destino en el minigráfico. Cuando la tendencia también está activada, el indicador delta compara el valor actual con este objetivo.',
   kpiSetupInvertColours: 'Invertir colores (cuanto más pequeño, mejor)',
+  kpiSetupFixedWindowLabel: 'Trend window',
+  kpiSetupFixedWindowNone: 'From date filter',
+  kpiSetupFixedWindowMonth: 'Last 30 days',
+  kpiSetupFixedWindowQuarter: 'Last 90 days',
+  kpiSetupFixedWindowYear: 'Last 365 days',
 
   // KPI widget
   kpiGrandTotalTooltip:

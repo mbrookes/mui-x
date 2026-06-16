@@ -944,13 +944,32 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // 7px/char is a reasonable estimate for the default axis font; cap at 240px.
     const longestYLabel = yLabels.reduce((max, l) => Math.max(max, String(l).length), 0);
     const yAxisWidth = Math.min(Math.max(longestYLabel * 7 + 8, 64), 240);
+
+    const heatLegendPosition = config.heatLegendPosition ?? 'bottom';
+    const heatLegendAlign = (config.heatLegendAlign ?? 'center') as 'start' | 'center' | 'end';
+    const isVerticalHeatLegend = heatLegendPosition === 'left' || heatLegendPosition === 'right';
+    const heatLegendDirection: 'horizontal' | 'vertical' = isVerticalHeatLegend
+      ? 'vertical'
+      : 'horizontal';
+    const vertAlignMap = { start: 'top', center: 'middle', end: 'bottom' } as const;
+    const heatLegendPos = isVerticalHeatLegend
+      ? {
+          horizontal: (heatLegendPosition === 'left' ? 'start' : 'end') as 'start' | 'end',
+          vertical: vertAlignMap[heatLegendAlign],
+        }
+      : {
+          vertical: (heatLegendPosition === 'top' ? 'top' : 'bottom') as 'top' | 'bottom',
+          horizontal: heatLegendAlign,
+        };
+    const heatValueFormatter = (v: number) => `${Math.round(v * 10) / 10}`;
+
     return (
       <HeatmapPremium
         height={chartHeight}
         series={[
           {
             data: seriesData,
-            valueFormatter: (v) => (v == null ? '' : `${Math.round(v * 10) / 10}`),
+            valueFormatter: (v) => (v == null ? '' : heatValueFormatter(v)),
           },
         ]}
         xAxis={[
@@ -977,7 +996,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             },
           },
         ]}
-        hideLegend
+        hideLegend={heatLegendPosition === 'hidden'}
+        slotProps={{
+          legend: {
+            position: heatLegendPos,
+            direction: heatLegendDirection,
+            minLabel: ({ value }) => heatValueFormatter(value as number),
+            maxLabel: ({ value }) => heatValueFormatter(value as number),
+          },
+        }}
       />
     );
   }

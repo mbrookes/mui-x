@@ -49,7 +49,7 @@ export function StudioMapShapePlot(props: StudioMapShapePlotProps) {
   const { fill, stroke = 'none', strokeWidth = 1, onShapeClick } = props;
   const geoData = useGeoData();
   const path = useGeoPath();
-  const { featureIdToLabel } = React.useContext(StudioMapTooltipContext);
+  const { featureIdToLabel } = React.use(StudioMapTooltipContext);
   // The no-argument overload always returns an array of series (see useSeriesOfType);
   // its loose union return type is narrowed here.
   const series = (useSeriesOfType('mapShape') ?? []) as ChartSeriesDefaultized<'mapShape'>[];

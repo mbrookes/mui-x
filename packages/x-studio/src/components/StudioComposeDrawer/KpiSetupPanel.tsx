@@ -186,15 +186,19 @@ export function KpiSetupPanel(props: { widgetId: string }) {
     if (!widgetSource) {
       return [];
     }
-    return widgetSource.fields
-      .filter((f) => !f.hidden && fieldHasCapability(f, 'temporal'))
-      .map((f) => ({
-        id: f.id,
-        label: f.label,
-        type: f.type,
-        sourceId: widgetSource.id,
-        sourceLabel: widgetSource.label,
-      }));
+    return widgetSource.fields.flatMap((f) =>
+      !f.hidden && fieldHasCapability(f, 'temporal')
+        ? [
+            {
+              id: f.id,
+              label: f.label,
+              type: f.type,
+              sourceId: widgetSource.id,
+              sourceLabel: widgetSource.label,
+            },
+          ]
+        : [],
+    );
   }, [widgetSource]);
 
   const widgetDateRangeFilter = React.useMemo(

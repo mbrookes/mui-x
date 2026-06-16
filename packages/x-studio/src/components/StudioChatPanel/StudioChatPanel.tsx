@@ -155,20 +155,23 @@ const SEND_BTN_SX = {
 
 // Inner <button> element rendered by ChatComposerSendButton.
 // Receives disabled/type/data-is-streaming computed by ComposerSendButton (headless).
-const StudioSendButtonInner = React.forwardRef<
-  HTMLButtonElement,
-  React.ButtonHTMLAttributes<HTMLButtonElement> & { ownerState?: unknown }
->(function StudioSendButtonInner(
-  { children: _children, disabled, ownerState: _ownerState, ...rest },
+function StudioSendButtonInner({
+  children: _children,
+  disabled,
+  ownerState: _ownerState,
   ref,
-) {
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  ownerState?: unknown;
+  ref?: React.Ref<HTMLButtonElement>;
+}) {
   const { stopStreaming } = useChat();
   const isStreaming = (rest as Record<string, unknown>)['data-is-streaming'] === 'true';
 
   return (
     <Box
       component="button"
-      ref={ref as React.Ref<HTMLButtonElement>}
+      ref={ref}
       {...(rest as object)}
       type={isStreaming ? 'button' : 'submit'}
       disabled={isStreaming ? false : disabled}
@@ -214,14 +217,14 @@ const StudioSendButtonInner = React.forwardRef<
       )}
     </Box>
   );
-});
+}
 
 // Outer slot component — wraps ChatComposerSendButton so slots.sendButton can
 // be injected without bypassing the headless disabled/streaming state logic.
-const StudioSendButton = React.forwardRef<
-  HTMLButtonElement,
-  React.ComponentProps<typeof ChatComposerSendButton>
->(function StudioSendButton(props, ref) {
+function StudioSendButton({
+  ref,
+  ...props
+}: React.ComponentProps<typeof ChatComposerSendButton> & { ref?: React.Ref<HTMLButtonElement> }) {
   return (
     <ChatComposerSendButton
       ref={ref}
@@ -229,7 +232,7 @@ const StudioSendButton = React.forwardRef<
       slots={{ ...props.slots, sendButton: StudioSendButtonInner }}
     />
   );
-});
+}
 
 // ── StudioMessageActions — hover-reveal copy + retry buttons ─────────────────
 // Defined at module level (stable ref) so ChatBox doesn't re-mount on every render.
@@ -325,60 +328,62 @@ interface StudioMessageRootProps extends React.ComponentProps<typeof ChatMessage
   messageId: string;
 }
 
-const StudioMessageRoot = React.forwardRef<HTMLDivElement, StudioMessageRootProps>(
-  function StudioMessageRoot({ messageId, ...rest }, ref) {
-    const message = useMessage(messageId);
-    const metadata = message?.metadata as StudioMessageMetadata | undefined;
-    const isAssistant = message?.role === 'assistant';
-    const hasMetadata = Boolean(metadata?.model || metadata?.inputTokens != null);
-    const showMeta =
-      process.env.NODE_ENV !== 'production' &&
-      isAssistant &&
-      message?.status !== 'streaming' &&
-      hasMetadata;
+function StudioMessageRoot({
+  messageId,
+  ref,
+  ...rest
+}: StudioMessageRootProps & { ref?: React.Ref<HTMLDivElement> }) {
+  const message = useMessage(messageId);
+  const metadata = message?.metadata as StudioMessageMetadata | undefined;
+  const isAssistant = message?.role === 'assistant';
+  const hasMetadata = Boolean(metadata?.model || metadata?.inputTokens != null);
+  const showMeta =
+    process.env.NODE_ENV !== 'production' &&
+    isAssistant &&
+    message?.status !== 'streaming' &&
+    hasMetadata;
 
-    const totalTokens = (metadata?.inputTokens ?? 0) + (metadata?.outputTokens ?? 0);
+  const totalTokens = (metadata?.inputTokens ?? 0) + (metadata?.outputTokens ?? 0);
 
-    return (
-      <React.Fragment>
-        <ChatMessage ref={ref} messageId={messageId} {...rest} />
-        {showMeta && (
-          <Box
-            component="div"
-            sx={{
-              px: 2,
-              pb: 0.5,
-              display: 'flex',
-              gap: 1,
-              alignItems: 'center',
-              fontSize: '0.7rem',
-              color: 'text.disabled',
-              // Align under the assistant bubble (account for phantom avatar column)
-              pl: (theme) =>
-                `calc(${theme.spacing(2)} + var(--MuiChatMessage-avatarSize, 0px) + ${theme.spacing(0.5)})`,
-            }}
-          >
-            {metadata?.model && (
-              <Typography variant="inherit" component="span">
-                {metadata.model}
-              </Typography>
-            )}
-            {totalTokens > 0 && (
-              <Typography variant="inherit" component="span">
-                {totalTokens.toLocaleString()} tokens
-              </Typography>
-            )}
-            {metadata?.iterations != null && metadata.iterations > 1 && (
-              <Typography variant="inherit" component="span">
-                {metadata.iterations} turns
-              </Typography>
-            )}
-          </Box>
-        )}
-      </React.Fragment>
-    );
-  },
-);
+  return (
+    <React.Fragment>
+      <ChatMessage ref={ref} messageId={messageId} {...rest} />
+      {showMeta && (
+        <Box
+          component="div"
+          sx={{
+            px: 2,
+            pb: 0.5,
+            display: 'flex',
+            gap: 1,
+            alignItems: 'center',
+            fontSize: '0.7rem',
+            color: 'text.disabled',
+            // Align under the assistant bubble (account for phantom avatar column)
+            pl: (theme) =>
+              `calc(${theme.spacing(2)} + var(--MuiChatMessage-avatarSize, 0px) + ${theme.spacing(0.5)})`,
+          }}
+        >
+          {metadata?.model && (
+            <Typography variant="inherit" component="span">
+              {metadata.model}
+            </Typography>
+          )}
+          {totalTokens > 0 && (
+            <Typography variant="inherit" component="span">
+              {totalTokens.toLocaleString()} tokens
+            </Typography>
+          )}
+          {metadata?.iterations != null && metadata.iterations > 1 && (
+            <Typography variant="inherit" component="span">
+              {metadata.iterations} turns
+            </Typography>
+          )}
+        </Box>
+      )}
+    </React.Fragment>
+  );
+}
 
 // ── StudioReasoningPart — "Thinking…" indicator + collapsible reasoning ────────
 
@@ -596,7 +601,7 @@ function StudioComposerToolbar({
   children,
   ...props
 }: React.ComponentProps<typeof ChatComposerToolbar>) {
-  const voice = React.useContext(VoiceMicContext);
+  const voice = React.use(VoiceMicContext);
   return (
     <ChatComposerToolbar {...props}>
       {voice?.voiceSupported && (

@@ -5,7 +5,7 @@ import { PieHighlightContext } from './PieCrossHighlightContext';
 
 export function CrossHighlightPieArc(props: PieArcProps) {
   const { startAngle, endAngle, color, innerRadius, outerRadius, ...rest } = props;
-  const { ratioByIndex, isActive, skipAnimation } = React.useContext(PieHighlightContext);
+  const { ratioByIndex, isActive, skipAnimation } = React.use(PieHighlightContext);
 
   const ratio = ratioByIndex.get(rest.dataIndex) ?? 1;
   const ghostColor = isActive ? `${color}40` : color;

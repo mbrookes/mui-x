@@ -778,7 +778,7 @@ export default function App() {
     );
     downloadJson(serialized, `${dashboardTitle}_dashboard.json`);
     setSnackbar({ open: true, message: t.dashboardSavedMessage, severity: 'success' });
-  }, []);
+  }, [t]);
 
   const handleLoad = React.useCallback(async () => {
     try {
@@ -815,7 +815,7 @@ export default function App() {
         severity: 'error',
       });
     }
-  }, []);
+  }, [t]);
 
   const handleCloseSnackbar = () => {
     setSnackbar((prev) => ({ ...prev, open: false }));
@@ -829,7 +829,7 @@ export default function App() {
       severity: 'info',
     });
     setTimeout(() => window.location.reload(), 800);
-  }, []);
+  }, [t]);
 
   const handleOpenSettings = React.useCallback(() => {
     setSettingsOpen(true);

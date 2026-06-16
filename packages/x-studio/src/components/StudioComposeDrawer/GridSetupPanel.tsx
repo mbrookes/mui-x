@@ -80,7 +80,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const expressionFields = useStudioSelector(selectExpressionFields);
-  const { tableSourceMode } = React.useContext(StudioUIConfigContext);
+  const { tableSourceMode } = React.use(StudioUIConfigContext);
   const localeText = useStudioLocaleText();
   const aggLabels: Record<StudioGridSummaryAggregation, string> = {
     sum: localeText.aggFnSum,

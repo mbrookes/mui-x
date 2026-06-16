@@ -291,6 +291,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const isGauge = chartType === 'gauge';
   const isMixed = chartType === 'mixed';
   const isHeatmap = chartType === 'heatmap';
+  const heatAxesSet = !!(config.xField && config.heatYField);
+  const heatXFieldLabel = allFields.find((f) => f.id === config.xField)?.label;
+  const heatYFieldLabel = allFields.find((f) => f.id === config.heatYField)?.label;
   const isFunnel = chartType === 'funnel';
   const isGantt = chartType === 'gantt';
   const isSankey = chartType === 'sankey';
@@ -680,7 +683,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               </FormControl>
               {/* Heatmap sort — disabled until both axes are configured */}
               <Stack direction="column" spacing={1}>
-                <FormControl size="small" fullWidth disabled={!config.xField || !config.heatYField}>
+                <FormControl size="small" fullWidth disabled={!heatAxesSet}>
                   <InputLabel>{localeText.chartSetupHeatmapSortByLabel}</InputLabel>
                   <Select
                     label={localeText.chartSetupHeatmapSortByLabel}
@@ -692,14 +695,19 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     }
                   >
                     <MenuItem value="natural">{localeText.chartSetupSortNatural}</MenuItem>
-                    <MenuItem value="x-axis">{localeText.chartSetupHeatmapSortXAxis}</MenuItem>
-                    <MenuItem value="y-axis">{localeText.chartSetupHeatmapSortYAxis}</MenuItem>
+                    <MenuItem value="x-axis">
+                      {heatXFieldLabel ?? localeText.chartSetupHeatmapSortXAxis}
+                    </MenuItem>
+                    <MenuItem value="y-axis">
+                      {heatYFieldLabel ?? localeText.chartSetupHeatmapSortYAxis}
+                    </MenuItem>
                   </Select>
                 </FormControl>
                 {(config.heatSortBy === 'x-axis' || config.heatSortBy === 'y-axis') && (
                   <ToggleButtonGroup
                     value={config.heatSortDirection ?? 'asc'}
                     exclusive
+                    disabled={!heatAxesSet}
                     onChange={(_e, val) => {
                       if (val) {
                         controller.updateWidgetConfig(widgetId, {

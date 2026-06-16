@@ -496,9 +496,10 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   const canvasRef = React.useRef<HTMLDivElement>(null);
 
   // Track which pages have ever been active — mount them once and keep alive.
-  // Inactive pages use visibility:hidden + position:absolute (NOT display:none).
-  // display:none restarts CSS animations on reveal; visibility:hidden does not,
-  // so charts don't reanimate when the user switches back to a visited page.
+  // Inactive pages use clip-path:inset(100%) + position:absolute (NOT display:none).
+  // display:none restarts CSS animations on reveal. visibility:hidden avoids that but
+  // SVG presentation attributes (visibility="visible") can override it, causing bleed-
+  // through. clip-path creates an unoverridable clipping context for all descendants.
   const [mountedPageIds, setMountedPageIds] = React.useState<ReadonlySet<string>>(
     () => new Set(activePageId ? [activePageId] : []),
   );
@@ -632,9 +633,11 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                     top: 0,
                     left: 0,
                     width: '100%',
-                    visibility: 'hidden',
+                    // clip-path creates a clipping context for all descendants — unlike
+                    // visibility:hidden, it cannot be overridden by SVG elements that
+                    // have visibility="visible" as a presentation attribute.
+                    clipPath: 'inset(100%)',
                     pointerEvents: 'none',
-                    overflow: 'hidden',
                   }
                 : undefined
             }

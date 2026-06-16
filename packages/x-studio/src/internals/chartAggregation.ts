@@ -718,7 +718,7 @@ export function aggregateByField(
   yField: string,
   xGroupBy?: XGroupBy,
   yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
-  sortBy?: 'category' | 'value',
+  sortBy?: 'category' | 'value' | 'natural',
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
 ): AggregatedData {
@@ -813,7 +813,7 @@ export function aggregateByTwoFields(
   seriesField: string,
   yField: string,
   xGroupBy?: XGroupBy,
-  sortBy?: 'category' | 'value',
+  sortBy?: 'category' | 'value' | 'natural',
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
 ): MultiSeriesData {
@@ -909,7 +909,7 @@ export function aggregateMultipleSeries(
   xField: string,
   yFields: string[],
   xGroupBy?: XGroupBy,
-  sortBy?: 'category' | 'value',
+  sortBy?: 'category' | 'value' | 'natural',
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
 ): MultiYSeriesData {
@@ -1004,7 +1004,7 @@ export function aggregateBlendedSeries(
   series: BlendedSeriesInput[],
   xField: string,
   xGroupBy?: XGroupBy,
-  sortBy?: 'category' | 'value',
+  sortBy?: 'category' | 'value' | 'natural',
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
 ): MultiYSeriesData {

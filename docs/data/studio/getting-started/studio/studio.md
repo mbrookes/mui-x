@@ -183,7 +183,6 @@ interface StudioFeatureFlags {
   // KPI features
   kpiSparkline?: boolean; // KPI sparkline section
   kpiTrend?: boolean; // KPI trend badge
-  kpiTarget?: boolean; // KPI target line
 
   // Chart features
   chartAnnotations?: boolean; // Chart reference-line annotations

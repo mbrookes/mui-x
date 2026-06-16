@@ -162,13 +162,6 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     relationships,
   ]);
 
-  const resolvedTargetValue = React.useMemo(() => {
-    if (!config.kpiTarget || config.kpiTargetValue === undefined) {
-      return null;
-    }
-    return config.kpiTargetValue;
-  }, [config.kpiTarget, config.kpiTargetValue]);
-
   const {
     displayValue,
     hasData,
@@ -319,26 +312,10 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     const needsDateFilter =
       !hasFixedPeriodTrend &&
       !!(config.kpiTrend && config.kpiValueField) &&
-      !config.kpiTarget &&
       !findDateFilter(filters, widget.id, dataSource);
 
     if (config.kpiTrend && (config.kpiValueField || hasFixedPeriodTrend)) {
-      if (config.kpiTarget && resolvedTargetValue !== null) {
-        // Target-based comparison: compare current value against the configured target
-        if (resolvedTargetValue !== 0) {
-          kpiTrend = {
-            delta: (value - resolvedTargetValue) / Math.abs(resolvedTargetValue),
-            previousValue: resolvedTargetValue,
-            comparisonLabel: localeText.kpiWidgetComparisonTargetLabel,
-          };
-        } else if (value !== 0) {
-          kpiTrend = {
-            delta: Infinity,
-            previousValue: resolvedTargetValue,
-            comparisonLabel: localeText.kpiWidgetComparisonTargetLabel,
-          };
-        }
-      } else if (hasFixedPeriodTrend) {
+      if (hasFixedPeriodTrend) {
         // Fixed-period mode: compute rolling windows from today without a date filter.
         // The headline (value / currentRows) is the all-time total — unfiltered. Only
         // the trend delta rows are windowed by the date field.
@@ -525,7 +502,6 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     expressionFields,
     config,
     widget,
-    resolvedTargetValue,
     crossFilterMode,
     localeText,
   ]);
@@ -615,9 +591,8 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             fieldPrecision={fieldDef?.precision}
             fieldCurrencyCode={fieldDef?.currencyCode}
             colors={chartColors}
-            targetValue={resolvedTargetValue ?? undefined}
             kpiValue={kpiNumericValue}
-            gaugeMax={config.kpiTargetValue ?? 100}
+            gaugeMax={config.kpiSparklineGaugeMax ?? 100}
             {...slotProps?.sparkline}
           />
         )}

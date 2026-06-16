@@ -51,8 +51,7 @@ const KIND_CONFIG_LINES: Record<BuiltinStudioWidgetKind, string[]> = {
   ],
   kpi: [
     'kpi: kpiValueField, kpiAggregation (sum|avg|count|min|max), kpiSparkline (boolean), kpiSparklinePlotType (line|bar|gauge), kpiSparklineGaugeMin, kpiSparklineGaugeMax, kpiSparklineCumulative (boolean), kpiSparklineGranularity ("day"|"week"|"month"|"quarter"|"year"),',
-    '  kpiTrend (boolean), kpiTrendComparison ("previous-period"|"previous-calendar-period"|"year-over-year"), kpiTrendInvert (boolean — true if lower is better),',
-    '  kpiTarget (number), kpiTargetRef (StudioMetricRef ID);',
+    '  kpiTrend (boolean), kpiTrendComparison ("previous-period"|"previous-calendar-period"|"year-over-year"), kpiTrendInvert (boolean — true if lower is better);',
   ],
   grid: [
     'grid: columns (array of field IDs), gridSortField (field ID), gridSortDirection ("asc"|"desc"), gridGroupByField (categorical field to group rows);',

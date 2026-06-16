@@ -273,11 +273,8 @@ export interface StudioWidgetConfig {
    * - 'year': last 365 days vs. the 365 days before
    */
   kpiTrendFixedPeriod?: 'month' | 'quarter' | 'year';
-  // KPI target line
-  /** When true, shows a horizontal reference line on the sparkline and (when kpiTrend is also enabled) compares the headline value against the target instead of the previous period. For gauge sparklines the target is always active and sets the gauge maximum. */
-  kpiTarget?: boolean;
-  /** Discrete numeric target value. Used as the reference line / trend comparison target, and as the gauge max when kpiSparklinePlotType is 'gauge'. */
-  kpiTargetValue?: number;
+  /** Maximum value for the gauge sparkline. Used as the arc end when kpiSparklinePlotType is 'gauge'. @default 100 */
+  kpiSparklineGaugeMax?: number;
   // Grid summary (totals) row
   /**
    * Aggregation to show in the pinned summary footer for each field.

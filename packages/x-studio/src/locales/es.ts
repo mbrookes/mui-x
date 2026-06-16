@@ -455,7 +455,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   kpiSetupValueFieldLabel: 'Campo de valor',
   kpiSetupValueFieldHelperText: 'Campo para agregar',
   kpiSetupSparklineLabel: 'minigráfico',
-  kpiSetupTargetLabel: 'Meta',
+  kpiSetupGaugeMaxLabel: 'Máx. del indicador',
   kpiSetupTrendLabel: 'Tendencia',
   kpiSetupDateRangeLabel: 'Rango de fechas',
   kpiSetupDateRangeFieldLabel: 'Campo de fecha',
@@ -466,8 +466,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   kpiSetupCumulativeLabel: 'Acumulado (total acumulado)',
   kpiSetupAutoDateFilterPrefix: 'Usando filtro de fecha:',
   kpiSetupCalculatedField: 'Campo calculado…',
-  kpiSetupTargetHelperText:
-    'Valor de referencia para la línea de destino en el minigráfico. Cuando la tendencia también está activada, el indicador delta compara el valor actual con este objetivo.',
   kpiSetupInvertColours: 'Invertir colores (cuanto más pequeño, mejor)',
   kpiSetupFixedWindowLabel: 'Trend window',
   kpiSetupFixedWindowNone: 'From date filter',
@@ -479,7 +477,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   kpiGrandTotalTooltip:
     'Total general: los widgets de filtro activo no se aplican a este KPI. Activa el modo Filtro cruzado en la configuración de KPI para respetarlos.',
   kpiGranularityAutoLabel: 'Ser',
-  kpiWidgetComparisonTargetLabel: 'meta',
 
   // Grid setup panel
   gridSetupDataSourceLabel: 'fuente de datos',

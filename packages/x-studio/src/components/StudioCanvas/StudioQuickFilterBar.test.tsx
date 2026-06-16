@@ -44,7 +44,6 @@ const BASE_FEATURES: ResolvedStudioFeatures = {
   map: true,
   kpiSparkline: true,
   kpiTrend: true,
-  kpiTarget: true,
   kpiCalculatedFields: true,
   chartAnnotations: true,
   chartCalculatedFields: true,

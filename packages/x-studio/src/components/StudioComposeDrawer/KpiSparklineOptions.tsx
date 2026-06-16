@@ -190,13 +190,13 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
       {plotType === 'gauge' && (
         <TextField
           size="small"
-          label={localeText.kpiSetupTargetLabel}
+          label={localeText.kpiSetupGaugeMaxLabel}
           type="number"
-          value={config.kpiTargetValue ?? 100}
+          value={config.kpiSparklineGaugeMax ?? 100}
           onChange={(event) => {
             const n = Number(event.target.value);
             if (Number.isFinite(n) && n > 0) {
-              controller.updateWidgetConfig(widgetId, { kpiTargetValue: n });
+              controller.updateWidgetConfig(widgetId, { kpiSparklineGaugeMax: n });
             }
           }}
           fullWidth

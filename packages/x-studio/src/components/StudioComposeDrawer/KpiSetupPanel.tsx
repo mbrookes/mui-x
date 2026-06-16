@@ -326,33 +326,6 @@ export function KpiSetupPanel(props: { widgetId: string }) {
         </CollapsibleFeatureSection>
       )}
 
-      {features.kpiTarget !== false && (
-        <CollapsibleFeatureSection
-          label={localeText.kpiSetupTargetLabel}
-          enabled={config.kpiTarget ?? false}
-          onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTarget: next })}
-        >
-          <Typography variant="caption" color="text.secondary">
-            {localeText.kpiSetupTargetHelperText}
-          </Typography>
-          <TextField
-            size="small"
-            label={localeText.kpiSetupTargetLabel}
-            type="number"
-            value={config.kpiTargetValue ?? ''}
-            onChange={(event) => {
-              const n = Number(event.target.value);
-              if (event.target.value !== '' && Number.isFinite(n)) {
-                controller.updateWidgetConfig(widgetId, { kpiTargetValue: n });
-              } else if (event.target.value === '') {
-                controller.updateWidgetConfig(widgetId, { kpiTargetValue: undefined });
-              }
-            }}
-            fullWidth
-          />
-        </CollapsibleFeatureSection>
-      )}
-
       {features.kpiTrend !== false && (
         <CollapsibleFeatureSection
           label={localeText.kpiSetupTrendLabel}

@@ -267,7 +267,7 @@ AG Studio exposes `getState()`/`setState()` and similarly leaves file I/O to the
 | Runtime feature flags                         | ✅ (`StudioFeatureFlags` — 26 flags)          | ❌                                 |
 
 `StudioFeatureFlags` lets you gate entire feature areas at runtime — for example `{ filters: false }` hides the Filters panel entirely, `{ aiChat: false }` removes the AI button, `{ pivot: false }` removes the Pivot widget type, and so on.
-Individual flags: `compose`, `filters`, `savedFilterViews`, `dataManagement`, `aiChat`, `dateRangeBar`, `grid`, `chart`, `kpi`, `text`, `filter`, `pivot`, `map`, `relationships`, `widgetFilters`, `kpiSparkline`, `kpiTrend`, `kpiTarget`, `chartAnnotations`, `gridGroupBy`, `gridSummary`, `gridConditionalFormats`, `calculatedFields`, `kpiCalculatedFields`, `chartCalculatedFields`, `gridCalculatedFields`.
+Individual flags: `compose`, `filters`, `savedFilterViews`, `dataManagement`, `aiChat`, `dateRangeBar`, `grid`, `chart`, `kpi`, `text`, `filter`, `pivot`, `map`, `relationships`, `widgetFilters`, `kpiSparkline`, `kpiTrend`, `chartAnnotations`, `gridGroupBy`, `gridSummary`, `gridConditionalFormats`, `calculatedFields`, `kpiCalculatedFields`, `chartCalculatedFields`, `gridCalculatedFields`.
 
 ### Composition API
 

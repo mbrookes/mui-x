@@ -72,7 +72,7 @@ const { render } = createRenderer();
 function renderChart(widget: StudioWidget, dataSource: StudioDataSource) {
   return render(
     <ThemeProvider theme={createTheme()}>
-      <StudioChartWidget widget={widget} dataSource={dataSource} />
+      <StudioChartWidget widget={widget} dataSource={dataSource} pageId="page-1" />
     </ThemeProvider>,
   );
 }
@@ -1364,7 +1364,11 @@ describe('<StudioChartWidget />', () => {
     expect(() =>
       view.rerender(
         <ThemeProvider theme={createTheme()}>
-          <StudioChartWidget widget={mockState.widgets[widget.id]} dataSource={dataSource} />
+          <StudioChartWidget
+            widget={mockState.widgets[widget.id]}
+            dataSource={dataSource}
+            pageId="page-1"
+          />
         </ThemeProvider>,
       ),
     ).not.toThrow();

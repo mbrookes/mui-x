@@ -38,7 +38,6 @@ import {
   useStudioController,
   useStudioSelector,
   useStudioLocaleText,
-  selectActivePageId,
   selectDataSources,
   makeSelectExpressionFieldsForSource,
   makeSelectActiveCrossFilter,
@@ -94,6 +93,8 @@ export interface StudioChartWidgetSlotProps {
 export interface StudioChartWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
+  /** ID of the page this widget belongs to. Used to scope cross-filters to the correct page. */
+  pageId: string;
   height?: number;
   /**
    * When true, the chart runs client-side anomaly detection (IQR method) on its
@@ -129,6 +130,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const {
     dataSource,
     widget,
+    pageId,
     height: heightProp,
     anomalyEnabled,
     onAnomalyDetected,
@@ -141,7 +143,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const { config } = widget;
   const xGroupBy = config.xGroupBy;
   const controller = useStudioController();
-  const activePageId = useStudioSelector(selectActivePageId);
   const dataSources = useStudioSelector(selectDataSources);
   const localeText = useStudioLocaleText();
   const selectExpressionFields = React.useMemo(
@@ -151,14 +152,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const expressionFields = useStudioSelector(selectExpressionFields);
 
   const selectActiveCrossFilter = React.useMemo(
-    () => makeSelectActiveCrossFilter(widget.id, activePageId),
-    [widget.id, activePageId],
+    () => makeSelectActiveCrossFilter(widget.id, pageId),
+    [widget.id, pageId],
   );
   const activeCrossFilter = useStudioSelector(selectActiveCrossFilter);
 
   const selectIncomingCrossFilters = React.useMemo(
-    () => makeSelectIncomingCrossFilters(widget.id, activePageId),
-    [widget.id, activePageId],
+    () => makeSelectIncomingCrossFilters(widget.id, pageId),
+    [widget.id, pageId],
   );
   const incomingCrossFilters = useStudioSelector(selectIncomingCrossFilters);
   const [hoveredItem, setHoveredItem] = React.useState<HighlightItemIdentifier<
@@ -191,7 +192,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     isLoading,
     isError,
     errorMessage,
-  } = useChartWidgetData(widget, dataSource);
+  } = useChartWidgetData(widget, dataSource, pageId);
 
   // Skip chart animations during cross-filter transitions so bars/lines/pies
   // don't animate when a highlight is applied or removed. We need to skip for

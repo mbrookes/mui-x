@@ -10,6 +10,7 @@ import {
   useStudioSelector,
   selectMode,
   selectActivePage,
+  selectPages,
   selectWidgets,
   selectDataSources,
   useCustomWidgetMap,
@@ -20,6 +21,7 @@ import { StudioWidgetCard } from '../StudioWidgetCard';
 import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../../internals/widgetUtils';
 import type { StudioWidget, StudioPage } from '../../models/widgetTypes';
+import type { StudioMode } from '../../models/baseTypes';
 import { StudioQuickFilterBar } from './StudioQuickFilterBar';
 import { StudioDateRangeBar } from './StudioDateRangeBar';
 import {
@@ -58,56 +60,48 @@ export interface StudioCanvasProps {
   };
 }
 
-export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvasProps) {
-  const { slotProps, stackBreakpoint: stackBreakpointProp = 600, sx } = props;
-  const mode = useStudioSelector(selectMode);
-  const features = useStudioFeatures();
-  const localeText = useStudioLocaleText();
-  const announce = useStudioAnnounce();
-  // Defer page transitions so the browser stays responsive while new page widgets mount.
-  // useSyncExternalStore updates are synchronous, so startTransition alone doesn't help;
-  // useDeferredValue explicitly schedules the expensive new-page render at low priority.
-  const liveActivePage = useStudioSelector(selectActivePage);
-  const activePage = React.useDeferredValue(liveActivePage);
-  const widgetRows = activePage?.widgetRows;
-  const widgetColSpans = activePage?.widgetColSpans;
-  const pageTheme = activePage?.theme;
-  const widgets = useStudioSelector(selectWidgets);
-  const dataSources = useStudioSelector(selectDataSources);
-  const customWidgetMap = useCustomWidgetMap();
-  const controller = useStudioController();
-  const canvasRef = React.useRef<HTMLDivElement>(null);
+// ── StudioPageRows ──────────────────────────────────────────────────────────
+// Per-page widget layout renderer. Each mounted page gets its own instance so
+// that per-page state (liveDrag, refs, handleDrop) is isolated. Inactive pages
+// are hidden via display:none on the wrapping Box in StudioCanvas but remain
+// mounted, preventing data-pipeline teardown on tab switch.
 
-  // Effective breakpoint: per-page override takes priority over the prop.
+interface StudioPageRowsProps {
+  page: StudioPage;
+  pageId: string;
+  mode: StudioMode;
+  widgets: ReturnType<typeof selectWidgets>;
+  dataSources: ReturnType<typeof selectDataSources>;
+  customWidgetMap: ReturnType<typeof useCustomWidgetMap>;
+  canvasWidth: number | null;
+  stackBreakpointProp: number;
+  slotProps?: StudioCanvasProps['slotProps'];
+  controller: ReturnType<typeof useStudioController>;
+  announce: (message: string) => void;
+  localeText: ReturnType<typeof useStudioLocaleText>;
+}
+
+function StudioPageRows({
+  page,
+  pageId,
+  mode,
+  widgets,
+  dataSources,
+  customWidgetMap,
+  canvasWidth,
+  stackBreakpointProp,
+  slotProps,
+  controller,
+  announce,
+  localeText,
+}: StudioPageRowsProps) {
+  const widgetRows = page.widgetRows;
+  const widgetColSpans = page.widgetColSpans;
+  const pageTheme = page.theme;
+
   const effectiveBreakpoint =
-    activePage?.stackBreakpoint !== undefined ? activePage.stackBreakpoint : stackBreakpointProp;
+    page.stackBreakpoint !== undefined ? page.stackBreakpoint : stackBreakpointProp;
 
-  // Track canvas width to determine when to stack widgets in view mode.
-  const [canvasWidth, setCanvasWidth] = React.useState<number | null>(null);
-  const enabled = mode !== 'edit' && effectiveBreakpoint !== 0;
-  useResizeObserver(
-    canvasRef,
-    (entries) => {
-      const entry = entries[0];
-      if (entry) {
-        setCanvasWidth(entry.contentRect.width);
-      }
-    },
-    enabled,
-  );
-  // Set initial width on mount/mode-change (useResizeObserver only fires on subsequent resizes).
-  React.useEffect(() => {
-    if (!enabled) {
-      return;
-    }
-    const node = canvasRef.current;
-    if (node) {
-      setCanvasWidth(node.getBoundingClientRect().width);
-    }
-  }, [enabled]);
-
-  // isHalfStacked: canvas is between 1× and 2× the stack breakpoint — double each widget's
-  // column span (capped at GRID_COLS) so 4-wide becomes 2-up before going to 1-up.
   const isHalfStacked =
     mode !== 'edit' &&
     effectiveBreakpoint > 0 &&
@@ -121,7 +115,6 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     canvasWidth !== null &&
     canvasWidth < effectiveBreakpoint;
 
-  // Live resize: maps widgetId → continuous (float) span during a between-widget drag.
   const [liveDrag, setLiveDrag] = React.useState<{
     leftId: string;
     rightId: string;
@@ -129,36 +122,11 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     totalSpan: number;
   } | null>(null);
 
-  // ── Auto-scroll the canvas's scroll container while dragging near its edges ──
-  // Registers the scroll parent with pragmatic-drag-and-drop's auto-scroller,
-  // matching the scheduler. Replaces the previous hand-rolled dragover + RAF loop.
-  React.useEffect(() => {
-    if (mode !== 'edit' || process.env.NODE_ENV === 'test') {
-      return undefined;
-    }
-
-    function findScrollParent(el: Element | null): HTMLElement {
-      while (el && el !== document.documentElement) {
-        const { overflowY } = getComputedStyle(el);
-        if (overflowY === 'auto' || overflowY === 'scroll') {
-          return el as HTMLElement;
-        }
-        el = el.parentElement;
-      }
-      return (document.scrollingElement as HTMLElement) ?? document.documentElement;
-    }
-
-    return autoScrollForElements({ element: findScrollParent(canvasRef.current) });
-  }, [mode]);
-
-  // Keep the latest widgetRows/colSpans in a ref so the stable handleDrop closure
-  // can read current data without being recreated on every drop.
   const widgetRowsRef = React.useRef(widgetRows);
   widgetRowsRef.current = widgetRows;
   const widgetColSpansRef = React.useRef(widgetColSpans);
   widgetColSpansRef.current = widgetColSpans;
 
-  // Stable drop handler — useCallback with only [controller] as dep.
   const handleDrop = React.useCallback(
     (
       data: StudioDragItem,
@@ -167,7 +135,6 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
       orientation: 'horizontal' | 'vertical',
     ) => {
       const currentRows = widgetRowsRef.current;
-      const activePageId = controller.getState().dashboard.activePageId;
 
       if (data.type === DRAG_TYPE_COMPOSE_WIDGET && data.kind) {
         const sources = Object.values(controller.getState().dataSources);
@@ -184,12 +151,12 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           rows[rowIndex] = row;
         }
         const state = controller.getState();
-        const targetPage = state.pages[activePageId];
+        const targetPage = state.pages[pageId];
         controller.updateState({
           widgets: { ...state.widgets, [newWidget.id]: newWidget },
           pages: {
             ...state.pages,
-            [activePageId]: { ...targetPage, widgetRows: rows },
+            [pageId]: { ...targetPage, widgetRows: rows },
           },
           shell: { ...state.shell, selectedWidgetId: newWidget.id },
         });
@@ -197,7 +164,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
       } else if (data.type === DRAG_TYPE_CANVAS_WIDGET && data.widgetId) {
         const widgetId: string = data.widgetId;
         const sourcePageId: string | undefined = data.sourcePageId;
-        const isCrossPage = sourcePageId != null && sourcePageId !== activePageId;
+        const isCrossPage = sourcePageId != null && sourcePageId !== pageId;
 
         // Build the target page rows: start from currentRows (already the target page)
         // and place the widget in the correct position.
@@ -256,8 +223,8 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           pages: {
             ...state.pages,
             ...sourcePageUpdate,
-            [activePageId]: {
-              ...state.pages[activePageId],
+            [pageId]: {
+              ...state.pages[pageId],
               widgetRows: cleaned,
               widgetColSpans: nextColSpans,
             },
@@ -267,69 +234,16 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         announce(localeText.canvasWidgetMovedAnnouncement);
       }
     },
-    [controller, announce, localeText],
+    [controller, announce, localeText, pageId],
   );
 
   if (!widgetRows || widgetRows.length === 0) {
-    return (
-      <Box
-        ref={canvasRef}
-        sx={[{ p: mode === 'edit' ? 0 : '8px' }, ...(Array.isArray(sx) ? sx : [sx])]}
-      >
-        <Paper
-          variant="outlined"
-          role="status"
-          sx={{
-            alignItems: 'center',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2,
-            minHeight: 420,
-            p: 4,
-            borderStyle: 'dashed',
-            justifyContent: 'center',
-          }}
-        >
-          <Typography variant="h6" color="text.secondary">
-            Canvas is empty
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
-            {mode === 'edit'
-              ? 'Use the Compose panel to add widgets or drag them here.'
-              : 'Switch to Edit mode to add widgets.'}
-          </Typography>
-        </Paper>
-      </Box>
-    );
+    return null;
   }
 
   return (
-    <Box
-      ref={canvasRef}
-      sx={[
-        {
-          width: '100%',
-          p: mode === 'edit' ? 0 : '8px',
-          backgroundColor: pageTheme?.pageBackground ?? undefined,
-          minHeight: '100%',
-        },
-        ...(Array.isArray(sx) ? sx : [sx]),
-      ]}
-      onMouseDown={(event) => {
-        // Deselect when clicking the canvas background (not a widget card)
-        const target = event.target as HTMLElement;
-        if (!target.closest('[data-widget-card]')) {
-          controller.setSelectedWidget(null);
-        }
-      }}
-    >
-      {/* Date range bar — shown in both modes when the page has date/datetime fields */}
-      {features.quickFilter && <StudioDateRangeBar />}
-
-      {/* Quick filter bar — view mode only, shown when page filters are active */}
-      {mode !== 'edit' && <StudioQuickFilterBar />}
-
-      {/* Insertion point above the first row — inset by the vertical drop zone width (16px) on each side */}
+    <>
+      {/* Insertion point above the first row */}
       {mode === 'edit' && (
         <InsertionPoint
           rowIndex={0}
@@ -342,8 +256,6 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
       )}
       {widgetRows.map((row, rowIndex) => {
         // In view mode, omit the row entirely when every widget in it opts into hiding.
-        // This prevents the row's mt:1 margin from creating a double gap where the
-        // collapsed row used to be.
         if (
           mode !== 'edit' &&
           row.length > 0 &&
@@ -399,32 +311,21 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                 const span = liveSpan ?? storedSpan;
 
                 // Edit mode: use flex-grow proportional to column span (flex-basis: 0).
-                // Insertion points have a fixed 8px width each; percentage-based flex-basis
-                // would sum to 100% *before* those, causing overflow.  Flex-grow distributes
-                // only the remaining space after fixed items, so the row fills correctly.
-                // Default flex-grow: 12/rowLength so unsized widgets match the same ratio.
-                //
                 // View mode: three responsive tiers based on canvasWidth vs stackBreakpoint (B):
-                //   • canvasWidth ≥ 2B  → normal spans (e.g. 25% for a 6-col widget)
+                //   • canvasWidth ≥ 2B  → normal spans
                 //   • B ≤ canvasWidth < 2B → isHalfStacked: double each span (capped at GRID_COLS)
-                //                           so 4-wide widgets become 2-up before going full-width
-                //   • canvasWidth < B   → isStacked: all widgets full-width (1-up)
-                //
-                // Flex-basis is gap-adjusted so N equal-width items + (N−1)×8px gaps = 100%.
-                // Formula: calc(pct% − 8×(1−pct/100)px) where pct = effectiveSpan/GRID_COLS×100.
+                //   • canvasWidth < B   → isStacked: all widgets full-width
                 const defaultFlexGrow = Math.round(GRID_COLS / row.length);
-                // Compute the effective span for this responsive tier.
                 let effectiveViewSpan: number | null = null;
                 if (span != null) {
                   if (isStacked) {
-                    effectiveViewSpan = GRID_COLS; // 100%
+                    effectiveViewSpan = GRID_COLS;
                   } else if (isHalfStacked) {
                     effectiveViewSpan = Math.min(span * 2, GRID_COLS);
                   } else {
                     effectiveViewSpan = span;
                   }
                 }
-                // Gap-adjusted flex value for view mode.
                 const viewFlexBasis = (s: number): string => {
                   const pct = (s / GRID_COLS) * 100;
                   const gapAdj = 8 * (1 - s / GRID_COLS);
@@ -474,6 +375,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                       <StudioWidgetCard
                         widgetId={widgetId}
                         isFirstRow={rowIndex === 0}
+                        pageId={pageId}
                         pageTheme={pageTheme}
                         {...slotProps?.widgetCard}
                       />
@@ -516,16 +418,10 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                   </React.Fragment>
                 );
               })}
-              {/* Column grid lines overlay — shown during a resize drag on this row.
-                Lines are offset to align with the widget area, accounting for the
-                8px leading InsertionPoint and the 8px WidgetGap after each widget.
-                For a multi-widget row, columns that fall inside widget j must also
-                skip j WidgetGaps to the left of that widget, so the horizontal
-                offset is (j+1)*8px rather than a constant 8px. */}
+              {/* Column grid lines overlay — shown during a resize drag on this row. */}
               {liveDrag &&
                 row.includes(liveDrag.leftId) &&
                 (() => {
-                  // Build cumulative span array: cumSpans[j] = total span before widget j.
                   const flexGrowDefault = Math.round(GRID_COLS / row.length);
                   let acc = 0;
                   const cumSpans = row.map((wId) => {
@@ -541,8 +437,6 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                   });
                   return Array.from({ length: GRID_COLS - 1 }).map((_, i) => {
                     const col = i + 1;
-                    // Find the widget index j that this column boundary falls within.
-                    // j = the last widget whose cumulative start span ≤ col.
                     let j = 0;
                     for (let k = 1; k < cumSpans.length; k += 1) {
                       if (cumSpans[k] <= col) {
@@ -556,8 +450,6 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                           position: 'absolute',
                           top: 0,
                           bottom: 0,
-                          // Correct offset: (j+1) fixed-width items (1 IP + j gaps) before widget j,
-                          // plus the proportional column fraction across the total flex area.
                           left: `calc(${(j + 1) * 8}px + ${col / GRID_COLS} * (100% - ${(row.length + 1) * 8}px))`,
                           width: '1px',
                           bgcolor: 'divider',
@@ -581,6 +473,169 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
                 widgetRowsRef={widgetRowsRef}
               />
             )}
+          </Box>
+        );
+      })}
+    </>
+  );
+}
+
+export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvasProps) {
+  const { slotProps, stackBreakpoint: stackBreakpointProp = 600, sx } = props;
+  const mode = useStudioSelector(selectMode);
+  const features = useStudioFeatures();
+  const localeText = useStudioLocaleText();
+  const announce = useStudioAnnounce();
+  const activePage = useStudioSelector(selectActivePage);
+  const activePageId = activePage?.id;
+  const pages = useStudioSelector(selectPages);
+  const widgets = useStudioSelector(selectWidgets);
+  const dataSources = useStudioSelector(selectDataSources);
+  const customWidgetMap = useCustomWidgetMap();
+  const controller = useStudioController();
+  const canvasRef = React.useRef<HTMLDivElement>(null);
+
+  // Track which pages have ever been active — mount them once and keep alive.
+  // Inactive pages are hidden with display:none so their widgets stay mounted
+  // and data pipelines don't re-run when the user switches back.
+  const [mountedPageIds, setMountedPageIds] = React.useState<ReadonlySet<string>>(
+    () => new Set(activePageId ? [activePageId] : []),
+  );
+  React.useEffect(() => {
+    if (activePageId) {
+      setMountedPageIds((prev) =>
+        prev.has(activePageId) ? prev : new Set([...prev, activePageId]),
+      );
+    }
+  }, [activePageId]);
+
+  // Effective breakpoint for the resize observer (uses active page's override or the prop).
+  const effectiveBreakpoint =
+    activePage?.stackBreakpoint !== undefined ? activePage.stackBreakpoint : stackBreakpointProp;
+
+  // Track canvas width to determine when to stack widgets in view mode.
+  const [canvasWidth, setCanvasWidth] = React.useState<number | null>(null);
+  const enabled = mode !== 'edit' && effectiveBreakpoint !== 0;
+  useResizeObserver(
+    canvasRef,
+    (entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setCanvasWidth(entry.contentRect.width);
+      }
+    },
+    enabled,
+  );
+  // Set initial width on mount/mode-change (useResizeObserver only fires on subsequent resizes).
+  React.useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    const node = canvasRef.current;
+    if (node) {
+      setCanvasWidth(node.getBoundingClientRect().width);
+    }
+  }, [enabled]);
+
+  // ── Auto-scroll the canvas's scroll container while dragging near its edges ──
+  React.useEffect(() => {
+    if (mode !== 'edit' || process.env.NODE_ENV === 'test') {
+      return undefined;
+    }
+
+    function findScrollParent(el: Element | null): HTMLElement {
+      while (el && el !== document.documentElement) {
+        const { overflowY } = getComputedStyle(el);
+        if (overflowY === 'auto' || overflowY === 'scroll') {
+          return el as HTMLElement;
+        }
+        el = el.parentElement;
+      }
+      return (document.scrollingElement as HTMLElement) ?? document.documentElement;
+    }
+
+    return autoScrollForElements({ element: findScrollParent(canvasRef.current) });
+  }, [mode]);
+
+  if (!activePage?.widgetRows?.length) {
+    return (
+      <Box
+        ref={canvasRef}
+        sx={[{ p: mode === 'edit' ? 0 : '8px' }, ...(Array.isArray(sx) ? sx : [sx])]}
+      >
+        <Paper
+          variant="outlined"
+          role="status"
+          sx={{
+            alignItems: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            minHeight: 420,
+            p: 4,
+            borderStyle: 'dashed',
+            justifyContent: 'center',
+          }}
+        >
+          <Typography variant="h6" color="text.secondary">
+            Canvas is empty
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+            {mode === 'edit'
+              ? 'Use the Compose panel to add widgets or drag them here.'
+              : 'Switch to Edit mode to add widgets.'}
+          </Typography>
+        </Paper>
+      </Box>
+    );
+  }
+
+  return (
+    <Box
+      ref={canvasRef}
+      sx={[
+        {
+          width: '100%',
+          p: mode === 'edit' ? 0 : '8px',
+          backgroundColor: activePage?.theme?.pageBackground ?? undefined,
+          minHeight: '100%',
+        },
+        ...(Array.isArray(sx) ? sx : [sx]),
+      ]}
+      onMouseDown={(event) => {
+        // Deselect when clicking the canvas background (not a widget card)
+        const target = event.target as HTMLElement;
+        if (!target.closest('[data-widget-card]')) {
+          controller.setSelectedWidget(null);
+        }
+      }}
+    >
+      {/* Date range bar — shown in both modes when the page has date/datetime fields */}
+      {features.quickFilter && <StudioDateRangeBar />}
+
+      {/* Quick filter bar — view mode only, shown when page filters are active */}
+      {mode !== 'edit' && <StudioQuickFilterBar />}
+
+      {Object.values(pages).map((page) => {
+        if (!mountedPageIds.has(page.id)) {
+          return null;
+        }
+        return (
+          <Box key={page.id} sx={page.id !== activePageId ? { display: 'none' } : undefined}>
+            <StudioPageRows
+              page={page}
+              pageId={page.id}
+              mode={mode}
+              widgets={widgets}
+              dataSources={dataSources}
+              customWidgetMap={customWidgetMap}
+              canvasWidth={canvasWidth}
+              stackBreakpointProp={stackBreakpointProp}
+              slotProps={slotProps}
+              controller={controller}
+              announce={announce}
+              localeText={localeText}
+            />
           </Box>
         );
       })}

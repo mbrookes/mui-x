@@ -59,12 +59,14 @@ export interface StudioKpiWidgetSlotProps {
 export interface StudioKpiWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
+  /** ID of the page this widget belongs to. Used to scope page-level filters correctly. */
+  pageId: string;
   slots?: StudioKpiWidgetSlots;
   slotProps?: StudioKpiWidgetSlotProps;
 }
 
 export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: StudioKpiWidgetProps) {
-  const { dataSource, widget, slots, slotProps } = props;
+  const { dataSource, widget, pageId, slots, slotProps } = props;
 
   const ValueComponent = slots?.value ?? KpiValue;
   const SparklineComponent = slots?.sparkline ?? KpiSparkline;
@@ -98,6 +100,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const { filteredRowsNoCross, effectiveRows, isError, errorMessage } = useWidgetRows(
     widget,
     dataSource,
+    pageId,
   );
   const currentRows = crossFilterMode === 'none' ? filteredRowsNoCross : effectiveRows;
 

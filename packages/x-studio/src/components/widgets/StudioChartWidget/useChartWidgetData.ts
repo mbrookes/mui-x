@@ -32,7 +32,6 @@ import {
   selectFilters,
   selectDataSources,
   selectRelationships,
-  selectActivePageId,
   makeSelectExpressionFieldsForSource,
 } from '../../../context';
 import { usePageChartColors } from '../../../internals/usePageChartColors';
@@ -40,7 +39,11 @@ import { cachedCompute } from '../../../internals/computedCache';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { useChartRows } from '../../../internals/useChartRows';
 
-export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataSource | undefined) {
+export function useChartWidgetData(
+  widget: StudioWidget,
+  dataSource: StudioDataSource | undefined,
+  pageId: string,
+) {
   const { config } = widget;
   const xGroupBy = config.xGroupBy;
   const chartSortBy = config.chartSortBy;
@@ -73,7 +76,6 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
-  const activePageId = useStudioSelector(selectActivePageId);
   const selectExpressionFields = React.useMemo(
     () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
     [widget.sourceId],
@@ -103,7 +105,7 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
     isRecomputing,
     isError,
     errorMessage,
-  } = useWidgetRows(widget, dataSource);
+  } = useWidgetRows(widget, dataSource, pageId);
 
   // Resolve active y-fields: prefer ySeries, fall back to yField
   const activeYFields = React.useMemo(() => {
@@ -281,11 +283,11 @@ export function useChartWidgetData(widget: StudioWidget, dataSource: StudioDataS
       };
       map.set(
         spec.sid,
-        buildQueryDescriptor(syntheticWidget, spec.applicable, activePageId, src?.tableName),
+        buildQueryDescriptor(syntheticWidget, spec.applicable, pageId, src?.tableName),
       );
     }
     return map;
-  }, [foreignSpecs, blendSeries, config.xField, xGroupBy, widget.id, dataSources, activePageId]);
+  }, [foreignSpecs, blendSeries, config.xField, xGroupBy, widget.id, dataSources, pageId]);
 
   const [asyncForeignRows, setAsyncForeignRows] = React.useState<
     Map<string, Record<string, unknown>[]>

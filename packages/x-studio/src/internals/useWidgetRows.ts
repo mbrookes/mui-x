@@ -8,9 +8,8 @@ import {
   selectDataSources,
   selectRelationships,
   makeSelectExpressionFieldsForSources,
-  selectActivePageId,
-  selectPartitionedFilters,
-  selectPartitionedBaseFilters,
+  makeSelectPartitionedFiltersForPage,
+  makeSelectPartitionedBaseFiltersForPage,
 } from '../context';
 import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
@@ -93,13 +92,28 @@ interface UseWidgetRowsResult {
  *
  * @param widget  The widget whose rows are being resolved.
  * @param dataSource  The widget's primary data source (may be undefined while loading).
+ * @param pageId  The ID of the page this widget belongs to. Used to scope page-level and
+ *   cross-filters so that mounted-but-inactive pages see only their own page's filters.
  */
 export function useWidgetRows(
   widget: StudioWidget,
   dataSource: StudioDataSource | undefined,
+  pageId: string,
 ): UseWidgetRowsResult {
   const filters = useStudioSelector(selectFilters);
-  const partitioned = useStudioSelector(selectPartitionedFilters);
+
+  // Per-page filter selectors — scoped to this widget's own page, not the globally active page.
+  // This ensures that mounted-but-hidden pages don't pick up the wrong page's filters.
+  const selectPartitioned = React.useMemo(
+    () => makeSelectPartitionedFiltersForPage(pageId),
+    [pageId],
+  );
+  const selectBasePartitioned = React.useMemo(
+    () => makeSelectPartitionedBaseFiltersForPage(pageId),
+    [pageId],
+  );
+
+  const partitioned = useStudioSelector(selectPartitioned);
   const rawDeferredPartitioned = React.useDeferredValue(partitioned);
   // When cross-filters are being *removed* (live count < deferred count), use the
   // live value immediately — there's no heavy computation and the extra deferred
@@ -111,7 +125,7 @@ export function useWidgetRows(
       : rawDeferredPartitioned;
   // Separate deferred for isRecomputing — only triggers the loading overlay
   // for page/widget filter changes, not cross-filter or interactive changes.
-  const basePartitioned = useStudioSelector(selectPartitionedBaseFilters);
+  const basePartitioned = useStudioSelector(selectBasePartitioned);
   const deferredBasePartitioned = React.useDeferredValue(basePartitioned);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
@@ -141,7 +155,6 @@ export function useWidgetRows(
     [relevantSourceIds],
   );
   const expressionFields = useStudioSelector(selectExprFields);
-  const activePageId = useStudioSelector(selectActivePageId);
 
   // ── Async adapter path ──────────────────────────────────────────────────
   const hasAdapter = Boolean(dataSource?.adapter);
@@ -151,14 +164,8 @@ export function useWidgetRows(
     if (!hasAdapter || !widget.sourceId) {
       return null;
     }
-    return buildQueryDescriptor(
-      widget,
-      filters,
-      activePageId,
-      dataSource?.tableName,
-      expressionFields,
-    );
-  }, [hasAdapter, widget, filters, activePageId, dataSource, expressionFields]);
+    return buildQueryDescriptor(widget, filters, pageId, dataSource?.tableName, expressionFields);
+  }, [hasAdapter, widget, filters, pageId, dataSource, expressionFields]);
 
   // Async state: rows fetched from adapter.
   const [adapterRows, setAdapterRows] = React.useState<Row[]>(() => {
@@ -260,12 +267,12 @@ export function useWidgetRows(
     () =>
       !hasAdapter &&
       (deferredPartitioned.cross.some(
-        (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+        (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
       ) ||
         deferredPartitioned.interactive.some(
-          (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+          (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
         )),
-    [hasAdapter, deferredPartitioned, widget.id, activePageId],
+    [hasAdapter, deferredPartitioned, widget.id, pageId],
   );
 
   // Separate boolean for chart-click cross-filters only — interactive (filter widget)
@@ -273,10 +280,8 @@ export function useWidgetRows(
   const hasChartCrossFilters = React.useMemo(
     () =>
       !hasAdapter &&
-      deferredPartitioned.cross.some(
-        (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-      ),
-    [hasAdapter, deferredPartitioned, widget.id, activePageId],
+      deferredPartitioned.cross.some((f) => f.sourceWidgetId !== widget.id && f.pageId === pageId),
+    [hasAdapter, deferredPartitioned, widget.id, pageId],
   );
 
   const crossFilterMode = widget.config?.crossFilterMode ?? 'cross-highlight';
@@ -325,10 +330,10 @@ export function useWidgetRows(
       (f) => f.filterMode !== 'rank',
     );
     const crossFilters = deferredPartitioned.cross.filter(
-      (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+      (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
     );
     const interactiveFilters = deferredPartitioned.interactive.filter(
-      (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+      (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
     );
     const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters];
     return resolveRowsCached(
@@ -350,7 +355,7 @@ export function useWidgetRows(
     expressionFields,
     widget.id,
     widget.sourceId,
-    activePageId,
+    pageId,
     usedFieldIds,
   ]);
 
@@ -417,7 +422,7 @@ export function useWidgetRows(
       (f) => f.filterMode !== 'rank',
     );
     const interactiveFilters = deferredPartitioned.interactive.filter(
-      (f) => f.sourceWidgetId !== widget.id && f.pageId === activePageId,
+      (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
     );
     const allFilters = [...pageFilters, ...widgetFilters, ...interactiveFilters];
     return resolveRowsCached(
@@ -440,7 +445,7 @@ export function useWidgetRows(
     expressionFields,
     widget.id,
     widget.sourceId,
-    activePageId,
+    pageId,
     usedFieldIds,
   ]);
 

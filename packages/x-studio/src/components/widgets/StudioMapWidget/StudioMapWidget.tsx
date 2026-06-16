@@ -11,7 +11,6 @@ import {
   useStudioController,
   useStudioLocaleText,
   useStudioSelector,
-  selectActivePageId,
   makeSelectActiveCrossFilter,
 } from '../../../context';
 import { useStudioGeographies } from '../../../internals/StudioUIConfigContext';
@@ -29,6 +28,8 @@ import { formatFieldValue } from '../../../internals/numberFormat';
 export interface StudioMapWidgetProps {
   widget: StudioWidget;
   dataSource: StudioDataSource;
+  /** ID of the page this widget belongs to. Used to scope cross-filters to the correct page. */
+  pageId: string;
   /**
    * Additional geography definitions keyed by name.
    * Merges with the built-in `'world'`, `'usa'`, and `'europe'` geographies and any
@@ -102,18 +103,18 @@ function aggregateValues(values: number[], fn: AggFn): number {
 export function StudioMapWidget({
   widget,
   dataSource,
+  pageId,
   geographies: geographiesProp,
 }: StudioMapWidgetProps) {
   const localeText = useStudioLocaleText();
   const controller = useStudioController();
-  const activePageId = useStudioSelector(selectActivePageId);
   const selectActiveCrossFilter = React.useMemo(
-    () => makeSelectActiveCrossFilter(widget.id, activePageId),
-    [widget.id, activePageId],
+    () => makeSelectActiveCrossFilter(widget.id, pageId),
+    [widget.id, pageId],
   );
   const activeCrossFilter = useStudioSelector(selectActiveCrossFilter);
 
-  const { effectiveRows: rows, isLoading, isError } = useWidgetRows(widget, dataSource);
+  const { effectiveRows: rows, isLoading, isError } = useWidgetRows(widget, dataSource, pageId);
 
   const config = widget.config;
   const countryField = config.mapCountryField;

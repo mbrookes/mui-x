@@ -42,7 +42,12 @@ import type {
   ChatMessage as ChatMessageType,
   ChatPartRendererMap,
 } from '@mui/x-chat/headless';
-import { useChat, useMessage, createToolPartRenderer } from '@mui/x-chat/headless';
+import {
+  useChat,
+  useMessage,
+  useMessageContext,
+  createToolPartRenderer,
+} from '@mui/x-chat/headless';
 
 import {
   useStudioController,
@@ -332,16 +337,16 @@ interface StudioMessageMetadata {
   iterations?: number;
 }
 
-interface StudioMessageRootProps extends React.ComponentProps<typeof ChatMessage> {
-  messageId: string;
-}
-
 function StudioMessageRoot({
-  messageId,
   ref,
+  ownerState: _ownerState,
   ...rest
-}: StudioMessageRootProps & { ref?: React.Ref<HTMLDivElement> }) {
-  const message = useMessage(messageId);
+}: React.HTMLAttributes<HTMLDivElement> & {
+  ownerState?: unknown;
+  ref?: React.Ref<HTMLDivElement>;
+}) {
+  // messageId is not forwarded as a prop to the root slot — it lives in MessageContextProvider.
+  const { messageId, message } = useMessageContext();
   const metadata = message?.metadata as StudioMessageMetadata | undefined;
   const isAssistant = message?.role === 'assistant';
   const hasMetadata = Boolean(metadata?.model || metadata?.inputTokens != null);
@@ -1109,6 +1114,14 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
               messageActions: StudioMessageActions,
               // Consumer slot overrides come last
               ...slotProps?.chatBox?.slots,
+            }}
+            slotProps={{
+              // Keep suggestions wrapped in the narrow overlay panel — the default
+              // above-composer mode switches to nowrap+overflowX:auto which overflows.
+              suggestions: {
+                sx: { '&:not([data-empty])': { flexWrap: 'wrap', overflowX: 'unset' } },
+              },
+              ...slotProps?.chatBox?.slotProps,
             }}
             sx={{ height: '100%' }}
           />

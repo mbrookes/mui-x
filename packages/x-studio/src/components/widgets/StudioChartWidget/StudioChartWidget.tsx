@@ -931,6 +931,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       heatAggregation,
       xFieldDef?.orderedValues,
       yFieldDef?.orderedValues,
+      config.heatSortBy,
+      config.heatSortDirection,
     );
     const { xLabels, yLabels, cells, minValue, maxValue } = heatData;
     const seriesData: [number, number, number][] = [];
@@ -1007,6 +1009,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             direction: heatLegendDirection,
             minLabel: ({ value }) => heatValueFormatter(value as number),
             maxLabel: ({ value }) => heatValueFormatter(value as number),
+            // Match the map widget's legend dimensions (180px wide / 140px tall).
+            sx: isVerticalHeatLegend ? { height: 140 } : { width: 180 },
           },
         }}
       />

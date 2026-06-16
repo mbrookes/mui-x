@@ -273,14 +273,14 @@ const LAST_NAMES = [
   'Larsson',
 ];
 
-// ─── Source IDs (match static files) ─────────────────────────────────────────
+// ─── Source IDs ───────────────────────────────────────────────────────────────
 
-const CUSTOMERS_SOURCE_ID = 'source-customers';
-const PRODUCTS_SOURCE_ID = 'source-products';
-const ORDERS_SOURCE_ID = 'source-orders';
-const ORDER_ITEMS_SOURCE_ID = 'source-order-items';
-const SHIPMENTS_SOURCE_ID = 'source-shipments';
-const SHIPMENT_ITEMS_SOURCE_ID = 'source-shipment-items';
+export const CUSTOMERS_SOURCE_ID = 'source-customers';
+export const PRODUCTS_SOURCE_ID = 'source-products';
+export const ORDERS_SOURCE_ID = 'source-orders';
+export const ORDER_ITEMS_SOURCE_ID = 'source-order-items';
+export const SHIPMENTS_SOURCE_ID = 'source-shipments';
+export const SHIPMENT_ITEMS_SOURCE_ID = 'source-shipment-items';
 
 // ─── Generator options ────────────────────────────────────────────────────────
 

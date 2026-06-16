@@ -96,8 +96,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   aiCreateWidgetLoading: 'Criando\u2026',
   aiCreateWidgetError: 'Falha ao criar widget',
 
-  // AI dashboard summary panel
-  aiSummaryTitle: 'Resumo do painel',
+  // AI insight panel (per-widget summary/analysis/forecast)
+  aiSummaryTitle: 'Perspectiva IA',
   aiSummarizeTooltip: 'Resumir painel',
   aiRegenerateTooltip: 'Regenerar',
   aiCopyTooltip: 'Copiar',

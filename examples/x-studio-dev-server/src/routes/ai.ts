@@ -8,6 +8,7 @@ import {
   type StudioDataResolver,
 } from '@mui/x-studio-ai-middleware';
 import type { Config } from '../config.js';
+import { error } from '../logger.js';
 
 /** CRM tables live in a separate database (see crmSchema.ts / makeCrmDataRouter). */
 const CRM_TABLES = ['contacts', 'deals', 'activities'];
@@ -149,7 +150,7 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
 
       await pump();
     } catch (err) {
-      console.error('[ai] Stream error:', err);
+      error('[ai] Stream error:', err);
       const message = err instanceof Error ? err.message : String(err);
       res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
       res.end();

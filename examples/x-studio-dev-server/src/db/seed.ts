@@ -1,6 +1,7 @@
 import type { Knex } from 'knex';
 import { generateSalesData } from 'x-studio-shared';
 import { TABLE_NAMES } from './schema.js';
+import { log } from '../logger.js';
 
 export interface SeedOptions {
   orderCount?: number;
@@ -33,7 +34,7 @@ export async function seedIfEmpty(db: Knex, opts: SeedOptions = {}): Promise<voi
   }
 
   if (opts.force) {
-    console.log('[seed] Dropping existing data…');
+    log('[seed] Dropping existing data…');
     // Drop tables in reverse dependency order
     for (const table of TABLE_NAMES) {
       await db.schema.dropTableIfExists(table);
@@ -44,7 +45,7 @@ export async function seedIfEmpty(db: Knex, opts: SeedOptions = {}): Promise<voi
 }
 
 async function seed(db: Knex, opts: SeedOptions): Promise<void> {
-  console.log('[seed] Generating sales data…');
+  log('[seed] Generating sales data…');
   const data = generateSalesData({ seed: 42, orderCount: opts.orderCount ?? 500 });
 
   const {
@@ -56,7 +57,7 @@ async function seed(db: Knex, opts: SeedOptions): Promise<void> {
     shipmentItemsSource,
   } = data;
 
-  console.log(
+  log(
     `[seed] Inserting ${customersSource.rows?.length ?? 0} customers, ` +
       `${productsSource.rows?.length ?? 0} products, ` +
       `${ordersSource.rows?.length ?? 0} orders, ` +
@@ -73,7 +74,7 @@ async function seed(db: Knex, opts: SeedOptions): Promise<void> {
   await batchInsert(db, 'shipments', shipmentsSource.rows ?? []);
   await batchInsert(db, 'shipment_items', shipmentItemsSource.rows ?? []);
 
-  console.log('[seed] Done.');
+  log('[seed] Done.');
 }
 
 async function batchInsert(

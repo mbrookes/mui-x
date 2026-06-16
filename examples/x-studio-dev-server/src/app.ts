@@ -9,6 +9,7 @@ import { makeCrmDataRouter } from './routes/crmData.js';
 import { makeAIRouter } from './routes/ai.js';
 import { makeDevTokenRouter } from './routes/devToken.js';
 import { makeMcpRouter } from './routes/mcp.js';
+import { error } from './logger.js';
 
 export function buildApp(salesDb: Knex, crmDb: Knex, config: Config): express.Application {
   const app = express();
@@ -42,7 +43,7 @@ export function buildApp(salesDb: Knex, crmDb: Knex, config: Config): express.Ap
       res: express.Response,
       _next: express.NextFunction,
     ): void => {
-      console.error('[app] Unhandled error:', err);
+      error('[app] Unhandled error:', err);
       const message = err instanceof Error ? err.message : 'Internal server error';
       res.status(500).json({ error: message });
     },

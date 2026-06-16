@@ -37,9 +37,12 @@ function pivotWidget(config: Partial<StudioWidgetConfig>): StudioWidget {
 
 function renderWidget(config: Partial<StudioWidgetConfig>, dataSource = source()) {
   const { wrapper } = createStudioHarness();
-  return render(<StudioPivotWidget widget={pivotWidget(config)} dataSource={dataSource} />, {
-    wrapper,
-  });
+  return render(
+    <StudioPivotWidget widget={pivotWidget(config)} dataSource={dataSource} pageId="page-1" />,
+    {
+      wrapper,
+    },
+  );
 }
 
 describe('StudioPivotWidget', () => {

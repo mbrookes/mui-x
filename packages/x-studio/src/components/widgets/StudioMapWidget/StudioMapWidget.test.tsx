@@ -146,7 +146,7 @@ function createState(overrides?: Partial<StudioState>): StudioState {
 async function renderMap(widget: StudioWidget) {
   const view = render(
     <ThemeProvider theme={createTheme()}>
-      <StudioMapWidget widget={widget} dataSource={dataSource} />
+      <StudioMapWidget widget={widget} dataSource={dataSource} pageId="page-1" />
     </ThemeProvider>,
   );
   // Flush the async geography loader so the plot renders.

@@ -4,6 +4,7 @@ import { Box } from '@mui/material';
 import {
   useStudioSelector,
   selectWidgets,
+  selectActivePageId,
   makeSelectWidgetSource,
   useCustomWidgetMap,
 } from '../../context';
@@ -24,6 +25,7 @@ export function BuiltinWidgetPreview({ widgetId }: { widgetId: string }) {
   const widget = widgets[widgetId];
   const selectSource = React.useMemo(() => makeSelectWidgetSource(widgetId), [widgetId]);
   const source = useStudioSelector(selectSource);
+  const pageId = useStudioSelector(selectActivePageId);
   const customWidgetMap = useCustomWidgetMap();
   const customDef = widget ? (customWidgetMap.get(widget.kind) ?? null) : null;
 
@@ -33,17 +35,28 @@ export function BuiltinWidgetPreview({ widgetId }: { widgetId: string }) {
 
   return (
     <React.Fragment>
-      {widget.kind === 'grid' && <StudioGridWidget widget={widget} dataSource={source} />}
-      {widget.kind === 'chart' && (
-        <StudioChartWidget widget={widget} dataSource={source} height={CHART_MIN_HEIGHT} />
+      {widget.kind === 'grid' && (
+        <StudioGridWidget widget={widget} dataSource={source} pageId={pageId} />
       )}
-      {widget.kind === 'kpi' && <StudioKpiWidget widget={widget} dataSource={source} />}
+      {widget.kind === 'chart' && (
+        <StudioChartWidget
+          widget={widget}
+          dataSource={source}
+          pageId={pageId}
+          height={CHART_MIN_HEIGHT}
+        />
+      )}
+      {widget.kind === 'kpi' && (
+        <StudioKpiWidget widget={widget} dataSource={source} pageId={pageId} />
+      )}
       {widget.kind === 'text' && <StudioTextWidget widget={widget} />}
       {widget.kind === 'filter' && <StudioFilterWidget widget={widget} dataSource={source} />}
-      {widget.kind === 'pivot' && <StudioPivotWidget widget={widget} dataSource={source} />}
+      {widget.kind === 'pivot' && (
+        <StudioPivotWidget widget={widget} dataSource={source} pageId={pageId} />
+      )}
       {widget.kind === 'map' && (
         <Box sx={{ height: MAP_WIDGET_DEFAULT_HEIGHT }}>
-          {source && <StudioMapWidget widget={widget} dataSource={source} />}
+          {source && <StudioMapWidget widget={widget} dataSource={source} pageId={pageId} />}
         </Box>
       )}
       {customDef && <customDef.component widget={widget} dataSource={source ?? undefined} />}

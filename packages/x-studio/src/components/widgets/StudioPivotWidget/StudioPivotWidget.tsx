@@ -11,11 +11,18 @@ import { buildPivotMatrix, pivotToCsv, downloadCsv } from './pivotUtils';
 export interface StudioPivotWidgetProps {
   widget: StudioWidget;
   dataSource?: StudioDataSource;
+  /** ID of the page this widget belongs to. Used to scope page-level filters correctly. */
+  pageId: string;
   /** Ref populated with an export function when data is available, or null when not. */
   exportRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-export function StudioPivotWidget({ widget, dataSource, exportRef }: StudioPivotWidgetProps) {
+export function StudioPivotWidget({
+  widget,
+  dataSource,
+  pageId,
+  exportRef,
+}: StudioPivotWidgetProps) {
   const { config } = widget;
   const {
     pivotRowField,
@@ -25,7 +32,11 @@ export function StudioPivotWidget({ widget, dataSource, exportRef }: StudioPivot
     pivotShowTotals = true,
   } = config;
 
-  const { filteredRows, isLoading, isError, errorMessage } = useWidgetRows(widget, dataSource);
+  const { filteredRows, isLoading, isError, errorMessage } = useWidgetRows(
+    widget,
+    dataSource,
+    pageId,
+  );
   const localeText = useStudioLocaleText();
 
   const matrix = React.useMemo(() => {

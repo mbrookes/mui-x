@@ -32,9 +32,16 @@ function setup(
     },
   });
   const setSelectedSpy = vi.spyOn(controller, 'setSelectedWidget');
-  render(<StudioWidgetCard widgetId={w.id} onUnconfiguredClick={options.onUnconfiguredClick} />, {
-    wrapper,
-  });
+  render(
+    <StudioWidgetCard
+      widgetId={w.id}
+      pageId="page-1"
+      onUnconfiguredClick={options.onUnconfiguredClick}
+    />,
+    {
+      wrapper,
+    },
+  );
   // The card root carries aria-label `Widget: <title>` (filtersSectionWidgetTitle).
   const card = screen.getByLabelText(/^Widget: /);
   return { card, controller, setSelectedSpy };

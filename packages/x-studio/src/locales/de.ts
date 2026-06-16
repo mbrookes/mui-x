@@ -467,6 +467,11 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   kpiSetupTargetHelperText:
     'Referenzwert für die Ziellinie in der Sparkline. Wenn Trend ebenfalls aktiviert ist, vergleicht der Delta-Indikator den aktuellen Wert mit diesem Ziel.',
   kpiSetupInvertColours: 'Farben invertieren (kleiner ist besser)',
+  kpiSetupFixedWindowLabel: 'Trend window',
+  kpiSetupFixedWindowNone: 'From date filter',
+  kpiSetupFixedWindowMonth: 'Last 30 days',
+  kpiSetupFixedWindowQuarter: 'Last 90 days',
+  kpiSetupFixedWindowYear: 'Last 365 days',
 
   // KPI widget
   kpiGrandTotalTooltip:

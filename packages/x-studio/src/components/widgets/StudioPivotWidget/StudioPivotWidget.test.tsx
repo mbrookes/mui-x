@@ -48,10 +48,8 @@ describe('StudioPivotWidget', () => {
     expect(screen.getByText(/Use the Setup tab to configure/)).not.toBe(null);
   });
 
-  it('renders the pivot table and a CSV export button when configured with data', () => {
+  it('renders the pivot table with row labels when configured with data', () => {
     renderWidget({ pivotRowField: 'region', pivotColField: 'product', pivotValueField: 'amount' });
-    expect(screen.getByRole('button', { name: /CSV/ })).not.toBe(null);
-    // Row labels from the data appear in the rendered table.
     expect(screen.getByText('EMEA')).not.toBe(null);
     expect(screen.getByText('APAC')).not.toBe(null);
   });

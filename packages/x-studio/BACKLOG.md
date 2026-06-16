@@ -41,3 +41,7 @@
 ✅ BL-213: Guage spark should show percentage above 100 when the value is greater than the target. Also change the label on the textfield from Guage Max to Target, along with localisations.
 
 **Fixed** (`KpiSparkline.tsx`): Removed `Math.min(..., 100)` cap on `percentValue` so values exceeding the target display as e.g. 125%. Renamed `kpiSetupGaugeMaxLabel` to `'Target'` (and locale equivalents in de/es/fr/ptBR).
+
+✅ BL-214: The widget drag ghost image shows a cropped version of the widget toolbar. Hide the toolbar when dragging starts.
+
+**Fixed** (`createClonePreview.ts`): After cloning the source node, hide all `[data-widget-overlay]` elements in the clone so the toolbar is absent from the drag ghost image.

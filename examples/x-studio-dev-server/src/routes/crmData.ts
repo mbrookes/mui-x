@@ -3,6 +3,7 @@ import type { Knex } from 'knex';
 import { handleBatchQuery } from '@mui/x-studio-data-middleware';
 import type { Config } from '../config.js';
 import { resolveClaims } from '../middleware/claims.js';
+import { error } from '../logger.js';
 
 const CRM_SCHEMA_ALLOWLIST = ['contacts', 'deals', 'activities'];
 
@@ -34,7 +35,7 @@ export function makeCrmDataRouter(crmDb: Knex, config: Config): Router {
         res.status(403).json({ error: message });
         return;
       }
-      console.error('[crm-data] Query error:', err);
+      error('[crm-data] Query error:', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });

@@ -3,6 +3,7 @@ import type { Knex } from 'knex';
 import { handleBatchQuery } from '@mui/x-studio-data-middleware';
 import type { Config } from '../config.js';
 import { resolveClaims } from '../middleware/claims.js';
+import { error } from '../logger.js';
 
 const SALES_SCHEMA_ALLOWLIST = [
   'customers',
@@ -43,7 +44,7 @@ export function makeSalesDataRouter(salesDb: Knex, config: Config): Router {
         res.status(403).json({ error: message });
         return;
       }
-      console.error('[sales-data] Query error:', err);
+      error('[sales-data] Query error:', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });

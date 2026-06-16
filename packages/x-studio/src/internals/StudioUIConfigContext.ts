@@ -956,14 +956,6 @@ export interface StudioLocaleText {
   funnelChartAriaLabel: (stageCount: number, details: string) => string;
   /** Text alternative for the gantt chart */
   ganttChartAriaLabel: (itemCount: number, from: string, to: string, details: string) => string;
-  /** Text alternative for the heatmap chart */
-  heatmapChartAriaLabel: (
-    columnCount: number,
-    rowCount: number,
-    axisSummary: string,
-    min: string,
-    max: string,
-  ) => string;
   /** Text alternative for the sankey diagram */
   sankeyChartAriaLabel: (nodeCount: number, linkCount: number, details: string) => string;
   /** Text alternative for the KPI gauge */
@@ -1843,10 +1835,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
     `Gantt chart with ${itemCount} ${
       itemCount === 1 ? 'item' : 'items'
     } from ${from} to ${to}. ${details}.`,
-  heatmapChartAriaLabel: (columnCount, rowCount, axisSummary, min, max) =>
-    `Heatmap with ${columnCount} ${columnCount === 1 ? 'column' : 'columns'} and ${rowCount} ${
-      rowCount === 1 ? 'row' : 'rows'
-    }${axisSummary ? ` (${axisSummary})` : ''}. Values range from ${min} to ${max}.`,
   sankeyChartAriaLabel: (nodeCount, linkCount, details) =>
     `Sankey flow diagram with ${nodeCount} ${nodeCount === 1 ? 'node' : 'nodes'} and ${linkCount} ${
       linkCount === 1 ? 'link' : 'links'

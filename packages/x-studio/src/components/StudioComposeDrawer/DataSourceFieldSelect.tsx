@@ -19,6 +19,38 @@ import { fieldHasCapability, type FieldCapability } from '../../utils/fieldCapab
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
+interface CalcFieldPaperProps extends PaperProps {
+  buttonLabel: string;
+  onOpen: () => void;
+}
+
+function CalcFieldPaper({ children, buttonLabel, onOpen, ...rest }: CalcFieldPaperProps) {
+  return (
+    <Paper {...rest}>
+      {children}
+      <Divider />
+      <Button
+        fullWidth
+        size="small"
+        startIcon={<FunctionsIcon fontSize="small" />}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          onOpen();
+        }}
+        sx={{
+          justifyContent: 'flex-start',
+          textTransform: 'none',
+          color: 'text.secondary',
+          px: 2,
+          py: 1,
+        }}
+      >
+        {buttonLabel}
+      </Button>
+    </Paper>
+  );
+}
+
 export interface DataSourceFieldEntry {
   id: string;
   label: string;
@@ -168,42 +200,18 @@ export function DataSourceFieldSelect({
   // Rendered via a custom Paper (not as an option) so it stays out of groupBy /
   // getOptionLabel / option-equality, and existing option-based tests are unaffected.
   // onMouseDown preventDefault keeps the click from blurring + closing the popper first.
-  const CalcFieldPaper = React.useMemo(() => {
-    if (!calculatedField) {
-      return undefined;
-    }
-    // Memoised so the component identity is stable across renders (changes only when
-    // calculatedField/localeText change) — the remount concern react/no-unstable-nested-components
-    // guards against does not apply here, and PaperComponent must close over render-scope handlers.
-    // eslint-disable-next-line react/no-unstable-nested-components
-    return function PaperWithCalcField(paperProps: PaperProps) {
-      const { children, ...rest } = paperProps;
-      return (
-        <Paper {...rest}>
-          {children}
-          <Divider />
-          <Button
-            fullWidth
-            size="small"
-            startIcon={<FunctionsIcon fontSize="small" />}
-            onMouseDown={(event) => {
-              event.preventDefault();
-              setCalcDialogOpen(true);
-            }}
-            sx={{
-              justifyContent: 'flex-start',
-              textTransform: 'none',
-              color: 'text.secondary',
-              px: 2,
-              py: 1,
-            }}
-          >
-            {localeText.dataSourceAddCalculatedField}
-          </Button>
-        </Paper>
-      );
-    };
-  }, [calculatedField, localeText.dataSourceAddCalculatedField]);
+  const handleOpenCalcDialog = React.useCallback(() => setCalcDialogOpen(true), []);
+  const CalcFieldPaperWrapper = React.useCallback(
+    (paperProps: PaperProps) => (
+      <CalcFieldPaper
+        {...paperProps}
+        buttonLabel={localeText.dataSourceAddCalculatedField}
+        onOpen={handleOpenCalcDialog}
+      />
+    ),
+    [localeText.dataSourceAddCalculatedField, handleOpenCalcDialog],
+  );
+  const calcFieldPaperSlot = calculatedField ? CalcFieldPaperWrapper : undefined;
 
   const calcDialog = calculatedField ? (
     <StudioExpressionFieldDialog
@@ -270,7 +278,7 @@ export function DataSourceFieldSelect({
               </li>
             );
           }}
-          slots={CalcFieldPaper ? { paper: CalcFieldPaper } : undefined}
+          slots={calcFieldPaperSlot ? { paper: calcFieldPaperSlot } : undefined}
           getOptionDisabled={getOptionDisabled}
           disabled={disabled}
           value={selectedOption}

@@ -123,67 +123,64 @@ const DEFAULT_EMBED_FLAGS: StudioFeatureFlags = {
  *
  * @see `Studio` for the full authoring component.
  */
-export const StudioDashboard = React.memo(
-  React.forwardRef<StudioHandle, StudioDashboardProps>(function StudioDashboard(props, ref) {
-    const {
-      config,
-      dataAdapters,
-      onStateChange,
-      featureFlags,
-      localeText,
-      stackBreakpoint,
-      sidebarSide,
-      customWidgets,
-      geographies,
-      sx,
-    } = props;
+export const StudioDashboard = React.memo(function StudioDashboard({
+  ref,
+  config,
+  dataAdapters,
+  onStateChange,
+  featureFlags,
+  localeText,
+  stackBreakpoint,
+  sidebarSide,
+  customWidgets,
+  geographies,
+  sx,
+}: StudioDashboardProps & { ref?: React.Ref<StudioHandle> }) {
+  // Merge caller-supplied flags on top of view-only defaults
 
-    // Merge caller-supplied flags on top of view-only defaults
+  const mergedFlags = React.useMemo<StudioFeatureFlags>(
+    () => ({ ...DEFAULT_EMBED_FLAGS, ...featureFlags }),
+    [featureFlags],
+  );
 
-    const mergedFlags = React.useMemo<StudioFeatureFlags>(
-      () => ({ ...DEFAULT_EMBED_FLAGS, ...featureFlags }),
-      [featureFlags],
-    );
+  const innerRef = React.useRef<StudioHandle>(null);
 
-    const innerRef = React.useRef<StudioHandle>(null);
+  // Expose the underlying handle to the caller's ref
+  React.useImperativeHandle(ref, () => innerRef.current!, []);
 
-    // Expose the underlying handle to the caller's ref
-    React.useImperativeHandle(ref, () => innerRef.current!, []);
+  // Load new config whenever the prop reference changes.
+  // We compare by reference (not deep equality) to avoid unnecessary reloads.
+  const prevConfigRef = React.useRef<StudioState | null>(null);
+  React.useEffect(() => {
+    if (prevConfigRef.current !== null && prevConfigRef.current !== config) {
+      innerRef.current?.loadSerializedState(JSON.stringify(config));
+    }
+    prevConfigRef.current = config;
+  }, [config]);
 
-    // Load new config whenever the prop reference changes.
-    // We compare by reference (not deep equality) to avoid unnecessary reloads.
-    const prevConfigRef = React.useRef<StudioState | null>(null);
-    React.useEffect(() => {
-      if (prevConfigRef.current !== null && prevConfigRef.current !== config) {
-        innerRef.current?.loadSerializedState(JSON.stringify(config));
-      }
-      prevConfigRef.current = config;
-    }, [config]);
+  // Register/update data adapters whenever they change.
+  React.useEffect(() => {
+    if (!dataAdapters) {
+      return;
+    }
+    for (const [sourceId, adapter] of Object.entries(dataAdapters)) {
+      innerRef.current?.setDataSourceAdapter(sourceId, adapter);
+    }
+  }, [dataAdapters]);
 
-    // Register/update data adapters whenever they change.
-    React.useEffect(() => {
-      if (!dataAdapters) {
-        return;
-      }
-      for (const [sourceId, adapter] of Object.entries(dataAdapters)) {
-        innerRef.current?.setDataSourceAdapter(sourceId, adapter);
-      }
-    }, [dataAdapters]);
-
-    return (
-      <Box sx={sx}>
-        <Studio
-          ref={innerRef}
-          initialState={config}
-          onStateChange={onStateChange}
-          featureFlags={mergedFlags}
-          localeText={localeText}
-          stackBreakpoint={stackBreakpoint}
-          sidebarSide={sidebarSide}
-          customWidgets={customWidgets}
-          geographies={geographies}
-        />
-      </Box>
-    );
-  }),
-);
+  return (
+    <Box sx={sx}>
+      <Studio
+        ref={innerRef}
+        initialState={config}
+        onStateChange={onStateChange}
+        featureFlags={mergedFlags}
+        localeText={localeText}
+        stackBreakpoint={stackBreakpoint}
+        sidebarSide={sidebarSide}
+        customWidgets={customWidgets}
+        geographies={geographies}
+      />
+    </Box>
+  );
+});

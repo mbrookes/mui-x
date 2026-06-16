@@ -445,9 +445,9 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'widget-chart-country': {
       id: 'widget-chart-country',
       kind: 'chart',
-      title: 'Revenue by Country',
+      title: 'Revenue by Status',
       sourceId: ORDERS_SOURCE_ID,
-      config: { chartType: 'pie', xField: 'expr-order-country', yField: 'total' },
+      config: { chartType: 'donut', xField: 'status', yField: 'total' },
     },
     'widget-orders-grid': {
       id: 'widget-orders-grid',

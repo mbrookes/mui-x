@@ -238,7 +238,14 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
 
     if (config.kpiSparkline) {
       const dateFilter = findDateFilter(filters, widget.id, dataSource);
-      const timeField = dateFilter?.field ?? config.kpiSparklineField ?? null;
+      // Only use the date filter's field as the time axis when the filter applies to the
+      // widget's own source. Cross-source filters (e.g. an orders.date filter on a customers
+      // widget) narrow the result set correctly but their field name doesn't exist on the
+      // widget's rows, so using it as timeField would produce an empty sparkline.
+      const dateFilterIsNative =
+        !dateFilter?.filterSourceId || dateFilter.filterSourceId === widget.sourceId;
+      const timeField =
+        (dateFilterIsNative ? dateFilter?.field : null) ?? config.kpiSparklineField ?? null;
 
       if (timeField) {
         kpiSparklineTimeField = timeField;

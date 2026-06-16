@@ -499,11 +499,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
         kpiAggregation: 'avg',
         kpiCompact: false,
         kpiTrend: true,
-        kpiSparkline: true,
-        kpiSparklineField: 'date',
-        kpiSparklineSourceId: ORDERS_SOURCE_ID,
-        kpiSparklinePlotType: 'line',
-        kpiSparklineGranularity: 'quarter',
       },
     },
     'widget-kpi2-inventory-value': {

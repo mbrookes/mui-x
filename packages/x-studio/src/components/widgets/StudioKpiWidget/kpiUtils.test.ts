@@ -272,6 +272,21 @@ describe('computeAggregate', () => {
     expect(computeAggregate([], 'total', 'sum')).toBe(0);
     expect(computeAggregate([], 'total', 'count')).toBe(0);
   });
+
+  it('avg of boolean field returns correct ratio (true=1, false=0)', () => {
+    const boolRows = [
+      { onTime: true },
+      { onTime: true },
+      { onTime: true },
+      { onTime: false },
+    ];
+    expect(computeAggregate(boolRows, 'onTime', 'avg')).toBe(0.75);
+  });
+
+  it('sum of boolean field counts trues as 1', () => {
+    const boolRows = [{ onTime: true }, { onTime: false }, { onTime: true }];
+    expect(computeAggregate(boolRows, 'onTime', 'sum')).toBe(2);
+  });
 });
 
 describe('autoGranularity', () => {

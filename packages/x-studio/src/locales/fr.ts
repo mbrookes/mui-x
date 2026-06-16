@@ -363,6 +363,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chartSetupSortByLabel: 'Trier par',
   chartSetupSortCategory: 'Catégorie',
   chartSetupSortValue: 'Valeur',
+  chartSetupSortNatural: 'Naturel',
   chartSetupSortNone: 'Aucun',
   chartSetupSortPercent: 'Pourcentage',
   chartSetupSortDirectionAriaLabel: 'Sens de commande',

@@ -333,10 +333,13 @@ function generateCustomers(rng: Rng, count: number): StudioDataSource {
 function generateProducts(rng: Rng): StudioDataSource {
   const rows: Record<string, unknown>[] = PRODUCT_SPECS.map(
     ([name, category, basePrice, baseCost, maxStock, reorderLevel], i) => {
-      // Add slight random variation to prices (±10%) while preserving category character
+      // Add slight random variation to prices and costs independently (±10%)
+      // so that unit margin (price − cost) varies independently from price,
+      // preventing a straight-line scatter on the Price vs. Unit Margin chart.
       const priceVariation = 0.9 + rng() * 0.2;
+      const costVariation = 0.9 + rng() * 0.2;
       const rawPrice = roundCurrency(basePrice * priceVariation);
-      const rawCost = roundCurrency(baseCost * priceVariation);
+      const rawCost = roundCurrency(baseCost * costVariation);
       const multiplier = CATEGORY_REVENUE_MULTIPLIERS[category] ?? 1;
       return {
         id: `PRD-${zeroPad(i + 1, 3)}`,

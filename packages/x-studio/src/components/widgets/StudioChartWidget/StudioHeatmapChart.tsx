@@ -163,6 +163,7 @@ export function StudioHeatmapChart({
                 sx={{
                   flex: '1 1 0',
                   minWidth: CELL_MIN_WIDTH,
+                  maxWidth: 80,
                   display: 'flex',
                   justifyContent: 'center',
                   alignItems: 'flex-end',
@@ -191,7 +192,7 @@ export function StudioHeatmapChart({
 
           {/* Cell rows */}
           {yLabels.map((yLbl) => (
-            <Box key={yLbl} sx={{ display: 'flex', height: cellHeight, gap: '1px', mb: '1px' }}>
+            <Box key={yLbl} sx={{ display: 'flex', height: cellHeight }}>
               {xLabels.map((xLbl) => {
                 const key = `${xLbl}\x00${yLbl}`;
                 const value = cells.get(key) ?? 0;
@@ -209,11 +210,12 @@ export function StudioHeatmapChart({
                       sx={{
                         flex: '1 1 0',
                         minWidth: CELL_MIN_WIDTH,
+                        maxWidth: 80,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         backgroundColor: bgColor,
-                        borderRadius: 0.5,
+                        borderRadius: 0,
                         cursor: 'default',
                         transition: 'filter 0.15s',
                         '&:hover': { filter: 'brightness(0.92)' },

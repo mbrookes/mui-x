@@ -497,42 +497,46 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
           {/* Sort controls — shown when x-field is set on categorical charts (not scatter, not gauge, not gantt, not sankey) */}
           {config.xField && !isScatter && !isSankey && (
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-              <FormControl size="small" sx={{ flex: 1 }}>
+            <Stack direction="column" spacing={1}>
+              <FormControl size="small" fullWidth>
                 <InputLabel>{localeText.chartSetupSortByLabel}</InputLabel>
                 <Select
                   label={localeText.chartSetupSortByLabel}
                   value={config.chartSortBy ?? 'category'}
                   onChange={(evt) => {
                     controller.updateWidgetConfig(widgetId, {
-                      chartSortBy: evt.target.value as 'category' | 'value',
+                      chartSortBy: evt.target.value as 'category' | 'value' | 'natural',
                     });
                   }}
                 >
                   <MenuItem value="category">{localeText.chartSetupSortCategory}</MenuItem>
                   <MenuItem value="value">{localeText.chartSetupSortValue}</MenuItem>
+                  <MenuItem value="natural">{localeText.chartSetupSortNatural}</MenuItem>
                 </Select>
               </FormControl>
-              <ToggleButtonGroup
-                value={config.chartSortDirection ?? 'asc'}
-                exclusive
-                onChange={(_e, val) => {
-                  if (val) {
-                    controller.updateWidgetConfig(widgetId, {
-                      chartSortDirection: val as 'asc' | 'desc',
-                    });
-                  }
-                }}
-                size="small"
-                aria-label={localeText.chartSetupSortDirectionAriaLabel}
-              >
-                <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
-                  {`↑ ${localeText.sortAscendingAriaLabel}`}
-                </ToggleButton>
-                <ToggleButton value="desc" aria-label={localeText.sortDescendingAriaLabel}>
-                  {`↓ ${localeText.sortDescendingAriaLabel}`}
-                </ToggleButton>
-              </ToggleButtonGroup>
+              {(config.chartSortBy ?? 'category') !== 'natural' && (
+                <ToggleButtonGroup
+                  value={config.chartSortDirection ?? 'asc'}
+                  exclusive
+                  onChange={(_e, val) => {
+                    if (val) {
+                      controller.updateWidgetConfig(widgetId, {
+                        chartSortDirection: val as 'asc' | 'desc',
+                      });
+                    }
+                  }}
+                  size="small"
+                  aria-label={localeText.chartSetupSortDirectionAriaLabel}
+                  sx={{ alignSelf: 'flex-start' }}
+                >
+                  <ToggleButton value="asc" aria-label={localeText.sortAscendingAriaLabel}>
+                    {localeText.sortAscendingAriaLabel}
+                  </ToggleButton>
+                  <ToggleButton value="desc" aria-label={localeText.sortDescendingAriaLabel}>
+                    {localeText.sortDescendingAriaLabel}
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              )}
             </Stack>
           )}
 
@@ -1015,13 +1019,14 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         </Stack>
       )}
 
-      {/* Annotations — reference lines (not for pie/donut/gauge/gantt/sankey) */}
+      {/* Annotations — reference lines (not for pie/donut/gauge/gantt/sankey/heatmap) */}
       {features.chartAnnotations !== false &&
         chartType !== 'pie' &&
         chartType !== 'donut' &&
         chartType !== 'gauge' &&
         chartType !== 'gantt' &&
-        chartType !== 'sankey' && (
+        chartType !== 'sankey' &&
+        chartType !== 'heatmap' && (
           <div>
             <Divider sx={{ mb: 1.5 }} />
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>

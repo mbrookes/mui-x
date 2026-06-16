@@ -1,6 +1,9 @@
 {
   "componentDescription": "",
   "propDescriptions": {
+    "autoSubmitInitialValue": {
+      "description": "When <code>true</code>, the current composer value is automatically submitted once on mount. Use together with <code>initialComposerValue</code> to send a pre-filled message without requiring user interaction."
+    },
     "classes": { "description": "Override or extend the styles applied to the component." },
     "currentUser": {
       "description": "The local user sending messages. If omitted, derived from <code>members</code> by finding the entry with <code>role === &#39;user&#39;</code>. Also used to enrich message authors when a rendered message resolves to <code>currentUser.id</code>."

@@ -105,7 +105,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
         ['widget-text-analytics'],
         ['widget-pivot-revenue-by-segment'],
         ['widget-chart5-order-funnel', 'widget-chart5-revenue-mixed'],
-        ['widget-chart5-revenue-flow'],
         ['widget-chart5-revenue-vs-stock-blend'],
       ],
     },
@@ -964,20 +963,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
         yAggregation: 'count',
         chartSortBy: 'category' as const,
         barLayout: 'horizontal' as const,
-      },
-    },
-    'widget-chart5-revenue-flow': {
-      id: 'widget-chart5-revenue-flow',
-      kind: 'chart',
-      title: 'Revenue Flow: Category → Product',
-      titleMode: 'manual',
-      sourceId: ORDER_ITEMS_SOURCE_ID,
-      config: {
-        chartType: 'sankey',
-        xField: 'category',
-        sankeyTargetField: 'product',
-        yField: 'total',
-        sankeyLinkColor: 'source',
       },
     },
     'widget-chart5-revenue-mixed': {

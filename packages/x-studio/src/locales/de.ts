@@ -457,7 +457,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   kpiSetupValueFieldLabel: 'Wertfeld',
   kpiSetupValueFieldHelperText: 'Feld zum Hinzufügen',
   kpiSetupSparklineLabel: 'Sparkline',
-  kpiSetupGaugeMaxLabel: 'Messgerät Max',
+  kpiSetupGaugeMaxLabel: 'Ziel',
   kpiSetupTrendLabel: 'Trend',
   kpiSetupDateRangeLabel: 'Datumsbereich',
   kpiSetupDateRangeFieldLabel: 'Datumsfeld',

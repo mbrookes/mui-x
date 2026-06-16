@@ -47,7 +47,7 @@ export function KpiSparkline(props: KpiSparklineProps) {
     const value = kpiValue ?? 0;
     // Sanitize range — guard against NaN and zero-width ranges
     const safeMax = Number.isFinite(gaugeMax) && gaugeMax > 0 ? gaugeMax : 1;
-    const percentValue = Math.min(Math.max((value / safeMax) * 100, 0), 100);
+    const percentValue = Math.max((value / safeMax) * 100, 0);
     // Text alternative: the gauge is a visual-only SVG.
     const gaugeAriaLabel = localeText.kpiGaugeAriaLabel(
       fmt(value),

@@ -455,7 +455,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   kpiSetupValueFieldLabel: 'Campo de valor',
   kpiSetupValueFieldHelperText: 'Campo para agregar',
   kpiSetupSparklineLabel: 'minigráfico',
-  kpiSetupGaugeMaxLabel: 'Máx. del indicador',
+  kpiSetupGaugeMaxLabel: 'Meta',
   kpiSetupTrendLabel: 'Tendencia',
   kpiSetupDateRangeLabel: 'Rango de fechas',
   kpiSetupDateRangeFieldLabel: 'Campo de fecha',

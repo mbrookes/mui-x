@@ -14,7 +14,7 @@ export function AppLocaleProvider({
 }
 
 export function useAppLocaleText(): AppLocaleText {
-  const ctx = React.useContext(AppLocaleContext);
+  const ctx = React.use(AppLocaleContext);
   if (!ctx) {
     throw new Error('useAppLocaleText must be used within AppLocaleProvider');
   }

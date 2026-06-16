@@ -13,7 +13,7 @@ const StudioAnnounceContext = React.createContext<StudioAnnounce>(() => {});
  * technology. No-ops when used outside `StudioLiveRegionProvider`.
  */
 export function useStudioAnnounce(): StudioAnnounce {
-  return React.useContext(StudioAnnounceContext);
+  return React.use(StudioAnnounceContext);
 }
 
 const visuallyHiddenSx = {

@@ -86,7 +86,10 @@ export function computeBannerValue(
     return windowRows.length;
   }
 
-  const values = windowRows.map((row) => Number(row[valueField])).filter((v) => Number.isFinite(v));
+  const values = windowRows.flatMap((row) => {
+    const v = Number(row[valueField]);
+    return Number.isFinite(v) ? [v] : [];
+  });
   if (values.length === 0) {
     return null;
   }
@@ -146,7 +149,11 @@ export function AlertBannerWidget({ widget, dataSource }: StudioCustomWidgetProp
   const mode = useStudioSelector(selectMode);
   const custom = (widget.config.customConfig ?? {}) as AlertBannerConfig;
 
-  const value = React.useMemo(() => computeBannerValue(custom, dataSource), [custom, dataSource]);
+  const value = React.useMemo(
+    () => computeBannerValue(custom, dataSource),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- custom is derived from customConfig; use the source prop as dep
+    [widget.config.customConfig, dataSource],
+  );
   const severity = resolveBannerSeverity(value, custom);
 
   // Display condition: the `shouldHide` callback on the custom widget def handles

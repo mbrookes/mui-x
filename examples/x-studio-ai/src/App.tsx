@@ -80,7 +80,7 @@ export default function App() {
         updateChat(chat.id, { title, description });
       });
     },
-    [createChat, generateTitle, updateChat],
+    [createChat, generateTitle, t, updateChat],
   );
 
   const handleChatSelect = React.useCallback(

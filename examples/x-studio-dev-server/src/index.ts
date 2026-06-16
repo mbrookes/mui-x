@@ -6,6 +6,7 @@ import { seedIfEmpty } from './db/seed.js';
 import { createCrmTables } from './db/crmSchema.js';
 import { seedCrmIfEmpty } from './db/crmSeed.js';
 import { buildApp } from './app.js';
+import { log, error } from './logger.js';
 
 async function main(): Promise<void> {
   const reseed = process.argv.includes('--reseed');
@@ -13,10 +14,10 @@ async function main(): Promise<void> {
   const salesDb = createKnex(config.salesDb);
   const crmDb = createKnex(config.crmDb);
 
-  console.log(
+  log(
     `[startup] Sales DB: ${config.salesDb.client} (${config.salesDb.filename ?? config.salesDb.host})`,
   );
-  console.log(
+  log(
     `[startup] CRM DB:   ${config.crmDb.client} (${config.crmDb.filename ?? config.crmDb.host})`,
   );
 
@@ -24,7 +25,7 @@ async function main(): Promise<void> {
   await createCrmTables(crmDb);
 
   if (reseed) {
-    console.log('[startup] --reseed flag detected, dropping and re-seeding data…');
+    log('[startup] --reseed flag detected, dropping and re-seeding data…');
     await seedIfEmpty(salesDb, { force: true, orderCount: config.seedOrderCount });
     await seedCrmIfEmpty(crmDb, { force: true, orderCount: config.seedOrderCount });
   } else {
@@ -35,19 +36,19 @@ async function main(): Promise<void> {
   const app = buildApp(salesDb, crmDb, config);
 
   app.listen(config.port, () => {
-    console.log(`[startup] x-studio-dev-server listening on http://localhost:${config.port}`);
-    console.log(`[startup]   Health:    http://localhost:${config.port}/health`);
-    console.log(`[startup]   Sales API: http://localhost:${config.port}/api/sales-data`);
-    console.log(`[startup]   CRM API:   http://localhost:${config.port}/api/crm-data`);
-    console.log(`[startup]   AI API:    http://localhost:${config.port}/api/ai/chat`);
+    log(`[startup] x-studio-dev-server listening on http://localhost:${config.port}`);
+    log(`[startup]   Health:    http://localhost:${config.port}/health`);
+    log(`[startup]   Sales API: http://localhost:${config.port}/api/sales-data`);
+    log(`[startup]   CRM API:   http://localhost:${config.port}/api/crm-data`);
+    log(`[startup]   AI API:    http://localhost:${config.port}/api/ai/chat`);
     if (!config.studioToken) {
-      console.log(`[startup]   Dev token: http://localhost:${config.port}/api/dev-token`);
-      console.log('[startup]   ⚠ Running in open dev mode (no STUDIO_TOKEN set)');
+      log(`[startup]   Dev token: http://localhost:${config.port}/api/dev-token`);
+      log('[startup]   ⚠ Running in open dev mode (no STUDIO_TOKEN set)');
     }
   });
 }
 
 main().catch((err) => {
-  console.error('[startup] Fatal error:', err);
+  error('[startup] Fatal error:', err);
   process.exit(1);
 });

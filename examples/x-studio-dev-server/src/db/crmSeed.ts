@@ -1,6 +1,7 @@
 import type { Knex } from 'knex';
 import { generateCrmData } from 'x-studio-shared';
 import { CRM_TABLE_NAMES, createCrmTables } from './crmSchema.js';
+import { log } from '../logger.js';
 
 export interface CrmSeedOptions {
   orderCount?: number;
@@ -71,7 +72,7 @@ export async function seedCrmIfEmpty(db: Knex, opts: CrmSeedOptions = {}): Promi
   // that the data is incomplete (e.g. daysInStage column was empty after a schema
   // migration), so we need a clean slate. Recreate tables immediately after dropping
   // so the INSERT in seedCrm finds the updated schema.
-  console.log('[crm-seed] Dropping existing CRM data…');
+  log('[crm-seed] Dropping existing CRM data…');
   await dropCrmTables(db);
   await createCrmTables(db);
 
@@ -79,12 +80,12 @@ export async function seedCrmIfEmpty(db: Knex, opts: CrmSeedOptions = {}): Promi
 }
 
 async function seedCrm(db: Knex, opts: CrmSeedOptions): Promise<void> {
-  console.log('[crm-seed] Generating CRM data…');
+  log('[crm-seed] Generating CRM data…');
   const data = generateCrmData({ seed: 42, orderCount: opts.orderCount ?? 500 });
 
   const { contactsSource, dealsSource, activitiesSource } = data;
 
-  console.log(
+  log(
     `[crm-seed] Inserting ${contactsSource.rows?.length ?? 0} contacts, ` +
       `${dealsSource.rows?.length ?? 0} deals, ` +
       `${activitiesSource.rows?.length ?? 0} activities…`,
@@ -94,7 +95,7 @@ async function seedCrm(db: Knex, opts: CrmSeedOptions): Promise<void> {
   await batchInsert(db, 'deals', dealsSource.rows ?? []);
   await batchInsert(db, 'activities', activitiesSource.rows ?? []);
 
-  console.log('[crm-seed] Done.');
+  log('[crm-seed] Done.');
 }
 
 async function batchInsert(

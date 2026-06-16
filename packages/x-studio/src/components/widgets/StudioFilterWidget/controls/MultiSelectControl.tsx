@@ -172,7 +172,9 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                 component="button"
                 type="button"
                 aria-label={
-                  exclude ? localeText.filterWidgetExcludingLabel : localeText.filterWidgetExcludeLabel
+                  exclude
+                    ? localeText.filterWidgetExcludingLabel
+                    : localeText.filterWidgetExcludeLabel
                 }
                 aria-pressed={exclude}
                 onClick={(evt) => {
@@ -186,7 +188,9 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                   mt: 0.5,
                 }}
               >
-                {exclude ? localeText.filterWidgetExcludingLabel : localeText.filterWidgetExcludeLabel}
+                {exclude
+                  ? localeText.filterWidgetExcludingLabel
+                  : localeText.filterWidgetExcludeLabel}
               </Box>
             )}
           </Stack>

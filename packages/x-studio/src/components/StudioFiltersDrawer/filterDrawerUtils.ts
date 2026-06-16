@@ -5,10 +5,7 @@ import type { FieldOption, FieldType, FilterMode } from './filterDrawerTypes';
 
 // ─── Operators ────────────────────────────────────────────────────────────────
 
-const OPERATORS_BY_TYPE: Record<
-  FieldType,
-  { value: StudioFilterOperator; label: string }[]
-> = {
+const OPERATORS_BY_TYPE: Record<FieldType, { value: StudioFilterOperator; label: string }[]> = {
   string: [
     { value: 'equals', label: 'Equals' },
     { value: 'not_equals', label: 'Not equals' },

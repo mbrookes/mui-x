@@ -295,7 +295,12 @@ describe('buildAISystemPrompt: describeWidget chart config completeness', () => 
 
   it('shows barLayout in chart widget description', () => {
     const widget = makeWidget('w1', {
-      config: { chartType: 'bar', xField: 'region', yField: 'revenue', barLayout: 'horizontal' } as any,
+      config: {
+        chartType: 'bar',
+        xField: 'region',
+        yField: 'revenue',
+        barLayout: 'horizontal',
+      } as any,
     });
     const state = makeState({
       pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },

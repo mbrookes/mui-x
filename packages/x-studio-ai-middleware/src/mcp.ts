@@ -381,10 +381,10 @@ export function buildStudioMcpServer(
         tools: {},
         prompts: {},
         resources: {
-          subscribe: true,      // clients can subscribe to specific resource URIs
-          listChanged: true,    // server can notify when resource list changes
+          subscribe: true, // clients can subscribe to specific resource URIs
+          listChanged: true, // server can notify when resource list changes
         },
-        completions: {},        // enables URI-template variable autocomplete
+        completions: {}, // enables URI-template variable autocomplete
       },
     },
   );
@@ -406,13 +406,16 @@ export function buildStudioMcpServer(
   // ── tools/list ───────────────────────────────────────────────────────────
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> =
-      toolsToRegister.map((toolDef) => ({
-        name: toolDef.function.name,
-        description: toolDef.function.description,
-        // STUDIO_AI_TOOLS parameters are standard JSON Schema objects — pass through directly.
-        inputSchema: toolDef.function.parameters as Record<string, unknown>,
-      }));
+    const tools: Array<{
+      name: string;
+      description: string;
+      inputSchema: Record<string, unknown>;
+    }> = toolsToRegister.map((toolDef) => ({
+      name: toolDef.function.name,
+      description: toolDef.function.description,
+      // STUDIO_AI_TOOLS parameters are standard JSON Schema objects — pass through directly.
+      inputSchema: toolDef.function.parameters as Record<string, unknown>,
+    }));
 
     if (data) {
       tools.push({
@@ -511,7 +514,14 @@ export function buildStudioMcpServer(
         };
       }
 
-      const { sourceId, columns, filters, aggregations, orderBy, limit = 1000 } = (args ?? {}) as {
+      const {
+        sourceId,
+        columns,
+        filters,
+        aggregations,
+        orderBy,
+        limit = 1000,
+      } = (args ?? {}) as {
         sourceId: string;
         columns?: string[];
         filters?: StudioDataFilter[];
@@ -522,7 +532,9 @@ export function buildStudioMcpServer(
 
       if (!sourceId) {
         return {
-          content: [{ type: 'text' as const, text: JSON.stringify({ error: 'sourceId is required' }) }],
+          content: [
+            { type: 'text' as const, text: JSON.stringify({ error: 'sourceId is required' }) },
+          ],
           isError: true,
         };
       }
@@ -564,7 +576,12 @@ export function buildStudioMcpServer(
         const chartInput = (args ?? {}) as unknown as ChartRendererInput;
         if (!chartInput.type) {
           return {
-            content: [{ type: 'text' as const, text: JSON.stringify({ error: '`type` is required (bar, line, or pie).' }) }],
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ error: '`type` is required (bar, line, or pie).' }),
+              },
+            ],
             isError: true,
           };
         }
@@ -595,7 +612,9 @@ export function buildStudioMcpServer(
 
     if (!toolsToRegister.some((t) => t.function.name === toolName)) {
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ error: `Unknown tool: ${toolName}` }) }],
+        content: [
+          { type: 'text' as const, text: JSON.stringify({ error: `Unknown tool: ${toolName}` }) },
+        ],
         isError: true,
       };
     }
@@ -607,10 +626,7 @@ export function buildStudioMcpServer(
 
       // Notify any subscribed clients that the dashboard state has changed.
       if (result.mutation) {
-        const urisToNotify = [
-          'studio://dashboard/state',
-          'studio://dashboard/system-prompt',
-        ];
+        const urisToNotify = ['studio://dashboard/state', 'studio://dashboard/system-prompt'];
         for (const uri of urisToNotify) {
           if (subscribedUris.has(uri)) {
             server.sendResourceUpdated({ uri }).catch(() => {
@@ -767,7 +783,9 @@ export function buildStudioMcpServer(
       const sourceId = uri.slice('studio://schema/'.length);
       const source = stateBox.current.dataSources[sourceId];
       if (!source) {
-        throw new Error(`Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`);
+        throw new Error(
+          `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,
+        );
       }
       const visibleFields = source.fields.filter((f) => !f.hidden);
       return {
@@ -835,7 +853,9 @@ export function buildStudioMcpServer(
       };
     }
 
-    throw new Error(`Unknown resource URI: "${uri}". Use resources/list to discover available URIs.`);
+    throw new Error(
+      `Unknown resource URI: "${uri}". Use resources/list to discover available URIs.`,
+    );
   });
 
   server.setRequestHandler(SubscribeRequestSchema, async (request) => {
@@ -866,11 +886,17 @@ export function buildStudioMcpServer(
     const { name } = request.params;
 
     if (name === 'query_data_source_examples') {
-      const sources = Object.values(stateBox.current.dataSources).filter((s) => !s.hidden && s.tableName);
+      const sources = Object.values(stateBox.current.dataSources).filter(
+        (s) => !s.hidden && s.tableName,
+      );
       const examples = sources.map((s) => {
         // Pick a numeric field and a categorical xField for a count example
-        const numericField = s.fields.find((f) => !f.hidden && f.type === 'number' && !f.capabilities?.includes('categorical'));
-        const categoricalField = s.fields.find((f) => !f.hidden && (f.type === 'string' || f.capabilities?.includes('categorical')));
+        const numericField = s.fields.find(
+          (f) => !f.hidden && f.type === 'number' && !f.capabilities?.includes('categorical'),
+        );
+        const categoricalField = s.fields.find(
+          (f) => !f.hidden && (f.type === 'string' || f.capabilities?.includes('categorical')),
+        );
 
         const countExample = categoricalField
           ? {
@@ -889,7 +915,11 @@ export function buildStudioMcpServer(
                 sourceId: s.id,
                 columns: [categoricalField.id],
                 aggregations: [
-                  { column: numericField.id, func: numericField.defaultAggregationFn ?? 'sum', alias: numericField.id },
+                  {
+                    column: numericField.id,
+                    func: numericField.defaultAggregationFn ?? 'sum',
+                    alias: numericField.id,
+                  },
                 ],
                 orderBy: [{ column: numericField.id, direction: 'desc' }],
                 limit: 10,

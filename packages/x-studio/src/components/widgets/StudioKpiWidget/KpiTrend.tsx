@@ -80,7 +80,10 @@ export function KpiTrend(props: KpiTrendProps) {
       : formatDateRangeLong(trendResult.previousStart!, trendResult.previousEnd!);
 
     return (
-      <Tooltip title={localeText.kpiTrendPreviousPeriodTooltip(trendTooltip)} placement="bottom-start">
+      <Tooltip
+        title={localeText.kpiTrendPreviousPeriodTooltip(trendTooltip)}
+        placement="bottom-start"
+      >
         <Stack
           direction="row"
           spacing={0.75}

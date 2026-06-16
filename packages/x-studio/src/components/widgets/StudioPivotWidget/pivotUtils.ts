@@ -161,4 +161,3 @@ export function downloadCsv(csv: string, filename: string) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
-

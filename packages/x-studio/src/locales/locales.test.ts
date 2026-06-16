@@ -23,7 +23,10 @@ const BUNDLES: Array<{ name: string; locale: Partial<typeof ptBRLocaleText> }> =
 describe('locale completeness', () => {
   it.each(BUNDLES)('$name defines all keys present in ptBR', ({ name, locale }) => {
     const missing = REFERENCE_KEYS.filter((key) => !(key in locale));
-    expect(missing, `${name} is missing ${missing.length} key(s): ${missing.join(', ')}`).toHaveLength(0);
+    expect(
+      missing,
+      `${name} is missing ${missing.length} key(s): ${missing.join(', ')}`,
+    ).toHaveLength(0);
   });
 
   it.each(BUNDLES)('$name has no empty string values', ({ name, locale }) => {

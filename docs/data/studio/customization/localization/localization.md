@@ -465,7 +465,7 @@ These tokens are retained as public API for consumers who call `generateDashboar
 | `kpiSetupValueFieldLabel`         | `'Value field'`                                                      |
 | `kpiSetupValueFieldHelperText`    | `'Field to aggregate'`                                               |
 | `kpiSetupSparklineLabel`          | `'Sparkline'`                                                        |
-| `kpiSetupGaugeMaxLabel`           | `'Gauge max'`                                                        |
+| `kpiSetupGaugeMaxLabel`           | `'Target'`                                                           |
 | `kpiSetupTrendLabel`              | `'Trend'`                                                            |
 | `kpiSetupCompPeriodLabel`         | `'Comparison period'`                                                |
 | `kpiGrandTotalTooltip`            | `'Grand total — active filter widgets are not applied to this KPI…'` |

@@ -166,7 +166,7 @@ Set `kpiSparklinePlotType` to `'gauge'` to render the KPI sparkline as a radial 
 }
 ```
 
-The gauge renders using `@mui/x-charts` `<Gauge>` with the current aggregated value mapped between 0 and `kpiSparklineGaugeMax`. When `kpiSparklineGaugeMax` is not set, the gauge max defaults to 100.
+The gauge renders using `@mui/x-charts` `<Gauge>` with the current aggregated value expressed as a percentage of `kpiSparklineGaugeMax` (the target). When `kpiSparklineGaugeMax` is not set, the target defaults to 100. If the value exceeds the target the percentage shown can exceed 100%.
 
 ## Rendering with `StudioKpiWidget`
 

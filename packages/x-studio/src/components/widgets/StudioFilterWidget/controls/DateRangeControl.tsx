@@ -1,8 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, IconButton, Stack, Tooltip } from '@mui/material';
-import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
-import type { DateRange } from '@mui/x-date-pickers-pro/models';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import CloseIcon from '@mui/icons-material/Close';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
@@ -10,44 +9,42 @@ import { useStudioLocaleText } from '../../../../internals/StudioUIConfigContext
 
 export interface StudioFilterDateRangeControlProps {
   label: string;
+  fieldId: string;
   currentValue: { from?: string; to?: string } | null;
   onApply: (value: { from?: string; to?: string }) => void;
   onClear: () => void;
 }
 
 export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
-  const { label, currentValue, onApply, onClear } = props;
+  const { label, fieldId, currentValue, onApply, onClear } = props;
   const localeText = useStudioLocaleText();
-
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- external sync is intentional; local state buffers UI interaction
-  const [localValue, setLocalValue] = React.useState<DateRange<Dayjs>>([
+  const [from, setFrom] = React.useState<Dayjs | null>(
     currentValue?.from ? dayjs(currentValue.from) : null,
+  );
+  const [to, setTo] = React.useState<Dayjs | null>(
     currentValue?.to ? dayjs(currentValue.to) : null,
-  ]);
+  );
 
   // Sync when external value changes (e.g. filter cleared programmatically)
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- external sync is intentional; local state buffers UI interaction
   React.useEffect(() => {
     // react-doctor-disable-next-line react-doctor/no-derived-state -- date pickers use local state to avoid re-render on every keystroke
-    setLocalValue([
-      currentValue?.from ? dayjs(currentValue.from) : null,
-      currentValue?.to ? dayjs(currentValue.to) : null,
-    ]);
+    setFrom(currentValue?.from ? dayjs(currentValue.from) : null);
+    // react-doctor-disable-next-line react-doctor/no-derived-state -- same as above
+    setTo(currentValue?.to ? dayjs(currentValue.to) : null);
   }, [currentValue?.from, currentValue?.to]);
 
-  // Debounce onApply so that typing a date character-by-character doesn't trigger
-  // a full pipeline re-render on every keystroke.
+  // Debounce onApply so that typing a date character-by-character (e.g. in the text field
+  // inside DatePicker) doesn't trigger a full pipeline re-render on every keystroke.
   const pendingApply = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleApply = React.useCallback(
-    (value: DateRange<Dayjs>) => {
+    (value: { from?: string; to?: string }) => {
       if (pendingApply.current !== null) {
         clearTimeout(pendingApply.current);
       }
       pendingApply.current = setTimeout(() => {
         pendingApply.current = null;
-        onApply({
-          from: value[0]?.isValid() ? value[0].format('YYYY-MM-DD') : undefined,
-          to: value[1]?.isValid() ? value[1].format('YYYY-MM-DD') : undefined,
-        });
+        onApply(value);
       }, 300);
     },
     [onApply],
@@ -61,9 +58,20 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
     [],
   );
 
-  const handleChange = (newValue: DateRange<Dayjs>) => {
-    setLocalValue(newValue);
-    scheduleApply(newValue);
+  const handleFromChange = (val: Dayjs | null) => {
+    setFrom(val);
+    scheduleApply({
+      from: val?.isValid() ? val.format('YYYY-MM-DD') : undefined,
+      to: to?.isValid() ? to.format('YYYY-MM-DD') : undefined,
+    });
+  };
+
+  const handleToChange = (val: Dayjs | null) => {
+    setTo(val);
+    scheduleApply({
+      from: from?.isValid() ? from.format('YYYY-MM-DD') : undefined,
+      to: val?.isValid() ? val.format('YYYY-MM-DD') : undefined,
+    });
   };
 
   const isActive = !!(currentValue?.from || currentValue?.to);
@@ -84,16 +92,21 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
           </Tooltip>
         </Box>
       )}
-      <DateRangePicker
-        value={localValue}
-        onChange={handleChange}
-        slotProps={{
-          textField: {
-            size: 'small',
-            fullWidth: true,
-          },
-        }}
-      />
+      <Stack direction="row" spacing={1}>
+        <DatePicker
+          label={localeText.filterWidgetDateFromLabel}
+          value={from}
+          onChange={handleFromChange}
+          slotProps={{ textField: { size: 'small', fullWidth: true } }}
+          data-field={fieldId}
+        />
+        <DatePicker
+          label={localeText.filterWidgetDateToLabel}
+          value={to}
+          onChange={handleToChange}
+          slotProps={{ textField: { size: 'small', fullWidth: true } }}
+        />
+      </Stack>
     </Stack>
   );
 }

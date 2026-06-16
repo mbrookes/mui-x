@@ -456,6 +456,7 @@ export const STUDIO_AI_TOOLS = [
         '"What were the top 5 products by revenue last quarter?" or ' +
         '"How many active customers are there?". ' +
         'Write the query in the same SQL dialect used by the connected data source. ' +
+        'IMPORTANT: use the source id (the value in brackets in the dashboard state, e.g. "order_items") as the SQL table name — never the display label (e.g. "Order Items"). ' +
         'Only use this tool when a data resolver has been configured on the server; ' +
         'if unavailable it will return an error.',
       parameters: {

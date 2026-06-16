@@ -16,7 +16,20 @@ export function buildApp(salesDb: Knex, crmDb: Knex, config: Config): express.Ap
 
   app.use(
     cors({
-      origin: config.allowedOrigins,
+      origin: (origin, callback) => {
+        // Allow requests with no origin (server-to-server, curl)
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+        // Allow any localhost port — dev tools (MCP Inspector, Cursor, Claude Desktop)
+        // use a variety of ports and it is not practical to enumerate them all.
+        if (/^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(null, config.allowedOrigins.includes(origin));
+      },
       methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Studio-Token', 'Mcp-Session-Id'],
     }),

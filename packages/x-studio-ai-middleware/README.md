@@ -343,13 +343,14 @@ Each MCP session gets its own isolated `StudioStateBox`. Mutations made by tool 
 
 ### `StudioMcpOptions`
 
-| Option                 | Type                          | Default                                      | Description                                                        |
-| :--------------------- | :---------------------------- | :------------------------------------------- | :----------------------------------------------------------------- |
-| `serverName`           | `string`                      | `'x-studio'`                                 | Name reported in `initialize` response                             |
-| `serverVersion`        | `string`                      | `'1.0.0'`                                    | Version reported in `initialize` response                          |
-| `allowedTools`         | `string[]`                    | all except `summarise_page`, `execute_query` | Exact list of tool names to expose                                 |
-| `customWidgets`        | `StudioCustomWidgetDef[]`     | `[]`                                         | Custom widget definitions for tool handling                        |
-| `data.queryDataSource` | `(params) => Promise<result>` | —                                            | When provided, enables `query_data_source` tool and data resources |
+| Option                 | Type                          | Default                                      | Description                                                                                                                              |
+| :--------------------- | :---------------------------- | :------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------- |
+| `serverName`           | `string`                      | `'x-studio'`                                 | Name reported in `initialize` response                                                                                                   |
+| `serverVersion`        | `string`                      | `'1.0.0'`                                    | Version reported in `initialize` response                                                                                                |
+| `allowedTools`         | `string[]`                    | all except `summarise_page`, `execute_query` | Exact list of tool names to expose                                                                                                       |
+| `customWidgets`        | `StudioCustomWidgetDef[]`     | `[]`                                         | Custom widget definitions for tool handling                                                                                              |
+| `data.queryDataSource` | `(params) => Promise<result>` | —                                            | When provided, enables `query_data_source` tool and data resources                                                                       |
+| `data.maxQueryRows`    | `number`                      | `1000`                                       | Hard upper bound on rows the `query_data_source` tool may fetch. The model-supplied `limit` is clamped to this value before any DB query |
 
 ### Tools registered by default
 

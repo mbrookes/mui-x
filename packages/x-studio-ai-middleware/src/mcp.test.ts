@@ -269,7 +269,7 @@ describe('buildStudioMcpServer', () => {
       expect(prompts.map((p) => p.name)).toContain('query_data_source_examples');
     });
 
-    it('get query_data_source_examples returns messages with source examples', async () => {
+    it('get query_data_source_examples returns assistant then user messages', async () => {
       const stateBox = { current: makeStableState() };
       const server = buildStudioMcpServer(stateBox);
       const result = await getHandler(
@@ -283,9 +283,42 @@ describe('buildStudioMcpServer', () => {
         role: string;
         content: { text: string };
       }>;
-      expect(messages).toHaveLength(1);
-      expect(messages[0].role).toBe('user');
+      expect(messages).toHaveLength(2);
+      expect(messages[0].role).toBe('assistant');
       expect(messages[0].content.text).toContain('source-orders');
+      expect(messages[1].role).toBe('user');
+    });
+
+    it('get query_data_source_examples with sourceId filters to that source', async () => {
+      const stateBox = { current: makeStableState() };
+      const server = buildStudioMcpServer(stateBox);
+      const result = await getHandler(
+        server,
+        GET_PROMPT,
+      )({
+        params: { name: 'query_data_source_examples', arguments: { sourceId: 'source-orders' } },
+        method: GET_PROMPT,
+      });
+      const messages = (result as any).messages as Array<{
+        role: string;
+        content: { text: string };
+      }>;
+      expect(messages).toHaveLength(2);
+      expect(messages[0].content.text).toContain('source-orders');
+    });
+
+    it('get query_data_source_examples throws for unknown sourceId', async () => {
+      const stateBox = { current: makeStableState() };
+      const server = buildStudioMcpServer(stateBox);
+      await expect(
+        getHandler(
+          server,
+          GET_PROMPT,
+        )({
+          params: { name: 'query_data_source_examples', arguments: { sourceId: 'unknown-id' } },
+          method: GET_PROMPT,
+        }),
+      ).rejects.toThrow(/Unknown sourceId/);
     });
 
     it('throws on unknown prompt name', async () => {

@@ -51,6 +51,7 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
   CompleteRequestSchema,
+  type ToolAnnotations,
 } from '@modelcontextprotocol/sdk/types.js';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import { executeToolOnState } from './executeToolOnState';
@@ -332,6 +333,61 @@ const QUERY_DATA_SOURCE_SCHEMA = {
 // Core factory
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** MCP tool annotations for each tool name (both built-in and dynamically added tools). */
+const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
+  // Read-only — never modifies state.
+  get_dashboard_state: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  render_chart: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  query_data_source: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+  summarise_page: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  execute_query: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+  // Destructive — permanently deletes an entity.
+  remove_widget: { destructiveHint: true, openWorldHint: false },
+  remove_page: { destructiveHint: true, openWorldHint: false },
+  remove_page_filter: { destructiveHint: true, openWorldHint: false },
+  remove_widget_filter: { destructiveHint: true, openWorldHint: false },
+  // Idempotent setters — applying the same args twice has no additional effect.
+  set_dashboard_title: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  set_widget_layout: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  set_widget_width: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  rename_page: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  set_active_page: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  update_widget: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  apply_bulk_update: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  rename_thread: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  set_widget_forecast: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  // Additive — each call creates a new entity; not idempotent.
+  add_page: { destructiveHint: false, openWorldHint: false },
+  add_widget: { destructiveHint: false, openWorldHint: false },
+  add_page_filter: { destructiveHint: false, openWorldHint: false },
+  add_widget_filter: { destructiveHint: false, openWorldHint: false },
+};
+
 /**
  * Creates a pre-configured `McpServer` with all x-studio AI tools registered.
  *
@@ -410,11 +466,13 @@ export function buildStudioMcpServer(
       name: string;
       description: string;
       inputSchema: Record<string, unknown>;
+      annotations?: ToolAnnotations;
     }> = toolsToRegister.map((toolDef) => ({
       name: toolDef.function.name,
       description: toolDef.function.description,
       // STUDIO_AI_TOOLS parameters are standard JSON Schema objects — pass through directly.
       inputSchema: toolDef.function.parameters as Record<string, unknown>,
+      annotations: TOOL_ANNOTATIONS[toolDef.function.name],
     }));
 
     if (data) {
@@ -427,6 +485,7 @@ export function buildStudioMcpServer(
           'Results are read-only — this tool never modifies data. ' +
           'Tip: use the studio://dashboard/state resource to discover available sourceIds and field names.',
         inputSchema: QUERY_DATA_SOURCE_SCHEMA as unknown as Record<string, unknown>,
+        annotations: TOOL_ANNOTATIONS.query_data_source,
       });
     }
 
@@ -487,6 +546,7 @@ export function buildStudioMcpServer(
         },
         required: ['type'],
       } as Record<string, unknown>,
+      annotations: TOOL_ANNOTATIONS.render_chart,
     });
 
     return { tools };
@@ -496,6 +556,18 @@ export function buildStudioMcpServer(
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name: toolName, arguments: args } = request.params;
+
+    // ── get_dashboard_state — returns full state JSON for MCP context ────
+    if (toolName === 'get_dashboard_state') {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ output: stateBox.current }),
+          },
+        ],
+      };
+    }
 
     // ── query_data_source — routed separately from state-mutation tools ──
     if (toolName === 'query_data_source') {

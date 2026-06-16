@@ -947,7 +947,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     return (
       <HeatmapPremium
         height={chartHeight}
-        series={[{ data: seriesData }]}
+        series={[
+          {
+            data: seriesData,
+            valueFormatter: (v) => (v == null ? '' : `${Math.round(v * 10) / 10}`),
+          },
+        ]}
         xAxis={[
           {
             data: xLabels,

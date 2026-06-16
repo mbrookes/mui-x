@@ -903,3 +903,4 @@ BL-200: Pipeline widget config: The select is smooshed to the left by the button
 
 BL-201: Deals by stage reached pipeline chart has all 0 for values.
 
+BL-202: Determine which features and sub-features that don't already should have a feature flag, and add them, including the settings dialog in the example apps.

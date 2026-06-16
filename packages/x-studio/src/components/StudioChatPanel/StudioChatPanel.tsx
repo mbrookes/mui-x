@@ -167,6 +167,22 @@ function StudioSendButtonInner({
 }) {
   const { stopStreaming } = useChat();
   const isStreaming = (rest as Record<string, unknown>)['data-is-streaming'] === 'true';
+  let btnBgColor: string;
+  if (isStreaming) {
+    btnBgColor = 'error.main';
+  } else if (disabled) {
+    btnBgColor = 'action.disabledBackground';
+  } else {
+    btnBgColor = 'primary.main';
+  }
+  let btnColor: string;
+  if (isStreaming) {
+    btnColor = 'error.contrastText';
+  } else if (disabled) {
+    btnColor = 'action.disabled';
+  } else {
+    btnColor = 'primary.contrastText';
+  }
 
   return (
     <Box
@@ -186,16 +202,8 @@ function StudioSendButtonInner({
       aria-label={isStreaming ? 'Stop generating' : (rest['aria-label'] ?? 'Send message')}
       sx={{
         ...SEND_BTN_SX,
-        bgcolor: isStreaming
-          ? 'error.main'
-          : disabled
-            ? 'action.disabledBackground'
-            : 'primary.main',
-        color: isStreaming
-          ? 'error.contrastText'
-          : disabled
-            ? 'action.disabled'
-            : 'primary.contrastText',
+        bgcolor: btnBgColor,
+        color: btnColor,
         '&:hover:not(:disabled)': { bgcolor: isStreaming ? 'error.dark' : 'primary.dark' },
         '&:disabled': {
           cursor: 'not-allowed',

@@ -388,7 +388,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
     'Campo numérico somado por estágio \u2014 os estágios são ordenados por valor (maior primeiro)',
   chartSetupHeatmapRowAxisLabel: 'Campo do eixo de linha',
   chartSetupHeatmapRowAxisHelperText:
-    'Campo categórico para o eixo vertical (linha), ex.: hora do dia',
+    'Campo para o eixo vertical (linha) — qualquer tipo de campo, ex.: categoria, desconto % ou hora do dia',
   chartSetupHeatmapValueLabel: 'Campo de valor / cor',
   chartSetupHeatmapValueHelperText:
     'Campo numérico somado por célula para determinar a intensidade da cor',

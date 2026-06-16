@@ -392,7 +392,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
     'Champ numérique additionné par étape — les étapes sont classées par valeur (la plus grande en premier)',
   chartSetupHeatmapRowAxisLabel: "Champ d'axe de ligne",
   chartSetupHeatmapRowAxisHelperText:
-    "Champ catégoriel pour l'axe vertical (ligne), par ex. heure de la journée",
+    "Champ pour l'axe vertical (ligne) — tout type de champ, par ex. catégorie, remise % ou heure de la journée",
   chartSetupHeatmapValueLabel: 'Champ valeur/couleur',
   chartSetupHeatmapValueHelperText:
     "Champ numérique additionné par cellule pour déterminer l'intensité de la couleur",

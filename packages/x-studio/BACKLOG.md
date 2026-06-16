@@ -892,3 +892,14 @@ This caused `customers` to appear twice in the query, making `customers.country`
 **Done**: Removed `StudioMetricRef` interface from `baseTypes.ts` and its export from `index.ts`; removed `valueRef`/`value2Ref` fields from `StudioFilterState`; removed `resolveMetricRef`, `resolveMetricRefs`, and `resolveReferencedFilterValueFast` from `filterUtils.ts`; removed L1 metric-ref resolution from `StudioPipeline.ts` and all `resolveMetricRefs` call sites in `useWidgetRows.ts`, `useChartWidgetData.ts`, and `StudioKpiWidget.tsx`; deleted `MetricRefInput.tsx` and `MetricPickerButton.tsx`; simplified `FilterValueInput.tsx`, `DateValueInput.tsx`, and `RelativeDateInput.tsx` (all metric-ref props removed); cleaned `filterDrawerUtils.ts` (removed metric-ref branches in `summarizeFilter`/`buildModeReset`); removed 6 locale keys (`filterSourceLabel`, `filterMetricRowLabel`, `filterMetricHelperText`, `filterMetricCurrentValue`, `filterLinkToField`, `filterRemoveFieldLink`) from `StudioUIConfigContext.ts` and all 4 locale files; cleaned test files.
 
 🚫 BL-196 (NoOp — future consideration): Re-introduce dynamic filter values driven by a "business metrics" data source (the `StudioMetricRef` concept). This would allow a filter threshold (e.g. "sales > target") to be dynamically pulled from a row in a separate metrics table, updating automatically when the source data changes. Deferred: the use case is real but the previous implementation was complex and tightly coupled to the filter pipeline. A future version should integrate with the expression-field system instead of adding a separate ref-resolution layer.
+
+BL-197: Sales PRoducts page > Price vs Unit MArgin widget scatter values make a straight line. They didn't used to. Something isn't right.
+
+BL-198: Use square corners for heatmap items with no gap between them. In Quantity by Category & Discount the heatmap items are far wider than they need to be. Heatmap doesn't support annotations. Remove the config control.
+
+BL-199: Sales logistics page > Ontime shipments shows 0% with a flat trend. Fix the config or rendering issue. Make sure the working config can be set by the user in the config dialog.
+
+BL-200: Pipeline widget config: The select is smooshed to the left by the button group, and the botton group is too tall because of the arrows. put the select abouve the button group, and rearrange the buttons. Add an option for "natural". Make it a shared widget, and use it anywhere else that has the same broken ui as pipeline.
+
+BL-201: Deals by stage reached pipeline chart has all 0 for values.
+

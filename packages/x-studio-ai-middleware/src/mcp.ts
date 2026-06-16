@@ -879,22 +879,40 @@ export function buildStudioMcpServer(
       {
         name: 'query_data_source_examples',
         description:
-          'Example invocations of the query_data_source tool for each configured data source. ' +
-          'Useful for bootstrapping queries without needing to inspect the schema first.',
-        arguments: [],
+          'Example `query_data_source` invocations for a data source. ' +
+          'Pass a sourceId to focus on one source, or omit to see all.',
+        arguments: [
+          {
+            name: 'sourceId',
+            description:
+              'ID of the data source to show examples for (e.g. "source-orders"). ' +
+              'Omit to include all configured sources.',
+            required: false,
+          },
+        ],
       },
     ],
   }));
 
   server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-    const { name } = request.params;
+    const { name, arguments: promptArgs } = request.params;
 
     if (name === 'query_data_source_examples') {
-      const sources = Object.values(stateBox.current.dataSources).filter(
+      const requestedId = promptArgs?.sourceId;
+      const allSources = Object.values(stateBox.current.dataSources).filter(
         (s) => !s.hidden && s.tableName,
       );
-      const examples = sources.map((s) => {
-        // Pick a numeric field and a categorical xField for a count example
+
+      if (requestedId && !allSources.some((s) => s.id === requestedId)) {
+        throw new Error(
+          `Unknown sourceId: "${requestedId}". ` +
+            `Available: ${allSources.map((s) => s.id).join(', ')}.`,
+        );
+      }
+
+      const sources = requestedId ? allSources.filter((s) => s.id === requestedId) : allSources;
+
+      const exampleBlocks = sources.map((s) => {
         const numericField = s.fields.find(
           (f) => !f.hidden && f.type === 'number' && !f.capabilities?.includes('categorical'),
         );
@@ -909,7 +927,7 @@ export function buildStudioMcpServer(
               aggregations: [{ column: categoricalField.id, func: 'count', alias: 'count' }],
               orderBy: [{ column: 'count', direction: 'desc' }],
               limit: 10,
-              description: `Count of ${s.label} by ${categoricalField.label}`,
+              _desc: `Count of ${s.label} by ${categoricalField.label}`,
             }
           : null;
 
@@ -927,29 +945,46 @@ export function buildStudioMcpServer(
                 ],
                 orderBy: [{ column: numericField.id, direction: 'desc' }],
                 limit: 10,
-                description: `${numericField.defaultAggregationFn ?? 'Sum'} of ${numericField.label} by ${categoricalField.label}`,
+                _desc: `${numericField.defaultAggregationFn ?? 'Sum'} of ${numericField.label} by ${categoricalField.label}`,
               }
             : null;
 
         const queries = [countExample, sumExample].filter(Boolean);
-        const lines = queries.map(
-          (ex) =>
-            `- ${ex!.description}\n\`\`\`json\n${JSON.stringify({ ...ex, description: undefined }, null, 2)}\n\`\`\``,
-        );
+        const lines = queries.map(({ _desc, ...params }) => {
+          return `- ${_desc}\n\`\`\`json\n${JSON.stringify(params, null, 2)}\n\`\`\``;
+        });
         return `### ${s.label} (sourceId: "${s.id}")\n${lines.join('\n')}`;
       });
 
+      const subject =
+        sources.length === 1
+          ? `the **${sources[0].label}** data source`
+          : `${sources.length} data source${sources.length !== 1 ? 's' : ''}`;
+
+      const assistantText =
+        `I have access to ${subject} and can query ${sources.length === 1 ? 'it' : 'them'} ` +
+        `using the \`query_data_source\` tool. Here are some example queries to get started:\n\n` +
+        `${exampleBlocks.join('\n\n')}\n\n` +
+        `Adapt these by changing \`columns\`, \`aggregations\`, \`filters\`, and \`orderBy\` as needed.`;
+
+      const userText =
+        sources.length === 1
+          ? `Help me explore the ${sources[0].label} data.`
+          : `Help me explore the data.`;
+
       return {
-        description: 'Example query_data_source invocations for all configured data sources',
+        description:
+          sources.length === 1
+            ? `Example queries for the ${sources[0].label} data source`
+            : 'Example queries for all configured data sources',
         messages: [
           {
+            role: 'assistant' as const,
+            content: { type: 'text' as const, text: assistantText },
+          },
+          {
             role: 'user' as const,
-            content: {
-              type: 'text' as const,
-              text: `Here are example \`query_data_source\` invocations for each data source:\n\n${examples.join(
-                '\n\n',
-              )}\n\nAdapt these by changing \`columns\`, \`aggregations\`, \`filters\`, and \`orderBy\` as needed.`,
-            },
+            content: { type: 'text' as const, text: userText },
           },
         ],
       };
@@ -963,7 +998,21 @@ export function buildStudioMcpServer(
 
   server.setRequestHandler(CompleteRequestSchema, async (request) => {
     const { ref, argument } = request.params;
-    // Only handle resource template completions
+
+    // Prompt argument autocomplete: sourceId for query_data_source_examples
+    if (
+      ref.type === 'ref/prompt' &&
+      ref.name === 'query_data_source_examples' &&
+      argument.name === 'sourceId'
+    ) {
+      const partial = argument.value ?? '';
+      const matches = Object.values(stateBox.current.dataSources)
+        .filter((s) => !s.hidden && s.tableName && s.id.startsWith(partial))
+        .map((s) => s.id);
+      return { completion: { values: matches, total: matches.length, hasMore: false } };
+    }
+
+    // Only handle resource template completions below
     if (ref.type !== 'ref/resource') {
       return { completion: { values: [], total: 0, hasMore: false } };
     }

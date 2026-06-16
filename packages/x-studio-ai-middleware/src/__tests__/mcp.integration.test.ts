@@ -225,10 +225,19 @@ describe('MCP server — prompts', () => {
     expect(prompts.map((p) => p.name)).toContain('query_data_source_examples');
   });
 
-  it('getPrompt returns message templates', async () => {
+  it('getPrompt returns assistant context then user task', async () => {
     const result = await client.getPrompt({ name: 'query_data_source_examples' });
-    expect(Array.isArray(result.messages)).toBe(true);
-    expect(result.messages.length).toBeGreaterThan(0);
-    expect(result.messages[0].role).toBe('user');
+    expect(result.messages).toHaveLength(2);
+    expect(result.messages[0].role).toBe('assistant');
+    expect(result.messages[1].role).toBe('user');
+  });
+
+  it('getPrompt throws for unknown sourceId', async () => {
+    await expect(
+      client.getPrompt({
+        name: 'query_data_source_examples',
+        arguments: { sourceId: 'nonexistent' },
+      }),
+    ).rejects.toThrow();
   });
 });

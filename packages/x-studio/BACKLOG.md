@@ -901,6 +901,12 @@ BL-199: Sales logistics page > Ontime shipments shows 0% with a flat trend. Fix 
 
 BL-200: Pipeline widget config: The select is smooshed to the left by the button group, and the botton group is too tall because of the arrows. put the select abouve the button group, and rearrange the buttons. Add an option for "natural". Make it a shared widget, and use it anywhere else that has the same broken ui as pipeline.
 
-BL-201: Deals by stage reached pipeline chart has all 0 for values.
+BL:201: Sales products page has Avg Unit Margin and Total Inventory Value KPIs as $0
 
 BL-202: Determine which features and sub-features that don't already should have a feature flag, and add them, including the settings dialog in the example apps.
+
+BL-203: Compact numbers are longer than not for whole values, eg $40.0 rather than $40
+
+BL-204: The toggle chips clear button makes the widget taller. Put it immediately to the right of the last chip instead.
+
+BL-205: Move table conditional formatting to the format tab

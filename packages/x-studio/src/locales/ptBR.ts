@@ -359,6 +359,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chartSetupSortByLabel: 'Ordenar por',
   chartSetupSortCategory: 'Categoria',
   chartSetupSortValue: 'Valor',
+  chartSetupSortNatural: 'Natural',
   chartSetupSortNone: 'Nenhum',
   chartSetupSortPercent: 'Percentual',
   chartSetupSortDirectionAriaLabel: 'Direção da ordenação',

@@ -242,9 +242,12 @@ export function computeAggregate(
   }
 
   // Exclude null/undefined values so they don't inflate the denominator for avg/min/max.
-  // This aligns with gridSummary.ts which filters to typeof v === 'number'.
+  // Boolean fields (e.g. onTime) are coerced to 0/1 so avg produces a ratio.
   const values = rows
-    .map((row) => row[field])
+    .map((row) => {
+      const v = row[field];
+      return typeof v === 'boolean' ? (v ? 1 : 0) : v;
+    })
     .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
 
   if (values.length === 0) {

@@ -122,6 +122,8 @@ export interface StudioDataQueryParams {
   orderBy?: StudioDataOrderBy[];
   /** Maximum rows to return. Default 1000. */
   limit?: number;
+  /** Number of rows to skip before returning results. Use with `limit` for pagination. Default 0. */
+  offset?: number;
 }
 
 /** Result returned by `queryDataSource` and surfaced in the `query_data_source` tool response. */
@@ -157,8 +159,9 @@ export interface StudioMcpOptions {
   serverVersion?: string;
   /**
    * Subset of STUDIO_AI_TOOL names to expose via MCP.
-   * When omitted, all tools except `summarise_page` and `execute_query` are registered.
-   * - `summarise_page` requires live row data only available client-side.
+   * When omitted, all tools except `execute_query` are registered.
+   * - `summarise_page` works when `data` is configured (queries sources server-side);
+   *   falls back to a descriptive error when `data` is not provided.
    * - `execute_query` runs raw SQL against a live DB connection — opt in explicitly
    *   only if your server validates and sandboxes the queries.
    */
@@ -212,6 +215,32 @@ export interface StudioMcpOptions {
      */
     maxQueryRows?: number;
   };
+  /**
+   * Called after every state-mutating tool call with the updated `StudioState`.
+   * Use this to persist the session state to a database so it can be reloaded
+   * on the next session.
+   *
+   * @example
+   * ```ts
+   * buildStudioMcpServer(stateBox, {
+   *   onStateChange: async (state) => {
+   *     await db('mcp_sessions').where({ id: sessionId }).update({
+   *       state: JSON.stringify(state),
+   *     });
+   *   },
+   * });
+   * ```
+   *
+   * To restore a previous session, set `stateBox.current` to the saved state
+   * before calling `buildStudioMcpServer`:
+   * ```ts
+   * const saved = await db('mcp_sessions').where({ id: sessionId }).first();
+   * const stateBox: StudioStateBox = {
+   *   current: saved ? JSON.parse(saved.state) : createDefaultStudioState(),
+   * };
+   * ```
+   */
+  onStateChange?: (state: StudioState) => void | Promise<void>;
 }
 
 /**
@@ -241,7 +270,6 @@ export interface StudioStateBox {
  * because they require live widget row data only available client-side.
  */
 const DEFAULT_EXCLUDED_TOOLS = new Set([
-  'summarise_page',
   // execute_query runs raw SQL against a live DB connection — not safe to expose
   // via MCP without explicit opt-in. Add it to allowedTools if you need it.
   'execute_query',
@@ -331,6 +359,12 @@ const QUERY_DATA_SOURCE_SCHEMA = {
         'Maximum rows to return. Default 1000. Use a smaller value for exploration; ' +
         'use aggregations instead of high limits for analytical summaries.',
       default: 1000,
+    },
+    offset: {
+      type: 'number',
+      description:
+        'Number of rows to skip before returning results. Use with limit for pagination. Default 0.',
+      default: 0,
     },
   },
   required: ['sourceId'],
@@ -435,6 +469,7 @@ export function buildStudioMcpServer(
     serverVersion = '1.0.0',
     allowedTools,
     data,
+    onStateChange,
   } = options;
 
   const MAX_QUERY_ROWS = data?.maxQueryRows ?? 1000;
@@ -578,6 +613,96 @@ export function buildStudioMcpServer(
       };
     }
 
+    // ── summarise_page — synthesised from live data when data option provided ─
+    if (toolName === 'summarise_page') {
+      if (!data) {
+        // No data access — fall through to executeToolOnState which returns
+        // a descriptive error explaining the client-side limitation.
+      } else {
+        const state = stateBox.current;
+        const activePageId = state.dashboard.activePageId;
+        const activePage = activePageId ? state.pages[activePageId] : null;
+
+        if (!activePage) {
+          return {
+            content: [{ type: 'text' as const, text: 'No active page found.' }],
+          };
+        }
+
+        const widgetIds = (activePage.widgetRows ?? []).flat();
+        const widgets = widgetIds.map((id) => state.widgets[id]).filter(Boolean);
+        const sections: string[] = [];
+
+        await Promise.all(
+          widgets.map(async (widget) => {
+            const sourceId = widget.sourceId;
+            if (!sourceId) return;
+            const source = state.dataSources[sourceId];
+            if (!source?.tableName) return;
+
+            const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
+            const numericFields = visibleFields.filter((f) => f.type === 'number');
+
+            try {
+              const result = await data.queryDataSource({
+                sourceId,
+                tableName: source.tableName as string,
+                limit: 50,
+              });
+
+              const { rows, rowCount } = result;
+
+              // Compute basic stats for numeric fields from the sample rows.
+              const stats = numericFields
+                .map((f) => {
+                  const values = rows.map((r) => Number(r[f.id])).filter((v) => !Number.isNaN(v));
+                  if (values.length === 0) return null;
+                  const sum = values.reduce((a, b) => a + b, 0);
+                  const min = Math.min(...values);
+                  const max = Math.max(...values);
+                  const avg = sum / values.length;
+                  return `${f.label}: sum=${sum.toLocaleString()}, avg=${avg.toFixed(2)}, min=${min}, max=${max}`;
+                })
+                .filter(Boolean);
+
+              // CSV excerpt — header + first 5 rows.
+              const headers = visibleFields.map((f) => f.label);
+              const csvRows = rows.slice(0, 5).map((r) =>
+                visibleFields.map((f) => {
+                  const v = r[f.id];
+                  return v == null ? '' : String(v);
+                }),
+              );
+              const csv = [headers, ...csvRows].map((row) => row.join('\t')).join('\n');
+
+              const label = widget.title || source.label;
+              const lines = [
+                `### ${label} (${rowCount.toLocaleString()} rows)`,
+                ...(stats.length > 0
+                  ? [`Stats (from ${rows.length} sample rows): ${stats.join(' | ')}`]
+                  : []),
+                '```',
+                csv,
+                '```',
+              ];
+              sections.push(lines.join('\n'));
+            } catch {
+              // Skip widgets whose source can't be queried.
+            }
+          }),
+        );
+
+        const summary =
+          sections.length > 0
+            ? sections.join('\n\n')
+            : 'No queryable widgets found on the active page.';
+
+        return {
+          content: [{ type: 'text' as const, text: summary }],
+        };
+      }
+    }
+
     // ── query_data_source — routed separately from state-mutation tools ──
     if (toolName === 'query_data_source') {
       if (!data) {
@@ -595,13 +720,14 @@ export function buildStudioMcpServer(
         };
       }
 
-      const { sourceId, columns, filters, aggregations, orderBy, limit } = (args ?? {}) as {
+      const { sourceId, columns, filters, aggregations, orderBy, limit, offset } = (args ?? {}) as {
         sourceId: string;
         columns?: string[];
         filters?: StudioDataFilter[];
         aggregations?: StudioDataAggregation[];
         orderBy?: StudioDataOrderBy[];
         limit?: number;
+        offset?: number;
       };
 
       const clampedLimit = Math.min(limit ?? MAX_QUERY_ROWS, MAX_QUERY_ROWS);
@@ -628,6 +754,7 @@ export function buildStudioMcpServer(
           aggregations,
           orderBy,
           limit: clampedLimit,
+          ...(offset !== undefined && { offset }),
         });
 
         return {
@@ -710,6 +837,8 @@ export function buildStudioMcpServer(
             });
           }
         }
+        // Notify consumer so they can persist the new state.
+        await onStateChange?.(stateBox.current);
       }
 
       const responsePayload: Record<string, unknown> = { output: result.output };

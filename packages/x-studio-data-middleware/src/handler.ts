@@ -227,6 +227,12 @@ async function processWidget(
     // ── 4. Execute query for the selected tier ─────────────────────────────
     const rows = await executeForTier(db, claims, descriptor, tier, queryOptions);
 
+    // For aggregation queries the preflight rowCount is 0 (bypassed); use the
+    // actual number of result groups instead.
+    if (descriptor.aggregations && descriptor.aggregations.length > 0) {
+      rowCount = rows.length;
+    }
+
     // ── 5. Populate data cache for client + server tiers ──────────────────
     // DB push-down returns aggregated rows — not suitable for re-filtering
     if (tier !== 'db') {

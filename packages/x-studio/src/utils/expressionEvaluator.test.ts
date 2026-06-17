@@ -532,6 +532,100 @@ describe('StudioJoinFieldExpression', () => {
   });
 });
 
+// ─── Arithmetic with join-source operand ─────────────────────────────────────
+
+describe('arithmetic with join-source operand', () => {
+  const rates = {
+    id: 'source-rates',
+    label: 'Exchange Rates',
+    fields: [
+      { id: 'id', label: 'Rate Key', type: 'string' as const },
+      { id: 'toUsd', label: 'Rate (to USD)', type: 'number' as const },
+    ],
+    rows: [
+      { id: 'EUR-2024-01', toUsd: 1.09 },
+      { id: 'GBP-2024-01', toUsd: 1.27 },
+    ],
+  };
+
+  const relationships = [
+    {
+      id: 'rel-orders-rates',
+      sourceId: 'source-orders',
+      sourceField: 'rateKey',
+      targetId: 'source-rates',
+      targetField: 'id',
+      type: 'many-to-one' as const,
+    },
+  ];
+
+  const dataSources = { 'source-rates': rates };
+
+  const totalUsdExpr = fn('multiply', field('total'), {
+    joinSourceId: 'source-rates',
+    fieldId: 'toUsd',
+  });
+
+  it('multiplies a local field by a join-resolved numeric field', () => {
+    const context: EvaluationContext = {
+      expressionFields: [],
+      row: { id: 'ORD-001', total: 100, rateKey: 'EUR-2024-01' },
+      allRows: [],
+      sourceId: 'source-orders',
+      dataSources,
+      relationships,
+    };
+    expect(evaluateExpression(totalUsdExpr, context)).toBeCloseTo(109, 5);
+  });
+
+  it('picks the correct row for a different rate key', () => {
+    const context: EvaluationContext = {
+      expressionFields: [],
+      row: { id: 'ORD-002', total: 200, rateKey: 'GBP-2024-01' },
+      allRows: [],
+      sourceId: 'source-orders',
+      dataSources,
+      relationships,
+    };
+    expect(evaluateExpression(totalUsdExpr, context)).toBeCloseTo(254, 5);
+  });
+
+  it('returns 0 when the rate key does not match any row (null join coerces to 0)', () => {
+    const context: EvaluationContext = {
+      expressionFields: [],
+      row: { id: 'ORD-003', total: 50, rateKey: 'USD-2024-01' },
+      allRows: [],
+      sourceId: 'source-orders',
+      dataSources,
+      relationships,
+    };
+    expect(evaluateExpression(totalUsdExpr, context)).toBe(0);
+  });
+
+  it('enriches all rows with the USD-normalised total', () => {
+    const totalUsdField: StudioExpressionField = {
+      id: 'expr-order-total-usd',
+      label: 'Order Total (USD)',
+      sourceId: 'source-orders',
+      isMeasure: false,
+      expression: totalUsdExpr,
+    };
+    const orderRows = [
+      { id: 'ORD-001', total: 100, rateKey: 'EUR-2024-01' },
+      { id: 'ORD-002', total: 200, rateKey: 'GBP-2024-01' },
+    ];
+    const result = enrichRowsWithExpressions(
+      orderRows,
+      [totalUsdField],
+      'source-orders',
+      dataSources,
+      relationships,
+    );
+    expect(result[0]['expr-order-total-usd']).toBeCloseTo(109, 5);
+    expect(result[1]['expr-order-total-usd']).toBeCloseTo(254, 5);
+  });
+});
+
 // ─── Topological sort ────────────────────────────────────────────────────────
 
 describe('topoSortExpressionFields', () => {

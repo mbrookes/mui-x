@@ -756,7 +756,11 @@ export function buildStudioMcpServer(
               // Anomaly detection: run a separate GROUP BY query to get complete per-x-value
               // totals from the DB, then re-bucket by period in memory. This is accurate
               // regardless of table size (distinct x-values are bounded, unlike raw rows).
-              if (isTimeSeries) {
+              // Skip blended charts — the y-field belongs to a different source's table.
+              const isBlended = (widget.config.ySeries ?? []).some(
+                (s: any) => s.sourceId && s.sourceId !== widget.sourceId,
+              );
+              if (isTimeSeries && !isBlended) {
                 const xField = widget.config.xField;
                 const yField =
                   widget.config.yField ??
@@ -792,8 +796,6 @@ export function buildStudioMcpServer(
                     .map((i) => periodLabels[i]);
                   if (anomalyLabels.length > 0) {
                     lines.push(`Anomalies detected at: ${anomalyLabels.join(', ')}`);
-                  } else {
-                    lines.push('No anomalies detected.');
                   }
                 }
               }

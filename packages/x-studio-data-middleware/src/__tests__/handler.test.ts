@@ -661,3 +661,201 @@ describe('RedisTierCacheProvider', () => {
     expect(await provider.get('k1')).toEqual({ tier: 'db', rowCount: 50_000 });
   });
 });
+
+// ─── handleBatchQuery — aggregation push-down ────────────────────────────────
+
+describe('handleBatchQuery — aggregation push-down', () => {
+  it('forces db tier for aggregation queries regardless of row count', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+    });
+
+    expect(result.results[0].tier).toBe('db');
+    expect(result.results[0].error).toBeUndefined();
+  });
+
+  it('groups rows by the specified column and sums amounts', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          orderBy: [{ column: 'total', direction: 'desc' }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenantColumn: 'tenant_id',
+    });
+
+    const { rows, tier, rowCount } = result.results[0];
+    expect(tier).toBe('db');
+    // ACME has rows in west (100+150), north (75), east (200)
+    expect(rows).toHaveLength(3);
+    expect(rowCount).toBe(3);
+
+    const westRow = rows.find((r) => r.region === 'west');
+    expect(westRow?.total).toBe(250);
+
+    const eastRow = rows.find((r) => r.region === 'east');
+    expect(eastRow?.total).toBe(200);
+
+    // Ordered by total DESC: east (200) or west (250) first
+    expect((rows[0].total as number) >= (rows[1].total as number)).toBe(true);
+  });
+
+  it('counts occurrences per group (same column in columns and aggregations)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['product'],
+          aggregations: [{ column: 'product', func: 'count', alias: 'count' }],
+          orderBy: [{ column: 'count', direction: 'desc' }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenantColumn: 'tenant_id',
+    });
+
+    const { rows, tier } = result.results[0];
+    expect(tier).toBe('db');
+    // ACME has: widget×2, gadget×2, north×1 — sorted desc by count
+    expect(rows[0].count).toBeGreaterThanOrEqual(rows[1].count as number);
+    // All ACME products accounted for
+    const totalCount = rows.reduce((sum, r) => sum + (r.count as number), 0);
+    expect(totalCount).toBe(4); // 4 ACME rows
+  });
+
+  it('global aggregation (no columns) returns a single summary row', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          aggregations: [
+            { column: 'amount', func: 'sum', alias: 'total' },
+            { column: 'amount', func: 'min', alias: 'min' },
+            { column: 'amount', func: 'max', alias: 'max' },
+          ],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenantColumn: 'tenant_id',
+    });
+
+    const { rows, tier, rowCount } = result.results[0];
+    expect(tier).toBe('db');
+    expect(rows).toHaveLength(1);
+    expect(rowCount).toBe(1);
+    // ACME amounts: 100, 200, 150, 75 → sum=525, min=75, max=200
+    expect(rows[0].total).toBe(525);
+    expect(rows[0].min).toBe(75);
+    expect(rows[0].max).toBe(200);
+  });
+
+  it('rowCount equals number of result groups, not raw row count', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenantColumn: 'tenant_id',
+    });
+
+    // 4 ACME rows in 3 distinct regions → rowCount should be 3, not 4
+    expect(result.results[0].rowCount).toBe(result.results[0].rows.length);
+    expect(result.results[0].rowCount).toBe(3);
+  });
+
+  it('applies limit to aggregation results', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          orderBy: [{ column: 'total', direction: 'desc' }],
+          limit: 2,
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenantColumn: 'tenant_id',
+    });
+
+    expect(result.results[0].rows).toHaveLength(2);
+    expect(result.results[0].rowCount).toBe(2);
+  });
+
+  it('populates tier cache for aggregation queries', async () => {
+    const tierCache = new MapTierCacheProvider();
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        },
+      ],
+    };
+
+    await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tierCacheProvider: tierCache,
+      tierCacheTtlMs: 60_000,
+    });
+
+    expect(tierCache.size).toBe(1);
+    const entry = await tierCache.get(generateCacheKey(ACME_CLAIMS, body.widgets[0]));
+    expect(entry?.tier).toBe('db');
+  });
+});

@@ -44,6 +44,13 @@ export async function runPreflight(
   thresholds?: { clientTier?: number; serverMemoryTier?: number },
   options?: Pick<HandleBatchQueryOptions, 'tenantColumn'>,
 ): Promise<PreflightResult> {
+  // Aggregation queries must always run at 'db' tier (GROUP BY push-down).
+  // Skip the COUNT(*) preflight — the row count is irrelevant when the result
+  // is a set of aggregated groups, not raw rows.
+  if (descriptor.aggregations && descriptor.aggregations.length > 0) {
+    return { rowCount: 0, tier: 'db' };
+  }
+
   const clientThreshold = thresholds?.clientTier ?? DEFAULT_CLIENT_THRESHOLD;
   const serverThreshold = thresholds?.serverMemoryTier ?? DEFAULT_SERVER_MEMORY_THRESHOLD;
 
@@ -115,13 +122,13 @@ export async function executeForTier(
   const query = buildSecureQuery(db, claims, descriptor, options);
   const columns = descriptor.columns ?? [];
 
-  const groupByColumns = columns.filter(
-    (c: string) => !descriptor.aggregations?.some((a) => a.column === c),
-  );
-  if (groupByColumns.length > 0) {
+  // All `columns` entries are GROUP BY dimensions. A column may also appear in
+  // `aggregations` (e.g. COUNT(status) grouped BY status) — that is valid SQL
+  // and must not be removed from the GROUP BY clause.
+  if (columns.length > 0) {
     // SELECT with aliases for expression fields; GROUP BY the physical columns
     query.select(
-      groupByColumns.map((c: string) => {
+      columns.map((c: string) => {
         const phys = physicalCol(c);
         if (phys !== c) {
           return db.raw(`?? as ??`, [phys, c]);
@@ -129,7 +136,7 @@ export async function executeForTier(
         return phys;
       }),
     );
-    query.groupBy(groupByColumns.map(physicalCol));
+    query.groupBy(columns.map(physicalCol));
   }
 
   for (const agg of descriptor.aggregations ?? []) {
@@ -153,6 +160,15 @@ export async function executeForTier(
       default:
         break;
     }
+  }
+
+  if (descriptor.orderBy) {
+    for (const ob of descriptor.orderBy) {
+      query.orderBy(ob.column, ob.direction);
+    }
+  }
+  if (descriptor.limit) {
+    query.limit(descriptor.limit);
   }
 
   return query as Promise<Record<string, unknown>[]>;

@@ -606,5 +606,111 @@ describe('buildStudioMcpServer', () => {
       const text = result.content[0].text as string;
       expect(text).toContain('client-side');
     });
+
+    it('runs anomaly detection via GROUP BY query for time-series charts', async () => {
+      const state = makeStableState();
+      state.dataSources['source-orders'] = makeSource({
+        fields: [
+          ...(makeSource().fields ?? []),
+          { id: 'order_date', label: 'Order Date', type: 'date' } as any,
+        ],
+      });
+      const widgetId = 'w-chart';
+      state.widgets[widgetId] = {
+        id: widgetId,
+        kind: 'chart',
+        title: 'Monthly Revenue',
+        sourceId: 'source-orders',
+        config: {
+          chartType: 'bar',
+          xField: 'order_date',
+          yField: 'total',
+          xGroupBy: 'month',
+          yAggregation: 'sum',
+        },
+      } as any;
+      state.pages[PAGE_ID] = { ...state.pages[PAGE_ID], widgetRows: [[widgetId]] };
+
+      const queryDataSource = vi.fn(
+        async (params: StudioDataQueryParams): Promise<StudioDataQueryResult> => {
+          if (params.aggregations?.length) {
+            // GROUP BY query — return 12 monthly rows with one clear anomaly in August
+            return {
+              rows: [
+                { order_date: '2024-01-01', y_agg: 100 },
+                { order_date: '2024-02-01', y_agg: 102 },
+                { order_date: '2024-03-01', y_agg: 98 },
+                { order_date: '2024-04-01', y_agg: 103 },
+                { order_date: '2024-05-01', y_agg: 99 },
+                { order_date: '2024-06-01', y_agg: 101 },
+                { order_date: '2024-07-01', y_agg: 100 },
+                { order_date: '2024-08-01', y_agg: 500 },
+                { order_date: '2024-09-01', y_agg: 102 },
+                { order_date: '2024-10-01', y_agg: 98 },
+                { order_date: '2024-11-01', y_agg: 101 },
+                { order_date: '2024-12-01', y_agg: 100 },
+              ],
+              rowCount: 12,
+            };
+          }
+          return { rows: [{ id: 'o1', total: 100, status: 'pending' }], rowCount: 365 };
+        },
+      );
+      const server = buildStudioMcpServer({ current: state }, { data: { queryDataSource } });
+      const result = (await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'summarise_page', arguments: {} },
+        method: CALL_TOOL,
+      })) as any;
+      const text = result.content[0].text as string;
+      expect(text).toContain('Anomalies detected at: 2024-08');
+      // No noise when no anomalies — check no "No anomalies detected." line
+      expect(text).not.toContain('No anomalies detected');
+      // GROUP BY query was issued
+      const aggCall = queryDataSource.mock.calls.find(([p]) => p.aggregations?.length);
+      expect(aggCall).toBeDefined();
+      expect(aggCall![0]).toMatchObject({
+        columns: ['order_date'],
+        aggregations: [{ column: 'total', func: 'sum', alias: 'y_agg' }],
+      });
+    });
+
+    it('skips anomaly detection for blended charts', async () => {
+      const state = makeStableState();
+      const widgetId = 'w-blended';
+      state.widgets[widgetId] = {
+        id: widgetId,
+        kind: 'chart',
+        title: 'Blended Chart',
+        sourceId: 'source-orders',
+        config: {
+          chartType: 'bar',
+          xField: 'order_date',
+          xGroupBy: 'month',
+          ySeries: [{ fieldId: 'revenue', sourceId: 'other-source' }],
+        },
+      } as any;
+      state.pages[PAGE_ID] = { ...state.pages[PAGE_ID], widgetRows: [[widgetId]] };
+
+      const queryDataSource = vi.fn(
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [{ id: 'o1', total: 100 }],
+          rowCount: 1,
+        }),
+      );
+      const server = buildStudioMcpServer({ current: state }, { data: { queryDataSource } });
+      await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'summarise_page', arguments: {} },
+        method: CALL_TOOL,
+      });
+      // Only the raw-rows query should fire — no GROUP BY call
+      const aggCall = queryDataSource.mock.calls.find(([p]) => p.aggregations?.length);
+      expect(aggCall).toBeUndefined();
+    });
   });
 });

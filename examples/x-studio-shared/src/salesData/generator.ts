@@ -281,6 +281,98 @@ export const ORDERS_SOURCE_ID = 'source-orders';
 export const ORDER_ITEMS_SOURCE_ID = 'source-order-items';
 export const SHIPMENTS_SOURCE_ID = 'source-shipments';
 export const SHIPMENT_ITEMS_SOURCE_ID = 'source-shipment-items';
+export const EXCHANGE_RATES_SOURCE_ID = 'source-exchange-rates';
+
+// ─── Exchange rates ───────────────────────────────────────────────────────────
+// Monthly rates (to USD) for each currency at key control points.
+// Rates between points are linearly interpolated; dates beyond the last point use
+// the final rate. Values approximate real-world 2020–2026 history.
+const RATE_SCHEDULE: Record<string, Array<[string, number]>> = {
+  USD: [['2020-01', 1.0]],
+  EUR: [
+    ['2020-01', 1.1],
+    ['2021-01', 1.22],
+    ['2022-01', 1.12],
+    ['2022-09', 0.96],
+    ['2023-01', 1.05],
+    ['2024-01', 1.09],
+    ['2026-01', 1.1],
+  ],
+  GBP: [
+    ['2020-01', 1.3],
+    ['2021-01', 1.37],
+    ['2022-01', 1.35],
+    ['2022-09', 1.08],
+    ['2023-01', 1.2],
+    ['2024-01', 1.27],
+    ['2026-01', 1.29],
+  ],
+  CAD: [
+    ['2020-01', 0.76],
+    ['2021-01', 0.79],
+    ['2022-01', 0.8],
+    ['2022-06', 0.78],
+    ['2023-01', 0.74],
+    ['2024-01', 0.73],
+    ['2026-01', 0.72],
+  ],
+  AUD: [
+    ['2020-01', 0.69],
+    ['2021-01', 0.77],
+    ['2022-01', 0.72],
+    ['2022-06', 0.68],
+    ['2023-01', 0.67],
+    ['2024-01', 0.64],
+    ['2026-01', 0.62],
+  ],
+};
+
+function monthIndex(ym: string): number {
+  const [y, m] = ym.split('-').map(Number);
+  return y * 12 + (m - 1);
+}
+
+function getRateForMonth(currency: string, yearMonth: string): number {
+  const schedule = RATE_SCHEDULE[currency];
+  if (!schedule) return 1.0;
+  const idx = monthIndex(yearMonth);
+  if (idx <= monthIndex(schedule[0][0])) return schedule[0][1];
+  for (let i = 1; i < schedule.length; i++) {
+    const lo = monthIndex(schedule[i - 1][0]);
+    const hi = monthIndex(schedule[i][0]);
+    if (idx <= hi) {
+      const t = (idx - lo) / (hi - lo);
+      return +Number(schedule[i - 1][1] + t * (schedule[i][1] - schedule[i - 1][1])).toFixed(4);
+    }
+  }
+  return schedule[schedule.length - 1][1];
+}
+
+/** Generate a monthly exchange-rate lookup table for 2020-01 through 2030-12. */
+export function generateExchangeRatesSource(): StudioDataSource {
+  const currencies = ['USD', 'EUR', 'GBP', 'CAD', 'AUD'];
+  const rows: Record<string, unknown>[] = [];
+  for (let y = 2020; y <= 2030; y++) {
+    for (let mn = 1; mn <= 12; mn++) {
+      const rateMonth = `${y}-${String(mn).padStart(2, '0')}`;
+      for (const currency of currencies) {
+        const toUsd = getRateForMonth(currency, rateMonth);
+        rows.push({ id: `${currency}-${rateMonth}`, currency, rateMonth, toUsd });
+      }
+    }
+  }
+  return {
+    id: EXCHANGE_RATES_SOURCE_ID,
+    label: 'Exchange Rates',
+    fields: [
+      { id: 'id', label: 'Rate Key', type: 'string', hidden: true },
+      { id: 'currency', label: 'Currency', type: 'string' },
+      { id: 'rateMonth', label: 'Rate Month', type: 'string' },
+      { id: 'toUsd', label: 'Rate (to USD)', type: 'number' },
+    ],
+    rows,
+  };
+}
 
 // ─── Generator options ────────────────────────────────────────────────────────
 
@@ -378,6 +470,7 @@ interface GeneratedOrder extends Record<string, unknown> {
   status: string;
   total: number;
   currency: string;
+  rateKey: string;
 }
 
 function generateOrders(
@@ -403,13 +496,16 @@ function generateOrders(
   for (let i = 0; i < count; i++) {
     const customer = pickWeighted(rng, customerRows, customerWeightsNorm);
     const country = customer.country as string;
+    const orderDate = sampleOrderDate(rng);
+    const currency = COUNTRY_CURRENCY[country] ?? 'USD';
     rows.push({
       id: `ORD-${zeroPad(i + 1, 7)}`,
-      date: sampleOrderDate(rng),
+      date: orderDate,
       customerId: customer.id as string,
       status: pickWeighted(rng, ORDER_STATUSES, ORDER_STATUS_WEIGHTS),
       total: 0, // derived later
-      currency: COUNTRY_CURRENCY[country] ?? 'USD',
+      currency,
+      rateKey: `${currency}-${orderDate.slice(0, 7)}`,
     });
   }
 
@@ -437,6 +533,7 @@ function generateOrders(
         },
         { id: 'total', label: 'Order Total', type: 'number', format: 'currency' },
         { id: 'currency', label: 'Currency', type: 'string' },
+        { id: 'rateKey', label: 'Rate Period Key', type: 'string', hidden: true },
       ],
       rows,
     },

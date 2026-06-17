@@ -175,7 +175,7 @@ export default function AdminDashboardEditor({
 ## Key considerations
 
 **Re-rendering when data changes** — `StudioController` holds state internally.
-To reflect data changes (e.g., live metrics), refetch the state and pass it to a new controller instance, or use an async data adapter that polls the backend (see [Async adapters](/x/react-studio/data/async-adapters/)).
+To reflect data changes (for example, live metrics), refetch the state and pass it to a new controller instance, or use an async data adapter that polls the backend (see [Async adapters](/x/react-studio/data/async-adapters/)).
 
 **Preventing mode switch** — The viewer cannot switch to edit mode because there is no `StudioToolbar`, and the controller was initialized with `mode: 'view'`.
 If you need to programmatically guard against a mode switch, listen to `onStateChange` and reset:

@@ -116,9 +116,9 @@ const initialState = createDefaultStudioState({
 });
 ```
 
-## Chart colour palettes
+## Chart color palettes
 
-Studio uses the MUI X Charts colour palette by default. To customise the chart colours, override them on the MUI theme using the Charts theme augmentation:
+Studio uses the MUI X Charts color palette by default. To customize the chart colors, override them on the MUI theme using the Charts theme augmentation:
 
 ```tsx
 import type {} from '@mui/x-charts/themeAugmentation';
@@ -127,16 +127,16 @@ const theme = createTheme({
   colorSchemes: {
     light: {
       palette: {
-        // MUI X Charts reads these for series colours
+        // MUI X Charts reads these for series colours
       },
     },
   },
 });
 ```
 
-See the [MUI X Charts theming documentation](https://mui.com/x/react-charts/styling/) for the full list of tokens.
+See the [MUI X Charts theming documentation](https://mui.com/x/react-charts/styling/) for the full list of tokens.
 
 ## See also
 
 - [Slot props](/x/react-studio/customization/slot-props/) — component-level overrides alongside the theme token
-- [Composed approach](/x/react-studio/getting-started/composition/) — wrap in `CssVarsProvider` before `StudioProvider` for MUI System integration
+- [Composed approach](/x/react-studio/getting-started/composition/) — wrap in `CssVarsProvider` before `StudioProvider` for MUI System integration

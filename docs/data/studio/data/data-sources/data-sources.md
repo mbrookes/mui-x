@@ -82,7 +82,7 @@ Each field describes one column of the data source:
 | `type`          | `FieldType`          | ✓        | One of `'string'`, `'number'`, `'date'`, `'datetime'`, `'boolean'`.                                                                                                                                                                                                           |
 | `aggregatable`  | `boolean`            |          | When `true`, Studio can sum, average, count, etc. this field on charts and KPIs. Usually set on numeric fields.                                                                                                                                                               |
 | `format`        | `StudioNumberFormat` |          | Display format for numbers: `'number'`, `'currency'`, `'percent'`, `'compact'`.                                                                                                                                                                                               |
-| `currencyCode`  | `string`             |          | ISO 4217 currency code used when `format` is `'currency'` (e.g. `'USD'`).                                                                                                                                                                                                     |
+| `currencyCode`  | `string`             |          | ISO 4217 currency code used when `format` is `'currency'` (for example, `'USD'`).                                                                                                                                                                                                     |
 | `orderedValues` | `string[]`           |          | Canonical display order for categorical values. When set, chart x-axis labels follow this sequence instead of sorting alphabetically. Values not in the list are appended alphabetically at the end. Use for ordered enumerations such as pipeline stages or severity levels. |
 | `aiDescription` | `string`             |          | AI-facing description of this field's meaning. Included in the system prompt to guide the AI in field selection for axes, KPIs, and filters.                                                                                                                                  |
 
@@ -146,7 +146,7 @@ Some sources exist only to provide joined dimensions and shouldn't appear in the
 ## In-memory processing pipeline
 
 When rows are provided inline (no adapter), Studio runs a multi-layer pipeline to produce the rows each widget renders.
-Understanding the layers helps when debugging unexpected filter behaviour or performance issues.
+Understanding the layers helps when debugging unexpected filter behavior or performance issues.
 
 | Layer  | Name                   | What it does                                                                                                                                                                                                                                         |
 | :----- | :--------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

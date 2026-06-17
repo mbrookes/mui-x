@@ -45,7 +45,7 @@ const myWidget: StudioCustomWidgetDef = {
 The overflow menu exposes three items:
 
 - **Summarise** — `type: 'summary'`
-- **Analyse** — `type: 'analysis'`
+- **Analyze** — `type: 'analysis'`
 - **Forecast** — `type: 'forecast'`
 
 Selecting a type triggers a new request. The panel can be closed by clicking **✕**, which also aborts any in-progress request.

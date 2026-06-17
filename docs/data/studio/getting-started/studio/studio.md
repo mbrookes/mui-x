@@ -166,31 +166,43 @@ Controls which Studio features are visible to the end user. All flags default to
 interface StudioFeatureFlags {
   // Panel visibility
   compose?: boolean; // Show compose/edit panel (locks to view-only when false)
-  filters?: boolean; // Show filters panel + quick filter bar
+  filters?: boolean; // Show filters sidebar panel and quick filter bar
+  quickFilter?: boolean; // Show the date-range quick filter bar above the canvas (default: false)
   savedFilterViews?: boolean; // Allow saving named filter presets
   dataManagement?: boolean; // Show data drawer
+  relationships?: boolean; // Show the relationship management panel inside the data drawer
+  widgetFilters?: boolean; // Show the per-widget Filters tab in the edit dialog
   aiChat?: boolean; // Enable AI chat panel (requires aiConfig too)
+  aiInsights?: boolean; // Enable per-widget AI insight buttons (requires aiConfig too)
+  export?: boolean; // Show CSV / PNG export actions on widget cards
+  calculatedFields?: boolean; // Master switch for the "Add calculated field" button everywhere
 
-  // Widget kinds (hides from widget picker when false)
-  grid?: boolean;
-  chart?: boolean;
-  kpi?: boolean;
+  // Widget kinds — pass false to hide from the picker, or an object to enable sub-flags
+  grid?:
+    | boolean
+    | {
+        groupBy?: boolean; // Group-by field picker
+        summary?: boolean; // Summary (totals) row
+        conditionalFormats?: boolean; // Conditional formatting rules
+        calculatedFields?: boolean; // "Calculated column…" in the Add column menu
+      };
+  chart?:
+    | boolean
+    | {
+        annotations?: boolean; // Reference-line annotations
+        calculatedFields?: boolean; // "Add calculated field" in the Y-measure picker
+      };
+  kpi?:
+    | boolean
+    | {
+        sparkline?: boolean; // Sparkline configuration section
+        trend?: boolean; // Period-over-period trend indicator
+        calculatedFields?: boolean; // "Add calculated field" in the value picker
+      };
   text?: boolean;
   filter?: boolean;
   pivot?: boolean;
   map?: boolean;
-
-  // KPI features
-  kpiSparkline?: boolean; // KPI sparkline section
-  kpiTrend?: boolean; // KPI trend badge
-
-  // Chart features
-  chartAnnotations?: boolean; // Chart reference-line annotations
-
-  // Grid features
-  gridGroupBy?: boolean; // Grid group-by field picker
-  gridSummary?: boolean; // Grid summary (totals) row
-  gridConditionalFormats?: boolean; // Grid conditional formatting
 }
 ```
 
@@ -201,8 +213,15 @@ interface StudioFeatureFlags {
     compose: false,
     dataManagement: false,
     aiChat: false,
+    aiInsights: false,
   }}
 />
+
+// Keep charts but disable annotations and calculated fields
+<Studio featureFlags={{ chart: { annotations: false, calculatedFields: false } }} />
+
+// Keep grids but disable group-by and conditional formatting
+<Studio featureFlags={{ grid: { groupBy: false, conditionalFormats: false } }} />
 ```
 
 `StudioDashboard` uses embed-first defaults with `compose: false` and `dataManagement: false`; pass `featureFlags={{ compose: true }}` to re-enable authoring features there. Feature flags only control what users can _see_ in the UI — they are not a server-side access-control mechanism.

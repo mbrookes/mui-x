@@ -69,7 +69,7 @@ studioRef.current?.setDataSourceAdapter('orders', undefined);
 
 ## `StudioQueryDescriptor`
 
-Studio builds a `StudioQueryDescriptor` for each widget whenever its query changes (e.g. a filter is applied or the chart type changes).
+Studio builds a `StudioQueryDescriptor` for each widget whenever its query changes (for example, a filter is applied or the chart type changes).
 Your adapter receives this descriptor and must return matching rows.
 
 ```ts
@@ -124,7 +124,7 @@ return {
 };
 ```
 
-When `aggregations` is not set (e.g. for a grid widget), return **raw filtered rows** matching `select` and `filter`.
+When `aggregations` is not set (for example, for a grid widget), return **raw filtered rows** matching `select` and `filter`.
 
 ### The filter tree
 
@@ -192,7 +192,7 @@ const adapter: StudioDataSourceAdapter = {
 };
 ```
 
-For production use, consider a proper LRU cache (e.g. `lru-cache`) and cache invalidation on data mutations.
+For production use, consider a proper LRU cache (for example, `lru-cache`) and cache invalidation on data mutations.
 
 When using [`createBatchingAdapter`](#batching-multiple-widgets-into-one-request) together with [`@mui/x-studio-data-middleware`](/x/react-studio/data/server-middleware/), cross-widget deduplication is handled automatically at both layers:
 
@@ -338,7 +338,7 @@ function MyCustomWidget({ widget, dataSource }) {
 }
 ```
 
-The `StudioRequestCache` that backs the async path gives you stale-while-revalidate behaviour by default:
+The `StudioRequestCache` that backs the async path gives you stale-while-revalidate behavior by default:
 on the first render after a query change it returns the last known rows synchronously (`isLoading: false`),
 then updates once the new fetch settles. This means widgets only show the spinner on the very first load —
 subsequent filter changes produce an instant render with the old data replaced smoothly.
@@ -499,7 +499,7 @@ All data sources that point to the **same endpoint URL** share one batcher — a
 ### Batch request format
 
 The adapter sends a single `POST` with all pending widget descriptors.
-The `table` field contains the Studio **source ID** for that widget (e.g. `source-orders`) — see [Source ID to table name](#source-id-to-table-name) for how your server should map this to a SQL table.
+The `table` field contains the Studio **source ID** for that widget (for example, `source-orders`) — see [Source ID to table name](#source-id-to-table-name) for how your server should map this to a SQL table.
 
 ```json
 {
@@ -538,24 +538,24 @@ interface FilterPredicate {
 
 The operator mapping from Studio's UI to the batch format:
 
-| Studio operator         | Batch `operator` | Notes                                       |
-| :---------------------- | :--------------- | :------------------------------------------ |
-| `equals`                | `eq`             | Exact match                                 |
-| `not_equals`            | `neq`            |                                             |
-| `in`                    | `in`             | Value is an array, e.g. `["US", "DE"]`      |
-| `greater_than`          | `gt`             |                                             |
-| `less_than`             | `lt`             |                                             |
-| `greater_than_or_equal` | `gte`            |                                             |
-| `less_than_or_equal`    | `lte`            |                                             |
-| `contains`              | `like`           | Value should be matched with `LIKE %value%` |
-| `between`               | `between`        | Emits two predicates (one `gte`, one `lte`) |
+| Studio operator         | Batch `operator` | Notes                                          |
+| :---------------------- | :--------------- | :--------------------------------------------- |
+| `equals`                | `eq`             | Exact match                                    |
+| `not_equals`            | `neq`            |                                                |
+| `in`                    | `in`             | Value is an array, for example, `["US", "DE"]` |
+| `greater_than`          | `gt`             |                                                |
+| `less_than`             | `lt`             |                                                |
+| `greater_than_or_equal` | `gte`            |                                                |
+| `less_than_or_equal`    | `lte`            |                                                |
+| `contains`              | `like`           | Value should be matched with `LIKE %value%`    |
+| `between`               | `between`        | Emits two predicates (one `gte`, one `lte`)    |
 
 Group nodes (`and`/`or`) in the filter tree are flattened — all leaf predicates are collected into the flat array. For queries requiring strict `OR` logic between predicates, implement that server-side based on your schema knowledge.
 
 ### Source ID to table name
 
 Studio sends the data source's `id` as the `table` field in each batch widget descriptor.
-If your source IDs follow the convention `source-<table-name>` (e.g. `source-orders`, `source-order-items`), you can derive the SQL table name by stripping the prefix and replacing hyphens with underscores:
+If your source IDs follow the convention `source-<table-name>` (for example, `source-orders`, `source-order-items`), you can derive the SQL table name by stripping the prefix and replacing hyphens with underscores:
 
 ```ts
 function sourceIdToTable(sourceId: string): string {

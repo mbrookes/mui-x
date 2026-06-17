@@ -12,10 +12,15 @@
  * POST /api/sales-data and POST /api/crm-data.
  *
  * ## Claude Desktop configuration
+ * Claude Desktop's config file only supports stdio transports. Use `mcp-remote` to bridge
+ * stdio ↔ Streamable HTTP. Add the following to `~/Library/Application Support/Claude/claude_desktop_config.json`:
  * ```json
  * {
  *   "mcpServers": {
- *     "x-studio": { "url": "http://localhost:3020/api/mcp" }
+ *     "x-studio": {
+ *       "command": "npx",
+ *       "args": ["mcp-remote", "http://localhost:3020/api/mcp", "--allow-http"]
+ *     }
  *   }
  * }
  * ```
@@ -44,8 +49,56 @@ import {
   type StudioStateBox,
   type StudioDataQueryParams,
 } from '@mui/x-studio-ai-middleware';
+import {
+  generateSalesData,
+  generateCrmData,
+  CUSTOMERS_SOURCE_ID,
+  PRODUCTS_SOURCE_ID,
+  ORDERS_SOURCE_ID,
+  ORDER_ITEMS_SOURCE_ID,
+  SHIPMENTS_SOURCE_ID,
+  SHIPMENT_ITEMS_SOURCE_ID,
+  CRM_CONTACTS_SOURCE_ID,
+  CRM_DEALS_SOURCE_ID,
+  CRM_ACTIVITIES_SOURCE_ID,
+  CRM_DEAL_TRANSITIONS_SOURCE_ID,
+} from 'x-studio-shared';
 import type { Config } from '../config.js';
 import { resolveClaims, DEV_CLAIMS } from '../middleware/claims.js';
+
+// ── MCP session initial state ─────────────────────────────────────────────────
+// Pre-generate source schemas once at startup. Each MCP session starts with these
+// data sources registered so the AI can immediately discover and query them via
+// describe_data_source / query_data_source, without the user having to manually
+// connect anything. Rows are stripped — all data is queried live from the DB.
+
+const {
+  customersSource,
+  productsSource,
+  ordersSource,
+  orderItemsSource,
+  shipmentsSource,
+  shipmentItemsSource,
+} = generateSalesData();
+
+const { contactsSource, dealsSource, activitiesSource, dealTransitionsSource } = generateCrmData();
+
+function withoutRows<T extends { rows?: unknown[] }>({ rows: _rows, ...rest }: T): Omit<T, 'rows'> {
+  return rest;
+}
+
+const MCP_INITIAL_DATA_SOURCES = {
+  [CUSTOMERS_SOURCE_ID]: withoutRows(customersSource),
+  [PRODUCTS_SOURCE_ID]: withoutRows(productsSource),
+  [ORDERS_SOURCE_ID]: withoutRows(ordersSource),
+  [ORDER_ITEMS_SOURCE_ID]: withoutRows(orderItemsSource),
+  [SHIPMENTS_SOURCE_ID]: withoutRows(shipmentsSource),
+  [SHIPMENT_ITEMS_SOURCE_ID]: withoutRows(shipmentItemsSource),
+  [CRM_CONTACTS_SOURCE_ID]: withoutRows(contactsSource),
+  [CRM_DEALS_SOURCE_ID]: withoutRows(dealsSource),
+  [CRM_ACTIVITIES_SOURCE_ID]: withoutRows(activitiesSource),
+  [CRM_DEAL_TRANSITIONS_SOURCE_ID]: withoutRows(dealTransitionsSource),
+};
 
 const SALES_SCHEMA_ALLOWLIST = [
   'customers',
@@ -141,7 +194,9 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
         claims = DEV_CLAIMS;
       }
 
-      const stateBox: StudioStateBox = { current: createDefaultStudioState() };
+      const stateBox: StudioStateBox = {
+        current: createDefaultStudioState({ dataSources: MCP_INITIAL_DATA_SOURCES }),
+      };
 
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),

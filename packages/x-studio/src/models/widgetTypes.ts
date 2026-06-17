@@ -179,18 +179,6 @@ export interface StudioWidgetConfig {
    */
   funnelStageSequence?: string[];
   /**
-   * Funnel chart: terminal exit stage label (e.g. `Closed Lost`). Excluded from
-   * the sequential conversion math and rendered as a separate exit stat.
-   */
-  funnelExitStage?: string;
-  /**
-   * Funnel widget: render the cumulative counts as a **step-conversion bar chart**
-   * (one bar per stage transition = conversion %) instead of the funnel trapezoids.
-   * Requires `funnelReachedField` + `funnelStageSequence`.
-   * @default false
-   */
-  funnelConversionBar?: boolean;
-  /**
    * Sankey chart: target ("to") node field. The source ("from") node uses `xField`
    * and the link weight uses `yField`. Links are summed per unique source→target pair.
    */

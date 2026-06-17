@@ -47,7 +47,7 @@ import { Studio, frLocaleText } from '@mui/x-studio';
 
 ### Theme-level locale
 
-Use `getStudioLocalization()` with MUI's `createTheme()` to apply a locale to your entire theme, consistent with other MUI X packages:
+Use `getStudioLocalization()` with MUI's `createTheme()` to apply a locale to your entire theme, consistent with other MUI X packages:
 
 ```tsx
 import { createTheme, ThemeProvider } from '@mui/material/styles';
@@ -60,7 +60,7 @@ const theme = createTheme(ptBR);
 </ThemeProvider>;
 ```
 
-You can combine multiple MUI X locales in a single `createTheme()` call:
+You can combine multiple MUI X locales in a single `createTheme()` call:
 
 ```tsx
 import { createTheme, ThemeProvider } from '@mui/material/styles';
@@ -712,7 +712,7 @@ Studio auto-generates widget titles and subtitles when none has been set. Overri
 
 #### KPI aggregation prefixes
 
-Applied as a prefix to the value field label in the KPI title (e.g. `"Total Revenue"`, `"Average Age"`).
+Applied as a prefix to the value field label in the KPI title (for example, `"Total Revenue"`, `"Average Age"`).
 
 | Token                          | Default      |
 | :----------------------------- | :----------- |
@@ -725,7 +725,7 @@ Applied as a prefix to the value field label in the KPI title (e.g. `"Total Reve
 
 #### Time-grouping prefixes (chart subtitle)
 
-Prepended to the group-by field label when time granularity is active, e.g. `"Month of Order Date"`.
+Prepended to the group-by field label when time granularity is active, for example, `"Month of Order Date"`.
 
 | Token                        | Default        |
 | :--------------------------- | :------------- |

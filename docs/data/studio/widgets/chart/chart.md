@@ -13,7 +13,7 @@ description: The chart widget renders bar, line, area, mixed, heatmap, funnel, g
 
 `StudioChartWidget` renders one of the supported chart types driven by the fields and data source you configure in the sidebar.
 The same `StudioWidgetConfig` can also be set programmatically with `StudioController`.
-It integrates with the MUI X Charts library for rendering and participates in the Studio cross-filter system.
+It integrates with the MUI X Charts library for rendering and participates in the Studio cross-filter system.
 
 ## Chart types
 
@@ -27,12 +27,12 @@ It integrates with the MUI X Charts library for rendering and participates in th
 | Stacked area       | `area-stacked` |                                                                                                                                                                                                                                                                         |
 | 100 % stacked area | `area-100`     |                                                                                                                                                                                                                                                                         |
 | Mixed              | `mixed`        | Bar + line overlay on shared axes; requires 2+ measure fields; each `ySeries` entry can set `seriesType` to `'bar'` or `'line'`; optional `dualYAxis` adds an independent right Y axis                                                                                  |
-| Heatmap            | `heatmap`      | Uses `xField` for columns, `heatYField` for rows, and `yField` for colour intensity; `heatColorScheme` supports `primary`, `success`, `warning`, and `error`                                                                                                            |
+| Heatmap            | `heatmap`      | Uses `xField` for columns, `heatYField` for rows, and `yField` for color intensity; `heatColorScheme` supports `primary`, `success`, `warning`, and `error`                                                                                                            |
 | Funnel             | `funnel`       | Uses `xField` for stage and `yField` for value; stages are sorted by value descending with drop-off and retention percentages. Set `funnelReachedField` (+ `funnelStageSequence`) for a monotonic cumulative "reached stage" funnel — see [Funnel modes](#funnel-modes) |
 | Gantt              | `gantt`        | Swimlane timeline using `ganttLabelField`, `ganttStartField`, `ganttEndField`, and optional `ganttColorField`; includes a date axis, grid lines, and tooltips                                                                                                           |
 | Sankey             | `sankey`       | Flow diagram using `xField` for source node, `sankeyTargetField` for target node, and `yField` for the link value (summed per source→target pair); `sankeyLinkColor` (`'source'` or `'target'`) and `sankeyShowValues` control link appearance                          |
 | Pie                | `pie`          | No X axis; single numeric value series                                                                                                                                                                                                                                  |
-| Donut              | `donut`        | Like pie with a centre hole                                                                                                                                                                                                                                             |
+| Donut              | `donut`        | Like pie with a center hole                                                                                                                                                                                                                                             |
 | Scatter            | `scatter`      | Requires `xField` and `yField`                                                                                                                                                                                                                                          |
 
 ## Configuration
@@ -163,7 +163,7 @@ value configuration.
 
 ## Scatter chart color-by field
 
-Use `scatterColorField?: string` to split a scatter chart into one colour-coded series per category and show a legend.
+Use `scatterColorField?: string` to split a scatter chart into one color-coded series per category and show a legend.
 Categories are derived from the full unfiltered row set so series ordering stays stable as filters change.
 
 ```ts
@@ -336,7 +336,7 @@ import { StudioChartWidget } from '@mui/x-studio';
 
 When all rows for a chart widget have been filtered out — by a page filter, cross-filter, or adapter returning an empty result — Studio renders a `StudioNoDataOverlay` in place of the empty chart canvas.
 
-The overlay shows a centered inbox icon with a "No data" label in `text.disabled` colour. It appears only after loading is complete so it never flickers during an in-flight adapter fetch.
+The overlay shows a centered inbox icon with a "No data" label in `text.disabled` color. It appears only after loading is complete so it never flickers during an in-flight adapter fetch.
 
 ### Customising the overlay
 
@@ -384,7 +384,7 @@ function MyEmptyChart() {
 ```
 
 :::info
-The `slots.noDataOverlay` on `StudioChartWidget` is also used when the chart has an unsupported configuration (e.g. missing required fields). If you replace it with a fully custom component, make sure your component handles both the "no data" and "misconfigured" cases, or scope it only to `StudioNoDataOverlay`.
+The `slots.noDataOverlay` on `StudioChartWidget` is also used when the chart has an unsupported configuration (for example, missing required fields). If you replace it with a fully custom component, make sure your component handles both the "no data" and "misconfigured" cases, or scope it only to `StudioNoDataOverlay`.
 :::
 
 ## See also

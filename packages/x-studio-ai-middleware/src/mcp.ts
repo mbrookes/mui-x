@@ -706,18 +706,15 @@ export function buildStudioMcpServer(
             const numericFields = visibleFields.filter((f) => f.type === 'number');
 
             try {
-              // Use a larger limit for time-series charts so we can detect anomalies.
-              // Anomaly detection is only run when rows.length < queryLimit (complete data).
               const isTimeSeries =
                 widget.kind === 'chart' &&
                 Boolean(widget.config.xGroupBy) &&
                 ANOMALY_CHART_TYPES.has(widget.config.chartType ?? 'bar');
-              const queryLimit = isTimeSeries ? 2000 : 50;
 
               const result = await data.queryDataSource({
                 sourceId,
                 tableName: source.tableName as string,
-                limit: queryLimit,
+                limit: 50,
               });
 
               const { rows, rowCount } = result;
@@ -756,22 +753,34 @@ export function buildStudioMcpServer(
                 '```',
               ];
 
-              // Anomaly detection for time-series charts — only when we have the full dataset.
-              if (isTimeSeries && rows.length < queryLimit) {
+              // Anomaly detection: run a separate GROUP BY query to get complete per-x-value
+              // totals from the DB, then re-bucket by period in memory. This is accurate
+              // regardless of table size (distinct x-values are bounded, unlike raw rows).
+              if (isTimeSeries) {
                 const xField = widget.config.xField;
                 const yField =
                   widget.config.yField ??
                   (widget.config.ySeries?.[0]?.fieldId as string | undefined);
+                const yAgg = (widget.config.yAggregation ?? 'sum') as
+                  | 'sum'
+                  | 'avg'
+                  | 'count'
+                  | 'min'
+                  | 'max';
                 const xGroupBy = widget.config.xGroupBy!;
                 if (xField && yField) {
+                  const aggResult = await data.queryDataSource({
+                    sourceId,
+                    tableName: source.tableName as string,
+                    columns: [xField],
+                    aggregations: [{ column: yField, func: yAgg, alias: 'y_agg' }],
+                    limit: 20000,
+                  });
                   const grouped = new Map<string, number>();
-                  for (const row of rows) {
+                  for (const row of aggResult.rows) {
                     const periodKey = mcpTruncateToPeriod(row[xField], xGroupBy);
                     if (!periodKey) continue;
-                    grouped.set(
-                      periodKey,
-                      (grouped.get(periodKey) ?? 0) + Number(row[yField] ?? 0),
-                    );
+                    grouped.set(periodKey, (grouped.get(periodKey) ?? 0) + Number(row.y_agg ?? 0));
                   }
                   const periodLabels = [...grouped.keys()].sort();
                   const periodValues = periodLabels.map((l) => grouped.get(l)!);
@@ -783,6 +792,8 @@ export function buildStudioMcpServer(
                     .map((i) => periodLabels[i]);
                   if (anomalyLabels.length > 0) {
                     lines.push(`Anomalies detected at: ${anomalyLabels.join(', ')}`);
+                  } else {
+                    lines.push('No anomalies detected.');
                   }
                 }
               }

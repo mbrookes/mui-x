@@ -62,16 +62,21 @@ export function detectAnomaliesZScore(values: number[], threshold = 2.5): Set<nu
 
 // ── Chart types that support anomaly detection ────────────────────────────────
 
-export const SUPPORTED_CHART_TYPES = new Set([
-  'bar',
-  'bar-stacked',
-  'bar-100',
-  'line',
-  'area',
-  'area-stacked',
-  'area-100',
-  'scatter',
-]);
+export const SUPPORTED_CHART_TYPES = new Set(['bar', 'bar-stacked', 'bar-100', 'line']);
+
+/**
+ * Returns true when a widget supports anomaly detection.
+ * Requires a bar or line chart with temporal x-axis grouping (`xGroupBy`).
+ */
+export function canDetectAnomalies(widget: StudioWidget): boolean {
+  if (widget.kind !== 'chart') {
+    return false;
+  }
+  if (!widget.config.xGroupBy) {
+    return false;
+  }
+  return SUPPORTED_CHART_TYPES.has(widget.config.chartType ?? 'bar');
+}
 
 // ── Widget-level entry point ──────────────────────────────────────────────────
 

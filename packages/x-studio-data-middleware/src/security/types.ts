@@ -108,6 +108,20 @@ export interface BatchWidgetDescriptor {
   aggregations?: AggregationSpec[];
   /** Client-supplied filter predicates (structured, never raw SQL) */
   filters?: FilterPredicate[];
+  /**
+   * Post-aggregation filter predicates (HAVING clause).
+   *
+   * Each entry references an aggregation alias from `aggregations[]` — never a raw
+   * column name. Only numeric comparisons are supported. The middleware validates
+   * that every `alias` in `having` matches an entry in `aggregations` before
+   * executing the query.
+   *
+   * @example
+   * // "Show categories where total revenue > 10 000"
+   * aggregations: [{ column: 'revenue', func: 'sum', alias: 'total_revenue' }],
+   * having: [{ alias: 'total_revenue', operator: 'gt', value: 10000 }]
+   */
+  having?: HavingPredicate[];
   /** ORDER BY clauses */
   orderBy?: OrderBy[];
   /** Row limit for pagination */
@@ -119,6 +133,20 @@ export interface BatchWidgetDescriptor {
    * Security predicates are applied to the primary table only.
    */
   joins?: JoinDescriptor[];
+}
+
+/**
+ * Post-aggregation filter on an aggregation alias (HAVING clause).
+ *
+ * Only numeric comparison operators are allowed. The `alias` must match an
+ * entry in `BatchWidgetDescriptor.aggregations[].alias` — referencing raw
+ * column names is rejected by the middleware to prevent injection.
+ */
+export interface HavingPredicate {
+  /** Aggregation alias to filter on (must match aggregations[].alias). */
+  alias: string;
+  operator: 'eq' | 'gt' | 'lt' | 'gte' | 'lte';
+  value: number;
 }
 
 /** Structured filter predicate — never a raw SQL string */

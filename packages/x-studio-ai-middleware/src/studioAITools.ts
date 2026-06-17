@@ -329,11 +329,23 @@ export const STUDIO_AI_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'list_pages',
+      description:
+        'Returns all dashboard pages with their id, title, widget count, and widget titles. ' +
+        'Use this to discover what pages and widgets exist before navigating, querying, or answering questions about what the dashboard contains. ' +
+        'Prefer this over get_dashboard_state when you only need to know what pages and widgets are present.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'summarise_page',
       description:
-        'Returns a data snapshot of every widget on the active dashboard page — ' +
+        'Returns a data snapshot of every widget on a dashboard page — ' +
         'a sampled CSV excerpt and numeric stats (min/max/avg) per widget. ' +
-        'Call this when the user asks you to summarise, analyse, or describe the current page. ' +
+        'Call this when the user asks you to summarise, analyse, or describe a page. ' +
+        'Pass pageId to summarise a non-active page without switching to it. ' +
         'After receiving the result, write an executive summary of the key insights. ' +
         'IMPORTANT FORMATTING RULES: ' +
         '(1) Begin immediately with the content — no preamble like "Here is a summary", "I will now...", "Based on the data...", etc. ' +
@@ -341,7 +353,18 @@ export const STUDIO_AI_TOOLS = [
         '(3) **Bold** the most important numbers or findings in each paragraph. ' +
         '(4) Lead with the single most important metric or trend, then cover patterns, notable values, and anomalies. ' +
         '(5) Name a widget only when it helps locate the specific data — never list widgets as a structure.',
-      parameters: { type: 'object', properties: {}, required: [] },
+      parameters: {
+        type: 'object',
+        properties: {
+          pageId: {
+            type: 'string',
+            description:
+              'ID of the page to summarise. Defaults to the active page when omitted. ' +
+              'Use list_pages to find page IDs.',
+          },
+        },
+        required: [],
+      },
     },
   },
   {

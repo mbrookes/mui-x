@@ -48,6 +48,26 @@ export function executeToolOnState(
       };
     }
 
+    case 'list_pages': {
+      const pageList = Object.values(state.pages).map((page) => {
+        const widgetIds = (page.widgetRows ?? []).flat();
+        const widgetTitles = widgetIds
+          .map((id) => state.widgets[id]?.title)
+          .filter((t): t is string => Boolean(t));
+        return {
+          id: page.id,
+          title: page.title,
+          widgetCount: widgetIds.length,
+          widgetTitles,
+          isActive: page.id === state.dashboard.activePageId,
+        };
+      });
+      return {
+        output: JSON.stringify({ pages: pageList, activePageId: state.dashboard.activePageId }),
+        nextState: state,
+      };
+    }
+
     case 'add_page': {
       const title = String(args.title ?? 'New Page');
       const id = `page-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;

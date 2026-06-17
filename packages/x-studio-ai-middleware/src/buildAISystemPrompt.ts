@@ -500,6 +500,24 @@ function buildDashboardState(
     }
   }
 
+  // Other pages (compact summary so the agent can answer cross-page questions without switching)
+  const otherPages = pageList.filter((p) => p.id !== dashboard.activePageId);
+  if (otherPages.length > 0) {
+    lines.push(`## Other Pages (${otherPages.length})`);
+    for (const page of otherPages) {
+      const ids = (page.widgetRows ?? []).flat();
+      const titles = ids
+        .map((id) => widgets[id]?.title)
+        .filter((t): t is string => Boolean(t));
+      const widgetSummary = titles.length > 0 ? titles.join(', ') : '(no widgets)';
+      lines.push(`- ${page.title} [id: ${page.id}]: ${widgetSummary}`);
+    }
+    lines.push(
+      'Use list_pages for structured access or summarise_page(pageId) to see a page\'s data without switching to it.',
+    );
+    lines.push('');
+  }
+
   // Data sources
   if (sourceList.length === 0) {
     lines.push('No data sources configured.');
@@ -605,6 +623,14 @@ export interface BuildAISystemPromptOptions {
    * @default false
    */
   privateMode?: boolean;
+  /**
+   * Names of data tools that are available in this session (e.g. `query_data_source`,
+   * `describe_data_source`, `get_field_values`, `compute_field_stats`).
+   * When provided, a brief `## Available data tools` section is appended so the
+   * model knows what it can call for data analysis.
+   * @default undefined (section omitted)
+   */
+  availableDataTools?: string[];
 }
 
 /**
@@ -624,10 +650,15 @@ export function buildAISystemPrompt(
   skills?: SerializableSkill[],
   options?: BuildAISystemPromptOptions,
 ): string {
-  const { privateMode = false } = options ?? {};
+  const { privateMode = false, availableDataTools } = options ?? {};
+  const dataToolSection =
+    availableDataTools && availableDataTools.length > 0
+      ? `\n\n## Available data tools\n${availableDataTools.map((t) => `- \`${t}\``).join('\n')}\nUse these to answer data questions. Call describe_data_source first if you need to understand a source's schema and statistics.`
+      : '';
   return (
     STUDIO_AI_INSTRUCTIONS +
     buildSkillSection(skills) +
+    dataToolSection +
     (privateMode ? '' : `\n\n${buildDashboardState(state, customWidgets, focusedWidgetId)}`)
   );
 }

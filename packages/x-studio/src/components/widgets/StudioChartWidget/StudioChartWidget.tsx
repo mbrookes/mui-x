@@ -477,14 +477,23 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
     // Bar/line/area: use aggregated chart data so annotation x-values match the
     // chart's actual x-axis labels (e.g. period-key strings on band-scale axes).
+    // Trim edge buckets when xGroupBy is set — partial first/last periods cause
+    // false-positive low outliers.
+    const trimEdges = Boolean(config.xGroupBy);
     let annotations: import('../../../models/baseTypes').StudioChartAnnotation[] = [];
     if (chartData && chartData.labels.length > 0) {
-      annotations = detectChartDataAnomalies(widget.id, chartData.labels, chartData.values);
+      annotations = detectChartDataAnomalies(
+        widget.id,
+        chartData.labels,
+        chartData.values,
+        trimEdges,
+      );
     } else if (multiYData && multiYData.labels.length > 0 && multiYData.series.length > 0) {
       annotations = detectChartDataAnomalies(
         widget.id,
         multiYData.labels,
         multiYData.series[0].values,
+        trimEdges,
       );
     }
 

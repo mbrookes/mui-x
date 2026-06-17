@@ -356,7 +356,6 @@ export function AppToolbar(props: AppToolbarProps) {
                 opacity: activeDrag?.draggedIndex === index ? 0 : 1,
                 transform: getTabTransform(index),
                 transition: activeDrag ? 'transform 150ms ease' : 'none',
-                cursor: showDragHandles ? (activeDrag ? 'grabbing' : 'grab') : undefined,
               }}
               label={
                 showCloseButtons ? (

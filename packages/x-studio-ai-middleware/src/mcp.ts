@@ -275,6 +275,68 @@ const DEFAULT_EXCLUDED_TOOLS = new Set([
   'execute_query',
 ]);
 
+// ── Anomaly detection helpers (inlined — mcp.ts cannot import from @mui/x-studio) ─
+// Canonical implementations: anomalyDetection.ts + temporalUtils.ts in @mui/x-studio.
+
+const ANOMALY_CHART_TYPES = new Set(['bar', 'bar-stacked', 'bar-100', 'line']);
+
+/** ISO week number for a UTC date. Mirror of isoWeek() in temporalUtils.ts. */
+function mcpIsoWeek(d: Date): { year: number; week: number } {
+  const tmp = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return { year: tmp.getUTCFullYear(), week };
+}
+
+/** Truncate an ISO-date-string value to a period-key. Mirror of truncateToGranularity(). */
+function mcpTruncateToPeriod(value: unknown, granularity: string): string | null {
+  const raw =
+    typeof value === 'string' ? value : value instanceof Date ? value.toISOString() : null;
+  if (!raw) return null;
+  const y = Number(raw.slice(0, 4));
+  const m = Number(raw.slice(5, 7)) - 1; // 0-indexed
+  const day = Number(raw.slice(8, 10));
+  if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(day)) return null;
+  switch (granularity) {
+    case 'day':
+      return `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    case 'week': {
+      const { year, week } = mcpIsoWeek(new Date(Date.UTC(y, m, day)));
+      return `${year}-W${String(week).padStart(2, '0')}`;
+    }
+    case 'month':
+      return `${y}-${String(m + 1).padStart(2, '0')}`;
+    case 'quarter':
+      return `${y}-Q${Math.floor(m / 3) + 1}`;
+    case 'year':
+      return String(y);
+    default:
+      return null;
+  }
+}
+
+/** Tukey IQR outlier detection. Mirror of detectAnomaliesIQR() in anomalyDetection.ts. */
+function mcpMedian(sorted: number[]): number {
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+function mcpDetectAnomaliesIQR(values: number[]): Set<number> {
+  if (values.length < 4) return new Set();
+  const sorted = values.toSorted((a, b) => a - b);
+  const q1 = mcpMedian(sorted.slice(0, Math.floor(sorted.length / 2)));
+  const q3 = mcpMedian(sorted.slice(Math.ceil(sorted.length / 2)));
+  const iqr = q3 - q1;
+  if (iqr === 0) return new Set();
+  const lower = q1 - 1.5 * iqr;
+  const upper = q3 + 1.5 * iqr;
+  const result = new Set<number>();
+  for (let i = 0; i < values.length; i += 1) {
+    if (values[i] < lower || values[i] > upper) result.add(i);
+  }
+  return result;
+}
+
 /** JSON Schema for the `query_data_source` tool input. */
 const QUERY_DATA_SOURCE_SCHEMA = {
   type: 'object',
@@ -644,10 +706,18 @@ export function buildStudioMcpServer(
             const numericFields = visibleFields.filter((f) => f.type === 'number');
 
             try {
+              // Use a larger limit for time-series charts so we can detect anomalies.
+              // Anomaly detection is only run when rows.length < queryLimit (complete data).
+              const isTimeSeries =
+                widget.kind === 'chart' &&
+                Boolean(widget.config.xGroupBy) &&
+                ANOMALY_CHART_TYPES.has(widget.config.chartType ?? 'bar');
+              const queryLimit = isTimeSeries ? 2000 : 50;
+
               const result = await data.queryDataSource({
                 sourceId,
                 tableName: source.tableName as string,
-                limit: 50,
+                limit: queryLimit,
               });
 
               const { rows, rowCount } = result;
@@ -685,6 +755,38 @@ export function buildStudioMcpServer(
                 csv,
                 '```',
               ];
+
+              // Anomaly detection for time-series charts — only when we have the full dataset.
+              if (isTimeSeries && rows.length < queryLimit) {
+                const xField = widget.config.xField;
+                const yField =
+                  widget.config.yField ??
+                  (widget.config.ySeries?.[0]?.fieldId as string | undefined);
+                const xGroupBy = widget.config.xGroupBy!;
+                if (xField && yField) {
+                  const grouped = new Map<string, number>();
+                  for (const row of rows) {
+                    const periodKey = mcpTruncateToPeriod(row[xField], xGroupBy);
+                    if (!periodKey) continue;
+                    grouped.set(
+                      periodKey,
+                      (grouped.get(periodKey) ?? 0) + Number(row[yField] ?? 0),
+                    );
+                  }
+                  const periodLabels = [...grouped.keys()].sort();
+                  const periodValues = periodLabels.map((l) => grouped.get(l)!);
+                  const outlierIndices = mcpDetectAnomaliesIQR(periodValues);
+                  // Trim first and last period (partial periods cause false-positive low outliers).
+                  const lastIdx = periodValues.length - 1;
+                  const anomalyLabels = [...outlierIndices]
+                    .filter((i) => i > 0 && i < lastIdx)
+                    .map((i) => periodLabels[i]);
+                  if (anomalyLabels.length > 0) {
+                    lines.push(`Anomalies detected at: ${anomalyLabels.join(', ')}`);
+                  }
+                }
+              }
+
               sections.push(lines.join('\n'));
             } catch {
               // Skip widgets whose source can't be queried.

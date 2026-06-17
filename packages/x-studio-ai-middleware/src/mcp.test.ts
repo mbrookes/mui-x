@@ -458,4 +458,153 @@ describe('buildStudioMcpServer', () => {
       expect(values).toHaveLength(0);
     });
   });
+
+  describe('query_data_source tool — offset pagination', () => {
+    const CALL_TOOL = 'tools/call';
+
+    it('forwards offset to queryDataSource when supplied', async () => {
+      const stateBox = { current: makeStableState() };
+      const queryDataSource = vi.fn(
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [],
+          rowCount: 0,
+        }),
+      );
+      const server = buildStudioMcpServer(stateBox, { data: { queryDataSource } });
+      await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: {
+          name: 'query_data_source',
+          arguments: { sourceId: 'source-orders', limit: 10, offset: 20 },
+        },
+        method: CALL_TOOL,
+      });
+      expect(queryDataSource).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 10, offset: 20 }),
+      );
+    });
+
+    it('does not forward offset when omitted', async () => {
+      const stateBox = { current: makeStableState() };
+      const queryDataSource = vi.fn(
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [],
+          rowCount: 0,
+        }),
+      );
+      const server = buildStudioMcpServer(stateBox, { data: { queryDataSource } });
+      await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'query_data_source', arguments: { sourceId: 'source-orders' } },
+        method: CALL_TOOL,
+      });
+      const call = queryDataSource.mock.calls[0][0] as StudioDataQueryParams;
+      expect(call.offset).toBeUndefined();
+    });
+  });
+
+  describe('onStateChange callback', () => {
+    const CALL_TOOL = 'tools/call';
+
+    it('fires after a mutating tool call with the new state', async () => {
+      const stateBox = { current: makeStableState() };
+      const onStateChange = vi.fn();
+      const server = buildStudioMcpServer(stateBox, { onStateChange });
+      await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'add_page', arguments: { title: 'New Page' } },
+        method: CALL_TOOL,
+      });
+      expect(onStateChange).toHaveBeenCalledOnce();
+      const savedState = onStateChange.mock.calls[0][0];
+      expect(
+        Object.values(savedState.pages as Record<string, { title: string }>).some(
+          (p) => p.title === 'New Page',
+        ),
+      ).toBe(true);
+    });
+
+    it('does not fire for read-only tool calls', async () => {
+      const stateBox = { current: makeStableState() };
+      const onStateChange = vi.fn();
+      const server = buildStudioMcpServer(stateBox, { onStateChange });
+      await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'get_dashboard_state', arguments: {} },
+        method: CALL_TOOL,
+      });
+      expect(onStateChange).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('summarise_page tool', () => {
+    const CALL_TOOL = 'tools/call';
+    const LIST_TOOLS = 'tools/list';
+
+    it('is listed in tools/list', async () => {
+      const stateBox = { current: makeStableState() };
+      const server = buildStudioMcpServer(stateBox);
+      const result = await getHandler(server, LIST_TOOLS)({ params: {}, method: LIST_TOOLS });
+      const names = ((result as any).tools as Array<{ name: string }>).map((t) => t.name);
+      expect(names).toContain('summarise_page');
+    });
+
+    it('returns a text summary when data is configured and page has widgets', async () => {
+      const state = makeStableState();
+      // Add a widget with sourceId to the page
+      const widgetId = 'w-test';
+      state.widgets[widgetId] = {
+        id: widgetId,
+        kind: 'grid',
+        title: 'Orders Grid',
+        sourceId: 'source-orders',
+        config: {},
+      } as any;
+      state.pages[PAGE_ID] = {
+        ...state.pages[PAGE_ID],
+        widgetRows: [[widgetId]],
+      };
+      const stateBox = { current: state };
+      const queryDataSource = vi.fn(
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [{ id: 'o1', total: 100, status: 'pending' }],
+          rowCount: 42,
+        }),
+      );
+      const server = buildStudioMcpServer(stateBox, { data: { queryDataSource } });
+      const result = (await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'summarise_page', arguments: {} },
+        method: CALL_TOOL,
+      })) as any;
+      const text = result.content[0].text as string;
+      expect(text).toContain('Orders Grid');
+      expect(text).toContain('42');
+    });
+
+    it('returns descriptive error when data is not configured', async () => {
+      const stateBox = { current: makeStableState() };
+      const server = buildStudioMcpServer(stateBox);
+      const result = (await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'summarise_page', arguments: {} },
+        method: CALL_TOOL,
+      })) as any;
+      // Not isError — the tool returns a helpful message, not an exception
+      const text = result.content[0].text as string;
+      expect(text).toContain('client-side');
+    });
+  });
 });

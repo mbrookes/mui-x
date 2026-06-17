@@ -146,11 +146,16 @@ describe('MCP server — tools', () => {
     expect(names).toContain('set_dashboard_title');
   });
 
-  it('excludes server-side-only tools by default', async () => {
+  it('excludes execute_query by default', async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
-    expect(names).not.toContain('summarise_page');
     expect(names).not.toContain('execute_query');
+  });
+
+  it('includes summarise_page (degrades gracefully without data option)', async () => {
+    const { tools } = await client.listTools();
+    const names = tools.map((t) => t.name);
+    expect(names).toContain('summarise_page');
   });
 });
 

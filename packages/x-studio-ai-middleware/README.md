@@ -343,18 +343,21 @@ Each MCP session gets its own isolated `StudioStateBox`. Mutations made by tool 
 
 ### `StudioMcpOptions`
 
-| Option                 | Type                          | Default                                      | Description                                                                                                                              |
-| :--------------------- | :---------------------------- | :------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------- |
-| `serverName`           | `string`                      | `'x-studio'`                                 | Name reported in `initialize` response                                                                                                   |
-| `serverVersion`        | `string`                      | `'1.0.0'`                                    | Version reported in `initialize` response                                                                                                |
-| `allowedTools`         | `string[]`                    | all except `summarise_page`, `execute_query` | Exact list of tool names to expose                                                                                                       |
-| `customWidgets`        | `StudioCustomWidgetDef[]`     | `[]`                                         | Custom widget definitions for tool handling                                                                                              |
-| `data.queryDataSource` | `(params) => Promise<result>` | —                                            | When provided, enables `query_data_source` tool and data resources                                                                       |
-| `data.maxQueryRows`    | `number`                      | `1000`                                       | Hard upper bound on rows the `query_data_source` tool may fetch. The model-supplied `limit` is clamped to this value before any DB query |
+| Option                 | Type                                            | Default                    | Description                                                                                                                              |
+| :--------------------- | :---------------------------------------------- | :------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------- |
+| `serverName`           | `string`                                        | `'x-studio'`               | Name reported in `initialize` response                                                                                                   |
+| `serverVersion`        | `string`                                        | `'1.0.0'`                  | Version reported in `initialize` response                                                                                                |
+| `allowedTools`         | `string[]`                                      | all except `execute_query` | Exact list of tool names to expose                                                                                                       |
+| `customWidgets`        | `StudioCustomWidgetDef[]`                       | `[]`                       | Custom widget definitions for tool handling                                                                                              |
+| `data.queryDataSource` | `(params) => Promise<result>`                   | —                          | When provided, enables `query_data_source` tool, `summarise_page` synthesis, and data resources                                          |
+| `data.maxQueryRows`    | `number`                                        | `1000`                     | Hard upper bound on rows the `query_data_source` tool may fetch. The model-supplied `limit` is clamped to this value before any DB query |
+| `onStateChange`        | `(state: StudioState) => void \| Promise<void>` | —                          | Called after every mutating tool call. Use to persist the session state to a database (see [State persistence](#state-persistence))      |
 
 ### Tools registered by default
 
-All `STUDIO_AI_TOOLS` except `summarise_page` (needs live row data) and `execute_query` (raw SQL — opt in explicitly via `allowedTools`).
+All `STUDIO_AI_TOOLS` except `execute_query` (raw SQL — opt in explicitly via `allowedTools`).
+
+`summarise_page` is registered and synthesises a page summary by querying each widget's data source when `data` is configured; it returns a descriptive error when `data` is not provided.
 
 When `data.queryDataSource` is provided, the `query_data_source` tool is also registered.
 
@@ -382,14 +385,37 @@ The server declares the `completions` capability and handles `completion/complet
 
 ---
 
+### State persistence
+
+MCP sessions are in-memory by default. Use `onStateChange` to persist state to a database, and set `stateBox.current` from the saved value before calling `buildStudioMcpServer` to restore it on reconnect:
+
+```ts
+// On session init — restore or create fresh
+const saved = await db('mcp_sessions').where({ id: sessionId }).first();
+const stateBox: StudioStateBox = {
+  current: saved ? JSON.parse(saved.state) : createDefaultStudioState(),
+};
+
+// Build server with persistence hook
+const mcpServer = buildStudioMcpServer(stateBox, {
+  data: { queryDataSource: makeQueryDataSource(claims) },
+  onStateChange: async (state) => {
+    await db('mcp_sessions')
+      .insert({ id: sessionId, state: JSON.stringify(state) })
+      .onConflict('id')
+      .merge();
+  },
+});
+```
+
+---
+
 ## Limitations (v1)
 
 - **`instruction-only` skills** — fully supported.
 - **`client-handler` skills** — the tool definition is sent to the LLM; if the model calls
   it the server emits a `client-tool-call` event, but the current client adapter does not
   handle it automatically (v2 feature).
-- **`summarise_page` tool** — returns an error in backend mode; it requires live row data
-  only available client-side.
 - **`remove_widget` / `remove_page` confirmation** — uses prompt guardrails only in v1;
   the `onRemoveWidgetRequest` veto callback still fires before mutations are applied.
 - **Multi-turn conversation** — full history is sent on every request; fully supported.

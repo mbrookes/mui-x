@@ -162,6 +162,21 @@ function validateColumns(
   for (const agg of descriptor.aggregations ?? []) {
     check(agg.column, 'aggregations');
   }
+
+  // Validate HAVING aliases against declared aggregation aliases (SECURITY INVARIANT).
+  // Prevents referencing arbitrary columns or injecting identifiers via the HAVING clause.
+  if (descriptor.having && descriptor.having.length > 0) {
+    const aggAliases = new Set((descriptor.aggregations ?? []).map((a) => a.alias));
+    for (const h of descriptor.having) {
+      if (!aggAliases.has(h.alias)) {
+        throw new Error(
+          `MUI X Studio Server: HAVING alias "${h.alias}" does not match any aggregation alias. ` +
+            `Declared aliases: ${[...aggAliases].join(', ') || '(none)'}. ` +
+            `Only aggregation aliases may be used in HAVING predicates.`,
+        );
+      }
+    }
+  }
 }
 
 async function processWidget(

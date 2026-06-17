@@ -100,6 +100,16 @@ export interface StudioDataOrderBy {
   direction: 'asc' | 'desc';
 }
 
+/** Post-aggregation HAVING predicate for `query_data_source`. */
+export interface StudioDataHavingPredicate {
+  /** Aggregation alias (from `aggregations[].alias`) to filter on. */
+  alias: string;
+  /** Comparison operator. */
+  operator: 'eq' | 'gt' | 'lt' | 'gte' | 'lte';
+  /** Numeric threshold. */
+  value: number;
+}
+
 /** Arguments for the `query_data_source` MCP tool. */
 export interface StudioDataQueryParams {
   /** Data source ID from the dashboard state (e.g. `"source-orders"`). */
@@ -118,6 +128,11 @@ export interface StudioDataQueryParams {
    * Non-aggregated `columns` entries form the GROUP BY list.
    */
   aggregations?: StudioDataAggregation[];
+  /**
+   * Post-aggregation HAVING predicates.
+   * Each alias must match an entry in `aggregations[].alias`.
+   */
+  having?: StudioDataHavingPredicate[];
   /** Sort order. */
   orderBy?: StudioDataOrderBy[];
   /** Maximum rows to return. Default 1000. */
@@ -400,6 +415,30 @@ const QUERY_DATA_SOURCE_SCHEMA = {
         required: ['column', 'func', 'alias'],
       },
     },
+    having: {
+      type: 'array',
+      description:
+        'Post-aggregation filters (HAVING clause). Each entry filters on an aggregation alias. ' +
+        'Example: to show only categories with total revenue > 10 000, combine ' +
+        '`aggregations: [{ column: "revenue", func: "sum", alias: "total_revenue" }]` with ' +
+        '`having: [{ alias: "total_revenue", operator: "gt", value: 10000 }]`.',
+      items: {
+        type: 'object',
+        properties: {
+          alias: {
+            type: 'string',
+            description: 'Aggregation alias to filter on (must match an entry in aggregations[].alias).',
+          },
+          operator: {
+            type: 'string',
+            enum: ['eq', 'gt', 'lt', 'gte', 'lte'],
+            description: 'eq=equal, gt=greater than, lt=less than, gte/lte=inclusive.',
+          },
+          value: { type: 'number', description: 'Numeric threshold.' },
+        },
+        required: ['alias', 'operator', 'value'],
+      },
+    },
     orderBy: {
       type: 'array',
       description: 'Sort the result rows. Apply after aggregations when using GROUP BY.',
@@ -445,6 +484,12 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
     idempotentHint: true,
     openWorldHint: false,
   },
+  list_pages: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   render_chart: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -452,6 +497,24 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
     openWorldHint: false,
   },
   query_data_source: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+  describe_data_source: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+  get_field_values: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+  compute_field_stats: {
     readOnlyHint: true,
     destructiveHint: false,
     idempotentHint: true,
@@ -588,10 +651,82 @@ export function buildStudioMcpServer(
           'Query a data source (database table) with structured filters, aggregations, and sorting. ' +
           'Use this to retrieve data rows, compute aggregates (totals, averages, counts by group), ' +
           'or explore the underlying data before configuring widgets. ' +
+          'Supports HAVING predicates to filter on aggregation results (e.g. "categories where revenue > $10K"). ' +
           'Results are read-only — this tool never modifies data. ' +
           'Tip: use the studio://dashboard/state resource to discover available sourceIds and field names.',
         inputSchema: QUERY_DATA_SOURCE_SCHEMA as unknown as Record<string, unknown>,
         annotations: TOOL_ANNOTATIONS.query_data_source,
+      });
+
+      tools.push({
+        name: 'describe_data_source',
+        description:
+          'Returns the schema (field definitions), total row count, up to 10 sample rows, and basic ' +
+          'per-field statistics for a data source. Call this first when you need to understand a ' +
+          'source before querying — it gives you the field IDs, types, and scale in one request.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sourceId: {
+              type: 'string',
+              description: 'Data source ID from the dashboard state (e.g. "source-orders").',
+            },
+          },
+          required: ['sourceId'],
+        } as Record<string, unknown>,
+        annotations: TOOL_ANNOTATIONS.describe_data_source,
+      });
+
+      tools.push({
+        name: 'get_field_values',
+        description:
+          'Returns the distinct values and their occurrence counts for a specific field. ' +
+          'Use this to understand categorical fields before filtering or grouping ' +
+          '(e.g. "what statuses exist?", "which regions are represented?").',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sourceId: {
+              type: 'string',
+              description: 'Data source ID from the dashboard state.',
+            },
+            fieldId: {
+              type: 'string',
+              description: 'Field ID (column name) to get distinct values for.',
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of distinct values to return. Default 50.',
+              default: 50,
+            },
+          },
+          required: ['sourceId', 'fieldId'],
+        } as Record<string, unknown>,
+        annotations: TOOL_ANNOTATIONS.get_field_values,
+      });
+
+      tools.push({
+        name: 'compute_field_stats',
+        description:
+          'Computes accurate min, max, average, sum, and count for one or more numeric fields ' +
+          'across the full dataset. More reliable than summarise_page for large tables because ' +
+          'it runs a DB-tier aggregation rather than sampling.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sourceId: {
+              type: 'string',
+              description: 'Data source ID from the dashboard state.',
+            },
+            fields: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Field IDs (column names) to compute statistics for.',
+            },
+          },
+          required: ['sourceId', 'fields'],
+        } as Record<string, unknown>,
+        annotations: TOOL_ANNOTATIONS.compute_field_stats,
       });
     }
 
@@ -600,22 +735,24 @@ export function buildStudioMcpServer(
       description:
         'Render an arbitrary chart as a standalone SVG image. ' +
         'Useful for visualising query results, comparisons, or any data the model has available. ' +
-        'Supported chart types: "bar", "line", "pie". ' +
-        'For bar and pie charts provide `data` as an array of { label, value } objects. ' +
-        'For single-series line charts use `data`; for multi-series lines use `xLabels` + `series`. ' +
+        'Supported types: "bar", "line", "pie", "scatter", "donut", "stacked_bar". ' +
+        'For bar/pie/donut charts provide `data` as an array of { label, value } objects. ' +
+        'For single-series line charts use `data`; for multi-series lines/stacked_bar use `xLabels` + `series`. ' +
+        'For scatter charts use `xLabels` (x values as strings) and a single series of y-values, or supply ' +
+        'two series where series[0] = x-values and series[1] = y-values. ' +
         'The SVG is returned as a base64-encoded image/svg+xml content item.',
       inputSchema: {
         type: 'object',
         properties: {
           type: {
             type: 'string',
-            enum: ['bar', 'line', 'pie'],
+            enum: ['bar', 'line', 'pie', 'scatter', 'donut', 'stacked_bar'],
             description: 'Chart type.',
           },
           title: { type: 'string', description: 'Optional chart title.' },
           data: {
             type: 'array',
-            description: 'Data points for bar, pie, or single-series line charts.',
+            description: 'Data points for bar, pie, donut, or single-series line/scatter charts.',
             items: {
               type: 'object',
               properties: {
@@ -628,11 +765,11 @@ export function buildStudioMcpServer(
           xLabels: {
             type: 'array',
             items: { type: 'string' },
-            description: 'X-axis labels for multi-series line charts.',
+            description: 'X-axis labels for multi-series line, stacked_bar, and scatter charts.',
           },
           series: {
             type: 'array',
-            description: 'Named series for multi-series line charts.',
+            description: 'Named series for multi-series line, stacked_bar, and scatter charts.',
             items: {
               type: 'object',
               properties: {
@@ -682,12 +819,14 @@ export function buildStudioMcpServer(
         // a descriptive error explaining the client-side limitation.
       } else {
         const state = stateBox.current;
-        const activePageId = state.dashboard.activePageId;
-        const activePage = activePageId ? state.pages[activePageId] : null;
+        // Accept optional pageId arg; fall back to active page.
+        const requestedPageId = (args as { pageId?: string })?.pageId;
+        const resolvedPageId = requestedPageId ?? state.dashboard.activePageId;
+        const activePage = resolvedPageId ? state.pages[resolvedPageId] : null;
 
         if (!activePage) {
           return {
-            content: [{ type: 'text' as const, text: 'No active page found.' }],
+            content: [{ type: 'text' as const, text: requestedPageId ? `Page "${requestedPageId}" not found.` : 'No active page found.' }],
           };
         }
 
@@ -807,10 +946,11 @@ export function buildStudioMcpServer(
           }),
         );
 
+        const pageLabel = activePage.title || resolvedPageId || 'active page';
         const summary =
           sections.length > 0
-            ? sections.join('\n\n')
-            : 'No queryable widgets found on the active page.';
+            ? `## ${pageLabel}\n\n${sections.join('\n\n')}`
+            : `No queryable widgets found on page "${pageLabel}".`;
 
         return {
           content: [{ type: 'text' as const, text: summary }],
@@ -835,11 +975,12 @@ export function buildStudioMcpServer(
         };
       }
 
-      const { sourceId, columns, filters, aggregations, orderBy, limit, offset } = (args ?? {}) as {
+      const { sourceId, columns, filters, aggregations, having, orderBy, limit, offset } = (args ?? {}) as {
         sourceId: string;
         columns?: string[];
         filters?: StudioDataFilter[];
         aggregations?: StudioDataAggregation[];
+        having?: StudioDataHavingPredicate[];
         orderBy?: StudioDataOrderBy[];
         limit?: number;
         offset?: number;
@@ -867,6 +1008,7 @@ export function buildStudioMcpServer(
           columns,
           filters,
           aggregations,
+          ...(having && having.length > 0 && { having }),
           orderBy,
           limit: clampedLimit,
           ...(offset !== undefined && { offset }),
@@ -888,6 +1030,221 @@ export function buildStudioMcpServer(
       }
     }
 
+    // ── describe_data_source — schema + row count + sample + stats ────────
+    if (toolName === 'describe_data_source') {
+      if (!data) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Data access not configured.' }) }],
+          isError: true,
+        };
+      }
+      const { sourceId } = (args ?? {}) as { sourceId: string };
+      if (!sourceId) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: 'sourceId is required' }) }],
+          isError: true,
+        };
+      }
+      const source = stateBox.current.dataSources[sourceId];
+      if (!source || !source.tableName) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.` }) }],
+          isError: true,
+        };
+      }
+      try {
+        const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
+        const numericFields = visibleFields.filter((f) => f.type === 'number');
+
+        // Run sample rows and row count in parallel with per-field numeric stats.
+        const [sampleResult, ...statsResults] = await Promise.all([
+          data.queryDataSource({ sourceId, tableName: source.tableName as string, limit: 10 }),
+          ...numericFields.map((f) =>
+            data.queryDataSource({
+              sourceId,
+              tableName: source.tableName as string,
+              aggregations: [
+                { column: f.id, func: 'min', alias: 'min' },
+                { column: f.id, func: 'max', alias: 'max' },
+                { column: f.id, func: 'avg', alias: 'avg' },
+                { column: f.id, func: 'sum', alias: 'sum' },
+              ],
+              limit: 1,
+            }).catch(() => null),
+          ),
+        ]);
+
+        const fieldStats: Record<string, { min: unknown; max: unknown; avg: unknown; sum: unknown }> = {};
+        numericFields.forEach((f, i) => {
+          const row = statsResults[i]?.rows?.[0];
+          if (row) {
+            fieldStats[f.id] = {
+              min: row.min,
+              max: row.max,
+              avg: typeof row.avg === 'number' ? Math.round(row.avg * 100) / 100 : row.avg,
+              sum: row.sum,
+            };
+          }
+        });
+
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                sourceId,
+                label: source.label,
+                tableName: source.tableName,
+                description: source.aiDescription,
+                rowCount: sampleResult.rowCount,
+                fields: visibleFields.map((f) => ({
+                  id: f.id,
+                  label: f.label,
+                  type: f.type,
+                  ...(f.format && { format: f.format }),
+                  ...(fieldStats[f.id] && { stats: fieldStats[f.id] }),
+                  ...(source.fieldDistinctValues?.[f.id] && {
+                    sampleValues: source.fieldDistinctValues[f.id].slice(0, 5),
+                  }),
+                })),
+                sampleRows: sampleResult.rows,
+              }, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
+          isError: true,
+        };
+      }
+    }
+
+    // ── get_field_values — distinct values + counts ────────────────────────
+    if (toolName === 'get_field_values') {
+      if (!data) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Data access not configured.' }) }],
+          isError: true,
+        };
+      }
+      const { sourceId, fieldId, limit: fieldLimit } = (args ?? {}) as {
+        sourceId: string;
+        fieldId: string;
+        limit?: number;
+      };
+      if (!sourceId || !fieldId) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: 'sourceId and fieldId are required' }) }],
+          isError: true,
+        };
+      }
+      const source = stateBox.current.dataSources[sourceId];
+      if (!source || !source.tableName) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: `Unknown data source: "${sourceId}".` }) }],
+          isError: true,
+        };
+      }
+      try {
+        const clampedFieldLimit = Math.min(fieldLimit ?? 50, 200);
+        const result = await data.queryDataSource({
+          sourceId,
+          tableName: source.tableName as string,
+          columns: [fieldId],
+          aggregations: [{ column: fieldId, func: 'count', alias: 'count' }],
+          orderBy: [{ column: 'count', direction: 'desc' }],
+          limit: clampedFieldLimit,
+        });
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                sourceId,
+                fieldId,
+                totalDistinctValues: result.rowCount,
+                values: result.rows,
+              }, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
+          isError: true,
+        };
+      }
+    }
+
+    // ── compute_field_stats — full-table min/max/avg/sum/count ────────────
+    if (toolName === 'compute_field_stats') {
+      if (!data) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Data access not configured.' }) }],
+          isError: true,
+        };
+      }
+      const { sourceId, fields: statFields } = (args ?? {}) as {
+        sourceId: string;
+        fields: string[];
+      };
+      if (!sourceId || !statFields || statFields.length === 0) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: 'sourceId and fields (non-empty array) are required' }) }],
+          isError: true,
+        };
+      }
+      const source = stateBox.current.dataSources[sourceId];
+      if (!source || !source.tableName) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: `Unknown data source: "${sourceId}".` }) }],
+          isError: true,
+        };
+      }
+      try {
+        const aggregations = statFields.flatMap((f) => [
+          { column: f, func: 'min' as const, alias: `${f}__min` },
+          { column: f, func: 'max' as const, alias: `${f}__max` },
+          { column: f, func: 'avg' as const, alias: `${f}__avg` },
+          { column: f, func: 'sum' as const, alias: `${f}__sum` },
+          { column: f, func: 'count' as const, alias: `${f}__count` },
+        ]);
+        const result = await data.queryDataSource({
+          sourceId,
+          tableName: source.tableName as string,
+          aggregations,
+          limit: 1,
+        });
+        const row = result.rows[0] ?? {};
+        const statsOut: Record<string, { min: unknown; max: unknown; avg: unknown; sum: unknown; count: unknown }> = {};
+        for (const f of statFields) {
+          statsOut[f] = {
+            min: row[`${f}__min`],
+            max: row[`${f}__max`],
+            avg: typeof row[`${f}__avg`] === 'number'
+              ? Math.round((row[`${f}__avg`] as number) * 100) / 100
+              : row[`${f}__avg`],
+            sum: row[`${f}__sum`],
+            count: row[`${f}__count`],
+          };
+        }
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ sourceId, stats: statsOut }, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
+          isError: true,
+        };
+      }
+    }
+
     // ── render_chart — pure SVG chart rendering ───────────────────────────
     if (toolName === 'render_chart') {
       try {
@@ -897,7 +1254,7 @@ export function buildStudioMcpServer(
             content: [
               {
                 type: 'text' as const,
-                text: JSON.stringify({ error: '`type` is required (bar, line, or pie).' }),
+                text: JSON.stringify({ error: '`type` is required (bar, line, pie, scatter, donut, or stacked_bar).' }),
               },
             ],
             isError: true,
@@ -1048,11 +1405,16 @@ export function buildStudioMcpServer(
     }
 
     if (uri === 'studio://dashboard/system-prompt') {
+      const dataToolNames = data
+        ? ['query_data_source', 'describe_data_source', 'get_field_values', 'compute_field_stats']
+        : undefined;
       return {
         contents: [
           {
             uri,
-            text: buildAISystemPrompt(stateBox.current, customWidgets),
+            text: buildAISystemPrompt(stateBox.current, customWidgets, undefined, undefined, {
+              availableDataTools: dataToolNames,
+            }),
             mimeType: 'text/plain',
           },
         ],
@@ -1269,7 +1631,9 @@ export function buildStudioMcpServer(
               }
             : null;
 
-        const queries = [countExample, sumExample].filter(Boolean);
+        const queries = [countExample, sumExample].filter(
+          (q): q is NonNullable<typeof q> => q !== null,
+        );
         const lines = queries.map(({ _desc, ...params }) => {
           return `- ${_desc}\n\`\`\`json\n${JSON.stringify(params, null, 2)}\n\`\`\``;
         });

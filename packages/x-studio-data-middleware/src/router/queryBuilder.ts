@@ -19,6 +19,7 @@ import type {
   JwtSecurityClaims,
   BatchWidgetDescriptor,
   FilterPredicate,
+  HavingPredicate,
   HandleBatchQueryOptions,
 } from '../security/types';
 
@@ -90,7 +91,37 @@ export function buildSecureQuery(
     applyPredicate(query, predicate);
   }
 
+  // ── Phase 3: Post-aggregation HAVING predicates ──────────────────────────
+  // Only allowed against aggregation aliases (validated by handler.ts before
+  // this function is called). Uses Knex parameterized havingRaw to prevent injection.
+  for (const h of descriptor.having ?? []) {
+    applyHaving(query, h);
+  }
+
   return query;
+}
+
+/**
+ * Apply a HAVING predicate to a Knex query.
+ * The alias is already validated against aggregations by the caller (handler.ts).
+ * Uses havingRaw with Knex bindings to prevent injection.
+ */
+function applyHaving(query: any, h: HavingPredicate): void {
+  const opMap: Record<HavingPredicate['operator'], string> = {
+    eq: '=',
+    gt: '>',
+    lt: '<',
+    gte: '>=',
+    lte: '<=',
+  };
+  const op = opMap[h.operator];
+  if (!op) {
+    throw new Error(
+      `MUI X Studio Server: Unsupported HAVING operator "${h.operator}". Allowed: eq, gt, lt, gte, lte.`,
+    );
+  }
+  // havingRaw with ?? binding for the alias identifier, ? for the value
+  query.havingRaw(`?? ${op} ?`, [h.alias, h.value]);
 }
 
 /**

@@ -20,7 +20,7 @@ import {
   type MultiYSeriesData,
   type HeatmapData,
 } from '../../internals/chartAggregation';
-import { detectWidgetAnomalies } from '../../internals/anomalyDetection';
+import { canDetectAnomalies, detectChartDataAnomalies } from '../../internals/anomalyDetection';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -425,9 +425,22 @@ function buildChartWidgetSummary(
     }
   }
 
-  const anomalies = detectWidgetAnomalies(widget, filteredRows);
-  if (anomalies.length > 0) {
-    lines.push(`Anomalies detected at: ${anomalies.map((a) => String(a.value)).join(', ')}`);
+  if (canDetectAnomalies(widget) && activeYFields.length > 0) {
+    const yF = activeYFields[0];
+    const aggResult = aggregateByField(
+      enrichedRows,
+      xField,
+      yF,
+      xGroupBy,
+      yAggregation as 'sum' | 'count' | 'avg' | 'min' | 'max',
+      sortBy,
+      sortDir,
+      xOrder,
+    );
+    const anomalies = detectChartDataAnomalies(widget.id, aggResult.labels, aggResult.values, true);
+    if (anomalies.length > 0) {
+      lines.push(`Anomalies detected at: ${anomalies.map((a) => String(a.value)).join(', ')}`);
+    }
   }
 
   return lines.join('\n');

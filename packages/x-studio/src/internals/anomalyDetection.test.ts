@@ -330,4 +330,41 @@ describe('detectChartDataAnomalies', () => {
       expect(ann.id).toBe(`anomaly-widget99-${i}`);
     });
   });
+
+  describe('trimEdges option', () => {
+    const labels = [
+      '2024-W01',
+      '2024-W02',
+      '2024-W03',
+      '2024-W04',
+      '2024-W05',
+      '2024-W06',
+      '2024-W07',
+      '2024-W08',
+    ];
+
+    it('flags edge outliers when trimEdges is false (default)', () => {
+      // First bucket is low (partial week), last is high — both should be flagged without trimming
+      const values = [2, 10, 11, 10, 12, 10, 11, 500];
+      const annotations = detectChartDataAnomalies('w1', labels, values);
+      expect(annotations.some((a) => a.value === '2024-W01')).toBe(true);
+      expect(annotations.some((a) => a.value === '2024-W08')).toBe(true);
+    });
+
+    it('suppresses edge outliers when trimEdges is true', () => {
+      // First bucket is low (partial week), last is high — edges suppressed
+      const values = [2, 10, 11, 10, 12, 10, 11, 500];
+      const annotations = detectChartDataAnomalies('w1', labels, values, true);
+      expect(annotations.some((a) => a.value === '2024-W01')).toBe(false);
+      expect(annotations.some((a) => a.value === '2024-W08')).toBe(false);
+    });
+
+    it('still flags interior anomalies when trimEdges is true', () => {
+      // Middle bucket is the clear outlier
+      const values = [10, 11, 10, 500, 10, 11, 10, 11];
+      const annotations = detectChartDataAnomalies('w1', labels, values, true);
+      expect(annotations).toHaveLength(1);
+      expect(annotations[0].value).toBe('2024-W04');
+    });
+  });
 });

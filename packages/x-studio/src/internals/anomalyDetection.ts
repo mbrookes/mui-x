@@ -185,11 +185,17 @@ export function detectWidgetAnomalies(
  *
  * Prefer this over `detectWidgetAnomalies` for bar/line/area charts where the
  * x-axis shows aggregated period totals, not individual data-row values.
+ *
+ * @param trimEdges - When true, the first and last buckets are excluded from
+ *   being flagged (but still included in IQR statistics). Use when `xGroupBy`
+ *   is set: edge periods are often partial weeks/months and would otherwise
+ *   generate false-positive low outliers.
  */
 export function detectChartDataAnomalies(
   widgetId: string,
   labels: (string | number)[],
   values: (number | null)[],
+  trimEdges = false,
 ): StudioChartAnnotation[] {
   const cleanValues: number[] = [];
   const cleanLabels: (string | number)[] = [];
@@ -204,10 +210,14 @@ export function detectChartDataAnomalies(
     return [];
   }
   const outlierIndices = detectAnomaliesIQR(cleanValues);
+  const lastIdx = cleanValues.length - 1;
   const annotations: StudioChartAnnotation[] = [];
   const seen = new Set<string>();
   let counter = 0;
   for (const idx of outlierIndices) {
+    if (trimEdges && (idx === 0 || idx === lastIdx)) {
+      continue;
+    }
     const value = cleanLabels[idx];
     const key = `${typeof value}:${String(value)}`;
     if (seen.has(key)) {

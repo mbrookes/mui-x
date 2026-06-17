@@ -157,17 +157,33 @@ DataGridPremiumRaw.propTypes /* remove-proptypes */ = {
         PropTypes.shape({
           createdAt: PropTypes.instanceOf(Date).isRequired,
           helperText: PropTypes.string,
-          response: PropTypes.shape({
-            aggregation: PropTypes.object.isRequired,
-            chart: PropTypes.object,
-            conversationId: PropTypes.string.isRequired,
-            filterOperator: PropTypes.oneOf(['and', 'or']),
-            filters: PropTypes.arrayOf(PropTypes.object).isRequired,
-            grouping: PropTypes.arrayOf(PropTypes.object).isRequired,
-            pivoting: PropTypes.object.isRequired,
-            select: PropTypes.number.isRequired,
-            sorting: PropTypes.arrayOf(PropTypes.object).isRequired,
-          }),
+          response: PropTypes.oneOfType([
+            PropTypes.shape({
+              aggregation: PropTypes.object.isRequired,
+              chart: PropTypes.object,
+              conversationId: PropTypes.string.isRequired,
+              filterOperator: PropTypes.oneOf(['and', 'or']),
+              filters: PropTypes.arrayOf(PropTypes.object).isRequired,
+              grouping: PropTypes.arrayOf(PropTypes.object).isRequired,
+              pivoting: PropTypes.object.isRequired,
+              select: PropTypes.number.isRequired,
+              sorting: PropTypes.arrayOf(PropTypes.object).isRequired,
+              type: PropTypes.oneOf(['view']),
+            }),
+            PropTypes.shape({
+              columns: PropTypes.arrayOf(PropTypes.string),
+              conversationId: PropTypes.string.isRequired,
+              message: PropTypes.string,
+              rows: PropTypes.arrayOf(PropTypes.object).isRequired,
+              title: PropTypes.string,
+              type: PropTypes.oneOf(['data']).isRequired,
+            }),
+            PropTypes.shape({
+              conversationId: PropTypes.string.isRequired,
+              message: PropTypes.string.isRequired,
+              type: PropTypes.oneOf(['text']).isRequired,
+            }),
+          ]),
           value: PropTypes.string.isRequired,
           variant: PropTypes.oneOf(['error', 'processing', 'success']),
         }),
@@ -187,6 +203,13 @@ DataGridPremiumRaw.propTypes /* remove-proptypes */ = {
    * If `true`, the AI Assistant is allowed to pick up values from random cells from each column to build the prompt context.
    */
   allowAiAssistantDataSampling: PropTypes.bool,
+  /**
+   * If `true`, the AI Assistant computes column-level statistics (min/max/avg/sum for numeric columns;
+   * unique value counts and top values for categorical columns) and includes them in the prompt context.
+   * Statistics are computed over visible (filtered) rows, capped at 10,000 rows for performance.
+   * @default false
+   */
+  allowAiAssistantStatistics: PropTypes.bool,
   /**
    * The ref object that allows grid manipulation. Can be instantiated with `useGridApiRef()`.
    */

@@ -16,6 +16,9 @@
     "allowAiAssistantDataSampling": {
       "description": "If <code>true</code>, the AI Assistant is allowed to pick up values from random cells from each column to build the prompt context."
     },
+    "allowAiAssistantStatistics": {
+      "description": "If <code>true</code>, the AI Assistant computes column-level statistics (min/max/avg/sum for numeric columns; unique value counts and top values for categorical columns) and includes them in the prompt context. Statistics are computed over visible (filtered) rows, capped at 10,000 rows for performance."
+    },
     "apiRef": {
       "description": "The ref object that allows grid manipulation. Can be instantiated with <code>useGridApiRef()</code>."
     },

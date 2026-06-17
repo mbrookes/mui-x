@@ -1,11 +1,11 @@
 ---
-title: MUI X Studio
+title: MUI X Studio
 productId: x-studio
 packageName: '@mui/x-studio'
 githubLabel: 'scope: studio'
 ---
 
-# MUI X Studio
+# MUI X Studio
 
 <p class="description">A full-featured, embeddable dashboard builder with drag-and-drop layout, rich widgets, cross-filtering, and an optional AI assistant.</p>
 
@@ -82,9 +82,9 @@ See [Composed approach](/x/react-studio/getting-started/composition/) for detail
 
 | Type                             | Component            | Description                                   |
 | :------------------------------- | :------------------- | :-------------------------------------------- |
-| Bar / line / pie / scatter chart | `StudioChartWidget`  | Powered by MUI X Charts                       |
+| Bar / line / pie / scatter chart | `StudioChartWidget`  | Powered by MUI X Charts                       |
 | KPI card                         | `StudioKpiWidget`    | Big number with sparkline and trend indicator |
-| Table                            | `StudioGridWidget`   | Powered by MUI X Data Grid Pro                |
+| Table                            | `StudioGridWidget`   | Powered by MUI X Data Grid Pro                |
 | Filter                           | `StudioFilterWidget` | Date-range, multi-select, toggle, or slider   |
 | Text                             | `StudioTextWidget`   | Rich text with Markdown support               |
 

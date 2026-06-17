@@ -22,7 +22,7 @@ The following actions create history entries:
 
 - Adding, removing, or duplicating a widget
 - Repositioning or resizing a widget on the canvas
-- Changing a widget configuration value (e.g., chart type, KPI field, column list)
+- Changing a widget configuration value (for example, chart type, KPI field, column list)
 - Adding or removing a data source
 - Adding, removing, or renaming a page
 - Changing a global or page-level filter condition

@@ -7,7 +7,7 @@ githubLabel: 'scope: studio'
 
 # Studio - Multi-page dashboards
 
-<p class="description">Organise widgets into multiple pages, each with its own layout and optional visual theme.</p>
+<p class="description">Organize widgets into multiple pages, each with its own layout and optional visual theme.</p>
 
 {{"component": "@mui/internal-core-docs/ComponentLinkHeader"}}
 

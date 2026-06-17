@@ -7,16 +7,16 @@ githubLabel: 'scope: studio'
 
 # Studio - Slot props
 
-<p class="description">Customize individual sub-components — chart types, KPI displays, widget cards, paper surfaces — without replacing the entire component tree.</p>
+<p class="description">Customize individual subcomponents — chart types, KPI displays, widget cards, paper surfaces — without replacing the entire component tree.</p>
 
 {{"component": "@mui/internal-core-docs/ComponentLinkHeader"}}
 
 ## Slots vs slotProps
 
-Studio follows the MUI X convention:
+Studio follows the MUI X convention:
 
-- **`slots`** — replace a sub-component entirely with your own React component.
-- **`slotProps`** — forward extra props to the default sub-component (no replacement needed).
+- **`slots`** — replace a subcomponent entirely with your own React component.
+- **`slotProps`** — forward extra props to the default subcomponent (no replacement needed).
 
 Most customizations use `slotProps`.
 Use `slots` when you need a fundamentally different rendering.
@@ -40,7 +40,7 @@ Studio
       │  └─ slotProps.value      → <KpiValue> props
       │  └─ slotProps.sparkline  → <KpiSparkline> props
       │  └─ slotProps.trend      → <KpiTrend> props
-      │  └─ slots.value/sparkline/trend → replace sub-components
+      │  └─ slots.value/sparkline/trend → replace subcomponents
       ├─ slotProps.grid         → StudioGridWidget
       │  └─ slotProps.dataGrid  → DataGridPro props
       │     └─ slots.noRowsOverlay → custom component for empty rows
@@ -132,11 +132,11 @@ Forward `borderRadius` to every bar chart:
 
 ### Custom no-data overlay for charts and grids
 
-When widgets have no rows to display (after filtering, or because the server returned an empty result), Studio shows a `StudioNoDataOverlay` — a centered inbox icon with a "No data" label in `text.disabled` colour. This component is exported from `@mui/x-studio` so you can use it directly with a custom message, or replace it entirely.
+When widgets have no rows to display (after filtering, or because the server returned an empty result), Studio shows a `StudioNoDataOverlay` — a centered inbox icon with a "No data" label in `text.disabled` color. This component is exported from `@mui/x-studio` so you can use it directly with a custom message, or replace it entirely.
 
 #### Chart widgets
 
-The chart `slots.noDataOverlay` is used both when a chart has no data **and** when it has an unsupported configuration (e.g. missing required fields). Provide a custom component to cover both cases, or just override the message for the default look:
+The chart `slots.noDataOverlay` is used both when a chart has no data **and** when it has an unsupported configuration (for example, missing required fields). Provide a custom component to cover both cases, or just override the message for the default look:
 
 ```tsx
 import { StudioNoDataOverlay } from '@mui/x-studio';

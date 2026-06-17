@@ -456,15 +456,14 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: ORDERS_SOURCE_ID,
       config: {
         columns: [
-          { fieldId: 'id' },
+          { fieldId: 'expr-order-company' },
           { fieldId: 'date' },
-          { fieldId: 'customerId' },
           { fieldId: 'status' },
           { fieldId: 'total' },
         ],
-        gridSortField: 'id',
+        gridSortField: 'date',
         gridSortDirection: 'desc',
-        gridSummaryFields: { id: 'count', total: 'sum' },
+        gridSummaryFields: { date: 'count', total: 'sum' },
       },
     },
 
@@ -680,7 +679,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: SHIPMENTS_SOURCE_ID,
       config: {
         columns: [
-          { fieldId: 'id' },
           { fieldId: 'carrier' },
           { fieldId: 'shipDate' },
           { fieldId: 'estimatedDeliveryDate' },
@@ -691,7 +689,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
         ],
         gridSortField: 'shipDate',
         gridSortDirection: 'desc',
-        gridSummaryFields: { id: 'count', itemCount: 'sum' },
+        gridSummaryFields: { shipDate: 'count', itemCount: 'sum' },
         crossFilterField: 'carrier',
       },
     },
@@ -848,11 +846,10 @@ export const INITIAL_STATE: Partial<StudioState> = {
           { fieldId: 'expr-order-company' },
           { fieldId: 'expr-order-segment' },
           { fieldId: 'expr-order-country' },
-          { fieldId: 'id' },
           { fieldId: 'total' },
         ],
         gridGroupByField: 'expr-order-company',
-        gridAggregations: { id: 'count', total: 'sum' },
+        gridAggregations: { 'expr-order-company': 'count', total: 'sum' },
         gridSortField: 'total',
         gridSortDirection: 'desc',
         gridSummaryFields: { total: 'sum' },

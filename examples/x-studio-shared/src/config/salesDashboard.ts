@@ -1,11 +1,13 @@
 import type { StudioState, RelativeDateValue } from '@mui/x-studio';
 import {
   CUSTOMERS_SOURCE_ID,
+  EXCHANGE_RATES_SOURCE_ID,
   ORDERS_SOURCE_ID,
   ORDER_ITEMS_SOURCE_ID,
   PRODUCTS_SOURCE_ID,
   SHIPMENT_ITEMS_SOURCE_ID,
   SHIPMENTS_SOURCE_ID,
+  generateExchangeRatesSource,
   generateSalesData,
 } from '../salesData';
 import {
@@ -151,6 +153,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
     [ORDER_ITEMS_SOURCE_ID]: orderItemsSource,
     [SHIPMENTS_SOURCE_ID]: shipmentsSource,
     [SHIPMENT_ITEMS_SOURCE_ID]: shipmentItemsSource,
+    [EXCHANGE_RATES_SOURCE_ID]: generateExchangeRatesSource(),
     [CRM_CONTACTS_SOURCE_ID]: contactsSource,
     [CRM_DEALS_SOURCE_ID]: dealsSource,
     [CRM_ACTIVITIES_SOURCE_ID]: activitiesSource,
@@ -258,6 +261,17 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: CRM_CONTACTS_SOURCE_ID,
       sourceField: 'customerId',
       targetId: CUSTOMERS_SOURCE_ID,
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+    // Orders → Exchange Rates (many-to-one on composite rate key)
+    // rateKey = currency + '-' + YYYY-MM, so each order resolves the rate for its
+    // currency and month. Enables expr-order-total-usd without a multi-column join.
+    {
+      id: 'rel-orders-exchange-rates',
+      sourceId: ORDERS_SOURCE_ID,
+      sourceField: 'rateKey',
+      targetId: EXCHANGE_RATES_SOURCE_ID,
       targetField: 'id',
       type: 'many-to-one',
     },
@@ -410,8 +424,8 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: ORDERS_SOURCE_ID,
       config: {
         customConfig: {
-          message: 'Recent order volume was {value} over the last week.',
-          valueField: 'total',
+          message: 'Recent order volume was {value} (USD) over the last week.',
+          valueField: 'expr-order-total-usd',
           aggregation: 'sum',
           dateField: 'date',
           lookbackDays: 7,
@@ -445,9 +459,9 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'widget-chart-country': {
       id: 'widget-chart-country',
       kind: 'chart',
-      title: 'Revenue by Status',
+      title: 'Revenue by Status (USD)',
       sourceId: ORDERS_SOURCE_ID,
-      config: { chartType: 'donut', xField: 'status', yField: 'total' },
+      config: { chartType: 'donut', xField: 'status', yField: 'expr-order-total-usd' },
     },
     'widget-orders-grid': {
       id: 'widget-orders-grid',
@@ -460,10 +474,11 @@ export const INITIAL_STATE: Partial<StudioState> = {
           { fieldId: 'date' },
           { fieldId: 'status' },
           { fieldId: 'total' },
+          { fieldId: 'expr-order-total-usd' },
         ],
         gridSortField: 'date',
         gridSortDirection: 'desc',
-        gridSummaryFields: { date: 'count', total: 'sum' },
+        gridSummaryFields: { date: 'count', 'expr-order-total-usd': 'sum' },
       },
     },
 
@@ -648,14 +663,14 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'widget-chart3-orders-by-country': {
       id: 'widget-chart3-orders-by-country',
       kind: 'chart',
-      title: 'Revenue by Country Over Time',
+      title: 'Revenue by Country Over Time (USD)',
       titleMode: 'manual',
       sourceId: ORDERS_SOURCE_ID,
       config: {
         chartType: 'area-stacked',
         xField: 'date',
         xGroupBy: 'quarter',
-        yField: 'total',
+        yField: 'expr-order-total-usd',
         seriesField: 'expr-order-country',
       },
     },
@@ -722,11 +737,11 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'widget-kpi4-ltv': {
       id: 'widget-kpi4-ltv',
       kind: 'kpi',
-      title: 'Lifetime Value',
+      title: 'Lifetime Value (USD)',
       titleMode: 'manual',
       sourceId: ORDERS_SOURCE_ID,
       config: {
-        kpiValueField: 'total',
+        kpiValueField: 'expr-order-total-usd',
         kpiAggregation: 'sum',
         kpiTrend: true,
         kpiSparkline: true,
@@ -754,11 +769,11 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'widget-kpi4-avg-order': {
       id: 'widget-kpi4-avg-order',
       kind: 'kpi',
-      title: 'Avg Order Value',
+      title: 'Avg Order Value (USD)',
       titleMode: 'manual',
       sourceId: ORDERS_SOURCE_ID,
       config: {
-        kpiValueField: 'total',
+        kpiValueField: 'expr-order-total-usd',
         kpiAggregation: 'avg',
         kpiTrend: true,
         kpiSparkline: true,
@@ -799,39 +814,39 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'widget-chart4-revenue-by-segment': {
       id: 'widget-chart4-revenue-by-segment',
       kind: 'chart',
-      title: 'Revenue by Segment',
+      title: 'Revenue by Segment (USD)',
       titleMode: 'manual',
       sourceId: ORDERS_SOURCE_ID,
       config: {
         chartType: 'donut',
         xField: 'expr-order-segment',
-        yField: 'total',
+        yField: 'expr-order-total-usd',
       },
     },
     'widget-chart4-top-customers': {
       id: 'widget-chart4-top-customers',
       kind: 'chart',
-      title: 'Top Customers by Revenue',
+      title: 'Top Customers by Revenue (USD)',
       titleMode: 'manual',
       sourceId: ORDERS_SOURCE_ID,
       config: {
         chartType: 'bar',
         xField: 'expr-order-company',
-        yField: 'total',
+        yField: 'expr-order-total-usd',
         barLayout: 'horizontal' as const,
       },
     },
     'widget-chart4-quarterly-segment': {
       id: 'widget-chart4-quarterly-segment',
       kind: 'chart',
-      title: 'Quarterly Revenue by Segment',
+      title: 'Quarterly Revenue by Segment (USD)',
       titleMode: 'manual',
       sourceId: ORDERS_SOURCE_ID,
       config: {
         chartType: 'area-stacked',
         xField: 'date',
         xGroupBy: 'quarter',
-        yField: 'total',
+        yField: 'expr-order-total-usd',
         seriesField: 'expr-order-segment',
       },
     },
@@ -846,13 +861,13 @@ export const INITIAL_STATE: Partial<StudioState> = {
           { fieldId: 'expr-order-company' },
           { fieldId: 'expr-order-segment' },
           { fieldId: 'expr-order-country' },
-          { fieldId: 'total' },
+          { fieldId: 'expr-order-total-usd' },
         ],
         gridGroupByField: 'expr-order-company',
-        gridAggregations: { 'expr-order-company': 'count', total: 'sum' },
-        gridSortField: 'total',
+        gridAggregations: { 'expr-order-company': 'count', 'expr-order-total-usd': 'sum' },
+        gridSortField: 'expr-order-total-usd',
         gridSortDirection: 'desc',
-        gridSummaryFields: { total: 'sum' },
+        gridSummaryFields: { 'expr-order-total-usd': 'sum' },
         crossFilterField: 'expr-order-company',
       },
     },
@@ -875,7 +890,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       sourceId: ORDERS_SOURCE_ID,
       config: {
         mapCountryField: 'expr-order-country',
-        mapValueField: 'total',
+        mapValueField: 'expr-order-total-usd',
         mapAggregation: 'sum',
         mapGeography: 'world',
         mapColorScheme: 'blues',
@@ -892,7 +907,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
       config: {
         pivotRowField: 'expr-order-segment',
         pivotColField: 'status',
-        pivotValueField: 'total',
+        pivotValueField: 'expr-order-total-usd',
         pivotAggregation: 'sum',
         pivotShowTotals: true,
       },
@@ -900,12 +915,12 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'widget-chart-revenue-gauge': {
       id: 'widget-chart-revenue-gauge',
       kind: 'chart',
-      title: 'Total Revenue',
+      title: 'Total Revenue (USD)',
       titleMode: 'manual',
       sourceId: ORDERS_SOURCE_ID,
       config: {
         chartType: 'gauge',
-        yField: 'total',
+        yField: 'expr-order-total-usd',
         yAggregation: 'sum',
         gaugeMin: 0,
         gaugeMax: 500000,
@@ -1352,13 +1367,13 @@ export const INITIAL_STATE: Partial<StudioState> = {
     'widget-chart8-revenue-by-segment': {
       id: 'widget-chart8-revenue-by-segment',
       kind: 'chart',
-      title: 'Revenue by Customer Segment',
+      title: 'Revenue by Customer Segment (USD)',
       subtitle: 'Orders joined to sales customer segments',
       sourceId: ORDERS_SOURCE_ID,
       config: {
         chartType: 'bar' as const,
         xField: 'expr-order-segment',
-        yField: 'total',
+        yField: 'expr-order-total-usd',
         yAggregation: 'sum' as const,
         chartSortBy: 'value' as const,
         chartSortDirection: 'desc' as const,
@@ -1732,6 +1747,24 @@ export const INITIAL_STATE: Partial<StudioState> = {
     },
   ],
   expressionFields: [
+    {
+      id: 'expr-order-total-usd',
+      label: 'Order Total (USD)',
+      description:
+        'Order total normalized to USD using the monthly exchange rate for the order currency',
+      sourceId: ORDERS_SOURCE_ID,
+      isMeasure: false,
+      type: 'number',
+      format: 'currency',
+      currencyCode: 'USD',
+      expression: {
+        operator: 'multiply',
+        inputs: [
+          { id: 'total' },
+          { joinSourceId: EXCHANGE_RATES_SOURCE_ID, fieldId: 'toUsd' },
+        ],
+      },
+    },
     {
       id: 'expr-order-country',
       label: 'Country',

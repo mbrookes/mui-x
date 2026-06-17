@@ -384,6 +384,75 @@ describe('ChartSetupPanel', () => {
     }
   });
 
+  it('locks the aggregation to a disabled Count for a fieldless pie chart', () => {
+    const previousWidget = mockState.widgets['widget-1'];
+    const previousOrdersFields = mockState.dataSources.orders.fields;
+
+    try {
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: [{ id: 'department', label: 'Department', type: 'string' }],
+      };
+      mockState.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: {
+          chartType: 'pie',
+          xField: 'department',
+          yAggregation: 'count',
+        },
+      };
+
+      render(<ChartSetupPanel widgetId="widget-1" />);
+
+      const aggSelect = document.querySelector('input[value="count"]');
+      expect(aggSelect).not.toBeNull();
+      expect(aggSelect!.getAttribute('disabled')).toBe('');
+    } finally {
+      mockState.widgets['widget-1'] = previousWidget;
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+    }
+  });
+
+  it('seeds a fieldless count when the X field is picked on a pie chart with no measure field', async () => {
+    const previousWidget = mockState.widgets['widget-1'];
+    const previousOrdersFields = mockState.dataSources.orders.fields;
+    controller.updateWidgetConfig.mockClear();
+
+    try {
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: [{ id: 'department', label: 'Department', type: 'string' }],
+      };
+      mockState.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: { chartType: 'pie' },
+      };
+
+      const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+      const xInput = screen.getByLabelText('X / Category field');
+      await user.click(xInput);
+      const departmentOption = await screen.findByRole('option', { name: /Department$/ });
+      await user.click(departmentOption);
+
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+        xField: 'department',
+        yAggregation: 'count',
+      });
+    } finally {
+      mockState.widgets['widget-1'] = previousWidget;
+      mockState.dataSources.orders = {
+        ...mockState.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+    }
+  });
+
   it('toggles sankeyShowValues from the show-values checkbox', async () => {
     const previousWidget = mockState.widgets['widget-1'];
     const previousOrdersFields = mockState.dataSources.orders.fields;

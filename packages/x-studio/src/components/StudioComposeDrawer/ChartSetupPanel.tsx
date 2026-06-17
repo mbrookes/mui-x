@@ -458,7 +458,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               // count chart from scratch needs no numeric Y field. Selecting a Y field later
               // clears this back to the per-field aggregation. Scatter/funnel/heatmap/sankey
               // have their own measure pickers, so they're excluded (supportsMultipleSeries).
-              const seedFieldlessCount = fieldId && supportsMultipleSeries && !hasYField;
+              const seedFieldlessCount =
+                fieldId && (supportsMultipleSeries || isPieOrDonut) && !hasYField;
               controller.updateWidgetConfig(widgetId, {
                 xField: fieldId,
                 ...(seedFieldlessCount && { yAggregation: 'count' }),
@@ -918,7 +919,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     (a locked Count select) so a count chart can be built from scratch even on
                     a source with no visible numeric field. Single-series charts only; split-by
                     and multi-Y can't tally rows, so they aren't offered fieldless. */}
-                {!hasYField && supportsMultipleSeries && (
+                {!hasYField && (supportsMultipleSeries || isPieOrDonut) && (
                   <FormControl size="small" fullWidth disabled>
                     <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>
                     <Select label={localeText.chartSetupAggregationLabel} value="count">

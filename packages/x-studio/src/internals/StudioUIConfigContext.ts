@@ -947,8 +947,6 @@ export interface StudioLocaleText {
   canvasWidgetMovedAnnouncement: string;
   /** Live-region announcement after a widget is added to the canvas */
   canvasWidgetAddedAnnouncement: string;
-  /** Text alternative (accessible name) for the funnel chart */
-  funnelChartAriaLabel: (stageCount: number, details: string) => string;
   /** Text alternative for the gantt chart */
   ganttChartAriaLabel: (itemCount: number, from: string, to: string, details: string) => string;
   /** Text alternative for the sankey diagram */
@@ -1817,8 +1815,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
     `Column resized to ${span} of ${total}`,
   canvasWidgetMovedAnnouncement: 'Widget moved',
   canvasWidgetAddedAnnouncement: 'Widget added',
-  funnelChartAriaLabel: (stageCount, details) =>
-    `Funnel chart with ${stageCount} ${stageCount === 1 ? 'stage' : 'stages'}. ${details}.`,
   ganttChartAriaLabel: (itemCount, from, to, details) =>
     `Gantt chart with ${itemCount} ${
       itemCount === 1 ? 'item' : 'items'

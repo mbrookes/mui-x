@@ -19,13 +19,14 @@
     "aiAssistantConversations": {
       "type": {
         "name": "arrayOf",
-        "description": "Array&lt;{ id?: string, prompts: Array&lt;{ createdAt: Date, helperText?: string, response?: { aggregation: object, chart?: object, conversationId: string, filterOperator?: 'and'<br>&#124;&nbsp;'or', filters: Array&lt;object&gt;, grouping: Array&lt;object&gt;, pivoting: object, select: number, sorting: Array&lt;object&gt; }, value: string, variant?: 'error'<br>&#124;&nbsp;'processing'<br>&#124;&nbsp;'success' }&gt;, title?: string }&gt;"
+        "description": "Array&lt;{ id?: string, prompts: Array&lt;{ createdAt: Date, helperText?: string, response?: { aggregation: object, chart?: object, conversationId: string, filterOperator?: 'and'<br>&#124;&nbsp;'or', filters: Array&lt;object&gt;, grouping: Array&lt;object&gt;, pivoting: object, select: number, sorting: Array&lt;object&gt;, type?: 'view' }<br>&#124;&nbsp;{ columns?: Array&lt;string&gt;, conversationId: string, message?: string, rows: Array&lt;object&gt;, title?: string, type: 'data' }<br>&#124;&nbsp;{ conversationId: string, message: string, type: 'text' }, value: string, variant?: 'error'<br>&#124;&nbsp;'processing'<br>&#124;&nbsp;'success' }&gt;, title?: string }&gt;"
       }
     },
     "aiAssistantSuggestions": {
       "type": { "name": "arrayOf", "description": "Array&lt;{ value: string }&gt;" }
     },
     "allowAiAssistantDataSampling": { "type": { "name": "bool" } },
+    "allowAiAssistantStatistics": { "type": { "name": "bool" }, "default": "false" },
     "apiRef": { "type": { "name": "shape", "description": "{ current?: object }" } },
     "aria-label": { "type": { "name": "string" } },
     "aria-labelledby": { "type": { "name": "string" } },

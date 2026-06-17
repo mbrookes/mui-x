@@ -17,7 +17,9 @@ import { useGridRootProps } from '../../hooks/utils/useGridRootProps';
 import type { DataGridPremiumProcessedProps } from '../../models/dataGridPremiumProps';
 import type {
   Prompt,
-  PromptResponse,
+  ViewConfigPromptResponse,
+  TextPromptResponse,
+  DataPromptResponse,
 } from '../../hooks/features/aiAssistant/gridAiAssistantInterfaces';
 import { useGridApiContext } from '../../hooks/utils/useGridApiContext';
 
@@ -199,6 +201,55 @@ const PromptChangesToggleIcon = styled('svg', {
   ],
 });
 
+const PromptMessage = styled('div', {
+  name: 'MuiDataGrid',
+  slot: 'PromptMessage',
+})<{ ownerState: OwnerState }>({
+  font: vars.typography.font.small,
+  color: vars.colors.foreground.base,
+  marginTop: vars.spacing(1),
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+});
+
+const PromptDataTable = styled('div', {
+  name: 'MuiDataGrid',
+  slot: 'PromptDataTable',
+})<{ ownerState: OwnerState }>({
+  marginTop: vars.spacing(1),
+  width: '100%',
+  overflowX: 'auto',
+});
+
+const PromptDataTableTitle = styled('div', {
+  name: 'MuiDataGrid',
+  slot: 'PromptDataTableTitle',
+})<{ ownerState: OwnerState }>({
+  font: vars.typography.font.small,
+  color: vars.colors.foreground.muted,
+  fontWeight: vars.typography.fontWeight.medium,
+  marginBottom: vars.spacing(0.5),
+});
+
+const PromptDataTableEl = styled('table', {
+  name: 'MuiDataGrid',
+  slot: 'PromptDataTableEl',
+})<{ ownerState: OwnerState }>({
+  borderCollapse: 'collapse',
+  width: '100%',
+  font: vars.typography.font.small,
+  '& th, & td': {
+    padding: vars.spacing(0.25, 0.75),
+    borderBottom: `1px solid ${vars.colors.border.base}`,
+    textAlign: 'left',
+    whiteSpace: 'nowrap',
+  },
+  '& th': {
+    color: vars.colors.foreground.muted,
+    fontWeight: vars.typography.fontWeight.medium,
+  },
+});
+
 function GridPrompt(props: GridPromptProps) {
   const { value, response, helperText, variant, onRerun } = props;
   const rootProps = useGridRootProps();
@@ -219,7 +270,7 @@ function GridPrompt(props: GridPromptProps) {
   );
 
   const getGroupingChanges = React.useCallback(
-    (grouping: PromptResponse['grouping']) => {
+    (grouping: ViewConfigPromptResponse['grouping']) => {
       return grouping.map((group) => ({
         label: getColumnName(group.column),
         description: apiRef.current.getLocaleText('promptChangeGroupDescription')(
@@ -232,7 +283,7 @@ function GridPrompt(props: GridPromptProps) {
   );
 
   const getAggregationChanges = React.useCallback(
-    (aggregation: PromptResponse['aggregation']) => {
+    (aggregation: ViewConfigPromptResponse['aggregation']) => {
       return Object.keys(aggregation).map((column) => ({
         label: apiRef.current.getLocaleText('promptChangeAggregationLabel')(
           getColumnName(column),
@@ -249,7 +300,7 @@ function GridPrompt(props: GridPromptProps) {
   );
 
   const getFilterChanges = React.useCallback(
-    (filters: PromptResponse['filters']) => {
+    (filters: ViewConfigPromptResponse['filters']) => {
       return filters.map((filter) => {
         const filterOperator = apiRef.current.getLocaleText(
           `filterOperator${capitalize(filter.operator)}` as 'filterOperatorContains',
@@ -303,7 +354,7 @@ function GridPrompt(props: GridPromptProps) {
   );
 
   const getSortingChanges = React.useCallback(
-    (sorting: PromptResponse['sorting']) => {
+    (sorting: ViewConfigPromptResponse['sorting']) => {
       return sorting.map((sort) => ({
         label: getColumnName(sort.column),
         description: apiRef.current.getLocaleText('promptChangeSortDescription')(
@@ -320,7 +371,7 @@ function GridPrompt(props: GridPromptProps) {
   );
 
   const getPivotingChanges = React.useCallback(
-    (pivoting: PromptResponse['pivoting']) => {
+    (pivoting: ViewConfigPromptResponse['pivoting']) => {
       // Type guard, neccessary because pivoting can be an empty object
       if (!('columns' in pivoting)) {
         return [];
@@ -383,7 +434,7 @@ function GridPrompt(props: GridPromptProps) {
   );
 
   const getChartChanges = React.useCallback(
-    (chart: NonNullable<PromptResponse['chart']>) => {
+    (chart: NonNullable<ViewConfigPromptResponse['chart']>) => {
       return {
         label: apiRef.current.getLocaleText('toolbarCharts'),
         description: apiRef.current.getLocaleText('promptChangeChartsLabel')(
@@ -397,9 +448,11 @@ function GridPrompt(props: GridPromptProps) {
   );
 
   const changeList = React.useMemo(() => {
-    if (!response) {
+    if (!response || (response.type !== undefined && response.type !== 'view')) {
       return [];
     }
+
+    const viewResponse = response as ViewConfigPromptResponse;
 
     const changes: {
       label: string;
@@ -407,23 +460,23 @@ function GridPrompt(props: GridPromptProps) {
       icon: React.ElementType;
     }[] = [];
 
-    if (response.grouping.length) {
-      changes.push(...getGroupingChanges(response.grouping));
+    if (viewResponse.grouping.length) {
+      changes.push(...getGroupingChanges(viewResponse.grouping));
     }
-    if (response.aggregation && Object.keys(response.aggregation).length) {
-      changes.push(...getAggregationChanges(response.aggregation));
+    if (viewResponse.aggregation && Object.keys(viewResponse.aggregation).length) {
+      changes.push(...getAggregationChanges(viewResponse.aggregation));
     }
-    if (response.filters.length) {
-      changes.push(...getFilterChanges(response.filters));
+    if (viewResponse.filters.length) {
+      changes.push(...getFilterChanges(viewResponse.filters));
     }
-    if (response.sorting.length) {
-      changes.push(...getSortingChanges(response.sorting));
+    if (viewResponse.sorting.length) {
+      changes.push(...getSortingChanges(viewResponse.sorting));
     }
-    if (response.pivoting && 'columns' in response.pivoting) {
-      changes.push(...getPivotingChanges(response.pivoting));
+    if (viewResponse.pivoting && 'columns' in viewResponse.pivoting) {
+      changes.push(...getPivotingChanges(viewResponse.pivoting));
     }
-    if (response.chart) {
-      changes.push(getChartChanges(response.chart));
+    if (viewResponse.chart) {
+      changes.push(getChartChanges(viewResponse.chart));
     }
 
     return changes;
@@ -458,6 +511,52 @@ function GridPrompt(props: GridPromptProps) {
         <PromptFeedback ownerState={ownerState} className={classes.feedback}>
           {helperText}
         </PromptFeedback>
+        {response?.type === 'text' && (response as TextPromptResponse).message ? (
+          <PromptMessage ownerState={ownerState}>
+            {(response as TextPromptResponse).message}
+          </PromptMessage>
+        ) : null}
+        {response?.type === 'data' ? (
+          <PromptDataTable ownerState={ownerState}>
+            {(response as DataPromptResponse).message ? (
+              <PromptMessage ownerState={ownerState}>
+                {(response as DataPromptResponse).message}
+              </PromptMessage>
+            ) : null}
+            {(response as DataPromptResponse).title ? (
+              <PromptDataTableTitle ownerState={ownerState}>
+                {(response as DataPromptResponse).title}
+              </PromptDataTableTitle>
+            ) : null}
+            {(response as DataPromptResponse).rows.length > 0 ? (
+              <PromptDataTableEl ownerState={ownerState}>
+                <thead>
+                  <tr>
+                    {(
+                      (response as DataPromptResponse).columns ??
+                      Object.keys((response as DataPromptResponse).rows[0])
+                    ).map((col) => (
+                      <th key={col}>{col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(response as DataPromptResponse).rows.map((row, rowIndex) => (
+                    // eslint-disable-next-line react/no-array-index-key
+                    <tr key={rowIndex}>
+                      {(
+                        (response as DataPromptResponse).columns ??
+                        Object.keys((response as DataPromptResponse).rows[0])
+                      ).map((col) => (
+                        <td key={col}>{String(row[col] ?? '')}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </PromptDataTableEl>
+            ) : null}
+          </PromptDataTable>
+        ) : null}
         {changeList.length > 0 ? (
           <React.Fragment>
             <PromptChangesToggle

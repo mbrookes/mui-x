@@ -11,12 +11,17 @@ import {
   GridPreferencePanelsValue,
   gridColumnGroupsUnwrappedModelSelector,
   gridVisibleRowsSelector,
+  gridSortModelSelector,
+  gridFilterModelSelector,
+  gridRowCountSelector,
+  gridFilteredSortedRowIdsSelector,
 } from '@mui/x-data-grid-pro';
 import type { GridRowSelectionModel, GridSingleSelectColDef } from '@mui/x-data-grid-pro';
 import {
   getValueOptions,
   getVisibleRows,
   useGridRegisterPipeProcessor,
+  gridPivotActiveSelector,
 } from '@mui/x-data-grid-pro/internals';
 import type { GridPipeProcessor, GridStateInitializer } from '@mui/x-data-grid-pro/internals';
 import type { GridPrivateApiPremium } from '../../../models/gridApiPremium';
@@ -25,6 +30,17 @@ import type {
   GridAiAssistantState,
   Prompt,
   PromptResponse,
+  ViewConfigPromptResponse,
+  ColumnStatistics,
+  NumericColumnStatistics,
+  CategoricalColumnStatistics,
+  PromptContext,
+  PromptContextColumn,
+  GridDataQueryInput,
+  GridDataQueryResult,
+  GridStatisticsInput,
+  GridValueDistributionInput,
+  GridValueDistributionResult,
 } from './gridAiAssistantInterfaces';
 import type { DataGridPremiumProcessedProps } from '../../../models/dataGridPremiumProps';
 import {
@@ -33,9 +49,13 @@ import {
   gridAiAssistantActiveConversationIndexSelector,
 } from './gridAiAssistantSelectors';
 import { gridChartsIntegrationActiveChartIdSelector } from '../chartsIntegration/gridChartsIntegrationSelectors';
+import { gridRowGroupingModelSelector } from '../rowGrouping/gridRowGroupingSelector';
+import { gridAggregationModelSelector } from '../aggregation/gridAggregationSelectors';
 
 const DEFAULT_SAMPLE_COUNT = 5;
 const MAX_CHART_DATA_POINTS = 1000;
+/** Maximum number of rows scanned when computing column statistics. */
+const MAX_STATS_ROWS = 10_000;
 
 export const aiAssistantStateInitializer: GridStateInitializer<
   Pick<DataGridPremiumProcessedProps, 'initialState' | 'aiAssistantConversations' | 'aiAssistant'>
@@ -68,6 +88,7 @@ export const useGridAiAssistant = (
     | 'aiAssistantConversations'
     | 'aiAssistantActiveConversationIndex'
     | 'allowAiAssistantDataSampling'
+    | 'allowAiAssistantStatistics'
     | 'onAiAssistantConversationsChange'
     | 'onAiAssistantActiveConversationIndexChange'
     | 'onPrompt'
@@ -85,6 +106,7 @@ export const useGridAiAssistant = (
   const {
     onPrompt,
     allowAiAssistantDataSampling,
+    allowAiAssistantStatistics,
     slots,
     rowSelection,
     disableColumnFilter,
@@ -148,60 +170,172 @@ export const useGridAiAssistant = (
     return columnExamples;
   }, [apiRef, columns, rows]);
 
-  const getPromptContext = React.useCallback(
-    (allowDataSampling = false) => {
-      if (!isAiAssistantAvailable) {
-        return '';
-      }
+  const computeColumnStatistics = React.useCallback(
+    (rowsToScan: object[]): Record<string, ColumnStatistics> => {
+      const result: Record<string, ColumnStatistics> = {};
 
+      columns.forEach((column) => {
+        const isNumeric = column.type === 'number' || column.type === 'date' || column.type === 'dateTime';
+        const values: unknown[] = rowsToScan.map((row) =>
+          apiRef.current.getRowValue(row, column),
+        );
+        const nonNullValues = values.filter((v) => v != null);
+        const nullCount = values.length - nonNullValues.length;
+
+        if (isNumeric) {
+          const nums = nonNullValues.map((v) =>
+            v instanceof Date ? v.getTime() : Number(v),
+          ).filter((n) => !Number.isNaN(n));
+
+          if (nums.length === 0) {
+            result[column.field] = {
+              count: values.length,
+              nullCount,
+              min: 0,
+              max: 0,
+              avg: 0,
+              sum: 0,
+            } as NumericColumnStatistics;
+          } else {
+            let min = nums[0];
+            let max = nums[0];
+            let sum = 0;
+            for (const n of nums) {
+              if (n < min) min = n;
+              if (n > max) max = n;
+              sum += n;
+            }
+            result[column.field] = {
+              count: values.length,
+              nullCount,
+              min,
+              max,
+              avg: sum / nums.length,
+              sum,
+            } as NumericColumnStatistics;
+          }
+        } else {
+          const counts = new Map<unknown, number>();
+          for (const v of nonNullValues) {
+            counts.set(v, (counts.get(v) ?? 0) + 1);
+          }
+          const sorted = [...counts.entries()].sort((a, b) => (b[1] as number) - (a[1] as number));
+          result[column.field] = {
+            count: values.length,
+            nullCount,
+            uniqueCount: counts.size,
+            topValues: sorted.slice(0, 10).map(([value, count]) => ({ value, count })),
+          } as CategoricalColumnStatistics;
+        }
+      });
+
+      return result;
+    },
+    [apiRef, columns],
+  );
+
+  const buildPromptContext = React.useCallback(
+    (allowDataSampling = false, includeStatistics = false): PromptContext => {
       const examples = allowDataSampling ? collectSampleData() : {};
 
-      const columnsContext = columns.reduce(
+      const allRowIds = gridFilteredSortedRowIdsSelector(apiRef);
+      const totalRows = gridRowCountSelector(apiRef);
+      const visibleRowCount = gridVisibleRowsSelector(apiRef).rows.length;
+
+      // Compute stats over visible (filtered) rows, capped at MAX_STATS_ROWS
+      let statistics: Record<string, ColumnStatistics> | null = null;
+      let statisticsSampled = false;
+      if (includeStatistics) {
+        const rowsLookup = gridRowsLookupSelector(apiRef);
+        const scanIds = allRowIds.length > MAX_STATS_ROWS
+          ? allRowIds.slice(0, MAX_STATS_ROWS)
+          : allRowIds;
+        statisticsSampled = scanIds.length < allRowIds.length;
+        const rowsToScan = scanIds.map((id) => rowsLookup[id]).filter(Boolean);
+        statistics = computeColumnStatistics(rowsToScan);
+      }
+
+      const schema: PromptContextColumn[] = columns.reduce(
         (acc, column) => {
-          const columnContextWithoutExamples = {
+          const baseEntry: PromptContextColumn = {
             field: column.field,
             description: column.description ?? null,
-            examples: [],
+            examples: examples[column.field] ?? column.examples ?? [],
             type: column.type ?? 'string',
             allowedOperators: column.filterOperators?.map((operator) => operator.value) ?? [],
+            ...(statistics ? { statistics: statistics[column.field] } : {}),
           };
 
-          acc.push({
-            ...columnContextWithoutExamples,
-            examples: examples[column.field] ?? column.examples ?? [],
-          });
+          acc.push(baseEntry);
 
-          if (disablePivoting) {
-            return acc;
+          if (!disablePivoting) {
+            (getPivotDerivedColumns?.(column, apiRef.current.getLocaleText) || []).forEach((col) =>
+              acc.push({
+                ...baseEntry,
+                examples: [],
+                ...col,
+                derivedFrom: column.field,
+              }),
+            );
           }
-
-          (getPivotDerivedColumns?.(column, apiRef.current.getLocaleText) || []).forEach((col) =>
-            acc.push({
-              ...columnContextWithoutExamples,
-              ...col,
-              derivedFrom: column.field,
-            }),
-          );
 
           return acc;
         },
-        [] as Record<string, any>[],
+        [] as PromptContextColumn[],
       );
 
-      return JSON.stringify(columnsContext);
+      // Capture active view state so agents know what's currently applied
+      const filterModel = gridFilterModelSelector(apiRef);
+      const sortModel = gridSortModelSelector(apiRef);
+      const groupingModel = gridRowGroupingModelSelector(apiRef);
+      const aggregationModel = gridAggregationModelSelector(apiRef);
+      const pivotActive = gridPivotActiveSelector(apiRef);
+      const selectedRowCount = apiRef.current.getSelectedRows().size;
+
+      return {
+        schema,
+        rowCount: {
+          total: totalRows,
+          visible: visibleRowCount,
+          ...(statisticsSampled ? { statisticsSampled: true } : {}),
+        },
+        currentState: {
+          filters: filterModel.items.map((item) => ({
+            column: item.field,
+            operator: item.operator,
+            value: item.value as string | number | boolean | string[] | number[],
+          })),
+          filterOperator: filterModel.logicOperator === GridLogicOperator.Or ? 'or' : 'and',
+          sort: sortModel.map((s) => ({ column: s.field, direction: s.sort ?? 'asc' })),
+          grouping: groupingModel,
+          aggregation: aggregationModel as Record<string, 'avg' | 'sum' | 'min' | 'max' | 'size'>,
+          pivotActive: !!pivotActive,
+          selectedRowCount,
+        },
+      };
     },
     [
       apiRef,
       columns,
       collectSampleData,
+      computeColumnStatistics,
       getPivotDerivedColumns,
-      isAiAssistantAvailable,
       disablePivoting,
     ],
   );
 
+  const getPromptContext = React.useCallback(
+    (allowDataSampling = false) => {
+      if (!isAiAssistantAvailable) {
+        return '';
+      }
+      return JSON.stringify(buildPromptContext(allowDataSampling, allowAiAssistantStatistics));
+    },
+    [isAiAssistantAvailable, buildPromptContext, allowAiAssistantStatistics],
+  );
+
   const updateChart = React.useCallback(
-    (result: PromptResponse) => {
+    (result: ViewConfigPromptResponse) => {
       if (!result.chart) {
         return;
       }
@@ -221,6 +355,11 @@ export const useGridAiAssistant = (
   const applyPromptResult = React.useCallback(
     (result: PromptResponse) => {
       if (!isAiAssistantAvailable) {
+        return;
+      }
+
+      // Text and data responses don't modify the grid view
+      if (result.type === 'text' || result.type === 'data') {
         return;
       }
 
@@ -546,6 +685,114 @@ export const useGridAiAssistant = (
     [apiRef, isAiAssistantAvailable],
   );
 
+  const getContext = React.useCallback<GridAiAssistantApi['aiAssistant']['getContext']>(
+    (includeStatistics = false) => {
+      return buildPromptContext(false, includeStatistics);
+    },
+    [buildPromptContext],
+  );
+
+  const queryRows = React.useCallback<GridAiAssistantApi['aiAssistant']['queryRows']>(
+    (input?: GridDataQueryInput): GridDataQueryResult => {
+      const { fields, limit = 100, offset = 0 } = input ?? {};
+      const allRowIds = gridFilteredSortedRowIdsSelector(apiRef);
+      const rowsLookup = gridRowsLookupSelector(apiRef);
+      const slicedIds = allRowIds.slice(offset, offset + limit);
+
+      const rows = slicedIds.map((id) => {
+        const row = rowsLookup[id];
+        if (!fields) {
+          // Return values via getRowValue for consistent formatting
+          const entry: Record<string, unknown> = {};
+          columns.forEach((column) => {
+            entry[column.field] = apiRef.current.getRowValue(row, column);
+          });
+          return entry;
+        }
+        const entry: Record<string, unknown> = {};
+        fields.forEach((field) => {
+          const column = columnsLookup[field];
+          if (column) {
+            entry[field] = apiRef.current.getRowValue(row, column);
+          }
+        });
+        return entry;
+      });
+
+      return {
+        rows,
+        totalCount: allRowIds.length,
+        hasMore: offset + limit < allRowIds.length,
+      };
+    },
+    [apiRef, columns, columnsLookup],
+  );
+
+  const getStatistics = React.useCallback<GridAiAssistantApi['aiAssistant']['getStatistics']>(
+    (input?: GridStatisticsInput): Record<string, ColumnStatistics> => {
+      const allRowIds = gridFilteredSortedRowIdsSelector(apiRef);
+      const rowsLookup = gridRowsLookupSelector(apiRef);
+      const scanIds = allRowIds.length > MAX_STATS_ROWS
+        ? allRowIds.slice(0, MAX_STATS_ROWS)
+        : allRowIds;
+      const rowsToScan = scanIds.map((id) => rowsLookup[id]).filter(Boolean);
+
+      const allStats = computeColumnStatistics(rowsToScan);
+
+      if (!input?.fields) {
+        return allStats;
+      }
+      const filtered: Record<string, ColumnStatistics> = {};
+      input.fields.forEach((field) => {
+        if (allStats[field] !== undefined) {
+          filtered[field] = allStats[field];
+        }
+      });
+      return filtered;
+    },
+    [apiRef, computeColumnStatistics],
+  );
+
+  const getValueDistribution = React.useCallback<
+    GridAiAssistantApi['aiAssistant']['getValueDistribution']
+  >(
+    (input: GridValueDistributionInput): GridValueDistributionResult => {
+      const { field, limit: topLimit = 20 } = input;
+      const column = columnsLookup[field];
+      const allRowIds = gridFilteredSortedRowIdsSelector(apiRef);
+      const rowsLookup = gridRowsLookupSelector(apiRef);
+
+      const counts = new Map<unknown, number>();
+      let nullCount = 0;
+      let totalCount = 0;
+
+      for (const id of allRowIds) {
+        const row = rowsLookup[id];
+        if (!row) continue;
+        const value = column ? apiRef.current.getRowValue(row, column) : (row as any)[field];
+        totalCount += 1;
+        if (value == null) {
+          nullCount += 1;
+        } else {
+          counts.set(value, (counts.get(value) ?? 0) + 1);
+        }
+      }
+
+      const sorted = [...counts.entries()].sort(
+        (a, b) => (b[1] as number) - (a[1] as number),
+      );
+
+      return {
+        field,
+        values: sorted.slice(0, topLimit).map(([value, count]) => ({ value, count })),
+        totalCount,
+        nullCount,
+        uniqueCount: counts.size,
+      };
+    },
+    [apiRef, columnsLookup],
+  );
+
   React.useEffect(() => {
     if (props.aiAssistantConversations) {
       setConversations(props.aiAssistantConversations);
@@ -566,6 +813,10 @@ export const useGridAiAssistant = (
         processPrompt,
         setConversations,
         setActiveConversationIndex,
+        getContext,
+        queryRows,
+        getStatistics,
+        getValueDistribution,
       },
     },
     'public',

@@ -60,6 +60,7 @@ import {
   exportChartToPng,
   inferKpiDateSubtitle,
 } from '../../internals/widgetUtils';
+import { canDetectAnomalies } from '../../internals/anomalyDetection';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
 import { SliderFilterPill } from './SliderFilterPill';
 import {
@@ -544,9 +545,17 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           onInsightRequest={supportsInsight && onInsightRequest ? handleInsightRequest : undefined}
           anomalyEnabled={anomalyEnabled}
           anomalyCount={anomalyAnnotations.length}
-          onAnomalyToggle={isChart && features.aiInsights ? handleAnomalyToggle : undefined}
+          onAnomalyToggle={
+            widget && features.aiInsights && canDetectAnomalies(widget)
+              ? handleAnomalyToggle
+              : undefined
+          }
           onAnomalyExplain={
-            isChart && onInsightRequest && anomalyEnabled && anomalyAnnotations.length > 0
+            widget &&
+            onInsightRequest &&
+            anomalyEnabled &&
+            anomalyAnnotations.length > 0 &&
+            canDetectAnomalies(widget)
               ? handleAnomalyExplain
               : undefined
           }

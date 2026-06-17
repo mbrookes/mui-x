@@ -66,11 +66,7 @@ import {
   makeValueFormatter,
   normalizeCrossFilterValue,
 } from './chartWidgetHelpers';
-import {
-  detectWidgetAnomalies,
-  detectChartDataAnomalies,
-  SUPPORTED_CHART_TYPES,
-} from '../../../internals/anomalyDetection';
+import { canDetectAnomalies, detectChartDataAnomalies } from '../../../internals/anomalyDetection';
 import { computeWidgetForecast } from '../../../internals/forecastUtils';
 import { formatFieldValue } from '../../../internals/numberFormat';
 
@@ -463,42 +459,27 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   // Render annotation reference lines as chart children (not supported for pie/donut/gauge).
   const detectedAnomalyAnnotations = React.useMemo(() => {
-    if (!anomalyEnabled) {
+    if (!anomalyEnabled || !canDetectAnomalies(widget)) {
       return [];
-    }
-    const ct = config.chartType ?? 'bar';
-    if (!SUPPORTED_CHART_TYPES.has(ct)) {
-      return [];
-    }
-    // Scatter plots individual points on continuous axes — raw rows are correct.
-    if (ct === 'scatter') {
-      return detectWidgetAnomalies(widget, filteredRows);
     }
 
-    // Bar/line/area: use aggregated chart data so annotation x-values match the
-    // chart's actual x-axis labels (e.g. period-key strings on band-scale axes).
-    // Trim edge buckets when xGroupBy is set — partial first/last periods cause
-    // false-positive low outliers.
-    const trimEdges = Boolean(config.xGroupBy);
+    // Use pre-aggregated chart data so annotation x-values match the chart's
+    // actual x-axis labels. Edge buckets are trimmed — partial first/last
+    // periods in the date range produce false-positive low outliers.
     let annotations: import('../../../models/baseTypes').StudioChartAnnotation[] = [];
     if (chartData && chartData.labels.length > 0) {
-      annotations = detectChartDataAnomalies(
-        widget.id,
-        chartData.labels,
-        chartData.values,
-        trimEdges,
-      );
+      annotations = detectChartDataAnomalies(widget.id, chartData.labels, chartData.values, true);
     } else if (multiYData && multiYData.labels.length > 0 && multiYData.series.length > 0) {
       annotations = detectChartDataAnomalies(
         widget.id,
         multiYData.labels,
         multiYData.series[0].values,
-        trimEdges,
+        true,
       );
     }
 
     return annotations;
-  }, [anomalyEnabled, widget, filteredRows, chartData, multiYData, config.chartType]);
+  }, [anomalyEnabled, widget, chartData, multiYData]);
 
   React.useEffect(() => {
     onAnomalyDetected?.(detectedAnomalyAnnotations);

@@ -354,6 +354,13 @@ export interface DataGridPremiumPropsWithoutDefaultValue<
    */
   allowAiAssistantDataSampling?: boolean;
   /**
+   * If `true`, the AI Assistant computes column-level statistics (min/max/avg/sum for numeric columns;
+   * unique value counts and top values for categorical columns) and includes them in the prompt context.
+   * Statistics are computed over visible (filtered) rows, capped at 10,000 rows for performance.
+   * @default false
+   */
+  allowAiAssistantStatistics?: boolean;
+  /**
    * The function to be used to process the prompt.
    * @param {string} prompt The prompt to be processed.
    * @param {string} promptContext The prompt context.

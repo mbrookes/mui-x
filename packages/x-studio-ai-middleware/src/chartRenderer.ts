@@ -22,7 +22,7 @@ export interface ChartSeries {
   values: number[];
 }
 
-export type ChartType = 'bar' | 'line' | 'pie';
+export type ChartType = 'bar' | 'line' | 'pie' | 'scatter' | 'donut' | 'stacked_bar';
 
 export interface ChartRendererInput {
   /** Chart type. */
@@ -365,6 +365,268 @@ function renderPie(input: ChartRendererInput): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n${lines.join('\n')}\n</svg>`;
 }
 
+// ── Scatter chart ─────────────────────────────────────────────────────────────
+
+function renderScatter(input: ChartRendererInput): string {
+  const { title, series: rawSeries, xLabels: rawXLabels, colors = DEFAULT_COLORS } = input;
+  const W = input.width ?? 600;
+  const H = input.height ?? 400;
+
+  // Expect data as series with numeric values (x from xLabels, y from values)
+  // or simple data[] where label is parsed as x and value is y.
+  let points: { x: number; y: number; label?: string; seriesName?: string; color: string }[] = [];
+
+  if (rawSeries && rawXLabels) {
+    rawSeries.forEach((s, si) => {
+      s.values.forEach((y, i) => {
+        const x = parseFloat(rawXLabels[i]);
+        if (!Number.isNaN(x)) {
+          points.push({ x, y, label: rawXLabels[i], seriesName: s.name, color: color(colors, si) });
+        }
+      });
+    });
+  } else if (input.data) {
+    input.data.forEach((d, i) => {
+      const x = parseFloat(String(d.label));
+      if (!Number.isNaN(x)) {
+        points.push({ x, y: d.value, label: String(d.label), color: color(colors, i) });
+      } else {
+        // label is not numeric — use index as x
+        points.push({ x: i, y: d.value, label: String(d.label), color: color(colors, 0) });
+      }
+    });
+  }
+
+  const PAD = { top: title ? 50 : 20, right: 20, bottom: 60, left: 60 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const xMin = Math.min(...xs);
+  const xMax = Math.max(...xs);
+  const yMax = niceMax(Math.max(...ys, 0));
+  const xRange = xMax - xMin || 1;
+
+  const px = (x: number) => PAD.left + ((x - xMin) / xRange) * chartW;
+  const py = (y: number) => PAD.top + chartH - (y / yMax) * chartH;
+
+  const tickY = ticks(yMax);
+  const svgLines: string[] = [];
+
+  if (title) {
+    svgLines.push(
+      `<text x="${W / 2}" y="24" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="16" font-weight="600" fill="#1a1a2e">${esc(title)}</text>`,
+    );
+  }
+
+  for (const tv of tickY) {
+    const y = py(tv);
+    svgLines.push(
+      `<line x1="${PAD.left}" y1="${y}" x2="${PAD.left + chartW}" y2="${y}" stroke="#e0e0e0" stroke-dasharray="4 3"/>`,
+      `<text x="${PAD.left - 8}" y="${y + 4}" text-anchor="end" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${tv}</text>`,
+    );
+  }
+
+  for (const p of points) {
+    svgLines.push(
+      `<circle cx="${px(p.x).toFixed(1)}" cy="${py(p.y).toFixed(1)}" r="5" fill="${p.color}" fill-opacity="0.75" stroke="${p.color}" stroke-width="1"/>`,
+    );
+  }
+
+  svgLines.push(
+    `<line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${PAD.top + chartH}" stroke="#aaa" stroke-width="1"/>`,
+    `<line x1="${PAD.left}" y1="${PAD.top + chartH}" x2="${PAD.left + chartW}" y2="${PAD.top + chartH}" stroke="#aaa" stroke-width="1"/>`,
+  );
+
+  // Legend for multi-series
+  const seriesNames = rawSeries?.map((s, i) => ({ name: s.name, color: color(colors, i) }));
+  if (seriesNames && seriesNames.length > 1) {
+    let lx = PAD.left;
+    const ly = H - 18;
+    for (const s of seriesNames) {
+      svgLines.push(
+        `<circle cx="${lx + 6}" cy="${ly}" r="5" fill="${s.color}"/>`,
+        `<text x="${lx + 16}" y="${ly + 4}" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${esc(s.name)}</text>`,
+      );
+      lx += 16 + s.name.length * 7 + 16;
+    }
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n${svgLines.join('\n')}\n</svg>`;
+}
+
+// ── Donut chart ───────────────────────────────────────────────────────────────
+
+function renderDonut(input: ChartRendererInput): string {
+  const { title, data = [], colors = DEFAULT_COLORS } = input;
+  const W = input.width ?? 600;
+  const H = input.height ?? 400;
+
+  const PAD = { top: title ? 50 : 20, right: 20, bottom: 20, left: 20 };
+  const legendH = Math.ceil(data.length / 3) * 22 + 10;
+  const pieH = H - PAD.top - PAD.bottom - legendH;
+  const cx = W / 2;
+  const cy = PAD.top + pieH / 2;
+  const r = Math.min(W / 2 - 40, pieH / 2) * 0.9;
+  const innerR = r * 0.45;
+
+  const total = data.reduce((s, d) => s + d.value, 0);
+  const svgLines: string[] = [];
+
+  if (title) {
+    svgLines.push(
+      `<text x="${W / 2}" y="24" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="16" font-weight="600" fill="#1a1a2e">${esc(title)}</text>`,
+    );
+  }
+
+  // Slices with inner hole
+  let angle = 0;
+  data.forEach((d, i) => {
+    if (d.value <= 0) return;
+    const slice = (d.value / total) * 360;
+    const fill = color(colors, i);
+
+    const outerStart = polarToCartesian(cx, cy, r, angle + slice);
+    const outerEnd = polarToCartesian(cx, cy, r, angle);
+    const innerStart = polarToCartesian(cx, cy, innerR, angle + slice);
+    const innerEnd = polarToCartesian(cx, cy, innerR, angle);
+    const largeArc = slice > 180 ? 1 : 0;
+
+    const path =
+      `M ${outerStart.x.toFixed(2)} ${outerStart.y.toFixed(2)} ` +
+      `A ${r} ${r} 0 ${largeArc} 0 ${outerEnd.x.toFixed(2)} ${outerEnd.y.toFixed(2)} ` +
+      `L ${innerEnd.x.toFixed(2)} ${innerEnd.y.toFixed(2)} ` +
+      `A ${innerR} ${innerR} 0 ${largeArc} 1 ${innerStart.x.toFixed(2)} ${innerStart.y.toFixed(2)} Z`;
+
+    svgLines.push(`<path d="${path}" fill="${fill}" stroke="#fff" stroke-width="1.5"/>`);
+
+    if (slice > 20) {
+      const midAngle = angle + slice / 2;
+      const lp = polarToCartesian(cx, cy, (r + innerR) / 2, midAngle);
+      const pct = Math.round((d.value / total) * 100);
+      svgLines.push(
+        `<text x="${lp.x.toFixed(1)}" y="${lp.y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-family="${FONT_FAMILY}" font-size="11" font-weight="600" fill="#fff">${pct}%</text>`,
+      );
+    }
+    angle += slice;
+  });
+
+  // Total label in center
+  svgLines.push(
+    `<text x="${cx}" y="${cy - 8}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="11" fill="#888">Total</text>`,
+    `<text x="${cx}" y="${cy + 10}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="16" font-weight="700" fill="#1a1a2e">${total.toLocaleString()}</text>`,
+  );
+
+  // Legend
+  const legendY = cy + r + 20;
+  const itemsPerRow = 3;
+  const itemW = W / itemsPerRow;
+  data.forEach((d, i) => {
+    const col = i % itemsPerRow;
+    const row = Math.floor(i / itemsPerRow);
+    const lx = col * itemW + 16;
+    const ly = legendY + row * 22;
+    const fill = color(colors, i);
+    const pct = total > 0 ? ` (${Math.round((d.value / total) * 100)}%)` : '';
+    svgLines.push(
+      `<rect x="${lx}" y="${ly}" width="12" height="12" fill="${fill}" rx="2"/>`,
+      `<text x="${lx + 16}" y="${ly + 10}" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${esc(String(d.label))}${esc(pct)}</text>`,
+    );
+  });
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n${svgLines.join('\n')}\n</svg>`;
+}
+
+// ── Stacked bar chart ─────────────────────────────────────────────────────────
+
+function renderStackedBar(input: ChartRendererInput): string {
+  const { title, xLabels: rawXLabels, series: rawSeries, colors = DEFAULT_COLORS } = input;
+  const W = input.width ?? 600;
+  const H = input.height ?? 400;
+
+  if (!rawSeries || !rawXLabels || rawSeries.length === 0 || rawXLabels.length === 0) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">stacked_bar requires xLabels and series.</text></svg>`;
+  }
+
+  const totals = rawXLabels.map((_, i) =>
+    rawSeries.reduce((sum, s) => sum + (s.values[i] ?? 0), 0),
+  );
+  const maxTotal = niceMax(Math.max(...totals, 0));
+
+  const hasLegend = rawSeries.length > 0;
+  const legendH = hasLegend ? 24 : 0;
+  const PAD = { top: title ? 50 : 20, right: 20, bottom: 60 + legendH, left: 60 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  const barPad = 0.2;
+  const barW = (chartW / rawXLabels.length) * (1 - barPad);
+  const barGap = (chartW / rawXLabels.length) * barPad;
+  const xOf = (i: number) => PAD.left + (chartW / rawXLabels.length) * i + barGap / 2;
+  const yBase = PAD.top + chartH;
+
+  const tickValues = ticks(maxTotal);
+  const svgLines: string[] = [];
+
+  if (title) {
+    svgLines.push(
+      `<text x="${W / 2}" y="24" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="16" font-weight="600" fill="#1a1a2e">${esc(title)}</text>`,
+    );
+  }
+
+  for (const tv of tickValues) {
+    const y = yBase - (tv / maxTotal) * chartH;
+    svgLines.push(
+      `<line x1="${PAD.left}" y1="${y}" x2="${PAD.left + chartW}" y2="${y}" stroke="#e0e0e0" stroke-dasharray="4 3"/>`,
+      `<text x="${PAD.left - 8}" y="${y + 4}" text-anchor="end" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${tv}</text>`,
+    );
+  }
+
+  rawXLabels.forEach((lbl, i) => {
+    let stackBase = 0;
+    rawSeries.forEach((s, si) => {
+      const val = s.values[i] ?? 0;
+      if (val <= 0) {
+        stackBase += val;
+        return;
+      }
+      const barH = (val / maxTotal) * chartH;
+      const x = xOf(i);
+      const y = yBase - (stackBase + val) / maxTotal * chartH;
+      svgLines.push(
+        `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${color(colors, si)}" rx="1"/>`,
+      );
+      stackBase += val;
+    });
+
+    const labelY = yBase + 18;
+    svgLines.push(
+      `<text x="${(xOf(i) + barW / 2).toFixed(1)}" y="${labelY}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${esc(String(lbl))}</text>`,
+    );
+  });
+
+  svgLines.push(
+    `<line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${yBase}" stroke="#aaa" stroke-width="1"/>`,
+    `<line x1="${PAD.left}" y1="${yBase}" x2="${PAD.left + chartW}" y2="${yBase}" stroke="#aaa" stroke-width="1"/>`,
+  );
+
+  if (hasLegend) {
+    const legendY = H - legendH + 6;
+    let legendX = PAD.left;
+    rawSeries.forEach((s, si) => {
+      const fill = color(colors, si);
+      svgLines.push(
+        `<rect x="${legendX}" y="${legendY}" width="12" height="12" fill="${fill}" rx="2"/>`,
+        `<text x="${legendX + 16}" y="${legendY + 10}" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${esc(s.name)}</text>`,
+      );
+      legendX += 16 + s.name.length * 7 + 16;
+    });
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n${svgLines.join('\n')}\n</svg>`;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -393,10 +655,16 @@ export function renderChartSvg(input: ChartRendererInput): string {
       return renderLine(input);
     case 'pie':
       return renderPie(input);
+    case 'scatter':
+      return renderScatter(input);
+    case 'donut':
+      return renderDonut(input);
+    case 'stacked_bar':
+      return renderStackedBar(input);
     default: {
       const never: never = input.type;
       throw new Error(
-        `MUI X Studio: Unknown chart type "${never}". Supported types: bar, line, pie.`,
+        `MUI X Studio: Unknown chart type "${never}". Supported types: bar, line, pie, scatter, donut, stacked_bar.`,
       );
     }
   }

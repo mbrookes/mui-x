@@ -506,7 +506,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
 
     // Line/area charts with temporal period-key labels use scaleType:'utc' with Date objects.
-    // ChartsReferenceLine x values must be timestamps (numbers), not period-key strings.
+    // ChartsReferenceLine x must be a Date (not a number timestamp) for UTC scales.
     const isBarType = chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100';
     const sourceLabels = chartData?.labels ?? multiYData?.labels ?? [];
     const useTemporalX = !isBarType && getTemporalAxisData(sourceLabels) != null;
@@ -518,12 +518,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         : { strokeDasharray: '4 2' };
       const labelStyle = isAnomalyAnnotation ? { fill: '#c60000' } : undefined;
 
-      let xValue: string | number = ann.value;
+      let xValue: string | number | Date = ann.value;
       if (ann.axis === 'x' && useTemporalX && typeof xValue === 'string') {
         const range = periodKeyToDateRange(xValue);
         const date = range ? normalizeToDate(range.from) : normalizeToDate(xValue);
         if (date) {
-          xValue = date.getTime();
+          xValue = date;
         }
       }
 

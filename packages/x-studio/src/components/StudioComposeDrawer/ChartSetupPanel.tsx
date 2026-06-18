@@ -654,8 +654,12 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   }
                 >
                   <MenuItem value="value">{localeText.chartSetupFunnelLabelFormatValue}</MenuItem>
-                  <MenuItem value="percent">{localeText.chartSetupFunnelLabelFormatPercent}</MenuItem>
-                  <MenuItem value="conversion">{localeText.chartSetupFunnelLabelFormatConversion}</MenuItem>
+                  <MenuItem value="percent">
+                    {localeText.chartSetupFunnelLabelFormatPercent}
+                  </MenuItem>
+                  <MenuItem value="conversion">
+                    {localeText.chartSetupFunnelLabelFormatConversion}
+                  </MenuItem>
                 </Select>
               </FormControl>
               <FormControl size="small" fullWidth>
@@ -675,9 +679,15 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     })
                   }
                 >
-                  <MenuItem value="inside">{localeText.chartSetupFunnelLabelPlacementInside}</MenuItem>
-                  <MenuItem value="outside-start">{localeText.chartSetupFunnelLabelPlacementOutsideStart}</MenuItem>
-                  <MenuItem value="outside-end">{localeText.chartSetupFunnelLabelPlacementOutsideEnd}</MenuItem>
+                  <MenuItem value="inside">
+                    {localeText.chartSetupFunnelLabelPlacementInside}
+                  </MenuItem>
+                  <MenuItem value="outside-start">
+                    {localeText.chartSetupFunnelLabelPlacementOutsideStart}
+                  </MenuItem>
+                  <MenuItem value="outside-end">
+                    {localeText.chartSetupFunnelLabelPlacementOutsideEnd}
+                  </MenuItem>
                 </Select>
               </FormControl>
               <FormControl size="small" fullWidth>
@@ -713,8 +723,12 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   }}
                   size="small"
                 >
-                  <ToggleButton value="filled">{localeText.chartSetupFunnelStyleFilled}</ToggleButton>
-                  <ToggleButton value="outlined">{localeText.chartSetupFunnelStyleOutlined}</ToggleButton>
+                  <ToggleButton value="filled">
+                    {localeText.chartSetupFunnelStyleFilled}
+                  </ToggleButton>
+                  <ToggleButton value="outlined">
+                    {localeText.chartSetupFunnelStyleOutlined}
+                  </ToggleButton>
                 </ToggleButtonGroup>
               </Stack>
               <TextField

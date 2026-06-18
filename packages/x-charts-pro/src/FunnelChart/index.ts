@@ -19,6 +19,8 @@ export { funnelClasses } from './funnelClasses';
 export type { FunnelClassKey, FunnelClasses } from './funnelClasses';
 export { FunnelSection } from './FunnelSection';
 export { FunnelSectionLabel } from './FunnelSectionLabel';
+export { FunnelLabelLine } from './FunnelLabelLine';
+export type { FunnelLabelLineProps, FunnelLabelLineConfig } from './FunnelLabelLine';
 export {
   createFunnelPercentFormatter,
   createFunnelConversionFormatter,

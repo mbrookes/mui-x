@@ -1,9 +1,11 @@
 import type * as React from 'react';
 import type { FunnelSectionProps } from './FunnelSection';
 import { type FunnelSectionLabelProps } from './FunnelSectionLabel';
+import { type FunnelLabelLineProps } from './FunnelLabelLine';
 import type {
   FunnelSectionPropsOverrides,
   FunnelSectionLabelPropsOverrides,
+  FunnelLabelLinePropsOverrides,
 } from '../models/chartsSlotsComponentsPropsPro';
 
 export interface FunnelPlotSlots {
@@ -19,11 +21,17 @@ export interface FunnelPlotSlots {
   funnelSectionLabel?: React.ElementType<
     FunnelSectionLabelProps & FunnelSectionLabelPropsOverrides
   >;
+  /**
+   * Custom component for the connector line between a funnel section and its outside label.
+   * @default FunnelLabelLine
+   */
+  funnelLabelLine?: React.ElementType<FunnelLabelLineProps & FunnelLabelLinePropsOverrides>;
 }
 
 export interface FunnelPlotSlotProps {
   funnelSection?: Partial<FunnelSectionProps> & FunnelSectionPropsOverrides;
   funnelSectionLabel?: Partial<FunnelSectionLabelProps> & FunnelSectionLabelPropsOverrides;
+  funnelLabelLine?: Partial<FunnelLabelLineProps> & FunnelLabelLinePropsOverrides;
 }
 
 export interface FunnelPlotSlotExtension {

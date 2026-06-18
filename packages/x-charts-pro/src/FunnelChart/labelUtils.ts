@@ -2,10 +2,66 @@ import { type Position } from '@mui/x-charts/models';
 import { type FunnelLabelOptions } from './funnel.types';
 import { type Point } from './curves';
 
-type AlignReturnType = {
+type AlignResult = {
   textAnchor: FunnelLabelOptions['textAnchor'];
   dominantBaseline: Exclude<FunnelLabelOptions['dominantBaseline'], 'baseline'>;
 };
+
+export type OutsideLabelPosition = {
+  label: { x: number; y: number } & AlignResult;
+  line: { x1: number; y1: number; x2: number; y2: number };
+};
+
+/**
+ * Computes position for outside labels and the connector line from section edge to label.
+ */
+export const computeOutsideLabelPosition = ({
+  placement,
+  isHorizontal,
+  values,
+  offset = 20,
+}: {
+  placement: 'outside-start' | 'outside-end';
+  isHorizontal: boolean;
+  values: readonly Point[];
+  offset?: number;
+}): OutsideLabelPosition => {
+  const Ys = values.map((v) => v.y).toSorted((a, b) => a - b);
+  const Xs = values.map((v) => v.x).toSorted((a, b) => a - b);
+
+  const centerX = (Xs.at(0)! + Xs.at(-1)!) / 2;
+  const centerY = (Ys.at(0)! + Ys.at(-1)!) / 2;
+
+  if (!isHorizontal) {
+    if (placement === 'outside-start') {
+      const edgeX = Xs.at(0)!;
+      return {
+        label: { x: edgeX - offset, y: centerY, textAnchor: 'end', dominantBaseline: 'central' },
+        line: { x1: edgeX, y1: centerY, x2: edgeX - offset, y2: centerY },
+      };
+    }
+    const edgeX = Xs.at(-1)!;
+    return {
+      label: { x: edgeX + offset, y: centerY, textAnchor: 'start', dominantBaseline: 'central' },
+      line: { x1: edgeX, y1: centerY, x2: edgeX + offset, y2: centerY },
+    };
+  }
+
+  if (placement === 'outside-start') {
+    const edgeY = Ys.at(0)!;
+    return {
+      label: { x: centerX, y: edgeY - offset, textAnchor: 'middle', dominantBaseline: 'auto' },
+      line: { x1: centerX, y1: edgeY, x2: centerX, y2: edgeY - offset },
+    };
+  }
+  const edgeY = Ys.at(-1)!;
+  return {
+    label: { x: centerX, y: edgeY + offset, textAnchor: 'middle', dominantBaseline: 'hanging' },
+    line: { x1: centerX, y1: edgeY, x2: centerX, y2: edgeY + offset },
+  };
+};
+
+type AlignReturnType = AlignResult;
 
 /**
  * It tries to keep the label inside the bounds of the section based on the position.

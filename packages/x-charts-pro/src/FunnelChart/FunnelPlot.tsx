@@ -6,12 +6,13 @@ import { line as d3Line } from '@mui/x-charts-vendor/d3-shape';
 import { cartesianSeriesTypes, useStore, useSkipAnimation } from '@mui/x-charts/internals';
 import { type FunnelItemIdentifier } from './funnel.types';
 import { AnimatedFunnelSection } from './AnimatedFunnelSection';
-import { alignLabel, positionLabel } from './labelUtils';
+import { alignLabel, positionLabel, computeOutsideLabelPosition } from './labelUtils';
 import { type FunnelPlotSlotExtension } from './funnelPlotSlots.types';
 import { useUtilityClasses } from './funnelClasses';
 import { useFunnelSeriesContext } from '../hooks/useFunnelSeries';
 import { getFunnelCurve, type Point } from './curves';
 import { FunnelSectionLabel } from './FunnelSectionLabel';
+import { FunnelLabelLine, type FunnelLabelLineConfig } from './FunnelLabelLine';
 import {
   selectorChartXAxis,
   selectorChartYAxis,
@@ -109,6 +110,42 @@ const useAggregatedData = () => {
           .y((v) => v.y)
           .curve(curve);
 
+        const labelValue =
+          sectionLabel !== false
+            ? valueFormatter
+              ? valueFormatter(currentSeries.data[dataIndex], { dataIndex })
+              : currentSeries.data[dataIndex].value?.toLocaleString()
+            : null;
+
+        const placement =
+          sectionLabel && typeof sectionLabel === 'object' ? sectionLabel.placement : undefined;
+        const isOutside = placement === 'outside-start' || placement === 'outside-end';
+
+        let labelPos: { x: number; y: number; textAnchor?: string; dominantBaseline?: string };
+        let labelLine: FunnelLabelLineConfig | undefined;
+
+        if (isOutside && sectionLabel) {
+          const outsideOffset =
+            typeof sectionLabel.offset === 'number' ? sectionLabel.offset : 20;
+          const outside = computeOutsideLabelPosition({
+            placement,
+            isHorizontal,
+            values: bandPoints,
+            offset: outsideOffset,
+          });
+          labelPos = {
+            ...outside.label,
+            textAnchor: sectionLabel.textAnchor ?? outside.label.textAnchor,
+            dominantBaseline: sectionLabel.dominantBaseline ?? outside.label.dominantBaseline,
+          };
+          labelLine = outside.line;
+        } else {
+          labelPos = {
+            ...positionLabel({ ...sectionLabel, isHorizontal, values: bandPoints }),
+            ...alignLabel(sectionLabel ?? {}),
+          };
+        }
+
         return {
           d: line(bandPoints)!,
           color,
@@ -116,17 +153,10 @@ const useAggregatedData = () => {
           seriesId,
           dataIndex,
           variant: currentSeries.variant,
-          label: sectionLabel !== false && {
-            ...positionLabel({
-              ...sectionLabel,
-              isHorizontal,
-              values: bandPoints,
-            }),
-            ...alignLabel(sectionLabel ?? {}),
-            value: valueFormatter
-              ? valueFormatter(currentSeries.data[dataIndex], { dataIndex })
-              : currentSeries.data[dataIndex].value?.toLocaleString(),
-          },
+          label: sectionLabel !== false && labelValue
+            ? { ...labelPos, value: labelValue }
+            : null,
+          labelLine,
         };
       });
     });
@@ -171,6 +201,32 @@ function FunnelPlot(props: FunnelPlotProps) {
                 }
               />
             ))}
+          </g>
+        );
+      })}
+      {data.map((series) => {
+        if (series.length === 0) {
+          return null;
+        }
+
+        return (
+          <g data-series={series[0].seriesId} key={series[0].seriesId}>
+            {series.map(({ id, labelLine, seriesId, dataIndex, variant }) => {
+              if (!labelLine) {
+                return null;
+              }
+
+              return (
+                <FunnelLabelLine
+                  key={id}
+                  line={labelLine}
+                  dataIndex={dataIndex}
+                  seriesId={seriesId}
+                  variant={variant}
+                  {...other}
+                />
+              );
+            })}
           </g>
         );
       })}

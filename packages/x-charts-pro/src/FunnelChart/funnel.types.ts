@@ -165,7 +165,19 @@ export type FunnelDataPoints = Record<'x' | 'y', number> & {
 
 export type FunnelLabelOptions = {
   /**
-   * The position of the label.
+   * Where the label is placed relative to the funnel section.
+   *
+   * - `'inside'`: Label inside the section body (default).
+   * - `'outside-start'`: For vertical layout — to the left; for horizontal — above.
+   * - `'outside-end'`: For vertical layout — to the right; for horizontal — below.
+   *
+   * Outside placements render a connector line from the section edge to the label.
+   *
+   * @default 'inside'
+   */
+  placement?: 'inside' | 'outside-start' | 'outside-end';
+  /**
+   * The position of the label within the section (only used when `placement` is `'inside'`).
    * @default { vertical: 'middle', horizontal: 'center' }
    */
   position?: Position;
@@ -190,6 +202,8 @@ export type FunnelLabelOptions = {
     | 'text-before-edge';
   /**
    * The offset of the label from the anchor point.
+   * For inside labels: offset from the position inside the section.
+   * For outside labels: distance in pixels from the section edge to the label text.
    * If a single number is provided, the offset will be applied in both directions.
    * @default 0
    */

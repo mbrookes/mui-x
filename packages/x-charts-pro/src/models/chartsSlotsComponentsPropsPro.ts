@@ -12,3 +12,4 @@ export interface CellPropsOverrides {}
 
 export interface FunnelSectionPropsOverrides {}
 export interface FunnelSectionLabelPropsOverrides {}
+export interface FunnelLabelLinePropsOverrides {}

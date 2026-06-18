@@ -583,18 +583,16 @@ re-render, so the canvas updates live as the AI executes tools.
 **Entry:** User hovers widget card → clicks `AutoAwesome` icon → selects type from dropdown
 (`Summary | Analysis | Forecast`).
 
-**Display:** `StudioInsightPanel` renders **absolutely positioned inside the widget card** —
-`position: absolute, bottom: 8, left: 8, right: 8, zIndex: 10, maxHeight: 60%`.  
-Text rendered as `<Typography variant="caption" sx={{ whiteSpace: 'pre-wrap' }}>`.  
-Available in **both edit and view modes** when `aiConfig?.endpoint` is set.  
-Closed by the ✕ button on the panel; result discarded (no persistence).
+**Display:** The AI chat panel opens and an insight request is auto-submitted as a new message.
+The response appears as a normal chat message — the user can ask follow-up questions in the same
+thread. Available in **both edit and view modes** when `aiConfig?.endpoint` is set.
 
 ### Path C — Anomaly explanation (`generateAnomalyExplanation`)
 
 **Entry:** User clicks `TroubleshootIcon` on chart widget → anomaly detection enabled →
 detected anomalies populate `anomalyAnnotations` → "Explain Anomaly" button appears → user clicks.
 
-**Display:** Same `StudioInsightPanel` as Path B, inside the widget card.  
+**Display:** Same as Path B — opens the chat panel and auto-submits the explanation request.
 `generateAnomalyExplanation` is code-split via dynamic `import()` inside `handleAnomalyExplain`.
 
 ### Path D — Page summary (`summarise_page` tool)
@@ -687,7 +685,7 @@ flowchart TD
     G --> H[fetch endpoint stream:false]
     H --> I[LLM returns text]
     I --> J[setInsightResult result]
-    J --> K[StudioInsightPanel renders inside widget card]
+    J --> K[StudioChatPanel auto-submits insight message]
     C -->|Anomaly Explain| L[handleAnomalyExplain]
     L --> M[dynamic import generateAnomalyExplanation]
     M --> N[buildWidgetDataSummary sampling:anomaly]
@@ -757,7 +755,6 @@ flowchart TD
 | `packages/x-studio/src/store/statePersistence.ts`                                 |   227 | `serializeState`, `deserializeState`, `migrateState`                                                        |
 | `packages/x-studio/src/StudioWidgetCard/StudioWidgetCard.tsx`                     |  ~960 | AI insight state machine, `onAiRequest` prop passthrough                                                    |
 | `packages/x-studio/src/StudioWidgetCard/StudioWidgetCardActionsOverlay.tsx`       |   454 | AI action buttons (insight menu, anomaly explain, onAiRequest)                                              |
-| `packages/x-studio/src/StudioInsightPanel/StudioInsightPanel.tsx`                 |   163 | Widget-level insight display component (inside card)                                                        |
 | `packages/x-studio/src/internals/StudioPipeline.ts`                               |   156 | `createStudioPipeline` factory, `resolveWidgetRows`                                                         |
 | `packages/x-studio/src/internals/useWidgetRows.ts`                                |   534 | React hook — async adapter + sync in-memory data paths                                                      |
 | `packages/x-studio/src/internals/StudioRequestCache.ts`                           |   116 | SWR-style cache for async adapter results                                                                   |

@@ -61,6 +61,14 @@ import { theme } from './theme';
 import { createAdapter } from './simulatedServer';
 import { type SupportedLocale, LOCALE_BUNDLES } from './locales';
 import { AppLocaleProvider } from './locales/AppLocaleContext';
+import {
+  EMPLOYEES_SOURCE,
+  EMPLOYEES_SOURCE_ID,
+  createEmployeesAdapter,
+} from './connectors/employeesSource';
+
+const EMPLOYEES_SERVER_URL =
+  (import.meta.env.VITE_EMPLOYEES_SERVER_URL as string | undefined) ?? 'http://localhost:3002';
 
 function slugifyPageTitle(title: string) {
   return title
@@ -287,8 +295,8 @@ export default function App() {
   // Phase 1: render the shell immediately with the static demo data so FCP
   // is not blocked by data generation.
   const baseInitialState = React.useMemo<Partial<StudioState>>(() => {
-    const baseDataSources =
-      (dataset === 'ag-studio' && osData
+    const baseDataSources = {
+      ...(dataset === 'ag-studio' && osData
         ? {
             [osData.storesSource.id]: osData.storesSource,
             [osData.productsSource.id]: osData.productsSource,
@@ -297,7 +305,9 @@ export default function App() {
             [osData.orderItemsSource.id]: osData.orderItemsSource,
             [osData.shipmentsSource.id]: osData.shipmentsSource,
           }
-        : INITIAL_STATE.dataSources) ?? {};
+        : INITIAL_STATE.dataSources),
+      [EMPLOYEES_SOURCE_ID]: EMPLOYEES_SOURCE,
+    };
     const baseConfig = dataset === 'ag-studio' && osData ? OS_INITIAL_STATE : INITIAL_STATE;
 
     // Restore from localStorage if available, merging with the live data sources.
@@ -467,6 +477,7 @@ export default function App() {
           [dealsSource.id]: dealsSource,
           [activitiesSource.id]: activitiesSource,
           [dealTransitionsSource.id]: dealTransitionsSource,
+          [EMPLOYEES_SOURCE_ID]: EMPLOYEES_SOURCE,
         },
       };
       React.startTransition(() => {
@@ -680,6 +691,10 @@ export default function App() {
     });
 
     for (const source of Object.values(state.dataSources)) {
+      // Employees are served directly from the external server-side-data server.
+      if (source.id === EMPLOYEES_SOURCE_ID) {
+        continue;
+      }
       const adapter = source.id.startsWith('source-crm-') ? crmAdapter : salesAdapter;
       studioRef.current?.setDataSourceAdapter(source.id, adapter);
     }
@@ -687,6 +702,15 @@ export default function App() {
     console.info(`[x-studio] Server mode enabled — sales → ${salesEndpoint}, CRM → ${crmEndpoint}`);
     // Re-run after Studio remounts (studioKey changes when generated data arrives).
   }, [dataMode, serverEndpoint, studioKey]);
+
+  // Wire the employees connector unconditionally — it always talks directly to
+  // the server-side-data server regardless of the active data mode.
+  React.useEffect(() => {
+    studioRef.current?.setDataSourceAdapter(
+      EMPLOYEES_SOURCE_ID,
+      createEmployeesAdapter(EMPLOYEES_SERVER_URL),
+    );
+  }, [studioKey]);
 
   const localSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 

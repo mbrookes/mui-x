@@ -1885,6 +1885,95 @@ importers:
         version: 6.1.3
     publishDirectory: build
 
+  packages/x-studio:
+    dependencies:
+      '@atlaskit/pragmatic-drag-and-drop':
+        specifier: 'catalog:'
+        version: 1.8.1
+      '@atlaskit/pragmatic-drag-and-drop-auto-scroll':
+        specifier: ^2.1.5
+        version: 2.1.5
+      '@babel/runtime':
+        specifier: 'catalog:'
+        version: 7.29.2
+      '@base-ui/react':
+        specifier: 'catalog:'
+        version: 1.5.0(@date-fns/tz@1.5.0)(@types/react@19.2.15)(date-fns@4.3.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@emotion/react':
+        specifier: ^11.9.0
+        version: 11.14.0(@types/react@19.2.15)(react@19.2.6)
+      '@emotion/styled':
+        specifier: ^11.8.1
+        version: 11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
+      '@mui/x-charts':
+        specifier: workspace:*
+        version: link:../x-charts/build
+      '@mui/x-charts-premium':
+        specifier: workspace:*
+        version: link:../x-charts-premium/build
+      '@mui/x-charts-pro':
+        specifier: workspace:*
+        version: link:../x-charts-pro/build
+      '@mui/x-charts-vendor':
+        specifier: workspace:^
+        version: link:../x-charts-vendor/build
+      '@mui/x-chat':
+        specifier: workspace:*
+        version: link:../x-chat/build
+      '@mui/x-data-grid':
+        specifier: workspace:*
+        version: link:../x-data-grid/build
+      '@mui/x-data-grid-premium':
+        specifier: workspace:*
+        version: link:../x-data-grid-premium/build
+      '@mui/x-data-grid-pro':
+        specifier: workspace:*
+        version: link:../x-data-grid-pro/build
+      '@mui/x-date-pickers':
+        specifier: workspace:*
+        version: link:../x-date-pickers/build
+      '@mui/x-date-pickers-pro':
+        specifier: workspace:*
+        version: link:../x-date-pickers-pro/build
+      '@mui/x-internals':
+        specifier: workspace:*
+        version: link:../x-internals/build
+      dayjs:
+        specifier: 'catalog:'
+        version: 1.11.20
+      reselect:
+        specifier: 'catalog:'
+        version: 5.2.0
+      topojson-client:
+        specifier: ^3.1.0
+        version: 3.1.0
+      us-atlas:
+        specifier: ^3.0.1
+        version: 3.0.1
+      world-atlas:
+        specifier: ^2.0.2
+        version: 2.0.2
+    devDependencies:
+      '@mui/icons-material':
+        specifier: ^9.0.0
+        version: 9.0.1(@mui/material@9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)
+      '@mui/material':
+        specifier: ^9.0.0
+        version: 9.0.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react@19.2.6))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@types/topojson-client':
+        specifier: ^3.1.0
+        version: 3.1.5
+      react:
+        specifier: 'catalog:'
+        version: 19.2.6
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.2.6(react@19.2.6)
+      rimraf:
+        specifier: 'catalog:'
+        version: 6.1.3
+    publishDirectory: build
+
   packages/x-telemetry:
     dependencies:
       '@babel/runtime':
@@ -15638,9 +15727,9 @@ snapshots:
       obug: 2.1.1
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@24.5.2)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(jsdom@29.1.1)(vite@8.0.14(@types/node@24.5.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.43.1)(tsx@4.22.3)(yaml@2.8.1))
+      vitest: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(jsdom@29.1.1)(vite@8.0.14(@types/node@22.19.3)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.43.1)(tsx@4.22.3)(yaml@2.8.1))
     optionalDependencies:
-      '@vitest/browser': 4.1.7(vite@8.0.14(@types/node@24.5.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.43.1)(tsx@4.22.3)(yaml@2.8.1))(vitest@4.1.7)
+      '@vitest/browser': 4.1.7(vite@8.0.14(@types/node@22.19.3)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.43.1)(tsx@4.22.3)(yaml@2.8.1))(vitest@4.1.7)
 
   '@vitest/eslint-plugin@1.6.14(@typescript-eslint/eslint-plugin@8.58.0(@typescript-eslint/parser@8.59.4(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)(vitest@4.1.7)':
     dependencies:

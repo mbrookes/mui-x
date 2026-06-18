@@ -833,7 +833,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
     expect(result.results[0].rowCount).toBe(2);
   });
 
-  it('populates tier cache for aggregation queries', async () => {
+  it('does NOT populate tier cache for aggregation queries (bypassed to avoid stale entries)', async () => {
     const tierCache = new MapTierCacheProvider();
     const body: BatchQueryRequest = {
       pageId: 'p1',
@@ -854,8 +854,8 @@ describe('handleBatchQuery — aggregation push-down', () => {
       tierCacheTtlMs: 60_000,
     });
 
-    expect(tierCache.size).toBe(1);
-    const entry = await tierCache.get(generateCacheKey(ACME_CLAIMS, body.widgets[0]));
-    expect(entry?.tier).toBe('db');
+    // Aggregation queries skip the tier cache to prevent stale 'client' entries
+    // from a pre-fix run from shadowing the forced-db-tier path.
+    expect(tierCache.size).toBe(0);
   });
 });

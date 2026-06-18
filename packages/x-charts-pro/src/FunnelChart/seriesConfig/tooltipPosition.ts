@@ -2,7 +2,7 @@ import { findMinMax, type TooltipItemPositionGetter } from '@mui/x-charts/intern
 import { createPositionGetter } from '../coordinateMapper';
 
 const tooltipItemPositionGetter: TooltipItemPositionGetter<'funnel'> = (params) => {
-  const { series, identifier, axesConfig, placement } = params;
+  const { series, identifier, axesConfig, drawingArea, seriesLayout, placement } = params;
 
   if (!identifier || identifier.dataIndex === undefined) {
     return null;
@@ -18,34 +18,54 @@ const tooltipItemPositionGetter: TooltipItemPositionGetter<'funnel'> = (params) 
   }
 
   const isHorizontal = itemSeries.layout === 'horizontal';
-  const baseScaleConfig = isHorizontal ? axesConfig.x : axesConfig.y;
+  const { dataIndex } = identifier;
+  const N = itemSeries.data.length;
+  const gap = seriesLayout.funnel?.[identifier.seriesId]?.gap ?? 0;
 
-  // FIXME gap should be obtained from the store.
-  // Maybe moving it to the series would be a good idea similar to what we do with bar charts and their stackingGroups
-  const gap = 0;
+  // Compute category-direction (band axis) positions directly from drawingArea + gap
+  // because the cartesian scale used in axesConfig does not account for funnel gap.
+  const rangeSpace = isHorizontal ? drawingArea.width : drawingArea.height;
+  const bandWidth = (rangeSpace - gap * (N - 1)) / N;
+  const step = bandWidth + gap;
 
-  const xPosition = createPositionGetter(
-    axesConfig.x.scale,
-    isHorizontal,
-    gap,
-    baseScaleConfig.data,
-  );
-  const yPosition = createPositionGetter(
-    axesConfig.y.scale,
-    !isHorizontal,
-    gap,
-    baseScaleConfig.data,
-  );
+  let categoryStart: number;
+  let categoryEnd: number;
 
-  const allY = itemSeries.dataPoints[identifier.dataIndex].map((v) =>
-    yPosition(v.y, identifier.dataIndex, v.stackOffset, v.useBandWidth),
-  );
-  const allX = itemSeries.dataPoints[identifier.dataIndex].map((v) =>
-    xPosition(v.x, identifier.dataIndex, v.stackOffset, v.useBandWidth),
-  );
+  if (isHorizontal) {
+    categoryStart = drawingArea.left + dataIndex * step;
+    categoryEnd = categoryStart + bandWidth;
+  } else {
+    categoryStart = drawingArea.top + dataIndex * step;
+    categoryEnd = categoryStart + bandWidth;
+  }
 
-  const [x0, x1] = findMinMax(allX);
-  const [y0, y1] = findMinMax(allY);
+  // For the value direction, axesConfig scale is correct (gap does not affect value axis range).
+  const valueScaleConfig = isHorizontal ? axesConfig.y : axesConfig.x;
+  const valuePositionGetter = createPositionGetter(valueScaleConfig.scale, false, 0, valueScaleConfig.data);
+
+  const allValues = itemSeries.dataPoints[dataIndex].map((v) => {
+    const valueCoord = isHorizontal ? v.y : v.x;
+    return valuePositionGetter(valueCoord, dataIndex, v.stackOffset, v.useBandWidth);
+  });
+
+  const [v0, v1] = findMinMax(allValues);
+
+  let x0: number;
+  let x1: number;
+  let y0: number;
+  let y1: number;
+
+  if (isHorizontal) {
+    x0 = categoryStart;
+    x1 = categoryEnd;
+    y0 = v0;
+    y1 = v1;
+  } else {
+    x0 = v0;
+    x1 = v1;
+    y0 = categoryStart;
+    y1 = categoryEnd;
+  }
 
   switch (placement) {
     case 'bottom':

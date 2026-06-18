@@ -152,6 +152,7 @@ export const useFunnelChartProps = (props: FunnelChartProps) => {
     series: series.map((s) => ({
       type: 'funnel' as const,
       layout: isHorizontal ? 'horizontal' : 'vertical',
+      gap: gap ?? 0,
       ...s,
     })),
     width,

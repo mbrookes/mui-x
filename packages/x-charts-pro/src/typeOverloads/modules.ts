@@ -59,7 +59,9 @@ declare module '@mui/x-charts/internals' {
         data: MakeRequired<FunnelValueType, 'color'>[];
       };
       series: DefaultizedFunnelSeriesType;
-      seriesLayout: {};
+      seriesLayout: {
+        gap: number;
+      };
       seriesProp: FunnelSeriesType;
       itemIdentifier: FunnelItemIdentifier;
       itemIdentifierWithData: FunnelItemIdentifier;

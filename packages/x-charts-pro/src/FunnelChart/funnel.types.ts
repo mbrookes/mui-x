@@ -100,6 +100,11 @@ export interface FunnelSeriesType
    * @default 'auto'
    */
   funnelDirection?: 'increasing' | 'decreasing' | 'auto';
+  /**
+   * The gap, in pixels, between funnel sections.
+   * @default 0
+   */
+  gap?: number;
 }
 
 /**
@@ -140,6 +145,7 @@ export interface DefaultizedFunnelSeriesType extends Omit<
   dataPoints: FunnelDataPoints[][];
   data: Readonly<MakeRequired<FunnelValueType, 'id' | 'color'>[]>;
   funnelDirection: 'increasing' | 'decreasing';
+  gap: number;
 }
 
 export type FunnelDataPoints = Record<'x' | 'y', number> & {

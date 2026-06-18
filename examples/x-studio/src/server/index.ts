@@ -21,6 +21,7 @@
  */
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { Readable } from 'node:stream';
 import knexLib from 'knex';
 import {
   extractSecurityClaims,
@@ -28,8 +29,8 @@ import {
   MapTierCacheProvider,
 } from '@mui/x-studio-data-middleware';
 import type { BatchQueryRequest } from '@mui/x-studio-data-middleware';
-import { handlePageSummary } from '@mui/x-studio-ai-middleware';
-import type { PageSummaryRequest } from '@mui/x-studio-ai-middleware';
+import { handlePageSummary, handleAIChat } from '@mui/x-studio-ai-middleware';
+import type { PageSummaryRequest, StudioAIRequest } from '@mui/x-studio-ai-middleware';
 import { seedDatabase } from './seedDatabase.js';
 import { log, error } from './logger.js';
 
@@ -57,6 +58,10 @@ log('Database ready.\n');
 // ── Tier cache (shared across requests, resets on process restart) ─────────────
 
 const tierCache = new MapTierCacheProvider();
+
+// ── Approval gate (shared across chat + approval routes) ───────────────────────
+
+const pendingApprovals = new Map<string, (approved: boolean, reason?: string) => void>();
 
 // ── HTTP server ────────────────────────────────────────────────────────────────
 
@@ -89,6 +94,76 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   if (req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
+  }
+
+  // ── POST /api/ai/chat — agentic AI chat (SSE stream) ─────────────────────
+  if (req.url === '/api/ai/chat') {
+    log(`→ POST /api/ai/chat`);
+    if (!LLM_API_KEY) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          error: 'OPENAI_API_KEY is not configured. Set it in your environment.',
+        }),
+      );
+      return;
+    }
+    try {
+      const rawBody = await readBody(req);
+      const body = JSON.parse(rawBody) as StudioAIRequest;
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      const sseStream = handleAIChat(body, {
+        endpoint: LLM_ENDPOINT,
+        apiKey: LLM_API_KEY,
+        approvalPending: pendingApprovals,
+        dataResolver: {
+          async resolve(query: string) {
+            const rows = await db.raw(query);
+            return { rows: rows as Record<string, unknown>[] };
+          },
+        },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Readable.fromWeb(sseStream as any).pipe(res);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal server error';
+      error(`← 500 /api/ai/chat ${message}`);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: message }));
+      }
+    }
+    return;
+  }
+
+  // ── POST /api/ai/approval — resolve a pending tool-approval gate ───────────
+  if (req.url === '/api/ai/approval') {
+    log(`→ POST /api/ai/approval`);
+    try {
+      const rawBody = await readBody(req);
+      const { id, approved, reason } = JSON.parse(rawBody) as {
+        id: string;
+        approved: boolean;
+        reason?: string;
+      };
+      const resolve = pendingApprovals.get(id);
+      if (resolve) {
+        resolve(approved, reason);
+        pendingApprovals.delete(id);
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal server error';
+      error(`← 500 /api/ai/approval ${message}`);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: message }));
+    }
     return;
   }
 

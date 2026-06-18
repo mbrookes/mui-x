@@ -9,6 +9,7 @@ import { makeCrmDataRouter } from './routes/crmData.js';
 import { makeAIRouter } from './routes/ai.js';
 import { makeDevTokenRouter } from './routes/devToken.js';
 import { makeMcpRouter } from './routes/mcp.js';
+import { makeDashboardStateRouter } from './routes/dashboardState.js';
 import { error } from './logger.js';
 
 export function buildApp(salesDb: Knex, crmDb: Knex, config: Config): express.Application {
@@ -47,6 +48,7 @@ export function buildApp(salesDb: Knex, crmDb: Knex, config: Config): express.Ap
   app.use('/api/ai', makeAIRouter(salesDb, crmDb, config));
   app.use('/api/dev-token', makeDevTokenRouter(config));
   app.use('/api/mcp', makeMcpRouter(salesDb, crmDb, config));
+  app.use('/api/dashboard-state', makeDashboardStateRouter());
 
   // Global error handler
   app.use(

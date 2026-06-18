@@ -22,7 +22,7 @@ AI Insights require the same `aiConfig` setup as the AI Assistant. See the [Setu
 
 ## Widget insights
 
-When `aiConfig` is configured, chart, grid, pivot, and map widget cards show an **AI Insight** button in the overflow menu (⋮). Clicking it opens an insight panel inline within the card.
+When `aiConfig` is configured, chart, grid, pivot, and map widget cards show an **AI Insight** button in the overflow menu (⋮). Clicking it opens the AI chat panel and auto-submits the insight request — the response appears as a chat message so you can ask follow-up questions in the same thread.
 
 :::info
 The AI Insight button is not shown on **filter**, **text**, or **KPI** widgets, as these do not contain data suitable for the insight types available.
@@ -48,7 +48,7 @@ The overflow menu exposes three items:
 - **Analyze** — `type: 'analysis'`
 - **Forecast** — `type: 'forecast'`
 
-Selecting a type triggers a new request. The panel can be closed by clicking **✕**, which also aborts any in-progress request.
+Selecting a type opens the chat panel with a pre-filled message and submits it automatically. The request can be aborted by clicking the stop button in the chat panel.
 
 ## Page summary via chat
 
@@ -99,19 +99,3 @@ console.log(summary.text);
 The insight request uses the same `aiConfig.endpoint`, `aiConfig.model`, and `aiConfig.headers` settings as the chat assistant. No additional configuration is required.
 
 To limit which insight types are available, you can restrict the UI by providing a custom `StudioWidgetCardActionsOverlay` through the `slots` prop on the `Studio` component.
-
-### `StudioInsightPanel` sx prop
-
-When using `StudioInsightPanel` standalone in a composed layout, use the `sx` prop to override its default absolute positioning:
-
-```tsx
-<StudioInsightPanel
-  insight={insight}
-  loading={loading}
-  error={error}
-  activeType={type}
-  onClose={handleClose}
-  onRegenerate={handleRegenerate}
-  sx={{ position: 'relative', bottom: 'auto', left: 'auto', right: 'auto' }}
-/>
-```

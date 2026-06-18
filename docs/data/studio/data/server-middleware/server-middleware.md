@@ -38,10 +38,11 @@ POST /api/studio-data
   │    ├── schema allowlist check (all tables validated upfront)
   │    └── per widget (in parallel):
   │         ├── server LRU cache lookup  (HMAC-scoped key, excludes widgetId)
-  │         ├── COUNT(*) pre-flight      (~0.1–1 ms on indexed tables)
+  │         ├── COUNT(*) pre-flight      (~0.1–1 ms; skipped for aggregation queries)
   │         │      ≤ 10 k  → client tier  (raw rows, client filters in-browser)
   │         │      ≤ 100 k → server tier  (raw rows, cached for reuse)
   │         │      > 100 k → db tier      (GROUP BY push-down, not cached)
+  │         │   queries with `aggregations` → db tier always (no preflight)
   │         └── executeForTier()          Knex parameterized query
   ▼
 BatchQueryResponse  { pageId, results: [{ id, rows, tier, rowCount }] }
@@ -288,6 +289,29 @@ GROUP BY region
 ```
 
 `createBatchingAdapter` maps Studio widget `aggregations` descriptors to this naming convention automatically when preparing the batch request.
+
+### HAVING filters
+
+Use `having` on a `BatchWidgetDescriptor` to filter on aggregated results after the `GROUP BY`. Each predicate references an aggregation alias from the `aggregations` array — never a raw column name (the middleware validates this before executing).
+
+```ts
+{
+  table: 'orders',
+  columns: ['region'],
+  aggregations: [
+    { column: 'total_amount', func: 'sum', alias: 'revenue' },
+    { column: 'id', func: 'count', alias: 'order_count' },
+  ],
+  having: [
+    { alias: 'revenue', operator: 'gt', value: 10000 },
+  ],
+}
+// → SELECT region, SUM(total_amount) AS revenue, COUNT(id) AS order_count
+//   FROM orders WHERE tenant_id = ?
+//   GROUP BY region HAVING revenue > 10000
+```
+
+`HavingPredicate` supports the operators `eq`, `gt`, `lt`, `gte`, and `lte`. Only numeric comparisons are allowed.
 
 ## Caching
 

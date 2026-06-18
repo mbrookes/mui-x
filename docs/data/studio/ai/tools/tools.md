@@ -1,11 +1,11 @@
 ---
 title: Studio - AI tools
-description: Studio exposes seventeen AI tools that the language model can call to build and configure dashboards. Learn how to restrict tools, add skills, and handle tool errors.
+description: Studio exposes eighteen AI tools that the language model can call to build and configure dashboards. Learn how to restrict tools, add skills, and handle tool errors.
 ---
 
 # Studio - AI tools
 
-<p class="description">Studio exposes seventeen AI tools that the language model can call to build and configure dashboards. Learn how to restrict tools, add skills, and handle tool errors.</p>
+<p class="description">Studio exposes eighteen AI tools that the language model can call to build and configure dashboards. Learn how to restrict tools, add skills, and handle tool errors.</p>
 
 {{"component": "@mui/internal-core-docs/ComponentLinkHeader", "design": false}}
 
@@ -23,6 +23,7 @@ prompts, and Studio executes them to mutate the dashboard state.
 | Tool                  | Action                                                   |
 | :-------------------- | :------------------------------------------------------- |
 | `set_dashboard_title` | Change the top-level dashboard title                     |
+| `list_pages`          | Return all page IDs and titles in the current dashboard  |
 | `add_page`            | Add a new page to the dashboard                          |
 | `rename_page`         | Rename an existing page                                  |
 | `remove_page`         | Remove a page from the dashboard (requires confirmation) |
@@ -30,14 +31,14 @@ prompts, and Studio executes them to mutate the dashboard state.
 
 ### Widget tools
 
-| Tool                  | Action                                                                          |
-| :-------------------- | :------------------------------------------------------------------------------ |
-| `add_widget`          | Add a new widget of a specified type to the active page                         |
-| `update_widget`       | Update an existing widget's configuration by ID                                 |
-| `remove_widget`       | Remove a widget from the active page (requires confirmation)                    |
-| `set_widget_layout`   | Rearrange widgets by specifying row groupings                                   |
-| `set_widget_width`    | Set the column span of a widget (3–12 columns)                                  |
-| `set_widget_forecast` | Enable or disable a linear trend/forecast overlay on a `line` or `area` chart   |
+| Tool                  | Action                                                                        |
+| :-------------------- | :---------------------------------------------------------------------------- |
+| `add_widget`          | Add a new widget of a specified type to the active page                       |
+| `update_widget`       | Update an existing widget's configuration by ID                               |
+| `remove_widget`       | Remove a widget from the active page (requires confirmation)                  |
+| `set_widget_layout`   | Rearrange widgets by specifying row groupings                                 |
+| `set_widget_width`    | Set the column span of a widget (3–12 columns)                                |
+| `set_widget_forecast` | Enable or disable a linear trend/forecast overlay on a `line` or `area` chart |
 
 ### Filter tools
 

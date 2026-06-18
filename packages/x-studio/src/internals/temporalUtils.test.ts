@@ -6,6 +6,7 @@ import {
   getTemporalAxisData,
   normalizeDataSourceRows,
   normalizeToDate,
+  sortLabels,
   truncateToGranularity,
 } from './temporalUtils';
 import type { StudioDataSource } from '../models';
@@ -342,5 +343,56 @@ describe('normalizeDataSourceRows — fieldDistinctValues', () => {
     const result = normalizeDataSourceRows(source);
     expect(result.rows![0].date).toBe('2024-01-15');
     expect(result.fieldDistinctValues?.region).toEqual(['EU', 'US']);
+  });
+});
+
+// ─── sortLabels ───────────────────────────────────────────────────────────────
+
+describe('sortLabels', () => {
+  it('returns an empty array unchanged', () => {
+    expect(sortLabels([])).toEqual([]);
+  });
+
+  it('sorts numeric labels numerically', () => {
+    expect(sortLabels([10, 2, 1, 20])).toEqual([1, 2, 10, 20]);
+  });
+
+  it('sorts date strings chronologically', () => {
+    expect(sortLabels(['2024-03-01', '2024-01-01', '2024-02-01'])).toEqual([
+      '2024-01-01',
+      '2024-02-01',
+      '2024-03-01',
+    ]);
+  });
+
+  it('sorts numeric strings numerically, not alphabetically', () => {
+    expect(sortLabels(['20', '1', '10', '2'])).toEqual(['1', '2', '10', '20']);
+  });
+
+  it('sorts decimal numeric strings numerically', () => {
+    expect(sortLabels(['1.5', '0.5', '10.0', '2.5'])).toEqual(['0.5', '1.5', '2.5', '10.0']);
+  });
+
+  it('falls back to locale sort for mixed alpha/numeric strings', () => {
+    const result = sortLabels(['banana', 'apple', 'cherry']);
+    expect(result).toEqual(['apple', 'banana', 'cherry']);
+  });
+
+  it('does not treat whitespace-only strings as numeric', () => {
+    // ' ' parses as NaN via Number(), so should fall back to locale sort
+    const result = sortLabels([' ', 'b', 'a']);
+    expect(result).toEqual([' ', 'a', 'b']);
+  });
+
+  it('does not treat empty string as numeric', () => {
+    // '' would pass Number('') === 0, but empty string is excluded by the s !== '' check
+    const result = sortLabels(['b', '', 'a']);
+    expect(result).toEqual(['', 'a', 'b']);
+  });
+
+  it('numeric strings take priority over date heuristic when no value parses as a date', () => {
+    // These are numeric strings that also happen to be 4+ chars (so date check runs first),
+    // but Date.parse('2000') is a valid date — verify year-only strings still sort correctly.
+    expect(sortLabels(['2002', '2000', '2001'])).toEqual(['2000', '2001', '2002']);
   });
 });

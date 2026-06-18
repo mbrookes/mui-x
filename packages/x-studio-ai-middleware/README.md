@@ -341,6 +341,18 @@ router.post('/', async (req, res) => {
 
 Each MCP session gets its own isolated `StudioStateBox`. Mutations made by tool calls persist for the lifetime of the session.
 
+The `queryDataSource` callback receives `params.offset` (default `0`) and `params.limit` for pagination. Pass both through to your query to support multi-page data retrieval:
+
+```ts
+queryDataSource: async (params) => {
+  const rows = await db(params.tableName)
+    .select(params.columns ?? ['*'])
+    .limit(params.limit ?? 1000)
+    .offset(params.offset ?? 0);
+  return { rows, rowCount: rows.length };
+},
+```
+
 ### `StudioMcpOptions`
 
 | Option                 | Type                                            | Default                    | Description                                                                                                                              |
@@ -357,9 +369,16 @@ Each MCP session gets its own isolated `StudioStateBox`. Mutations made by tool 
 
 All `STUDIO_AI_TOOLS` except `execute_query` (raw SQL — opt in explicitly via `allowedTools`).
 
-`summarise_page` is registered and synthesises a page summary by querying each widget's data source when `data` is configured; it returns a descriptive error when `data` is not provided.
+`summarise_page` synthesises a page summary by querying each widget's data source when `data` is configured; it returns a descriptive error when `data` is not provided.
 
-When `data.queryDataSource` is provided, the `query_data_source` tool is also registered.
+When `data.queryDataSource` is provided, the following data-analysis tools are also registered:
+
+| Tool                   | Description                                                           |
+| :--------------------- | :-------------------------------------------------------------------- |
+| `query_data_source`    | Run a structured query against a data source and return results       |
+| `describe_data_source` | Return field definitions, row count, sample rows, and per-field stats |
+| `get_field_values`     | Return distinct values and counts for a field                         |
+| `compute_field_stats`  | Return full-table min/max/avg/sum/count for numeric fields            |
 
 ### Resources
 
@@ -375,9 +394,9 @@ All resources support `resources/subscribe`. Subscribe to `studio://dashboard/st
 
 ### Prompts
 
-| Name                         | Description                                          |
-| :--------------------------- | :--------------------------------------------------- |
-| `query_data_source_examples` | Auto-generated query templates for every data source |
+| Name                         | Description                                                                                                                          |
+| :--------------------------- | :----------------------------------------------------------------------------------------------------------------------------------- |
+| `query_data_source_examples` | Auto-generated query templates for every configured data source. Pass an optional `sourceId` argument to scope output to one source. |
 
 ### URI autocomplete
 

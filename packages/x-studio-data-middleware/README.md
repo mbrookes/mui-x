@@ -153,6 +153,29 @@ Use `aggregations` on a `BatchWidgetDescriptor` for DB push-down queries instead
 }
 ```
 
+### HAVING filters
+
+Use `having` on a `BatchWidgetDescriptor` to filter aggregated results after `GROUP BY`. Each entry references an aggregation alias — never a raw column name (validated by the middleware before execution):
+
+```ts
+{
+  table: 'orders',
+  columns: ['region'],
+  aggregations: [
+    { column: 'total_amount', func: 'sum', alias: 'revenue' },
+    { column: 'id', func: 'count', alias: 'order_count' },
+  ],
+  having: [
+    { alias: 'revenue', operator: 'gt', value: 10000 },
+  ],
+}
+// → SELECT region, SUM(total_amount) AS revenue, COUNT(id) AS order_count
+//   FROM orders WHERE tenant_id = ?
+//   GROUP BY region HAVING revenue > 10000
+```
+
+`HavingPredicate` supports `eq`, `gt`, `lt`, `gte`, and `lte`. Only numeric comparisons are allowed.
+
 ### Joins
 
 Multi-table queries are supported via `joins` on a `BatchWidgetDescriptor`. All joined table names must appear in `schemaAllowlist`:

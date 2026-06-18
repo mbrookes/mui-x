@@ -156,6 +156,11 @@ export interface StudioWidgetConfig {
    * Gantt / timeline chart: optional categorical field used to colour-code bars.
    */
   ganttColorField?: string;
+  // NOTE: funnelConversionBar, funnelExitStage, exitLabel, exitValue were
+  // removed in June 2026 when the custom funnel was replaced with
+  // @mui/x-charts-pro FunnelChart. The conversion-bar overlay mode was dropped
+  // by design (x-charts-pro renders its own funnel shape). No schema migration
+  // is needed — x-studio state is not published.
   /**
    * Funnel chart: explicit category order for funnel stages.
    * Stages are displayed in the given order (top to bottom); any stages not

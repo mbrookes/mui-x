@@ -205,10 +205,16 @@ async function processWidget(
     }
 
     // ── 2. Tier cache check — skip preflight on repeated cold misses ───────
+    // Aggregation queries bypass the tier cache entirely: they always run at
+    // 'db' tier (short-circuited in runPreflight), so there is nothing worth
+    // caching, and a stale 'client' entry from a pre-fix run would otherwise
+    // shadow the correct tier indefinitely.
+    const isAggregation = (descriptor.aggregations?.length ?? 0) > 0;
     let tier: 'client' | 'server' | 'db';
     let rowCount: number;
 
-    const cachedTier = tierCacheProvider ? await tierCacheProvider.get(cacheKey) : undefined;
+    const cachedTier =
+      !isAggregation && tierCacheProvider ? await tierCacheProvider.get(cacheKey) : undefined;
     if (cachedTier) {
       tier = cachedTier.tier;
       rowCount = cachedTier.rowCount;
@@ -218,8 +224,8 @@ async function processWidget(
       tier = preflight.tier;
       rowCount = preflight.rowCount;
 
-      // Store tier result for future cold misses within the tier TTL window.
-      if (tierCacheProvider) {
+      // Only cache tier for non-aggregation queries (aggregations are always db-tier).
+      if (!isAggregation && tierCacheProvider) {
         await tierCacheProvider.set(cacheKey, { tier, rowCount }, tierCacheTtlMs);
       }
     }

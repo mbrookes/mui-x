@@ -65,6 +65,7 @@ import {
   EMPLOYEES_SOURCE,
   EMPLOYEES_SOURCE_ID,
   createEmployeesAdapter,
+  prefetchEmployees,
 } from './connectors/employeesSource';
 
 const EMPLOYEES_SERVER_URL =
@@ -705,11 +706,18 @@ export default function App() {
 
   // Wire the employees connector unconditionally — it always talks directly to
   // the server-side-data server regardless of the active data mode.
+  // Also pre-fetch rows so the data drawer shows the correct count and preview,
+  // and so widgets have a synchronous fallback on cold cache (no empty flash).
   React.useEffect(() => {
     studioRef.current?.setDataSourceAdapter(
       EMPLOYEES_SOURCE_ID,
       createEmployeesAdapter(EMPLOYEES_SERVER_URL),
     );
+    prefetchEmployees(EMPLOYEES_SERVER_URL).then((rows) => {
+      if (rows.length > 0) {
+        studioRef.current?.setDataSourceRows(EMPLOYEES_SOURCE_ID, rows);
+      }
+    });
   }, [studioKey]);
 
   const localSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);

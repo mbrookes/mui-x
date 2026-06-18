@@ -331,7 +331,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const chartContainerRef = React.useRef<HTMLDivElement>(null);
   const chartExpandContainerRef = React.useRef<HTMLDivElement>(null);
   const pivotExportRef = React.useRef<(() => void) | null>(null);
-
+  const textAiRefreshRef = React.useRef<(() => void) | null>(null);
   // Detect when filter recomputation is in-flight (deferred rendering).
   // Only relevant for chart and grid widgets that go through useWidgetRows.
   // Detect when filter recomputation is in-flight (deferred rendering).
@@ -542,6 +542,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           overlayTopSx={overlayTopSx}
           moveToPageOptions={moveToPageOptions}
           onAiRequest={onAiRequest ? () => onAiRequest(widgetId) : undefined}
+          onAiRefresh={
+            widget.kind === 'text' && widget.config.textAiEnabled && (mode === 'edit' || hovered)
+              ? () => textAiRefreshRef.current?.()
+              : undefined
+          }
           onInsightRequest={supportsInsight && onInsightRequest ? handleInsightRequest : undefined}
           anomalyEnabled={anomalyEnabled}
           anomalyCount={anomalyAnnotations.length}
@@ -720,7 +725,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             ))}
           {widget.kind === 'text' &&
             (showContent ? (
-              <StudioTextWidget widget={widget} {...slotProps?.text} />
+              <StudioTextWidget
+                widget={widget}
+                aiRefreshRef={textAiRefreshRef}
+                {...slotProps?.text}
+              />
             ) : (
               <Skeleton variant="rectangular" height={60} sx={{ borderRadius: 1 }} />
             ))}

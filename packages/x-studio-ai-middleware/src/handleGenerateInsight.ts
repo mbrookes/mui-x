@@ -15,6 +15,8 @@ export interface GenerateInsightOptions {
   model?: string;
   /** Extra headers forwarded to the LLM endpoint */
   headers?: Record<string, string>;
+  /** Hard cap on output tokens. Omit to use the model's default (unlimited). */
+  maxTokens?: number;
 }
 
 /**

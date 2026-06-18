@@ -17,7 +17,7 @@ import {
 } from '../../internals/widgetUtils';
 import type { StudioWidgetKind } from '../../models';
 import { getBuiltInWidgetKindInfo } from './StudioComposeDrawerLabels';
-import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
+import { useStudioFeatures, useStudioUIConfig } from '../../internals/StudioUIConfigContext';
 import { DescribeWidgetSection } from './DescribeWidgetSection';
 import { WidgetTypeCard } from './WidgetTypeCard';
 import type { WidgetTypeEntry } from './WidgetTypeCard';
@@ -54,6 +54,7 @@ export function AddWidgetView() {
   const controller = useStudioController();
   const dataSources = useStudioSelector(selectDataSources);
   const features = useStudioFeatures();
+  const { aiConfig } = useStudioUIConfig();
   const localeText = useStudioLocaleText();
   const canvasScrollRef = React.use(CanvasScrollContext);
   const customWidgetMap = useCustomWidgetMap();

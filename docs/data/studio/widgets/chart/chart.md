@@ -27,7 +27,7 @@ It integrates with the MUI X Charts library for rendering and participates in t
 | Stacked area       | `area-stacked` |                                                                                                                                                                                                                                                                         |
 | 100 % stacked area | `area-100`     |                                                                                                                                                                                                                                                                         |
 | Mixed              | `mixed`        | Bar + line overlay on shared axes; requires 2+ measure fields; each `ySeries` entry can set `seriesType` to `'bar'` or `'line'`; optional `dualYAxis` adds an independent right Y axis                                                                                  |
-| Heatmap            | `heatmap`      | Uses `xField` for columns, `heatYField` for rows, and `yField` for color intensity; `heatColorScheme` supports `primary`, `success`, `warning`, and `error`                                                                                                            |
+| Heatmap            | `heatmap`      | Uses `xField` for columns, `heatYField` for rows, and `yField` for color intensity; `heatColorScheme` supports `primary`, `success`, `warning`, and `error`                                                                                                             |
 | Funnel             | `funnel`       | Uses `xField` for stage and `yField` for value; stages are sorted by value descending with drop-off and retention percentages. Set `funnelReachedField` (+ `funnelStageSequence`) for a monotonic cumulative "reached stage" funnel — see [Funnel modes](#funnel-modes) |
 | Gantt              | `gantt`        | Swimlane timeline using `ganttLabelField`, `ganttStartField`, `ganttEndField`, and optional `ganttColorField`; includes a date axis, grid lines, and tooltips                                                                                                           |
 | Sankey             | `sankey`       | Flow diagram using `xField` for source node, `sankeyTargetField` for target node, and `yField` for the link value (summed per source→target pair); `sankeyLinkColor` (`'source'` or `'target'`) and `sankeyShowValues` control link appearance                          |
@@ -78,10 +78,7 @@ A funnel chart has two counting modes:
   `funnelStageSequence` to the ordered stage labels. Each stage then counts rows whose depth
   is _at or beyond_ that stage, which is monotonically non-increasing by construction, so the
   funnel can never exceed 100%. The snapshot count is kept for a "currently in stage: N"
-  tooltip. Use `funnelExitStage` to mark a terminal exit (for example `Closed Lost`) that is
-  excluded from the sequential conversion math and rendered as a separate exit stat. Set
-  `funnelConversionBar: true` to render the same cumulative counts as a step-conversion bar
-  (one bar per stage transition) instead of the funnel trapezoids.
+  tooltip.
 
 ```ts
 const funnelConfig = {
@@ -96,7 +93,6 @@ const funnelConfig = {
     'Negotiation',
     'Closed Won',
   ],
-  funnelExitStage: 'Closed Lost', // terminal exit, shown as a side stat
 };
 ```
 
@@ -256,6 +252,48 @@ const dealsSource: StudioDataSource = {
 ```
 
 Values absent from `orderedValues` are appended at the end, sorted alphabetically among themselves. Setting `chartSortBy: 'value'` in the widget config still overrides `orderedValues` and sorts bars by their aggregated y-value.
+
+## Heatmap sort and legend
+
+### Axis sort controls
+
+Use `heatSortBy` and `heatSortDirection` to control how heatmap axis labels are ordered when no `orderedValues` is declared on the field:
+
+| Property            | Type                                | Default    | Description                                                                   |
+| :------------------ | :---------------------------------- | :--------- | :---------------------------------------------------------------------------- |
+| `heatSortBy`        | `'x-axis' \| 'y-axis' \| 'natural'` | `'x-axis'` | Which axis to sort. `'natural'` keeps insertion order on both axes.           |
+| `heatSortDirection` | `'asc' \| 'desc'`                   | `'asc'`    | Sort direction for the chosen axis. Reverses the sorted labels when `'desc'`. |
+
+```ts
+const heatmapConfig: StudioWidgetConfig = {
+  chartType: 'heatmap',
+  xField: 'month',
+  heatYField: 'region',
+  yField: 'revenue',
+  heatSortBy: 'x-axis',
+  heatSortDirection: 'asc',
+};
+```
+
+### Legend
+
+Use `heatLegendPosition` and `heatLegendAlign` to show a colour-scale legend on the heatmap:
+
+| Property             | Type                                                 | Default    | Description                                       |
+| :------------------- | :--------------------------------------------------- | :--------- | :------------------------------------------------ |
+| `heatLegendPosition` | `'bottom' \| 'top' \| 'left' \| 'right' \| 'hidden'` | `'hidden'` | Where to place the colour-scale legend.           |
+| `heatLegendAlign`    | `'start' \| 'center' \| 'end'`                       | `'center'` | Alignment of the legend within its position slot. |
+
+```ts
+const heatmapConfig: StudioWidgetConfig = {
+  chartType: 'heatmap',
+  xField: 'month',
+  heatYField: 'region',
+  yField: 'revenue',
+  heatLegendPosition: 'bottom',
+  heatLegendAlign: 'center',
+};
+```
 
 ## Cross-filter emission
 

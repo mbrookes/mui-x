@@ -49,6 +49,7 @@ import {
   type StudioStateBox,
   type StudioDataQueryParams,
 } from '@mui/x-studio-ai-middleware';
+import { log, error as logError } from '../logger.js';
 import {
   generateSalesData,
   generateCrmData,
@@ -221,6 +222,7 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
         data: {
           queryDataSource: makeQueryDataSource(claims),
         },
+        logger: { log, error: logError },
       });
 
       await mcpServer.connect(transport);

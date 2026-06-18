@@ -118,7 +118,7 @@ const SALES_SCHEMA_ALLOWLIST = [
   'shipment_items',
 ];
 
-const CRM_SCHEMA_ALLOWLIST = ['contacts', 'deals', 'activities'];
+const CRM_SCHEMA_ALLOWLIST = ['contacts', 'deals', 'activities', 'deal_stage_transitions'];
 
 // ── Session maps ──────────────────────────────────────────────────────────────
 // Keyed by the MCP session ID issued on initialization.

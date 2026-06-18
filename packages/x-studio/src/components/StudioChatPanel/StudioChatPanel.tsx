@@ -30,7 +30,6 @@ import FilterAltIcon from '@mui/icons-material/FilterAlt';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import LayersIcon from '@mui/icons-material/Layers';
 import NoteAltIcon from '@mui/icons-material/NoteAlt';
-import SearchIcon from '@mui/icons-material/Search';
 import StorageIcon from '@mui/icons-material/Storage';
 import TitleIcon from '@mui/icons-material/Title';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -48,6 +47,7 @@ import {
   useMessage,
   useMessageContext,
   createToolPartRenderer,
+  type ToolPartOwnerState,
 } from '@mui/x-chat/headless';
 
 import {
@@ -97,11 +97,52 @@ const STUDIO_TOOL_ICONS: Record<string, React.ComponentType> = {
   execute_query: StorageIcon,
   // Date / calendar tools
   get_current_date: CalendarTodayIcon,
-  // MCP / search tools
-  search: SearchIcon,
 };
 
+const STUDIO_TOOL_LABELS: Record<string, string> = {
+  // Dashboard-level tools
+  get_dashboard_state: 'Get dashboard state',
+  set_dashboard_title: 'Set dashboard title',
+  // Page tools
+  add_page: 'Add page',
+  rename_page: 'Rename page',
+  remove_page: 'Remove page',
+  set_active_page: 'Switch page',
+  // Widget tools
+  add_widget: 'Add widget',
+  update_widget: 'Update widget',
+  remove_widget: 'Remove widget',
+  set_widget_layout: 'Set widget layout',
+  set_widget_width: 'Set widget width',
+  set_widget_forecast: 'Set widget forecast',
+  // Filter tools
+  add_page_filter: 'Add page filter',
+  remove_page_filter: 'Remove page filter',
+  add_widget_filter: 'Add widget filter',
+  remove_widget_filter: 'Remove widget filter',
+  // Insight / utility tools
+  summarise_page: 'Summarise page',
+  apply_bulk_update: 'Apply bulk update',
+  rename_thread: 'Rename thread',
+  execute_query: 'Execute query',
+  // Date / calendar tools
+  get_current_date: 'Get current date',
+};
+
+function StudioToolTitle({
+  ownerState,
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & { ownerState?: ToolPartOwnerState }) {
+  const label =
+    ownerState?.toolName !== undefined
+      ? (STUDIO_TOOL_LABELS[ownerState.toolName] ?? children)
+      : children;
+  return <div {...props}>{label}</div>;
+}
+
 const studioDynamicToolRenderer = createToolPartRenderer({
+  slots: { title: StudioToolTitle },
   toolSlots: Object.fromEntries(
     Object.entries(STUDIO_TOOL_ICONS).map(([name, icon]) => [name, { icon }]),
   ),

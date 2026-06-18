@@ -1,0 +1,86 @@
+{
+  "name": "@mui/x-studio",
+  "version": "8.25.0",
+  "author": "MUI Team",
+  "description": "Embedded analytics studio primitives for MUI X.",
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/mui/mui-x/issues"
+  },
+  "homepage": "https://github.com/mui/mui-x/tree/master/packages/x-studio",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "directory": "build"
+  },
+  "keywords": [
+    "mui-x",
+    "dashboard",
+    "analytics"
+  ],
+  "scripts": {
+    "typescript": "tsc -p tsconfig.json",
+    "build": "code-infra build",
+    "prebuild": "rimraf build tsconfig.build.tsbuildinfo",
+    "bench": "tsx src/benchmarks/run.ts",
+    "bench:vitest": "vitest bench --config vitest.config.bench.mts --run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mui/mui-x.git",
+    "directory": "packages/ag-studio"
+  },
+  "dependencies": {
+    "@atlaskit/pragmatic-drag-and-drop": "catalog:",
+    "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^2.1.5",
+    "@babel/runtime": "catalog:",
+    "@base-ui/react": "catalog:",
+    "@mui/x-charts": "workspace:*",
+    "@mui/x-charts-premium": "workspace:*",
+    "@mui/x-charts-pro": "workspace:*",
+    "@mui/x-charts-vendor": "workspace:^",
+    "@mui/x-data-grid": "workspace:*",
+    "@mui/x-data-grid-premium": "workspace:*",
+    "@mui/x-data-grid-pro": "workspace:*",
+    "@mui/x-date-pickers": "workspace:*",
+    "@mui/x-date-pickers-pro": "workspace:*",
+    "@mui/x-internals": "workspace:*",
+    "dayjs": "catalog:",
+    "@mui/x-chat": "workspace:*",
+    "reselect": "catalog:",
+    "topojson-client": "^3.1.0",
+    "us-atlas": "^3.0.1",
+    "world-atlas": "^2.0.2"
+  },
+  "devDependencies": {
+    "@mui/icons-material": "^9.0.0",
+    "@mui/material": "^9.0.0",
+    "@types/topojson-client": "^3.1.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "rimraf": "catalog:"
+  },
+  "peerDependencies": {
+    "@emotion/react": "^11.9.0",
+    "@emotion/styled": "^11.8.1",
+    "@mui/icons-material": "^5.0.0 || ^6.0.0 || ^7.0.0",
+    "@mui/material": "^5.15.14 || ^6.0.0 || ^7.0.0",
+    "react": "^17.0.0 || ^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@emotion/react": {
+      "optional": true
+    },
+    "@emotion/styled": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./themeAugmentation": "./src/themeAugmentation/index.ts",
+    "./*": "./src/*/index.ts"
+  }
+}

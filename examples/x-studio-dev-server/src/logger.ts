@@ -27,21 +27,24 @@ function timestamp() {
 }
 
 export function log(...args: unknown[]) {
+  const ts = timestamp();
   const msg = args.map(String).join(' ');
-  console.log(...args);
-  write(`[${timestamp()}] INFO  ${msg}`);
+  console.log(`[${ts}]`, ...args);
+  write(`[${ts}] INFO  ${msg}`);
 }
 
 export function error(...args: unknown[]) {
+  const ts = timestamp();
   const msg = args.map(String).join(' ');
-  console.error(...args);
-  write(`[${timestamp()}] ERROR ${msg}`);
+  console.error(`[${ts}]`, ...args);
+  write(`[${ts}] ERROR ${msg}`);
 }
 
 export function warn(...args: unknown[]) {
+  const ts = timestamp();
   const msg = args.map(String).join(' ');
-  console.warn(...args);
-  write(`[${timestamp()}] WARN  ${msg}`);
+  console.warn(`[${ts}]`, ...args);
+  write(`[${ts}] WARN  ${msg}`);
 }
 
 init();

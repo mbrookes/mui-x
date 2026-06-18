@@ -176,15 +176,19 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
   // POST — tool calls from the MCP client (and session initialization)
   router.post('/', async (req: Request, res: Response): Promise<void> => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    const method = (req.body as { method?: string })?.method ?? '?';
+    const sid8 = sessionId ? sessionId.slice(0, 8) : null;
 
     // Existing session: route the request to its transport.
     if (sessionId && transports[sessionId]) {
+      log(`[mcp] → ${method} (session ${sid8}…)`);
       await transports[sessionId].handleRequest(req, res, req.body);
       return;
     }
 
     // New session: client must send an MCP initialize request (no session ID header).
     if (!sessionId && isInitializeRequest(req.body)) {
+      log(`[mcp] → initialize (new session)`);
       // Resolve claims once at session init; reused for all data queries in this session.
       let claims;
       try {
@@ -204,6 +208,7 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
         onsessioninitialized: (sid) => {
           transports[sid] = transport;
           stateBoxes[sid] = stateBox;
+          log(`[mcp] session ${sid.slice(0, 8)}… initialized`);
         },
       });
 
@@ -211,6 +216,7 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
       transport.onclose = () => {
         const sid = transport.sessionId;
         if (sid) {
+          log(`[mcp] session ${sid.slice(0, 8)}… closed`);
           delete transports[sid];
           delete stateBoxes[sid];
         }
@@ -230,7 +236,10 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
       return;
     }
 
-    // Malformed request.
+    // Malformed or stale-session request — log so we can diagnose reconnect failures.
+    logError(
+      `[mcp] 400 ${method} — ${sessionId ? `unknown session ${sid8}… (stale after server restart?)` : 'no session ID and not an initialize request'}`,
+    );
     res.status(400).json({
       jsonrpc: '2.0',
       error: {

@@ -174,7 +174,13 @@ export function useWidgetRows(
     }
     // Seed from cache synchronously on mount.
     const cached = descriptor ? studioRequestCache.get(descriptor.cacheKey) : undefined;
-    return cached ? cached.rows : [];
+    if (cached) {
+      return cached.rows;
+    }
+    // Fall back to source.rows as a display placeholder so the widget doesn't
+    // flash empty while the adapter re-fetches on a cold cache (e.g. after page
+    // navigation when source.rows was pre-populated by setDataSourceRows).
+    return (dataSource?.rows as Row[] | undefined) ?? [];
   });
   // react-doctor-disable-next-line react-doctor/rendering-usetransition-loading -- isLoading guards an async data fetch (adapter.getRows), not a state transition
   const [isLoading, setIsLoading] = React.useState(false);

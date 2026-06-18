@@ -1,10 +1,12 @@
 /**
  * x-studio example — standalone HTTP server
  *
- * Demonstrates the framework wiring pattern for @mui/x-studio-data-middleware.
+ * Demonstrates the framework wiring pattern for @mui/x-studio-data-middleware
+ * and @mui/x-studio-ai-middleware.
  * This server shows how to:
  *   1. Extract security claims from a JWT (using extractSecurityClaims)
  *   2. Handle a batch of widget queries with tier routing and caching
+ *   3. Handle an AI page summary request (POST /api/ai/summary)
  *
  * Running: pnpm server
  *
@@ -15,6 +17,7 @@
  *   - Replace the better-sqlite3 DB with your production database (Postgres, MySQL, etc.)
  *   - Configure Knex with your driver and pass it to handleBatchQuery()
  *   - Call extractSecurityClaims() with your real JWT secret
+ *   - Set OPENAI_API_KEY (or equivalent) for AI features
  */
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -25,8 +28,14 @@ import {
   MapTierCacheProvider,
 } from '@mui/x-studio-data-middleware';
 import type { BatchQueryRequest } from '@mui/x-studio-data-middleware';
+import { handlePageSummary } from '@mui/x-studio-ai-middleware';
+import type { PageSummaryRequest } from '@mui/x-studio-ai-middleware';
 import { seedDatabase } from './seedDatabase.js';
 import { log, error } from './logger.js';
+
+const LLM_ENDPOINT =
+  process.env.LLM_ENDPOINT ?? 'https://api.openai.com/v1/chat/completions';
+const LLM_API_KEY = process.env.OPENAI_API_KEY ?? '';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const DEMO_JWT_SECRET = process.env.JWT_SECRET ?? 'demo-secret-change-in-production';
@@ -77,7 +86,44 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     return;
   }
 
-  if (req.method !== 'POST' || req.url !== '/api/sales-data') {
+  if (req.method !== 'POST') {
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
+  }
+
+  // ── POST /api/ai/summary — AI page narrative ───────────────────────────────
+  if (req.url === '/api/ai/summary') {
+    log(`→ POST /api/ai/summary`);
+    if (!LLM_API_KEY) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          error: 'OPENAI_API_KEY is not configured. Set it in your environment.',
+        }),
+      );
+      return;
+    }
+    try {
+      const rawBody = await readBody(req);
+      const body = JSON.parse(rawBody) as PageSummaryRequest;
+      const markdown = await handlePageSummary(body, {
+        endpoint: LLM_ENDPOINT,
+        apiKey: LLM_API_KEY,
+      });
+      log(`← 200 /api/ai/summary`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ markdown }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal server error';
+      error(`← 500 /api/ai/summary ${message}`);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: message }));
+    }
+    return;
+  }
+
+  if (req.url !== '/api/sales-data') {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
     return;

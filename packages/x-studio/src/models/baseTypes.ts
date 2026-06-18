@@ -226,7 +226,6 @@ export interface StudioFeatureFlags {
    * @default true
    */
   map?: boolean;
-
   // ── Calculated fields ──────────────────────────────────────────────────────
 
   /**

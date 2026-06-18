@@ -639,6 +639,10 @@ export interface StudioLocaleText {
   textSetupSubtitleHelper: string;
   textSetupBodyLabel: string;
   textSetupBodyHelper: string;
+  /** @default 'AI mode' */
+  textSetupAiModeLabel: string;
+  /** @default 'Use your text as a prompt to generate AI content' */
+  textSetupAiModeHelper: string;
 
   // ── Page config panel ─────────────────────────────────────────────────────
   pageConfigPageSectionTitle: string;
@@ -1607,6 +1611,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   textSetupSubtitleHelper: 'Smaller text below the heading',
   textSetupBodyLabel: 'Body',
   textSetupBodyHelper: 'Main content of the widget; supports plain text',
+  textSetupAiModeLabel: 'AI mode',
+  textSetupAiModeHelper: 'Use your text as a prompt to generate AI content',
 
   // Page config panel
   pageConfigPageSectionTitle: 'Page',

@@ -92,6 +92,7 @@ function createDataResolver(salesDb: Knex, crmDb: Knex): StudioDataResolver {
  * POST /api/ai/title
  *
  * Accepts a chat message and returns a short title + description for the session.
+ *
  * POST /api/ai/widget
  *
  * Creates a widget from a natural-language description and available data source context.

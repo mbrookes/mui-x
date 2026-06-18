@@ -396,6 +396,23 @@ export interface StudioLocaleText {
   chartSetupMinRadiusLabel: string;
   chartSetupMaxRadiusLabel: string;
   chartSetupFunnelValueHelperText: string;
+  chartSetupFunnelLabelFormatLabel: string;
+  chartSetupFunnelLabelFormatValue: string;
+  chartSetupFunnelLabelFormatPercent: string;
+  chartSetupFunnelLabelFormatConversion: string;
+  chartSetupFunnelLabelPlacementLabel: string;
+  chartSetupFunnelLabelPlacementInside: string;
+  chartSetupFunnelLabelPlacementOutsideStart: string;
+  chartSetupFunnelLabelPlacementOutsideEnd: string;
+  chartSetupFunnelGapLabel: string;
+  chartSetupFunnelShapeLabel: string;
+  chartSetupFunnelShapeLinear: string;
+  chartSetupFunnelShapeBump: string;
+  chartSetupFunnelShapeStep: string;
+  chartSetupFunnelShapePyramid: string;
+  chartSetupFunnelStyleLabel: string;
+  chartSetupFunnelStyleFilled: string;
+  chartSetupFunnelStyleOutlined: string;
   chartSetupHeatmapRowAxisLabel: string;
   chartSetupHeatmapRowAxisHelperText: string;
   chartSetupHeatmapValueLabel: string;
@@ -1338,6 +1355,23 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupMaxRadiusLabel: 'Max radius',
   chartSetupFunnelValueHelperText:
     'Numeric field summed per stage \u2014 stages are sorted by value (largest first)',
+  chartSetupFunnelLabelFormatLabel: 'Label format',
+  chartSetupFunnelLabelFormatValue: 'Value',
+  chartSetupFunnelLabelFormatPercent: '% of total',
+  chartSetupFunnelLabelFormatConversion: 'Conversion rate',
+  chartSetupFunnelLabelPlacementLabel: 'Label position',
+  chartSetupFunnelLabelPlacementInside: 'Inside',
+  chartSetupFunnelLabelPlacementOutsideStart: 'Outside left',
+  chartSetupFunnelLabelPlacementOutsideEnd: 'Outside right',
+  chartSetupFunnelGapLabel: 'Section gap (px)',
+  chartSetupFunnelShapeLabel: 'Shape',
+  chartSetupFunnelShapeLinear: 'Linear',
+  chartSetupFunnelShapeBump: 'Curved (bump)',
+  chartSetupFunnelShapeStep: 'Step',
+  chartSetupFunnelShapePyramid: 'Pyramid',
+  chartSetupFunnelStyleLabel: 'Style',
+  chartSetupFunnelStyleFilled: 'Filled',
+  chartSetupFunnelStyleOutlined: 'Outlined',
   chartSetupHeatmapRowAxisLabel: 'Row axis field',
   chartSetupHeatmapRowAxisHelperText:
     'Field for the vertical (row) axis — any field type from the primary source, e.g. category, discount %, or hour of day',

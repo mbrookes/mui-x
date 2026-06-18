@@ -1497,4 +1497,103 @@ describe('aggregateHeatmap axis ordering', () => {
     // Alphabetical order would be ['1', '10', '2', '20']; numeric order is correct.
     expect(data.xLabels).toEqual(['1', '2', '10', '20']);
   });
+
+  it("sortBy='x-axis' sorts x labels and leaves y labels in insertion order", () => {
+    const data = aggregateHeatmap(
+      rows,
+      'stage',
+      'owner',
+      'days',
+      undefined,
+      'avg',
+      undefined,
+      undefined,
+      'x-axis',
+    );
+    expect(data.xLabels).toEqual(['Negotiation', 'Proposal', 'Prospecting']);
+    // y labels stay in insertion order (Bob first, then Amy)
+    expect(data.yLabels).toEqual(['Bob', 'Amy']);
+  });
+
+  it("sortBy='y-axis' sorts y labels and leaves x labels in insertion order", () => {
+    const data = aggregateHeatmap(
+      rows,
+      'stage',
+      'owner',
+      'days',
+      undefined,
+      'avg',
+      undefined,
+      undefined,
+      'y-axis',
+    );
+    expect(data.yLabels).toEqual(['Amy', 'Bob']);
+    // x labels keep insertion order when sortBy='y-axis'
+    expect(data.xLabels).toEqual(['Negotiation', 'Prospecting', 'Proposal']);
+  });
+
+  it("sortBy='natural' keeps both axes in insertion order", () => {
+    const data = aggregateHeatmap(
+      rows,
+      'stage',
+      'owner',
+      'days',
+      undefined,
+      'avg',
+      undefined,
+      undefined,
+      'natural',
+    );
+    expect(data.xLabels).toEqual(['Negotiation', 'Prospecting', 'Proposal']);
+    expect(data.yLabels).toEqual(['Bob', 'Amy']);
+  });
+
+  it("sortDirection='desc' reverses x-axis sort", () => {
+    const data = aggregateHeatmap(
+      rows,
+      'stage',
+      'owner',
+      'days',
+      undefined,
+      'avg',
+      undefined,
+      undefined,
+      'x-axis',
+      'desc',
+    );
+    expect(data.xLabels).toEqual(['Prospecting', 'Proposal', 'Negotiation']);
+  });
+
+  it("sortDirection='desc' reverses y-axis sort", () => {
+    const data = aggregateHeatmap(
+      rows,
+      'stage',
+      'owner',
+      'days',
+      undefined,
+      'avg',
+      undefined,
+      undefined,
+      'y-axis',
+      'desc',
+    );
+    expect(data.yLabels).toEqual(['Bob', 'Amy']);
+  });
+
+  it('orderedValues take priority over sortBy', () => {
+    const data = aggregateHeatmap(
+      rows,
+      'stage',
+      'owner',
+      'days',
+      undefined,
+      'avg',
+      stageOrder,
+      undefined,
+      'x-axis',
+      'desc',
+    );
+    // xOrder wins; sortBy/sortDirection are ignored for x-axis
+    expect(data.xLabels).toEqual(['Prospecting', 'Proposal', 'Negotiation']);
+  });
 });

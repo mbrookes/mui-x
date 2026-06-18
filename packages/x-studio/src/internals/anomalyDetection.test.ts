@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canDetectAnomalies,
   detectAnomaliesIQR,
   detectAnomaliesZScore,
   detectChartDataAnomalies,
 } from './anomalyDetection';
+import type { StudioWidget } from '../models';
 
 // ── detectAnomaliesIQR ────────────────────────────────────────────────────────
 
@@ -190,5 +192,92 @@ describe('detectChartDataAnomalies', () => {
       expect(annotations).toHaveLength(1);
       expect(annotations[0].value).toBe('2024-W04');
     });
+  });
+});
+
+// ── canDetectAnomalies ────────────────────────────────────────────────────────
+
+function makeWidget(
+  overrides: Partial<StudioWidget> & { kind: StudioWidget['kind'] },
+): StudioWidget {
+  return {
+    id: 'w1',
+    title: 'Widget',
+    config: {},
+    ...overrides,
+  } as StudioWidget;
+}
+
+describe('canDetectAnomalies', () => {
+  it('returns false for non-chart widgets', () => {
+    expect(canDetectAnomalies(makeWidget({ kind: 'kpi', config: { xGroupBy: 'month' } }))).toBe(
+      false,
+    );
+    expect(canDetectAnomalies(makeWidget({ kind: 'grid', config: { xGroupBy: 'month' } }))).toBe(
+      false,
+    );
+    expect(canDetectAnomalies(makeWidget({ kind: 'pivot', config: { xGroupBy: 'month' } }))).toBe(
+      false,
+    );
+  });
+
+  it('returns false for a chart without xGroupBy', () => {
+    expect(canDetectAnomalies(makeWidget({ kind: 'chart', config: { chartType: 'bar' } }))).toBe(
+      false,
+    );
+  });
+
+  it('returns true for a bar chart with xGroupBy', () => {
+    expect(
+      canDetectAnomalies(
+        makeWidget({ kind: 'chart', config: { chartType: 'bar', xGroupBy: 'month' } }),
+      ),
+    ).toBe(true);
+  });
+
+  it('returns true for a line chart with xGroupBy', () => {
+    expect(
+      canDetectAnomalies(
+        makeWidget({ kind: 'chart', config: { chartType: 'line', xGroupBy: 'week' } }),
+      ),
+    ).toBe(true);
+  });
+
+  it('returns true for bar-stacked and bar-100 with xGroupBy', () => {
+    expect(
+      canDetectAnomalies(
+        makeWidget({ kind: 'chart', config: { chartType: 'bar-stacked', xGroupBy: 'month' } }),
+      ),
+    ).toBe(true);
+    expect(
+      canDetectAnomalies(
+        makeWidget({ kind: 'chart', config: { chartType: 'bar-100', xGroupBy: 'month' } }),
+      ),
+    ).toBe(true);
+  });
+
+  it('returns false for unsupported chart types', () => {
+    expect(
+      canDetectAnomalies(
+        makeWidget({ kind: 'chart', config: { chartType: 'scatter', xGroupBy: 'month' } }),
+      ),
+    ).toBe(false);
+    expect(
+      canDetectAnomalies(
+        makeWidget({ kind: 'chart', config: { chartType: 'area', xGroupBy: 'month' } }),
+      ),
+    ).toBe(false);
+    expect(
+      canDetectAnomalies(
+        makeWidget({ kind: 'chart', config: { chartType: 'area-stacked', xGroupBy: 'month' } }),
+      ),
+    ).toBe(false);
+  });
+
+  it('defaults to bar when chartType is undefined', () => {
+    // undefined chartType falls back to "bar" inside canDetectAnomalies
+    expect(canDetectAnomalies(makeWidget({ kind: 'chart', config: { xGroupBy: 'month' } }))).toBe(
+      true,
+    );
   });
 });

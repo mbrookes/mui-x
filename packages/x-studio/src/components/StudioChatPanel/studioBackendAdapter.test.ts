@@ -621,4 +621,87 @@ describe('createBackendChatAdapter: POST body', () => {
 
     vi.unstubAllGlobals();
   });
+
+  it('strips rows and adapter from dataSources before sending', async () => {
+    const sse = makeSseBody([{ type: 'finish', finishReason: 'stop' }]);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(ctrl) {
+          ctrl.enqueue(sse);
+          ctrl.close();
+        },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapterStub = { getRows: vi.fn() };
+    const stateWithData = createDefaultStudioState({
+      dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
+      widgets: {},
+      dataSources: {
+        src1: {
+          id: 'src1',
+          label: 'Sales',
+          fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+          rows: [{ amount: 100 }, { amount: 200 }],
+          adapter: adapterStub as never,
+        },
+        src2: {
+          id: 'src2',
+          label: 'Orders',
+          fields: [{ id: 'count', label: 'Count', type: 'number' }],
+          // no rows or adapter
+        },
+      },
+    });
+
+    const controller = {
+      getState: vi.fn(() => stateWithData),
+      setState: vi.fn(),
+      setDashboardTitle: vi.fn(),
+      addPage: vi.fn(),
+      removePage: vi.fn(),
+      renamePage: vi.fn(),
+      setActivePage: vi.fn(),
+      addWidget: vi.fn(),
+      removeWidget: vi.fn(),
+      updateWidget: vi.fn(),
+      updateWidgetConfig: vi.fn(),
+      moveWidgetToPage: vi.fn(),
+      duplicateWidget: vi.fn(),
+      addFilter: vi.fn(),
+      removeFilter: vi.fn(),
+      setWidgetLayout: vi.fn(),
+      setWidgetColSpanInRow: vi.fn(),
+      clearSelection: vi.fn(),
+      setDrawerOpen: vi.fn(),
+      selectWidget: vi.fn(),
+    } as unknown as typeof controller;
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, controller as never);
+    const stream = await adapter.sendMessage(makeSendInput([makeUserMessage('summarise')]));
+    await collectChunks(stream);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as {
+      dashboardState: { dataSources: Record<string, Record<string, unknown>> };
+    };
+
+    const src1 = body.dashboardState.dataSources.src1;
+    expect(src1).not.toHaveProperty('rows');
+    expect(src1).not.toHaveProperty('adapter');
+    expect(src1.id).toBe('src1');
+    expect(src1.label).toBe('Sales');
+    expect(src1.fields).toHaveLength(1);
+
+    // Source without rows/adapter should also be present and intact
+    const src2 = body.dashboardState.dataSources.src2;
+    expect(src2.id).toBe('src2');
+    expect(src2).not.toHaveProperty('rows');
+
+    vi.unstubAllGlobals();
+  });
 });

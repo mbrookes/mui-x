@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { styled, useTheme } from '@mui/material/styles';
 import { consumeSlots, type SeriesId } from '@mui/x-charts/internals';
+import { useItemHighlightState } from '@mui/x-charts/hooks';
 import clsx from 'clsx';
 import { useUtilityClasses, type FunnelClasses } from './funnelClasses';
 
@@ -53,10 +54,22 @@ const FunnelSectionLabel = consumeSlots<FunnelSectionLabelProps, SVGTextElement>
       props;
     const theme = useTheme();
 
+    const identifier = React.useMemo(
+      () => ({ type: 'funnel' as const, seriesId, dataIndex }),
+      [seriesId, dataIndex],
+    );
+
+    const highlightState = useItemHighlightState(identifier);
+    const isHighlighted = highlightState === 'highlighted';
+    const isFaded = highlightState === 'faded';
+    const isOutlined = variant === 'outlined';
+
     return (
       <FunnelSectionLabelText
         stroke="none"
         pointerEvents="none"
+        opacity={isFaded && !isOutlined ? 0.3 : 1}
+        filter={isHighlighted && !isOutlined ? 'brightness(120%)' : undefined}
         fontFamily={theme.typography.body2.fontFamily}
         fontSize={theme.typography.body2.fontSize}
         fontSizeAdjust={theme.typography.body2.fontSizeAdjust}

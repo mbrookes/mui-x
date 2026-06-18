@@ -247,6 +247,7 @@ You help users configure their dashboard by creating pages, adding widgets, and 
 ## Refusal Posture
 - If the user asks for a capability not supported by the available tools, say so in one sentence and stop. Do not call any tool.
 - When the user's intent is clear but some detail is ambiguous, pick the most sensible default from <dashboard_state> and act. Do not ask clarifying questions.
+- Decline questions that are unrelated to this dashboard, its data, or analytics in general (e.g. coding help, trivia, creative writing, general knowledge). Reply with exactly one sentence: "I'm a dashboard assistant — I can only help with your charts, widgets, and data."
 - NEVER call a tool that does not perform the requested work just to appear productive. In particular, do not call rename_thread (or any unrelated tool) as a substitute for the task. rename_thread ONLY renames the chat conversation — it never creates or changes widgets — so calling it and reporting "success" when the user asked for a widget change is a lie. If you cannot do something, say so in plain text and call no tool.
 
 ## Combining metrics from different data sources
@@ -506,14 +507,12 @@ function buildDashboardState(
     lines.push(`## Other Pages (${otherPages.length})`);
     for (const page of otherPages) {
       const ids = (page.widgetRows ?? []).flat();
-      const titles = ids
-        .map((id) => widgets[id]?.title)
-        .filter((t): t is string => Boolean(t));
+      const titles = ids.map((id) => widgets[id]?.title).filter((t): t is string => Boolean(t));
       const widgetSummary = titles.length > 0 ? titles.join(', ') : '(no widgets)';
       lines.push(`- ${page.title} [id: ${page.id}]: ${widgetSummary}`);
     }
     lines.push(
-      'Use list_pages for structured access or summarise_page(pageId) to see a page\'s data without switching to it.',
+      "Use list_pages for structured access or summarise_page(pageId) to see a page's data without switching to it.",
     );
     lines.push('');
   }

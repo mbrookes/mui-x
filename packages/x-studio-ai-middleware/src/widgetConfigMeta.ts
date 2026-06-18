@@ -58,6 +58,7 @@ const KIND_CONFIG_LINES: Record<BuiltinStudioWidgetKind, string[]> = {
   ],
   text: [
     'text: textContent (markdown string). Optional: textSubtitle, textBody, textTitleFontFamily, textTitleFontSize, textTitleColor, textTitleAlign (and equivalents for subtitle/body sections).',
+    '  textAiEnabled: true — treat textBody as a prompt for AI-generated content.',
   ],
   filter: ['filter: filterWidgetType (date-range|multi-select|toggle|slider), filterWidgetField;'],
   pivot: [

@@ -47,6 +47,7 @@
     "@mui/x-internals": "workspace:*",
     "dayjs": "catalog:",
     "@mui/x-chat": "workspace:*",
+    "markdown-to-jsx": "catalog:",
     "reselect": "catalog:",
     "topojson-client": "^3.1.0",
     "us-atlas": "^3.0.1",

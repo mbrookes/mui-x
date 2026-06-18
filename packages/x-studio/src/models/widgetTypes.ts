@@ -324,6 +324,8 @@ export interface StudioWidgetConfig {
   textSubtitle?: string;
   /** Body text (HTML string). Rendered below the subtitle. */
   textBody?: string;
+  /** When true, textBody is treated as a prompt sent to the AI to generate the widget content. */
+  textAiEnabled?: boolean;
   // Text formatting — undefined means "use the default" and is never persisted
   /** Font family for the title section. undefined = theme default. */
   textTitleFontFamily?: 'serif' | 'monospace';
@@ -451,6 +453,7 @@ export interface StudioWidgetConfig {
   /** Categorical / grouping fields (used by some custom widgets). */
   dimensions?: string[];
 
+  // AI Summary widget config
   // ── Custom widget configuration ────────────────────────────────────────────
 
   /**

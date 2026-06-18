@@ -496,6 +496,36 @@ const QUERY_DATA_SOURCE_SCHEMA = {
 // Core factory
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Human-readable display titles for MCP tools (shown in Claude Desktop's permission editor). */
+const TOOL_TITLES: Record<string, string> = {
+  get_dashboard_state: 'Get dashboard state',
+  set_dashboard_title: 'Set dashboard title',
+  add_page: 'Add page',
+  rename_page: 'Rename page',
+  remove_page: 'Remove page',
+  set_active_page: 'Switch page',
+  add_widget: 'Add widget',
+  update_widget: 'Update widget',
+  remove_widget: 'Remove widget',
+  set_widget_layout: 'Set widget layout',
+  set_widget_width: 'Set widget width',
+  set_widget_forecast: 'Set widget forecast',
+  add_page_filter: 'Add page filter',
+  remove_page_filter: 'Remove page filter',
+  add_widget_filter: 'Add widget filter',
+  remove_widget_filter: 'Remove widget filter',
+  summarise_page: 'Summarise page',
+  apply_bulk_update: 'Apply bulk update',
+  rename_thread: 'Rename thread',
+  execute_query: 'Execute query',
+  get_current_date: 'Get current date',
+  query_data_source: 'Query data source',
+  describe_data_source: 'Describe data source',
+  get_field_values: 'Get field values',
+  compute_field_stats: 'Compute field stats',
+  render_chart: 'Render chart',
+};
+
 /** MCP tool annotations for each tool name (both built-in and dynamically added tools). */
 const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
   // Read-only — never modifies state.
@@ -655,11 +685,13 @@ export function buildStudioMcpServer(
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const tools: Array<{
       name: string;
+      title?: string;
       description: string;
       inputSchema: Record<string, unknown>;
       annotations?: ToolAnnotations;
     }> = toolsToRegister.map((toolDef) => ({
       name: toolDef.function.name,
+      title: TOOL_TITLES[toolDef.function.name],
       description: toolDef.function.description,
       // STUDIO_AI_TOOLS parameters are standard JSON Schema objects — pass through directly.
       inputSchema: toolDef.function.parameters as Record<string, unknown>,
@@ -669,6 +701,7 @@ export function buildStudioMcpServer(
     if (data) {
       tools.push({
         name: 'query_data_source',
+        title: TOOL_TITLES.query_data_source,
         description:
           'Query a data source (database table) with structured filters, aggregations, and sorting. ' +
           'Use this to retrieve data rows, compute aggregates (totals, averages, counts by group), ' +
@@ -682,6 +715,7 @@ export function buildStudioMcpServer(
 
       tools.push({
         name: 'describe_data_source',
+        title: TOOL_TITLES.describe_data_source,
         description:
           'Returns the schema (field definitions), total row count, up to 10 sample rows, and basic ' +
           'per-field statistics for a data source. Call this first when you need to understand a ' +
@@ -701,6 +735,7 @@ export function buildStudioMcpServer(
 
       tools.push({
         name: 'get_field_values',
+        title: TOOL_TITLES.get_field_values,
         description:
           'Returns the distinct values and their occurrence counts for a specific field. ' +
           'Use this to understand categorical fields before filtering or grouping ' +
@@ -729,6 +764,7 @@ export function buildStudioMcpServer(
 
       tools.push({
         name: 'compute_field_stats',
+        title: TOOL_TITLES.compute_field_stats,
         description:
           'Computes accurate min, max, average, sum, and count for one or more numeric fields ' +
           'across the full dataset. More reliable than summarise_page for large tables because ' +
@@ -754,6 +790,7 @@ export function buildStudioMcpServer(
 
     tools.push({
       name: 'render_chart',
+      title: TOOL_TITLES.render_chart,
       description:
         'Render an arbitrary chart as a standalone SVG image. ' +
         'Useful for visualising query results, comparisons, or any data the model has available. ' +

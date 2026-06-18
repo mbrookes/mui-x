@@ -63,15 +63,15 @@ import {
   CRM_DEALS_SOURCE_ID,
   CRM_ACTIVITIES_SOURCE_ID,
   CRM_DEAL_TRANSITIONS_SOURCE_ID,
+  INITIAL_STATE,
 } from 'x-studio-shared';
 import type { Config } from '../config.js';
 import { resolveClaims, DEV_CLAIMS } from '../middleware/claims.js';
 
 // ── MCP session initial state ─────────────────────────────────────────────────
-// Pre-generate source schemas once at startup. Each MCP session starts with these
-// data sources registered so the AI can immediately discover and query them via
-// describe_data_source / query_data_source, without the user having to manually
-// connect anything. Rows are stripped — all data is queried live from the DB.
+// Use the full sales dashboard layout (pages, widgets, relationships,
+// expressionFields) from INITIAL_STATE, but replace data source rows with
+// nothing — all data is queried live from the DB via queryDataSource.
 
 const {
   customersSource,
@@ -88,6 +88,8 @@ function withoutRows<T extends { rows?: unknown[] }>({ rows: _rows, ...rest }: T
   return rest;
 }
 
+// Data sources without embedded rows — the schema (fields, labels, tableName) is
+// preserved so widgets can reference columns, but the row data comes from the DB.
 const MCP_INITIAL_DATA_SOURCES = {
   [CUSTOMERS_SOURCE_ID]: withoutRows(customersSource),
   [PRODUCTS_SOURCE_ID]: withoutRows(productsSource),
@@ -99,6 +101,12 @@ const MCP_INITIAL_DATA_SOURCES = {
   [CRM_DEALS_SOURCE_ID]: withoutRows(dealsSource),
   [CRM_ACTIVITIES_SOURCE_ID]: withoutRows(activitiesSource),
   [CRM_DEAL_TRANSITIONS_SOURCE_ID]: withoutRows(dealTransitionsSource),
+};
+
+// Full dashboard layout from the shared config, with live data sources.
+const MCP_INITIAL_STATE = {
+  ...INITIAL_STATE,
+  dataSources: MCP_INITIAL_DATA_SOURCES,
 };
 
 const SALES_SCHEMA_ALLOWLIST = [
@@ -200,7 +208,7 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
       }
 
       const stateBox: StudioStateBox = {
-        current: createDefaultStudioState({ dataSources: MCP_INITIAL_DATA_SOURCES }),
+        current: createDefaultStudioState(MCP_INITIAL_STATE),
       };
 
       const transport = new StreamableHTTPServerTransport({

@@ -15,10 +15,12 @@ import tooltipItemPositionGetter from './tooltipPosition';
 import keyboardFocusHandler from './keyboardFocusHandler';
 import descriptionGetter from './descriptionGetter';
 import seriesLayout from './seriesLayout';
+import getItemAtPosition from './getItemAtPosition';
 
 export const funnelSeriesConfig: ChartSeriesTypeConfig<'funnel'> = {
   seriesProcessor,
   seriesLayout,
+  getItemAtPosition,
   colorProcessor: getColor,
   legendGetter,
   tooltipGetter,

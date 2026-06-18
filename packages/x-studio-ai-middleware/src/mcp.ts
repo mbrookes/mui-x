@@ -256,6 +256,16 @@ export interface StudioMcpOptions {
    * ```
    */
   onStateChange?: (state: StudioState) => void | Promise<void>;
+  /**
+   * Optional logger for tool-call diagnostics.
+   * When provided, each invocation is logged with its tool name on entry,
+   * elapsed time on completion, and full error details on failure.
+   * In the dev server, pass the server's `log` / `error` functions here.
+   */
+  logger?: {
+    log: (...args: unknown[]) => void;
+    error: (...args: unknown[]) => void;
+  };
 }
 
 /**
@@ -289,6 +299,16 @@ const DEFAULT_EXCLUDED_TOOLS = new Set([
   // via MCP without explicit opt-in. Add it to allowedTools if you need it.
   'execute_query',
 ]);
+
+/** Race a promise against a timeout. Rejects with a descriptive error if the timeout fires first. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
+    ),
+  ]);
+}
 
 // ── Anomaly detection helpers (inlined — mcp.ts cannot import from @mui/x-studio) ─
 // Canonical implementations: anomalyDetection.ts + temporalUtils.ts in @mui/x-studio.
@@ -596,6 +616,7 @@ export function buildStudioMcpServer(
     allowedTools,
     data,
     onStateChange,
+    logger,
   } = options;
 
   const MAX_QUERY_ROWS = data?.maxQueryRows ?? 1000;
@@ -800,596 +821,661 @@ export function buildStudioMcpServer(
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name: toolName, arguments: args } = request.params;
+    const t0 = Date.now();
+    logger?.log(`[mcp] ${toolName}`);
 
-    // ── get_dashboard_state — returns full state JSON for MCP context ────
-    if (toolName === 'get_dashboard_state') {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({ output: stateBox.current }),
-          },
-        ],
-      };
-    }
-
-    // ── summarise_page — synthesised from live data when data option provided ─
-    if (toolName === 'summarise_page') {
-      if (!data) {
-        // No data access — fall through to executeToolOnState which returns
-        // a descriptive error explaining the client-side limitation.
-      } else {
-        const state = stateBox.current;
-        // Accept optional pageId arg; fall back to active page.
-        const requestedPageId = (args as { pageId?: string })?.pageId;
-        const resolvedPageId = requestedPageId ?? state.dashboard.activePageId;
-        const activePage = resolvedPageId ? state.pages[resolvedPageId] : null;
-
-        if (!activePage) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: requestedPageId
-                  ? `Page "${requestedPageId}" not found.`
-                  : 'No active page found.',
-              },
-            ],
-          };
-        }
-
-        const widgetIds = (activePage.widgetRows ?? []).flat();
-        const widgets = widgetIds.map((id) => state.widgets[id]).filter(Boolean);
-        type SectionItem = { text: string };
-        const sections: SectionItem[] = [];
-
-        await Promise.all(
-          widgets.map(async (widget) => {
-            const sourceId = widget.sourceId;
-            if (!sourceId) return;
-            const source = state.dataSources[sourceId];
-            if (!source?.tableName) return;
-
-            const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
-            const numericFields = visibleFields.filter((f) => f.type === 'number');
-
-            try {
-              const isTimeSeries =
-                widget.kind === 'chart' &&
-                Boolean(widget.config.xGroupBy) &&
-                ANOMALY_CHART_TYPES.has(widget.config.chartType ?? 'bar');
-
-              const result = await data.queryDataSource({
-                sourceId,
-                tableName: source.tableName as string,
-                limit: 50,
-              });
-
-              const { rows, rowCount } = result;
-
-              // Compute basic stats for numeric fields from the sample rows.
-              const stats = numericFields
-                .map((f) => {
-                  const values = rows.map((r) => Number(r[f.id])).filter((v) => !Number.isNaN(v));
-                  if (values.length === 0) return null;
-                  const sum = values.reduce((a, b) => a + b, 0);
-                  const min = Math.min(...values);
-                  const max = Math.max(...values);
-                  const avg = sum / values.length;
-                  return `${f.label}: sum=${sum.toLocaleString()}, avg=${avg.toFixed(2)}, min=${min}, max=${max}`;
-                })
-                .filter(Boolean);
-
-              // CSV excerpt — header + first 5 rows.
-              const headers = visibleFields.map((f) => f.label);
-              const csvRows = rows.slice(0, 5).map((r) =>
-                visibleFields.map((f) => {
-                  const v = r[f.id];
-                  return v == null ? '' : String(v);
-                }),
-              );
-              const csv = [headers, ...csvRows].map((row) => row.join('\t')).join('\n');
-
-              const label = widget.title || source.label;
-              const lines = [
-                `### ${label} (${rowCount.toLocaleString()} rows)`,
-                ...(stats.length > 0
-                  ? [`Stats (from ${rows.length} sample rows): ${stats.join(' | ')}`]
-                  : []),
-                '```',
-                csv,
-                '```',
-              ];
-
-              // Time-series aggregation: GROUP BY query for anomaly detection and charting.
-              // Skip blended charts — the y-field belongs to a different source's table.
-              const isBlended = (widget.config.ySeries ?? []).some(
-                (s: any) => s.sourceId && s.sourceId !== widget.sourceId,
-              );
-              let tsLabels: string[] | null = null;
-              let tsValues: number[] | null = null;
-
-              if (isTimeSeries && !isBlended) {
-                const xField = widget.config.xField;
-                const yField =
-                  widget.config.yField ??
-                  (widget.config.ySeries?.[0]?.fieldId as string | undefined);
-                const yAgg = (widget.config.yAggregation ?? 'sum') as
-                  | 'sum'
-                  | 'avg'
-                  | 'count'
-                  | 'min'
-                  | 'max';
-                const xGroupBy = widget.config.xGroupBy!;
-                if (xField && yField) {
-                  const aggResult = await data.queryDataSource({
-                    sourceId,
-                    tableName: source.tableName as string,
-                    columns: [xField],
-                    aggregations: [{ column: yField, func: yAgg, alias: 'y_agg' }],
-                    limit: 20000,
-                  });
-                  const grouped = new Map<string, number>();
-                  for (const row of aggResult.rows) {
-                    const periodKey = mcpTruncateToPeriod(row[xField], xGroupBy);
-                    if (!periodKey) continue;
-                    grouped.set(periodKey, (grouped.get(periodKey) ?? 0) + Number(row.y_agg ?? 0));
-                  }
-                  tsLabels = [...grouped.keys()].sort();
-                  tsValues = tsLabels.map((l) => grouped.get(l)!);
-                  const outlierIndices = mcpDetectAnomaliesIQR(tsValues);
-                  // Trim first and last period (partial periods cause false-positive low outliers).
-                  const lastIdx = tsValues.length - 1;
-                  const anomalyLabels = [...outlierIndices]
-                    .filter((i) => i > 0 && i < lastIdx)
-                    .map((i) => tsLabels![i]);
-                  if (anomalyLabels.length > 0) {
-                    lines.push(`Anomalies detected at: ${anomalyLabels.join(', ')}`);
-                  }
-                }
-              }
-
-              sections.push({ text: lines.join('\n') });
-            } catch {
-              // Skip widgets whose source can't be queried.
-            }
-          }),
-        );
-
-        const pageLabel = activePage.title || resolvedPageId || 'active page';
-
-        if (sections.length === 0) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: `No queryable widgets found on page "${pageLabel}".`,
-              },
-            ],
-          };
-        }
-
-        const contentItems: { type: 'text'; text: string }[] = [
-          { type: 'text', text: `## ${pageLabel}` },
-        ];
-        for (const section of sections) {
-          contentItems.push({ type: 'text', text: section.text });
-        }
-
-        return { content: contentItems };
-      }
-    }
-
-    // ── query_data_source — routed separately from state-mutation tools ──
-    if (toolName === 'query_data_source') {
-      if (!data) {
+    let threw = false;
+    try {
+      // ── get_dashboard_state — returns full state JSON for MCP context ────
+      if (toolName === 'get_dashboard_state') {
         return {
           content: [
             {
               type: 'text' as const,
-              text: JSON.stringify({
-                error:
-                  'query_data_source is not available: this MCP server was started without data access configuration.',
-              }),
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      const { sourceId, columns, filters, aggregations, having, orderBy, limit, offset } = (args ??
-        {}) as {
-        sourceId: string;
-        columns?: string[];
-        filters?: StudioDataFilter[];
-        aggregations?: StudioDataAggregation[];
-        having?: StudioDataHavingPredicate[];
-        orderBy?: StudioDataOrderBy[];
-        limit?: number;
-        offset?: number;
-      };
-
-      const clampedLimit = Math.min(limit ?? MAX_QUERY_ROWS, MAX_QUERY_ROWS);
-
-      if (!sourceId) {
-        return {
-          content: [
-            { type: 'text' as const, text: JSON.stringify({ error: 'sourceId is required' }) },
-          ],
-          isError: true,
-        };
-      }
-
-      // Resolve the physical table name from the current dashboard state.
-      const source = stateBox.current.dataSources[sourceId];
-      const tableName = source?.tableName ?? sourceId;
-
-      try {
-        const result = await data.queryDataSource({
-          sourceId,
-          tableName,
-          columns,
-          filters,
-          aggregations,
-          ...(having && having.length > 0 && { having }),
-          orderBy,
-          limit: clampedLimit,
-          ...(offset !== undefined && { offset }),
-        });
-
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ sourceId, ...result }),
+              text: JSON.stringify({ output: stateBox.current }),
             },
           ],
         };
-      } catch (err) {
-        return {
-          content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
-          isError: true,
-        };
       }
-    }
 
-    // ── describe_data_source — schema + row count + sample + stats ────────
-    if (toolName === 'describe_data_source') {
-      if (!data) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ error: 'Data access not configured.' }),
-            },
-          ],
-          isError: true,
-        };
-      }
-      const { sourceId } = (args ?? {}) as { sourceId: string };
-      if (!sourceId) {
-        return {
-          content: [
-            { type: 'text' as const, text: JSON.stringify({ error: 'sourceId is required' }) },
-          ],
-          isError: true,
-        };
-      }
-      const source = stateBox.current.dataSources[sourceId];
-      if (!source || !source.tableName) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({
-                error: `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,
-              }),
-            },
-          ],
-          isError: true,
-        };
-      }
-      try {
-        const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
-        const numericFields = visibleFields.filter((f) => f.type === 'number');
+      // ── summarise_page — synthesised from live data when data option provided ─
+      if (toolName === 'summarise_page') {
+        if (!data) {
+          // No data access — fall through to executeToolOnState which returns
+          // a descriptive error explaining the client-side limitation.
+        } else {
+          const state = stateBox.current;
+          // Accept optional pageId arg; fall back to active page.
+          const requestedPageId = (args as { pageId?: string })?.pageId;
+          const resolvedPageId = requestedPageId ?? state.dashboard.activePageId;
+          const activePage = resolvedPageId ? state.pages[resolvedPageId] : null;
 
-        // Run sample rows and row count in parallel with per-field numeric stats.
-        const [sampleResult, ...statsResults] = await Promise.all([
-          data.queryDataSource({ sourceId, tableName: source.tableName as string, limit: 10 }),
-          ...numericFields.map((f) =>
-            data
-              .queryDataSource({
-                sourceId,
-                tableName: source.tableName as string,
-                aggregations: [
-                  { column: f.id, func: 'min', alias: 'min' },
-                  { column: f.id, func: 'max', alias: 'max' },
-                  { column: f.id, func: 'avg', alias: 'avg' },
-                  { column: f.id, func: 'sum', alias: 'sum' },
-                ],
-                limit: 1,
-              })
-              .catch(() => null),
-          ),
-        ]);
-
-        const fieldStats: Record<
-          string,
-          { min: unknown; max: unknown; avg: unknown; sum: unknown }
-        > = {};
-        numericFields.forEach((f, i) => {
-          const row = statsResults[i]?.rows?.[0];
-          if (row) {
-            fieldStats[f.id] = {
-              min: row.min,
-              max: row.max,
-              avg: typeof row.avg === 'number' ? Math.round(row.avg * 100) / 100 : row.avg,
-              sum: row.sum,
+          if (!activePage) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: requestedPageId
+                    ? `Page "${requestedPageId}" not found.`
+                    : 'No active page found.',
+                },
+              ],
             };
           }
-        });
 
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(
+          const widgetIds = (activePage.widgetRows ?? []).flat();
+          const widgets = widgetIds.map((id) => state.widgets[id]).filter(Boolean);
+          type SectionItem = { text: string };
+          const sections: SectionItem[] = [];
+
+          await Promise.all(
+            widgets.map(async (widget) => {
+              const sourceId = widget.sourceId;
+              if (!sourceId) return;
+              const source = state.dataSources[sourceId];
+              if (!source?.tableName) return;
+
+              const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
+              const numericFields = visibleFields.filter((f) => f.type === 'number');
+
+              try {
+                const isTimeSeries =
+                  widget.kind === 'chart' &&
+                  Boolean(widget.config.xGroupBy) &&
+                  ANOMALY_CHART_TYPES.has(widget.config.chartType ?? 'bar');
+
+                const result = await withTimeout(
+                  data.queryDataSource({
+                    sourceId,
+                    tableName: source.tableName as string,
+                    limit: 50,
+                  }),
+                  15_000,
+                  `sample query for ${source.tableName}`,
+                );
+
+                const { rows, rowCount } = result;
+
+                // Compute basic stats for numeric fields from the sample rows.
+                const stats = numericFields
+                  .map((f) => {
+                    const values = rows.map((r) => Number(r[f.id])).filter((v) => !Number.isNaN(v));
+                    if (values.length === 0) return null;
+                    const sum = values.reduce((a, b) => a + b, 0);
+                    const min = Math.min(...values);
+                    const max = Math.max(...values);
+                    const avg = sum / values.length;
+                    return `${f.label}: sum=${sum.toLocaleString()}, avg=${avg.toFixed(2)}, min=${min}, max=${max}`;
+                  })
+                  .filter(Boolean);
+
+                // CSV excerpt — header + first 5 rows.
+                const headers = visibleFields.map((f) => f.label);
+                const csvRows = rows.slice(0, 5).map((r) =>
+                  visibleFields.map((f) => {
+                    const v = r[f.id];
+                    return v == null ? '' : String(v);
+                  }),
+                );
+                const csv = [headers, ...csvRows].map((row) => row.join('\t')).join('\n');
+
+                const label = widget.title || source.label;
+                const lines = [
+                  `### ${label} (${rowCount.toLocaleString()} rows)`,
+                  ...(stats.length > 0
+                    ? [`Stats (from ${rows.length} sample rows): ${stats.join(' | ')}`]
+                    : []),
+                  '```',
+                  csv,
+                  '```',
+                ];
+
+                // Time-series aggregation: GROUP BY query for anomaly detection and charting.
+                // Skip blended charts — the y-field belongs to a different source's table.
+                const isBlended = (widget.config.ySeries ?? []).some(
+                  (s: any) => s.sourceId && s.sourceId !== widget.sourceId,
+                );
+                let tsLabels: string[] | null = null;
+                let tsValues: number[] | null = null;
+
+                if (isTimeSeries && !isBlended) {
+                  const xField = widget.config.xField;
+                  const yField =
+                    widget.config.yField ??
+                    (widget.config.ySeries?.[0]?.fieldId as string | undefined);
+                  const yAgg = (widget.config.yAggregation ?? 'sum') as
+                    | 'sum'
+                    | 'avg'
+                    | 'count'
+                    | 'min'
+                    | 'max';
+                  const xGroupBy = widget.config.xGroupBy!;
+                  if (xField && yField) {
+                    const aggResult = await withTimeout(
+                      data.queryDataSource({
+                        sourceId,
+                        tableName: source.tableName as string,
+                        columns: [xField],
+                        aggregations: [{ column: yField, func: yAgg, alias: 'y_agg' }],
+                        limit: 20000,
+                      }),
+                      15_000,
+                      `aggregation query for ${source.tableName}`,
+                    );
+                    const grouped = new Map<string, number>();
+                    for (const row of aggResult.rows) {
+                      const periodKey = mcpTruncateToPeriod(row[xField], xGroupBy);
+                      if (!periodKey) continue;
+                      grouped.set(
+                        periodKey,
+                        (grouped.get(periodKey) ?? 0) + Number(row.y_agg ?? 0),
+                      );
+                    }
+                    tsLabels = [...grouped.keys()].sort();
+                    tsValues = tsLabels.map((l) => grouped.get(l)!);
+                    const outlierIndices = mcpDetectAnomaliesIQR(tsValues);
+                    // Trim first and last period (partial periods cause false-positive low outliers).
+                    const lastIdx = tsValues.length - 1;
+                    const anomalyLabels = [...outlierIndices]
+                      .filter((i) => i > 0 && i < lastIdx)
+                      .map((i) => tsLabels![i]);
+                    if (anomalyLabels.length > 0) {
+                      lines.push(`Anomalies detected at: ${anomalyLabels.join(', ')}`);
+                    }
+                  }
+                }
+
+                sections.push({ text: lines.join('\n') });
+              } catch (err) {
+                logger?.error(
+                  `[mcp] summarise_page skipped widget "${widget.title || sourceId}": ${err instanceof Error ? err.message : String(err)}`,
+                );
+              }
+            }),
+          );
+
+          const pageLabel = activePage.title || resolvedPageId || 'active page';
+
+          if (sections.length === 0) {
+            return {
+              content: [
                 {
-                  sourceId,
-                  label: source.label,
-                  tableName: source.tableName,
-                  description: source.aiDescription,
-                  rowCount: sampleResult.rowCount,
-                  fields: visibleFields.map((f) => ({
-                    id: f.id,
-                    label: f.label,
-                    type: f.type,
-                    ...(f.format && { format: f.format }),
-                    ...(fieldStats[f.id] && { stats: fieldStats[f.id] }),
-                    ...(source.fieldDistinctValues?.[f.id] && {
-                      sampleValues: source.fieldDistinctValues[f.id].slice(0, 5),
-                    }),
-                  })),
-                  sampleRows: sampleResult.rows,
+                  type: 'text' as const,
+                  text: `No queryable widgets found on page "${pageLabel}".`,
                 },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      } catch (err) {
-        return {
-          content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
-          isError: true,
-        };
-      }
-    }
-
-    // ── get_field_values — distinct values + counts ────────────────────────
-    if (toolName === 'get_field_values') {
-      if (!data) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ error: 'Data access not configured.' }),
-            },
-          ],
-          isError: true,
-        };
-      }
-      const {
-        sourceId,
-        fieldId,
-        limit: fieldLimit,
-      } = (args ?? {}) as {
-        sourceId: string;
-        fieldId: string;
-        limit?: number;
-      };
-      if (!sourceId || !fieldId) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ error: 'sourceId and fieldId are required' }),
-            },
-          ],
-          isError: true,
-        };
-      }
-      const source = stateBox.current.dataSources[sourceId];
-      if (!source || !source.tableName) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ error: `Unknown data source: "${sourceId}".` }),
-            },
-          ],
-          isError: true,
-        };
-      }
-      try {
-        const clampedFieldLimit = Math.min(fieldLimit ?? 50, 200);
-        const result = await data.queryDataSource({
-          sourceId,
-          tableName: source.tableName as string,
-          columns: [fieldId],
-          aggregations: [{ column: fieldId, func: 'count', alias: 'count' }],
-          orderBy: [{ column: 'count', direction: 'desc' }],
-          limit: clampedFieldLimit,
-        });
-        type GfvContentItem =
-          | { type: 'text'; text: string }
-          | { type: 'image'; data: string; mimeType: string };
-        const gfvItems: GfvContentItem[] = [
-          {
-            type: 'text',
-            text: JSON.stringify(
-              {
-                sourceId,
-                fieldId,
-                totalDistinctValues: result.rowCount,
-                values: result.rows,
-              },
-              null,
-              2,
-            ),
-          },
-        ];
-        // Auto-render a bar chart of the top values (best-effort).
-        const chartData = result.rows.slice(0, 20).map((r) => ({
-          label: String(r[fieldId] ?? '(null)'),
-          value: Number(r.count ?? 0),
-        }));
-        if (chartData.length >= 2) {
-          try {
-            const fieldLabel =
-              stateBox.current.dataSources[sourceId]?.fields?.find((f) => f.id === fieldId)
-                ?.label ?? fieldId;
-            const svg = renderChartSvg({
-              type: 'bar',
-              title: `${fieldLabel} distribution`,
-              data: chartData,
-            });
-            gfvItems.push({
-              type: 'image',
-              data: Buffer.from(svg).toString('base64'),
-              mimeType: 'image/svg+xml',
-            });
-          } catch {
-            // Chart rendering is best-effort.
+              ],
+            };
           }
-        }
-        return { content: gfvItems };
-      } catch (err) {
-        return {
-          content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
-          isError: true,
-        };
-      }
-    }
 
-    // ── compute_field_stats — full-table min/max/avg/sum/count ────────────
-    if (toolName === 'compute_field_stats') {
-      if (!data) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ error: 'Data access not configured.' }),
-            },
-          ],
-          isError: true,
-        };
-      }
-      const { sourceId, fields: statFields } = (args ?? {}) as {
-        sourceId: string;
-        fields: string[];
-      };
-      if (!sourceId || !statFields || statFields.length === 0) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ error: 'sourceId and fields (non-empty array) are required' }),
-            },
-          ],
-          isError: true,
-        };
-      }
-      const source = stateBox.current.dataSources[sourceId];
-      if (!source || !source.tableName) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ error: `Unknown data source: "${sourceId}".` }),
-            },
-          ],
-          isError: true,
-        };
-      }
-      try {
-        const aggregations = statFields.flatMap((f) => [
-          { column: f, func: 'min' as const, alias: `${f}__min` },
-          { column: f, func: 'max' as const, alias: `${f}__max` },
-          { column: f, func: 'avg' as const, alias: `${f}__avg` },
-          { column: f, func: 'sum' as const, alias: `${f}__sum` },
-          { column: f, func: 'count' as const, alias: `${f}__count` },
-        ]);
-        const result = await data.queryDataSource({
-          sourceId,
-          tableName: source.tableName as string,
-          aggregations,
-          limit: 1,
-        });
-        const row = result.rows[0] ?? {};
-        const statsOut: Record<
-          string,
-          { min: unknown; max: unknown; avg: unknown; sum: unknown; count: unknown }
-        > = {};
-        for (const f of statFields) {
-          statsOut[f] = {
-            min: row[`${f}__min`],
-            max: row[`${f}__max`],
-            avg:
-              typeof row[`${f}__avg`] === 'number'
-                ? Math.round((row[`${f}__avg`] as number) * 100) / 100
-                : row[`${f}__avg`],
-            sum: row[`${f}__sum`],
-            count: row[`${f}__count`],
-          };
-        }
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ sourceId, stats: statsOut }, null, 2),
-            },
-          ],
-        };
-      } catch (err) {
-        return {
-          content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
-          isError: true,
-        };
-      }
-    }
+          const contentItems: { type: 'text'; text: string }[] = [
+            { type: 'text', text: `## ${pageLabel}` },
+          ];
+          for (const section of sections) {
+            contentItems.push({ type: 'text', text: section.text });
+          }
 
-    // ── render_chart — pure SVG chart rendering ───────────────────────────
-    if (toolName === 'render_chart') {
-      try {
-        const chartInput = (args ?? {}) as unknown as ChartRendererInput;
-        if (!chartInput.type) {
+          return { content: contentItems };
+        }
+      }
+
+      // ── query_data_source — routed separately from state-mutation tools ──
+      if (toolName === 'query_data_source') {
+        if (!data) {
           return {
             content: [
               {
                 type: 'text' as const,
                 text: JSON.stringify({
-                  error: '`type` is required (bar, line, pie, scatter, donut, or stacked_bar).',
+                  error:
+                    'query_data_source is not available: this MCP server was started without data access configuration.',
                 }),
               },
             ],
             isError: true,
           };
         }
-        const svgString = renderChartSvg(chartInput);
-        const base64 = Buffer.from(svgString).toString('base64');
+
+        const { sourceId, columns, filters, aggregations, having, orderBy, limit, offset } =
+          (args ?? {}) as {
+            sourceId: string;
+            columns?: string[];
+            filters?: StudioDataFilter[];
+            aggregations?: StudioDataAggregation[];
+            having?: StudioDataHavingPredicate[];
+            orderBy?: StudioDataOrderBy[];
+            limit?: number;
+            offset?: number;
+          };
+
+        const clampedLimit = Math.min(limit ?? MAX_QUERY_ROWS, MAX_QUERY_ROWS);
+
+        if (!sourceId) {
+          return {
+            content: [
+              { type: 'text' as const, text: JSON.stringify({ error: 'sourceId is required' }) },
+            ],
+            isError: true,
+          };
+        }
+
+        // Resolve the physical table name from the current dashboard state.
+        const source = stateBox.current.dataSources[sourceId];
+        const tableName = source?.tableName ?? sourceId;
+
+        try {
+          const result = await data.queryDataSource({
+            sourceId,
+            tableName,
+            columns,
+            filters,
+            aggregations,
+            ...(having && having.length > 0 && { having }),
+            orderBy,
+            limit: clampedLimit,
+            ...(offset !== undefined && { offset }),
+          });
+
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ sourceId, ...result }),
+              },
+            ],
+          };
+        } catch (err) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
+            isError: true,
+          };
+        }
+      }
+
+      // ── describe_data_source — schema + row count + sample + stats ────────
+      if (toolName === 'describe_data_source') {
+        if (!data) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ error: 'Data access not configured.' }),
+              },
+            ],
+            isError: true,
+          };
+        }
+        const { sourceId } = (args ?? {}) as { sourceId: string };
+        if (!sourceId) {
+          return {
+            content: [
+              { type: 'text' as const, text: JSON.stringify({ error: 'sourceId is required' }) },
+            ],
+            isError: true,
+          };
+        }
+        const source = stateBox.current.dataSources[sourceId];
+        if (!source || !source.tableName) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+        try {
+          const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
+          const numericFields = visibleFields.filter((f) => f.type === 'number');
+
+          // Run sample rows and row count in parallel with per-field numeric stats.
+          const [sampleResult, ...statsResults] = await Promise.all([
+            data.queryDataSource({ sourceId, tableName: source.tableName as string, limit: 10 }),
+            ...numericFields.map((f) =>
+              data
+                .queryDataSource({
+                  sourceId,
+                  tableName: source.tableName as string,
+                  aggregations: [
+                    { column: f.id, func: 'min', alias: 'min' },
+                    { column: f.id, func: 'max', alias: 'max' },
+                    { column: f.id, func: 'avg', alias: 'avg' },
+                    { column: f.id, func: 'sum', alias: 'sum' },
+                  ],
+                  limit: 1,
+                })
+                .catch(() => null),
+            ),
+          ]);
+
+          const fieldStats: Record<
+            string,
+            { min: unknown; max: unknown; avg: unknown; sum: unknown }
+          > = {};
+          numericFields.forEach((f, i) => {
+            const row = statsResults[i]?.rows?.[0];
+            if (row) {
+              fieldStats[f.id] = {
+                min: row.min,
+                max: row.max,
+                avg: typeof row.avg === 'number' ? Math.round(row.avg * 100) / 100 : row.avg,
+                sum: row.sum,
+              };
+            }
+          });
+
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify(
+                  {
+                    sourceId,
+                    label: source.label,
+                    tableName: source.tableName,
+                    description: source.aiDescription,
+                    rowCount: sampleResult.rowCount,
+                    fields: visibleFields.map((f) => ({
+                      id: f.id,
+                      label: f.label,
+                      type: f.type,
+                      ...(f.format && { format: f.format }),
+                      ...(fieldStats[f.id] && { stats: fieldStats[f.id] }),
+                      ...(source.fieldDistinctValues?.[f.id] && {
+                        sampleValues: source.fieldDistinctValues[f.id].slice(0, 5),
+                      }),
+                    })),
+                    sampleRows: sampleResult.rows,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        } catch (err) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
+            isError: true,
+          };
+        }
+      }
+
+      // ── get_field_values — distinct values + counts ────────────────────────
+      if (toolName === 'get_field_values') {
+        if (!data) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ error: 'Data access not configured.' }),
+              },
+            ],
+            isError: true,
+          };
+        }
+        const {
+          sourceId,
+          fieldId,
+          limit: fieldLimit,
+        } = (args ?? {}) as {
+          sourceId: string;
+          fieldId: string;
+          limit?: number;
+        };
+        if (!sourceId || !fieldId) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ error: 'sourceId and fieldId are required' }),
+              },
+            ],
+            isError: true,
+          };
+        }
+        const source = stateBox.current.dataSources[sourceId];
+        if (!source || !source.tableName) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ error: `Unknown data source: "${sourceId}".` }),
+              },
+            ],
+            isError: true,
+          };
+        }
+        try {
+          const clampedFieldLimit = Math.min(fieldLimit ?? 50, 200);
+          const result = await data.queryDataSource({
+            sourceId,
+            tableName: source.tableName as string,
+            columns: [fieldId],
+            aggregations: [{ column: fieldId, func: 'count', alias: 'count' }],
+            orderBy: [{ column: 'count', direction: 'desc' }],
+            limit: clampedFieldLimit,
+          });
+          type GfvContentItem =
+            | { type: 'text'; text: string }
+            | { type: 'image'; data: string; mimeType: string };
+          const gfvItems: GfvContentItem[] = [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  sourceId,
+                  fieldId,
+                  totalDistinctValues: result.rowCount,
+                  values: result.rows,
+                },
+                null,
+                2,
+              ),
+            },
+          ];
+          // Auto-render a bar chart of the top values (best-effort).
+          const chartData = result.rows.slice(0, 20).map((r) => ({
+            label: String(r[fieldId] ?? '(null)'),
+            value: Number(r.count ?? 0),
+          }));
+          if (chartData.length >= 2) {
+            try {
+              const fieldLabel =
+                stateBox.current.dataSources[sourceId]?.fields?.find((f) => f.id === fieldId)
+                  ?.label ?? fieldId;
+              const svg = renderChartSvg({
+                type: 'bar',
+                title: `${fieldLabel} distribution`,
+                data: chartData,
+              });
+              gfvItems.push({
+                type: 'image',
+                data: Buffer.from(svg).toString('base64'),
+                mimeType: 'image/svg+xml',
+              });
+            } catch {
+              // Chart rendering is best-effort.
+            }
+          }
+          return { content: gfvItems };
+        } catch (err) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
+            isError: true,
+          };
+        }
+      }
+
+      // ── compute_field_stats — full-table min/max/avg/sum/count ────────────
+      if (toolName === 'compute_field_stats') {
+        if (!data) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ error: 'Data access not configured.' }),
+              },
+            ],
+            isError: true,
+          };
+        }
+        const { sourceId, fields: statFields } = (args ?? {}) as {
+          sourceId: string;
+          fields: string[];
+        };
+        if (!sourceId || !statFields || statFields.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'sourceId and fields (non-empty array) are required',
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+        const source = stateBox.current.dataSources[sourceId];
+        if (!source || !source.tableName) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ error: `Unknown data source: "${sourceId}".` }),
+              },
+            ],
+            isError: true,
+          };
+        }
+        try {
+          const aggregations = statFields.flatMap((f) => [
+            { column: f, func: 'min' as const, alias: `${f}__min` },
+            { column: f, func: 'max' as const, alias: `${f}__max` },
+            { column: f, func: 'avg' as const, alias: `${f}__avg` },
+            { column: f, func: 'sum' as const, alias: `${f}__sum` },
+            { column: f, func: 'count' as const, alias: `${f}__count` },
+          ]);
+          const result = await data.queryDataSource({
+            sourceId,
+            tableName: source.tableName as string,
+            aggregations,
+            limit: 1,
+          });
+          const row = result.rows[0] ?? {};
+          const statsOut: Record<
+            string,
+            { min: unknown; max: unknown; avg: unknown; sum: unknown; count: unknown }
+          > = {};
+          for (const f of statFields) {
+            statsOut[f] = {
+              min: row[`${f}__min`],
+              max: row[`${f}__max`],
+              avg:
+                typeof row[`${f}__avg`] === 'number'
+                  ? Math.round((row[`${f}__avg`] as number) * 100) / 100
+                  : row[`${f}__avg`],
+              sum: row[`${f}__sum`],
+              count: row[`${f}__count`],
+            };
+          }
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ sourceId, stats: statsOut }, null, 2),
+              },
+            ],
+          };
+        } catch (err) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
+            isError: true,
+          };
+        }
+      }
+
+      // ── render_chart — pure SVG chart rendering ───────────────────────────
+      if (toolName === 'render_chart') {
+        try {
+          const chartInput = (args ?? {}) as unknown as ChartRendererInput;
+          if (!chartInput.type) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    error: '`type` is required (bar, line, pie, scatter, donut, or stacked_bar).',
+                  }),
+                },
+              ],
+              isError: true,
+            };
+          }
+          const svgString = renderChartSvg(chartInput);
+          const base64 = Buffer.from(svgString).toString('base64');
+          return {
+            content: [
+              {
+                type: 'image' as const,
+                data: base64,
+                mimeType: 'image/svg+xml',
+              },
+              {
+                type: 'text' as const,
+                text: svgString,
+              },
+            ],
+          };
+        } catch (err) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
+            isError: true,
+          };
+        }
+      }
+
+      // ── dashboard-mutation tools ──────────────────────────────────────────
+
+      if (!toolsToRegister.some((t) => t.function.name === toolName)) {
         return {
           content: [
-            {
-              type: 'image' as const,
-              data: base64,
-              mimeType: 'image/svg+xml',
-            },
-            {
-              type: 'text' as const,
-              text: svgString,
-            },
+            { type: 'text' as const, text: JSON.stringify({ error: `Unknown tool: ${toolName}` }) },
           ],
+          isError: true,
+        };
+      }
+
+      try {
+        const result = executeToolOnState(toolName, args ?? {}, stateBox.current, customWidgets);
+        // Persist the updated state — next tool call in this session sees it.
+        stateBox.current = result.nextState;
+
+        // Notify any subscribed clients that the dashboard state has changed.
+        if (result.mutation) {
+          const urisToNotify = ['studio://dashboard/state', 'studio://dashboard/system-prompt'];
+          for (const uri of urisToNotify) {
+            if (subscribedUris.has(uri)) {
+              server.sendResourceUpdated({ uri }).catch(() => {
+                // Swallow errors — client may have disconnected
+              });
+            }
+          }
+          // Notify consumer so they can persist the new state.
+          await onStateChange?.(stateBox.current);
+        }
+
+        const responsePayload: Record<string, unknown> = { output: result.output };
+        if (result.mutation) {
+          responsePayload.mutation = result.mutation;
+        }
+
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(responsePayload) }],
         };
       } catch (err) {
         return {
@@ -1397,51 +1483,19 @@ export function buildStudioMcpServer(
           isError: true,
         };
       }
-    }
-
-    // ── dashboard-mutation tools ──────────────────────────────────────────
-
-    if (!toolsToRegister.some((t) => t.function.name === toolName)) {
-      return {
-        content: [
-          { type: 'text' as const, text: JSON.stringify({ error: `Unknown tool: ${toolName}` }) },
-        ],
-        isError: true,
-      };
-    }
-
-    try {
-      const result = executeToolOnState(toolName, args ?? {}, stateBox.current, customWidgets);
-      // Persist the updated state — next tool call in this session sees it.
-      stateBox.current = result.nextState;
-
-      // Notify any subscribed clients that the dashboard state has changed.
-      if (result.mutation) {
-        const urisToNotify = ['studio://dashboard/state', 'studio://dashboard/system-prompt'];
-        for (const uri of urisToNotify) {
-          if (subscribedUris.has(uri)) {
-            server.sendResourceUpdated({ uri }).catch(() => {
-              // Swallow errors — client may have disconnected
-            });
-          }
-        }
-        // Notify consumer so they can persist the new state.
-        await onStateChange?.(stateBox.current);
-      }
-
-      const responsePayload: Record<string, unknown> = { output: result.output };
-      if (result.mutation) {
-        responsePayload.mutation = result.mutation;
-      }
-
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(responsePayload) }],
-      };
     } catch (err) {
+      threw = true;
+      logger?.error(
+        `[mcp] ${toolName} threw after ${Date.now() - t0}ms: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
+      );
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ error: String(err) }) }],
         isError: true,
       };
+    } finally {
+      if (!threw) {
+        logger?.log(`[mcp] ${toolName} — ${Date.now() - t0}ms`);
+      }
     }
   });
 

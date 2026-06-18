@@ -57,7 +57,7 @@ import { STUDIO_AI_TOOLS } from './studioAITools';
 import { executeToolOnState } from './executeToolOnState';
 import { buildAISystemPrompt, serializeFieldForAI } from './buildAISystemPrompt';
 import { renderChartSvg } from './chartRenderer';
-import type { ChartRendererInput, ChartType } from './chartRenderer';
+import type { ChartRendererInput } from './chartRenderer';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 
 export type { StudioState };
@@ -294,20 +294,6 @@ const DEFAULT_EXCLUDED_TOOLS = new Set([
 // Canonical implementations: anomalyDetection.ts + temporalUtils.ts in @mui/x-studio.
 
 const ANOMALY_CHART_TYPES = new Set(['bar', 'bar-stacked', 'bar-100', 'line']);
-
-// Maps Studio widget chartType values to the SVG renderer's ChartType.
-// Types that don't have a close equivalent (heatmap, funnel, gantt, sankey, gauge) are omitted.
-const STUDIO_TO_RENDERER_CHART_TYPE: Partial<Record<string, ChartType>> = {
-  bar: 'bar',
-  'bar-stacked': 'stacked_bar',
-  'bar-100': 'stacked_bar',
-  line: 'line',
-  area: 'line',
-  'area-stacked': 'line',
-  pie: 'pie',
-  donut: 'donut',
-  scatter: 'scatter',
-};
 
 /** ISO week number for a UTC date. Mirror of isoWeek() in temporalUtils.ts. */
 function mcpIsoWeek(d: Date): { year: number; week: number } {
@@ -854,7 +840,7 @@ export function buildStudioMcpServer(
 
         const widgetIds = (activePage.widgetRows ?? []).flat();
         const widgets = widgetIds.map((id) => state.widgets[id]).filter(Boolean);
-        type SectionItem = { text: string; chartBase64?: string };
+        type SectionItem = { text: string };
         const sections: SectionItem[] = [];
 
         await Promise.all(
@@ -963,80 +949,7 @@ export function buildStudioMcpServer(
                 }
               }
 
-              // Auto-render a chart for chart widgets using the widget's own chart type.
-              let chartBase64: string | undefined;
-              if (widget.kind === 'chart') {
-                const studioType = widget.config.chartType ?? 'bar';
-                const rendererType = STUDIO_TO_RENDERER_CHART_TYPE[studioType];
-                if (rendererType) {
-                  try {
-                    let chartInput: ChartRendererInput | null = null;
-
-                    if (tsLabels && tsValues && tsLabels.length >= 2) {
-                      // Reuse the time-series data already fetched for anomaly detection.
-                      if (rendererType === 'line') {
-                        chartInput = {
-                          type: 'line',
-                          title: label,
-                          xLabels: tsLabels,
-                          series: [{ name: label, values: tsValues }],
-                        };
-                      } else {
-                        chartInput = {
-                          type: rendererType,
-                          title: label,
-                          data: tsLabels.map((l, i) => ({ label: l, value: tsValues![i] })),
-                        };
-                      }
-                    } else if (!isTimeSeries) {
-                      // Non-time-series: run a lightweight top-20 aggregation.
-                      const xField = widget.config.xField;
-                      const yField =
-                        widget.config.yField ??
-                        (widget.config.ySeries?.[0]?.fieldId as string | undefined);
-                      const yAgg = (widget.config.yAggregation ?? 'sum') as
-                        | 'sum'
-                        | 'avg'
-                        | 'count'
-                        | 'min'
-                        | 'max';
-                      if (xField && yField) {
-                        const chartAgg = await data.queryDataSource({
-                          sourceId,
-                          tableName: source.tableName as string,
-                          columns: [xField],
-                          aggregations: [{ column: yField, func: yAgg, alias: 'y_agg' }],
-                          orderBy: [{ column: 'y_agg', direction: 'desc' }],
-                          limit: 20,
-                        });
-                        if (chartAgg.rows.length >= 2) {
-                          const xLabel =
-                            visibleFields.find((f) => f.id === xField)?.label ?? xField;
-                          const yLabel =
-                            visibleFields.find((f) => f.id === yField)?.label ?? yField;
-                          chartInput = {
-                            type: rendererType,
-                            title: `${label}: ${yLabel} by ${xLabel}`,
-                            data: chartAgg.rows.map((r) => ({
-                              label: String(r[xField] ?? ''),
-                              value: Number(r.y_agg ?? 0),
-                            })),
-                          };
-                        }
-                      }
-                    }
-
-                    if (chartInput) {
-                      const svg = renderChartSvg(chartInput);
-                      chartBase64 = Buffer.from(svg).toString('base64');
-                    }
-                  } catch {
-                    // Chart rendering is best-effort — never block the text summary.
-                  }
-                }
-              }
-
-              sections.push({ text: lines.join('\n'), chartBase64 });
+              sections.push({ text: lines.join('\n') });
             } catch {
               // Skip widgets whose source can't be queried.
             }
@@ -1056,19 +969,11 @@ export function buildStudioMcpServer(
           };
         }
 
-        type ContentItem =
-          | { type: 'text'; text: string }
-          | { type: 'image'; data: string; mimeType: string };
-        const contentItems: ContentItem[] = [{ type: 'text', text: `## ${pageLabel}` }];
+        const contentItems: { type: 'text'; text: string }[] = [
+          { type: 'text', text: `## ${pageLabel}` },
+        ];
         for (const section of sections) {
           contentItems.push({ type: 'text', text: section.text });
-          if (section.chartBase64) {
-            contentItems.push({
-              type: 'image',
-              data: section.chartBase64,
-              mimeType: 'image/svg+xml',
-            });
-          }
         }
 
         return { content: contentItems };

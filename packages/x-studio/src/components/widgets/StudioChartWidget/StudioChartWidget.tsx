@@ -1099,6 +1099,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           stages={reached.stages.map((s) => ({ label: s.label, value: s.value }))}
           height={chartHeight}
           valueFormat="integer"
+          labelFormat={config.funnelLabelFormat}
+          labelPlacement={config.funnelLabelPlacement}
+          gap={config.funnelGap}
+          curve={config.funnelCurve}
+          variant={config.funnelVariant}
         />
       );
     }
@@ -1128,7 +1133,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         stageMap.set(label, (stageMap.get(label) ?? 0) + Number(row[funnelValueField] ?? 0));
       }
     }
-    // Sort: 'natural' = insertion order; 'category' = orderedValues; 'value' / default = value desc
+    // Sort: 'natural' = insertion order; 'category' = orderedValues order (pre-sort, pass
+    // sort:'none'); 'value' / default = delegate to FunnelChart native sort:'descending'.
     const sortBy = config.chartSortBy ?? 'category';
     const categoryOrder =
       config.funnelCategoryOrder ??
@@ -1136,8 +1142,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         ? (dataSource?.fields.find((f) => f.id === funnelXField)?.orderedValues ?? undefined)
         : undefined);
     let stages: { label: string; value: number }[];
+    let funnelSort: 'ascending' | 'descending' | 'none';
     if (sortBy === 'natural') {
       stages = [...stageMap.entries()].map(([label, value]) => ({ label, value }));
+      funnelSort = 'none';
     } else if (categoryOrder && categoryOrder.length > 0) {
       const orderMap = new Map(categoryOrder.map((v, i) => [v, i]));
       stages = [...stageMap.entries()]
@@ -1145,16 +1153,20 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         .sort((a, b) => {
           const ia = orderMap.get(a.label) ?? Infinity;
           const ib = orderMap.get(b.label) ?? Infinity;
-          if (ia !== ib) {
-            return ia - ib;
-          }
-          return b.value - a.value;
+          return ia !== ib ? ia - ib : b.value - a.value;
         });
+      funnelSort = 'none';
     } else {
-      stages = [...stageMap.entries()]
-        .map(([label, value]) => ({ label, value }))
-        .sort((a, b) => b.value - a.value);
+      // Delegate value-descending sort to FunnelChart so it drives its own animation.
+      stages = [...stageMap.entries()].map(([label, value]) => ({ label, value }));
+      funnelSort = 'descending';
     }
+
+    // Auto-default label placement to outside-end when conversion format is chosen.
+    const funnelLabelFormat = config.funnelLabelFormat ?? 'value';
+    const funnelLabelPlacement =
+      config.funnelLabelPlacement ??
+      (funnelLabelFormat === 'conversion' ? 'outside-end' : 'inside');
 
     return (
       <StudioFunnelChart
@@ -1162,6 +1174,12 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         height={chartHeight}
         valueFormat={valueFieldDef?.format}
         currencyCode={valueFieldDef?.currencyCode}
+        labelFormat={funnelLabelFormat}
+        labelPlacement={funnelLabelPlacement}
+        gap={config.funnelGap}
+        curve={config.funnelCurve}
+        variant={config.funnelVariant}
+        sort={funnelSort}
       />
     );
   }

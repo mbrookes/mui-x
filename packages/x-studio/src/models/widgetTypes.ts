@@ -184,6 +184,39 @@ export interface StudioWidgetConfig {
    */
   funnelStageSequence?: string[];
   /**
+   * Funnel chart: how section labels display their values.
+   * - `'value'`: the raw aggregated value (default)
+   * - `'percent'`: each section as a percentage of the total
+   * - `'conversion'`: each section as a percentage of the largest section —
+   *   equivalent to the old conversion-bar overlay
+   * @default 'value'
+   */
+  funnelLabelFormat?: 'value' | 'percent' | 'conversion';
+  /**
+   * Funnel chart: where section labels are placed.
+   * - `'inside'`: label inside the section body (default)
+   * - `'outside-start'`: for vertical layout — to the left
+   * - `'outside-end'`: for vertical layout — to the right; recommended with `'conversion'`
+   * @default 'inside'
+   */
+  funnelLabelPlacement?: 'inside' | 'outside-start' | 'outside-end';
+  /**
+   * Funnel chart: gap in pixels between funnel sections.
+   * @default 0
+   */
+  funnelGap?: number;
+  /**
+   * Funnel chart: shape/curve interpolation style for the sections.
+   * @default 'linear'
+   */
+  funnelCurve?: 'linear' | 'bump' | 'step' | 'pyramid';
+  /**
+   * Funnel chart: visual style for sections.
+   * `'outlined'` uses a border with translucent fill; `'filled'` uses a solid fill.
+   * @default 'filled'
+   */
+  funnelVariant?: 'filled' | 'outlined';
+  /**
    * Sankey chart: target ("to") node field. The source ("from") node uses `xField`
    * and the link weight uses `yField`. Links are summed per unique source→target pair.
    */

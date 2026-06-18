@@ -48,8 +48,15 @@ const seriesProcessor: SeriesProcessor<'funnel'> = (params) => {
   seriesOrder.forEach((seriesId) => {
     const currentSeries = series[seriesId];
 
-    const firstDataPoint = currentSeries.data.at(0);
-    const lastDataPoint = currentSeries.data.at(-1);
+    const sortedData =
+      currentSeries.sort && currentSeries.sort !== 'none'
+        ? [...currentSeries.data].sort((a, b) =>
+            currentSeries.sort === 'ascending' ? a.value - b.value : b.value - a.value,
+          )
+        : currentSeries.data;
+
+    const firstDataPoint = sortedData.at(0);
+    const lastDataPoint = sortedData.at(-1);
     const funnelDirection = getFunnelDirection(
       currentSeries.funnelDirection,
       currentSeries.curve,
@@ -62,7 +69,7 @@ const seriesProcessor: SeriesProcessor<'funnel'> = (params) => {
       layout: isHorizontal ? 'horizontal' : 'vertical',
       valueFormatter: (item) => (item == null ? '' : item.value.toLocaleString()),
       ...currentSeries,
-      data: currentSeries.data!.map((v, i) => ({
+      data: sortedData.map((v, i) => ({
         id: `${seriesId}-funnel-item-${v.id ?? i}`,
         ...v,
       })),

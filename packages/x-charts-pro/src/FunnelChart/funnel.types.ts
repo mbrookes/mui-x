@@ -105,6 +105,16 @@ export interface FunnelSeriesType
    * @default 0
    */
   gap?: number;
+  /**
+   * The sort order applied to funnel sections before rendering.
+   *
+   * - `'descending'`: Largest section at the top (standard funnel shape).
+   * - `'ascending'`: Smallest section at the top (inverted funnel).
+   * - `'none'`: Sections rendered in data-input order.
+   *
+   * @default 'none'
+   */
+  sort?: 'ascending' | 'descending' | 'none';
 }
 
 /**

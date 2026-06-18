@@ -27,6 +27,8 @@ export interface LlmConfig {
   endpoint: string;
   apiKey: string | undefined;
   model: string;
+  /** Hard cap on output tokens. Undefined = no limit (model default). Set via LLM_MAX_TOKENS. */
+  maxTokens: number | undefined;
 }
 
 function required(name: string): string {
@@ -105,6 +107,7 @@ export function buildConfig(): Config {
       endpoint: process.env.LLM_ENDPOINT ?? 'https://api.openai.com/v1/chat/completions',
       apiKey: optional('LLM_API_KEY'),
       model: process.env.LLM_MODEL ?? 'gpt-4o',
+      maxTokens: process.env.LLM_MAX_TOKENS ? parseInt(process.env.LLM_MAX_TOKENS, 10) : undefined,
     },
     jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
     studioToken: optional('STUDIO_TOKEN'),

@@ -12,7 +12,8 @@ import { TextSectionFormat } from './TextSectionFormat';
 export function TextFormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
-  const config = useStudioSelector(selectWidgets)[widgetId]?.config;
+  const widget = useStudioSelector(selectWidgets)[widgetId];
+  const config = widget?.config;
   const localeText = useStudioLocaleText();
 
   if (!config) {
@@ -35,17 +36,19 @@ export function TextFormatPanel(props: { widgetId: string }) {
         onColorChange={(v) => update({ textTitleColor: v })}
         onAlignChange={(v) => update({ textTitleAlign: v })}
       />
-      <TextSectionFormat
-        label={localeText.textSetupSubtitleLabel}
-        fontFamily={config.textSubtitleFontFamily}
-        fontSize={config.textSubtitleFontSize}
-        color={config.textSubtitleColor}
-        align={config.textSubtitleAlign}
-        onFontFamilyChange={(v) => update({ textSubtitleFontFamily: v })}
-        onFontSizeChange={(v) => update({ textSubtitleFontSize: v })}
-        onColorChange={(v) => update({ textSubtitleColor: v })}
-        onAlignChange={(v) => update({ textSubtitleAlign: v })}
-      />
+      {!config.textAiEnabled && (
+        <TextSectionFormat
+          label={localeText.textSetupSubtitleLabel}
+          fontFamily={config.textSubtitleFontFamily}
+          fontSize={config.textSubtitleFontSize}
+          color={config.textSubtitleColor}
+          align={config.textSubtitleAlign}
+          onFontFamilyChange={(v) => update({ textSubtitleFontFamily: v })}
+          onFontSizeChange={(v) => update({ textSubtitleFontSize: v })}
+          onColorChange={(v) => update({ textSubtitleColor: v })}
+          onAlignChange={(v) => update({ textSubtitleAlign: v })}
+        />
+      )}
       <TextSectionFormat
         label={localeText.textSetupBodyLabel}
         fontFamily={config.textBodyFontFamily}

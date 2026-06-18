@@ -25,6 +25,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined';
 import EditIcon from '@mui/icons-material/Edit';
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import TroubleshootIcon from '@mui/icons-material/Troubleshoot';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -52,6 +53,8 @@ export interface StudioWidgetCardActionsOverlayProps {
    * @param {'summary' | 'analysis' | 'forecast'} type - The insight type the user selected.
    */
   onInsightRequest?: (type: 'summary' | 'analysis' | 'forecast') => void;
+  /** Called when the user clicks the refresh button on an AI-mode text widget. When omitted, the button is hidden. */
+  onAiRefresh?: () => void;
   /** When true, anomaly detection is currently active on this chart widget. */
   anomalyEnabled?: boolean;
   /** Number of anomalies detected. Only meaningful when `anomalyEnabled` is true. */
@@ -88,6 +91,7 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
     moveToPageOptions,
     onAiRequest,
     onInsightRequest,
+    onAiRefresh,
     anomalyEnabled,
     anomalyCount,
     onAnomalyToggle,
@@ -282,6 +286,22 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               </IconButton>
             </Tooltip>
           )}
+          {onAiRefresh && (
+            <Tooltip title="Refresh AI content">
+              <IconButton
+                size="small"
+                sx={actionButtonSx}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAiRefresh();
+                }}
+                aria-label="Refresh AI content"
+                tabIndex={showEditActions ? 0 : -1}
+              >
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip title={localeText.widgetEditTooltip}>
             <IconButton
               size="small"
@@ -448,7 +468,16 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
     );
   }
 
-  if (mode === 'view' && (canExport || isChart || onInsightRequest || onAnomalyToggle)) {
+  if (
+    mode === 'view' &&
+    (canExport || isChart || onInsightRequest || onAnomalyToggle || onAiRefresh)
+  ) {
+    const viewVisible =
+      showViewExport ||
+      showViewExpand ||
+      Boolean(onInsightRequest) ||
+      Boolean(onAnomalyToggle) ||
+      Boolean(onAiRefresh);
     return (
       <Stack
         data-widget-overlay
@@ -463,20 +492,8 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
           borderColor: 'divider',
           borderRadius: 1,
           boxShadow: '0 2px 6px rgba(0,0,0,0.10)',
-          visibility:
-            showViewExport ||
-            showViewExpand ||
-            Boolean(onInsightRequest) ||
-            Boolean(onAnomalyToggle)
-              ? 'visible'
-              : 'hidden',
-          pointerEvents:
-            showViewExport ||
-            showViewExpand ||
-            Boolean(onInsightRequest) ||
-            Boolean(onAnomalyToggle)
-              ? 'auto'
-              : 'none',
+          visibility: viewVisible ? 'visible' : 'hidden',
+          pointerEvents: viewVisible ? 'auto' : 'none',
         }}
       >
         {canExport && (
@@ -591,6 +608,21 @@ export function StudioWidgetCardActionsOverlay(props: StudioWidgetCardActionsOve
               aria-label={localeText.widgetExplainAnomalyTooltip}
             >
               <AutoAwesomeIcon sx={{ opacity: 0.7 }} />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onAiRefresh && (
+          <Tooltip title="Refresh AI content">
+            <IconButton
+              size="small"
+              sx={actionButtonSx}
+              onClick={(event) => {
+                event.stopPropagation();
+                onAiRefresh();
+              }}
+              aria-label="Refresh AI content"
+            >
+              <RefreshIcon />
             </IconButton>
           </Tooltip>
         )}

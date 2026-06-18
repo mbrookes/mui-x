@@ -34,6 +34,37 @@ export const EMPLOYEES_SOURCE: StudioDataSource = {
 let cachedRows: Record<string, unknown>[] | null = null;
 
 /**
+ * Eagerly fetches all employee rows from the server-side-data server and
+ * caches them in module scope.  Returns [] without throwing if the server is
+ * not reachable.  Safe to call multiple times — returns the cached result after
+ * the first successful fetch.
+ */
+export async function prefetchEmployees(
+  serverUrl: string,
+): Promise<Record<string, unknown>[]> {
+  if (cachedRows !== null) {
+    return cachedRows;
+  }
+  try {
+    const res = await fetch(`${serverUrl}/api/employees?pageSize=1000`);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    }
+    const data = (await res.json()) as { data: Record<string, unknown>[] };
+    cachedRows = data.data;
+    return cachedRows;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[x-studio] Employees connector: could not reach ${serverUrl} — ` +
+        'is the server-side-data server running? (PORT=3002 pnpm dev)',
+      err,
+    );
+    return [];
+  }
+}
+
+/**
  * Returns a StudioDataSourceAdapter that fetches from the server-side-data
  * REST API and caches the result.  Returns empty rows (no crash) when the
  * server is not reachable — retries on the next getRows call.
@@ -41,26 +72,7 @@ let cachedRows: Record<string, unknown>[] | null = null;
 export function createEmployeesAdapter(serverUrl: string): StudioDataSourceAdapter {
   return {
     async getRows() {
-      if (cachedRows !== null) {
-        return { rows: cachedRows };
-      }
-      try {
-        const res = await fetch(`${serverUrl}/api/employees?pageSize=1000`);
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status} ${res.statusText}`);
-        }
-        const data = (await res.json()) as { data: Record<string, unknown>[] };
-        cachedRows = data.data;
-        return { rows: cachedRows };
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[x-studio] Employees connector: could not reach ${serverUrl} — ` +
-            'is the server-side-data server running? (PORT=3002 pnpm dev)',
-          err,
-        );
-        return { rows: [] };
-      }
+      return { rows: await prefetchEmployees(serverUrl) };
     },
   };
 }

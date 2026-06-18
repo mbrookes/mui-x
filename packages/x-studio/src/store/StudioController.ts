@@ -237,6 +237,30 @@ export class StudioController {
     });
   };
 
+  /**
+   * Replaces the in-memory rows for a data source without invalidating the
+   * adapter request cache.  Use this to pre-populate rows for the data drawer
+   * (count badge, tooltip preview) when the source also has an adapter that
+   * handles live widget queries.
+   *
+   * @param sourceId - The ID of the data source to update.
+   * @param rows - The rows to store on the source.
+   */
+  setDataSourceRows = (sourceId: string, rows: Record<string, unknown>[]) => {
+    const state = this.store.state;
+    const source = state.dataSources[sourceId];
+    if (!source) {
+      return;
+    }
+    this.commitState({
+      ...state,
+      dataSources: {
+        ...state.dataSources,
+        [sourceId]: { ...source, rows },
+      },
+    });
+  };
+
   updateDataSourceField = (
     sourceId: string,
     fieldId: string,

@@ -63,6 +63,15 @@ export interface StudioHandle {
    * @param adapter - The adapter implementation, or `undefined` to remove it.
    */
   setDataSourceAdapter(sourceId: string, adapter: StudioDataSourceAdapter | undefined): void;
+  /**
+   * Replace the in-memory rows stored on a data source without invalidating the
+   * adapter request cache.  Use this to pre-populate the data drawer row count and
+   * tooltip preview for sources that also have an adapter handling widget queries.
+   *
+   * @param sourceId - The ID of the data source to update.
+   * @param rows - The rows to store on the source.
+   */
+  setDataSourceRows(sourceId: string, rows: Record<string, unknown>[]): void;
 }
 
 // ── Slots / Props ─────────────────────────────────────────────────────────────
@@ -282,6 +291,7 @@ export const Studio = React.memo(
         loadSerializedState: (data) => controller.loadSerializedState(data),
         setDataSourceAdapter: (sourceId, adapter) =>
           controller.setDataSourceAdapter(sourceId, adapter),
+        setDataSourceRows: (sourceId, rows) => controller.setDataSourceRows(sourceId, rows),
       }),
       [controller],
     );

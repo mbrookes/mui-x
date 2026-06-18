@@ -646,7 +646,6 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   onChange={(evt) =>
                     controller.updateWidgetConfig(widgetId, {
                       funnelLabelFormat: evt.target.value as 'value' | 'percent' | 'conversion',
-                      // Auto-set outside-end placement when switching to conversion rate
                       ...(evt.target.value === 'conversion' && !config.funnelLabelPlacement
                         ? { funnelLabelPlacement: 'outside-end' as const }
                         : {}),

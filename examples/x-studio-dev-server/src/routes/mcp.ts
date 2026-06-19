@@ -49,7 +49,10 @@ import {
   type StudioStateBox,
   type StudioDataQueryParams,
 } from '@mui/x-studio-ai-middleware';
+import type { StudioState } from '@mui/x-studio-ai-middleware';
+import type { SerializedStudioState } from '@mui/x-studio';
 import { log, error as logError } from '../logger.js';
+import { getDashboardState, setDashboardState } from './dashboardState.js';
 import {
   generateSalesData,
   generateCrmData,
@@ -207,8 +210,17 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
         claims = DEV_CLAIMS;
       }
 
+      const saved = getDashboardState() as SerializedStudioState | null;
       const stateBox: StudioStateBox = {
-        current: createDefaultStudioState(MCP_INITIAL_STATE),
+        current: createDefaultStudioState(
+          saved
+            ? ({
+                ...saved,
+                dataSources: MCP_INITIAL_DATA_SOURCES,
+                mode: 'edit',
+              } as Partial<StudioState>)
+            : MCP_INITIAL_STATE,
+        ),
       };
 
       const transport = new StreamableHTTPServerTransport({
@@ -216,15 +228,21 @@ export function makeMcpRouter(salesDb: Knex, crmDb: Knex, config: Config): Route
         onsessioninitialized: (sid) => {
           transports[sid] = transport;
           stateBoxes[sid] = stateBox;
-          log(`[mcp] session ${sid.slice(0, 8)}… initialized`);
+          log(`[mcp] session ${sid.slice(0, 8)}… initialized${saved ? ' (from saved state)' : ''}`);
         },
       });
 
-      // Clean up session on disconnect.
+      // Clean up session on disconnect, persisting any mutations made during the session.
       transport.onclose = () => {
         const sid = transport.sessionId;
         if (sid) {
           log(`[mcp] session ${sid.slice(0, 8)}… closed`);
+          const box = stateBoxes[sid];
+          if (box) {
+            const { dataSources: _ds, mode: _m, shell: _sh, ...persisted } = box.current;
+            setDashboardState(persisted);
+            log(`[mcp] session ${sid.slice(0, 8)}… state persisted`);
+          }
           delete transports[sid];
           delete stateBoxes[sid];
         }

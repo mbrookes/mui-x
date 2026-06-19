@@ -89,7 +89,20 @@ export function AppLayout({
     }
 
     onSaveController(activeChatId);
-    downloadJson(controller.serializeState(), `dashboard-${activeChatId}.json`);
+    const serialized = controller.serializeState();
+    downloadJson(serialized, `dashboard-${activeChatId}.json`);
+    const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
+    if (serverUrl) {
+      const token = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
+      fetch(`${serverUrl.replace(/\/$/, '')}/api/dashboard-state`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(serialized),
+      }).catch(() => {});
+    }
   }, [activeChatId, controller, onSaveController]);
 
   const handleLoad = React.useCallback(async () => {

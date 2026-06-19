@@ -9,6 +9,12 @@ export type StudioDateRangePreset =
   | 'last_3_months'
   | 'last_12_months'
   | 'ytd'
+  | 'this_calendar_year'
+  | 'last_calendar_year'
+  | 'last_2_calendar_years'
+  | 'this_quarter'
+  | 'last_quarter'
+  | 'this_and_last_quarter'
   | 'custom';
 
 export interface StudioFilterState {
@@ -68,6 +74,8 @@ export interface StudioFilterState {
    * Purely a UX hint — does not affect how filters are evaluated against rows.
    */
   dependsOn?: string[];
+  /** When `true`, the filter is temporarily inactive without being removed. */
+  disabled?: boolean;
 }
 
 export interface StudioShellState {

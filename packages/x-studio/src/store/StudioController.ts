@@ -796,6 +796,16 @@ export class StudioController {
     });
   };
 
+  toggleFilter = (filterId: string) => {
+    const state = this.store.state;
+    this.commitState({
+      ...state,
+      filters: state.filters.map((f: StudioFilterState) =>
+        f.id === filterId ? { ...f, disabled: !f.disabled } : f,
+      ),
+    });
+  };
+
   /**
    * Sets or clears the dashboard-level date range filter for a page.
    *

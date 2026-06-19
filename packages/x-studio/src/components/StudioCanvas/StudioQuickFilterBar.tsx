@@ -17,10 +17,11 @@ import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 
 /**
  * Compact row of chips pinned above the canvas showing active page filters.
- * Only rendered in view mode when at least one page filter is active.
+ * Only rendered in view mode when at least one page filter is present.
  *
  * - Each chip shows "FieldLabel: summary"
- * - Clicking a chip opens the filters drawer
+ * - Clicking a chip toggles it enabled/disabled without removing it
+ * - Disabled chips are shown outlined and dimmed
  * - "Clear all" button removes all page filters for the active page
  */
 export function StudioQuickFilterBar() {
@@ -99,12 +100,12 @@ export function StudioQuickFilterBar() {
             key={filter.id}
             label={label}
             size="small"
-            onDelete={(event) => {
+            variant={filter.disabled ? 'outlined' : 'filled'}
+            onClick={(event) => {
               event.stopPropagation();
-              controller.removeFilter(filter.id);
+              controller.toggleFilter(filter.id);
             }}
-            deleteIcon={<CloseIcon />}
-            sx={{ maxWidth: 220 }}
+            sx={{ maxWidth: 220, opacity: filter.disabled ? 0.55 : 1, cursor: 'pointer' }}
           />
         );
       })}

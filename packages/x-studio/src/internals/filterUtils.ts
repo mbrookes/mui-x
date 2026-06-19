@@ -350,7 +350,7 @@ function isFilterComplete(filter: StudioFilterState): boolean {
 }
 
 export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
-  const active = filters.filter(isFilterComplete);
+  const active = filters.filter((f) => !f.disabled && isFilterComplete(f));
   if (active.length === 0) {
     return rows;
   }

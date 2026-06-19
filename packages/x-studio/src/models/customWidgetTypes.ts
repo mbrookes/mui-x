@@ -4,9 +4,10 @@ import type { StudioDataSource, StudioWidget } from '.';
 /**
  * Props passed to a custom widget's render component.
  *
- * `dataSource` is the raw data source assigned to the widget (if any).
- * For access to filtered rows, cross-filter state, or other runtime data,
- * use the `useStudioSelector` hook inside your component.
+ * `dataSource.rows` (when present) includes L2 enrichment: expression-field
+ * values (e.g. computed columns) are pre-resolved so custom widgets can read
+ * them directly from each row.  Filters and cross-filter state are NOT applied
+ * — use `useStudioSelector` inside your component for those.
  */
 export interface StudioCustomWidgetProps {
   widget: StudioWidget;

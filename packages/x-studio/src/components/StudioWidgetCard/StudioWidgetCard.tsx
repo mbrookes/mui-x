@@ -28,6 +28,9 @@ import {
   selectMode,
   selectPages,
   selectFilters,
+  selectDataSources,
+  selectRelationships,
+  selectExpressionFields,
   makeSelectPartitionedBaseFiltersForPage,
   makeSelectWidget,
   makeSelectIsWidgetSelected,
@@ -206,6 +209,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const activeCrossFilter = useStudioSelector(selectCrossFilterFn);
   const pages = useStudioSelector(selectPages);
   const allFilters = useStudioSelector(selectFilters);
+  const allDataSources = useStudioSelector(selectDataSources);
+  const relationships = useStudioSelector(selectRelationships);
+  const expressionFields = useStudioSelector(selectExpressionFields);
   const localeText = useStudioLocaleText();
   const customWidgetMap = useCustomWidgetMap();
   const features = useStudioFeatures();
@@ -228,6 +234,26 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     widget && !['grid', 'chart', 'kpi', 'text', 'filter', 'pivot', 'map'].includes(widget.kind)
       ? (customWidgetMap.get(widget.kind) ?? null)
       : null;
+
+  // Enrich the raw data source with expression-field values (L2 pipeline) for custom widgets.
+  // Built-in widgets handle enrichment themselves via useWidgetRows; custom widgets receive
+  // raw rows by default, but expression fields (e.g. computed columns) would not resolve.
+  // We apply L2 enrichment here (no filter application) so `dataSource.rows` includes all
+  // computed column values. The enriched result is stable — getCachedEnrichedRows caches by
+  // reference, so repeated renders with the same inputs return the same array.
+  const enrichedCustomSource = React.useMemo(() => {
+    if (!customDef || !source) {
+      return source ?? undefined;
+    }
+    const pipeline = createStudioPipeline({
+      dataSources: allDataSources,
+      relationships,
+      expressionFields,
+      filters: [],
+    });
+    const enrichedRows = pipeline.getEnrichedRows(source.rows ?? [], source.id);
+    return { ...source, rows: enrichedRows };
+  }, [customDef, source, allDataSources, relationships, expressionFields]);
 
   // Full-bleed custom widgets render edge-to-edge: no title/subtitle header and no card padding.
   const isFullBleedCustom = customDef?.fullBleed === true;
@@ -445,7 +471,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   }
 
   // In view mode, let the custom widget def opt into collapsing the entire card.
-  if (mode === 'view' && customDef?.shouldHide?.({ widget, dataSource: source ?? undefined })) {
+  // Pass the enriched source so shouldHide can evaluate expression-field–driven conditions.
+  if (mode === 'view' && customDef?.shouldHide?.({ widget, dataSource: enrichedCustomSource })) {
     return null;
   }
 
@@ -772,7 +799,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             ))}
           {customDef &&
             (showContent ? (
-              <customDef.component widget={widget} dataSource={source ?? undefined} />
+              <customDef.component widget={widget} dataSource={enrichedCustomSource} />
             ) : (
               <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 1 }} />
             ))}
@@ -877,7 +904,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                 {source && <StudioMapWidget widget={widget} dataSource={source} pageId={pageId} />}
               </Box>
             )}
-            {customDef && <customDef.component widget={widget} dataSource={source ?? undefined} />}
+            {customDef && <customDef.component widget={widget} dataSource={enrichedCustomSource} />}
           </StudioWidgetEditDialog>
         )}
       </Paper>

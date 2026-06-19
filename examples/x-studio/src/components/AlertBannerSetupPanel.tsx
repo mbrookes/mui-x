@@ -8,7 +8,12 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useStudioController, useStudioSelector, selectDataSources } from '@mui/x-studio';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectDataSources,
+  selectExpressionFields,
+} from '@mui/x-studio';
 import type { StudioCustomWidgetSetupPanelProps } from '@mui/x-studio';
 import { useAppLocaleText } from '../locales/AppLocaleContext';
 import {
@@ -31,6 +36,7 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
   const controller = useStudioController();
   const widget = useStudioSelector((state) => state.widgets[widgetId]);
   const dataSources = useStudioSelector(selectDataSources);
+  const allExpressionFields = useStudioSelector(selectExpressionFields);
   const t = useAppLocaleText();
 
   if (!widget) {
@@ -38,9 +44,24 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
   }
 
   const source = widget.sourceId ? dataSources[widget.sourceId] : undefined;
-  const numberFields = source?.fields.filter((f) => !f.hidden && f.type === 'number') ?? [];
-  const dateFields =
-    source?.fields.filter((f) => !f.hidden && (f.type === 'date' || f.type === 'datetime')) ?? [];
+  const sourceId = widget.sourceId;
+
+  // Include expression fields alongside physical fields so computed columns
+  // (e.g. expr-order-total-usd) appear in the value and date field selectors.
+  const exprForSource = allExpressionFields.filter((ef) => ef.sourceId === sourceId && !ef.hidden);
+  const numberFields: { id: string; label: string }[] = [
+    ...(source?.fields.filter((f) => !f.hidden && f.type === 'number') ?? []),
+    ...exprForSource
+      .filter((ef) => ef.type === 'number' || ef.type == null)
+      .map((ef) => ({ id: ef.id, label: ef.label })),
+  ];
+  const dateFields: { id: string; label: string }[] = [
+    ...(source?.fields.filter((f) => !f.hidden && (f.type === 'date' || f.type === 'datetime')) ??
+      []),
+    ...exprForSource
+      .filter((ef) => ef.type === 'date' || ef.type === 'datetime')
+      .map((ef) => ({ id: ef.id, label: ef.label })),
+  ];
 
   const custom = (widget.config.customConfig ?? {}) as AlertBannerConfig;
   const message = custom.message ?? '';

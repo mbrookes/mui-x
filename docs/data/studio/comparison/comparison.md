@@ -197,7 +197,7 @@ AG Studio's 24-column grid (see [AG Studio — Modes & Layout](https://www.ag-gr
 MUI X Studio uses a 24-column grid for col-spans — each widget defaults to equal width but can be resized via a drag handle between adjacent widgets that snaps to the grid (minimum span: 6 columns, or 25% of row width).
 MUI X Studio's `stackBreakpoint` prop (default 600px) controls view-mode responsive layout in three tiers:
 
-| Canvas width              | Behavior                                                            |
+| Canvas width              | Behavior                                                             |
 | :------------------------ | :------------------------------------------------------------------- |
 | ≥ `2 × stackBreakpoint`   | Configured col-spans used as-is (normal layout)                      |
 | `stackBreakpoint` to `2×` | Each widget's span is doubled (capped at 100%), giving a 2-up layout |
@@ -251,20 +251,20 @@ AG Studio exposes `getState()`/`setState()` and similarly leaves file I/O to the
 
 ## Theming & Customisation
 
-| Feature                                       | MUI X Studio                                  | AG Studio                          |
-| :-------------------------------------------- | :-------------------------------------------- | :--------------------------------- |
-| Theme system                                  | MUI (`createTheme`)                           | AG Grid (`studioTheme.withParams`) |
-| Dark mode                                     | ✅ (MUI `palette.mode: 'dark'`)               | ✅                                 |
+| Feature                                      | MUI X Studio                                  | AG Studio                          |
+| :------------------------------------------- | :-------------------------------------------- | :--------------------------------- |
+| Theme system                                 | MUI (`createTheme`)                           | AG Grid (`studioTheme.withParams`) |
+| Dark mode                                    | ✅ (MUI `palette.mode: 'dark'`)               | ✅                                 |
 | Per-page background color                    | ✅                                            | ✅                                 |
 | Per-page card color, padding, radius, border | ✅                                            | ❌                                 |
 | Slot props (deep subcomponent customisation) | ✅                                            | ❌                                 |
-| `sx` prop on composable components            | ✅ (`StudioCanvas`, `StudioChatPanel`, etc.)  | ❌                                 |
-| Custom sidebar layout                         | ✅ (stacked / tabbed; left / right)           | ✅ (left/right panel config)       |
-| Headless composition                          | ✅                                            | ❌                                 |
-| Custom widget API                             | ❌                                            | ✅                                 |
-| Localisation / i18n                           | ✅ (`StudioLocaleText`; ptBR locale included) | ✅ (`localeText`; 31 locales)      |
-| RTL support                                   | ❌                                            | ✅ (`enableRtl`)                   |
-| Runtime feature flags                         | ✅ (`StudioFeatureFlags` — 26 flags)          | ❌                                 |
+| `sx` prop on composable components           | ✅ (`StudioCanvas`, `StudioChatPanel`, etc.)  | ❌                                 |
+| Custom sidebar layout                        | ✅ (stacked / tabbed; left / right)           | ✅ (left/right panel config)       |
+| Headless composition                         | ✅                                            | ❌                                 |
+| Custom widget API                            | ❌                                            | ✅                                 |
+| Localisation / i18n                          | ✅ (`StudioLocaleText`; ptBR locale included) | ✅ (`localeText`; 31 locales)      |
+| RTL support                                  | ❌                                            | ✅ (`enableRtl`)                   |
+| Runtime feature flags                        | ✅ (`StudioFeatureFlags` — 26 flags)          | ❌                                 |
 
 `StudioFeatureFlags` lets you gate entire feature areas at runtime — for example `{ filters: false }` hides the Filters panel entirely, `{ aiChat: false }` removes the AI button, `{ pivot: false }` removes the Pivot widget type, and so on.
 Individual flags: `compose`, `filters`, `savedFilterViews`, `dataManagement`, `aiChat`, `dateRangeBar`, `grid`, `chart`, `kpi`, `text`, `filter`, `pivot`, `map`, `relationships`, `widgetFilters`, `kpiSparkline`, `kpiTrend`, `chartAnnotations`, `gridGroupBy`, `gridSummary`, `gridConditionalFormats`, `calculatedFields`, `kpiCalculatedFields`, `chartCalculatedFields`, `gridCalculatedFields`.

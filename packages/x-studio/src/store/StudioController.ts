@@ -1103,6 +1103,20 @@ export class StudioController {
   };
 
   /**
+   * Removes all page-level filters for the active page (restores the default view).
+   */
+  clearPageFilters = () => {
+    const state = this.store.state;
+    const activePageId = state.dashboard.activePageId;
+    this.commitState({
+      ...state,
+      filters: state.filters.filter(
+        (f: StudioFilterState) => f.scope !== 'page' || (f.pageId && f.pageId !== activePageId),
+      ),
+    });
+  };
+
+  /**
    * Applies a saved filter preset by replacing all page-level filters with the preset's filters.
    */
   applyFilterPreset = (presetId: string) => {

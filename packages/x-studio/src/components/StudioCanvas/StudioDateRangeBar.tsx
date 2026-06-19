@@ -1,14 +1,6 @@
 'use client';
 import * as React from 'react';
-import {
-  Box,
-  FormControl,
-  InputLabel,
-  ListSubheader,
-  MenuItem,
-  Select,
-  Typography,
-} from '@mui/material';
+import { Box, FormControl, InputLabel, ListSubheader, MenuItem, Select } from '@mui/material';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import {
   useStudioController,
@@ -20,26 +12,18 @@ import {
 } from '../../context';
 import type { StudioDateRangePreset, StudioFilterState } from '../../models';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
 interface DateField {
   fieldId: string;
   sourceId: string;
-  label: string;
   type: 'date' | 'datetime';
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
-
-/** Build a stable composite key for each date field. */
-const fieldKey = (f: DateField) => `${f.sourceId}.${f.fieldId}`;
-
 /**
  * Compact date range toolbar rendered above the canvas.
- * Lets the user pick a date/datetime field and a preset range to filter all
- * widgets on the active page at once.
+ * Lets the user pick a preset range to filter all widgets on the active page.
+ * Automatically applies to the first date/datetime field found in any data source.
  *
- * Only rendered when at least one date or datetime field exists in any data source.
+ * Only rendered when at least one date or datetime field exists.
  */
 export function StudioDateRangeBar() {
   const controller = useStudioController();
@@ -92,7 +76,6 @@ export function StudioDateRangeBar() {
     [localeText],
   );
 
-  // ── Derive the active date-range filter for this page ─────────────────────
   const dateRangeFilter = React.useMemo(
     () =>
       (filters as StudioFilterState[]).find(
@@ -101,78 +84,24 @@ export function StudioDateRangeBar() {
     [filters, activePageId],
   );
 
-  // ── Build the list of date/datetime fields ────────────────────────────────
-  const dateFields = React.useMemo<DateField[]>(() => {
-    const result: DateField[] = [];
+  // First date/datetime field across all sources — used as the implicit filter target.
+  const firstDateField = React.useMemo<DateField | null>(() => {
     for (const source of Object.values(dataSources)) {
       for (const field of source.fields) {
         if ((field.type === 'date' || field.type === 'datetime') && !field.hidden) {
-          result.push({
-            fieldId: field.id,
-            sourceId: source.id,
-            label:
-              Object.keys(dataSources).length > 1
-                ? `${source.label} · ${field.label}`
-                : field.label,
-            type: field.type,
-          });
+          return { fieldId: field.id, sourceId: source.id, type: field.type };
         }
       }
     }
-    return result;
+    return null;
   }, [dataSources]);
 
-  // ── Local state: keep the field selection even when preset = "All time" ───
-  const [localFieldKey, setLocalFieldKey] = React.useState<string>('');
-
-  // Seed local field from the active filter on first render / when filter changes
-  React.useEffect(() => {
-    if (dateRangeFilter) {
-      const key = `${dateRangeFilter.filterSourceId ?? ''}.${dateRangeFilter.field}`;
-      setLocalFieldKey(key);
-    }
-  }, [dateRangeFilter]);
-
-  if (dateFields.length === 0) {
+  if (!firstDateField) {
     return null;
   }
 
-  // ── Derived selection values ──────────────────────────────────────────────
   const activePreset: StudioDateRangePreset | 'all_time' =
     dateRangeFilter?.dateRangePreset ?? 'all_time';
-
-  const effectiveFieldKey = localFieldKey || (dateFields[0] ? fieldKey(dateFields[0]) : '');
-  const selectedField = dateFields.find((f) => fieldKey(f) === effectiveFieldKey) ?? null;
-
-  // ── Handlers ──────────────────────────────────────────────────────────────
-
-  const applyRange = (field: DateField, preset: StudioDateRangePreset | 'all_time') => {
-    if (preset === 'all_time') {
-      controller.setDashboardDateRange(activePageId, null, null, null, null);
-      return;
-    }
-    if (preset === 'custom') {
-      return; // custom dates must be provided explicitly — no-op here
-    }
-    controller.setDashboardDateRange(
-      activePageId,
-      field.fieldId,
-      field.sourceId,
-      field.type,
-      preset,
-    );
-  };
-
-  const handleFieldChange = (key: string) => {
-    setLocalFieldKey(key);
-    const field = dateFields.find((f) => fieldKey(f) === key);
-    if (!field) {
-      return;
-    }
-    if (activePreset !== 'all_time') {
-      applyRange(field, activePreset);
-    }
-  };
 
   const handlePresetChange = (value: string) => {
     const preset = value as StudioDateRangePreset | 'all_time';
@@ -180,10 +109,16 @@ export function StudioDateRangeBar() {
       controller.setDashboardDateRange(activePageId, null, null, null, null);
       return;
     }
-    if (!selectedField) {
+    if (preset === 'custom') {
       return;
     }
-    applyRange(selectedField, preset);
+    controller.setDashboardDateRange(
+      activePageId,
+      firstDateField.fieldId,
+      firstDateField.sourceId,
+      firstDateField.type,
+      preset,
+    );
   };
 
   return (
@@ -197,43 +132,17 @@ export function StudioDateRangeBar() {
         borderBottom: 1,
         borderColor: 'divider',
         backgroundColor: 'background.paper',
-        flexWrap: 'wrap',
       }}
     >
       <CalendarMonthIcon fontSize="small" color="action" sx={{ flexShrink: 0 }} />
 
-      <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>
-        {localeText.dateRangeBarFieldLabel}
-      </Typography>
-
-      {/* Field selector */}
-      <FormControl size="small" sx={{ minWidth: 160 }}>
-        <InputLabel id="date-range-field-label" sx={{ fontSize: '0.8rem' }}>
-          {localeText.filterFieldLabel}
-        </InputLabel>
-        <Select
-          labelId="date-range-field-label"
-          label={localeText.filterFieldLabel}
-          value={effectiveFieldKey}
-          onChange={(event) => handleFieldChange(event.target.value)}
-          sx={{ fontSize: '0.8rem' }}
-        >
-          {dateFields.map((f) => (
-            <MenuItem key={fieldKey(f)} value={fieldKey(f)} sx={{ fontSize: '0.8rem' }}>
-              {f.label}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
-
-      {/* Preset selector */}
       <FormControl size="small" sx={{ minWidth: 170 }}>
         <InputLabel id="date-range-preset-label" sx={{ fontSize: '0.8rem' }}>
-          {localeText.dateRangePresetAriaLabel}
+          {localeText.dateRangeBarFieldLabel}
         </InputLabel>
         <Select
           labelId="date-range-preset-label"
-          label={localeText.dateRangePresetAriaLabel}
+          label={localeText.dateRangeBarFieldLabel}
           value={activePreset}
           onChange={(event) => handlePresetChange(event.target.value)}
           sx={{ fontSize: '0.8rem' }}

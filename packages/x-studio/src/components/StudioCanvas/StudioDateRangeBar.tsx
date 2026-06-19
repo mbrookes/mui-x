@@ -4,10 +4,9 @@ import {
   Box,
   FormControl,
   InputLabel,
+  ListSubheader,
   MenuItem,
   Select,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
@@ -20,8 +19,6 @@ import {
   selectActivePageId,
 } from '../../context';
 import type { StudioDateRangePreset, StudioFilterState } from '../../models';
-
-// ─── Preset configuration ────────────────────────────────────────────────────
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -51,13 +48,46 @@ export function StudioDateRangeBar() {
   const activePageId = useStudioSelector(selectActivePageId);
   const localeText = useStudioLocaleText();
 
-  const dateRangePresets = React.useMemo(
+  const dateRangePresetGroups = React.useMemo(
     () => [
-      { value: 'all_time' as const, label: localeText.dateRangePresetAllTime },
-      { value: 'ytd' as const, label: localeText.dateRangePresetYTD },
-      { value: 'this_month' as const, label: localeText.dateRangePresetThisMonth },
-      { value: 'last_3_months' as const, label: localeText.dateRangePresetLast3Months },
-      { value: 'last_12_months' as const, label: localeText.dateRangePresetLast12Months },
+      {
+        label: localeText.dateRangePresetGroupRolling,
+        options: [
+          { value: 'all_time' as const, label: localeText.dateRangePresetAllTime },
+          { value: 'this_month' as const, label: localeText.dateRangePresetThisMonth },
+          { value: 'last_3_months' as const, label: localeText.dateRangePresetLast3Months },
+          { value: 'last_12_months' as const, label: localeText.dateRangePresetLast12Months },
+          { value: 'ytd' as const, label: localeText.dateRangePresetYTD },
+        ],
+      },
+      {
+        label: localeText.dateRangePresetGroupCalendarYear,
+        options: [
+          {
+            value: 'this_calendar_year' as const,
+            label: localeText.dateRangePresetThisCalendarYear,
+          },
+          {
+            value: 'last_calendar_year' as const,
+            label: localeText.dateRangePresetLastCalendarYear,
+          },
+          {
+            value: 'last_2_calendar_years' as const,
+            label: localeText.dateRangePresetLast2CalendarYears,
+          },
+        ],
+      },
+      {
+        label: localeText.dateRangePresetGroupQuarter,
+        options: [
+          { value: 'this_quarter' as const, label: localeText.dateRangePresetThisQuarter },
+          { value: 'last_quarter' as const, label: localeText.dateRangePresetLastQuarter },
+          {
+            value: 'this_and_last_quarter' as const,
+            label: localeText.dateRangePresetThisAndLastQuarter,
+          },
+        ],
+      },
     ],
     [localeText],
   );
@@ -124,7 +154,6 @@ export function StudioDateRangeBar() {
     if (preset === 'custom') {
       return; // custom dates must be provided explicitly — no-op here
     }
-    // Let the controller compute the dates from the preset
     controller.setDashboardDateRange(
       activePageId,
       field.fieldId,
@@ -145,20 +174,16 @@ export function StudioDateRangeBar() {
     }
   };
 
-  const handlePresetChange = (_: React.MouseEvent, value: string | null) => {
-    if (!value) {
-      return;
-    }
+  const handlePresetChange = (value: string) => {
     const preset = value as StudioDateRangePreset | 'all_time';
-    const field = selectedField;
     if (preset === 'all_time') {
       controller.setDashboardDateRange(activePageId, null, null, null, null);
       return;
     }
-    if (!field) {
+    if (!selectedField) {
       return;
     }
-    applyRange(field, preset);
+    applyRange(selectedField, preset);
   };
 
   return (
@@ -201,25 +226,30 @@ export function StudioDateRangeBar() {
         </Select>
       </FormControl>
 
-      {/* Preset toggle buttons */}
-      <ToggleButtonGroup
-        value={activePreset}
-        exclusive
-        onChange={handlePresetChange}
-        size="small"
-        aria-label={localeText.dateRangePresetAriaLabel}
-        sx={{ flexShrink: 0 }}
-      >
-        {dateRangePresets.map((p) => (
-          <ToggleButton
-            key={p.value}
-            value={p.value}
-            sx={{ px: 1.25, py: 0.375, fontSize: '0.75rem', textTransform: 'none' }}
-          >
-            {p.label}
-          </ToggleButton>
-        ))}
-      </ToggleButtonGroup>
+      {/* Preset selector */}
+      <FormControl size="small" sx={{ minWidth: 170 }}>
+        <InputLabel id="date-range-preset-label" sx={{ fontSize: '0.8rem' }}>
+          {localeText.dateRangePresetAriaLabel}
+        </InputLabel>
+        <Select
+          labelId="date-range-preset-label"
+          label={localeText.dateRangePresetAriaLabel}
+          value={activePreset}
+          onChange={(event) => handlePresetChange(event.target.value)}
+          sx={{ fontSize: '0.8rem' }}
+        >
+          {dateRangePresetGroups.map((group) => [
+            <ListSubheader key={group.label} sx={{ fontSize: '0.7rem', lineHeight: '2rem' }}>
+              {group.label}
+            </ListSubheader>,
+            ...group.options.map((opt) => (
+              <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '0.8rem' }}>
+                {opt.label}
+              </MenuItem>
+            )),
+          ])}
+        </Select>
+      </FormControl>
     </Box>
   );
 }

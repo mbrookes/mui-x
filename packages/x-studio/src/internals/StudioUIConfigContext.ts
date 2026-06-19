@@ -33,6 +33,16 @@ export interface StudioLocaleText {
   dateRangePresetThisMonth: string;
   dateRangePresetLast3Months: string;
   dateRangePresetLast12Months: string;
+  dateRangePresetThisCalendarYear: string;
+  dateRangePresetLastCalendarYear: string;
+  dateRangePresetLast2CalendarYears: string;
+  dateRangePresetThisQuarter: string;
+  dateRangePresetLastQuarter: string;
+  dateRangePresetThisAndLastQuarter: string;
+  /** Group header labels inside the preset Select */
+  dateRangePresetGroupRolling: string;
+  dateRangePresetGroupCalendarYear: string;
+  dateRangePresetGroupQuarter: string;
 
   // ── Filters drawer ─────────────────────────────────────────────────────────
   filterSearchPlaceholder: string;
@@ -1005,6 +1015,15 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   dateRangePresetThisMonth: 'This month',
   dateRangePresetLast3Months: 'Last 3 months',
   dateRangePresetLast12Months: 'Last 12 months',
+  dateRangePresetThisCalendarYear: 'This year',
+  dateRangePresetLastCalendarYear: 'Last year',
+  dateRangePresetLast2CalendarYears: 'Last 2 years',
+  dateRangePresetThisQuarter: 'This quarter',
+  dateRangePresetLastQuarter: 'Last quarter',
+  dateRangePresetThisAndLastQuarter: 'This & last quarter',
+  dateRangePresetGroupRolling: 'Rolling',
+  dateRangePresetGroupCalendarYear: 'Calendar year',
+  dateRangePresetGroupQuarter: 'Quarter',
 
   // Filters drawer
   filterSearchPlaceholder: 'Search filters\u2026',

@@ -1,10 +1,12 @@
 import {
+  Box,
   Divider,
   FormControl,
   InputLabel,
   MenuItem,
   Select,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from '@mui/material';
@@ -69,6 +71,7 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
   const aggregation = custom.aggregation ?? 'sum';
   const dateField = custom.dateField ?? '';
   const lookbackDays = custom.lookbackDays ?? 0;
+  const lowerIsBetter = custom.lowerIsBetter ?? false;
   const hideBelow: HideBelow = custom.hideBelow ?? 'never';
 
   function updateCustomConfig(changes: Partial<AlertBannerConfig>) {
@@ -96,8 +99,14 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
 
   const hideOptions: { value: HideBelow; label: string }[] = [
     { value: 'never', label: t.alertHideNever },
-    { value: 'warning', label: t.alertHideBelowWarning },
-    { value: 'error', label: t.alertHideBelowError },
+    {
+      value: 'warning',
+      label: lowerIsBetter ? t.alertHideAboveWarning : t.alertHideBelowWarning,
+    },
+    {
+      value: 'error',
+      label: lowerIsBetter ? t.alertHideAboveError : t.alertHideBelowError,
+    },
   ];
 
   return (
@@ -151,6 +160,15 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
         </Select>
       </FormControl>
 
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography variant="body2">{t.alertLowerIsBetter}</Typography>
+        <Switch
+          size="small"
+          checked={lowerIsBetter}
+          onChange={(event) => updateCustomConfig({ lowerIsBetter: event.target.checked })}
+        />
+      </Box>
+
       <FormControl size="small" fullWidth>
         <InputLabel>{t.alertDateFieldLabel}</InputLabel>
         <Select
@@ -185,7 +203,7 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
         {t.alertThresholdsTitle}
       </Typography>
       <TextField
-        label={t.alertThresholdSuccess}
+        label={lowerIsBetter ? t.alertThresholdSuccessLower : t.alertThresholdSuccess}
         type="number"
         value={custom.thresholdSuccess ?? ''}
         onChange={(event) =>
@@ -197,7 +215,7 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
         fullWidth
       />
       <TextField
-        label={t.alertThresholdWarning}
+        label={lowerIsBetter ? t.alertThresholdWarningLower : t.alertThresholdWarning}
         type="number"
         value={custom.thresholdWarning ?? ''}
         onChange={(event) =>
@@ -209,7 +227,7 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
         fullWidth
       />
       <TextField
-        label={t.alertThresholdError}
+        label={lowerIsBetter ? t.alertThresholdErrorLower : t.alertThresholdError}
         type="number"
         value={custom.thresholdError ?? ''}
         onChange={(event) =>

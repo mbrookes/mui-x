@@ -122,25 +122,40 @@ export async function executeForTier(
   const query = buildSecureQuery(db, claims, descriptor, options);
   const columns = descriptor.columns ?? [];
 
-  // All `columns` entries are GROUP BY dimensions. A column may also appear in
-  // `aggregations` (e.g. COUNT(status) grouped BY status) — that is valid SQL
-  // and must not be removed from the GROUP BY clause.
-  if (columns.length > 0) {
-    // SELECT with aliases for expression fields; GROUP BY the physical columns
+  // Qualify an unqualified physical column with the primary table to prevent
+  // "ambiguous column name" errors when JOINs are present (e.g. date filter
+  // on a parent table causes a LEFT JOIN; without the table prefix, SQLite
+  // cannot disambiguate shared column names like `total`).
+  const qualify = (phys: string): string =>
+    phys.includes('.') ? phys : `${descriptor.table}.${phys}`;
+
+  // Pure-measure columns are those whose aggregation alias equals the source
+  // column (e.g. SUM(total) AS total). They must not appear in GROUP BY —
+  // only in the aggregation clause. Dimension columns (date, category, …)
+  // remain in both SELECT and GROUP BY.
+  const measureColSet = new Set(
+    (descriptor.aggregations ?? [])
+      .filter((a) => a.alias === a.column)
+      .map((a) => physicalCol(a.column)),
+  );
+  const dimensionColumns = columns.filter((c) => !measureColSet.has(physicalCol(c)));
+
+  if (dimensionColumns.length > 0) {
     query.select(
-      columns.map((c: string) => {
+      dimensionColumns.map((c: string) => {
         const phys = physicalCol(c);
         if (phys !== c) {
+          // Cross-source / expression field: SELECT physical AS logical
           return db.raw(`?? as ??`, [phys, c]);
         }
-        return phys;
+        return qualify(phys);
       }),
     );
-    query.groupBy(columns.map(physicalCol));
+    query.groupBy(dimensionColumns.map((c) => qualify(physicalCol(c))));
   }
 
   for (const agg of descriptor.aggregations ?? []) {
-    const col = physicalCol(agg.column);
+    const col = qualify(physicalCol(agg.column));
     switch (agg.func) {
       case 'sum':
         query.sum(`${col} as ${agg.alias}`);

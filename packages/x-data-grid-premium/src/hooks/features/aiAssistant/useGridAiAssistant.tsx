@@ -175,17 +175,16 @@ export const useGridAiAssistant = (
       const result: Record<string, ColumnStatistics> = {};
 
       columns.forEach((column) => {
-        const isNumeric = column.type === 'number' || column.type === 'date' || column.type === 'dateTime';
-        const values: unknown[] = rowsToScan.map((row) =>
-          apiRef.current.getRowValue(row, column),
-        );
+        const isNumeric =
+          column.type === 'number' || column.type === 'date' || column.type === 'dateTime';
+        const values: unknown[] = rowsToScan.map((row) => apiRef.current.getRowValue(row, column));
         const nonNullValues = values.filter((v) => v != null);
         const nullCount = values.length - nonNullValues.length;
 
         if (isNumeric) {
-          const nums = nonNullValues.map((v) =>
-            v instanceof Date ? v.getTime() : Number(v),
-          ).filter((n) => !Number.isNaN(n));
+          const nums = nonNullValues
+            .map((v) => (v instanceof Date ? v.getTime() : Number(v)))
+            .filter((n) => !Number.isNaN(n));
 
           if (nums.length === 0) {
             result[column.field] = {
@@ -247,42 +246,38 @@ export const useGridAiAssistant = (
       let statisticsSampled = false;
       if (includeStatistics) {
         const rowsLookup = gridRowsLookupSelector(apiRef);
-        const scanIds = allRowIds.length > MAX_STATS_ROWS
-          ? allRowIds.slice(0, MAX_STATS_ROWS)
-          : allRowIds;
+        const scanIds =
+          allRowIds.length > MAX_STATS_ROWS ? allRowIds.slice(0, MAX_STATS_ROWS) : allRowIds;
         statisticsSampled = scanIds.length < allRowIds.length;
         const rowsToScan = scanIds.map((id) => rowsLookup[id]).filter(Boolean);
         statistics = computeColumnStatistics(rowsToScan);
       }
 
-      const schema: PromptContextColumn[] = columns.reduce(
-        (acc, column) => {
-          const baseEntry: PromptContextColumn = {
-            field: column.field,
-            description: column.description ?? null,
-            examples: examples[column.field] ?? column.examples ?? [],
-            type: column.type ?? 'string',
-            allowedOperators: column.filterOperators?.map((operator) => operator.value) ?? [],
-            ...(statistics ? { statistics: statistics[column.field] } : {}),
-          };
+      const schema: PromptContextColumn[] = columns.reduce((acc, column) => {
+        const baseEntry: PromptContextColumn = {
+          field: column.field,
+          description: column.description ?? null,
+          examples: examples[column.field] ?? column.examples ?? [],
+          type: column.type ?? 'string',
+          allowedOperators: column.filterOperators?.map((operator) => operator.value) ?? [],
+          ...(statistics ? { statistics: statistics[column.field] } : {}),
+        };
 
-          acc.push(baseEntry);
+        acc.push(baseEntry);
 
-          if (!disablePivoting) {
-            (getPivotDerivedColumns?.(column, apiRef.current.getLocaleText) || []).forEach((col) =>
-              acc.push({
-                ...baseEntry,
-                examples: [],
-                ...col,
-                derivedFrom: column.field,
-              }),
-            );
-          }
+        if (!disablePivoting) {
+          (getPivotDerivedColumns?.(column, apiRef.current.getLocaleText) || []).forEach((col) =>
+            acc.push({
+              ...baseEntry,
+              examples: [],
+              ...col,
+              derivedFrom: column.field,
+            }),
+          );
+        }
 
-          return acc;
-        },
-        [] as PromptContextColumn[],
-      );
+        return acc;
+      }, [] as PromptContextColumn[]);
 
       // Capture active view state so agents know what's currently applied
       const filterModel = gridFilterModelSelector(apiRef);
@@ -732,9 +727,8 @@ export const useGridAiAssistant = (
     (input?: GridStatisticsInput): Record<string, ColumnStatistics> => {
       const allRowIds = gridFilteredSortedRowIdsSelector(apiRef);
       const rowsLookup = gridRowsLookupSelector(apiRef);
-      const scanIds = allRowIds.length > MAX_STATS_ROWS
-        ? allRowIds.slice(0, MAX_STATS_ROWS)
-        : allRowIds;
+      const scanIds =
+        allRowIds.length > MAX_STATS_ROWS ? allRowIds.slice(0, MAX_STATS_ROWS) : allRowIds;
       const rowsToScan = scanIds.map((id) => rowsLookup[id]).filter(Boolean);
 
       const allStats = computeColumnStatistics(rowsToScan);
@@ -778,9 +772,7 @@ export const useGridAiAssistant = (
         }
       }
 
-      const sorted = [...counts.entries()].sort(
-        (a, b) => (b[1] as number) - (a[1] as number),
-      );
+      const sorted = [...counts.entries()].sort((a, b) => (b[1] as number) - (a[1] as number));
 
       return {
         field,

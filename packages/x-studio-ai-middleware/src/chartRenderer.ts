@@ -593,7 +593,7 @@ function renderStackedBar(input: ChartRendererInput): string {
       }
       const barH = (val / maxTotal) * chartH;
       const x = xOf(i);
-      const y = yBase - (stackBase + val) / maxTotal * chartH;
+      const y = yBase - ((stackBase + val) / maxTotal) * chartH;
       svgLines.push(
         `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${color(colors, si)}" rx="1"/>`,
       );

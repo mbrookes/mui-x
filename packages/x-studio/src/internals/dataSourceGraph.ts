@@ -162,6 +162,12 @@ export function resolveRows(
   }
 
   for (const f of filters) {
+    // Dashboard date-range filters are scoped to their own source. A filter created
+    // for source A must not be treated as a cross-filter against source B — it would
+    // trigger a semi-join that returns zero rows when no relationship is declared.
+    if (f.isDashboardDateRange && f.filterSourceId && f.filterSourceId !== widgetSourceId) {
+      continue;
+    }
     if (f.filterSourceId && f.filterSourceId !== widgetSourceId) {
       crossFilters.push(f as StudioFilterState & { filterSourceId: string });
     } else if (!f.filterSourceId && f.field) {

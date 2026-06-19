@@ -36,7 +36,9 @@ export interface DataGridMcpTool {
  * }
  * ```
  */
-export function createDataGridMcpTools(apiRef: RefObject<GridApiPremium | null>): DataGridMcpTool[] {
+export function createDataGridMcpTools(
+  apiRef: RefObject<GridApiPremium | null>,
+): DataGridMcpTool[] {
   return [
     {
       name: 'grid_get_context',
@@ -165,7 +167,10 @@ export function createDataGridMcpTools(apiRef: RefObject<GridApiPremium | null>)
       },
       execute: async (input: unknown) => {
         const { items = [], logicOperator = 'and' } = (input as Record<string, unknown>) ?? {};
-        apiRef.current?.setFilterModel({ items: items as any[], logicOperator: logicOperator as any });
+        apiRef.current?.setFilterModel({
+          items: items as any[],
+          logicOperator: logicOperator as any,
+        });
       },
     },
 

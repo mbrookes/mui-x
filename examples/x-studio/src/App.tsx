@@ -323,7 +323,9 @@ export default function App() {
       const mergedPages = { ...restored.pages };
       const mergedWidgets = { ...restored.widgets };
       const mergedExprFields = [...restored.expressionFields];
+      const mergedFilters = [...restored.filters];
       const existingEfIds = new Set(restored.expressionFields.map((ef) => ef.id));
+      const existingFilterIds = new Set(restored.filters.map((f) => f.id));
       let stateChanged = false;
 
       for (const [pageId, page] of Object.entries(baseConfig.pages ?? {})) {
@@ -344,6 +346,12 @@ export default function App() {
           stateChanged = true;
         }
       }
+      for (const filter of baseConfig.filters ?? []) {
+        if (!existingFilterIds.has(filter.id)) {
+          mergedFilters.push(filter);
+          stateChanged = true;
+        }
+      }
 
       const mergedState = stateChanged
         ? {
@@ -351,6 +359,7 @@ export default function App() {
             pages: mergedPages,
             widgets: mergedWidgets,
             expressionFields: mergedExprFields,
+            filters: mergedFilters,
           }
         : restored;
 

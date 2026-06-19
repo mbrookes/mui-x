@@ -378,12 +378,11 @@ export function buildQueryDescriptor(
     (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
   );
 
-  const allFilters = resolveDateRangePresets([
-    ...pageFilters,
-    ...widgetFilters,
-    ...crossFilters,
-    ...interactiveFilters,
-  ]);
+  const allFilters = resolveDateRangePresets(
+    [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters].filter(
+      (f) => !f.disabled,
+    ),
+  );
   const filter = filtersToFilterNode(allFilters);
 
   // Expression columns are expanded to the native columns they depend on — the server

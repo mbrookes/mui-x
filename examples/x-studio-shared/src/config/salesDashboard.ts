@@ -1127,6 +1127,7 @@ export const INITIAL_STATE: Partial<StudioState> = {
         ],
         funnelExitStage: 'Closed Lost',
         funnelConversionBar: true,
+        funnelLabelFormat: 'percent' as const,
       },
     },
     'widget-chart6-time-in-stage': {

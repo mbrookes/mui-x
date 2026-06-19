@@ -25,11 +25,17 @@ export interface AlertBannerConfig {
   dateField?: string;
   /** Look-back window in days. Rows older than this (relative to the latest row) are ignored. */
   lookbackDays?: number;
-  /** Value at or above which the banner is `success`. */
+  /**
+   * When true, lower values are better (e.g. error rate, delivery days).
+   * Thresholds are checked with ≤ instead of ≥, so success maps to values at or
+   * below `thresholdSuccess` rather than at or above it.
+   */
+  lowerIsBetter?: boolean;
+  /** Value at or above (or below when lowerIsBetter) which the banner is `success`. */
   thresholdSuccess?: number;
-  /** Value at or above which the banner is `warning`. */
+  /** Value at or above (or below when lowerIsBetter) which the banner is `warning`. */
   thresholdWarning?: number;
-  /** Value at or above which the banner is `error`. */
+  /** Value at or above (or below when lowerIsBetter) which the banner is `error`. */
   thresholdError?: number;
   /** When set, the banner removes itself in view mode unless severity reaches this level. */
   hideBelow?: HideBelow;
@@ -109,22 +115,37 @@ export function computeBannerValue(
 
 /**
  * Map a computed value to a severity using the configured thresholds.
- * Higher values are better: success is checked first (highest bar), then warning,
- * then error. Falls back to `info` when no threshold is met or value is null.
+ *
+ * In the default (higher-is-better) mode thresholds are checked with ≥, so a
+ * high value is success. When `lowerIsBetter` is true the comparisons flip to
+ * ≤, so a low value is success (e.g. error rate, delivery time).
+ * Falls back to `info` when no threshold is met or value is null.
  */
 export function resolveBannerSeverity(value: number | null, config: AlertBannerConfig): Severity {
   if (value == null) {
     return 'info';
   }
-  const { thresholdError, thresholdWarning, thresholdSuccess } = config;
-  if (thresholdSuccess != null && value >= thresholdSuccess) {
-    return 'success';
-  }
-  if (thresholdWarning != null && value >= thresholdWarning) {
-    return 'warning';
-  }
-  if (thresholdError != null && value >= thresholdError) {
-    return 'error';
+  const { thresholdError, thresholdWarning, thresholdSuccess, lowerIsBetter } = config;
+  if (lowerIsBetter) {
+    if (thresholdSuccess != null && value <= thresholdSuccess) {
+      return 'success';
+    }
+    if (thresholdWarning != null && value <= thresholdWarning) {
+      return 'warning';
+    }
+    if (thresholdError != null && value <= thresholdError) {
+      return 'error';
+    }
+  } else {
+    if (thresholdSuccess != null && value >= thresholdSuccess) {
+      return 'success';
+    }
+    if (thresholdWarning != null && value >= thresholdWarning) {
+      return 'warning';
+    }
+    if (thresholdError != null && value >= thresholdError) {
+      return 'error';
+    }
   }
   return 'info';
 }

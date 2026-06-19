@@ -98,10 +98,16 @@ export interface AppLocaleText {
   alertThresholdSuccess: string;
   alertThresholdWarning: string;
   alertThresholdError: string;
+  alertThresholdSuccessLower: string;
+  alertThresholdWarningLower: string;
+  alertThresholdErrorLower: string;
+  alertLowerIsBetter: string;
   alertHideBelowLabel: string;
   alertHideNever: string;
   alertHideBelowWarning: string;
   alertHideBelowError: string;
+  alertHideAboveWarning: string;
+  alertHideAboveError: string;
   alertComputedLabel: (value: string, days: number) => string;
   alertHiddenInViewNote: string;
   adapterModeLabel: string;
@@ -196,10 +202,16 @@ const enAppLocaleText: AppLocaleText = {
   alertThresholdSuccess: 'Success at or above',
   alertThresholdWarning: 'Warning at or above',
   alertThresholdError: 'Error at or above',
+  alertThresholdSuccessLower: 'Success at or below',
+  alertThresholdWarningLower: 'Warning at or below',
+  alertThresholdErrorLower: 'Error at or below',
+  alertLowerIsBetter: 'Lower is better',
   alertHideBelowLabel: 'Hide widget (view mode)',
   alertHideNever: 'Always show',
   alertHideBelowWarning: 'Hide below Warning',
   alertHideBelowError: 'Hide below Error',
+  alertHideAboveWarning: 'Hide above Warning',
+  alertHideAboveError: 'Hide above Error',
   alertComputedLabel: (value, days) => `Computed value: ${value} (last ${days} day(s))`,
   alertHiddenInViewNote: 'Hidden in view mode when the condition is not met.',
   adapterModeLabel: 'Adapter Mode',
@@ -295,10 +307,16 @@ const ptBrAppLocaleText: AppLocaleText = {
   alertThresholdSuccess: 'Sucesso igual ou acima de',
   alertThresholdWarning: 'Aviso igual ou acima de',
   alertThresholdError: 'Erro igual ou acima de',
+  alertThresholdSuccessLower: 'Sucesso igual ou abaixo de',
+  alertThresholdWarningLower: 'Aviso igual ou abaixo de',
+  alertThresholdErrorLower: 'Erro igual ou abaixo de',
+  alertLowerIsBetter: 'Menor é melhor',
   alertHideBelowLabel: 'Ocultar widget (modo de visualização)',
   alertHideNever: 'Sempre mostrar',
   alertHideBelowWarning: 'Ocultar abaixo de Aviso',
   alertHideBelowError: 'Ocultar abaixo de Erro',
+  alertHideAboveWarning: 'Ocultar acima de Aviso',
+  alertHideAboveError: 'Ocultar acima de Erro',
   alertComputedLabel: (value, days) => `Valor calculado: ${value} (últimos ${days} dia(s))`,
   alertHiddenInViewNote: 'Oculto no modo de visualização quando a condição não é atendida.',
   adapterModeLabel: 'Modo do adaptador',

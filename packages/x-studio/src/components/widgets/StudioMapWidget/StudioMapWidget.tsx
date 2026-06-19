@@ -21,7 +21,7 @@ import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import { StudioMapTooltip, StudioMapTooltipContext } from './StudioMapTooltip';
 import { StudioMapShapePlot } from './StudioMapShapePlot';
-import { formatFieldValue } from '../../../internals/numberFormat';
+import { formatFieldValue, formatNumber } from '../../../internals/numberFormat';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -155,6 +155,14 @@ export function StudioMapWidget({
 
   const formatMapValue = React.useCallback(
     (v: number): string => formatFieldValue(v, fieldDef?.type === 'number' ? fieldDef : undefined),
+    [fieldDef],
+  );
+
+  const formatMapValueCompact = React.useCallback(
+    (v: number): string => {
+      const field = fieldDef?.type === 'number' ? fieldDef : undefined;
+      return formatNumber(v, field?.format, field?.currencyCode, true, field?.precision);
+    },
     [fieldDef],
   );
 
@@ -489,8 +497,8 @@ export function StudioMapWidget({
   const mapAriaLabel = localeText.mapChartAriaLabel(
     valueFieldLabel,
     regionData.size,
-    formatMapValue(minVal),
-    formatMapValue(maxVal),
+    formatMapValueCompact(minVal),
+    formatMapValueCompact(maxVal),
   );
 
   return (
@@ -553,12 +561,12 @@ export function StudioMapWidget({
               <ContinuousColorLegend
                 axisDirection="z"
                 direction={legendDirection}
-                aria-label={`${valueFieldLabel ?? 'Value'} color scale from ${formatMapValue(
+                aria-label={`${valueFieldLabel ?? 'Value'} color scale from ${formatMapValueCompact(
                   minVal,
-                )} to ${formatMapValue(maxVal)}`}
+                )} to ${formatMapValueCompact(maxVal)}`}
                 labelPosition="extremes"
-                minLabel={({ value }) => formatMapValue(value as number)}
-                maxLabel={({ value }) => formatMapValue(value as number)}
+                minLabel={({ value }) => formatMapValueCompact(value as number)}
+                maxLabel={({ value }) => formatMapValueCompact(value as number)}
                 sx={
                   legendDirection === 'horizontal'
                     ? {

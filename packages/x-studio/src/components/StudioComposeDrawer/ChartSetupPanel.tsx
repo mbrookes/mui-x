@@ -706,7 +706,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   <MenuItem value="pyramid">{localeText.chartSetupFunnelShapePyramid}</MenuItem>
                 </Select>
               </FormControl>
-              <Stack direction="row" spacing={1} alignItems="center">
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                 <Typography variant="body2" sx={{ flex: 1 }}>
                   {localeText.chartSetupFunnelStyleLabel}
                 </Typography>

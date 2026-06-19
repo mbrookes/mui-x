@@ -21,7 +21,7 @@ import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import { StudioMapTooltip, StudioMapTooltipContext } from './StudioMapTooltip';
 import { StudioMapShapePlot } from './StudioMapShapePlot';
-import { formatFieldValue, formatNumber } from '../../../internals/numberFormat';
+import { formatNumber } from '../../../internals/numberFormat';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -151,11 +151,6 @@ export function StudioMapWidget({
   const fieldDef = React.useMemo(
     () => dataSource.fields.find((f) => f.id === valueField),
     [dataSource.fields, valueField],
-  );
-
-  const formatMapValue = React.useCallback(
-    (v: number): string => formatFieldValue(v, fieldDef?.type === 'number' ? fieldDef : undefined),
-    [fieldDef],
   );
 
   const formatMapValueCompact = React.useCallback(
@@ -520,7 +515,7 @@ export function StudioMapWidget({
                 colorValue: value,
               })),
               valueFormatter: (point) =>
-                point.colorValue == null ? '' : formatMapValue(point.colorValue),
+                point.colorValue == null ? '' : formatMapValueCompact(point.colorValue),
             },
           ]}
           zAxis={[

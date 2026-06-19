@@ -49,15 +49,22 @@ export function StudioFunnelChart({
     return null;
   }
 
-  const data = stages.map((s) => ({ value: s.value, label: s.label }));
+  let data = stages.map((s) => ({ value: s.value, label: s.label }));
+  if (sort === 'descending') {
+    data = [...data].sort((a, b) => b.value - a.value);
+  } else if (sort === 'ascending') {
+    data = [...data].sort((a, b) => a.value - b.value);
+  }
 
-  const valueFormatter =
-    labelFormat === 'percent'
-      ? createFunnelPercentFormatter(data)
-      : labelFormat === 'conversion'
-        ? createFunnelConversionFormatter(data)
-        : (item: { value: number } | null) =>
-            formatNumber(item?.value ?? 0, valueFormat ?? 'decimal', currencyCode);
+  let valueFormatter: (item: { value: number } | null) => string;
+  if (labelFormat === 'percent') {
+    valueFormatter = createFunnelPercentFormatter(data);
+  } else if (labelFormat === 'conversion') {
+    valueFormatter = createFunnelConversionFormatter(data);
+  } else {
+    valueFormatter = (item) =>
+      formatNumber(item?.value ?? 0, valueFormat ?? 'decimal', currencyCode);
+  }
 
   const sectionLabel =
     labelPlacement !== 'inside' ? { placement: labelPlacement, offset: 20 } : undefined;
@@ -69,13 +76,12 @@ export function StudioFunnelChart({
           data,
           funnelDirection: 'decreasing',
           valueFormatter,
-          gap,
           curve,
           variant,
-          sort,
           ...(sectionLabel ? { sectionLabel } : {}),
         },
       ]}
+      gap={gap}
       height={height}
     />
   );

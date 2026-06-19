@@ -13,9 +13,7 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import {
   Studio,
   createBatchingAdapter,
-  deserializeState,
-  migrateState,
-  serializeState,
+
 } from '@mui/x-studio';
 import type {
   StudioHandle,
@@ -25,7 +23,6 @@ import type {
   StudioAIConfig,
   StudioFeatureFlags,
   StudioCustomWidgetDef,
-  SerializedStudioState,
   StudioFilterState,
   StudioFilterOperator,
 } from '@mui/x-studio';
@@ -238,27 +235,6 @@ function getUrlFilterValuesParam(): string | null {
   return new URL(window.location.href).searchParams.get('fv');
 }
 
-// ── LocalStorage persistence ──────────────────────────────────────────────────
-
-const LOCAL_STORAGE_KEY = 'x-studio-state';
-
-function getLocalStorageKey(dataset: 'sales' | 'ag-studio') {
-  return `${LOCAL_STORAGE_KEY}-${dataset}`;
-}
-
-function readLocalState(dataset: 'sales' | 'ag-studio'): SerializedStudioState | null {
-  try {
-    const raw = localStorage.getItem(getLocalStorageKey(dataset));
-    if (!raw) {
-      return null;
-    }
-    const result = migrateState(JSON.parse(raw));
-    return result.success && result.state ? result.state : null;
-  } catch {
-    return null;
-  }
-}
-
 // react-doctor-disable-next-line react-doctor/no-giant-component, react-doctor/prefer-useReducer -- top-level orchestration state is intentionally broad and not naturally reducible
 export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);
@@ -266,10 +242,6 @@ export default function App() {
   // Compute URL params once — stable across renders.
   const rowCount = React.useMemo(() => getUrlRowsParam(), []);
   const dataset = React.useMemo(() => getUrlDatasetParam(), []);
-  const localStorageKeyRef = React.useRef<string | null>(null);
-  if (localStorageKeyRef.current === null) {
-    localStorageKeyRef.current = getLocalStorageKey(dataset);
-  }
   const urlPageId = React.useMemo(
     () =>
       resolvePageIdFromQuery(
@@ -310,92 +282,6 @@ export default function App() {
       [EMPLOYEES_SOURCE_ID]: EMPLOYEES_SOURCE,
     };
     const baseConfig = dataset === 'ag-studio' && osData ? OS_INITIAL_STATE : INITIAL_STATE;
-
-    // Restore from localStorage if available, merging with the live data sources.
-    const saved = readLocalState(dataset);
-    if (saved) {
-      const restored = deserializeState(saved, baseDataSources);
-
-      // Merge in any pages, widgets, and expression fields from the current initial
-      // state that are absent from the saved state. This ensures new content added
-      // to INITIAL_STATE always appears even when a saved state exists from an
-      // earlier session (e.g. expression fields added after the user's last save).
-      const mergedPages = { ...restored.pages };
-      const mergedWidgets = { ...restored.widgets };
-      const mergedExprFields = [...restored.expressionFields];
-      const mergedFilters = [...restored.filters];
-      const existingEfIds = new Set(restored.expressionFields.map((ef) => ef.id));
-      const existingFilterIds = new Set(restored.filters.map((f) => f.id));
-      let stateChanged = false;
-
-      for (const [pageId, page] of Object.entries(baseConfig.pages ?? {})) {
-        if (!mergedPages[pageId]) {
-          mergedPages[pageId] = page;
-          stateChanged = true;
-        }
-      }
-      for (const [widgetId, widget] of Object.entries(baseConfig.widgets ?? {})) {
-        if (!mergedWidgets[widgetId]) {
-          mergedWidgets[widgetId] = widget;
-          stateChanged = true;
-        }
-      }
-      for (const ef of baseConfig.expressionFields ?? []) {
-        if (!existingEfIds.has(ef.id)) {
-          mergedExprFields.push(ef);
-          stateChanged = true;
-        }
-      }
-      for (const filter of baseConfig.filters ?? []) {
-        if (!existingFilterIds.has(filter.id)) {
-          mergedFilters.push(filter);
-          stateChanged = true;
-        }
-      }
-
-      const mergedState = stateChanged
-        ? {
-            ...restored,
-            pages: mergedPages,
-            widgets: mergedWidgets,
-            expressionFields: mergedExprFields,
-            filters: mergedFilters,
-          }
-        : restored;
-
-      // ?page= URL parameter overrides the saved active page.
-      const withPage = (state: Partial<StudioState>): Partial<StudioState> =>
-        urlPageId
-          ? { ...state, dashboard: { ...state.dashboard, activePageId: urlPageId } }
-          : state;
-
-      // Apply ?fv= filter value overrides on top of saved state
-      const fvParam = getUrlFilterValuesParam();
-      if (fvParam) {
-        const filterValues = decodeFilterValues(fvParam);
-        if (filterValues && mergedState.filters) {
-          return withPage({
-            ...mergedState,
-            filters: mergedState.filters.map((f) => {
-              const patch = filterValues[f.id];
-              if (!patch) {
-                return f;
-              }
-              return {
-                ...f,
-                operator: patch.operator as StudioFilterOperator,
-                value: patch.value,
-                ...(patch.operator2 != null && {
-                  operator2: patch.operator2 as StudioFilterOperator,
-                }),
-                ...(patch.value2 != null && { value2: patch.value2 }),
-              };
-            }),
-          });
-        }
-      }
-      return withPage(mergedState);
-    }
 
     let baseState: Partial<StudioState> = { ...baseConfig, dataSources: baseDataSources };
 
@@ -729,8 +615,6 @@ export default function App() {
     });
   }, [studioKey]);
 
-  const localSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
   // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- state updated from event-driven controller callback
   const handleStateChange = React.useCallback((state: StudioState) => {
     // Use functional updates so React can skip if the value is unchanged,
@@ -744,19 +628,6 @@ export default function App() {
     setFilters((prev) => (prev === state.filters ? prev : state.filters));
     setCanUndo(studioRef.current?.canUndo() ?? false);
     setCanRedo(studioRef.current?.canRedo() ?? false);
-
-    // Persist config changes locally (debounced 1 s).
-    if (localSaveTimer.current) {
-      clearTimeout(localSaveTimer.current);
-    }
-    localSaveTimer.current = setTimeout(() => {
-      try {
-        const serialized = serializeState(state);
-        localStorage.setItem(localStorageKeyRef.current!, JSON.stringify(serialized));
-      } catch {
-        // Ignore storage quota errors
-      }
-    }, 1000);
   }, []);
 
   // Sync page-filter values to the URL ?fv= query param (debounced 300 ms, view mode only)
@@ -868,16 +739,6 @@ export default function App() {
     setSnackbar((prev) => ({ ...prev, open: false }));
   };
 
-  const handleReset = React.useCallback(() => {
-    localStorage.removeItem(localStorageKeyRef.current!);
-    setSnackbar({
-      open: true,
-      message: t.resetDemoReloadingMessage,
-      severity: 'info',
-    });
-    setTimeout(() => window.location.reload(), 800);
-  }, [t]);
-
   const handleOpenSettings = React.useCallback(() => {
     setSettingsOpen(true);
   }, []);
@@ -917,7 +778,6 @@ export default function App() {
               onModeChange={handleModeChange}
               onSave={handleSave}
               onLoad={handleLoad}
-              onReset={handleReset}
               onOpenSettings={handleOpenSettings}
               pages={pageList}
               activePageId={activePageId}

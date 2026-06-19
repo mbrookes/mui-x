@@ -3,9 +3,9 @@ import PropTypes from 'prop-types';
 import clsx from 'clsx';
 
 import { line as d3Line } from '@mui/x-charts-vendor/d3-shape';
-import { cartesianSeriesTypes, useStore } from '@mui/x-charts/internals';
-import type { FunnelItemIdentifier } from './funnel.types';
-import { FunnelSection } from './FunnelSection';
+import { cartesianSeriesTypes, useStore, useSkipAnimation } from '@mui/x-charts/internals';
+import { type FunnelItemIdentifier } from './funnel.types';
+import { AnimatedFunnelSection } from './AnimatedFunnelSection';
 import { alignLabel, positionLabel } from './labelUtils';
 import type { FunnelPlotSlotExtension } from './funnelPlotSlots.types';
 import { useUtilityClasses } from './funnelClasses';
@@ -143,6 +143,7 @@ function FunnelPlot(props: FunnelPlotProps) {
 
   const data = useAggregatedData();
   const classes = useUtilityClasses();
+  const skipAnimation = useSkipAnimation();
 
   return (
     <g className={clsx(classes.root, className)}>
@@ -154,7 +155,7 @@ function FunnelPlot(props: FunnelPlotProps) {
         return (
           <g data-series={series[0].seriesId} key={series[0].seriesId}>
             {series.map(({ d, color, id, seriesId, dataIndex, variant }) => (
-              <FunnelSection
+              <AnimatedFunnelSection
                 {...other}
                 d={d}
                 color={color}
@@ -162,6 +163,7 @@ function FunnelPlot(props: FunnelPlotProps) {
                 dataIndex={dataIndex}
                 seriesId={seriesId}
                 variant={variant}
+                skipAnimation={skipAnimation}
                 onClick={
                   onItemClick &&
                   ((event) => {

@@ -168,6 +168,9 @@ catalogs:
     luxon:
       specifier: ^3.7.2
       version: 3.7.2
+    markdown-to-jsx:
+      specifier: ^9.8.1
+      version: 9.8.1
     moment:
       specifier: ^2.30.1
       version: 2.30.1
@@ -2328,6 +2331,9 @@ importers:
       dayjs:
         specifier: 'catalog:'
         version: 1.11.21
+      markdown-to-jsx:
+        specifier: 'catalog:'
+        version: 9.8.1(react@19.2.6)
       reselect:
         specifier: 'catalog:'
         version: 5.2.0

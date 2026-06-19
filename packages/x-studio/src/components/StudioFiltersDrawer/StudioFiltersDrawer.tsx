@@ -375,86 +375,100 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
               </Box>
             )}
 
+            {filterPresets.length === 0 && !savingPreset && (
+              <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+                {localeText.filtersNoSavedViews}
+              </Typography>
+            )}
+
             <Stack spacing={0.5}>
-              {filterPresets.length === 0 ? (
+              {filterPresets.length > 0 && (
                 <Chip
                   icon={<HomeOutlinedIcon sx={{ fontSize: '14px !important' }} />}
                   label={localeText.filtersDefaultViewLabel}
                   size="small"
-                  color="primary"
-                  disabled
+                  color={activePresetId === null ? 'primary' : 'default'}
+                  disabled={activePresetId === null}
+                  clickable={activePresetId !== null}
+                  onClick={
+                    activePresetId !== null
+                      ? () => {
+                          controller.clearPageFilters();
+                          setActivePresetId(null);
+                        }
+                      : undefined
+                  }
                   sx={{ justifyContent: 'flex-start' }}
                 />
-              ) : (
-                filterPresets.map((preset) => {
-                  const isActive = preset.id === activePresetId;
-                  return (
-                    <Stack
-                      key={preset.id}
-                      direction="row"
-                      spacing={0.5}
-                      sx={{ alignItems: 'center' }}
-                    >
-                      {renamingPresetId === preset.id ? (
-                        <TextField
-                          size="small"
-                          value={renameValue}
-                          autoFocus
-                          sx={{ flexGrow: 1 }}
-                          onChange={(event) => setRenameValue(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              handleRenameConfirm();
-                            } else if (event.key === 'Escape') {
-                              handleRenameCancel();
-                            }
-                          }}
-                          onBlur={handleRenameConfirm}
-                          slotProps={{
-                            input: { 'aria-label': localeText.filtersRenameViewAriaLabel },
-                          }}
-                        />
-                      ) : (
-                        <Chip
-                          icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
-                          label={preset.name}
-                          size="small"
-                          color={isActive ? 'primary' : 'default'}
-                          disabled={isActive}
-                          clickable={!isActive}
-                          onClick={
-                            isActive
-                              ? undefined
-                              : () => {
-                                  controller.applyFilterPreset(preset.id);
-                                  setActivePresetId(preset.id);
-                                }
-                          }
-                          sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
-                        />
-                      )}
-                      <Tooltip title={localeText.filtersDrawerRenameViewTooltip}>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleRenameStart(preset.id, preset.name)}
-                          aria-label={localeText.filtersRenameViewButtonAriaLabel(preset.name)}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title={localeText.filtersDeleteViewTooltip}>
-                        <IconButton
-                          size="small"
-                          onClick={() => controller.deleteFilterPreset(preset.id)}
-                          aria-label={localeText.filtersDeleteViewAriaLabel(preset.name)}
-                        >
-                          <DeleteOutlineOutlinedIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Stack>
-                  );
-                })
               )}
+              {filterPresets.map((preset) => {
+                const isActive = preset.id === activePresetId;
+                return (
+                  <Stack
+                    key={preset.id}
+                    direction="row"
+                    spacing={0.5}
+                    sx={{ alignItems: 'center' }}
+                  >
+                    {renamingPresetId === preset.id ? (
+                      <TextField
+                        size="small"
+                        value={renameValue}
+                        autoFocus
+                        sx={{ flexGrow: 1 }}
+                        onChange={(event) => setRenameValue(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            handleRenameConfirm();
+                          } else if (event.key === 'Escape') {
+                            handleRenameCancel();
+                          }
+                        }}
+                        onBlur={handleRenameConfirm}
+                        slotProps={{
+                          input: { 'aria-label': localeText.filtersRenameViewAriaLabel },
+                        }}
+                      />
+                    ) : (
+                      <Chip
+                        icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
+                        label={preset.name}
+                        size="small"
+                        color={isActive ? 'primary' : 'default'}
+                        disabled={isActive}
+                        clickable={!isActive}
+                        onClick={
+                          isActive
+                            ? undefined
+                            : () => {
+                                controller.applyFilterPreset(preset.id);
+                                setActivePresetId(preset.id);
+                              }
+                        }
+                        sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
+                      />
+                    )}
+                    <Tooltip title={localeText.filtersDrawerRenameViewTooltip}>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleRenameStart(preset.id, preset.name)}
+                        aria-label={localeText.filtersRenameViewButtonAriaLabel(preset.name)}
+                      >
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title={localeText.filtersDeleteViewTooltip}>
+                      <IconButton
+                        size="small"
+                        onClick={() => controller.deleteFilterPreset(preset.id)}
+                        aria-label={localeText.filtersDeleteViewAriaLabel(preset.name)}
+                      >
+                        <DeleteOutlineOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                );
+              })}
             </Stack>
           </div>
         </React.Fragment>

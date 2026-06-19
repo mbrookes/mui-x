@@ -190,10 +190,11 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
 
       <Divider flexItem />
 
+      <Typography variant="subtitle2" color="text.secondary">
+        {t.alertThresholdsTitle}
+      </Typography>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="subtitle2" color="text.secondary">
-          {t.alertThresholdsTitle}
-        </Typography>
+        <Typography variant="body2">{t.alertLowerIsBetter}</Typography>
         <Switch
           size="small"
           checked={lowerIsBetter}

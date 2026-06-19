@@ -866,6 +866,57 @@ export class StudioController {
   };
 
   /**
+   * Sets the dashboard-level date range across every provided source at once.
+   * Creates one `isDashboardDateRange` filter per source so each widget is
+   * filtered by its own source's date field — not by a field from another source.
+   * Replaces any previously active dashboard date-range filters for the page.
+   */
+  setDashboardDateRangeAll = (
+    pageId: string,
+    fields: Array<{ fieldId: string; sourceId: string; fieldType: 'date' | 'datetime' }>,
+    preset: StudioDateRangePreset,
+    customFrom?: string,
+    customTo?: string,
+  ) => {
+    const state = this.store.state;
+    const withoutExisting = state.filters.filter(
+      (f: StudioFilterState) => !(f.isDashboardDateRange && (!f.pageId || f.pageId === pageId)),
+    );
+
+    if (fields.length === 0) {
+      this.commitState({ ...state, filters: withoutExisting });
+      return;
+    }
+
+    let value: { from: string; to: string } | null = null;
+    if (preset === 'custom') {
+      if (!customFrom && !customTo) {
+        this.commitState({ ...state, filters: withoutExisting });
+        return;
+      }
+      value = { from: customFrom ?? '', to: customTo ?? '' };
+    }
+
+    const newFilters: import('../models').StudioFilterState[] = fields.map(
+      ({ fieldId, sourceId, fieldType }) => ({
+        id: `dashboard-date-range-${pageId}-${sourceId}`,
+        scope: 'page' as const,
+        pageId,
+        isDashboardDateRange: true as const,
+        dateRangePreset: preset,
+        field: fieldId,
+        fieldType,
+        filterSourceId: sourceId,
+        filterMode: 'condition' as const,
+        operator: 'between' as const,
+        value,
+      }),
+    );
+
+    this.commitState({ ...state, filters: [...withoutExisting, ...newFilters] });
+  };
+
+  /**
    * Set or clear the date range filter for a specific KPI widget.
    *
    * - Pass `null` for `preset` (or `fieldId`) to remove the widget date range filter.

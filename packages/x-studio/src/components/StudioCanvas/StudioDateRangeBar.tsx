@@ -12,18 +12,12 @@ import {
 } from '../../context';
 import type { StudioDateRangePreset, StudioFilterState } from '../../models';
 
-interface DateField {
-  fieldId: string;
-  sourceId: string;
-  type: 'date' | 'datetime';
-}
-
 /**
  * Compact date range toolbar rendered above the canvas.
- * Lets the user pick a preset range to filter all widgets on the active page.
- * Automatically applies to the first date/datetime field found in any data source.
+ * Applies the selected preset to the first date/datetime field in each data source,
+ * so every widget is filtered by its own source's date field.
  *
- * Only rendered when at least one date or datetime field exists.
+ * Only rendered when at least one date or datetime field exists in any data source.
  */
 export function StudioDateRangeBar() {
   const controller = useStudioController();
@@ -76,32 +70,32 @@ export function StudioDateRangeBar() {
     [localeText],
   );
 
-  const dateRangeFilter = React.useMemo(
-    () =>
-      (filters as StudioFilterState[]).find(
-        (f) => f.isDashboardDateRange && (!f.pageId || f.pageId === activePageId),
-      ) ?? null,
-    [filters, activePageId],
-  );
-
-  // First date/datetime field across all sources — used as the implicit filter target.
-  const firstDateField = React.useMemo<DateField | null>(() => {
+  // One entry per source: the first visible date/datetime field in that source.
+  const sourceDateFields = React.useMemo(() => {
+    const result: Array<{ fieldId: string; sourceId: string; fieldType: 'date' | 'datetime' }> = [];
     for (const source of Object.values(dataSources)) {
       for (const field of source.fields) {
         if ((field.type === 'date' || field.type === 'datetime') && !field.hidden) {
-          return { fieldId: field.id, sourceId: source.id, type: field.type };
+          result.push({ fieldId: field.id, sourceId: source.id, fieldType: field.type });
+          break;
         }
       }
     }
-    return null;
+    return result;
   }, [dataSources]);
 
-  if (!firstDateField) {
+  // Active preset comes from any dashboard date-range filter on this page — they all share
+  // the same preset, so the first match is sufficient.
+  const activePreset: StudioDateRangePreset | 'all_time' = React.useMemo(() => {
+    const f = (filters as StudioFilterState[]).find(
+      (filter) => filter.isDashboardDateRange && (!filter.pageId || filter.pageId === activePageId),
+    );
+    return f?.dateRangePreset ?? 'all_time';
+  }, [filters, activePageId]);
+
+  if (sourceDateFields.length === 0) {
     return null;
   }
-
-  const activePreset: StudioDateRangePreset | 'all_time' =
-    dateRangeFilter?.dateRangePreset ?? 'all_time';
 
   const handlePresetChange = (value: string) => {
     const preset = value as StudioDateRangePreset | 'all_time';
@@ -112,13 +106,7 @@ export function StudioDateRangeBar() {
     if (preset === 'custom') {
       return;
     }
-    controller.setDashboardDateRange(
-      activePageId,
-      firstDateField.fieldId,
-      firstDateField.sourceId,
-      firstDateField.type,
-      preset,
-    );
+    controller.setDashboardDateRangeAll(activePageId, sourceDateFields, preset);
   };
 
   return (

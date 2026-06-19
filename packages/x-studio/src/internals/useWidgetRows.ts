@@ -14,6 +14,7 @@ import {
 import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
+import { resolveDateRangePresets } from './filterUtils';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 import { studioRequestCache } from './StudioRequestCache';
 import { enrichWithCrossSourceFields } from './crossSourceEnrichment';
@@ -341,7 +342,12 @@ export function useWidgetRows(
     const interactiveFilters = deferredPartitioned.interactive.filter(
       (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
     );
-    const allFilters = [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters];
+    const allFilters = resolveDateRangePresets([
+      ...pageFilters,
+      ...widgetFilters,
+      ...crossFilters,
+      ...interactiveFilters,
+    ]);
     return resolveRowsCached(
       normalizedDataSource.rows,
       widget.sourceId,
@@ -382,7 +388,7 @@ export function useWidgetRows(
     const widgetFilters = (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
       (f) => f.filterMode !== 'rank',
     );
-    const allFilters = [...pageFilters, ...widgetFilters];
+    const allFilters = resolveDateRangePresets([...pageFilters, ...widgetFilters]);
     return resolveRowsCached(
       normalizedDataSource.rows,
       widget.sourceId,
@@ -430,7 +436,11 @@ export function useWidgetRows(
     const interactiveFilters = deferredPartitioned.interactive.filter(
       (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
     );
-    const allFilters = [...pageFilters, ...widgetFilters, ...interactiveFilters];
+    const allFilters = resolveDateRangePresets([
+      ...pageFilters,
+      ...widgetFilters,
+      ...interactiveFilters,
+    ]);
     return resolveRowsCached(
       normalizedDataSource.rows,
       widget.sourceId,

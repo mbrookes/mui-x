@@ -380,7 +380,11 @@ export function buildQueryDescriptor(
 
   const allFilters = resolveDateRangePresets(
     [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters].filter(
-      (f) => !f.disabled,
+      (f) =>
+        !f.disabled &&
+        // Dashboard date-range filters are scoped to their own source — exclude those
+        // targeting a different source so they don't leak into the wrong DB query.
+        !(f.isDashboardDateRange && f.filterSourceId && f.filterSourceId !== widget.sourceId),
     ),
   );
   const filter = filtersToFilterNode(allFilters);

@@ -429,9 +429,11 @@ export const INITIAL_STATE: Partial<StudioState> = {
           aggregation: 'sum',
           dateField: 'date',
           lookbackDays: 7,
-          thresholdSuccess: 100000,
-          thresholdWarning: 50000,
-          thresholdError: 25000,
+          // Thresholds calibrated to the generated data scale (~$130k typical weekly sum).
+          // success = exceptional week, warning = on track, error = below target.
+          thresholdSuccess: 200000,
+          thresholdWarning: 100000,
+          thresholdError: 50000,
           hideBelow: 'warning',
         },
       },

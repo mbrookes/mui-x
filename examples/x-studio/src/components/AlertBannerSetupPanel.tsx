@@ -160,15 +160,6 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
         </Select>
       </FormControl>
 
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="body2">{t.alertLowerIsBetter}</Typography>
-        <Switch
-          size="small"
-          checked={lowerIsBetter}
-          onChange={(event) => updateCustomConfig({ lowerIsBetter: event.target.checked })}
-        />
-      </Box>
-
       <FormControl size="small" fullWidth>
         <InputLabel>{t.alertDateFieldLabel}</InputLabel>
         <Select
@@ -199,9 +190,16 @@ export function AlertBannerSetupPanel({ widgetId }: StudioCustomWidgetSetupPanel
 
       <Divider flexItem />
 
-      <Typography variant="subtitle2" color="text.secondary">
-        {t.alertThresholdsTitle}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography variant="subtitle2" color="text.secondary">
+          {t.alertThresholdsTitle}
+        </Typography>
+        <Switch
+          size="small"
+          checked={lowerIsBetter}
+          onChange={(event) => updateCustomConfig({ lowerIsBetter: event.target.checked })}
+        />
+      </Box>
       <TextField
         label={lowerIsBetter ? t.alertThresholdSuccessLower : t.alertThresholdSuccess}
         type="number"

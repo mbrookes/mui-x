@@ -22,7 +22,7 @@ import {
 } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import type { StudioFeatureFlags } from '@mui/x-studio';
-import { FeatureFlagSettings } from 'x-studio-shared';
+import { FeatureFlagSettings, DEFAULT_ORDER_COUNT } from 'x-studio-shared';
 import { type SupportedLocale, LOCALE_LABELS } from '../locales';
 import { useAppLocaleText } from '../locales/AppLocaleContext';
 
@@ -284,7 +284,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
                 input: {
                   endAdornment: <InputAdornment position="end">{t.rowCountUnit}</InputAdornment>,
                 },
-                htmlInput: { min: 1, step: 1 },
+                htmlInput: { min: 1, step: 1, placeholder: String(DEFAULT_ORDER_COUNT) },
               }}
             />
 

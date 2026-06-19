@@ -93,6 +93,23 @@ export function StudioDateRangeBar() {
     return f?.dateRangePreset ?? 'all_time';
   }, [filters, activePageId]);
 
+  // Expand stale single-source filters from persisted state to cover all sources.
+  // Fires whenever filters or sources change; stops as soon as all sources are covered.
+  React.useEffect(() => {
+    if (activePreset === 'all_time' || sourceDateFields.length === 0) {
+      return;
+    }
+    const coveredSourceIds = new Set(
+      (filters as StudioFilterState[])
+        .filter((f) => f.isDashboardDateRange && (!f.pageId || f.pageId === activePageId))
+        .map((f) => f.filterSourceId),
+    );
+    const missing = sourceDateFields.filter(({ sourceId }) => !coveredSourceIds.has(sourceId));
+    if (missing.length > 0) {
+      controller.setDashboardDateRangeAll(activePageId, sourceDateFields, activePreset);
+    }
+  }, [activePageId, activePreset, controller, filters, sourceDateFields]);
+
   if (sourceDateFields.length === 0) {
     return null;
   }

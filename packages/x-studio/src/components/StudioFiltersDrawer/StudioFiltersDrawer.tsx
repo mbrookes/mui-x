@@ -18,6 +18,7 @@ import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined
 import EditIcon from '@mui/icons-material/Edit';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
+import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import type { SxProps, Theme } from '@mui/material/styles';
 import {
@@ -379,6 +380,14 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
             )}
 
             <Stack spacing={0.5}>
+              <Chip
+                icon={<HomeOutlinedIcon sx={{ fontSize: '14px !important' }} />}
+                label={localeText.filtersDefaultViewLabel}
+                size="small"
+                clickable
+                onClick={() => controller.clearPageFilters()}
+                sx={{ justifyContent: 'flex-start' }}
+              />
               {filterPresets.map((preset) => (
                 <Stack key={preset.id} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
                   {renamingPresetId === preset.id ? (

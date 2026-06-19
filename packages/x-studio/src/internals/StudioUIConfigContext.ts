@@ -51,6 +51,8 @@ export interface StudioLocaleText {
   filtersSectionNoMatchingFilters: string;
   filtersAddFilterTooltip: string;
   filtersSavedViewsTitle: string;
+  /** Label for the built-in uneditable "Default view" chip. */
+  filtersDefaultViewLabel: string;
   filtersSaveViewTooltip: string;
   filtersSaveViewButton: string;
   filtersSaveViewPlaceholder: string;
@@ -1032,6 +1034,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filtersSectionNoMatchingFilters: 'No matching filters.',
   filtersAddFilterTooltip: 'Add filter',
   filtersSavedViewsTitle: 'Saved views',
+  filtersDefaultViewLabel: 'Default view',
   filtersSaveViewTooltip: 'Save current page filters as a named view',
   filtersSaveViewButton: 'Save',
   filtersSaveViewPlaceholder: 'View name',

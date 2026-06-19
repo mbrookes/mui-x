@@ -301,11 +301,10 @@ function buildAggregations(
     });
   }
 
-  // KPI
-  if (config.kpiValueField && !isExpr(config.kpiValueField)) {
-    const fn = (config.kpiAggregation as AggFn | undefined) ?? 'sum';
-    aggs.push({ field: config.kpiValueField, fn, alias: config.kpiValueField });
-  }
+  // KPI widgets always aggregate client-side (computeAggregate in StudioKpiWidget).
+  // Sending aggregations here triggers db-tier routing on the server, which returns
+  // 1 pre-aggregated row. Client COUNT([1 row]) = 1, not the real row count.
+  // Omitting aggregations lets the preflight use client/server tier → raw rows.
 
   // Grid with groupBy — emit per-column aggregations so async adapters receive them
   if (widget.kind === 'grid' && config.gridGroupByField) {

@@ -678,7 +678,7 @@ describe('createBackendChatAdapter: POST body', () => {
       clearSelection: vi.fn(),
       setDrawerOpen: vi.fn(),
       selectWidget: vi.fn(),
-    } as unknown as typeof controller;
+    } as unknown as StudioController;
 
     const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
     const adapter = createBackendChatAdapter(config, controller as never);

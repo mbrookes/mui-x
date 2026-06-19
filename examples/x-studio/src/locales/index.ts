@@ -33,8 +33,6 @@ export interface AppLocaleText {
   downloadAriaLabel: string;
   uploadTooltip: string;
   uploadAriaLabel: string;
-  resetTooltip: string;
-  resetAriaLabel: string;
   settingsTooltip: string;
   settingsAriaLabel: string;
   removePageTitle: string;
@@ -117,7 +115,6 @@ export interface AppLocaleText {
   ) => string;
   dashboardLoadedMessage: string;
   dashboardLoadFailedMessage: string;
-  resetDemoReloadingMessage: string;
 }
 
 const enAppLocaleText: AppLocaleText = {
@@ -129,8 +126,6 @@ const enAppLocaleText: AppLocaleText = {
   downloadAriaLabel: 'Download dashboard',
   uploadTooltip: 'Upload dashboard',
   uploadAriaLabel: 'Upload dashboard',
-  resetTooltip: 'Reset demo',
-  resetAriaLabel: 'Reset to demo',
   settingsTooltip: 'Settings',
   settingsAriaLabel: 'Settings',
   removePageTitle: 'Remove page?',
@@ -216,7 +211,6 @@ const enAppLocaleText: AppLocaleText = {
     `Dashboard loaded and migrated from v${fromVersion} to v${toVersion}`,
   dashboardLoadedMessage: 'Dashboard loaded successfully',
   dashboardLoadFailedMessage: 'Failed to load dashboard',
-  resetDemoReloadingMessage: 'Local changes cleared — reloading demo…',
 };
 
 const ptBrAppLocaleText: AppLocaleText = {
@@ -228,8 +222,6 @@ const ptBrAppLocaleText: AppLocaleText = {
   downloadAriaLabel: 'Baixar painel',
   uploadTooltip: 'Carregar painel',
   uploadAriaLabel: 'Carregar painel',
-  resetTooltip: 'Redefinir demonstração',
-  resetAriaLabel: 'Redefinir demonstração',
   settingsTooltip: 'Configurações',
   settingsAriaLabel: 'Configurações',
   removePageTitle: 'Remover página?',
@@ -318,7 +310,6 @@ const ptBrAppLocaleText: AppLocaleText = {
     `Painel carregado e migrado da v${fromVersion} para a v${toVersion}`,
   dashboardLoadedMessage: 'Painel carregado com sucesso',
   dashboardLoadFailedMessage: 'Falha ao carregar o painel',
-  resetDemoReloadingMessage: 'Alterações locais removidas — recarregando a demonstração…',
 };
 
 export interface LocaleBundle {

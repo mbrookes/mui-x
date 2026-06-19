@@ -390,7 +390,11 @@ export interface GeneratorOptions {
 
 function generateCustomers(rng: Rng, count: number): StudioDataSource {
   const rows: Record<string, unknown>[] = [];
-  const sampleSinceDate = makeDateSampler('2015-01-01', '2022-12-31');
+  // Use a relative date range (5 years ago → today) so "last 12 months", "last 2 years",
+  // etc. always cover a meaningful slice of the demo data regardless of when it runs.
+  const fiveYearsAgo = new Date();
+  fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5);
+  const sampleSinceDate = makeDateSampler(isoDate(fiveYearsAgo), isoDate(new Date()));
   for (let i = 0; i < count; i++) {
     const id = `CUS-${zeroPad(i + 1, 3)}`;
     const country = pick(rng, COUNTRIES);
@@ -547,6 +551,7 @@ function generateOrders(
 interface GeneratedOrderItem extends Record<string, unknown> {
   id: string;
   orderId: string;
+  date: string;
   productId: string;
   product: string;
   category: string;
@@ -591,6 +596,7 @@ function generateOrderItems(
       const item: GeneratedOrderItem = {
         id: `${order.id}-${j + 1}`,
         orderId: order.id,
+        date: order.date,
         productId: product.id as string,
         product: product.product as string,
         category: product.category as string,
@@ -613,6 +619,7 @@ function generateOrderItems(
       fields: [
         { id: 'id', label: 'Order Item ID', type: 'string', hidden: true },
         { id: 'orderId', label: 'Order ID', type: 'string', hidden: true },
+        { id: 'date', label: 'Order Date', type: 'date' },
         { id: 'productId', label: 'Product ID', type: 'string', hidden: true },
         { id: 'product', label: 'Product', type: 'string' },
         { id: 'category', label: 'Category', type: 'string' },

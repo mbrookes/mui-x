@@ -130,13 +130,12 @@ describe('buildQueryDescriptor', () => {
   });
 
   it('builds aggregations for KPI', () => {
+    // KPI widgets always aggregate client-side (computeAggregate in StudioKpiWidget).
+    // The descriptor must NOT push aggregations to the server — that would return a single
+    // pre-aggregated row, breaking client COUNT logic (COUNT([1 row]) = 1, not the real count).
     const widget = makeWidget({ kpiValueField: 'revenue', kpiAggregation: 'avg' });
     const desc = buildQueryDescriptor(widget, [], PAGE_ID);
-    expect(desc.aggregations).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ field: 'revenue', fn: 'avg', alias: 'revenue' }),
-      ]),
-    );
+    expect(desc.aggregations == null || desc.aggregations.length === 0).toBe(true);
   });
 
   // ── Expression (calculated) field expansion (BL-201) ─────────────────────────
@@ -167,12 +166,12 @@ describe('buildQueryDescriptor', () => {
   });
 
   it('leaves native value fields untouched when expression fields are supplied', () => {
+    // KPI aggregates client-side — but the native field must still appear in select so the
+    // server returns the raw values the client needs to aggregate.
     const widget = makeWidget({ kpiValueField: 'revenue', kpiAggregation: 'sum' });
     const desc = buildQueryDescriptor(widget, [], PAGE_ID, undefined, [marginExprField]);
     expect(desc.select).toContain('revenue');
-    expect(desc.aggregations).toEqual(
-      expect.arrayContaining([expect.objectContaining({ field: 'revenue', fn: 'sum' })]),
-    );
+    expect(desc.aggregations == null || desc.aggregations.length === 0).toBe(true);
   });
 
   it('end-to-end: a server returning the native columns yields a non-zero expression KPI (BL-201)', () => {

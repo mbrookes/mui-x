@@ -9,7 +9,7 @@ import {
 /**
  * Current schema version for the studio state
  */
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 /**
  * Serializable state format for persistence.
@@ -77,6 +77,23 @@ const migrations: Record<number, MigrationFn> = {
   0: (state) => ({ ...state, schemaVersion: 1 }),
   // v1 → v2: added optional `ai` field for conversation state. No structural changes needed.
   1: (state) => ({ ...state, schemaVersion: 2 }),
+  // v2 → v3: dashboard date-range filters now use per-source IDs
+  // (dashboard-date-range-${pageId} → dashboard-date-range-${pageId}-${filterSourceId}).
+  2: (state) => {
+    const filters = state['filters'] as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(filters)) {
+      state['filters'] = filters.map((f) => {
+        if (f['isDashboardDateRange'] && f['pageId'] && f['filterSourceId']) {
+          const expectedId = `dashboard-date-range-${f['pageId']}-${f['filterSourceId']}`;
+          if (f['id'] !== expectedId) {
+            return { ...f, id: expectedId };
+          }
+        }
+        return f;
+      });
+    }
+    return { ...state, schemaVersion: 3 };
+  },
 };
 
 /**

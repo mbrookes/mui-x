@@ -685,6 +685,28 @@ export default function App() {
     studioRef.current?.setActivePage(pageId);
   }, []);
 
+  // Load saved state from the dev server on mount, if STUDIO_SERVER_URL is configured.
+  // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- example app: fetch without a data-fetching library is acceptable here
+  React.useEffect(() => {
+    const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
+    if (!serverUrl) {
+      return;
+    }
+    const token = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
+    fetch(`${serverUrl.replace(/\/$/, '')}/api/dashboard-state`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((state) => {
+        if (state) {
+          studioRef.current?.loadSerializedState(state);
+        }
+      })
+      .catch(() => {
+        // Server offline — keep local state
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSave = React.useCallback(() => {
     const serialized = studioRef.current?.serializeState();
     if (!serialized) {
@@ -695,6 +717,20 @@ export default function App() {
       '_',
     );
     downloadJson(serialized, `${dashboardTitle}_dashboard.json`);
+
+    const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
+    if (serverUrl) {
+      const token = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
+      fetch(`${serverUrl.replace(/\/$/, '')}/api/dashboard-state`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(serialized),
+      }).catch(() => {});
+    }
+
     setSnackbar({ open: true, message: t.dashboardSavedMessage, severity: 'success' });
   }, [t]);
 

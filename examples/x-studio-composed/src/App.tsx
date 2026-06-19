@@ -533,6 +533,28 @@ function DashboardLayout({
     // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional mount-only effect
   }, []);
 
+  // Load saved dashboard state from the dev server on mount (overrides localStorage if available)
+  // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- example app
+  React.useEffect(() => {
+    const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
+    if (!serverUrl) {
+      return;
+    }
+    const token = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
+    fetch(`${serverUrl.replace(/\/$/, '')}/api/dashboard-state`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((state) => {
+        if (state) {
+          controller.loadSerializedState(state);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- intentional mount-only effect
+  }, []);
+
   // Sync active page id to the URL ?page= query param
   const { activePageId } = dashboard;
   React.useEffect(() => {
@@ -600,6 +622,18 @@ function DashboardLayout({
       '_',
     );
     downloadJson(serialized, `${title}_dashboard.json`);
+    const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
+    if (serverUrl) {
+      const token = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
+      fetch(`${serverUrl.replace(/\/$/, '')}/api/dashboard-state`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(serialized),
+      }).catch(() => {});
+    }
     onSnackbar(t.dashboardSavedMessage, 'success');
   }, [controller, onSnackbar, t]);
 

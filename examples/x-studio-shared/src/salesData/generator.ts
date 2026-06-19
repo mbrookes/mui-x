@@ -376,6 +376,9 @@ export function generateExchangeRatesSource(): StudioDataSource {
 
 // ─── Generator options ────────────────────────────────────────────────────────
 
+/** Default number of orders generated when no `?rows=N` URL param is set. */
+export const DEFAULT_ORDER_COUNT = 1000;
+
 export interface GeneratorOptions {
   /** Integer seed for the PRNG. Defaults to 42 for reproducible output. */
   seed?: number;
@@ -773,11 +776,11 @@ export interface GeneratedSalesData {
  * shipment onTime, category price multipliers) are computed after generation.
  *
  * @param opts.seed - Integer seed for the PRNG. Default: 42 (reproducible).
- * @param opts.orderCount - Number of orders to generate. Default: 220.
+ * @param opts.orderCount - Number of orders to generate. Default: 1000.
  */
 export function generateSalesData(opts?: GeneratorOptions): GeneratedSalesData {
   const seed = opts?.seed ?? 42;
-  const orderCount = opts?.orderCount ?? 220;
+  const orderCount = opts?.orderCount ?? DEFAULT_ORDER_COUNT;
   // Scale customers with order count, but keep a sensible minimum and maximum
   const customerCount = Math.min(500, Math.max(50, Math.ceil(orderCount / 4)));
 

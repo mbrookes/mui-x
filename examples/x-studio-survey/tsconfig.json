@@ -1,0 +1,20 @@
+{
+  // Extend the repo base so the example resolves every `@mui/x-*` workspace
+  // package (the standalone `paths` block here was incomplete — missing
+  // x-charts-pro/premium etc. — which made `tsc` report cascading errors in
+  // package source). The base also keeps `noUnusedLocals: false` ("tested with
+  // eslint"); the previous strict noUnused*/noFallthrough flags applied to the
+  // unbuilt workspace source this config pulls in, producing ~1500 false errors.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // Inherit target/lib/module/paths/strictness from the base so package source
+    // type-checks identically to its own gate (e.g. base `lib: esnext` provides
+    // the iterator helpers x-charts-pro relies on). Only example-local needs are
+    // overridden here.
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src"],
+  "exclude": ["src/server"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

@@ -36,6 +36,24 @@ A copy of the `x-studio` example app wired to a **custom, generic Excel
 pnpm --filter x-studio-survey-example dev
 ```
 
+## Report status / next steps
+
+The report in `src/config/surveyReport.ts` is a **data-driven reconstruction**
+of the published 2025 survey report (https://mui-2025-survey-report.vercel.app/).
+It charts the same questions from the same spreadsheet data, but the section
+text, chart selection, and typeface were **not** yet aligned 1:1 with the
+original — that page was unreachable from the build environment's network
+allowlist when this was authored.
+
+To finish the exact-match pass (e.g. in a session that can reach the report):
+
+1. Fetch the original report and note each section's heading + verbatim body
+   text, every chart (type + which question), and the font family.
+2. Update the section text and chart configs in `src/config/surveyReport.ts`
+   (the `FIELDS` map in `src/surveyData.ts` lists the available 2025 columns).
+3. Match the typeface in `src/theme.ts` (`typography.fontFamily`) and the text
+   widget font sizes.
+
 ## Using the adapter with your own spreadsheet
 
 ```ts

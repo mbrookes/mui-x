@@ -1,14 +1,15 @@
 import { createTheme } from '@mui/material/styles';
 import type {} from '@mui/x-charts/themeAugmentation';
-import { blueberryTwilightPalette } from '@mui/x-charts';
+
+const PIE_PALETTE = ['#0f172a', '#b45309', '#1e3a8a', '#166534', '#7e22ce', '#9f1239', '#0e7490', '#78350f'];
 
 export const theme = createTheme({
   cssVariables: true,
   colorSchemes: {
     light: {
       palette: {
-        primary: { main: '#2563eb' },
-        secondary: { main: '#0ea5e9' },
+        primary: { main: '#0f172a' },
+        secondary: { main: '#b45309' },
         background: {
           default: '#f8fafc',
           paper: '#ffffff',
@@ -17,8 +18,8 @@ export const theme = createTheme({
     },
     dark: {
       palette: {
-        primary: { main: '#60a5fa' },
-        secondary: { main: '#38bdf8' },
+        primary: { main: '#94a3b8' },
+        secondary: { main: '#f59e0b' },
         background: {
           default: '#0f172a',
           paper: '#1e293b',
@@ -27,11 +28,11 @@ export const theme = createTheme({
     },
   },
   typography: {
-    fontFamily: '"Source Sans 3", "Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+    fontFamily: '"JetBrains Mono", ui-monospace, monospace',
     h6: { fontWeight: 600 },
   },
   shape: {
-    borderRadius: 8,
+    borderRadius: 4,
   },
   components: {
     MuiPaper: {
@@ -40,13 +41,13 @@ export const theme = createTheme({
       },
     },
     MuiBarChart: {
-      defaultProps: { colors: blueberryTwilightPalette },
+      defaultProps: { colors: ['#0f172a'] },
     },
     MuiLineChart: {
-      defaultProps: { colors: blueberryTwilightPalette },
+      defaultProps: { colors: ['#0f172a'] },
     },
     MuiPieChart: {
-      defaultProps: { colors: blueberryTwilightPalette },
+      defaultProps: { colors: PIE_PALETTE },
     },
   },
 });

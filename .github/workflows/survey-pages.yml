@@ -2,7 +2,7 @@ name: Deploy survey example to GitHub Pages
 
 on:
   push:
-    branches: [claude/dreamy-cori-f8bznr]
+    branches: [claude/mui-survey-report-bwhc1z]
     paths:
       - 'examples/x-studio-survey/**'
       - 'packages/x-studio/**'

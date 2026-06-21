@@ -83,6 +83,11 @@ export { StudioComposeDrawer } from './components/StudioComposeDrawer/StudioComp
 export type { StudioComposeDrawerProps } from './components/StudioComposeDrawer/StudioComposeDrawer';
 export { InlineFormulaBar } from './components/StudioComposeDrawer/InlineFormulaBar';
 export type { InlineFormulaBarProps } from './components/StudioComposeDrawer/InlineFormulaBar';
+export { DataSourceFieldSelect } from './components/StudioComposeDrawer/DataSourceFieldSelect';
+export type {
+  DataSourceFieldEntry,
+  DataSourceFieldSelectCalculatedFieldContext,
+} from './components/StudioComposeDrawer/DataSourceFieldSelect';
 
 // ─── StudioFiltersDrawer ──────────────────────────────────────────────────────
 export { StudioFiltersDrawer } from './components/StudioFiltersDrawer/StudioFiltersDrawer';

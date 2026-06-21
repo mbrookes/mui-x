@@ -1674,6 +1674,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                               multiYBarFieldDefs[0]?.precision,
                             ),
                         ...(is100 && { min: 0, max: 100 }),
+                        tickLabelStyle: { fontSize: '0.65rem' },
                       },
                     ]
                   : [
@@ -1695,6 +1696,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                         scaleType: 'band',
                         width: 'auto',
                         valueFormatter: (v: string | number) => formatLabel(String(v)),
+                        tickLabelStyle: { fontSize: '0.65rem' },
                       },
                     ]
                   : yAxes
@@ -1811,24 +1813,25 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       });
 
       return (
-        <div style={{ height: chartHeight }}>
-          <PieChart
-            {...slotProps?.pieChart}
-            skipAnimation={skipAnimation}
-            series={pieSeries}
-            colors={chartColors}
-            slotProps={{
-              legend: {
-                sx: { overflowY: 'auto', flexWrap: 'nowrap', maxHeight: '100%' },
-              },
-            }}
-            margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
-            highlightedItem={controlledHighlightedItem}
-            onHighlightChange={(item) =>
-              setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-            }
-          />
-        </div>
+        <PieChart
+          {...slotProps?.pieChart}
+          height={Math.max(chartHeight, 380)}
+          skipAnimation={skipAnimation}
+          series={pieSeries}
+          colors={chartColors}
+          slotProps={{
+            legend: {
+              direction: 'horizontal',
+              position: { vertical: 'bottom', horizontal: 'center' },
+              sx: { fontSize: '0.65rem' },
+            },
+          }}
+          margin={{ top: 16, right: 16, bottom: 120, left: 16 }}
+          highlightedItem={controlledHighlightedItem}
+          onHighlightChange={(item) =>
+            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+          }
+        />
       );
     }
 
@@ -1849,58 +1852,55 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
 
     return (
-      <div style={{ height: chartHeight }}>
-        {/* PieHighlightContext always wraps PieChart — never conditionally — so PieChart
-            stays at the same tree position and arcs never remount on filter changes. */}
-        <PieHighlightContext.Provider value={pieHighlightCtxValue}>
-          <PieChart
-            {...slotProps?.pieChart}
-            skipAnimation={skipAnimation}
-            slots={PIE_HIGHLIGHT_SLOTS}
-            series={[
-              {
-                id: CROSS_FILTER_SERIES_ID,
-                innerRadius,
-                ...(singleArcLabel
-                  ? { arcLabel: singleArcLabel, arcLabelMinAngle: pieArcLabelMinAngle }
-                  : {}),
-                data: pieBaseData.labels.map((label, i) => ({
-                  id: i,
-                  label: formatLabel(label),
-                  value: pieBaseData.values[i],
-                })),
-                highlightScope: { highlight: 'item', fade: 'global' },
-              },
-            ]}
-            colors={chartColors}
-            slotProps={{
-              legend: {
-                sx: {
-                  overflowY: 'auto',
-                  flexWrap: 'nowrap',
-                  maxHeight: '100%',
-                },
-              },
-            }}
-            margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
-            highlightedItem={
-              selectedDataIndex >= 0
-                ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
-                : controlledHighlightedItem
+      /* PieHighlightContext always wraps PieChart — never conditionally — so PieChart
+         stays at the same tree position and arcs never remount on filter changes. */
+      <PieHighlightContext.Provider value={pieHighlightCtxValue}>
+        <PieChart
+          {...slotProps?.pieChart}
+          height={Math.max(chartHeight, 380)}
+          skipAnimation={skipAnimation}
+          slots={PIE_HIGHLIGHT_SLOTS}
+          series={[
+            {
+              id: CROSS_FILTER_SERIES_ID,
+              innerRadius,
+              ...(singleArcLabel
+                ? { arcLabel: singleArcLabel, arcLabelMinAngle: pieArcLabelMinAngle }
+                : {}),
+              data: pieBaseData.labels.map((label, i) => ({
+                id: i,
+                label: formatLabel(label),
+                value: pieBaseData.values[i],
+              })),
+              highlightScope: { highlight: 'item', fade: 'global' },
+            },
+          ]}
+          colors={chartColors}
+          slotProps={{
+            legend: {
+              direction: 'horizontal',
+              position: { vertical: 'bottom', horizontal: 'center' },
+              sx: { fontSize: '0.65rem' },
+            },
+          }}
+          margin={{ top: 16, right: 16, bottom: 120, left: 16 }}
+          highlightedItem={
+            selectedDataIndex >= 0
+              ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
+              : controlledHighlightedItem
+          }
+          onHighlightChange={(item) =>
+            setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+          }
+          onItemClick={(_event, params) => {
+            const label = pieBaseData.labels[params.dataIndex];
+            if (label !== undefined) {
+              handleItemClick(label);
             }
-            onHighlightChange={(item) =>
-              setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-            }
-            onItemClick={(_event, params) => {
-              const label = pieBaseData.labels[params.dataIndex];
-              if (label !== undefined) {
-                handleItemClick(label);
-              }
-            }}
-            sx={{ cursor: 'default' }}
-          />
-        </PieHighlightContext.Provider>
-      </div>
+          }}
+          sx={{ cursor: 'default' }}
+        />
+      </PieHighlightContext.Provider>
     );
   }
 
@@ -2017,6 +2017,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                             yFieldDef?.precision,
                           ),
                       ...(is100 && { min: 0, max: 100 }),
+                      tickLabelStyle: { fontSize: '0.65rem' },
                     },
                   ]
                 : [
@@ -2038,6 +2039,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       scaleType: 'band',
                       width: 'auto',
                       valueFormatter: (v: string | number) => formatLabel(String(v)),
+                      tickLabelStyle: { fontSize: '0.65rem' },
                     },
                   ]
                 : [
@@ -2646,7 +2648,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             {...slotProps?.barChart}
             skipAnimation={skipAnimation}
             layout="horizontal"
-            xAxis={[{ height: 'auto', valueFormatter: seriesValueFormatter }]}
+            xAxis={[{ height: 'auto', valueFormatter: seriesValueFormatter, tickLabelStyle: { fontSize: '0.65rem' } }]}
             yAxis={[
               {
                 id: CROSS_FILTER_AXIS_ID,
@@ -2654,6 +2656,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 scaleType: 'band',
                 width: 'auto',
                 valueFormatter: (v: string | number) => formatLabel(String(v)),
+                tickLabelStyle: { fontSize: '0.65rem' },
               },
             ]}
             series={[

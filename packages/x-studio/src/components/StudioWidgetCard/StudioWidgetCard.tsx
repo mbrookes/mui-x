@@ -717,12 +717,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           {widget.kind === 'chart' &&
             (showContent ? (
               <Box sx={{ position: 'relative' }}>
-                <Box ref={chartContainerRef} sx={{ minHeight: CHART_MIN_HEIGHT }}>
+                <Box ref={chartContainerRef}>
                   <StudioChartWidget
                     widget={widget}
                     dataSource={source}
                     pageId={pageId}
-                    height={CHART_MIN_HEIGHT}
                     anomalyEnabled={anomalyEnabled}
                     onAnomalyDetected={setAnomalyAnnotations}
                     {...slotProps?.chart}

@@ -49,7 +49,7 @@ jobs:
 
       - name: Build survey example
         working-directory: examples/x-studio-survey
-        run: npx vite build
+        run: npx vite build --base=/mui-x/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4

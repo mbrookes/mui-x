@@ -73,6 +73,11 @@ export interface StudioWidgetConfig {
    * `0` or omitted means no wrapping.
    */
   barBandLabelWrap?: number;
+  /**
+   * Ratio of band width reserved for the gap between categories (0–1).
+   * Maps to `categoryGapRatio` on the band axis. Default is 0.2.
+   */
+  barCategoryGapRatio?: number;
   /** X-axis field (categorical or date). For date fields, combine with `xGroupBy`. */
   xField?: string;
   /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */

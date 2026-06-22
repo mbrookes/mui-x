@@ -2144,6 +2144,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       scaleType: 'band',
                       height: 'auto',
                       valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
+                      ...(config.barCategoryGapRatio !== undefined
+                        ? { categoryGapRatio: config.barCategoryGapRatio }
+                        : {}),
                     },
                   ]
             }
@@ -2157,6 +2160,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       width: 'auto',
                       valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
                       tickLabelStyle: { fontSize: '0.65rem' },
+                      ...(config.barCategoryGapRatio !== undefined
+                        ? { categoryGapRatio: config.barCategoryGapRatio }
+                        : {}),
                     },
                   ]
                 : [
@@ -2780,6 +2786,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 width: 'auto',
                 valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
                 tickLabelStyle: { fontSize: '0.65rem' },
+                ...(config.barCategoryGapRatio !== undefined
+                  ? { categoryGapRatio: config.barCategoryGapRatio }
+                  : {}),
               },
             ]}
             series={[
@@ -2839,6 +2848,9 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               scaleType: 'band',
               height: 'auto',
               valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
+              ...(config.barCategoryGapRatio !== undefined
+                ? { categoryGapRatio: config.barCategoryGapRatio }
+                : {}),
             },
           ]}
           yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}

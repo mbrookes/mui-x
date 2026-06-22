@@ -58,6 +58,9 @@ import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOv
 
 import { PieHighlightContext } from './PieCrossHighlightContext';
 import { PIE_HIGHLIGHT_SLOTS } from './PieCrossHighlightSlots';
+
+const EMPTY_LEGEND = () => null;
+const PIE_HIGHLIGHT_SLOTS_NO_LEGEND = { ...PIE_HIGHLIGHT_SLOTS, legend: EMPTY_LEGEND } as const;
 import {
   alignFilteredToAllLabels,
   makeCrossFilterValueFormatter,
@@ -1866,10 +1869,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
 
     // ── Single series paths ───────────────────────────────────────────────
-    const pieH = Math.max(chartHeight, 420);
+    // Legend renders outside the SVG (custom Box below), so we only need height for the chart ring itself.
+    const pieH = Math.max(chartHeight, 280);
     const pieSideM = 50;
     const pieTopM = 20;
-    const pieBottomM = 150;
+    const pieBottomM = 12;
     // For donut: shrink outerRadius so outside arc labels stay within the drawing area
     const donutLabelOverhang = 18;
     const pieSingleOuterRadius =
@@ -1924,7 +1928,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           {...slotProps?.pieChart}
           height={pieH}
           skipAnimation={skipAnimation}
-          slots={PIE_HIGHLIGHT_SLOTS}
+          slots={PIE_HIGHLIGHT_SLOTS_NO_LEGEND}
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
@@ -1948,13 +1952,6 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             },
           ]}
           colors={chartColors}
-          slotProps={{
-            legend: {
-              direction: 'vertical',
-              position: { vertical: 'bottom', horizontal: 'center' },
-              sx: { fontSize: '0.65rem' },
-            },
-          }}
           margin={{ top: pieTopM, right: pieSideM, bottom: pieBottomM, left: pieSideM }}
           highlightedItem={
             selectedDataIndex >= 0
@@ -1972,6 +1969,54 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           }}
           sx={{ cursor: 'default' }}
         />
+        {/* Custom legend: color swatch + left-aligned label + right-aligned percentage */}
+        <Box sx={{ px: 1.5, pb: 1 }}>
+          {displayLabels.map((label, i) => {
+            const value = displayValues[i] ?? 0;
+            const pct = singlePieTotal > 0 ? `${((value / singlePieTotal) * 100).toFixed(1)}%` : '';
+            const color = (chartColors?.[i % (chartColors.length || 1)] ?? '#ccc') as string;
+            return (
+              <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: '6px', py: '2px' }}>
+                <Box
+                  component="span"
+                  sx={{
+                    display: 'inline-block',
+                    width: 8,
+                    height: 8,
+                    borderRadius: '2px',
+                    bgcolor: color,
+                    flexShrink: 0,
+                  }}
+                />
+                <Box
+                  component="span"
+                  sx={{
+                    flex: 1,
+                    fontSize: '0.65rem',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {formatLabel(label)}
+                </Box>
+                <Box
+                  component="span"
+                  sx={{
+                    fontSize: '0.65rem',
+                    fontVariantNumeric: 'tabular-nums',
+                    flexShrink: 0,
+                    color: 'text.secondary',
+                    pl: '8px',
+                    textAlign: 'right',
+                  }}
+                >
+                  {pct}
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
       </PieHighlightContext.Provider>
     );
   }

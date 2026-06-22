@@ -267,10 +267,12 @@ export interface HandleBatchQueryOptions {
   /**
    * TTL for tier routing cache entries in milliseconds.
    *
-   * Must be larger than the data cache TTL (default 30 s) to be effective.
-   * Set to `0` to disable the tier cache.
+   * Set `tierCacheTtlMs > dataCacheTtlMs` only if you accept that tier
+   * decisions may be stale when data volume shifts. Longer TTL reduces
+   * COUNT(*) calls but risks wrong-tier routing after a data growth event.
+   * Set to `0` to disable the tier cache entirely.
    *
-   * @default 300_000 (5 minutes)
+   * @default 30_000 (30 seconds — aligned with the data cache default)
    */
   tierCacheTtlMs?: number;
 }

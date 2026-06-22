@@ -4,6 +4,25 @@ import type { StudioDataSource, StudioDataField } from './dataTypes';
 import type { StudioExpressionField, StudioRelationship } from './expressionTypes';
 import type { StudioAIState } from './aiTypes';
 
+/**
+ * Typed filter scope — a discriminated union that encodes scope and all
+ * scope-dependent identifiers in a single field.
+ *
+ * This is the v2 replacement for the combination of `scope`, `widgetId`,
+ * `sourceWidgetId`, `pageId`, `isDashboardDateRange`, and `filterSourceId`.
+ *
+ * When `scopeV2` is present on a `StudioFilterState`, `selectFiltersForWidget`
+ * uses it exclusively; when absent the legacy fields are used instead.
+ */
+export type StudioFilterScope =
+  | { kind: 'page'; pageId?: string }
+  | { kind: 'widget'; widgetId: string }
+  | { kind: 'cross-filter'; sourceWidgetId: string; pageId: string }
+  | { kind: 'interactive'; sourceWidgetId: string; pageId: string }
+  /** Replaces isDashboardDateRange: true + filterSourceId. The filter applies only to
+   *  widgets whose sourceId matches and runs on the given page. */
+  | { kind: 'dashboard-date-range'; sourceId: string; pageId: string };
+
 export type StudioDateRangePreset =
   | 'this_month'
   | 'last_3_months'
@@ -76,6 +95,16 @@ export interface StudioFilterState {
   dependsOn?: string[];
   /** When `true`, the filter is temporarily inactive without being removed. */
   disabled?: boolean;
+  /**
+   * Typed scope — a discriminated union that consolidates `scope`, `widgetId`,
+   * `sourceWidgetId`, `pageId`, `isDashboardDateRange`, and `filterSourceId`
+   * into a single, exhaustive field.
+   *
+   * When present, `selectFiltersForWidget` uses `scopeV2` exclusively and ignores
+   * the legacy fields. When absent, legacy fields are used as a fallback so that
+   * existing stored state and programmatically created filters continue to work.
+   */
+  scopeV2?: StudioFilterScope;
 }
 
 export interface StudioShellState {

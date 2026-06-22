@@ -2536,6 +2536,19 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       ? allChartData.values
       : null;
 
+  // Apply top-N + "Other" grouping for bar charts
+  const barMaxCats = isBar ? (config.barMaxCategories ?? undefined) : undefined;
+  let displayXAxisData: (string | number)[] = xAxisData;
+  let displayBarValues: (number | null)[] = (effectiveSingleSeriesData?.values ?? []).map(
+    (v) => v ?? null,
+  );
+  if (barMaxCats && xAxisData.length > barMaxCats) {
+    const topN = barMaxCats - 1;
+    const otherValue = displayBarValues.slice(topN).reduce<number>((sum, v) => sum + (v ?? 0), 0);
+    displayXAxisData = [...xAxisData.slice(0, topN), 'Other'];
+    displayBarValues = [...displayBarValues.slice(0, topN), otherValue];
+  }
+
   if (chartType === 'line') {
     const forecastData =
       config.forecast?.enabled && !ghostLineValues && singleSeriesChartData
@@ -2771,7 +2784,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const minBandSize = config.barMinBandSize;
   const effectiveHBarHeight =
     isHorizontal && minBandSize
-      ? Math.max(chartHeight, xAxisData.length * minBandSize + 40)
+      ? Math.max(chartHeight, displayXAxisData.length * minBandSize + 40)
       : chartHeight;
 
   if (isHorizontal) {
@@ -2792,7 +2805,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             yAxis={[
               {
                 id: CROSS_FILTER_AXIS_ID,
-                data: xAxisData,
+                data: displayXAxisData,
                 scaleType: 'band',
                 width: 'auto',
                 valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
@@ -2805,7 +2818,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             series={[
               {
                 id: CROSS_FILTER_SERIES_ID,
-                data: effectiveSingleSeriesData!.values,
+                data: displayBarValues,
                 label: seriesLabel,
                 highlightScope: { highlight: 'item', fade: 'global' },
                 valueFormatter: singleSeriesVF,
@@ -2855,7 +2868,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           xAxis={[
             {
               id: CROSS_FILTER_AXIS_ID,
-              data: xAxisData,
+              data: displayXAxisData,
               scaleType: 'band',
               height: 'auto',
               valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
@@ -2868,7 +2881,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
-              data: effectiveSingleSeriesData!.values,
+              data: displayBarValues,
               label: seriesLabel,
               highlightScope: { highlight: 'item', fade: 'global' },
               valueFormatter: singleSeriesVF,

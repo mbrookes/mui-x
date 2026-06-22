@@ -84,6 +84,11 @@ export interface StudioWidgetConfig {
    * giving wrapped multi-line labels enough vertical room.
    */
   barMinBandSize?: number;
+  /**
+   * Maximum number of categories shown in a bar chart.
+   * The top N−1 categories by value are shown; remaining values are summed into an "Other" bar.
+   */
+  barMaxCategories?: number;
   /** X-axis field (categorical or date). For date fields, combine with `xGroupBy`. */
   xField?: string;
   /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */

@@ -476,6 +476,8 @@ function qBarWidget(meta: QuestionMeta): StudioWidget {
       chartSortDirection: 'desc',
       barBandLabelWrap: 28,
       barMinBandSize: 44,
+      barCategoryGapRatio: 0.5,
+      barMaxCategories: 10,
     },
   };
 }

@@ -11,7 +11,7 @@ export const theme = createTheme({
         primary: { main: '#0f172a' },
         secondary: { main: '#b45309' },
         background: {
-          default: '#f8fafc',
+          default: '#ffffff',
           paper: '#ffffff',
         },
       },
@@ -48,6 +48,11 @@ export const theme = createTheme({
     },
     MuiPieChart: {
       defaultProps: { colors: PIE_PALETTE },
+    },
+    MuiPieArcLabel: {
+      styleOverrides: {
+        root: { fontSize: '0.65rem' },
+      },
     },
   },
 });

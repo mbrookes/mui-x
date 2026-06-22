@@ -67,6 +67,12 @@ export interface StudioWidgetConfig {
   chartType?: StudioChartType;
   /** Bar orientation. `'horizontal'` — prefer for >5 categories, long labels, or ranking lists. */
   barLayout?: StudioBarLayout;
+  /**
+   * Maximum characters per line for horizontal bar chart category labels.
+   * Long labels are word-wrapped at this width (inserting `\n`).
+   * `0` or omitted means no wrapping.
+   */
+  barBandLabelWrap?: number;
   /** X-axis field (categorical or date). For date fields, combine with `xGroupBy`. */
   xField?: string;
   /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */
@@ -245,6 +251,11 @@ export interface StudioWidgetConfig {
    * Slices smaller than this will not be labelled. @default 20
    */
   pieArcLabelMinAngle?: number;
+  /**
+   * Pie/donut chart: maximum number of slices to show before grouping the remainder
+   * into an "Other" slice. @default undefined (no grouping)
+   */
+  pieMaxSlices?: number;
   /** Minimum value for gauge chart. @default 0 */
   gaugeMin?: number;
   /** Maximum value for gauge chart. @default 100 */

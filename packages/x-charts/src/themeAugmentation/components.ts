@@ -62,6 +62,9 @@ export interface ChartsComponents<Theme = unknown> {
   MuiPieArcPlot?: {
     styleOverrides?: ComponentsOverrides<Theme>['MuiPieArcPlot'];
   };
+  MuiPieArcLabel?: {
+    styleOverrides?: ComponentsOverrides<Theme>['MuiPieArcLabel'];
+  };
   MuiPieArcLabelPlot?: {
     styleOverrides?: ComponentsOverrides<Theme>['MuiPieArcLabelPlot'];
   };

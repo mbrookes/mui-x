@@ -191,7 +191,23 @@ export interface LoadedSurvey {
 /** Fetch + parse both workbooks and return ready-to-use data sources and adapters. */
 export async function loadSurveyWorkbooks(): Promise<LoadedSurvey> {
   const [wb2025, wb2023] = await Promise.all([
-    loadExcelWorkbook(SURVEY_2025_URL, { idPrefix: 'survey-2025', labelPrefix: '2025 Survey' }),
+    loadExcelWorkbook(SURVEY_2025_URL, {
+      idPrefix: 'survey-2025',
+      labelPrefix: '2025 Survey',
+      // Fields where cells hold `, `-delimited multi-select answers.
+      // The adapter expands these into one row per option when aggregating.
+      multiSelectFields: [
+        FIELDS.outsource,               // Q02
+        FIELDS.advancedComponentsFeedback, // Q11
+        FIELDS.schedulerAI,             // Q14
+        FIELDS.chartsNextFeatures,      // Q21
+        FIELDS.chartsAIFeatures,        // Q24
+        FIELDS.ganttAI,                 // Q28
+        FIELDS.gridAIUseCases,          // Q32
+        FIELDS.aiWorkflow,              // Q39
+        FIELDS.productBuilding,         // Q47
+      ],
+    }),
     loadExcelWorkbook(SURVEY_2023_URL, { idPrefix: 'survey-2023', labelPrefix: '2023 Survey' }),
   ]);
 

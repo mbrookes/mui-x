@@ -474,6 +474,7 @@ function qBarWidget(meta: QuestionMeta): StudioWidget {
       barLayout: 'horizontal',
       chartSortBy: 'value',
       chartSortDirection: 'desc',
+      barBandLabelWrap: 28,
     },
   };
 }
@@ -493,6 +494,7 @@ function qDonutWidget(meta: QuestionMeta): StudioWidget {
       yField: meta.field,
       yAggregation: 'count',
       pieArcLabel: 'percent',
+      pieMaxSlices: 8,
     },
   };
 }

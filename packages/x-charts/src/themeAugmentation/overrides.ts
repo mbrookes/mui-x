@@ -24,6 +24,7 @@ export interface ChartsComponentNameToClassKey {
 
   // PieChart components
   MuiPieArcPlot: 'root';
+  MuiPieArcLabel: 'root';
   MuiPieArcLabelPlot: 'root';
 
   // LineChart components

@@ -184,19 +184,82 @@ function sheetToSource(
 }
 
 /**
+ * Split a multi-select cell value into individual option strings.
+ *
+ * The delimiter is `, ` (comma + space) at parenthesis depth 0.
+ * Commas inside `(…)` or `[…]` are treated as part of the option text,
+ * not as separators — e.g. "Component API (prop names, defaults)" is one option.
+ */
+function parseMultiSelectValue(value: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let depth = 0;
+
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === '(' || ch === '[') {
+      depth += 1;
+      current += ch;
+    } else if (ch === ')' || ch === ']') {
+      depth -= 1;
+      current += ch;
+    } else if (depth === 0 && ch === ',' && value[i + 1] === ' ') {
+      const trimmed = current.trim();
+      if (trimmed) {
+        parts.push(trimmed);
+      }
+      current = '';
+      i += 1; // skip the space after the comma
+    } else {
+      current += ch;
+    }
+  }
+
+  const trimmed = current.trim();
+  if (trimmed) {
+    parts.push(trimmed);
+  }
+
+  return parts;
+}
+
+/**
  * A single adapter instance that serves every sheet of one workbook.
  *
  * Because the whole workbook is already in memory, `getRows` just returns the
  * cached rows for the requested source — x-studio's pipeline applies the
  * filters and aggregations described by the query descriptor.
+ *
+ * When `multiSelectFields` is provided and the query's `groupBy` field is in
+ * that set, each cell value is split on `, ` (paren-aware) and the row is
+ * duplicated once per option — giving correct per-option counts for multi-select
+ * survey questions.
  */
 export function createExcelAdapter(
   rowsBySourceId: Map<string, Record<string, unknown>[]>,
+  multiSelectFields?: ReadonlySet<string>,
 ): StudioDataSourceAdapter {
   return {
     async getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult> {
-      const rows = rowsBySourceId.get(descriptor.sourceId) ?? [];
-      return { rows, totalCount: rows.length };
+      const baseRows = rowsBySourceId.get(descriptor.sourceId) ?? [];
+
+      if (multiSelectFields && descriptor.groupBy && multiSelectFields.has(descriptor.groupBy)) {
+        const field = descriptor.groupBy;
+        const expandedRows: Record<string, unknown>[] = [];
+        for (const row of baseRows) {
+          const rawValue = row[field];
+          if (rawValue == null) {
+            continue; // skip non-responses for this question
+          }
+          const options = parseMultiSelectValue(String(rawValue));
+          for (const option of options) {
+            expandedRows.push({ ...row, [field]: option });
+          }
+        }
+        return { rows: expandedRows, totalCount: expandedRows.length };
+      }
+
+      return { rows: baseRows, totalCount: baseRows.length };
     },
   };
 }
@@ -215,6 +278,13 @@ export interface LoadExcelOptions {
   labelPrefix?: string;
   /** Skip sheets whose (trimmed) name matches one of these. */
   excludeSheets?: string[];
+  /**
+   * Field IDs whose cells contain `, `-delimited multi-select values.
+   * When the adapter receives a query grouped by one of these fields it
+   * expands each row into one row per selection so per-option counts are
+   * correct.  Commas inside `(…)` are not treated as delimiters.
+   */
+  multiSelectFields?: string[];
 }
 
 /**
@@ -268,5 +338,9 @@ export function parseExcelWorkbook(
     rowsBySourceId.set(sourceId, rows);
   }
 
-  return { sources, adapter: createExcelAdapter(rowsBySourceId) };
+  const multiSelectSet = options.multiSelectFields?.length
+    ? new Set(options.multiSelectFields)
+    : undefined;
+
+  return { sources, adapter: createExcelAdapter(rowsBySourceId, multiSelectSet) };
 }

@@ -255,6 +255,27 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     [formatLabel, xGroupBy],
   );
 
+  const bandLabelWrap = config.barBandLabelWrap ?? 0;
+  const wrapBandLabel = React.useCallback(
+    (label: string): string => {
+      if (!bandLabelWrap || label.length <= bandLabelWrap) return label;
+      const words = label.split(' ');
+      const lines: string[] = [];
+      let current = '';
+      for (const word of words) {
+        if (current && current.length + 1 + word.length > bandLabelWrap) {
+          lines.push(current);
+          current = word;
+        } else {
+          current = current ? `${current} ${word}` : word;
+        }
+      }
+      if (current) lines.push(current);
+      return lines.join('\n');
+    },
+    [bandLabelWrap],
+  );
+
   const getFieldDependencySource = React.useCallback(
     (fieldId: string | undefined, fallbackSourceId?: string | undefined): string | null => {
       if (!fieldId) {
@@ -1683,7 +1704,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                         data: xAxisData,
                         scaleType: 'band',
                         height: 'auto',
-                        valueFormatter: (v: string | number) => formatLabel(String(v)),
+                        valueFormatter: (v: string | number) =>
+                          wrapBandLabel(formatLabel(String(v))),
                       },
                     ]
               }
@@ -1695,7 +1717,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                         data: xAxisData,
                         scaleType: 'band',
                         width: 'auto',
-                        valueFormatter: (v: string | number) => formatLabel(String(v)),
+                        valueFormatter: (v: string | number) =>
+                          wrapBandLabel(formatLabel(String(v))),
                         tickLabelStyle: { fontSize: '0.65rem' },
                       },
                     ]
@@ -1835,20 +1858,55 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       );
     }
 
-    // ── Single series paths (unchanged below) ────────────────────────────
-    const innerRadius = donutHole;
-    const selectedDataIndex = getSelectedDataIndex(chartData.labels);
+    // ── Single series paths ───────────────────────────────────────────────
+    const pieH = Math.max(chartHeight, 380);
+    const pieSideM = 50;
+    const pieTopM = 20;
+    const pieBottomM = 120;
+    // For donut: shrink outerRadius so outside arc labels stay within the drawing area
+    const donutLabelOverhang = 18;
+    const pieSingleOuterRadius =
+      chartType === 'donut'
+        ? Math.floor((pieH - pieTopM - pieBottomM) / 2) - donutLabelOverhang
+        : undefined;
+    const singleInnerRadius =
+      chartType === 'donut' && pieSingleOuterRadius !== undefined
+        ? Math.round(pieSingleOuterRadius * 0.7)
+        : 0;
+    const singleArcLabelRadius =
+      chartType === 'donut' && pieSingleOuterRadius !== undefined
+        ? pieSingleOuterRadius + donutLabelOverhang
+        : undefined;
 
     // Use stable baseline data (isPieHighlightActive / pieRatioByIndex computed at top level)
     const pieBaseData = isPieHighlightActive ? allChartData! : chartData;
 
+    // Apply "Other" grouping if pieMaxSlices is configured
+    const pieMaxSlices = config.pieMaxSlices;
+    let displayLabels = pieBaseData.labels;
+    let displayValues: (number | undefined)[] = pieBaseData.values;
+    if (pieMaxSlices && displayLabels.length > pieMaxSlices) {
+      const pairs = displayLabels.map((label, i) => ({
+        label,
+        value: displayValues[i] ?? 0,
+      }));
+      pairs.sort((a, b) => b.value - a.value);
+      const topN = pieMaxSlices - 1;
+      const otherValue = pairs.slice(topN).reduce((sum, p) => sum + p.value, 0);
+      displayLabels = [...pairs.slice(0, topN).map((p) => p.label), 'Other'];
+      displayValues = [...pairs.slice(0, topN).map((p) => p.value), otherValue];
+    }
+
+    const selectedDataIndex = pieMaxSlices ? -1 : getSelectedDataIndex(chartData.labels);
+
     // Compute arc label props for single-series pie/donut
-    const singlePieTotal = pieBaseData.values.reduce((sum, v) => sum + (v ?? 0), 0);
+    const singlePieTotal = displayValues.reduce<number>((sum, v) => sum + (v ?? 0), 0);
     let singleArcLabel: 'value' | ((item: { value: number }) => string) | undefined;
     if (pieArcLabelCfg === 'value') {
       singleArcLabel = 'value';
     } else if (pieArcLabelCfg === 'percent' && singlePieTotal > 0) {
-      singleArcLabel = (item) => `${((item.value / singlePieTotal) * 100).toFixed(1)}%`;
+      const total = singlePieTotal;
+      singleArcLabel = (item) => `${((item.value / total) * 100).toFixed(1)}%`;
     }
 
     return (
@@ -1857,20 +1915,27 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       <PieHighlightContext.Provider value={pieHighlightCtxValue}>
         <PieChart
           {...slotProps?.pieChart}
-          height={Math.max(chartHeight, 380)}
+          height={pieH}
           skipAnimation={skipAnimation}
           slots={PIE_HIGHLIGHT_SLOTS}
           series={[
             {
               id: CROSS_FILTER_SERIES_ID,
-              innerRadius,
+              ...(pieSingleOuterRadius !== undefined ? { outerRadius: pieSingleOuterRadius } : {}),
+              innerRadius: singleInnerRadius,
               ...(singleArcLabel
-                ? { arcLabel: singleArcLabel, arcLabelMinAngle: pieArcLabelMinAngle }
+                ? {
+                    arcLabel: singleArcLabel,
+                    arcLabelMinAngle: pieArcLabelMinAngle,
+                    ...(singleArcLabelRadius !== undefined
+                      ? { arcLabelRadius: singleArcLabelRadius }
+                      : {}),
+                  }
                 : {}),
-              data: pieBaseData.labels.map((label, i) => ({
+              data: displayLabels.map((label, i) => ({
                 id: i,
                 label: formatLabel(label),
-                value: pieBaseData.values[i],
+                value: displayValues[i] ?? 0,
               })),
               highlightScope: { highlight: 'item', fade: 'global' },
             },
@@ -1883,7 +1948,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               sx: { fontSize: '0.65rem' },
             },
           }}
-          margin={{ top: 16, right: 16, bottom: 120, left: 16 }}
+          margin={{ top: pieTopM, right: pieSideM, bottom: pieBottomM, left: pieSideM }}
           highlightedItem={
             selectedDataIndex >= 0
               ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndex }
@@ -1893,7 +1958,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
           }
           onItemClick={(_event, params) => {
-            const label = pieBaseData.labels[params.dataIndex];
+            const label = displayLabels[params.dataIndex];
             if (label !== undefined) {
               handleItemClick(label);
             }
@@ -2026,7 +2091,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       data: xAxisData,
                       scaleType: 'band',
                       height: 'auto',
-                      valueFormatter: (v: string | number) => formatLabel(String(v)),
+                      valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
                     },
                   ]
             }
@@ -2038,7 +2103,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                       data: xAxisData,
                       scaleType: 'band',
                       width: 'auto',
-                      valueFormatter: (v: string | number) => formatLabel(String(v)),
+                      valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
                       tickLabelStyle: { fontSize: '0.65rem' },
                     },
                   ]
@@ -2648,14 +2713,20 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
             {...slotProps?.barChart}
             skipAnimation={skipAnimation}
             layout="horizontal"
-            xAxis={[{ height: 'auto', valueFormatter: seriesValueFormatter, tickLabelStyle: { fontSize: '0.65rem' } }]}
+            xAxis={[
+              {
+                height: 'auto',
+                valueFormatter: seriesValueFormatter,
+                tickLabelStyle: { fontSize: '0.65rem' },
+              },
+            ]}
             yAxis={[
               {
                 id: CROSS_FILTER_AXIS_ID,
                 data: xAxisData,
                 scaleType: 'band',
                 width: 'auto',
-                valueFormatter: (v: string | number) => formatLabel(String(v)),
+                valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
                 tickLabelStyle: { fontSize: '0.65rem' },
               },
             ]}
@@ -2715,7 +2786,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               data: xAxisData,
               scaleType: 'band',
               height: 'auto',
-              valueFormatter: (v: string | number) => formatLabel(String(v)),
+              valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
             },
           ]}
           yAxis={[{ width: 'auto', valueFormatter: seriesValueFormatter }]}

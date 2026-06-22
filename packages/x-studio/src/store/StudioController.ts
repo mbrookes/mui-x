@@ -860,6 +860,7 @@ export class StudioController {
       filterMode: 'condition',
       operator: 'between',
       value,
+      scopeV2: { kind: 'dashboard-date-range', sourceId, pageId },
     };
 
     this.commitState({ ...state, filters: [...withoutExisting, newFilter] });
@@ -910,6 +911,7 @@ export class StudioController {
         filterMode: 'condition' as const,
         operator: 'between' as const,
         value,
+        scopeV2: { kind: 'dashboard-date-range' as const, sourceId, pageId },
       }),
     );
 

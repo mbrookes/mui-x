@@ -34,9 +34,10 @@ import { generateCacheKey } from './security/cacheKey';
 import { LRUCacheProvider } from './cache/LRUCacheProvider';
 import { MapTierCacheProvider } from './cache/MapTierCacheProvider';
 import { runPreflight, executeForTier } from './router/preflight';
+import { decideTierWithCache, DEFAULT_THRESHOLDS } from './router/tierDecision';
 import type { CacheProvider, TierCacheProvider } from './cache/types';
 
-const DEFAULT_TIER_CACHE_TTL_MS = 300_000; // 5 minutes
+const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data cache default
 
 let defaultCache: CacheProvider | undefined;
 let defaultTierCache: TierCacheProvider | undefined;
@@ -204,38 +205,30 @@ async function processWidget(
       };
     }
 
-    // ── 2. Tier cache check — skip preflight on repeated cold misses ───────
-    // Aggregation queries bypass the tier cache entirely: they always run at
-    // 'db' tier (short-circuited in runPreflight), so there is nothing worth
-    // caching, and a stale 'client' entry from a pre-fix run would otherwise
-    // shadow the correct tier indefinitely.
-    const isAggregation = (descriptor.aggregations?.length ?? 0) > 0;
-    let tier: 'client' | 'server' | 'db';
-    let rowCount: number;
+    // ── 2 & 3. Tier decision: aggregation check → tier cache → COUNT(*) ───
+    const hasAggregations = (descriptor.aggregations?.length ?? 0) > 0;
+    const resolvedThresholds = {
+      client: thresholds?.clientTier ?? DEFAULT_THRESHOLDS.client,
+      server: thresholds?.serverMemoryTier ?? DEFAULT_THRESHOLDS.server,
+    };
 
-    const cachedTier =
-      !isAggregation && tierCacheProvider ? await tierCacheProvider.get(cacheKey) : undefined;
-    if (cachedTier) {
-      tier = cachedTier.tier;
-      rowCount = cachedTier.rowCount;
-    } else {
-      // ── 3. Pre-flight COUNT(*) → tier selection ────────────────────────
-      const preflight = await runPreflight(db, claims, descriptor, thresholds, queryOptions);
-      tier = preflight.tier;
-      rowCount = preflight.rowCount;
-
-      // Only cache tier for non-aggregation queries (aggregations are always db-tier).
-      if (!isAggregation && tierCacheProvider) {
-        await tierCacheProvider.set(cacheKey, { tier, rowCount }, tierCacheTtlMs);
-      }
-    }
+    const tierDecision = await decideTierWithCache(
+      hasAggregations,
+      cacheKey,
+      () => runPreflight(db, claims, descriptor, thresholds, queryOptions).then((p) => p.rowCount),
+      tierCacheProvider,
+      resolvedThresholds,
+      tierCacheTtlMs,
+    );
+    let tier: 'client' | 'server' | 'db' = tierDecision.tier;
+    let rowCount: number = tierDecision.rowCount;
 
     // ── 4. Execute query for the selected tier ─────────────────────────────
     const rows = await executeForTier(db, claims, descriptor, tier, queryOptions);
 
-    // For aggregation queries the preflight rowCount is 0 (bypassed); use the
-    // actual number of result groups instead.
-    if (descriptor.aggregations && descriptor.aggregations.length > 0) {
+    // For aggregation queries decideTier returns rowCount=0 (bypassed);
+    // use the actual number of result groups instead.
+    if (hasAggregations) {
       rowCount = rows.length;
     }
 

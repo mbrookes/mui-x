@@ -32,6 +32,9 @@ const DEFAULT_SERVER_MEMORY_THRESHOLD = 100_000;
 /**
  * Run a COUNT(*) pre-flight and determine the routing tier.
  *
+ * This is a pure COUNT(*) runner. Aggregation detection and tier-cache
+ * lookups are handled upstream by `decideTierWithCache` in `tierDecision.ts`.
+ *
  * @param db - Knex instance (provided by host app)
  * @param claims - Verified security claims
  * @param descriptor - Widget query descriptor
@@ -44,13 +47,6 @@ export async function runPreflight(
   thresholds?: { clientTier?: number; serverMemoryTier?: number },
   options?: Pick<HandleBatchQueryOptions, 'tenantColumn'>,
 ): Promise<PreflightResult> {
-  // Aggregation queries must always run at 'db' tier (GROUP BY push-down).
-  // Skip the COUNT(*) preflight — the row count is irrelevant when the result
-  // is a set of aggregated groups, not raw rows.
-  if (descriptor.aggregations && descriptor.aggregations.length > 0) {
-    return { rowCount: 0, tier: 'db' };
-  }
-
   const clientThreshold = thresholds?.clientTier ?? DEFAULT_CLIENT_THRESHOLD;
   const serverThreshold = thresholds?.serverMemoryTier ?? DEFAULT_SERVER_MEMORY_THRESHOLD;
 

@@ -1774,7 +1774,14 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   if (chartType === 'pie' || chartType === 'donut') {
     const donutHole = chartType === 'donut' ? 50 : 0;
-    const maxRadius = Math.round(chartHeight * 0.38);
+    const twoRingPieH = Math.max(chartHeight, 420);
+    const twoRingTopM = 16;
+    const twoRingBottomM = 150;
+    // Cap maxRadius so the outermost ring doesn't overflow into the legend area
+    const maxRadius = Math.min(
+      Math.round(chartHeight * 0.38),
+      Math.floor((twoRingPieH - twoRingTopM - twoRingBottomM) / 2),
+    );
     // Arc label configuration for single-series pie/donut
     const pieArcLabelCfg = config.pieArcLabel;
     const pieArcLabelMinAngle = config.pieArcLabelMinAngle ?? 20;
@@ -1838,18 +1845,18 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       return (
         <PieChart
           {...slotProps?.pieChart}
-          height={Math.max(chartHeight, 380)}
+          height={twoRingPieH}
           skipAnimation={skipAnimation}
           series={pieSeries}
           colors={chartColors}
           slotProps={{
             legend: {
-              direction: 'horizontal',
+              direction: 'vertical',
               position: { vertical: 'bottom', horizontal: 'center' },
               sx: { fontSize: '0.65rem' },
             },
           }}
-          margin={{ top: 16, right: 16, bottom: 120, left: 16 }}
+          margin={{ top: twoRingTopM, right: 16, bottom: twoRingBottomM, left: 16 }}
           highlightedItem={controlledHighlightedItem}
           onHighlightChange={(item) =>
             setHoveredItem(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
@@ -1859,10 +1866,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
 
     // ── Single series paths ───────────────────────────────────────────────
-    const pieH = Math.max(chartHeight, 380);
+    const pieH = Math.max(chartHeight, 420);
     const pieSideM = 50;
     const pieTopM = 20;
-    const pieBottomM = 120;
+    const pieBottomM = 150;
     // For donut: shrink outerRadius so outside arc labels stay within the drawing area
     const donutLabelOverhang = 18;
     const pieSingleOuterRadius =
@@ -1943,7 +1950,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           colors={chartColors}
           slotProps={{
             legend: {
-              direction: 'horizontal',
+              direction: 'vertical',
               position: { vertical: 'bottom', horizontal: 'center' },
               sx: { fontSize: '0.65rem' },
             },

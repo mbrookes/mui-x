@@ -78,6 +78,12 @@ export interface StudioWidgetConfig {
    * Maps to `categoryGapRatio` on the band axis. Default is 0.2.
    */
   barCategoryGapRatio?: number;
+  /**
+   * Minimum height (px) per band row for horizontal bar charts.
+   * When set, the chart container expands so every row is at least this tall,
+   * giving wrapped multi-line labels enough vertical room.
+   */
+  barMinBandSize?: number;
   /** X-axis field (categorical or date). For date fields, combine with `xGroupBy`. */
   xField?: string;
   /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */

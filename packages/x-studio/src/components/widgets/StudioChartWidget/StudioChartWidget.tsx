@@ -2114,9 +2114,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       };
     });
     const selectedDataIndex = getSelectedDataIndex(effectiveSFData.labels);
+    const effectiveSFBarHeight =
+      isHorizontalBarLayout && config.barMinBandSize
+        ? Math.max(chartHeight, xAxisData.length * config.barMinBandSize + 40)
+        : chartHeight;
     return (
       <CrossFilterBarContext.Provider value={sfBarContext}>
-        <div style={{ height: chartHeight }}>
+        <div style={{ height: effectiveSFBarHeight }}>
           <BarChart
             {...slotProps?.barChart}
             skipAnimation={skipAnimation}
@@ -2763,10 +2767,17 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   // Default: bar chart (vertical or horizontal)
   const isHorizontal = isHorizontalBarLayout;
 
+  // When barMinBandSize is set, expand the container so every row gets at least that many px.
+  const minBandSize = config.barMinBandSize;
+  const effectiveHBarHeight =
+    isHorizontal && minBandSize
+      ? Math.max(chartHeight, xAxisData.length * minBandSize + 40)
+      : chartHeight;
+
   if (isHorizontal) {
     return (
       <CrossFilterBarContext.Provider value={singleBarContext}>
-        <div style={{ height: chartHeight }}>
+        <div style={{ height: effectiveHBarHeight }}>
           <BarChart
             {...slotProps?.barChart}
             skipAnimation={skipAnimation}

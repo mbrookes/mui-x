@@ -14,7 +14,7 @@ import {
 import { resolveRowsCached } from './resolvedRowsCache';
 import { buildQueryDescriptor, collectSelectFields } from './queryDescriptor';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
-import { resolveDateRangePresets } from './filterUtils';
+import { selectFiltersForWidget } from './filterScoping';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 import { studioRequestCache } from './StudioRequestCache';
 import { enrichWithCrossSourceFields } from './crossSourceEnrichment';
@@ -332,22 +332,15 @@ export function useWidgetRows(
     if (!normalizedDataSource?.rows) {
       return [];
     }
-    const pageFilters = deferredPartitioned.page;
-    const widgetFilters = (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
-      (f) => f.filterMode !== 'rank',
+    const allFilters = selectFiltersForWidget(
+      [
+        ...deferredPartitioned.page,
+        ...(deferredPartitioned.byWidgetId.get(widget.id) ?? []),
+        ...deferredPartitioned.cross,
+        ...deferredPartitioned.interactive,
+      ],
+      { widgetId: widget.id, widgetSourceId: widget.sourceId, activePageId: pageId },
     );
-    const crossFilters = deferredPartitioned.cross.filter(
-      (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
-    );
-    const interactiveFilters = deferredPartitioned.interactive.filter(
-      (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
-    );
-    const allFilters = resolveDateRangePresets([
-      ...pageFilters,
-      ...widgetFilters,
-      ...crossFilters,
-      ...interactiveFilters,
-    ]);
     return resolveRowsCached(
       normalizedDataSource.rows,
       widget.sourceId,
@@ -384,11 +377,13 @@ export function useWidgetRows(
     if (!normalizedDataSource?.rows) {
       return [];
     }
-    const pageFilters = deferredPartitioned.page;
-    const widgetFilters = (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
-      (f) => f.filterMode !== 'rank',
+    const allFilters = selectFiltersForWidget(
+      [
+        ...deferredPartitioned.page,
+        ...(deferredPartitioned.byWidgetId.get(widget.id) ?? []),
+      ],
+      { widgetId: widget.id, widgetSourceId: widget.sourceId, activePageId: pageId, include: 'no-cross' },
     );
-    const allFilters = resolveDateRangePresets([...pageFilters, ...widgetFilters]);
     return resolveRowsCached(
       normalizedDataSource.rows,
       widget.sourceId,
@@ -429,18 +424,14 @@ export function useWidgetRows(
     if (!normalizedDataSource?.rows) {
       return [];
     }
-    const pageFilters = deferredPartitioned.page;
-    const widgetFilters = (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
-      (f) => f.filterMode !== 'rank',
+    const allFilters = selectFiltersForWidget(
+      [
+        ...deferredPartitioned.page,
+        ...(deferredPartitioned.byWidgetId.get(widget.id) ?? []),
+        ...deferredPartitioned.interactive,
+      ],
+      { widgetId: widget.id, widgetSourceId: widget.sourceId, activePageId: pageId, include: 'no-chart-cross' },
     );
-    const interactiveFilters = deferredPartitioned.interactive.filter(
-      (f) => f.sourceWidgetId !== widget.id && f.pageId === pageId,
-    );
-    const allFilters = resolveDateRangePresets([
-      ...pageFilters,
-      ...widgetFilters,
-      ...interactiveFilters,
-    ]);
     return resolveRowsCached(
       normalizedDataSource.rows,
       widget.sourceId,

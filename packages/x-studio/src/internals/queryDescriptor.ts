@@ -6,7 +6,7 @@ import type {
   StudioQueryDescriptor,
   StudioWidget,
 } from '../models';
-import { resolveDateRangePresets } from './filterUtils';
+import { selectFiltersForWidget } from './filterScoping';
 import {
   isFieldExpression,
   isFunctionExpression,
@@ -366,27 +366,11 @@ export function buildQueryDescriptor(
   tableName?: string,
   expressionFields: StudioExpressionField[] = [],
 ): StudioQueryDescriptor {
-  const pageFilters = filters.filter((f) => f.scope === 'page');
-  const widgetFilters = filters.filter(
-    (f) => f.scope === 'widget' && f.widgetId === widget.id && f.filterMode !== 'rank',
-  );
-  const crossFilters = filters.filter(
-    (f) =>
-      f.scope === 'cross-filter' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-  );
-  const interactiveFilters = filters.filter(
-    (f) => f.scope === 'interactive' && f.sourceWidgetId !== widget.id && f.pageId === activePageId,
-  );
-
-  const allFilters = resolveDateRangePresets(
-    [...pageFilters, ...widgetFilters, ...crossFilters, ...interactiveFilters].filter(
-      (f) =>
-        !f.disabled &&
-        // Dashboard date-range filters are scoped to their own source — exclude those
-        // targeting a different source so they don't leak into the wrong DB query.
-        !(f.isDashboardDateRange && f.filterSourceId && f.filterSourceId !== widget.sourceId),
-    ),
-  );
+  const allFilters = selectFiltersForWidget(filters, {
+    widgetId: widget.id,
+    widgetSourceId: widget.sourceId,
+    activePageId,
+  });
   const filter = filtersToFilterNode(allFilters);
 
   // Expression columns are expanded to the native columns they depend on — the server

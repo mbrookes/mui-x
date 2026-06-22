@@ -906,6 +906,10 @@ function flattenFilterNode(node: StudioFilterNode): FilterPredicate[] {
   let value = isRelativeDateValue(node.value) ? resolveRelativeDate(node.value) : node.value;
   // The server's queryBuilder expects between values as [lo, hi] tuple.
   // setDashboardDateRange / setWidgetDateRange store them as { from, to } objects.
+  // Defensive extraction: guards against persisted state from older versions or programmatic
+  // filter construction that sets a {from, to} object against a non-between operator.
+  // localStorage persistence has been removed (0ce730f1), so this is unlikely to fire in
+  // practice, but the logic remains correct for forward compatibility.
   if (
     value !== null &&
     typeof value === 'object' &&
@@ -916,8 +920,6 @@ function flattenFilterNode(node: StudioFilterNode): FilterPredicate[] {
     if (operator === 'between') {
       value = [range.from, range.to] as unknown;
     } else if (operator === 'gte' || operator === 'gt') {
-      // Stale persisted state: { from, to } stored against a gte/gt operator.
-      // Extract the lower bound only — the upper bound has no meaning for >=.
       value = range.from as unknown;
     } else if (operator === 'lte' || operator === 'lt') {
       value = range.to as unknown;

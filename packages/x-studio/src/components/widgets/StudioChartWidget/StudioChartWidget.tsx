@@ -1904,8 +1904,20 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       pairs.sort((a, b) => b.value - a.value);
       const topN = pieMaxSlices - 1;
       const otherValue = pairs.slice(topN).reduce((sum, p) => sum + p.value, 0);
-      displayLabels = [...pairs.slice(0, topN).map((p) => p.label), 'Other'];
-      displayValues = [...pairs.slice(0, topN).map((p) => p.value), otherValue];
+      const topPairs = pairs.slice(0, topN);
+      const existingOtherIdx = topPairs.findIndex((p) => p.label === 'Other');
+      if (existingOtherIdx >= 0) {
+        // Real "Other" answer already in top-N — merge remainder into it
+        topPairs[existingOtherIdx] = {
+          label: 'Other',
+          value: topPairs[existingOtherIdx].value + otherValue,
+        };
+        displayLabels = topPairs.map((p) => p.label);
+        displayValues = topPairs.map((p) => p.value);
+      } else {
+        displayLabels = [...topPairs.map((p) => p.label), 'Other'];
+        displayValues = [...topPairs.map((p) => p.value), otherValue];
+      }
     }
 
     const selectedDataIndex = pieMaxSlices ? -1 : getSelectedDataIndex(chartData.labels);
@@ -2545,8 +2557,18 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   if (barMaxCats && xAxisData.length > barMaxCats) {
     const topN = barMaxCats - 1;
     const otherValue = displayBarValues.slice(topN).reduce<number>((sum, v) => sum + (v ?? 0), 0);
-    displayXAxisData = [...xAxisData.slice(0, topN), 'Other'];
-    displayBarValues = [...displayBarValues.slice(0, topN), otherValue];
+    const topLabels = xAxisData.slice(0, topN);
+    const topValues = displayBarValues.slice(0, topN);
+    const existingOtherIdx = topLabels.findIndex((l) => l === 'Other');
+    if (existingOtherIdx >= 0) {
+      // Real "Other" answer already in top-N — merge remainder into it
+      topValues[existingOtherIdx] = (topValues[existingOtherIdx] ?? 0) + otherValue;
+      displayXAxisData = topLabels;
+      displayBarValues = topValues;
+    } else {
+      displayXAxisData = [...topLabels, 'Other'];
+      displayBarValues = [...topValues, otherValue];
+    }
   }
 
   if (chartType === 'line') {

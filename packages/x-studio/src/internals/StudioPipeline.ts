@@ -5,7 +5,8 @@ import type {
   StudioRelationship,
   StudioState,
 } from '../models';
-import { resolveDateRangePresets, resolveChartRowsForAggregation } from './chartUtils';
+import { resolveChartRowsForAggregation } from './chartUtils';
+import { selectFiltersForWidget } from './filterScoping';
 import { resolveRowsCached } from './resolvedRowsCache';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 
@@ -99,28 +100,11 @@ export function createStudioPipeline(state: StudioPipelineState | StudioState): 
 
   return {
     resolveWidgetRows(widgetId, sourceId, rows, pageId) {
-      const pageFilters = filters.filter((f) => f.scope === 'page');
-      const widgetFilters = filters.filter(
-        (f) => f.scope === 'widget' && f.widgetId === widgetId && f.filterMode !== 'rank',
-      );
-      const crossFilters = filters.filter(
-        (f) =>
-          f.scope === 'cross-filter' &&
-          f.sourceWidgetId !== widgetId &&
-          (pageId === undefined || f.pageId === pageId),
-      );
-      const interactiveFilters = filters.filter(
-        (f) =>
-          f.scope === 'interactive' &&
-          f.sourceWidgetId !== widgetId &&
-          (pageId === undefined || f.pageId === pageId),
-      );
-      const allFilters = resolveDateRangePresets([
-        ...pageFilters,
-        ...widgetFilters,
-        ...crossFilters,
-        ...interactiveFilters,
-      ]);
+      const allFilters = selectFiltersForWidget(filters, {
+        widgetId,
+        widgetSourceId: sourceId,
+        activePageId: pageId,
+      });
       return resolveRowsCached(
         rows,
         sourceId,

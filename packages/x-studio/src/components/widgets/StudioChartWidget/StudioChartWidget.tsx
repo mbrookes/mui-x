@@ -1892,31 +1892,45 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // Use stable baseline data (isPieHighlightActive / pieRatioByIndex computed at top level)
     const pieBaseData = isPieHighlightActive ? allChartData! : chartData;
 
-    // Apply "Other" grouping if pieMaxSlices is configured
+    // Apply "Other" grouping if pieMaxSlices is configured.
+    // Trigger when we have >= pieMaxSlices items (>= so N items collapses the last one).
+    // Also absorb any top-N item whose share is < 1% of total into the "Other" group.
     const pieMaxSlices = config.pieMaxSlices;
     let displayLabels = pieBaseData.labels;
     let displayValues: (number | undefined)[] = pieBaseData.values;
-    if (pieMaxSlices && displayLabels.length > pieMaxSlices) {
+    if (pieMaxSlices && displayLabels.length >= pieMaxSlices) {
+      const rawTotal = displayValues.reduce<number>((s, v) => s + (v ?? 0), 0);
+      const minPct = rawTotal > 0 ? rawTotal * 0.01 : 0; // 1% threshold
       const pairs = displayLabels.map((label, i) => ({
         label,
         value: displayValues[i] ?? 0,
       }));
       pairs.sort((a, b) => b.value - a.value);
+      // Keep up to topN items that individually exceed the 1% threshold
       const topN = pieMaxSlices - 1;
-      const otherValue = pairs.slice(topN).reduce((sum, p) => sum + p.value, 0);
-      const topPairs = pairs.slice(0, topN);
-      const existingOtherIdx = topPairs.findIndex((p) => p.label === 'Other');
-      if (existingOtherIdx >= 0) {
-        // Real "Other" answer already in top-N — merge remainder into it
-        topPairs[existingOtherIdx] = {
-          label: 'Other',
-          value: topPairs[existingOtherIdx].value + otherValue,
-        };
-        displayLabels = topPairs.map((p) => p.label);
-        displayValues = topPairs.map((p) => p.value);
-      } else {
-        displayLabels = [...topPairs.map((p) => p.label), 'Other'];
-        displayValues = [...topPairs.map((p) => p.value), otherValue];
+      const kept: typeof pairs = [];
+      const grouped: typeof pairs = [];
+      for (const p of pairs) {
+        if (kept.length < topN && p.value >= minPct) {
+          kept.push(p);
+        } else {
+          grouped.push(p);
+        }
+      }
+      const otherValue = grouped.reduce((sum, p) => sum + p.value, 0);
+      if (otherValue > 0 || grouped.length > 0) {
+        const existingOtherIdx = kept.findIndex((p) => p.label === 'Other');
+        if (existingOtherIdx >= 0) {
+          kept[existingOtherIdx] = {
+            label: 'Other',
+            value: kept[existingOtherIdx].value + otherValue,
+          };
+          displayLabels = kept.map((p) => p.label);
+          displayValues = kept.map((p) => p.value);
+        } else {
+          displayLabels = [...kept.map((p) => p.label), 'Other'];
+          displayValues = [...kept.map((p) => p.value), otherValue];
+        }
       }
     }
 
@@ -1986,7 +2000,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           {displayLabels.map((label, i) => {
             const value = displayValues[i] ?? 0;
             const pct = singlePieTotal > 0 ? `${((value / singlePieTotal) * 100).toFixed(1)}%` : '';
-            const color = (chartColors?.[i % (chartColors.length || 1)] ?? '#ccc') as string;
+            const color = resolvedChartColors[i % resolvedChartColors.length] as string;
             return (
               <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: '6px', py: '2px' }}>
                 <Box

@@ -158,6 +158,10 @@ function toXValue(raw: unknown): string | number {
   return raw as string | number;
 }
 
+function isEmptyXValue(raw: unknown): boolean {
+  return raw === null || raw === undefined || raw === '' || raw === '(empty)';
+}
+
 function hasRowLevelField(
   sourceId: string,
   fieldId: string,
@@ -741,6 +745,9 @@ export function aggregateByField(
   }
 
   for (const row of rows) {
+    if (isEmptyXValue(row[xField])) {
+      continue;
+    }
     const raw = toXValue(row[xField]);
     const xVal = applyXGroupBy(raw, xGroupBy);
     const count = (counts.get(xVal) ?? 0) + 1;
@@ -825,6 +832,9 @@ export function aggregateByTwoFields(
   const dataMap = new Map<string | number, Map<string | number, number>>();
 
   for (const row of rows) {
+    if (isEmptyXValue(row[xField])) {
+      continue;
+    }
     const raw = toXValue(row[xField]);
     const xVal = applyXGroupBy(raw, xGroupBy);
     const seriesVal = toXValue(row[seriesField]);
@@ -933,6 +943,9 @@ export function aggregateMultipleSeries(
   const dataMap = new Map<string | number, Map<string, number>>();
 
   for (const row of rows) {
+    if (isEmptyXValue(row[xField])) {
+      continue;
+    }
     const raw = toXValue(row[xField]);
     const xVal = applyXGroupBy(raw, xGroupBy);
     if (!labelSet.has(xVal)) {

@@ -213,6 +213,111 @@ describe('selectFiltersForWidget — activePageId undefined', () => {
   });
 });
 
+// ── scopeV2: typed path ───────────────────────────────────────────────────────
+
+describe('selectFiltersForWidget — scopeV2 typed path', () => {
+  it("scopeV2 kind:'page' — included regardless of legacy fields", () => {
+    const f = makeFilter({ id: 'p', scope: 'cross-filter', scopeV2: { kind: 'page' }, value: 'x' });
+    expect(selectFiltersForWidget([f], baseOpts)).toHaveLength(1);
+  });
+
+  it("scopeV2 kind:'page' with pageId — included when pageId matches", () => {
+    const f = makeFilter({ id: 'p', scope: 'page', scopeV2: { kind: 'page', pageId: PAGE_ID }, value: 'x' });
+    expect(selectFiltersForWidget([f], baseOpts)).toHaveLength(1);
+  });
+
+  it("scopeV2 kind:'page' with different pageId — excluded", () => {
+    const f = makeFilter({ id: 'p', scope: 'page', scopeV2: { kind: 'page', pageId: 'other-page' }, value: 'x' });
+    expect(selectFiltersForWidget([f], baseOpts)).toHaveLength(0);
+  });
+
+  it("scopeV2 kind:'widget' — included for matching widgetId", () => {
+    const f = makeFilter({ id: 'w', scope: 'page', scopeV2: { kind: 'widget', widgetId: WIDGET_ID }, value: 'x' });
+    expect(selectFiltersForWidget([f], baseOpts)).toHaveLength(1);
+  });
+
+  it("scopeV2 kind:'widget' — excluded for different widgetId", () => {
+    const f = makeFilter({ id: 'w', scope: 'page', scopeV2: { kind: 'widget', widgetId: 'other' }, value: 'x' });
+    expect(selectFiltersForWidget([f], baseOpts)).toHaveLength(0);
+  });
+
+  it("scopeV2 kind:'cross-filter' — included with include:'all' and matching page", () => {
+    const f = makeFilter({
+      id: 'cf', scope: 'page',
+      scopeV2: { kind: 'cross-filter', sourceWidgetId: 'other-w', pageId: PAGE_ID },
+      value: 'x',
+    });
+    expect(selectFiltersForWidget([f], { ...baseOpts, include: 'all' })).toHaveLength(1);
+  });
+
+  it("scopeV2 kind:'cross-filter' — excluded with include:'no-chart-cross'", () => {
+    const f = makeFilter({
+      id: 'cf', scope: 'page',
+      scopeV2: { kind: 'cross-filter', sourceWidgetId: 'other-w', pageId: PAGE_ID },
+      value: 'x',
+    });
+    expect(selectFiltersForWidget([f], { ...baseOpts, include: 'no-chart-cross' })).toHaveLength(0);
+  });
+
+  it("scopeV2 kind:'interactive' — included with include:'no-chart-cross'", () => {
+    const f = makeFilter({
+      id: 'i', scope: 'page',
+      scopeV2: { kind: 'interactive', sourceWidgetId: 'other-w', pageId: PAGE_ID },
+      value: 'x',
+    });
+    expect(selectFiltersForWidget([f], { ...baseOpts, include: 'no-chart-cross' })).toHaveLength(1);
+  });
+
+  it("scopeV2 kind:'dashboard-date-range' — included when sourceId matches widget source", () => {
+    const f = makeFilter({
+      id: 'ddr', scope: 'page',
+      scopeV2: { kind: 'dashboard-date-range', sourceId: SOURCE_ID, pageId: PAGE_ID },
+      value: { from: '2024-01-01', to: '2024-12-31' },
+    });
+    expect(selectFiltersForWidget([f], baseOpts)).toHaveLength(1);
+  });
+
+  it("scopeV2 kind:'dashboard-date-range' — excluded when sourceId is different", () => {
+    const f = makeFilter({
+      id: 'ddr', scope: 'page',
+      scopeV2: { kind: 'dashboard-date-range', sourceId: 'other-source', pageId: PAGE_ID },
+      value: { from: '2024-01-01', to: '2024-12-31' },
+    });
+    expect(selectFiltersForWidget([f], baseOpts)).toHaveLength(0);
+  });
+
+  it("scopeV2 kind:'dashboard-date-range' — excluded when pageId is different", () => {
+    const f = makeFilter({
+      id: 'ddr', scope: 'page',
+      scopeV2: { kind: 'dashboard-date-range', sourceId: SOURCE_ID, pageId: 'other-page' },
+      value: { from: '2024-01-01', to: '2024-12-31' },
+    });
+    expect(selectFiltersForWidget([f], baseOpts)).toHaveLength(0);
+  });
+
+  it('filter with no scopeV2 falls through to legacy behavior', () => {
+    // This filter would be excluded by the isDashboardDateRange guard in legacy path
+    const f = makeFilter({
+      id: 'ddr', scope: 'page',
+      isDashboardDateRange: true,
+      filterSourceId: 'other-source',
+      value: { from: '2024-01-01', to: '2024-12-31' },
+    });
+    expect(selectFiltersForWidget([f], baseOpts)).toHaveLength(0);
+  });
+
+  it('scopeV2 takes precedence: dashboard-date-range for wrong source is excluded even if legacy fields say page scope', () => {
+    const f = makeFilter({
+      id: 'ddr', scope: 'page',
+      isDashboardDateRange: true,
+      filterSourceId: SOURCE_ID, // legacy says: correct source
+      scopeV2: { kind: 'dashboard-date-range', sourceId: 'other-source', pageId: PAGE_ID }, // scopeV2 says: wrong source
+      value: { from: '2024-01-01', to: '2024-12-31' },
+    });
+    expect(selectFiltersForWidget([f], baseOpts)).toHaveLength(0);
+  });
+});
+
 // ── resolveDateRangePresets is called ─────────────────────────────────────────
 
 describe('selectFiltersForWidget — resolveDateRangePresets', () => {

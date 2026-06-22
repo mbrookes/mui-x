@@ -859,3 +859,179 @@ describe('handleBatchQuery — aggregation push-down', () => {
     expect(tierCache.size).toBe(0);
   });
 });
+
+// ─── handleBatchQuery — HAVING predicates ────────────────────────────────────
+
+describe('handleBatchQuery — HAVING predicates', () => {
+  // ACME amounts by region: west=250, east=200, north=75
+  const columnAllowlist = {
+    sales: ['region', 'amount', 'tenant_id', 'product', 'sale_date', 'id'],
+  };
+
+  it('single gt HAVING predicate filters groups', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          having: [{ alias: 'total', operator: 'gt', value: 100 }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      columnAllowlist,
+      tenantColumn: 'tenant_id',
+    });
+
+    const { rows } = result.results[0];
+    // north (75) is excluded; west (250) and east (200) pass
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => (r.total as number) > 100)).toBe(true);
+  });
+
+  it('two HAVING conditions are both enforced (AND logic)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          having: [
+            { alias: 'total', operator: 'gt', value: 100 },
+            { alias: 'total', operator: 'lt', value: 260 },
+          ],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      columnAllowlist,
+      tenantColumn: 'tenant_id',
+    });
+
+    const { rows } = result.results[0];
+    // 100 < total < 260 → west (250) ✓, east (200) ✓, north (75) ✗
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => (r.total as number) > 100 && (r.total as number) < 260)).toBe(true);
+  });
+
+  it('HAVING alias not in aggregations throws a security error', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          having: [{ alias: 'raw_amount', operator: 'gt', value: 100 }], // 'raw_amount' not in aggregations
+        },
+      ],
+    };
+
+    await expect(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        columnAllowlist,
+      }),
+    ).rejects.toThrow('HAVING alias "raw_amount" does not match any aggregation alias');
+  });
+});
+
+// ─── handleBatchQuery — partial batch failure recovery ───────────────────────
+
+describe('handleBatchQuery — partial batch failure recovery', () => {
+  it('a query error on one widget does not contaminate sibling results', async () => {
+    // A db whose query for 'broken' throws during execution.
+    const goodDb = createMockDb({ sales: SALES_ROWS });
+    const mixedDb = (table: string) => {
+      if (table === 'broken') {
+        const stub: ReturnType<typeof goodDb> = {
+          where: function () {
+            return this;
+          },
+          whereIn: function () {
+            return this;
+          },
+          whereLike: function () {
+            return this;
+          },
+          whereBetween: function () {
+            return this;
+          },
+          havingRaw: function () {
+            return this;
+          },
+          count: function () {
+            return this;
+          },
+          select: function () {
+            return this;
+          },
+          orderBy: function () {
+            return this;
+          },
+          limit: function () {
+            return this;
+          },
+          sum: function () {
+            return this;
+          },
+          avg: function () {
+            return this;
+          },
+          min: function () {
+            return this;
+          },
+          max: function () {
+            return this;
+          },
+          groupBy: function () {
+            return this;
+          },
+          async first() {
+            throw new Error('db connection failed');
+          },
+          then(_resolve: unknown, reject: (err: Error) => void) {
+            reject(new Error('db connection failed'));
+          },
+        };
+        return stub;
+      }
+      return goodDb(table);
+    };
+
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        { id: 'ok-widget', table: 'sales' },
+        { id: 'err-widget', table: 'broken' },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: mixedDb,
+      schemaAllowlist: ['sales', 'broken'],
+    });
+
+    // ok-widget returns rows; err-widget returns an error field
+    const okResult = result.results.find((r) => r.id === 'ok-widget')!;
+    const errResult = result.results.find((r) => r.id === 'err-widget')!;
+
+    expect(okResult.rows.length).toBeGreaterThan(0);
+    expect(okResult.error).toBeUndefined();
+    expect(errResult.rows).toEqual([]);
+    expect(errResult.error).toMatch('db connection failed');
+  });
+});

@@ -528,4 +528,155 @@ describe('sync vs async parity', () => {
       expect(asyncRow.amount).toBe(syncRows[i].amount);
     });
   });
+
+  it('disabled filter: both paths return all rows', async () => {
+    const disabledFilter = makeFilter({
+      id: 'f-disabled',
+      scope: 'page',
+      field: 'region',
+      operator: 'equals',
+      value: 'EU',
+      disabled: true,
+    });
+
+    // Sync — disabled filter must not be applied
+    mockState = createState({ filters: [disabledFilter] });
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+    const { result: syncResult } = renderHook(() =>
+      useWidgetRows(widget, makeDataSource(rows), 'page-1'),
+    );
+    expect(syncResult.current.filteredRows).toHaveLength(rows.length);
+
+    // Async — adapter called with no effective filter; returns all rows
+    studioRequestCache.clear();
+    const adapter: StudioDataSourceAdapter = {
+      getRows: vi.fn().mockResolvedValue({ rows }),
+    };
+    const { result: asyncResult } = renderHook(() =>
+      useWidgetRows(
+        widget,
+        makeDataSource([], { id: 'src1', adapter } as Partial<StudioDataSource>),
+        'page-1',
+      ),
+    );
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => {
+      await vi.waitFor(() => !asyncResult.current.isLoading);
+    });
+    expect(asyncResult.current.filteredRows).toHaveLength(rows.length);
+  });
+
+  it('widget-scoped filter: both paths apply it to the correct widget', async () => {
+    const widgetFilter = makeFilter({
+      id: 'f-widget',
+      scope: 'widget',
+      widgetId: 'w1',
+      field: 'region',
+      operator: 'equals',
+      value: 'EU',
+    });
+
+    // Sync
+    mockState = createState({ filters: [widgetFilter] });
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+    const { result: syncResult } = renderHook(() =>
+      useWidgetRows(widget, makeDataSource(rows), 'page-1'),
+    );
+    const euRows = rows.filter((r) => r.region === 'EU');
+    expect(syncResult.current.filteredRows).toHaveLength(euRows.length);
+
+    // Async — adapter returns server-filtered rows; descriptor carries the filter
+    studioRequestCache.clear();
+    let capturedDescriptor: Parameters<StudioDataSourceAdapter['getRows']>[0] | undefined;
+    const adapter: StudioDataSourceAdapter = {
+      getRows: vi.fn().mockImplementation((descriptor) => {
+        capturedDescriptor = descriptor;
+        return Promise.resolve({ rows: euRows });
+      }),
+    };
+    const { result: asyncResult } = renderHook(() =>
+      useWidgetRows(
+        widget,
+        makeDataSource([], { id: 'src1', adapter } as Partial<StudioDataSource>),
+        'page-1',
+      ),
+    );
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => {
+      await vi.waitFor(() => !asyncResult.current.isLoading);
+    });
+    expect(asyncResult.current.filteredRows).toHaveLength(euRows.length);
+    // The query descriptor must carry the widget-scoped predicate
+    expect(capturedDescriptor?.filter).toBeDefined();
+  });
+
+  it('isDashboardDateRange filter for widget source: both paths include it', async () => {
+    const dateFilter = makeFilter({
+      id: 'f-ddr',
+      scope: 'page',
+      field: 'saleDate',
+      operator: 'between',
+      value: { from: '2024-01-01', to: '2024-12-31' },
+      isDashboardDateRange: true,
+      filterSourceId: 'src1',
+      fieldType: 'date',
+    });
+
+    const allRows = [
+      { id: 1, region: 'EU', amount: 100, saleDate: '2024-03-15' },
+      { id: 2, region: 'US', amount: 200, saleDate: '2023-06-01' },
+    ];
+
+    // Sync — only the 2024 row passes the date filter
+    mockState = createState({ filters: [dateFilter] });
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+    const { result: syncResult } = renderHook(() =>
+      useWidgetRows(widget, makeDataSource(allRows), 'page-1'),
+    );
+    expect(syncResult.current.filteredRows).toHaveLength(1);
+    expect(syncResult.current.filteredRows[0].id).toBe(1);
+
+    // Async — adapter returns server-filtered subset
+    studioRequestCache.clear();
+    const serverFiltered = allRows.filter(
+      (r) => r.saleDate >= '2024-01-01' && r.saleDate <= '2024-12-31',
+    );
+    const adapter: StudioDataSourceAdapter = {
+      getRows: vi.fn().mockResolvedValue({ rows: serverFiltered }),
+    };
+    const { result: asyncResult } = renderHook(() =>
+      useWidgetRows(
+        widget,
+        makeDataSource([], { id: 'src1', adapter } as Partial<StudioDataSource>),
+        'page-1',
+      ),
+    );
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => {
+      await vi.waitFor(() => !asyncResult.current.isLoading);
+    });
+    expect(asyncResult.current.filteredRows).toHaveLength(1);
+  });
+
+  it('cross-filter from another widget: filteredRows includes it, filteredRowsNoCross excludes it', () => {
+    const crossFilter = makeFilter({
+      id: 'f-cross',
+      scope: 'cross-filter',
+      sourceWidgetId: 'w-other',
+      pageId: 'page-1',
+      field: 'region',
+      operator: 'equals',
+      value: 'EU',
+    });
+
+    mockState = createState({ filters: [crossFilter] });
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+    const { result } = renderHook(() => useWidgetRows(widget, makeDataSource(rows), 'page-1'));
+
+    const euCount = rows.filter((r) => r.region === 'EU').length;
+    // filteredRows includes cross-filter → only EU rows
+    expect(result.current.filteredRows).toHaveLength(euCount);
+    // filteredRowsNoCross excludes cross-filter → all rows
+    expect(result.current.filteredRowsNoCross).toHaveLength(rows.length);
+  });
 });

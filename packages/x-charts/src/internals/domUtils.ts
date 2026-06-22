@@ -135,7 +135,10 @@ export const getStringSize = (text: string | number, style: SVGCSSProperties = {
     }
 
     return result;
-  } catch {
+  } catch (err) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('MUI X Charts: getStringSize failed to measure text.', err);
+    }
     return { width: 0, height: 0 };
   }
 };

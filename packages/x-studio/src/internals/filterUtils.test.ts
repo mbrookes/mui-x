@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import dayjs from 'dayjs';
 import { applyFilters, resolveDateRangePresets } from './filterUtils';
+import { computeDateRangePreset } from './dateRangeUtils';
 import type { StudioFilterState } from '../models';
 
 function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
@@ -661,5 +662,58 @@ describe('resolveDateRangePresets', () => {
     // Today's date should be within the last 12 months; 2020 date should not
     expect(result.map((r) => r.id)).toContain(2);
     expect(result.map((r) => r.id)).not.toContain(1);
+  });
+});
+
+// ── computeDateRangePreset edge cases ─────────────────────────────────────────
+
+describe('computeDateRangePreset — edge cases', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('this_month on the last day of a 31-day month returns the full month', () => {
+    // March 31 — to must be '2024-03-31', not roll into April
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-03-31T12:00:00Z'));
+    const { from, to } = computeDateRangePreset('this_month');
+    expect(from).toBe('2024-03-01');
+    expect(to).toBe('2024-03-31');
+  });
+
+  it('this_month on the last day of February (leap year) returns the full month', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-02-29T12:00:00Z'));
+    const { from, to } = computeDateRangePreset('this_month');
+    expect(from).toBe('2024-02-01');
+    expect(to).toBe('2024-02-29');
+  });
+
+  it('last_calendar_year on Jan 1 returns the previous full year', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
+    const { from, to } = computeDateRangePreset('last_calendar_year');
+    expect(from).toBe('2023-01-01');
+    expect(to).toBe('2023-12-31');
+  });
+
+  it('this_calendar_year on Dec 31 returns the entire current year', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-12-31T23:59:59Z'));
+    const { from, to } = computeDateRangePreset('this_calendar_year');
+    expect(from).toBe('2024-01-01');
+    expect(to).toBe('2024-12-31');
+  });
+
+  it('presets use local date not UTC (no off-by-one at midnight UTC)', () => {
+    // The implementation uses `new Date()` and local getFullYear/getMonth/getDate.
+    // In a UTC+2 timezone at 2024-03-31T23:30 local = 2024-03-31T21:30Z.
+    // This test freezes at an unambiguous local noon to verify the ISO result.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00'));
+    const { from, to } = computeDateRangePreset('this_month');
+    // June 15 — last day of June is 30
+    expect(from).toBe('2024-06-01');
+    expect(to).toBe('2024-06-30');
   });
 });

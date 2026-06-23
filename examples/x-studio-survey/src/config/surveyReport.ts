@@ -5,7 +5,7 @@
  * followed by a [Distribution · Counts bar, Composition · Percentages donut] row.
  * Q41 (email PII) and Q51 (open text) are intentionally omitted.
  */
-import type { StudioPage, StudioState, StudioWidget } from '@mui/x-studio';
+import type { StudioPage, StudioPageTheme, StudioState, StudioWidget } from '@mui/x-studio';
 import { FIELDS, SURVEY_2025_SOURCE_ID } from '../surveyData';
 
 const SRC = SURVEY_2025_SOURCE_ID;
@@ -502,12 +502,30 @@ function qDonutWidget(meta: QuestionMeta): StudioWidget {
   };
 }
 
+/** Shared page theme: flat #fafafa canvas, no widget borders. */
+const PAGE_THEME: StudioPageTheme = {
+  pageBackground: 'rgb(250, 250, 250)',
+  cardBackground: 'rgb(250, 250, 250)',
+  cardBorder: false,
+};
+
+function qDividerWidget(n: number): StudioWidget {
+  return {
+    id: `${qId(n)}-divider`,
+    kind: 'text',
+    title: '',
+    titleMode: 'manual',
+    config: { textBody: '---' },
+  };
+}
+
 const widgets: Record<string, StudioWidget> = {};
 for (const meta of QUESTIONS) {
   const id = qId(meta.n);
   widgets[`${id}-text`] = qTextWidget(meta);
   widgets[`${id}-bar`] = qBarWidget(meta);
   widgets[`${id}-donut`] = qDonutWidget(meta);
+  widgets[`${id}-divider`] = qDividerWidget(meta.n);
 }
 
 /** Returns [text-row, chart-row] for a question number. */
@@ -516,72 +534,70 @@ function qRows(n: number): string[][] {
   return [[`${id}-text`], [`${id}-bar`, `${id}-donut`]];
 }
 
+/** Returns a single-widget divider row placed BEFORE question n. */
+function qDividerRow(n: number): string[][] {
+  return [[`${qId(n)}-divider`]];
+}
+
+/** Interleaves divider rows between a list of question numbers. */
+function withDividers(...ns: number[]): string[][] {
+  return ns.flatMap((n, i) => (i === 0 ? qRows(n) : [...qDividerRow(n), ...qRows(n)]));
+}
+
 const pages: Record<string, StudioPage> = {
   'page-styling': {
     id: 'page-styling',
     title: 'Styling',
-    widgetRows: [...qRows(1), ...qRows(2), ...qRows(3), ...qRows(4), ...qRows(5), ...qRows(6), ...qRows(7)],
+    theme: PAGE_THEME,
+    widgetRows: withDividers(1, 2, 3, 4, 5, 6, 7),
   },
   'page-muix': {
     id: 'page-muix',
     title: 'MUI X',
-    widgetRows: [...qRows(8), ...qRows(9), ...qRows(10), ...qRows(11)],
+    theme: PAGE_THEME,
+    widgetRows: withDividers(8, 9, 10, 11),
   },
   'page-scheduler': {
     id: 'page-scheduler',
     title: 'Scheduler',
-    widgetRows: [...qRows(12), ...qRows(13), ...qRows(14)],
+    theme: PAGE_THEME,
+    widgetRows: withDividers(12, 13, 14),
   },
   'page-charts': {
     id: 'page-charts',
     title: 'Charts',
-    widgetRows: [
-      ...qRows(15),
-      ...qRows(16),
-      ...qRows(17),
-      ...qRows(18),
-      ...qRows(19),
-      ...qRows(20),
-      ...qRows(21),
-      ...qRows(22),
-      ...qRows(23),
-      ...qRows(24),
-    ],
+    theme: PAGE_THEME,
+    widgetRows: withDividers(15, 16, 17, 18, 19, 20, 21, 22, 23, 24),
   },
   'page-gantt': {
     id: 'page-gantt',
     title: 'Gantt',
-    widgetRows: [...qRows(25), ...qRows(26), ...qRows(27), ...qRows(28)],
+    theme: PAGE_THEME,
+    widgetRows: withDividers(25, 26, 27, 28),
   },
   'page-datagrid': {
     id: 'page-datagrid',
     title: 'Data Grid',
-    widgetRows: [...qRows(29), ...qRows(30), ...qRows(31), ...qRows(32)],
+    theme: PAGE_THEME,
+    widgetRows: withDividers(29, 30, 31, 32),
   },
   'page-figma': {
     id: 'page-figma',
     title: 'Figma',
-    widgetRows: [...qRows(33), ...qRows(34), ...qRows(35), ...qRows(36)],
+    theme: PAGE_THEME,
+    widgetRows: withDividers(33, 34, 35, 36),
   },
   'page-ai': {
     id: 'page-ai',
     title: 'AI',
-    widgetRows: [...qRows(37), ...qRows(38), ...qRows(39), ...qRows(40)],
+    theme: PAGE_THEME,
+    widgetRows: withDividers(37, 38, 39, 40),
   },
   'page-about': {
     id: 'page-about',
     title: 'About You',
-    widgetRows: [
-      ...qRows(42),
-      ...qRows(43),
-      ...qRows(44),
-      ...qRows(45),
-      ...qRows(46),
-      ...qRows(47),
-      ...qRows(48),
-      ...qRows(49),
-      ...qRows(50),
-    ],
+    theme: PAGE_THEME,
+    widgetRows: withDividers(42, 43, 44, 45, 46, 47, 48, 49, 50),
   },
 };
 

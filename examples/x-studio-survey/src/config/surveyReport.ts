@@ -470,7 +470,6 @@ function qBarWidget(meta: QuestionMeta): StudioWidget {
     config: {
       titleFontSize: 11,
       cardExpandTitle: `${meta.n}. ${meta.question}`,
-      crossFilterMode: 'cross-filter',
       chartType: 'bar',
       xField: meta.field,
       yField: meta.field,
@@ -498,7 +497,6 @@ function qDonutWidget(meta: QuestionMeta): StudioWidget {
     config: {
       titleFontSize: 11,
       cardExpandTitle: `${meta.n}. ${meta.question}`,
-      crossFilterMode: 'cross-filter',
       chartType: 'donut',
       xField: meta.field,
       yField: meta.field,

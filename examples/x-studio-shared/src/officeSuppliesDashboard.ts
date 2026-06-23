@@ -836,8 +836,6 @@ function createExpressionFields(sourceIds) {
 function createFilters(sourceIds) {
   return MAIN_DEMO_PAGES.map((page) => ({
     id: `os-date-${page.id}`,
-    scope: 'page',
-    pageId: page.id,
     filterSourceId: sourceIds.orders,
     field: 'order_datetime',
     fieldType: 'date',
@@ -846,8 +844,6 @@ function createFilters(sourceIds) {
     scopeV2: { kind: 'page', pageId: page.id },
   })).concat({
     id: 'os-return-reasons-returned',
-    scope: 'widget',
-    widgetId: 'return-reasons',
     filterSourceId: sourceIds.orderItems,
     field: 'returned',
     fieldType: 'boolean',

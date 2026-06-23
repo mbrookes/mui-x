@@ -167,7 +167,7 @@ export function resolveRows(
     // trigger a semi-join that returns zero rows when no relationship is declared.
     // selectFiltersForWidget (filterScoping.ts) applies this guard before callers reach
     // here; this check is a defensive invariant that should never fire in practice.
-    if (f.isDashboardDateRange && f.filterSourceId && f.filterSourceId !== widgetSourceId) {
+    if (f.scopeV2.kind === 'dashboard-date-range' && f.filterSourceId && f.filterSourceId !== widgetSourceId) {
       continue;
     }
     if (f.filterSourceId && f.filterSourceId !== widgetSourceId) {

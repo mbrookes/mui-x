@@ -75,7 +75,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
   const widgetFilters = React.useMemo(
     () =>
       allFilters.filter(
-        (f) => f.scope === 'widget' && f.widgetId === widgetId && !f.isDashboardDateRange,
+        (f) => f.scopeV2.kind === 'widget' && f.scopeV2.widgetId === widgetId && f.dateRangePreset === undefined,
       ),
     [allFilters, widgetId],
   );
@@ -87,12 +87,11 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
     }
     controller.addFilter({
       id: `wf-${widgetId}-${Date.now()}`,
-      scope: 'widget',
-      widgetId,
       field: firstField.id,
       fieldType: firstField.type,
       operator: 'equals',
       value: '',
+      scopeV2: { kind: 'widget', widgetId },
     });
   }, [controller, ownFields, widgetId]);
 

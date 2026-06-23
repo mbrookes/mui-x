@@ -180,7 +180,7 @@ export function serializeState(state: StudioState): SerializedStudioState {
     dashboard: state.dashboard,
     pages: state.pages,
     widgets: state.widgets,
-    filters: state.filters.filter((f) => f.scope !== 'cross-filter'),
+    filters: state.filters.filter((f) => f.scopeV2.kind !== 'cross-filter'),
     relationships: state.relationships,
     expressionFields: state.expressionFields.length > 0 ? state.expressionFields : undefined,
     filterPresets: (state.filterPresets?.length ?? 0) > 0 ? state.filterPresets : undefined,

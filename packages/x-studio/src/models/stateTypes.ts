@@ -8,11 +8,7 @@ import type { StudioAIState } from './aiTypes';
  * Typed filter scope — a discriminated union that encodes scope and all
  * scope-dependent identifiers in a single field.
  *
- * This is the v2 replacement for the combination of `scope`, `widgetId`,
- * `sourceWidgetId`, `pageId`, `isDashboardDateRange`, and `filterSourceId`.
- *
- * When `scopeV2` is present on a `StudioFilterState`, `selectFiltersForWidget`
- * uses it exclusively; when absent the legacy fields are used instead.
+ * This is the sole scope descriptor for `StudioFilterState`.
  */
 export type StudioFilterScope =
   | { kind: 'page'; pageId?: string }
@@ -63,12 +59,6 @@ export interface StudioFilterState {
    * - `<fieldId>`: rank by the values of the specific series with that fieldId
    */
   rankMultiSeriesBy?: string;
-  scope: 'page' | 'widget' | 'cross-filter' | 'interactive';
-  widgetId?: string;
-  /** For cross-filters: the widget ID that originated the filter */
-  sourceWidgetId?: string;
-  /** For cross-filters: the page on which the filter was applied */
-  pageId?: string;
   /**
    * For cross-source widget filters: the data source this filter's field belongs to.
    * When set (and different from the widget's source), the join path is resolved
@@ -76,13 +66,7 @@ export interface StudioFilterState {
    */
   filterSourceId?: string;
   /**
-   * When `true`, this filter was created by the dashboard date-range bar and is
-   * managed exclusively by that component — it is hidden from the filters drawer
-   * and quick-filter bar.
-   */
-  isDashboardDateRange?: true;
-  /**
-   * The preset that was used to compute the date range when `isDashboardDateRange` is true.
+   * The preset that was used to compute the date range when the scope is `dashboard-date-range`.
    * Stored for display purposes so the bar can show the active preset.
    */
   dateRangePreset?: StudioDateRangePreset;
@@ -96,15 +80,10 @@ export interface StudioFilterState {
   /** When `true`, the filter is temporarily inactive without being removed. */
   disabled?: boolean;
   /**
-   * Typed scope — a discriminated union that consolidates `scope`, `widgetId`,
-   * `sourceWidgetId`, `pageId`, `isDashboardDateRange`, and `filterSourceId`
-   * into a single, exhaustive field.
-   *
-   * When present, `selectFiltersForWidget` uses `scopeV2` exclusively and ignores
-   * the legacy fields. When absent, legacy fields are used as a fallback so that
-   * existing stored state and programmatically created filters continue to work.
+   * Typed scope — a discriminated union that encodes scope and all
+   * scope-dependent identifiers in a single, exhaustive field.
    */
-  scopeV2?: StudioFilterScope;
+  scopeV2: StudioFilterScope;
 }
 
 export interface StudioShellState {

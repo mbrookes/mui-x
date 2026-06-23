@@ -97,14 +97,12 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
   it('cross-source multi-select filter returns only orders fulfilled by selected carrier', () => {
     const interactiveFilter: StudioFilterState = {
       id: 'filter-carrier',
-      scope: 'interactive',
+      scopeV2: { kind: 'interactive', sourceWidgetId: 'filter-widget-1', pageId: 'page-1' },
       field: 'carrier',
       operator: 'in',
       value: ['DHL'],
       filterMode: 'selection',
       filterSourceId: 'source-shipments',
-      sourceWidgetId: 'filter-widget-1',
-      pageId: 'page-1',
     };
 
     const result = resolveRows(
@@ -124,14 +122,12 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
     // a native filter on orders rows, which have no carrier field → empty result.
     const badFilter: StudioFilterState = {
       id: 'filter-carrier',
-      scope: 'interactive',
+      scopeV2: { kind: 'interactive', sourceWidgetId: 'filter-widget-1', pageId: 'page-1' },
       field: 'carrier',
       operator: 'in',
       value: ['DHL'],
       filterMode: 'selection',
       // No filterSourceId — treated as native filter
-      sourceWidgetId: 'filter-widget-1',
-      pageId: 'page-1',
     };
 
     const result = resolveRows(
@@ -148,14 +144,12 @@ describe('StudioGridWidget — cross-source interactive filter', () => {
   it('selecting all carriers returns all orders', () => {
     const interactiveFilter: StudioFilterState = {
       id: 'filter-carrier',
-      scope: 'interactive',
+      scopeV2: { kind: 'interactive', sourceWidgetId: 'filter-widget-1', pageId: 'page-1' },
       field: 'carrier',
       operator: 'in',
       value: ['DHL', 'FedEx'],
       filterMode: 'selection',
       filterSourceId: 'source-shipments',
-      sourceWidgetId: 'filter-widget-1',
-      pageId: 'page-1',
     };
 
     const result = resolveRows(

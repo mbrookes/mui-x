@@ -105,7 +105,7 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
       return null;
     }
     const relevant = filters.filter(
-      (f) => f.scope === 'page' || (f.scope === 'widget' && f.widgetId === widgetId),
+      (f) => f.scopeV2.kind === 'page' || f.scopeV2.kind === 'dashboard-date-range' || (f.scopeV2.kind === 'widget' && f.scopeV2.widgetId === widgetId),
     );
     return (
       relevant.find((f) => {

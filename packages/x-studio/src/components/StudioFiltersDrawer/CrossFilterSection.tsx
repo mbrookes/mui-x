@@ -62,8 +62,9 @@ export function CrossFilterSection({ filters }: { filters: StudioFilterState[] }
         <Stack spacing={1} sx={{ pb: 0.5 }}>
           {filters.map((filter: StudioFilterState) => {
             const fieldLabel = resolveFieldLabel(filter.field, filter.filterSourceId);
-            const widgetTitle = filter.sourceWidgetId
-              ? (widgets[filter.sourceWidgetId]?.title ?? filter.sourceWidgetId)
+            const sourceWidgetId = filter.scopeV2.kind === 'cross-filter' ? filter.scopeV2.sourceWidgetId : undefined;
+            const widgetTitle = sourceWidgetId
+              ? (widgets[sourceWidgetId]?.title ?? sourceWidgetId)
               : null;
             return (
               <Box

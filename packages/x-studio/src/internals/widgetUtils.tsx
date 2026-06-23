@@ -221,7 +221,7 @@ export function formatDateFilterLabel(
   if (operator === 'between') {
     // Named presets (e.g. "Last 12 months") — show the preset label directly.
     if (
-      filter.isDashboardDateRange &&
+      filter.scopeV2.kind === 'dashboard-date-range' &&
       filter.dateRangePreset &&
       filter.dateRangePreset !== 'custom'
     ) {
@@ -319,7 +319,7 @@ export function inferKpiDateSubtitle(
   }
   const relevant = filters.filter(
     (f) =>
-      (f.scope === 'page' || (f.scope === 'widget' && f.widgetId === widget.id)) &&
+      (f.scopeV2.kind === 'page' || f.scopeV2.kind === 'dashboard-date-range' || (f.scopeV2.kind === 'widget' && f.scopeV2.widgetId === widget.id)) &&
       (f.fieldType === 'date' || f.fieldType === 'datetime'),
   );
   const dateFilter = relevant[0];

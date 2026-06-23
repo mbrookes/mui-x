@@ -34,11 +34,8 @@ export function StudioQuickFilterBar() {
 
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f) =>
-      f.scope === 'page' &&
-      // When the date range bar is disabled, still show dashboard date-range filters
-      // so they remain visible and clearable (avoids hidden active filters).
-      (!f.isDashboardDateRange || !features.quickFilter) &&
-      (!f.pageId || f.pageId === activePageId),
+      (f.scopeV2.kind === 'page' || (f.scopeV2.kind === 'dashboard-date-range' && !features.quickFilter)) &&
+      ('pageId' in f.scopeV2 ? (!f.scopeV2.pageId || f.scopeV2.pageId === activePageId) : true),
   );
 
   if (pageFilters.length === 0) {

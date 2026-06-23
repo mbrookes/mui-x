@@ -147,7 +147,14 @@ function applyPredicate(query: any, predicate: FilterPredicate): void {
       query.where(column, '!=', value);
       break;
     case 'in':
-      query.whereIn(column, value as string[] | number[]);
+      // Skip empty IN lists — `WHERE x IN ()` is a SQL error in MySQL/SQLite
+      // and semantically means "match nothing" (no rows pass). Dropping the
+      // predicate here is the autoRemove pattern: a no-op filter that would
+      // produce zero results is omitted rather than forwarded to the DB.
+      if (value.length === 0) {
+        break;
+      }
+      query.whereIn(column, value);
       break;
     case 'lt':
       query.where(column, '<', value);
@@ -162,10 +169,10 @@ function applyPredicate(query: any, predicate: FilterPredicate): void {
       query.where(column, '>=', value);
       break;
     case 'like':
-      query.whereLike(column, value as string);
+      query.whereLike(column, value);
       break;
     case 'between': {
-      const [lo, hi] = value as [string | number, string | number];
+      const [lo, hi] = value;
       query.whereBetween(column, [lo, hi]);
       break;
     }

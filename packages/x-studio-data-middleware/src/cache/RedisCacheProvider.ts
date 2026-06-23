@@ -31,8 +31,16 @@
  *
  * ## TTL
  *
- * The default TTL is 60 seconds. Override per-call via `set(key, value, ttlSeconds)`
- * or set a default in the constructor options.
+ * The default TTL is 60 seconds. Override per-call via the `opts.ttlMs` field
+ * on `set()`, or set a default in the constructor options.
+ *
+ * ## Tag-based invalidation
+ *
+ * When `opts.tags` is provided to `set()`, each tag is tracked in a Redis SET
+ * (`__tag__:<tag>` key) so `deleteByTag(tag)` can evict all matching entries
+ * in one round-trip. Requires `sadd` and `smembers` on the Redis client (both
+ * ioredis and node-redis v4+ include these). If the client does not implement
+ * them, `deleteByTag` is a graceful no-op.
  *
  * ## Key format
  *
@@ -42,13 +50,17 @@
  * Use `keyPrefix` in the constructor options for that case.
  */
 
-import type { CacheProvider, CacheEntry } from './types';
+import type { CacheProvider, CacheEntry, CacheSetOpts } from './types';
 
 export interface RedisClient {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, exMode: 'EX', ttlSeconds: number): Promise<unknown>;
   keys(pattern: string): Promise<string[]>;
   del(...keys: string[]): Promise<unknown>;
+  /** Optional — required for tag-based invalidation via `deleteByTag`. */
+  sadd?(key: string, ...members: string[]): Promise<unknown>;
+  /** Optional — required for tag-based invalidation via `deleteByTag`. */
+  smembers?(key: string): Promise<string[]>;
 }
 
 export interface RedisCacheProviderOptions {
@@ -88,9 +100,19 @@ export class RedisCacheProvider implements CacheProvider {
     }
   }
 
-  async set(key: string, value: CacheEntry, ttlSeconds?: number): Promise<void> {
-    const ttl = ttlSeconds ?? this.defaultTtl;
-    await this.redis.set(this.prefix + key, JSON.stringify(value), 'EX', ttl);
+  async set(key: string, value: CacheEntry, opts?: CacheSetOpts): Promise<void> {
+    const ttlSeconds = opts?.ttlMs !== undefined ? Math.ceil(opts.ttlMs / 1000) : this.defaultTtl;
+    const prefixedKey = this.prefix + key;
+    await this.redis.set(prefixedKey, JSON.stringify(value), 'EX', ttlSeconds);
+
+    // Register tags in Redis SETs for bulk invalidation via deleteByTag.
+    // Requires sadd support (ioredis + node-redis v4+ both provide this).
+    const tags = opts?.tags;
+    if (tags && tags.length > 0 && this.redis.sadd) {
+      for (const tag of tags) {
+        await this.redis.sadd(this.tagKey(tag), prefixedKey);
+      }
+    }
   }
 
   async invalidatePrefix(prefix: string): Promise<void> {
@@ -99,5 +121,21 @@ export class RedisCacheProvider implements CacheProvider {
     if (keys.length > 0) {
       await this.redis.del(...keys);
     }
+  }
+
+  async deleteByTag(tag: string): Promise<void> {
+    // Graceful no-op when the Redis client doesn't support SET operations.
+    if (!this.redis.smembers) {
+      return;
+    }
+    const tagKey = this.tagKey(tag);
+    const keys = await this.redis.smembers(tagKey);
+    // Delete all tagged data keys plus the tag set itself in one call.
+    await this.redis.del(...keys, tagKey);
+  }
+
+  /** Returns the Redis key used to track all data keys for a given tag. */
+  private tagKey(tag: string): string {
+    return `${this.prefix}__tag__:${tag}`;
   }
 }

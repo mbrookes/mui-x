@@ -102,11 +102,6 @@ export interface StudioDashboardState {
    * `null` means "per chart" — each widget uses its own setting.
    */
   globalCrossFilterMode?: StudioCrossFilterMode | null;
-  /**
-   * When `true`, cross-filters created by clicking a chart are applied to
-   * widgets on ALL pages, not just the page where the click occurred.
-   */
-  crossFilterAllPages?: boolean;
 }
 
 export interface StudioFilterPreset {

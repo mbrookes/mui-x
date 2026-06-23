@@ -1,27 +1,13 @@
 'use client';
 import * as React from 'react';
-import { Box, FormControlLabel, Switch, ToggleButton, ToggleButtonGroup } from '@mui/material';
-import {
-  useStudioController,
-  useStudioSelector,
-  selectGlobalCrossFilterMode,
-  selectCrossFilterAllPages,
-} from '../../context';
+import { Box, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { useStudioController, useStudioSelector, selectGlobalCrossFilterMode } from '../../context';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioCrossFilterMode } from '../../models';
 
-/**
- * Bar shown above the canvas (in place of the date-range bar) when the
- * `crossFilterBar` feature flag is enabled. Provides two controls:
- *
- * - A toggle-button group to choose the global interaction mode:
- *   "Filter" | "Highlight" | "Per chart"
- * - A switch to apply cross-filters to all pages (vs. only the current page)
- */
 export function StudioCrossFilterBar() {
   const controller = useStudioController();
   const globalMode = useStudioSelector(selectGlobalCrossFilterMode);
-  const allPages = useStudioSelector(selectCrossFilterAllPages);
   const localeText = useStudioLocaleText();
 
   const handleModeChange = (
@@ -32,10 +18,6 @@ export function StudioCrossFilterBar() {
       return;
     }
     controller.setGlobalCrossFilterMode(value === 'per-chart' ? null : value);
-  };
-
-  const handleAllPagesChange = (_event: React.ChangeEvent<HTMLInputElement>, checked: boolean) => {
-    controller.setCrossFilterAllPages(checked);
   };
 
   const toggleValue: string = globalMode ?? 'per-chart';
@@ -71,20 +53,6 @@ export function StudioCrossFilterBar() {
           {localeText.crossFilterBarModePerChart}
         </ToggleButton>
       </ToggleButtonGroup>
-
-      <FormControlLabel
-        control={
-          <Switch
-            size="small"
-            checked={allPages}
-            onChange={handleAllPagesChange}
-            sx={{ ml: 0.5 }}
-          />
-        }
-        label={localeText.crossFilterBarAllPages}
-        slotProps={{ typography: { variant: 'caption' } }}
-        sx={{ ml: 0, gap: 0.5 }}
-      />
     </Box>
   );
 }

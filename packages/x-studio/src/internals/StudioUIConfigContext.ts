@@ -76,7 +76,6 @@ export interface StudioLocaleText {
   crossFilterBarModeFilter: string;
   crossFilterBarModeHighlight: string;
   crossFilterBarModePerChart: string;
-  crossFilterBarAllPages: string;
 
   // ── Widget card actions ────────────────────────────────────────────────────
   widgetEditTooltip: string;
@@ -1064,7 +1063,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   crossFilterBarModeFilter: 'Filter',
   crossFilterBarModeHighlight: 'Highlight',
   crossFilterBarModePerChart: 'Per chart',
-  crossFilterBarAllPages: 'All pages',
 
   // Widget card actions
   widgetEditTooltip: 'Edit widget',

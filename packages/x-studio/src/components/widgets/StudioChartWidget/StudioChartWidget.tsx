@@ -1946,6 +1946,16 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       singleArcLabel = (item) => `${((item.value / total) * 100).toFixed(1)}%`;
     }
 
+    // Resolve the colour palette for both the arc slices and the custom legend so
+    // they always agree.  Priority: explicit chartColors > theme MuiPieChart default
+    // props > resolvedChartColors (blueberryTwilightPalette fallback).
+    const themeDefaultPieColors = (
+      theme.components as
+        | Record<string, { defaultProps?: { colors?: string[] } } | undefined>
+        | undefined
+    )?.MuiPieChart?.defaultProps?.colors;
+    const pieColors: string[] = chartColors ?? themeDefaultPieColors ?? resolvedChartColors;
+
     return (
       /* PieHighlightContext always wraps PieChart — never conditionally — so PieChart
          stays at the same tree position and arcs never remount on filter changes. */
@@ -1977,7 +1987,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
               highlightScope: { highlight: 'item', fade: 'global' },
             },
           ]}
-          colors={chartColors}
+          colors={pieColors}
           margin={{ top: pieTopM, right: pieSideM, bottom: pieBottomM, left: pieSideM }}
           highlightedItem={
             selectedDataIndex >= 0
@@ -2000,7 +2010,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           {displayLabels.map((label, i) => {
             const value = displayValues[i] ?? 0;
             const pct = singlePieTotal > 0 ? `${((value / singlePieTotal) * 100).toFixed(1)}%` : '';
-            const color = resolvedChartColors[i % resolvedChartColors.length] as string;
+            const color = pieColors[i % pieColors.length];
             return (
               <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: '6px', py: '2px' }}>
                 <Box

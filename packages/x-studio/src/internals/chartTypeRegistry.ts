@@ -346,8 +346,12 @@ const pivotDescriptor: ChartTypeDescriptor = {
 /**
  * Registry keyed by `StudioChartType`.
  * Chart widgets use `widget.config.chartType` to look up their descriptor.
+ *
+ * `satisfies Record<StudioChartType, ...>` enforces at compile time that every
+ * value of `StudioChartType` has a descriptor entry — adding a new chart type
+ * to the union without registering it here becomes a type error immediately.
  */
-const chartTypeRegistry: Partial<Record<StudioChartType, ChartTypeDescriptor>> = {
+const chartTypeRegistry = {
   bar: xyDescriptor,
   'bar-stacked': xyDescriptor,
   'bar-100': xyDescriptor,
@@ -364,7 +368,7 @@ const chartTypeRegistry: Partial<Record<StudioChartType, ChartTypeDescriptor>> =
   gantt: ganttDescriptor,
   sankey: sankeyDescriptor,
   scatter: scatterDescriptor,
-};
+} satisfies Record<StudioChartType, ChartTypeDescriptor>;
 
 /**
  * Registry keyed by `StudioWidgetKind` for widget kinds that are not `'chart'`.

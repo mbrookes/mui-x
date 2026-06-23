@@ -253,6 +253,283 @@ describe('createBatchingAdapter — filter serialisation', () => {
   });
 });
 
+// ── Same-endpoint SQL JOIN generation ────────────────────────────────────────
+//
+// When both sources use the same adapter endpoint, `resolveField` generates a
+// LEFT JOIN descriptor and a columnAlias so the server can execute the join in
+// SQL rather than performing client-side enrichment.
+// These tests verify the *request body* sent to the server, not the response.
+
+describe('createBatchingAdapter — same-endpoint SQL JOIN generation', () => {
+  /** Shared source/relationship fixtures used across tests. */
+  function makeSameEndpointHarness(
+    fetchFn: ReturnType<typeof makeOkFetch>,
+    expressionFields: StudioExpressionField[],
+    relationships?: StudioRelationship[],
+  ) {
+    const endpoint = uid();
+    // Both sources get their adapter created against the *same* endpoint so
+    // `getBatchingEndpoint` returns the same URL for both — triggering the
+    // SQL JOIN path rather than the cross-endpoint enrichment fallback.
+    const sharedAdapter = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    const dataSources: Record<string, StudioDataSource> = {
+      'source-orders': {
+        id: 'source-orders',
+        label: 'Orders',
+        tableName: 'orders',
+        fields: [field('id', 'number'), field('customerId', 'number'), field('total', 'number')],
+        adapter: sharedAdapter,
+      },
+      'source-customers': {
+        id: 'source-customers',
+        label: 'Customers',
+        tableName: 'customers',
+        fields: [field('id', 'number'), field('segment'), field('country')],
+        adapter: sharedAdapter,
+      },
+    };
+
+    const defaultRelationships: StudioRelationship[] = relationships ?? [
+      {
+        id: 'rel-orders-customers',
+        type: 'many-to-one',
+        sourceId: 'source-orders',
+        sourceField: 'customerId',
+        targetId: 'source-customers',
+        targetField: 'id',
+      },
+    ];
+
+    const adapter = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+      dataSources,
+      relationships: defaultRelationships,
+      expressionFields,
+    });
+
+    return { adapter, endpoint };
+  }
+
+  it('sends LEFT JOIN and columnAlias to the server for a JoinFieldExpression field', async () => {
+    const fetchFn = makeOkFetch([
+      { id: 'w1', rows: [{ id: 1, total: 500, 'expr-segment': 'Consumer' }] },
+    ]);
+
+    const { adapter } = makeSameEndpointHarness(fetchFn, [
+      {
+        id: 'expr-segment',
+        label: 'Segment',
+        sourceId: 'source-orders',
+        isMeasure: false,
+        expression: { joinSourceId: 'source-customers', fieldId: 'segment' },
+      },
+    ]);
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        widgetId: 'w1',
+        select: ['id', 'total', 'expr-segment'],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{
+        columns: string[];
+        columnAliases?: Record<string, string>;
+        joins?: Array<{ table: string; type: string; on: [string, string][] }>;
+      }>;
+    };
+    const w = body.widgets[0];
+
+    // Logical field ID is preserved in columns (server uses alias to map result back)
+    expect(w.columns).toContain('expr-segment');
+
+    // Physical column alias: server SELECTs `customers.segment AS "expr-segment"`
+    expect(w.columnAliases).toMatchObject({ 'expr-segment': 'customers.segment' });
+
+    // LEFT JOIN descriptor emitted so the server can resolve the column
+    expect(w.joins).toHaveLength(1);
+    expect(w.joins![0]).toMatchObject({
+      table: 'customers',
+      type: 'left',
+    });
+    // Join condition: orders.customerId = customers.id
+    expect(w.joins![0].on[0]).toEqual(['orders.customerId', 'customers.id']);
+  });
+
+  it('does NOT add a cross-endpoint enrichment when join is same-endpoint', async () => {
+    const fetchFn = makeOkFetch([
+      { id: 'w1', rows: [{ id: 1, total: 500, 'expr-segment': 'Consumer' }] },
+    ]);
+
+    const { adapter } = makeSameEndpointHarness(fetchFn, [
+      {
+        id: 'expr-segment',
+        label: 'Segment',
+        sourceId: 'source-orders',
+        isMeasure: false,
+        expression: { joinSourceId: 'source-customers', fieldId: 'segment' },
+      },
+    ]);
+
+    // Single request — no secondary fetch to the customers endpoint
+    const result = await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        widgetId: 'w1',
+        select: ['id', 'total', 'expr-segment'],
+      }),
+    );
+
+    // Only one POST was made (no cross-endpoint enrichment call)
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    // Server-provided value is returned as-is (no client enrichment needed)
+    expect(result.rows[0]['expr-segment']).toBe('Consumer');
+  });
+
+  it('generates joins for two expression fields on the same joined table', async () => {
+    const fetchFn = makeOkFetch([
+      {
+        id: 'w1',
+        rows: [{ id: 1, 'expr-segment': 'Consumer', 'expr-country': 'US' }],
+      },
+    ]);
+
+    const { adapter } = makeSameEndpointHarness(fetchFn, [
+      {
+        id: 'expr-segment',
+        label: 'Segment',
+        sourceId: 'source-orders',
+        isMeasure: false,
+        expression: { joinSourceId: 'source-customers', fieldId: 'segment' },
+      },
+      {
+        id: 'expr-country',
+        label: 'Country',
+        sourceId: 'source-orders',
+        isMeasure: false,
+        expression: { joinSourceId: 'source-customers', fieldId: 'country' },
+      },
+    ]);
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        widgetId: 'w1',
+        select: ['id', 'expr-segment', 'expr-country'],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{
+        columnAliases?: Record<string, string>;
+        joins?: Array<{ table: string }>;
+      }>;
+    };
+    const w = body.widgets[0];
+
+    // Both fields aliased
+    expect(w.columnAliases).toMatchObject({
+      'expr-segment': 'customers.segment',
+      'expr-country': 'customers.country',
+    });
+
+    // Only one JOIN for the shared table (deduplication by table name)
+    expect(w.joins).toHaveLength(1);
+    expect(w.joins![0].table).toBe('customers');
+  });
+
+  it('drops a JoinFieldExpression field when no matching relationship exists', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [{ id: 1, total: 500 }] }]);
+
+    // Provide expression field but NO relationship between orders and products
+    const { adapter } = makeSameEndpointHarness(
+      fetchFn,
+      [
+        {
+          id: 'expr-product-name',
+          label: 'Product Name',
+          sourceId: 'source-orders',
+          isMeasure: false,
+          expression: { joinSourceId: 'source-products', fieldId: 'name' }, // source-products not in dataSources
+        },
+      ],
+      [], // no relationships
+    );
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        widgetId: 'w1',
+        select: ['id', 'total', 'expr-product-name'],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ columns?: string[]; joins?: unknown[] }>;
+    };
+    const w = body.widgets[0];
+
+    // Unresolvable field must be dropped (not sent to server)
+    expect(w.columns).not.toContain('expr-product-name');
+    // No JOIN emitted
+    expect(w.joins).toBeUndefined();
+  });
+
+  it('resolves a cross-filter filter column via JOIN when it is a JoinFieldExpression', async () => {
+    // Scenario: a filter on `expr-segment` (defined on orders) is applied to an
+    // orders widget. The filter's column must be resolved to the physical
+    // `customers.segment` column (with JOIN) — not the logical `expr-segment` ID.
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+
+    const { adapter } = makeSameEndpointHarness(fetchFn, [
+      {
+        id: 'expr-segment',
+        label: 'Segment',
+        sourceId: 'source-orders',
+        isMeasure: false,
+        expression: { joinSourceId: 'source-customers', fieldId: 'segment' },
+      },
+    ]);
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        widgetId: 'w1',
+        select: ['id', 'total', 'expr-segment'],
+        filter: {
+          type: 'leaf',
+          field: 'expr-segment',
+          op: 'equals',
+          value: 'Consumer',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters: Array<{ column: string; value: unknown }> }>;
+    };
+    const { filters } = body.widgets[0];
+
+    // The filter column must be resolved to the physical column, not the logical alias
+    expect(filters).toHaveLength(1);
+    expect(filters[0].column).toBe('customers.segment');
+    expect(filters[0].value).toBe('Consumer');
+  });
+});
+
 // ── Cross-endpoint join enrichment ────────────────────────────────────────────
 
 describe('createBatchingAdapter — cross-endpoint join enrichment', () => {

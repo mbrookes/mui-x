@@ -49,6 +49,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Abrir panel de filtros',
+  quickFilterBarCloseFilters: 'Cerrar panel de filtros',
   quickFilterBarClearAll: 'Borrar todos los filtros',
   quickFilterBarFiltered: 'Filtrado',
   dateRangeBarFieldLabel: 'Rango de fechas',

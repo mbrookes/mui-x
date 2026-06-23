@@ -10,6 +10,7 @@ import {
   selectFilters,
   selectDataSources,
   selectActivePageId,
+  selectShell,
 } from '../../context';
 import type { StudioFilterState } from '../../models';
 import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
@@ -31,6 +32,8 @@ export function StudioQuickFilterBar() {
   const activePageId = useStudioSelector(selectActivePageId);
   const localeText = useStudioLocaleText();
   const features = useStudioFeatures();
+  const shell = useStudioSelector(selectShell);
+  const filtersDrawerOpen = shell.openDrawers.filters;
 
   const pageFilters = (filters as StudioFilterState[]).filter(
     (f) =>
@@ -60,8 +63,8 @@ export function StudioQuickFilterBar() {
     }
   }
 
-  const openFiltersDrawer = () => {
-    controller.setDrawerOpen('filters', true);
+  const toggleFiltersDrawer = () => {
+    controller.toggleDrawer('filters');
   };
 
   const handleClearAll = (event: React.MouseEvent) => {
@@ -94,14 +97,24 @@ export function StudioQuickFilterBar() {
         backgroundColor: 'action.hover',
       }}
     >
-      <Tooltip title={localeText.quickFilterBarOpenFilters}>
+      <Tooltip
+        title={
+          filtersDrawerOpen
+            ? localeText.quickFilterBarCloseFilters
+            : localeText.quickFilterBarOpenFilters
+        }
+      >
         <IconButton
           size="small"
-          onClick={openFiltersDrawer}
-          aria-label={localeText.quickFilterBarOpenFilters}
+          onClick={toggleFiltersDrawer}
+          aria-label={
+            filtersDrawerOpen
+              ? localeText.quickFilterBarCloseFilters
+              : localeText.quickFilterBarOpenFilters
+          }
           sx={{ flexShrink: 0 }}
         >
-          <FilterListIcon fontSize="small" color="action" />
+          <FilterListIcon fontSize="small" color={filtersDrawerOpen ? 'primary' : 'action'} />
         </IconButton>
       </Tooltip>
 

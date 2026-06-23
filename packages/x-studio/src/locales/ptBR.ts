@@ -47,6 +47,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Abrir painel de filtros',
+  quickFilterBarCloseFilters: 'Fechar painel de filtros',
   quickFilterBarClearAll: 'Limpar todos os filtros',
   quickFilterBarFiltered: 'Filtrado',
   dateRangeBarFieldLabel: 'Intervalo de datas',

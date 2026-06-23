@@ -68,6 +68,7 @@ export interface StudioLocaleText {
 
   // ── Quick filter bar ───────────────────────────────────────────────────────
   quickFilterBarOpenFilters: string;
+  quickFilterBarCloseFilters: string;
   quickFilterBarClearAll: string;
   quickFilterBarFiltered: string;
   dateRangeBarFieldLabel: string;
@@ -1055,6 +1056,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Open filters panel',
+  quickFilterBarCloseFilters: 'Close filters panel',
   quickFilterBarClearAll: 'Clear all filters',
   quickFilterBarFiltered: 'Filtered',
   dateRangeBarFieldLabel: 'Date range',

@@ -183,6 +183,7 @@ export interface StudioLocaleText {
   textFormatAlignCenterAriaLabel: string;
   textFormatAlignRightAriaLabel: string;
   textFormatDefaultFont: string;
+  textFormatSansSerifFont: string;
   textFormatSerifFont: string;
   textFormatMonospaceFont: string;
   textFormatDefaultSize: string;
@@ -1155,6 +1156,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   textFormatAlignCenterAriaLabel: 'Align center',
   textFormatAlignRightAriaLabel: 'Align right',
   textFormatDefaultFont: 'Default (theme)',
+  textFormatSansSerifFont: 'Sans-serif',
   textFormatSerifFont: 'Serif',
   textFormatMonospaceFont: 'Monospace',
   textFormatDefaultSize: 'Default',

@@ -154,6 +154,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   textFormatAlignCenterAriaLabel: 'Centralizar',
   textFormatAlignRightAriaLabel: 'Alinhar à direita',
   textFormatDefaultFont: 'Padrão (tema)',
+  textFormatSansSerifFont: 'Sem serifa',
   textFormatSerifFont: 'Serifa',
   textFormatMonospaceFont: 'Monoespaçada',
   textFormatDefaultSize: 'Padrão',

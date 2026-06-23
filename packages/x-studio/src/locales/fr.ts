@@ -157,6 +157,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   textFormatAlignCenterAriaLabel: 'Centraliser',
   textFormatAlignRightAriaLabel: 'Aligner à droite',
   textFormatDefaultFont: 'Par défaut (thème)',
+  textFormatSansSerifFont: 'Sans-serif',
   textFormatSerifFont: 'Serif',
   textFormatMonospaceFont: 'Monospace',
   textFormatDefaultSize: 'Standard',

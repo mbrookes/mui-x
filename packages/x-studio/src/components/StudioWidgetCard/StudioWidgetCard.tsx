@@ -620,7 +620,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                         fontFamily:
                           widget.config.textTitleFontFamily === 'serif'
                             ? "Georgia, 'Times New Roman', Times, serif"
-                            : "'Courier New', Courier, monospace",
+                            : widget.config.textTitleFontFamily === 'sans-serif'
+                              ? "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+                              : "'Courier New', Courier, monospace",
                       }),
                       ...(widget.config.textTitleFontSize && {
                         fontSize: widget.config.textTitleFontSize,

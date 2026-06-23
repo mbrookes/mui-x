@@ -157,6 +157,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   textFormatAlignCenterAriaLabel: 'Zentralisieren',
   textFormatAlignRightAriaLabel: 'Richtig ausrichten',
   textFormatDefaultFont: 'Standard (Thema)',
+  textFormatSansSerifFont: 'Serifenlos',
   textFormatSerifFont: 'Serife',
   textFormatMonospaceFont: 'Monospaced',
   textFormatDefaultSize: 'Standard',

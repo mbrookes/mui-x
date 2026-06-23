@@ -13,6 +13,7 @@ export interface StudioTextWidgetProps {
 }
 
 const FONT_FAMILY: Record<string, string> = {
+  'sans-serif': "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   serif: "Georgia, 'Times New Roman', Times, serif",
   monospace: "'Courier New', Courier, monospace",
 };

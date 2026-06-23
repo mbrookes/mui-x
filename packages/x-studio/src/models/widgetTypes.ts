@@ -355,7 +355,7 @@ export interface StudioWidgetConfig {
   textAiEnabled?: boolean;
   // Text formatting — undefined means "use the default" and is never persisted
   /** Font family for the title section. undefined = theme default. */
-  textTitleFontFamily?: 'serif' | 'monospace';
+  textTitleFontFamily?: 'serif' | 'monospace' | 'sans-serif';
   /** Font size in px for the title section. undefined = variant default (~20px). */
   textTitleFontSize?: number;
   /** CSS colour for the title section. undefined = theme text.primary. */
@@ -363,7 +363,7 @@ export interface StudioWidgetConfig {
   /** Text alignment for the title section. undefined = left. */
   textTitleAlign?: 'left' | 'center' | 'right';
   /** Font family for the subtitle section. undefined = theme default. */
-  textSubtitleFontFamily?: 'serif' | 'monospace';
+  textSubtitleFontFamily?: 'serif' | 'monospace' | 'sans-serif';
   /** Font size in px for the subtitle section. undefined = variant default (~16px). */
   textSubtitleFontSize?: number;
   /** CSS colour for the subtitle section. undefined = theme text.secondary. */
@@ -371,7 +371,7 @@ export interface StudioWidgetConfig {
   /** Text alignment for the subtitle section. undefined = left. */
   textSubtitleAlign?: 'left' | 'center' | 'right';
   /** Font family for the body section. undefined = theme default. */
-  textBodyFontFamily?: 'serif' | 'monospace';
+  textBodyFontFamily?: 'serif' | 'monospace' | 'sans-serif';
   /** Font size in px for the body section. undefined = variant default (~14px). */
   textBodyFontSize?: number;
   /** CSS colour for the body section. undefined = theme text.primary. */

@@ -453,6 +453,7 @@ function qTextWidget(meta: QuestionMeta): StudioWidget {
     titleMode: 'manual',
     config: {
       textSubtitle: `${meta.plotted} plotted answers · ${TOTAL_RESPONDENTS} respondents · ${meta.categories} categories`,
+      textTitleFontFamily: 'sans-serif',
     },
   };
 }

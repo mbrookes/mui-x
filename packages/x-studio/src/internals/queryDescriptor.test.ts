@@ -16,38 +16,15 @@ function makeWidget(config: Partial<StudioWidgetConfig> = {}): StudioWidget {
   };
 }
 
-function deriveScopeV2(f: Partial<StudioFilterState>): StudioFilterState['scopeV2'] {
-  if (f.scopeV2) {
-    return f.scopeV2;
-  }
-  switch (f.scope ?? 'page') {
-    case 'page':
-      return { kind: 'page', pageId: f.pageId };
-    case 'widget':
-      return f.widgetId ? { kind: 'widget', widgetId: f.widgetId } : undefined;
-    case 'cross-filter':
-      return f.sourceWidgetId && f.pageId
-        ? { kind: 'cross-filter', sourceWidgetId: f.sourceWidgetId, pageId: f.pageId }
-        : undefined;
-    case 'interactive':
-      return f.sourceWidgetId && f.pageId
-        ? { kind: 'interactive', sourceWidgetId: f.sourceWidgetId, pageId: f.pageId }
-        : undefined;
-    default:
-      return undefined;
-  }
-}
-
-function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
-  const base: Partial<StudioFilterState> = {
+function makeFilter(overrides: Partial<StudioFilterState> & { scopeV2?: StudioFilterState['scopeV2'] }): StudioFilterState {
+  return {
     id: 'f1',
     field: 'status',
     operator: 'equals',
     value: 'active',
-    scope: 'page',
+    scopeV2: { kind: 'page' },
     ...overrides,
-  };
-  return { ...base, scopeV2: deriveScopeV2(base) } as StudioFilterState;
+  } as StudioFilterState;
 }
 
 const PAGE_ID = 'page-1';
@@ -247,7 +224,7 @@ describe('buildQueryDescriptor', () => {
 
   it('includes page-scoped filters in the descriptor', () => {
     const pageFilter = makeFilter({
-      scope: 'page',
+      scopeV2: { kind: 'page' },
       field: 'region',
       operator: 'equals',
       value: 'EU',
@@ -260,15 +237,13 @@ describe('buildQueryDescriptor', () => {
 
   it('includes widget-scoped filters for this widget only', () => {
     const widgetFilter = makeFilter({
-      scope: 'widget',
-      widgetId: 'w1',
+      scopeV2: { kind: 'widget', widgetId: 'w1' },
       field: 'status',
       value: 'shipped',
     });
     const otherFilter = makeFilter({
       id: 'f99',
-      scope: 'widget',
-      widgetId: 'w2',
+      scopeV2: { kind: 'widget', widgetId: 'w2' },
       field: 'status',
       value: 'returned',
     });
@@ -281,9 +256,7 @@ describe('buildQueryDescriptor', () => {
 
   it('includes cross-filters from other widgets on same page', () => {
     const crossFilter = makeFilter({
-      scope: 'cross-filter',
-      sourceWidgetId: 'w2',
-      pageId: PAGE_ID,
+      scopeV2: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: PAGE_ID },
       field: 'category',
       value: 'Electronics',
     });
@@ -294,9 +267,7 @@ describe('buildQueryDescriptor', () => {
 
   it('excludes cross-filters emitted by this widget', () => {
     const selfCrossFilter = makeFilter({
-      scope: 'cross-filter',
-      sourceWidgetId: 'w1', // same as widget.id
-      pageId: PAGE_ID,
+      scopeV2: { kind: 'cross-filter', sourceWidgetId: 'w1' /* same as widget.id */, pageId: PAGE_ID },
       field: 'category',
       value: 'Electronics',
     });
@@ -307,9 +278,7 @@ describe('buildQueryDescriptor', () => {
 
   it('excludes cross-filters from a different page', () => {
     const otherPageFilter = makeFilter({
-      scope: 'cross-filter',
-      sourceWidgetId: 'w2',
-      pageId: 'other-page',
+      scopeV2: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: 'other-page' },
       field: 'category',
       value: 'Electronics',
     });
@@ -330,7 +299,7 @@ describe('buildQueryDescriptor', () => {
     const desc1 = buildQueryDescriptor(widget, [], PAGE_ID);
     const desc2 = buildQueryDescriptor(
       widget,
-      [makeFilter({ field: 'status', value: 'active' })],
+      [makeFilter({ scopeV2: { kind: 'page' }, field: 'status', value: 'active' })],
       PAGE_ID,
     );
     expect(desc1.cacheKey).not.toBe(desc2.cacheKey);

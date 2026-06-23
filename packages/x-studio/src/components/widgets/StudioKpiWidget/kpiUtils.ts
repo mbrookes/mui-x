@@ -96,7 +96,7 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
     let from: unknown;
     let to: unknown;
     if (
-      filter.isDashboardDateRange &&
+      filter.scopeV2.kind === 'dashboard-date-range' &&
       filter.dateRangePreset &&
       filter.dateRangePreset !== 'custom'
     ) {
@@ -152,7 +152,7 @@ export function findDateFilter(
   dataSource: StudioDataSource,
 ): StudioFilterState | undefined {
   const relevant = filters.filter(
-    (f) => f.scope === 'page' || (f.scope === 'widget' && f.widgetId === widgetId),
+    (f) => f.scopeV2.kind === 'page' || f.scopeV2.kind === 'dashboard-date-range' || (f.scopeV2.kind === 'widget' && f.scopeV2.widgetId === widgetId),
   );
   return relevant.find((f) => {
     // Prefer the stored fieldType — reliable even for cross-source filters

@@ -24,7 +24,7 @@ function makeController(overrides: Partial<StudioController> = {}): StudioContro
       },
     },
     filters: [
-      { id: 'f1', field: 'revenue', operator: 'greater_than', value: 100, scope: 'page', pageId },
+      { id: 'f1', field: 'revenue', operator: 'greater_than', value: 100, scopeV2: { kind: 'page', pageId } },
     ],
   });
 
@@ -237,8 +237,7 @@ describe('applyStateMutation: addFilter', () => {
       field: 'revenue',
       operator: 'greater_than' as const,
       value: 200,
-      scope: 'page' as const,
-      pageId: 'page-1',
+      scopeV2: { kind: 'page' as const, pageId: 'page-1' },
     };
     const mutation: StateMutation = { type: 'addFilter', args: { filter } };
     applyStateMutation(mutation, controller);

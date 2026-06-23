@@ -24,38 +24,14 @@ function makeSource(id: string, rows: Record<string, unknown>[]): StudioDataSour
   return { id, label: id, fields: [], rows };
 }
 
-function deriveScopeV2(f: Partial<StudioFilterState>): StudioFilterState['scopeV2'] {
-  if (f.scopeV2) {
-    return f.scopeV2;
-  }
-  switch (f.scope ?? 'page') {
-    case 'page':
-      return { kind: 'page', pageId: f.pageId };
-    case 'widget':
-      return f.widgetId ? { kind: 'widget', widgetId: f.widgetId } : undefined;
-    case 'cross-filter':
-      return f.sourceWidgetId && f.pageId
-        ? { kind: 'cross-filter', sourceWidgetId: f.sourceWidgetId, pageId: f.pageId }
-        : undefined;
-    case 'interactive':
-      return f.sourceWidgetId && f.pageId
-        ? { kind: 'interactive', sourceWidgetId: f.sourceWidgetId, pageId: f.pageId }
-        : undefined;
-    default:
-      return undefined;
-  }
-}
-
-function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
-  const base: Partial<StudioFilterState> = {
+function makeFilter(overrides: Partial<StudioFilterState> & { scopeV2: StudioFilterState['scopeV2'] }): StudioFilterState {
+  return {
     id: 'f1',
     field: 'region',
     operator: 'equals',
     value: 'EU',
-    scope: 'page',
     ...overrides,
-  };
-  return { ...base, scopeV2: deriveScopeV2(base) } as StudioFilterState;
+  } as StudioFilterState;
 }
 
 const ROWS = [
@@ -83,7 +59,7 @@ describe('createStudioPipeline', () => {
       const state = makeState({
         dataSources: { orders: makeSource('orders', rows) },
         filters: [
-          makeFilter({ id: 'f1', scope: 'page', field: 'region', operator: 'equals', value: 'EU' }),
+          makeFilter({ id: 'f1', scopeV2: { kind: 'page' }, field: 'region', operator: 'equals', value: 'EU' }),
         ],
       });
       const pipeline = createStudioPipeline(state);
@@ -98,8 +74,7 @@ describe('createStudioPipeline', () => {
         filters: [
           makeFilter({
             id: 'f1',
-            scope: 'widget',
-            widgetId: 'w1',
+            scopeV2: { kind: 'widget', widgetId: 'w1' },
             field: 'region',
             operator: 'equals',
             value: 'US',
@@ -124,9 +99,7 @@ describe('createStudioPipeline', () => {
         filters: [
           makeFilter({
             id: 'cf1',
-            scope: 'cross-filter',
-            sourceWidgetId: 'w-chart',
-            pageId: 'page-1',
+            scopeV2: { kind: 'cross-filter', sourceWidgetId: 'w-chart', pageId: 'page-1' },
             field: 'region',
             operator: 'equals',
             value: 'EU',
@@ -147,9 +120,7 @@ describe('createStudioPipeline', () => {
         filters: [
           makeFilter({
             id: 'cf1',
-            scope: 'cross-filter',
-            sourceWidgetId: 'w-chart',
-            pageId: 'page-2',
+            scopeV2: { kind: 'cross-filter', sourceWidgetId: 'w-chart', pageId: 'page-2' },
             field: 'region',
             operator: 'equals',
             value: 'EU',
@@ -170,8 +141,7 @@ describe('createStudioPipeline', () => {
         filters: [
           makeFilter({
             id: 'f-rank',
-            scope: 'widget',
-            widgetId: 'w1',
+            scopeV2: { kind: 'widget', widgetId: 'w1' },
             filterMode: 'rank',
             field: 'amount',
             operator: 'equals',
@@ -199,7 +169,7 @@ describe('createStudioPipeline', () => {
       const state = makeState({
         dataSources: { orders: makeSource('orders', rows) },
         filters: [
-          makeFilter({ id: 'f1', scope: 'page', field: 'region', operator: 'equals', value: 'EU' }),
+          makeFilter({ id: 'f1', scopeV2: { kind: 'page' }, field: 'region', operator: 'equals', value: 'EU' }),
         ],
       });
       const pipeline = createStudioPipeline(state);
@@ -334,7 +304,7 @@ describe('createStudioPipeline', () => {
         relationships: [] as StudioRelationship[],
         expressionFields: [] as StudioExpressionField[],
         filters: [
-          makeFilter({ id: 'f1', scope: 'page', field: 'region', operator: 'equals', value: 'EU' }),
+          makeFilter({ id: 'f1', scopeV2: { kind: 'page' }, field: 'region', operator: 'equals', value: 'EU' }),
         ] as StudioFilterState[],
         shell: { openDrawer: null },
       };

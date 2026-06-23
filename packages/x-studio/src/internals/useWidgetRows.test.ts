@@ -92,42 +92,15 @@ function makeDataSource(rows: Row[], overrides: Partial<StudioDataSource> = {}):
   };
 }
 
-function deriveScopeV2(f: Partial<StudioFilterState>): StudioFilterState['scopeV2'] {
-  if (f.scopeV2) {
-    return f.scopeV2;
-  }
-  if (f.isDashboardDateRange && f.filterSourceId && f.pageId) {
-    return { kind: 'dashboard-date-range', sourceId: f.filterSourceId, pageId: f.pageId };
-  }
-  switch (f.scope ?? 'page') {
-    case 'page':
-      return { kind: 'page', pageId: f.pageId };
-    case 'widget':
-      return f.widgetId ? { kind: 'widget', widgetId: f.widgetId } : undefined;
-    case 'cross-filter':
-      return f.sourceWidgetId && f.pageId
-        ? { kind: 'cross-filter', sourceWidgetId: f.sourceWidgetId, pageId: f.pageId }
-        : undefined;
-    case 'interactive':
-      return f.sourceWidgetId && f.pageId
-        ? { kind: 'interactive', sourceWidgetId: f.sourceWidgetId, pageId: f.pageId }
-        : undefined;
-    default:
-      return undefined;
-  }
-}
-
-function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
-  const base: Partial<StudioFilterState> = {
+function makeFilter(overrides: Partial<StudioFilterState> & { scopeV2: StudioFilterState['scopeV2'] }): StudioFilterState {
+  return {
     id: 'f1',
-    scope: 'page',
     field: 'region',
     operator: 'equals',
     value: 'EU',
     filterMode: 'filter',
     ...overrides,
-  };
-  return { ...base, scopeV2: deriveScopeV2(base) } as StudioFilterState;
+  } as StudioFilterState;
 }
 
 // ── Test data ───────────────────────────────────────────────────────────────
@@ -171,7 +144,7 @@ describe('sync path (no adapter)', () => {
   it('applies a page filter to rows', () => {
     mockState = createState({
       filters: [
-        makeFilter({ id: 'f1', scope: 'page', field: 'region', operator: 'equals', value: 'EU' }),
+        makeFilter({ id: 'f1', scopeV2: { kind: 'page' }, field: 'region', operator: 'equals', value: 'EU' }),
       ],
     });
     const widget = makeWidget();
@@ -187,8 +160,7 @@ describe('sync path (no adapter)', () => {
       filters: [
         makeFilter({
           id: 'f1',
-          scope: 'widget',
-          widgetId: 'w1',
+          scopeV2: { kind: 'widget', widgetId: 'w1' },
           field: 'amount',
           operator: 'greater_than',
           value: 120,
@@ -208,9 +180,7 @@ describe('sync path (no adapter)', () => {
       filters: [
         makeFilter({
           id: 'f-cross',
-          scope: 'cross-filter',
-          sourceWidgetId: 'w-other',
-          pageId: 'page-1',
+          scopeV2: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
           field: 'region',
           operator: 'equals',
           value: 'EU',
@@ -246,9 +216,7 @@ describe('sync path (no adapter)', () => {
       filters: [
         makeFilter({
           id: 'f-interactive',
-          scope: 'interactive',
-          sourceWidgetId: 'filter-widget',
-          pageId: 'page-1',
+          scopeV2: { kind: 'interactive', sourceWidgetId: 'filter-widget', pageId: 'page-1' },
           field: 'region',
           operator: 'equals',
           value: 'EU',
@@ -256,9 +224,7 @@ describe('sync path (no adapter)', () => {
         }),
         makeFilter({
           id: 'f-cross',
-          scope: 'cross-filter',
-          sourceWidgetId: 'w-other',
-          pageId: 'page-1',
+          scopeV2: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
           field: 'amount',
           operator: 'greater_than',
           value: 120,
@@ -288,9 +254,7 @@ describe('sync path (no adapter)', () => {
       filters: [
         makeFilter({
           id: 'f-interactive',
-          scope: 'interactive',
-          sourceWidgetId: 'filter-widget',
-          pageId: 'page-1',
+          scopeV2: { kind: 'interactive', sourceWidgetId: 'filter-widget', pageId: 'page-1' },
           field: 'region',
           operator: 'equals',
           value: 'EU',
@@ -451,9 +415,7 @@ describe('async adapter path', () => {
       filters: [
         makeFilter({
           id: 'f-cross',
-          scope: 'cross-filter',
-          sourceWidgetId: 'w-other',
-          pageId: 'page-1',
+          scopeV2: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
           field: 'region',
           operator: 'equals',
           value: 'EU',
@@ -509,7 +471,7 @@ describe('sync vs async parity', () => {
   it('produces the same rows for identical data and page filter', async () => {
     const filter = makeFilter({
       id: 'f1',
-      scope: 'page',
+      scopeV2: { kind: 'page' },
       field: 'region',
       operator: 'equals',
       value: 'EU',
@@ -558,7 +520,7 @@ describe('sync vs async parity', () => {
   it('disabled filter: both paths return all rows', async () => {
     const disabledFilter = makeFilter({
       id: 'f-disabled',
-      scope: 'page',
+      scopeV2: { kind: 'page' },
       field: 'region',
       operator: 'equals',
       value: 'EU',
@@ -595,8 +557,7 @@ describe('sync vs async parity', () => {
   it('widget-scoped filter: both paths apply it to the correct widget', async () => {
     const widgetFilter = makeFilter({
       id: 'f-widget',
-      scope: 'widget',
-      widgetId: 'w1',
+      scopeV2: { kind: 'widget', widgetId: 'w1' },
       field: 'region',
       operator: 'equals',
       value: 'EU',
@@ -636,16 +597,14 @@ describe('sync vs async parity', () => {
     expect(capturedDescriptor?.filter).toBeDefined();
   });
 
-  it('isDashboardDateRange filter for widget source: both paths include it', async () => {
+  it('dashboard-date-range filter for widget source: both paths include it', async () => {
     const dateFilter = makeFilter({
       id: 'f-ddr',
-      scope: 'page',
+      scopeV2: { kind: 'dashboard-date-range', sourceId: 'src1', pageId: 'page-1' },
       field: 'saleDate',
       operator: 'between',
       value: { from: '2024-01-01', to: '2024-12-31' },
-      isDashboardDateRange: true,
       filterSourceId: 'src1',
-      pageId: 'page-1',
       fieldType: 'date',
     });
 
@@ -688,9 +647,7 @@ describe('sync vs async parity', () => {
   it('cross-filter from another widget: filteredRows includes it, filteredRowsNoCross excludes it', () => {
     const crossFilter = makeFilter({
       id: 'f-cross',
-      scope: 'cross-filter',
-      sourceWidgetId: 'w-other',
-      pageId: 'page-1',
+      scopeV2: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'page-1' },
       field: 'region',
       operator: 'equals',
       value: 'EU',

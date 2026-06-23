@@ -176,9 +176,6 @@ describe('<StudioChartWidget />', () => {
       filters: [
         {
           id: 'cf-1',
-          scope: 'cross-filter',
-          sourceWidgetId: 'other-widget',
-          pageId: 'page-1',
           field: 'month',
           operator: 'equals',
           value: 'Feb',
@@ -328,9 +325,6 @@ describe('<StudioChartWidget />', () => {
       filters: [
         {
           id: 'cf-company',
-          scope: 'cross-filter',
-          sourceWidgetId: 'top-customers-chart',
-          pageId: 'page-1',
           field: 'company',
           operator: 'equals',
           value: 'Tech Systems',
@@ -412,9 +406,6 @@ describe('<StudioChartWidget />', () => {
       filters: [
         {
           id: 'cf-company-line',
-          scope: 'cross-filter',
-          sourceWidgetId: 'top-customers-chart',
-          pageId: 'page-1',
           field: 'company',
           operator: 'equals',
           value: 'Tech Systems',
@@ -514,9 +505,6 @@ describe('<StudioChartWidget />', () => {
       filters: [
         {
           id: 'cf-expr-company-line',
-          scope: 'cross-filter',
-          sourceWidgetId: 'top-customers-chart',
-          pageId: 'page-1',
           field: 'expr-order-company',
           operator: 'equals',
           value: 'Tech Systems',
@@ -614,9 +602,6 @@ describe('<StudioChartWidget />', () => {
       filters: [
         {
           id: 'cf-expr-company-donut',
-          scope: 'cross-filter',
-          sourceWidgetId: 'top-customers-chart',
-          pageId: 'page-1',
           field: 'expr-order-company',
           operator: 'equals',
           value: 'Tech Systems',
@@ -897,9 +882,6 @@ describe('<StudioChartWidget />', () => {
       filters: [
         {
           id: 'cf-active',
-          scope: 'cross-filter',
-          sourceWidgetId: widget.id,
-          pageId: 'page-1',
           field: 'bucket',
           operator: 'equals',
           value: 2,
@@ -949,9 +931,6 @@ describe('<StudioChartWidget />', () => {
       filters: [
         {
           id: 'cf-pie-active',
-          scope: 'cross-filter',
-          sourceWidgetId: widget.id,
-          pageId: 'page-1',
           field: 'category',
           operator: 'equals',
           value: 'B',
@@ -1001,9 +980,6 @@ describe('<StudioChartWidget />', () => {
       filters: [
         {
           id: 'cf-line-active',
-          scope: 'cross-filter',
-          sourceWidgetId: widget.id,
-          pageId: 'page-1',
           field: 'bucket',
           operator: 'equals',
           value: 2,
@@ -1499,24 +1475,20 @@ describe('<StudioChartWidget />', () => {
     const bothFilters = [
       {
         id: 'cf-category',
-        scope: 'cross-filter' as const,
-        sourceWidgetId: 'widget-chart-category',
-        pageId: 'page-1',
         field: 'category',
         operator: 'equals' as const,
         value: 'Supplies',
         filterSourceId: 'source-order-items',
+        scopeV2: { kind: 'cross-filter' as const, sourceWidgetId: 'widget-chart-category', pageId: 'page-1' },
       },
       {
         id: 'cf-date',
-        scope: 'cross-filter' as const,
-        sourceWidgetId: 'widget-chart-quarterly',
-        pageId: 'page-1',
         field: 'date',
         operator: 'between' as const,
         value: { from: '2024-01-01', to: '2024-03-31' },
         filterSourceId: 'source-orders',
         fieldType: 'date' as const,
+        scopeV2: { kind: 'cross-filter' as const, sourceWidgetId: 'widget-chart-quarterly', pageId: 'page-1' },
       },
     ];
 
@@ -1685,12 +1657,9 @@ describe('<StudioChartWidget />', () => {
       ],
     };
 
-    // A chart-click cross-filter (scope: 'cross-filter') from another widget
+    // A chart-click cross-filter (scopeV2.kind: 'cross-filter') from another widget
     const chartClickFilter = {
       id: 'cf-country',
-      scope: 'cross-filter' as const,
-      sourceWidgetId: 'other-widget',
-      pageId: 'page-1',
       field: 'country',
       operator: 'equals' as const,
       value: 'Germany',
@@ -1698,12 +1667,9 @@ describe('<StudioChartWidget />', () => {
       scopeV2: { kind: 'cross-filter' as const, sourceWidgetId: 'other-widget', pageId: 'page-1' },
     };
 
-    // An interactive filter (scope: 'interactive') from a StudioFilterWidget
+    // An interactive filter (scopeV2.kind: 'interactive') from a StudioFilterWidget
     const interactiveFilter = {
       id: 'int-country',
-      scope: 'interactive' as const,
-      sourceWidgetId: 'filter-widget',
-      pageId: 'page-1',
       field: 'country',
       operator: 'equals' as const,
       value: 'Germany',

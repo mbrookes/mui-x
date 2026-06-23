@@ -10,9 +10,9 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     field: 'value',
     operator: 'equals',
     value: '',
-    scope: 'widget',
+    scopeV2: { kind: 'widget', widgetId: 'w1' },
     ...overrides,
-  };
+  } as StudioFilterState;
 }
 
 // ─── String operators ─────────────────────────────────────────────────────────
@@ -582,11 +582,10 @@ function makePresetFilter(overrides: Partial<StudioFilterState>): StudioFilterSt
     field: 'orderDate',
     operator: 'between',
     value: null,
-    scope: 'page',
+    scopeV2: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'p1' },
     fieldType: 'date',
-    isDashboardDateRange: true,
     ...overrides,
-  };
+  } as StudioFilterState;
 }
 
 describe('resolveDateRangePresets', () => {

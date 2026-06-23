@@ -26,9 +26,9 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     field: 'value',
     operator: 'equals',
     value: '',
-    scope: 'widget',
+    scopeV2: { kind: 'widget', widgetId: 'w1' },
     ...overrides,
-  };
+  } as StudioFilterState;
 }
 
 // ─── applyRankToAggregated ────────────────────────────────────────────────────
@@ -955,9 +955,9 @@ describe('applyRankToSeriesFieldData', () => {
       field: '',
       operator: 'equals',
       value: 3,
-      scope: 'widget',
+      scopeV2: { kind: 'widget', widgetId: 'w1' },
       ...overrides,
-    };
+    } as StudioFilterState;
   }
 
   it('null filter returns original data unchanged', () => {

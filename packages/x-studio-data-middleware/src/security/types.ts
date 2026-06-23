@@ -149,12 +149,25 @@ export interface HavingPredicate {
   value: number;
 }
 
-/** Structured filter predicate — never a raw SQL string */
-export interface FilterPredicate {
-  column: string;
-  operator: 'eq' | 'neq' | 'in' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'between';
-  value: string | number | boolean | string[] | number[] | [string, string] | [number, number];
-}
+/**
+ * Structured filter predicate — never a raw SQL string.
+ *
+ * A discriminated union over `operator` so `value` is narrowed to the correct
+ * type for each operator at compile time. This eliminates type casts in the
+ * query builder and lets TypeScript catch mismatches (e.g. passing a string
+ * to a numeric comparison, or a scalar to `in`) before they reach the DB.
+ *
+ * Canonical pattern: flat typed `{column, operator, value}` tuples with an
+ * enumerable operator set. The descriptor shape is tier-agnostic — the same
+ * object drives in-memory array filtering (client tier) and SQL push-down
+ * (db tier) without reshaping.
+ */
+export type FilterPredicate =
+  | { column: string; operator: 'eq' | 'neq'; value: string | number | boolean }
+  | { column: string; operator: 'in'; value: (string | number)[] }
+  | { column: string; operator: 'lt' | 'lte' | 'gt' | 'gte'; value: string | number }
+  | { column: string; operator: 'like'; value: string }
+  | { column: string; operator: 'between'; value: [string | number, string | number] };
 
 export interface OrderBy {
   column: string;

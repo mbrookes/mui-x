@@ -15,7 +15,7 @@
  *     of scanning all keys. The index is kept in sync via the `dispose` callback.
  */
 import { LRUCache } from 'lru-cache';
-import type { CacheEntry, CacheProvider } from './types';
+import type { CacheEntry, CacheProvider, CacheSetOpts } from './types';
 
 interface LRUCacheProviderOptions {
   /**
@@ -40,11 +40,24 @@ export class LRUCacheProvider implements CacheProvider {
 
   /**
    * Secondary index for fast prefix invalidation.
-   * Maps key prefix (everything up to and including the 4th colon segment,
-   * e.g. "studio:v1:acme:") to the set of full cache keys with that prefix.
-   * Kept in sync with the LRU cache via the `dispose` callback.
+   * Maps the tenant-scoped key prefix (e.g. "studio:v1:acme:") to the set
+   * of full cache keys that share it. Kept in sync via the `dispose` callback.
    */
   private prefixIndex = new Map<string, Set<string>>();
+
+  /**
+   * Tag-based invalidation index (tag → Set<cacheKey>).
+   * Populated at write time when `opts.tags` is provided.
+   * Enables O(tagged entries) bulk eviction via `deleteByTag`.
+   */
+  private tagIndex = new Map<string, Set<string>>();
+
+  /**
+   * Reverse tag index (cacheKey → Set<tag>).
+   * Used by the `dispose` callback to clean up `tagIndex` on eviction without
+   * scanning every tag — O(tags on this key) instead of O(all tags).
+   */
+  private keyTags = new Map<string, Set<string>>();
 
   constructor(options: LRUCacheProviderOptions = {}) {
     const { maxSizeBytes = 128 * 1024 * 1024, ttlMs = 30_000, avgBytesPerRow = 512 } = options;
@@ -57,15 +70,30 @@ export class LRUCacheProvider implements CacheProvider {
       // Fast O(1) size estimate — avoids full JSON.stringify on every write.
       // Accurate enough for LRU eviction purposes; tune avgBytesPerRow if needed.
       sizeCalculation: (value: CacheEntry) => value.rows.length * avgBytesPerRow + 64,
-      // Keep the prefix index in sync when the LRU evicts or deletes entries.
+      // Keep all secondary indexes in sync when LRU evicts or deletes entries.
       dispose: (_, key) => {
+        // Prefix index cleanup
         const prefix = this.extractPrefix(key);
-        const keys = this.prefixIndex.get(prefix);
-        if (keys) {
-          keys.delete(key);
-          if (keys.size === 0) {
+        const prefixKeys = this.prefixIndex.get(prefix);
+        if (prefixKeys) {
+          prefixKeys.delete(key);
+          if (prefixKeys.size === 0) {
             this.prefixIndex.delete(prefix);
           }
+        }
+        // Tag index cleanup — O(tags on this key), not O(all tags)
+        const ownTags = this.keyTags.get(key);
+        if (ownTags) {
+          for (const tag of ownTags) {
+            const tagKeys = this.tagIndex.get(tag);
+            if (tagKeys) {
+              tagKeys.delete(key);
+              if (tagKeys.size === 0) {
+                this.tagIndex.delete(tag);
+              }
+            }
+          }
+          this.keyTags.delete(key);
         }
       },
     });
@@ -75,17 +103,31 @@ export class LRUCacheProvider implements CacheProvider {
     return this.cache.get(key);
   }
 
-  async set(key: string, value: CacheEntry, ttlSeconds?: number): Promise<void> {
-    const ttl = ttlSeconds !== undefined ? ttlSeconds * 1000 : undefined;
-    this.cache.set(key, value, ttl !== undefined ? { ttl } : undefined);
-    // Register in prefix index after the LRU write succeeds.
+  async set(key: string, value: CacheEntry, opts?: CacheSetOpts): Promise<void> {
+    this.cache.set(key, value, opts?.ttlMs !== undefined ? { ttl: opts.ttlMs } : undefined);
+
+    // Register in prefix index
     const prefix = this.extractPrefix(key);
-    let keys = this.prefixIndex.get(prefix);
-    if (!keys) {
-      keys = new Set<string>();
-      this.prefixIndex.set(prefix, keys);
+    let prefixKeys = this.prefixIndex.get(prefix);
+    if (!prefixKeys) {
+      prefixKeys = new Set<string>();
+      this.prefixIndex.set(prefix, prefixKeys);
     }
-    keys.add(key);
+    prefixKeys.add(key);
+
+    // Register in tag index (if tags were provided)
+    const tags = opts?.tags;
+    if (tags && tags.length > 0) {
+      this.keyTags.set(key, new Set(tags));
+      for (const tag of tags) {
+        let tagKeys = this.tagIndex.get(tag);
+        if (!tagKeys) {
+          tagKeys = new Set<string>();
+          this.tagIndex.set(tag, tagKeys);
+        }
+        tagKeys.add(key);
+      }
+    }
   }
 
   async invalidatePrefix(prefix: string): Promise<void> {
@@ -104,6 +146,19 @@ export class LRUCacheProvider implements CacheProvider {
         }
       }
     }
+  }
+
+  async deleteByTag(tag: string): Promise<void> {
+    const keys = this.tagIndex.get(tag);
+    if (!keys) {
+      return;
+    }
+    // Snapshot before iterating — dispose modifies the set during delete
+    for (const key of [...keys]) {
+      this.cache.delete(key);
+    }
+    // tagIndex entry is cleaned up by dispose; force-clear in case of races
+    this.tagIndex.delete(tag);
   }
 
   /**

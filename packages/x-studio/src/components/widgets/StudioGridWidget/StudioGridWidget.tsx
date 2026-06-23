@@ -97,7 +97,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const activeCrossFilter = React.useMemo(
     () =>
       filters.find(
-        (f) => f.scopeV2.kind === 'cross-filter' && f.scopeV2.sourceWidgetId === widget.id && f.scopeV2.pageId === pageId,
+        (f) => f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === widget.id && f.scope.pageId === pageId,
       ) ?? null,
     [filters, widget.id, pageId],
   );

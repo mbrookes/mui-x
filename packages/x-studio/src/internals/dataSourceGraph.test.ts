@@ -15,7 +15,7 @@ function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
     field: 'value',
     operator: 'equals',
     value: '',
-    scopeV2: { kind: 'page' as const },
+    scope: { kind: 'page' as const },
     ...overrides,
   } as StudioFilterState;
 }
@@ -683,7 +683,7 @@ describe('resolveRows — page filter on expression field without filterSourceId
       field: 'expr-order-country',
       operator: 'equals',
       value: 'Germany',
-      scopeV2: { kind: 'page' as const },
+      scope: { kind: 'page' as const },
       filterSourceId: undefined,
     });
 
@@ -707,7 +707,7 @@ describe('resolveRows — page filter on expression field without filterSourceId
       field: 'expr-order-country',
       operator: 'equals',
       value: 'Germany',
-      scopeV2: { kind: 'page' as const },
+      scope: { kind: 'page' as const },
       filterSourceId: undefined,
     });
 
@@ -733,7 +733,7 @@ describe('resolveRows — page filter on expression field without filterSourceId
       field: 'category',
       operator: 'equals',
       value: 'Supplies',
-      scopeV2: { kind: 'page' as const },
+      scope: { kind: 'page' as const },
       filterSourceId: undefined,
     });
 
@@ -965,7 +965,7 @@ describe('many-to-many relationships', () => {
     it('filters products to those in Alice orders (order id 10)', () => {
       const filter: StudioFilterState = {
         id: 'f1',
-        scopeV2: { kind: 'page' as const },
+        scope: { kind: 'page' as const },
         field: 'customer',
         fieldType: 'string',
         operator: 'equals',
@@ -981,7 +981,7 @@ describe('many-to-many relationships', () => {
     it('returns empty when no matching cross-source rows', () => {
       const filter: StudioFilterState = {
         id: 'f1',
-        scopeV2: { kind: 'page' as const },
+        scope: { kind: 'page' as const },
         field: 'customer',
         fieldType: 'string',
         operator: 'equals',
@@ -996,7 +996,7 @@ describe('many-to-many relationships', () => {
     it('filters in reverse direction: orders filtered by product name', () => {
       const filter: StudioFilterState = {
         id: 'f1',
-        scopeV2: { kind: 'page' as const },
+        scope: { kind: 'page' as const },
         field: 'name',
         fieldType: 'string',
         operator: 'equals',

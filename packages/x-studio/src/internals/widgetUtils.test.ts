@@ -566,7 +566,7 @@ function relDateFilter(
     field: 'date',
     fieldType: 'date',
     operator,
-    scopeV2: { kind: 'page' },
+    scope: { kind: 'page' },
     value: { relative: true, direction, amount, unit },
   } as StudioFilterState;
 }
@@ -600,7 +600,7 @@ describe('formatDateFilterLabel — dashboard date range presets', () => {
       field: 'date',
       fieldType: 'date',
       operator: 'between',
-      scopeV2: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'p1' },
+      scope: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'p1' },
       value: null,
       dateRangePreset: preset as any,
     } as StudioFilterState;
